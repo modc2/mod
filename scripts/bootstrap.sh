@@ -6,8 +6,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
 cd "$REPO_ROOT"
 
+
+if ! command -v nix >/dev/null 2>&1; then
+  sudo apt-get install nix-bin
+fi
+
 if ! command -v direnv >/dev/null 2>&1; then
-  echo "[info] direnv not found. Install it for automatic shell loading: https://direnv.net/"
+  sudo apt-get install direnv
 fi
 
 if [ ! -f .envrc ]; then
@@ -21,7 +26,7 @@ if [ ! -f flake.nix ]; then
   echo "[warn] flake.nix not found. Please commit the flake before bootstrapping."
 else
   echo "[info] Ensuring flake inputs are realized (this may download dependencies)..."
-  nix flake show >/dev/null || true
+  sudo nix flake --extra-experimental-features 'nix-command flakes' show>/dev/null || true
 fi
 
 # Initialize submodules if needed
