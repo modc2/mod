@@ -142,6 +142,10 @@ def handle_services_start(_: argparse.Namespace) -> None:
     if not chain_script.exists():
         raise ModsdkCliError("chain/scripts/start_node.sh not found. Build the chain project first.")
 
+    module_api_root = REPO_ROOT / "mcp-registrar"
+    if not (module_api_root / "Cargo.toml").exists():
+        raise ModsdkCliError("mcp-registrar/Cargo.toml not found. Ensure submodule is initialised.")
+
     print("[modsdk] Starting IPFS daemon via pm2 (process name: ipfs-daemon)")
     run_subprocess([
         "pm2",
@@ -180,12 +184,33 @@ def handle_services_start(_: argparse.Namespace) -> None:
         str(REPO_ROOT),
     ])
 
+    print("[modsdk] Starting module API via pm2 (process name: module-api)")
+    run_subprocess([
+        "pm2",
+        "start",
+        "cargo",
+        "--name",
+        "module-api",
+        "--cwd",
+        str(module_api_root),
+        "--",
+        "run",
+        "--bin",
+        "module-api",
+    ])
+
 
 def handle_services_stop(_: argparse.Namespace) -> None:
     """Stop pm2 managed services."""
 
     load_project_env()
     ensure_pm2_available()
+
+    print("[modsdk] Stopping pm2 process: module-api")
+    try:
+        run_subprocess(["pm2", "stop", "module-api"])
+    except ModsdkCliError as exc:
+        print(f"warning: {exc}")
 
     print("[modsdk] Stopping pm2 process: chain-node")
     try:
@@ -206,7 +231,7 @@ def handle_services_status(_: argparse.Namespace) -> None:
     load_project_env()
     ensure_pm2_available()
 
-    run_subprocess(["pm2", "status", "ipfs-daemon", "ipfs-service", "chain-node"])
+    run_subprocess(["pm2", "status", "ipfs-daemon", "ipfs-service", "chain-node", "module-api"])
 
 
 def build_parser() -> argparse.ArgumentParser:
