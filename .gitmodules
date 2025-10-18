@@ -18,10 +18,6 @@
 	path = docs
 	url = https://github.com/mod-net/docs.git
 	branch = main
-[submodule "module-pallet"]
-	path = module-pallet
-	url = https://github.com/mod-net/module-pallet.git
-	branch = main
 [submodule "cli"]
 	path = cli
 	url = https://github.com/mod-net/cli.git
@@ -29,8 +25,4 @@
 [submodule "telemetry-module"]
 	path = telemetry-module
 	url = https://github.com/mod-net/telemetry-module
-	branch = main
-[submodule "modnet-portal"]
-	path = modnet-portal
-	url = https://github.com/mod-net/portal.git
 	branch = main
