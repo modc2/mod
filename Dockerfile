@@ -3,7 +3,7 @@
 
 FROM debian:bookworm-slim
 
-LABEL org.opencontainers.image.source="https://github.com/mod-net/modsdk"
+LABEL org.opencontainers.image.source="https://github.com/mod-chain/modsdk"
 LABEL org.opencontainers.image.description="CI image for ModNet (Nix + build deps)"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 

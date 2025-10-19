@@ -1,28 +1,4 @@
 [submodule "chain"]
-	path = chain
+	path = mod/chain
 	url = https://github.com/mod-net/chain.git
-	branch = main
-[submodule "mcp-registrar"]
-	path = mcp-registrar
-	url = https://github.com/mod-net/mcp-registrar.git
-	branch = main
-[submodule "bridge"]
-	path = bridge
-	url = https://github.com/mod-net/bridge.git
-	branch = main
-[submodule "ipfs-service"]
-	path = ipfs-service
-	url = https://github.com/mod-net/ipfs-service.git
-	branch = main
-[submodule "docs"]
-	path = docs
-	url = https://github.com/mod-net/docs.git
-	branch = main
-[submodule "cli"]
-	path = cli
-	url = https://github.com/mod-net/cli.git
-	branch = main
-[submodule "telemetry-module"]
-	path = telemetry-module
-	url = https://github.com/mod-net/telemetry-module
 	branch = main
