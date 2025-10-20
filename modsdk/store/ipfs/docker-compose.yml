@@ -1,22 +1,14 @@
-version: '3.8'
-
 services:
   ipfs:
-    image: ipfs/kubo:latest
-    container_name: ipfs-node
+    container_name: ipfs_node
+    image: ipfs/go-ipfs:latest
     ports:
-      - "4001:4001"     # P2P swarm port
-      - "4001:4001/udp" # P2P swarm port UDP
-      - "5001:5001"     # API port
-      - "8080:8080"     # Gateway port
+      - "5001:5001"
+      - "4001:4001"
+      - "8080:8080"
     volumes:
-      - ./.archive/ipfs-data:/data/ipfs
-      - ./.archive/ipfs-export:/export
-    environment:
-      - IPFS_PROFILE=server
+      - ~/.ipfs/archive:/data/ipfs
+      - ~/.ipfs/data:/data/ipfs
+      
     restart: unless-stopped
-    command: daemon --migrate=true --enable-gc=true
-
-volumes:
-  ipfs-data:
-  ipfs-export:
+    

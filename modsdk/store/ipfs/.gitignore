@@ -8,7 +8,9 @@
 *.sqlite3
 files.db
 test.db
-__archive__/
+**/__archive__
+**/.archive/
+**/__pycache__
 
 # Logs and temporary files
 logs/
@@ -37,7 +39,7 @@ test_files/
 test_uploads/
 
 # Python
-__pycache__/
+
 *.py[cod]
 *$py.class
 *.so
