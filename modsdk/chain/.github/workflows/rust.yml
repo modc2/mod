@@ -1,0 +1,117 @@
+name: Rust CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+# Define environment variables at workflow level
+env:
+  RUST_BACKTRACE: 1
+  WASM_BUILD_TOOLCHAIN: nightly
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, linux, x64, modnet-runner]
+    container:
+      image: rust:1-bookworm
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+    steps:
+      # Fix permissions before checkout
+      - name: Fix permissions
+        run: |
+          # Fix permissions in the workspace directory
+          mkdir -p ${{ github.workspace }} 
+          chmod -R 777 ${{ github.workspace }} || true
+          
+          # Make sure git directory is clean
+          if [ -d "${{ github.workspace }}/.git" ]; then
+            rm -rf ${{ github.workspace }}/.git || true
+          fi
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use clean checkout to avoid permission issues
+          clean: true
+          
+      - name: Post-checkout permission fix
+        run: |
+          # Fix Git directory permissions after checkout
+          chmod -R 777 ${{ github.workspace }}/.git || true
+          
+          # Configure Git to trust the workspace directory
+          git config --global --add safe.directory "${{ github.workspace }}"
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            clang \
+            cmake \
+            curl \
+            git \
+            libssl-dev \
+            pkg-config \
+            protobuf-compiler \
+            xz-utils \
+            sudo \
+            apt-transport-https \
+            gnupg-agent \
+            software-properties-common
+          
+          # Configure Git to trust the workspace directory
+          git config --global --add safe.directory "${{ github.workspace }}"
+          
+          # Install Docker CLI only (to use with the mounted Docker socket)
+          # Set up Docker repository properly
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          
+          # Add Docker repository
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+          
+          # Update and install Docker CLI
+          apt-get update
+          apt-get install -y docker-ce-cli containerd.io
+          
+          # Install Nix
+          curl -L https://nixos.org/nix/install | sh -s -- --daemon --yes
+          . /root/.nix-profile/etc/profile.d/nix.sh
+          echo "source /root/.nix-profile/etc/profile.d/nix.sh" >> ~/.bashrc
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+      - name: Apply pallet-staking patch
+        run: |
+          # Apply the patch to fix pallet-staking
+          ./scripts/apply-pallet-staking-fix.sh || echo "Patch may have already been applied"
+          
+      - name: Add wasm32v1-none target
+        run: |
+          rustup target add wasm32v1-none --toolchain nightly
+          
+      - name: Verify Docker access
+        run: |
+          # Verify Docker CLI can access Docker daemon
+          docker version || echo "Docker access failed - check socket mounting"
+          docker ps || echo "Cannot list containers - check permissions"
+          
+      - name: Run CI script
+        run: |
+          # Source Nix environment
+          . /root/.nix-profile/etc/profile.d/nix.sh
+          # Verify Nix is available
+          which nix || echo "Nix not found in PATH"
+          nix --version || echo "Nix command failed"
+          # Run CI script
+          ./scripts/run_ci.sh --enable-try-runtime
+        env:
+          WASM_BUILD_TOOLCHAIN: ${{ env.WASM_BUILD_TOOLCHAIN }}

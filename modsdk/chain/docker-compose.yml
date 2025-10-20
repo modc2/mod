@@ -1,0 +1,22 @@
+version: "3.3"
+services:
+  modnet-node:
+    container_name: modnet-node
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "9944:9944"  # WebSocket RPC
+      - "9933:9933"  # HTTP RPC
+      - "30333:30333" # P2P
+    # Using a bind mount instead of a volume to avoid ContainerConfig error
+    volumes:
+      - ./data:/data
+    command: >
+      --base-path /data
+      --chain local
+      --rpc-cors all
+      --rpc-methods safe
+      --rpc-external
+      --ws-external
