@@ -1,4 +1,0 @@
-[submodule "chain"]
-	path = mod/chain
-	url = https://github.com/mod-net/chain.git
-	branch = main

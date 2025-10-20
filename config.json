@@ -1,0 +1,33 @@
+
+{
+    "name": "commune",
+    "version": "0.1.0",
+    "desc": "A Python package for commune utilities",
+    "shortcuts": {
+                    "exe": "server.executor",
+                    "executor": "server.executor",
+                    "or" : "model.openrouter",
+                    "wallet": "chain.wallet",
+                    "r" :  "remote",
+                    "docker": "server.pm",
+                    "ch" :  "chain",
+                    "local": "server",
+                    "mc" : "modchain",
+                    "pm": "server/pm",
+                    "client": "server/client",
+                    "auth": "server/auth",
+                    "tracker": "server/tracker",
+                    "serializer": "server/serializer",
+                    "middleware": "server/middleware",
+                    "openrouter": "model/openrouter"
+                },
+
+    "routes": {},
+    "expose" : ["forward", "info"],
+    "port_range": [50050, 50150],
+    "links": {
+        "ipfs-service": "https://github.com/mod-net/ipfs-service.git"
+
+    }
+            
+}

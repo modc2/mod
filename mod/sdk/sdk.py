@@ -1,0 +1,1861 @@
+
+import os
+import inspect
+import json
+import yaml
+import shutil
+import time
+import sys
+import argparse
+from functools import partial
+import os
+from copy import deepcopy
+from typing import *
+import nest_asyncio
+nest_asyncio.apply()
+
+class Mod: 
+
+    file_types = ['py'] # default file types
+    anchor_names = ['mod', 'agent', 'module', 'block'] # default anchor names
+    endpoints = ['ask']
+
+    def __init__(self, 
+                  config = None,
+                  **kwargs):
+        """
+        Initialize the module by sycing with the config
+        """
+        self.sync(config=config)
+
+    def sync(self, mod=None, verbose=False, config = None):
+        if os.getcwd() == os.path.expanduser('~'):
+            raise ValueError(f'For your safety we do not allow syncing in the home directory {os.getcwd()}, please cd into a project directory like cd commune or cd mymod')
+        self.root_path =os.path.dirname(os.path.dirname(__file__))
+        self.lib_path  = self.libpath = self.repo_path  = self.repopath = os.path.dirname(self.root_path) # the path to the repo
+        self.sdk_path = self.root_path + '/sdk' # the path to the core
+        self.tests_path = f'{self.lib_path}/tests'
+        mods_dirname_options = ['modules', 'mods', '_mods']
+        mods_path_options = [os.path.join(self.root_path, md) for md in mods_dirname_options ]
+        print(mods_path_options)
+        mods_path_options = list(filter(lambda p: os.path.exists(p), mods_path_options))
+        assert len(mods_path_options) == 1, f'we require exactly one mods dir name in {mods_path_options}'
+        self.mods_path = self.modspath = mods_path_options[0]  # default to modules
+        self.home_path = self.homepath = os.path.expanduser('~')
+        self.set_config(config)
+        self.name  = self.config['name']
+        self.storage_path = f'{self.home_path}/.{self.name}'
+        self.port_range = self.config['port_range']
+        self.expose = self.endpoints = self.config['expose']
+        self.anchor_names.append(self.name)
+        
+        
+        if mod is not None:
+            print(f'Syncing module {mod}')
+            return self.fn(f'{mod}/sync')()
+
+        routes = self.routes()
+        for module, fns in routes.items():
+            module = self.import_module(module)
+            for fn in fns: 
+                if hasattr(self, fn):
+                    if verbose:
+                        print(f'Warning: {fn} already exists')
+                else:
+                    if verbose:
+                        print(f'Adding {fn} from {module.__name__}')
+                    fn_obj = getattr(module, fn, None)
+                    setattr(self, fn, fn_obj)
+
+        return {'success': True, 'msg': 'synced mods and utils'}
+
+    @property
+    def shortcuts(self):
+        shortcuts = self.config['shortcuts']
+        shortcuts[self.name] = 'mod'
+        shortcuts = {self.get_name(k): self.get_name(v) for k, v in shortcuts.items() if isinstance(v, str)}
+        return shortcuts
+
+    def sync_links(self):
+        links = self.config.get('links', {})
+        for name, repo in links.items():
+            repo_path = self.mods_path + f'/{name}'
+            if not os.path.exists(repo_path):
+                print(f'Cloning {repo} into {repo_path}')
+                self.cmd(f'git clone {repo} {repo_path}')
+            else:
+                print(f'Updating {repo} in {repo_path}')
+                self.cmd('git pull', cwd=repo_path)
+        # add the path to the gitignore if not already there
+        gitignore_path = self.lib_path + '/.gitignore'
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, 'r') as f:
+                gitignore = f.read()
+
+    def mod(self, 
+                module: str = 'module', 
+                params: dict = None,  
+                cache=True, 
+                verbose=False, 
+                update=True,
+                **kwargs) -> str:
+
+        """
+        imports the module core
+        """
+        # Load the module
+        module = module or 'module'
+        if module in [self.name, 'module', 'mod']:
+            return Mod
+        if not isinstance(module, str):
+            return module
+        module = self.get_name(module)
+        obj =  self.get_anchor_object(module)
+        return obj
+
+
+    m = get_module   = module = mod
+
+    def forward(self, fn:str='info', params:dict=None, auth=None) -> Any:
+        params = params or {}
+        # assert fn in self.endpoints, f'{fn} not in {self.endpoints}'
+        if hasattr(self, fn):
+            fn_obj = getattr(self, fn)
+        else:
+            fn_obj = self.fn(fn)
+        return fn_obj(**params)
+
+    def go(self, module=None, **kwargs):
+        module = module or self.name
+        if os.path.exists(str(module)): 
+            return self.cmd(f'code {module}')
+
+        if self.mod_exists(module):
+            path = self.dirpath(module)
+        else:
+            repo2path = self.repo2path()
+            first_guess_path = self.abspath(f"{self.mods_path}/{module.replace('.', '/')}")
+            if os.path.exists(first_guess_path):
+                path = first_guess_path
+            elif module in repo2path:
+                path = repo2path[module]
+            elif os.path.exists(module):
+                path = module
+            else:
+                raise Exception(f'{module} not found')
+        assert os.path.exists(path), f'{path} does not exist'
+        return self.cmd(f'code {path}', **kwargs)
+
+    def getfile(self, obj=None) -> str:
+        return inspect.getfile(self.mod(obj))
+
+    def path(self, obj=None) -> str:
+        return inspect.getfile(self.mod(obj))
+
+    def about(self, module, query='what is this?', *extra_query):
+        """
+        Ask a question about the module
+        """
+        query = query + ' '.join(extra_query)
+        return self.ask(f' {self.schema(module)} {query}')
+
+    def abspath(self,path:str=''):
+        return os.path.abspath(os.path.expanduser(path))
+
+
+    def filepath(self, obj=None) -> str:
+        """
+        get the file path of the module
+        """
+        return inspect.getfile(self.mod(obj)) 
+
+    fp = filepath
+
+    def dockerfiles(self, module=None):
+        """
+        get the dockerfiles of the module
+        """
+        dirpath = self.dirpath(module)
+        dockerfiles = [f for f in os.listdir(dirpath) if f.startswith('Dockerfile')]
+        return [os.path.join(dirpath, f) for f in dockerfiles]
+
+    def build_dockerfile(self, module=None, dockerfile=None, tag=None, push=False, **kwargs):
+        """
+        build the dockerfile of the module
+        """
+        dirpath = self.dirpath(module)
+        if dockerfile == None:
+            dockerfiles = self.dockerfiles(module)
+            assert len(dockerfiles) > 0, f'No dockerfile found in {dirpath}'
+            dockerfile = dockerfiles[0]
+        else:
+            dockerfile = os.path.join(dirpath, dockerfile) if not os.path.isabs(dockerfile) else dockerfile
+            assert os.path.exists(dockerfile), f'Dockerfile {dockerfile} does not exist'
+        tag = tag or f'{self.name}-{self.modname(module)}:latest'
+        cmd = f'docker build -f {dockerfile} -t {tag} {dirpath}'
+        print(cmd)
+        return  self.cmd(cmd, cwd=dirpath)
+        
+    def modname(self, obj=None):
+        obj = obj or Mod
+        if  isinstance(obj, str):
+            obj = self.module(obj)
+        module_file =  inspect.getfile(obj)
+        return self.path2name(module_file)
+
+    def vs(self, path = None):
+        path = path or __file__
+        path = os.path.abspath(path)
+        return self.cmd(f'code {path}')
+    
+    def module_class(self, obj=None) -> str:
+        return (obj or self).__name__
+
+    def class_name(self, obj= None) -> str:
+        if obj == None: 
+            objx = self 
+        return obj.__name__
+
+    def config_path(self, obj = None) -> str:
+        if obj in [None, 'module']:
+            filename =  '/'.join(__file__.split('/')[:-2]+['config']) 
+            config_path = None
+        else:
+            filename = self.dirpath(obj) + '/config'
+        for filetype in ['json', 'yaml']:
+            config_path = filename + '.' + filetype 
+        assert config_path != None
+        return config_path
+
+    def storage_dir(self, module=None):
+        if module == None: 
+            module = 'module'
+        else:
+            module = self.modname(module)
+        return os.path.abspath(os.path.expanduser(f'~/.commune/{module}'))
+    
+    def is_owner(self, key:str) -> bool:
+        return self.get_key().key_address == key
+
+    def is_home(self, path:str = None) -> bool:
+        """
+        Check if the path is the home path
+        """
+        if path == None:
+            path = self.pwd()
+        return os.path.abspath(path) == os.path.abspath(self.home_path)
+
+    def print(self,  *text:str,  **kwargs):
+        return self.obj('commune.utils.print_console')(*text, **kwargs)
+
+    def time(self, t=None) -> float:
+        import time
+        return time.time()
+        
+    def pwd(self):
+        return os.getcwd()
+
+    def token(self, data, key=None, module='auth.jwt',  **kwargs) -> str:
+        token = self.module(module)().get_token(data=data, key=key, **kwargs)
+        assert self.verify_token(token), f'Token {token} is not valid'
+        return token
+    def verify_token(self, token:str = None,  module='auth.jwt',  *args, **kwargs) -> str:
+        return self.module(module)().verify_token(token=token, *args, **kwargs)
+
+    def run(self, fn:str='info', params: Union[str, dict]="{}", auth=None,**_kwargs) -> Any: 
+        if isinstance(signature, str):
+            signature = self.verify(auth)
+        module = 'module'
+        if '/' in fn:
+            module, fn = fn.split('/')
+        parser = argparse.ArgumentParser(description='Argparse for the module')
+        parser.add_argument('--module', dest='module', help='The function', type=str, default=module)
+        parser.add_argument('--fn', dest='fn', help='The function', type=str, default=fn)
+        parser.add_argument('--params', dest='params', help='key word arguments to the function', type=str, default=params) 
+        argv = parser.parse_args()
+        params = argv.params
+        module = self.get_name(argv.module)
+        fn = argv.fn
+        args, kwargs = [], {}
+        if isinstance(params, str):
+            params = json.loads(params.replace("'",'"')) 
+        print(f'Running {module}.{fn} with params {params}')
+        if isinstance(params, dict):
+            if 'args' in params and 'kwargs' in params:
+                args = params['args']
+                kwargs = params['kwargs']
+            else:
+                kwargs = params
+        elif isinstance(params, list):
+            args = params
+        else:
+            raise Exception('Invalid params', params)
+        module = self.module(module)()
+        return getattr(module, fn)(*args, **kwargs)     
+        
+    def commit_hash(self, lib_path:str = None):
+        if lib_path == None:
+            lib_path = self.lib_path
+        return self.cmd('git rev-parse HEAD', cwd=lib_path, verbose=False).split('\n')[0].strip()
+    
+    def run_fn(self,fn:str, params:Optional[dict]=None, args=None, kwargs=None, module='module') -> Any:
+        """
+        get a fucntion from a strings
+        """
+
+        if '/' in fn:
+            module, fn = fn.split('/')
+        module = self.module(module)()
+        fn_obj =  getattr(module, fn)
+        params = params or {}
+        if isinstance(params, str):
+            params = json.loads(params.replace("'",'"'))
+        if isinstance(params, list):
+            args = params
+        elif isinstance(params, dict):
+            kwargs = params
+        args = args or []
+        kwargs = kwargs or {}
+        return fn_obj(*args, **kwargs)
+
+    def is_module_file(self, module = None, exts=['py', 'rs', 'ts'], folder_filenames=['module', 'agent', 'block',  'server']) -> bool:
+        dirpath = self.dirpath(module)
+        try:
+            filepath = self.filepath(module)
+        except Exception as e:
+            self.print(f'Error getting filepath for {module}: {e}', color='red', verbose=False)
+            return False
+        folder_filenames.append(module.split('.')[-1]) # add the last part of the module name to the folder filenames
+        for ext in exts:
+            for fn in folder_filenames:
+                if filepath.endswith(f'/{fn}.{ext}'):
+                    return False
+                non_folder_name = module.split('.')[-1]
+                if filepath.endswith(f'/{non_folder_name}.{ext}'):
+                    return True
+        return bool(dirpath.split('/')[-1] != filepath.split('/')[-1].split('.')[0])
+    
+    is_file_module = is_module_file
+
+    def is_module_folder(self,  module = None) -> bool:
+        return not self.is_module_file(module)
+    
+    is_folder_module = is_module_folder 
+
+    def get_key(self,key:str = None , **kwargs) -> None:
+        return self.module('key')().get_key(key, **kwargs)
+        
+    def key(self,key:str = None , **kwargs) -> None:
+        return self.get_key(key, **kwargs)
+
+    def keys(self,key:str = None , **kwargs) -> None:
+        return self.get_key().keys(key, **kwargs)
+
+    def key2address(self,key:str = None , **kwargs) -> None:
+        return self.get_key().key2address(key, **kwargs)
+    
+    def files(self, 
+              path='./', 
+              search:str = None, 
+              avoid_terms = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', '/artifacts', 'egg-info'], 
+              endswith:str = None,
+              include_hidden:bool = False, 
+              relative = False, # relative to the current working directory
+              startswith:str = None,
+              **kwargs) -> List[str]:
+        """
+        Lists all files in the path
+        """
+        # if self.mod_exists(path):
+        #     path = self.dirpath(path)
+        files =self.glob(path, **kwargs)
+        if not include_hidden:
+            files = [f for f in files if not '/.' in f]
+        files = list(filter(lambda f: not any([at in f for at in avoid_terms]), files))
+        if len(files) == 0 and self.mod_exists(path):
+            files = self.files(self.dp(path), relative=True)
+        if relative: 
+            cwd = os.getcwd()
+            files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
+
+        if search != None:
+            files = [f for f in files if search in f]
+        return files
+
+    def files_size(self):
+        return len(str(self.files()))
+
+    def envs(self, key:str = None, **kwargs) -> None:
+        return self.get_key(key, **kwargs).envs()
+
+    def encrypt(self,data: Union[str, bytes], key: str = None, password: str = None, **kwargs ) -> bytes:
+        return self.get_key(key).encrypt(data, password=password)
+    def decrypt(self, data: Any,  password : str = None, key: str = None, **kwargs) -> bytes:
+        return self.get_key(key).decrypt(data, password=password)
+        
+    def sign(self, data:dict  = None, key: str = None,  crypto_type='sr25519', mode='str', **kwargs) -> bool:
+        return self.get_key(key, crypto_type=crypto_type).sign(data, mode=mode, **kwargs)
+
+    def size(self, module) -> int:
+        return len(str(self.content(module)))
+
+    def verify(self, data, signature=None, address=None, key=None, **kwargs ) -> bool:  
+        key = self.get_key(key)
+        return key.verify(data=data, signature=signature, address=address, **kwargs)
+
+    def get_utils(self, search=None):
+        utils = self.path2fns(self.sdk_path + '/utils.py', tolist=True)
+        if search != None:
+            utils = [u for u in utils if search in u]
+        return sorted(utils)
+        
+    def utils(self, search=None):
+        return self.get_utils(search=search)
+
+    def relpath(self, path:str, start:str=None) -> str:
+        start = start or os.getcwd()
+        return os.path.relpath(path, start=start)
+
+    def routes(self, obj=None):
+        obj = obj or self
+        routes = {}
+        if hasattr(self.config, 'routes'):
+            routes.update(self.config.routes)
+        for util in self.get_utils():
+            k = '.'.join(util.split('.')[:-1])
+            v = util.split('.')[-1]
+            routes[k] = routes.get(k , [])
+            routes[k].append(v)
+        return routes
+
+    def fn2mod(self, search=None, update=True, core_only = True, verbose=False):
+        fn2mod = {}
+        path = self.get_path('fn2mod')
+        fn2mod = self.get(path, {}, update=update)
+        if len(fn2mod) == 0:
+            mods = self.core_mods() if core_only else self.mods()
+            for m in mods:
+                try:
+                    for fn in self.fns(m):
+                        fn2mod[fn] = m
+                except Exception as e:
+                    if verbose:
+                        print(f'Error getting fns for {m}: {e}', )
+            self.put(path, fn2mod)    
+        if search != None:
+            fn2mod = {k:v for k,v in fn2mod.items() if search in k or search in v}    
+        return fn2mod
+
+    def secret(self, key:str = None, seed=None, update=False, tempo=None, **kwargs) -> str:
+        secret = self.get('secret', {}, update=update, max_age=tempo)
+        if len(secret) > 0 :
+            return secret
+        time = self.time()
+        seed = seed or self.random_int(0, 1000000) * self.time() / (self.random_int(1, 1000) + 1)
+        nonce = str(int(secret.get('nonce', 0)) + 1)
+        secret = self.sign({'time': time, 'nonce': nonce}, key=key,**kwargs)
+        self.put('secret', secret)
+        return secret
+
+    def tempo_secret(self, key:str = None,  tempo=1, seed=None, **kwargs) -> str:
+        """
+        Get a secret that is valid for a certain time
+        """
+        return self.secret(key=key, seed=seed, update=True, tempo=tempo, **kwargs)
+
+    def set_config(self, config:Optional[Union[str, dict]]=None ) -> 'Munch':
+        '''
+        Set the config as well as its local params
+        '''
+        config = config or {}
+        if isinstance(config, str) :
+            if os.path.exists(config):
+                if config.endswith('.yaml') or config.endswith('.yml'):
+                    import yaml
+                    config = yaml.load(open(config, 'r'), Loader=yaml.FullLoader)
+                elif config.endswith('.json'):
+                    import json
+                    config = json.load(open(config, 'r'))
+            elif config == 'default':
+                config = {}
+        elif config == None:
+            config = {}
+            
+        self.config = {**self.get_config(), **config }
+        return self.config
+
+    def get_config(self, module=None, mode='dict', fn='__init__', config_file_types=['json', 'yaml', 'yml']) -> 'Munch':
+        """
+        check if there is a config 
+        """
+        path = None
+        dirpath_options = [ self.lib_path , self.root_path,  self.pwd()]
+        path_options = [os.path.join(dp, f'config.{file_type}') for dp in dirpath_options for file_type in config_file_types]
+        for p in path_options:
+            if os.path.exists(p):
+                path = p
+                break
+        assert path != None, f'Config file not found in {self.mods_path} or {self.lib_path}'
+        filetype = path.split('.')[-1] if path != None else mode
+        if os.path.exists(path):
+            if filetype == 'json':
+                config = json.load(open(path, 'r'))
+            elif filetype in ['yaml', 'yml']:
+                config = yaml.load(open(path, 'r'), Loader=yaml.FullLoader)
+            else:
+                raise Exception(f'Invalid config file {path}')
+        else:
+            module = self.module(module)
+            config =  self.get_params(getattr(module, fn)) if hasattr(module, fn) else {}
+        # parse output
+        if mode == 'dict':
+            pass
+        elif mode == 'munch':
+            from munch import Munch
+            config =  Munch(config)
+        else:
+            raise Exception(f'Invalid mode {mode}')
+        return config
+
+    config = get_config
+
+    def put_json(self, 
+                 path:str, 
+                 data:Dict, 
+                 meta = None,
+                 verbose: bool = False,
+                 **kwargs) -> str:
+        if not path.endswith('.json'):
+            path = path + '.json'
+        path = self.abspath(path)
+        if isinstance(data, dict):
+            data = json.dumps(data)
+        self.put_text(path, data)
+        return path
+
+    def env(self, key=None):
+        """
+        Get the environment variables
+        """
+        import os
+        env = {}
+        for k,v in os.environ.items():
+            env[k] = v
+        if key != None:
+            return env.get(key, None)
+        return env
+
+    def rm(self, path:str, possible_extensions = ['json'], avoid_paths = ['~', '/']):
+        avoid_paths = list(set((avoid_paths)))
+        path = self.abspath(path)
+        avoid_paths = [self.abspath(p) for p in avoid_paths] 
+        assert path not in avoid_paths, f'Cannot remove {path}'
+        path_exists = lambda p: os.path.exists(p)
+        if not path_exists(path): 
+            for pe in possible_extensions:
+                if path.endswith(pe) and os.path.exists(path + f'.{pe}'):
+                    path = path + f'.{pe}'
+                    break
+            if not path_exists(path):
+                return {'success':False, 'message':f'{path} does not exist'}
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        if os.path.isfile(path):
+            os.remove(path)
+        assert not os.path.exists(path), f'{path} was not removed'
+        return {'success':True, 'message':f'{path} removed'}
+    
+    def glob(self, path:str='./', depth:Optional[int]=4, recursive:bool=True, files_only:bool = True, include_hidden=False):
+        import glob
+        path = self.abspath(path)
+        if depth != None:
+            if isinstance(depth, int) and depth > 0:
+                paths = []
+                for path in self.ls(path):
+                    if os.path.isdir(path):
+                        paths += self.glob(path, depth=depth-1)
+                    else:
+                        paths.append(path)
+            else:
+                paths = []
+        else:
+            if os.path.isdir(path) and not path.endswith('**'):
+                path = os.path.join(path, '**')
+            if depth != None:
+                paths = glob.glob(path, recursive=False)
+            else:
+                paths = glob.glob(path, recursive=recursive)
+            if files_only:
+                paths =  list(filter(lambda f:os.path.isfile(f), paths))
+            
+        if not include_hidden: 
+            paths = [ p for p in paths if not p.startswith('./')]
+        return paths
+    
+    def get_json(self, path:str,default:Any=None, **kwargs):
+        path = self.abspath(path)
+
+        # return self.util('get_json')(path, default=default, **kwargs)
+        if not path.endswith('.json'):
+            path = path + '.json'
+        if not os.path.exists(path):
+            return default
+        try:
+            with open(path, 'r') as file:
+                data = json.load(file)
+        except Exception as e:
+            return default
+        return data
+    
+    def get_path(self, 
+                     path:str = None, 
+                     extension:Optional[str]=None) -> str:
+        '''
+        Abspath except for when the path does not have a
+
+        if you specify "abc" it will be resolved to the storage dir
+        {storage_dir}/abc, in this case its ~/.commune
+        leading / or ~ or . in which case it is appended to the storage dir
+        '''
+        storage_dir = self.storage_dir()
+        if path == None :
+            return storage_dir
+        if path.startswith('/'):
+            path = path
+        elif path.startswith('~/') :
+            path = os.path.expanduser(path)
+        elif path.startswith('.'):
+            path = os.path.abspath(path)
+        else:
+            if storage_dir not in path:
+                path = os.path.join(storage_dir, path)
+        if extension != None and not path.endswith(extension):
+            path = path + '.' + extension
+        return path
+
+    def put_text(self, path:str, text:str, key=None) -> None:
+        # Get the absolute path of the file
+        path = self.abspath(path)
+        dirpath = os.path.dirname(path)
+        if not os.path.exists(dirpath):
+            os.makedirs(dirpath, exist_ok=True)
+        if not isinstance(text, str):
+            text = self.python2str(text)
+        if key != None:
+            text = self.get_key(key).encrypt(text)
+        # Write the text to the file
+        with open(path, 'w') as file:
+            file.write(text)
+        # get size
+        return {'success': True, 'path': f'{path}', 'size': len(text)*8}
+    path = write =  get_path
+    
+    def ls(self, path:str = './', 
+           search = None,
+           include_hidden = False, 
+           depth=None,
+           return_full_path:bool = True):
+        """
+        provides a list of files in the path 
+        this path is relative to the module path if you dont specifcy ./ or ~/ or /
+        which means its based on the module path
+        """
+        path = self.abspath(path)
+        try:
+            ls_files = os.listdir(path)
+        except Exception as e:
+            return []
+        if return_full_path:
+            ls_files = [os.path.abspath(os.path.join(path,f)) for f in ls_files]
+        ls_files = sorted(ls_files)
+        
+        if search != None:
+            ls_files = list(filter(lambda x: search in x, ls_files))
+
+        return ls_files
+
+    def put(self, 
+            k: str, 
+            v: Any,  
+            encrypt: bool = False, 
+            password: str = None, **kwargs) -> Any:
+        '''
+        Puts a value in the config
+        '''
+        k = self.get_path(k)
+        encrypt = encrypt or password != None
+        if encrypt or password != None:
+            v = self.encrypt(v, password=password)
+        data = {'data': v, 'encrypted': encrypt, 'timestamp': time.time()}    
+        return self.put_json(k, data)
+    
+    def get(self,
+            k:str, 
+            default: Any=None, 
+            max_age:str = None,
+            update :bool = False,
+            password : str = None,
+            verbose = False,
+            **kwargs) -> Any:
+        
+        '''
+        Puts a value in sthe config, with the option to encrypt it
+        Return the value
+        '''
+        k = self.get_path(k)
+        data = self.get_json(k, default=default, **kwargs)
+        if password != None:
+            assert data['encrypted'] , f'{k} is not encrypted'
+            data['data'] = self.decrypt(data['data'], password=password)
+        data = data or default
+        if not isinstance(data, dict):
+            return default
+        if update:
+            return default
+        if max_age != None:
+            # check if the data is expired
+            timestamp = 0
+            for k in ['timestamp', 'time']:
+                if k in data:
+                    timestamp = data[k]
+                    break
+            expired =  (time.time() - float(timestamp)) > max_age
+            if expired:
+                return default
+        return data['data']
+
+    def get_text(self, path: str, **kwargs ) -> str:
+        # Get the absolute path of the file
+        path = self.abspath(path)
+        from commune.utils import get_text
+        return get_text(path, **kwargs)
+
+    def text(self, path: str = './', **kwargs ) -> str:
+        # Get the absolute path of the file
+        path = self.abspath(path)
+        assert not self.home_path == path, f'Cannot read {path}'
+        if os.path.isdir(path):
+            return self.file2text(path)
+        with open(path, 'r') as file:
+            content = file.read()
+        return content
+
+    def sleep(self, period):
+        time.sleep(period) 
+
+
+    def fnschema(self, fn:str = '__init__', public=True, avoid_arguments = ['self', 'cls'],**kwargs)->dict:
+        '''
+        Get function schema of function in self
+        ''' 
+        public = bool(public)
+        fn_obj = self.fn(fn)
+        if not callable(fn_obj):
+            return {'fn_type': 'property', 'type': type(fn_obj).__name__}
+        
+        fn_signature = inspect.signature(fn_obj)
+
+        schema = {'input': {}, 'output': {}, 'docs': '', 'cost': 0, 'name': '', 'content': '' , 'public': public}
+
+        for k,v in dict(fn_signature._parameters).items():
+            if k  in avoid_arguments:
+                continue
+            else:
+                schema['input'][k] = {
+                        'value': "_empty"  if v.default == inspect._empty else v.default, 
+                        'type': '_empty' if v.default == inspect._empty else str(type(v.default)).split("'")[1] 
+                }
+
+        # OUTPUT SCHEMA
+        schema['output'] = {
+            'value': None,
+            'type': str(fn_obj.__annotations__.get('return', None) if hasattr(fn_obj, '__annotations__') else None)
+        }
+        schema['docs'] = fn_obj.__doc__
+        schema['cost'] = 0 if not hasattr(fn_obj, '__cost__') else fn_obj.__cost__ # attribute the cost to the function
+        schema['name'] = fn_obj.__name__
+        if public:
+            schema['content'] = inspect.getsource(fn_obj)
+        return schema
+
+    fnschema = fnschema
+
+    def schema(self, obj = None , fns=None, public=False,  verbose=False, **kwargs)->dict:
+        '''
+        Get function schema of function in self
+        '''   
+        schema = {}
+        obj = obj or 'module'
+        public = bool(public)
+        if callable(obj):
+            return self.fnschema(obj, public=public, **kwargs)
+        elif isinstance(obj, str):
+            if '/' in obj :
+                return self.fnschema(obj, public=public,  **kwargs)
+            else:
+                obj = self.mod(obj)
+        elif hasattr(obj, '__class__'):
+            obj = obj.__class__
+        fns = fns or self.fns(obj)
+        for fn in self.fns(obj):
+            try:
+                schema[fn] = self.fnschema(getattr(obj, fn), public=public,  **kwargs)
+            except Exception as e:
+                self.print(self.detailed_error(e), color='red', verbose=verbose)
+        return schema
+
+    def code(self, obj = None, search=None, *args, **kwargs) -> Union[str, Dict[str, str]]:
+        if '/' in str(obj):
+            obj = self.fn(obj)
+        elif hasattr(self, obj):
+            obj = getattr(self, obj)
+        else:
+            obj = self.module(obj)
+        return  inspect.getsource(obj)
+
+    def call(self, *args, **kwargs): 
+        return self.fn('client/forward')(*args, **kwargs)
+    
+    def content(self, module = None , search=None, ignore_folders = ['modules', 'mods'], relative=False,  **kwargs) ->  Dict[str, str]:
+        """
+        get the content of the module as a dict of file path to file content
+        return a dict of file path to file content
+        """
+        module = module or 'mod'
+        dirpath = self.dirpath(module)
+        content = self.file2text(dirpath)
+        content = {k[len(dirpath+'/'): ]:v for k,v in content.items()}
+        # ignore if .mods . is in the path
+        content = {k:v for k,v in content.items() if not any(['/'+f+'/' in k for f in ignore_folders])}
+        return dict(sorted(content.items()))
+
+    cont = codemap =  cm =  content
+
+    def cid(self, module , **kwargs) -> Union[str, Dict[str, str]]:
+        """
+        get the cid of the module
+        """
+        return self.hash(self.content(module, **kwargs))
+
+    def dir(self, obj=None, search=None, *args, **kwargs):
+        obj = self.obj(obj)
+        if search != None:
+            return [f for f in dir(obj) if search in f]
+        return dir(obj)
+    
+    def fns(self, obj: Any = None,
+                      search = None,
+                      include_hidden = False,
+                      include_children = False,
+                      **kwargs) -> List[str]:
+        '''
+        Get a list of functions in a class (in text parsing)
+        Args;
+            obj: the class to get the functions from
+            include_parents: whether to include the parent functions
+            include_hidden:  whether to include hidden functions (starts and begins with "__")
+        '''
+        obj = self.mod(obj)
+        fns = dir(obj)
+        fns = sorted(list(set(fns)))
+        if search != None:
+            fns = [f for f in fns if search in f]
+        if not include_hidden: 
+            fns = [f for f in fns if not f.startswith('__') and not f.startswith('_')]
+        return fns
+
+    def mods(self, search=None,  startswith=None, endswith=None, **kwargs)-> List[str]:  
+        return list(self.tree(search=search, endswith=endswith, startswith=startswith , **kwargs).keys())
+    am = ms = mods
+
+    modules = mods
+    def get_mods (self, search=None, **kwargs):
+        return self.mods (search=search, **kwargs)
+
+    def core_mods(self) -> List[str]:
+        return list(self.core_tree().keys())
+    cm = cmods = core_modules = core_mods 
+
+    def local_mods(self) -> List[str]:
+        return list(self.local_tree().keys())
+    lm = lmods = local_modules = local_mods
+
+    def module2schema(self, module=None, max_age=30, update=False, core=True, verbose=False) -> List[str]:
+        module2schema = self.get('module2schema', default=None, max_age=max_age, update=update)
+        if module2schema == None:
+            mods = self.core_mods () if core else self.mods()
+            module2schema = {}
+            for module in mods:
+                try:
+                    module2schema[module] = self.schema(module)
+                except Exception as e:
+                    self.print(f'Module2schemaError({e})', color='red', verbose=verbose)
+            # self.put('module2schema', module2schema)
+        return module2schema 
+
+    def info(self, 
+            module:str='module',  # fam
+            schema = True,
+            keep_last_n : int = 10,
+            relative=True,
+            update: bool =False, 
+            key=None,
+            url = None, 
+            public =  False, # whether to include the source code of the module
+            fns = None, # which functions to include in the schema
+            desc = False, 
+            tag_divider = '::',
+            **kwargs):
+        """
+        Get the info of a module, including its schema, key, cid, and code if specified.
+        """
+        module = self.get_name(module or 'module')
+        name = module
+        if tag_divider in module:
+            module, tag = module.split('::')
+        cid = self.cid(module)
+        key = self.get_key(key or module)
+        info =  {
+                'name': name, 
+                'key': key.address,  
+                'cid': cid,
+                'time': time.time(),
+                'public': bool(public),
+                'dirpath': self.dirpath(module),
+                }
+        if public:
+            info['content'] = self.content(module)
+        if schema:
+            try:
+                info['schema'] = self.schema(module , public=public, fns=fns)
+            except Exception as e:
+                self.print(f'InfoSchemaError({e})', color='red')
+                info['schema'] = {}
+            fns = [fn for fn in info['schema'].keys()]
+        else: 
+            fns = self.fns(module)
+        info['fns'] = fns
+        if url: 
+            info['url'] = url
+        if desc:
+            info['desc'] = self.desc(module)
+        info['signature'] = self.sign(info, key=key)
+        assert self.verify_info(info), f'Invalid signature {info["signature"]}'
+        return  info
+
+    card = info 
+
+    def desc(self, module='module', **kwargs):
+        return self.fn('desc/')(module, **kwargs)
+
+    def verify_info(self, info:Union[str, dict]=None, **kwargs) -> bool:
+        """
+        verify the info of the module
+        """
+        if isinstance(info, str):
+            info = self.info(info, **kwargs)
+        signature = info.pop('signature')
+        verify = self.verify(data=info, signature=signature, address=info['key'])  
+        assert verify, f'Invalid signature {signature}'
+        info['signature'] = signature
+        return info
+
+    def epoch(self, *args, **kwargs):
+        return self.run_epoch(*args, **kwargs)
+
+    def pwd2key(self, pwd, **kwargs) -> str:
+        return self.module('key')().str2key(pwd, **kwargs)
+
+    _executors = {}
+    
+    def submit(self, 
+                fn, 
+                params = None,
+                kwargs: dict = None, 
+                args:list = None, 
+                timeout:int = 40, 
+                module: str = None,
+                mode:str='thread',
+                max_workers : int = 100,
+                ):
+        executor = self.executor(mode=mode, max_workers=max_workers)
+        args = args or []
+        kwargs = kwargs or {}
+        if isinstance(params, dict):
+            kwargs = params
+            params = None
+        elif isinstance(params, list):
+            args = params
+            params = None
+        if mode == 'thread':
+            future = executor.submit(self.fn(fn), params={'args': args, 'kwargs':kwargs}, timeout=timeout)
+        else:
+            future =  executor.submit(self.fn(fn), *args, **kwargs)
+        return future 
+
+    def isfn(self, fn:Union[callable, str]) -> bool:
+        """
+        Checks if the function exists
+        """
+        try:
+            fn_obj = self.fn(fn)
+            return callable(fn_obj)
+        except Exception as e:
+            return False
+
+    def fn(self, fn:Union[callable, str], params:str=None, splitter='/', default_fn='forward', default_module = 'module') -> 'Callable':
+        """
+        Gets the function from a string or if its an attribute 
+        """
+        if callable(fn):
+            return fn
+        if isinstance(fn, str):
+            if hasattr(self, fn):
+                fn_obj = getattr(self, fn)
+            elif fn.startswith('/'):
+                fn_obj = getattr(self.module(default_module)(), fn[1:])
+            elif fn.endswith('/'):
+                fn_obj = getattr( self.module(fn[:-1])(), default_fn)
+            elif '/' in fn:
+                module, fn = fn.split('/')
+                if self.mod_exists(module):
+                    module = self.module(module)()
+                else:
+                    raise Exception(f'Mod {module} not found')  
+                fn_obj = getattr(module, fn)
+            elif self.object_exists(fn):
+                fn_obj =  self.obj(fn)
+            elif self.mod_exists(fn):
+                fn_obj = self.module(fn)().forward
+
+        else:
+            return fn
+        if params:
+            return fn_obj(**params)
+        return fn_obj
+    
+    get_fn = fn
+
+    def get_args(self, fn) -> List[str]:
+        """
+        get the arguments of a function
+        params:
+            fn: the function
+        """        
+        if not callable(fn):
+            return []
+        try:
+            args = inspect.getfullargspec(fn).args
+        except Exception as e:
+            args = []
+        return args
+
+    def hosts(self):
+        return self.fn('remote/hosts')()
+
+
+    def host(self):
+        return self.key().address
+    def how(self, module, query, *extra_query) : 
+        code = self.code(module)
+        query = ' '.join([query, *extra_query])
+        return self.fn('model.openrouter/')(f'query={query} code={code}')
+
+    def client(self, *args, **kwargs) -> 'Client':
+        """
+        Get the client for the module
+        """
+        return self.fn('client/client')( *args, **kwargs)
+    
+    def classes(self, path='./',  **kwargs):
+        """
+        Get the classes for each path inside the path variable
+        """
+        path2classes = self.path2classes(path=path,**kwargs)
+        classes = []
+        for k,v in path2classes.items():
+            classes.extend(v)
+        return classes  
+
+    def mod2readme(self): 
+        mod2readme = {}
+        for mod in self.mods():
+            dp = self.dirpath(mod)
+            files = self.files(dp)
+            mod2readme[mod] = [f for f in files if f.endswith('.md')]
+            if len(mod2readme[mod]) == 0:
+                del mod2readme[mod]
+            else:
+                mod2readme[mod] = self.get_text(mod2readme[mod][0])
+        return len(str(mod2readme))    
+
+    def mnemonic(self, words=24):
+        """
+        Generates a mnemonic phrase of the given length.
+        """
+
+        if words not in [12, 15, 18, 21, 24]:
+            if words > 24 : 
+                # tile to over 24
+                tiles = words // 24 + 1
+                mnemonic_tiles = [self.mnemonic(24) for _ in range(tiles)]
+                mnemonic = ' '.join(mnemonic_tiles)
+            if words < 24:
+                # tile to under 12
+                mnemonic = self.mnemonic(24)
+            return ' '.join(mnemonic.split()[:words])
+        return self.mod('key')().generate_mnemonic(words=words)
+
+    
+    def path2objectpath(self, path:str, **kwargs) -> str:
+        """
+        Converts a path to an object path (for instance ./foo/bar.py to foo.bar)
+        """
+        path = os.path.abspath(path)
+        dir_prefixes  = [os.getcwd(), self.lib_path, self.home_path]
+        for dir_prefix in dir_prefixes:
+            if path.startswith(dir_prefix):
+                path =   path[len(dir_prefix) + 1:].replace('/', '.')
+                break
+        if any([path.endswith(s) for s in ['.py']]):
+            path = path[:-3]
+        return path.replace('__init__.', '.')
+
+    def path2name(self,
+                    path:str , 
+                    ignore_folder_names = ['modules', 'agents', 'src', 'mods'], 
+                    possible_suffixes = ['_', '']):
+    
+        ignore_folder_names = [ f + s for f in ignore_folder_names for s in possible_suffixes]
+        name = self.path2objectpath(path)
+        name_chunks = []
+        for chunk in name.split('.'):
+            if chunk in ignore_folder_names:
+                continue
+            if chunk not in name_chunks:
+                name_chunks += [chunk]
+        if name_chunks[0] == self.name:
+            name_chunks = name_chunks[1:]
+        return '.'.join(name_chunks)
+    
+    def path2classes(self, path='./', depth=4, tolist = False, **kwargs) :
+
+        """
+        Get the classes for each path inside the path variable
+        params:
+        - path: The path to search for classes
+        - depth: The maximum depth to search
+        - tolist: Whether to return a list of classes or a dict
+
+        returns:
+        - if tolist is True, returns a list of classes
+        """
+        class_suffix = ':', 
+        class_prefix = 'class '
+        path = self.abspath(path)
+        path2classes = {}
+        if os.path.isdir(path) and depth > 0:
+            for p in self.ls(path):
+                try:
+                    for k,v in self.path2classes(p, depth=depth-1).items():
+                        if len(v) > 0:
+                            path2classes[k] = v
+                except Exception as e:
+                    pass
+        elif os.path.isfile(path) and any([path.endswith(s) for s in ['.py']]):
+            classes = []
+            code = self.get_text(path)
+            objectpath = self.path2objectpath(path)
+            for line in code.split('\n'):
+                if line.startswith(class_prefix) and line.strip().endswith(class_suffix):
+                    new_class = line.split(class_prefix)[-1].split('(')[0].strip()
+                    if new_class.endswith(class_suffix):
+                        new_class = new_class[:-1]
+                    if ' ' in new_class:
+                        continue
+                    classes += [new_class]
+            if objectpath.startswith(path):
+                objectpath = objectpath[len(path)+1:]
+            objectpath = objectpath.replace('/', '.')
+            path2classes =  {path:  [objectpath + '.' + cl for cl in classes]}
+        if tolist:
+            classes = []
+            for k,v in path2classes.items():
+                classes += v
+            return classes
+        return path2classes
+
+    def path2fns(self, path = './', tolist=False,**kwargs):
+        path2fns = {}
+        fns = []
+        path = os.path.abspath(path)
+        if os.path.isdir(path):
+            for p in self.glob(path+'/**/**.py', recursive=True):
+                for k,v in self.path2fns(p, tolist=False).items():
+                    if len(v) > 0:
+                        path2fns[k] = v
+        else:
+            code = self.get_text(path)
+            path_prefix = self.path2objectpath(path)
+            for line in code.split('\n'):
+                if line.startswith('def ') or line.startswith('async def '):
+                    fn = line.split('def ')[-1].split('(')[0].strip()
+                    fns += [path_prefix + '.'+ fn]
+            path2fns =  {path: fns}
+        if tolist:
+            fns = []
+            for k,v in path2fns.items():
+                fns += v
+            return fns
+        return path2fns
+
+    ensure_syspath_flag = False
+
+    def ensure_syspath(self):
+        """
+        Ensures that the path is in the sys.path
+        """
+        if not self.ensure_syspath_flag:
+            import sys
+            paths = [self.pwd(), self.repo_path]
+            for path in paths:
+                if path not in sys.path:
+                    sys.path.append(path)
+        return {'paths': sys.path, 'success': True}      
+    obj_cache = {}
+    def obj(self, key:str, **kwargs)-> Any:
+        # add pwd to the sys.path if it is not already there
+        self.ensure_syspath()
+        if key in self.obj_cache:
+            return self.obj_cache[key]
+        else:
+            from commune.utils import import_object
+            obj = self.obj_cache[key] = import_object(key, **kwargs)
+        return obj
+
+    def obj_exists(self, path:str, verbose=False)-> Any:
+        # better way to check if an object exists?
+        try:
+            self.obj(path, verbose=verbose)
+            return True
+        except Exception as e:
+            return False
+
+    def object_exists(self, path:str, verbose=False)-> Any:
+        return self.obj_exists(path, verbose=verbose)
+
+    def mod_exists(self, module:str, **kwargs) -> bool:
+        '''
+        Returns true if the module exists
+        '''
+        try:
+            module = self.get_name(module)
+            mod_exists = module in self.tree()
+        except Exception as e:
+            mod_exists =  False
+        if not mod_exists:
+            module_path = os.path.join(self.mods_path, module)
+            mod_exists = os.path.exists(module_path) and os.path.isdir(module_path)
+        return mod_exists
+
+    def logs(self, *args, **kwargs):
+        return self.fn('pm/logs')(*args, **kwargs)
+    
+    def locals(self, **kwargs):
+        return list(self.get_tree(self.pwd(), **kwargs).keys())
+
+    def cwd(self, mod=None):
+        if mod:
+            return self.dirpath(mod)
+        return os.getcwd()
+
+    def get_path_name(self, f):
+        f = self.abspath(f)
+        for language in self.file_types:
+            suffix = '.' + language
+            if f.endswith(suffix):
+                f = f.split(suffix)[0]
+                break
+        if f.startswith(self.sdk_path):
+            path = self.sdk_path
+        elif f.startswith(self.mods_path):
+            path = self.mods_path
+        elif f.startswith(os.getcwd()):
+            path = os.getcwd()
+        if f.startswith(path):
+            f = f[len(path):]
+        if f.startswith('/'):
+            f = f[1:]
+        # replace dublicates
+        f_chunks = f.split('/')
+        result = ''
+        for f_chunk in f_chunks: 
+            if f_chunk in result:
+                continue
+            else:
+                result += f_chunk + '/'
+        if result.endswith('/'):
+            result = result[:-1]
+        result = result.replace('/', '.')
+        return result
+
+    def get_anchor_file(self, path):
+
+        """
+        desc:
+            get the tree of the module
+            get the path from the tree
+            search for the anchor file in the path
+            assume the potential anchor files can be in the last two folders 
+            names like model/openrouter/model.py or model/openrouter/openrouter.py
+            return the first anchor file found
+            return None if no anchor file is found
+
+        parms: 
+            path : the path to search for the anchor file
+            file_types : the file types to search for
+        returns:
+            the anchor file path if found
+        """
+        path = path.replace('/', '.')
+        tree = self.tree()
+        anchor_names = self.anchor_names.copy()
+        # IF FOR SOME REASON WE ARE SPECIFYING A PATH THAT IS A FILE (NOT IN THE TREE AS THE TREE ONLY HAS FOLDERS)
+        if path not in tree :
+            tree = self.tree(folders=False)
+            if not path in tree:
+                key_options = [k for k in tree.keys() if path in k]
+                if len(key_options) >= 1:
+                    path =  key_options[0]
+                    return tree[path]
+            else:
+                return tree[path]
+        path = tree.get(path, path)
+        anchor_names += [path.split('/')[-1]]
+        if len(path.split('/')) > 1:
+            anchor_names += [path.split('/')[-2]]
+        for f in self.files(path, depth=2):
+            if any([f.endswith('/' + an + '.' + ft) for an in anchor_names for ft in self.file_types]):
+                return f
+        return None
+
+
+    def get_name(self, name:Optional[str]=None):
+        name = name or 'mod'
+        if isinstance(name, str) and any([name.startswith(p) for p in ['.', '~', '/']]):
+            name = self.path2name(name)
+        if isinstance(name, str) and '/' in name:
+            name = name.replace('/', '.')
+        return name
+
+    def get_anchor_object(self, path):
+        path = self.get_name(path)
+        anchor_file = self.get_anchor_file(path)
+        if anchor_file:
+            classes =  self.classes(anchor_file)
+            assert len(classes) > 0, f'No classes found in {anchor_file}'
+            class_obj_path = classes[-1]
+            if self.name + '.' + self.name in class_obj_path:
+                class_obj_path = class_obj_path.replace(self.name + '.' + self.name, self.name)
+            return self.obj(class_obj_path)
+        else: 
+            tree = self.tree(folders=False)
+            k_options = [k for k in tree.keys() if path in k]
+            if len(k_options) >= 1:
+                return self.get_anchor_object(k_options[0])
+            raise Exception(f'No anchor file found in {path} or {k_options}')
+        
+    def get_tree(self, 
+                path:Optional[str]=None, 
+                search:Optional[str]=None, 
+                depth=10, 
+                root_names = ['mod', 'module'], 
+                avoid_prefixes = ['__', '_'],
+                avoid_suffixes = ['__', '/utils'],
+                folders:bool = True, 
+                update=False,  
+                **kwargs): 
+        path = path or self.sdk_path
+        if not hasattr(self, '_cached_trees'):
+            self._cached_trees = {}
+        cache_key = f'{path}_{depth}_{folders}_{search}_{avoid_prefixes}_{avoid_suffixes}'
+        if not update and cache_key in self._cached_trees:
+            tree =  self._cached_trees[cache_key]
+        else:
+            path = path or self.sdk_path
+            paths = [f for f in self.files(path, depth=depth) if any([f.endswith('.' + ft) for ft in self.file_types])]
+            if folders :
+                paths = list(set([os.path.dirname(f) for f in paths]))
+            tree = {self.get_path_name(f):f for f in paths}
+            filter_k = lambda k: all(not k.startswith(prefix) for prefix in avoid_prefixes) and all(not k.endswith(suffix) for suffix in avoid_suffixes)
+            tree = {self.get_name(k):v for k,v in tree.items() if filter_k(k)}
+            for k,v in self.shortcuts.items():
+                if v in tree:
+                    tree[k] = tree[v]
+            tree = dict(sorted(tree.items()))
+            self._cached_trees[cache_key] = tree
+
+        if search:
+            search = self.get_name(search)
+            tree = {k:v for k,v in tree.items() if search in k}
+
+        return tree
+
+    def core_tree(self, search=None, depth=10,  **kwargs): 
+        return self.get_tree(self.sdk_path, search=search, depth=depth, **kwargs) 
+
+    def mods_tree(self, search=None,  depth=10, **kwargs): 
+        return self.get_tree(self.mods_path, search=search, depth=depth, **kwargs)
+
+    def local_tree(self, search=None, depth=10, **kwargs):
+        return self.get_tree(os.getcwd(), depth=depth,  search=search, **kwargs )
+
+    def tree(self, search=None, **kwargs):
+        return {
+            **self.mods_tree(search=search, **kwargs),
+            **self.local_tree(search=search, **kwargs),
+            **self.core_tree(search=search, **kwargs),
+                }
+
+    def dirpath(self, module=None) -> str:
+        """
+        get the directory path of the module
+        """
+        module = self.get_name(module)
+        module = self.shortcuts.get(module, module)
+        if module in self.anchor_names:
+            return self.lib_path
+        else:
+            dirpath = None
+            possible_core_path = self.sdk_path + '/' + module
+            possible_local_path = os.getcwd() + '/' + module.replace('.', '/')
+            possible_mods_path = self.mods_path + '/' + module.replace('.', '/')
+            possible_paths = [possible_core_path, possible_local_path, possible_mods_path]
+            for p in possible_paths:
+                if os.path.exists(p) and os.path.isdir(p):
+                    dirpath = p
+                    break
+            if dirpath == None:
+                tree = self.tree(folders=True)
+                if module in tree:
+                    dirpath = tree[module]
+                else: 
+                    key_options = [k for k in tree.keys() if module in k]
+                    if len(key_options) >= 1:
+                        dirpath =  tree[key_options[0]]
+            # remove any trailing repeats of the module name in the dirpath
+
+            def post_process(x, avoid_suffixes=[ '/src']):
+                # remove trailing repeats of the module name in the dirpath
+                x = x or 'mod'
+                if len(x.split('/')) > 1:
+                    while x.split('/')[-1] == x.split('/')[-2]:
+                        x = '/'.join(x.split('/')[:-1])
+                for s in avoid_suffixes:
+                    if x.endswith(s):
+                        x = x[:-len(s)]
+                return x
+            return post_process(dirpath)
+
+    dp = dirpath
+
+    def gitignore_path(self):
+        return self.abspath(self.libpath + '/.gitignore')
+
+    def gitignore(self, *args, **kwargs):
+        return self.get_text(self.gitignore_path(), *args, **kwargs)
+
+    def gitignore_module_path(self, name):
+        return '\n' +  self.dp(name).replace(self.lib_path + '/', '') + '\n'
+
+    def rm_module_gitignore(self, name):
+        gitignore = self.gitignore()
+        gitignore_path = self.gitignore_path()
+        gitignore_module_path = self.gitignore_module_path(name)
+        if gitignore_module_path in gitignore:
+            gitignore = gitignore.replace(gitignore_module_path, '')
+            self.put_text(gitignore_path, gitignore)
+        return {'name': name, 'path': gitignore_module_path, 'msg': 'Removed from .gitignore'}
+    
+    def add_module_gitignore(self, name):
+        gitignore = self.gitignore()
+        gitignore_module_path = self.gitignore_module_path(name)
+        gitignore_path = self.gitignore_path()
+        if gitignore_module_path not in gitignore:
+            gitignore += gitignore_module_path
+            self.put_text(gitignore_path, gitignore)
+        return {'name': name, 'path': gitignore_path, 'msg': 'Added to .gitignore'}
+
+    def addfrompath(self,  name=None, path=None):
+        """
+        make a new module from a json file at path
+        params:
+            path: path to the json file
+            name: name of the module
+        returns:    
+            dict with name, path, msg, files
+        """
+        path = path or './new_mod.json'
+        if not path:
+            path = input('Path to JSON file')
+        if not name:
+            name = input('Name of the module')
+        
+        json_content = self.get_json(path)
+        dirpath = self.abspath(self.mods_path +'/'+ name.replace('.', '/'))
+        if os.path.exists(dirpath):
+            raise Exception(f'Module {name} already exists at {dirpath}')
+        print(f'Creating module {name} at {dirpath}')
+        os.makedirs(dirpath, exist_ok=True)
+        
+        for k,v in json_content.items():
+            k_path =  dirpath + '/' +  k
+            self.put_text(k_path, v)
+            print(f'Wrote {k_path}')
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from JSON', 'files': list(json_content.keys())}
+
+    
+    def addmod(self, name= None, update=True, path=None):
+        """
+        make a new module
+        """
+
+        if not name:
+            name = input('Mod name/github/ipfs/url')
+
+        if bool(name.endswith('.git') or name.startswith('http')):
+            git_path = name
+            name =  name.split('/')[-1].replace('.git', '')
+            dirpath = self.abspath(self.mods_path +'/'+ name.replace('.', '/'))
+            print(f'Cloning {git_path} to {dirpath}')
+            os.system(f'git clone {git_path} {dirpath}')
+            # add the commune/module/{name} into the gitignore path if it is not already there
+            self.add_module_gitignore(name)
+        else:
+
+            base_module : str = 'base'
+            dirpath = self.abspath(self.mods_path +'/'+ name.replace('.', '/'))
+            module_class_name = ''.join([m[0].capitalize() + m[1:] for m in name.split('.')])
+            content = self.content(base_module)
+            new_code_map = {}
+            new_class_name = name[0].upper() + name[1:]
+            for k,v in content.items():
+                k_path =  dirpath + '/' +  k.replace(base_module, name)
+                new_code_map[k_path] = v
+                self.put_text(k_path, v)
+            content = new_code_map
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created'}
+    
+    create = new = add = addmod
+
+    def urls(self, *args, **kwargs):
+        return self.fn('pm/urls')(*args, **kwargs)
+
+    def servers(self, *args, **kwargs):
+        return self.fn('pm/servers')(*args, **kwargs)
+
+    executor_cache = {}
+    def executor(self,  max_workers=8, mode='thread', cache=True):
+        path = "executor/" + mode + '/' + str(max_workers)
+        if cache and path in self.executor_cache:
+            return self.executor_cache[path]
+        if mode == 'process':
+            from concurrent.futures import ProcessPoolExecutor
+            executor =  ProcessPoolExecutor(max_workers=max_workers)
+        elif mode == 'thread':
+            executor =  self.mod('executor')(max_workers=max_workers)
+        elif mode == 'async':
+            from commune.core.api.src.async_executor import AsyncExecutor
+            executor = AsyncExecutor(max_workers=max_workers)
+        else:
+            raise ValueError(f"Unknown mode: {mode}. Use 'thread', 'process' or 'async'.")
+        if cache:
+            self.executor_cache[path] = executor
+        return executor
+
+    def server_exists(self, server:str = 'commune', *args, **kwargs):
+        return  self.fn('pm/server_exists')(server, *args, **kwargs)
+
+    def namespace(self, *args, **kwargs):
+        return self.fn('pm/namespace')(*args, **kwargs)
+
+    def epoch(self, *args, **kwargs):
+        return self.fn('vali/epoch')(*args, **kwargs)
+
+    def up(self, image = 'commune'):
+        return self.cmd('make up', cwd=self.lib_path)
+
+    def enter(self, image = 'commune'):
+        return self.fn('pm/enter')(image)
+
+    def owner(self):
+        return self.get_key().address
+
+    own = owner
+
+    def repo2path(self, search=None):
+        repo2path = {}
+        for p in self.ls('~/'): 
+            if os.path.exists(p+'/.git'):
+                r = p.split('/')[-1]
+                if search == None or search in r:
+                    repo2path[r] = p
+        return dict(sorted(repo2path.items(), key=lambda x: x[0]))
+
+    def repos(self, search=None):
+        return list(self.repo2path(search=search).keys())
+
+    def help(self, query:str = 'what is this', *extra_query , mod='module', **kwargs):
+        query = ' '.join(list(map(str, [query, *extra_query])))
+        module =  mod or module
+        context = self.context(path=self.sdk_path)
+        return self.mod('agent')().ask(f'given the code {self.code(module)} and CONTEXT OF COMMUNE {context} anster wht following question: {query}', preprocess=False)
+    
+    def ask(self, *args, mod=None, path='./' , stream=1, context=False, **kwargs):
+        # commune_readmes = self.readmes(path=path)
+        if mod != None:
+            args = [self.code(mod)] + list(args)
+        if context:
+            context = self.context(path=path)
+            args = [f'CONTEXT OF COMMUNE {context}'] + list(args)
+        msg = ' '.join(list(map(str, args)))
+        return self.module("openrouter")().forward(msg, stream=stream, **kwargs) 
+
+    def readmes(self,  path='./', search=None, avoid_terms=['/mods/']):
+        files =  self.files(path)
+        files = [f for f in files if f.endswith('.md')]
+        files = [f for f in files if all([avoid not in f for avoid in avoid_terms])]
+        if search != None:
+            files = [f for f in files if search in f]
+        return files
+
+    def context(self, path=None):
+        path = path or self.sdk_path
+        readme2text = self.readme2text(path)
+        return readme2text
+
+    def context_size(self, path:str = './', search=None, **kwargs) -> int:
+        return len(str(self.readme2text(path=path, search=search, **kwargs)))
+
+    def readme2text(self, path:str = './', search=None, **kwargs) -> str:
+        """
+        Returns the text of the readme file in the path
+        """
+        files = self.readmes(path=path, search=search)
+        readme2text = {}
+        for f in files:
+            readme2text[f] = self.get_text(f)
+        return readme2text
+
+    def import_module(self, module:str = 'commune.utils', lib_name = 'commune'):
+        from importlib import import_module
+        double_lib_name = f'{lib_name}.{lib_name}'
+        if double_lib_name in module:
+            module = module.replace(double_lib_name, lib_name)
+        return import_module(module)
+
+    def kill(self, server:str = 'commune'):
+        return self.fn('pm/kill')(server)
+
+    def kill_all(self):
+        return self.fn('pm/kill_all')()
+
+    killall = kill_all
+
+    def configs(self, path='./', 
+                modes=['yaml', 'json'], 
+                search=None, 
+                config_name_options = ['config', 'cfg', 'module', 'block',  'agent', 'mod', 'bloc', 'server'],
+                names=['config', 'cfg', 'module', 'block',  'agent', 'mod', 'bloc']):
+        """
+        Returns a list of config files in the path
+        """
+        def is_config(f):
+            return any(f.endswith(f'/{name}.{m}') for name in config_name_options for m in modes)
+        configs =  [f for f in  self.files(path) if is_config(f)]
+        if search != None:
+            configs = [f for f in configs if search in f]
+        return configs
+
+    def serve(self, mod:str = 'module', port:int=None, remote=True, **kwargs):
+        return self.fn('server/serve')(mod, port=port, remote=remote, **kwargs)
+
+    def exec(self, module:str = 'module', *args, **kwargs):
+        return self.fn('pm/exec')(module, *args, **kwargs)
+
+    def app(self, module=None, **kwargs):
+        if module:
+            return self.fn(module + '/app' )()
+        return self.fn('app/')(**kwargs)
+
+    def api(self, *args, **kwargs):
+       return self.fn('app/api')(*args, **kwargs)
+
+    def code_link(self, url:str='commune-ai/commune'):
+        gitprefix = 'https://github.com/'
+        gitsuffix = '.git'
+        if not url.startswith(gitprefix):
+            url = gitprefix + url
+        if not url.endswith(gitsuffix):
+            url = url + gitsuffix
+        return url
+    
+    def links(self, module:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
+        return self.config['links']
+
+    def islink(self, module:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
+        return bool(module in self.links())
+
+    def link(self, module:str = 'ipfs-service', update=False):
+        links = self.links()
+        if self.mod_exists(module) and update: 
+            self.rm_mod(module)
+        if not module in links: 
+            return {'msg': f'Module {module} not in links ', 'links': links}
+        elif self.mod_exists(module):
+            return {'msg': f'Module {module} already exists', 'links': links}
+        else: 
+            return self.addmod(links[module], update=update)
+
+    def unlink(self, module:str = 'ipfs-service'):
+        if self.mod_exists(module):
+            return self.rm_mod(module)
+        else:
+            return {'msg': f'Module {module} does not exist'}
+            
+    def test_link(self, module:str = 'ipfs-service'):
+        self.unlink(module)
+        assert not self.mod_exists(module), f'Module {module} still exists'
+        self.link(module)
+        assert self.mod_exists(module), f'Module {module} does not exist'
+        return {'msg': f'Module {module} linked successfully'}
+
+    def push(self, path = None, comment=None):
+        path = self.dp(path)
+        assert os.path.exists(path), f'Path {path} does not exist'
+        if comment == None:
+            comment = input('Enter the comment for the commit: ')
+        cmd = f'cd {self.mods_path}; git add {path} ; git commit -m "{comment}" ; git push'
+        self.cmd(cmd, cwd=self.mods_path)
+        
+    def git_info(self, path:str = None, name:str = None, n=10):
+        return self.fn('git/get_info', {'path': path, 'name': name, 'n': n})
+    
+    def isrepo(self, module:str = None):
+        path = self.dirpath(module)
+        return os.path.exists(path + '/.git')
+
+    def cpmod(self, from_module:str = 'dev', to_module:str = 'dev2', force=True):
+        """
+        Copy the module to the git repository
+        """
+        from_path = self.dirpath(from_module)
+        if not os.path.exists(from_path):
+            raise Exception(f'Mod {from_path} does not exist')
+
+        to_module=to_module.replace('.', '/')
+        to_path = to_module
+        if to_path.startswith('./') or to_path.startswith('~/') or to_path.startswith('/'):
+            to_path = self.abspath(to_module)
+        else:
+            to_path = self.mods_path + '/' + to_module.replace('.', '/')
+        if os.path.exists(to_path):
+            if force or input(f'Path {to_path} already exists. Do you want to remove it? (y/n)') == 'y':
+                for f in self.files(to_path):
+                    print(f'Removing {f}')
+                    self.rm(f)
+        from_files = self.files(from_path)
+        for f in from_files:
+            self.cp(f, to_path + '/' + f[len(from_path)+1:])
+        # assert os.path.exists(to_path), f'Failed to copy {from_path} to {to_path}'
+        return { 
+                'from': {'module': from_module, 'path': from_path, 'cid': self.cid(from_module)}, 
+                'to': {'path': to_path, 'module': to_module, 'cid': self.cid(to_module)},
+                } 
+
+    def mvmod(self, from_module:str = 'dev', to_module:str = 'dev2'):
+        """
+        Move the module to the git repository
+        """
+        from_path = self.dirpath(from_module)
+        to_path = self.mods_path + '/' + to_module.replace('.', '/')
+        return self.mv(from_path, to_path)
+
+    mv_mod = mvmod
+
+    def rmmod(self, module:str = 'dev'):
+        """
+        Remove the module from the git repository
+        """
+        path = self.dirpath(module)
+        assert os.path.exists(path), f'Mod {module} does not exist'
+        self.rm(path)
+        return {'success': True, 'msg': 'removed module'}
+
+    def address2key(self, *args, **kwargs):
+        return self.fn('key/address2key')(*args, **kwargs)
+
+    def clone(self, module:str = 'dev', name:str = None):
+        repo2path = self.repo2path()
+        if os.path.exists(module):
+            to_path =  self.mods_path + '/' + module.split('/')[-1]
+            from_path = module
+            self.rm(to_path)
+            self.cp(from_path, to_path)
+            assert os.path.exists(to_path), f'Failed to copy {from_path} to {to_path}'
+        elif 'github.com' in module:
+            code_link = module
+            module = self.get_name(name or module.split('/')[-1].replace('.git', ''))
+
+            # clone ionto the mods path
+            to_path = self.mods_path + '/' + module
+            cmd = f'git clone {code_link} {self.mods_path}/{module}'
+            self.cmd(cmd, cwd=self.mods_path)
+        else:
+            raise Exception(f'Mod {module} does not exist')
+        git_path = to_path + '/.git'
+        if os.path.exists(git_path):
+            self.rm(git_path)
+        self.tree(update=1)
+        return {'success': True, 'msg': 'added module',  'to': to_path}
+
+    rm_mod = rmmod
+
+    def add_globals(self, globals_input:dict = None):
+        """
+        add the functions and classes of the module to the global namespace
+        """
+        if globals_input == None:
+            return {}
+        from functools import partial
+        globals_input = globals_input or {}
+        for k,v in self.__dict__.items():
+            globals_input[k] = v     
+        for f in dir(self):
+            globals_input[f] = getattr(self, f)
+        return globals_input
+
+    def main(self, *args, **kwargs):
+        """
+        Main function to run the module
+        """
+        self.mod('cli')().forward()
+
+    def hasattr(self, module, k):
+        """
+        Check if the module has the attribute
+        """
+        return hasattr(self.module(module)(), k)
+
+    def hash(self, obj, mode='sha256', **kwargs):
+        from commune.utils import hash
+        return self.obj('commune.utils.hash')(obj, mode=mode, **kwargs)
+
+    def test(self, module = None,  **kwargs) ->  Dict[str, str]:
+        return self.fn('test/forward')( module=module,  **kwargs )
+
+    def txs(self, *args, **kwargs) -> 'Callable':
+        return self.fn('server/txs')( *args, **kwargs)
+
+if __name__ == "__main__":
+    Mod().run()
