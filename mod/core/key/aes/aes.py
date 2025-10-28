@@ -14,7 +14,7 @@ class AesKey:
     def __init__(self, password='fam'):
         self.set_password(password)
 
-    def encrypt(self, data, password=None):
+    def encrypt(self, data, password=None, verify_decryption=True):
         password = self.get_password(password)  
         data = copy.deepcopy(data)
         data = json.dumps(data)
@@ -24,6 +24,11 @@ class AesKey:
         iv = Random.new().read(AES.block_size)
         cipher = AES.new(password, AES.MODE_CBC, iv)
         encrypted_bytes = base64.b64encode(iv + cipher.encrypt(data.encode()))
+        # test decryption 
+        if verify_decryption:
+            decrypted_data = self.decrypt(encrypted_bytes, password)
+            assert decrypted_data == data, "Decryption verification failed {}, original data: {}".format(decrypted_data, data)
+        
         return encrypted_bytes.decode() 
 
     def decrypt(self, data, password:str=None):  

@@ -1,5 +1,5 @@
 [package]
-name = "modnet-node"
+name = "modchain"
 description = "ModNet node built with Substrate, part of ModNet."
 version = "0.1.0"
 license = "MIT-0"

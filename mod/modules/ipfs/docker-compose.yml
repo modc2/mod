@@ -5,14 +5,14 @@ services:
   ipfs:
     container_name: ipfs
     deploy: {}
-    entrypoint: bash -c "m serve port=50063 key=ipfs remote=0 mod=ipfs"
+    entrypoint: bash -c "m serve port=50095 key=ipfs remote=0 mod=ipfs"
     environment:
     - IPFS_API_URL=http://ipfs_node:5001/api/v0
     extra_hosts:
     - 0.0.0.0:host-gateway
     image: mod:latest
     ports:
-    - 50063:50063
+    - 50095:50095
     restart: unless-stopped
     shm_size: 100g
     volumes:
@@ -20,8 +20,8 @@ services:
     - ~/.mod/server:/root/.mod/server
     - ~/.mod/key/ipfs:/root/.mod/key/ipfs
     - ~/.mod/ipfs:/root/.mod/ipfs
-    - ~/mod/mod/core/store/ipfs:/root/mod/mod/core/store/ipfs
-    working_dir: /root/mod/mod/core/store/ipfs
+    - ~/mod/mod/modules/ipfs:/root/mod/mod/modules/ipfs
+    working_dir: /root/mod/mod/modules/ipfs
   ipfs_node:
     container_name: ipfs_node
     extra_hosts:
@@ -37,19 +37,3 @@ services:
     volumes:
     - ~/.ipfs/archive:/data/ipfs
     - ~/.ipfs/data:/data/ipfs
-  mod:
-    container_name: mod
-    deploy: {}
-    entrypoint: bash -c "m serve port=50140 key=server remote=0 mod=mod"
-    image: mod:latest
-    ports:
-    - 50140:50140
-    restart: unless-stopped
-    shm_size: 100g
-    volumes:
-    - ~/mod:/root/mod
-    - ~/.mod/server:/root/.mod/server
-    - ~/.mod/key/server:/root/.mod/key/server
-    - ~/.mod/mod:/root/.mod/mod
-    - ~/mod/mod/core:/root/mod/mod/core
-    working_dir: /root/mod/mod/core

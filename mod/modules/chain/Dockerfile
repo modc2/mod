@@ -2,6 +2,7 @@
 # Builder stage
 ###############
 FROM rust:1-bookworm AS builder
+FROM debian:bookworm-slim AS runtime
 
 ARG RUSTFLAGS
 ENV CARGO_TERM_COLOR=always
@@ -40,12 +41,11 @@ RUN rustup +nightly component list --installed \
 
 # Build release binary (use nightly for Wasm builder)
 ENV WASM_BUILD_TOOLCHAIN=nightly
-RUN cargo build --locked --release -p modnet-node
+RUN cargo build --locked --release -p modchain
 
 ################
 # Runtime stage
 ################
-FROM debian:bookworm-slim AS runtime
 
 ENV RUST_LOG=info \
     RUST_BACKTRACE=1
@@ -58,16 +58,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && update-ca-certificates
 
 # Create non-root user and data dir
-RUN useradd -m -u 10001 -U -s /usr/sbin/nologin modnet \
+RUN useradd -m -u 10001 -U -s /usr/sbin/nologin modchain \
   && mkdir -p /data \
-  && chown -R modnet:modnet /data
+  && chown -R modchain:modchain /data
 
 # Copy binary
-COPY --from=builder /build/target/release/modnet-node /usr/local/bin/modnet-node
+COPY --from=builder /build/target/release/modchain /usr/local/bin/modchain
 
-USER modnet
+USER modchain
 WORKDIR /data
 
 EXPOSE 30333 9933 9944 9615
 
-ENTRYPOINT ["/usr/local/bin/modnet-node"]
+ENTRYPOINT ["/usr/local/bin/modchain"]

@@ -5479,7 +5479,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "modnet-node"
+name = "modchain"
 version = "0.1.0"
 dependencies = [
  "clap",

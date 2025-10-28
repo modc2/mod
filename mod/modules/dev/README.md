@@ -17,7 +17,7 @@ The Agent module is an advanced code generation and editing toolkit powered by L
 import mod as c
 
 # Initialize the dev module
-dev = c.module('dev')()
+dev = c.mod('dev')()
 
 # Generate code from a prompt
 dev.forward("Create a Python function that calculates Fibonacci numbers")
@@ -26,7 +26,7 @@ dev.forward("Create a Python function that calculates Fibonacci numbers")
 dev.forward("Add error handling to the function", to="./path/to/file.py")
 
 # Use the toolbox for more guidance
-toolbox = c.module('dev.tool.toolbox')()
+toolbox = c.mod('dev.tool.toolbox')()
 toolbox.help()
 ```
 
@@ -61,7 +61,7 @@ dev.forward(
 ### Find Relevant Files
 
 ```python
-select = c.module('dev.tool.select')()
+select = c.mod('dev.tool.select')()
 files = c.files("./project")
 auth_files = select.forward(
     options=files,
@@ -79,7 +79,7 @@ dev.forward("Document these functions: @/get_text ./utils/helpers.py")
 
 ```python
 # Initialize the memory tool
-memory = c.module('dev.tool.memory')()
+memory = c.mod('dev.tool.memory')()
 
 # Store information in short-term memory
 memory.add_short_term("user_preference", {"theme": "dark", "language": "python"})
@@ -91,7 +91,7 @@ memory.add_long_term("project_requirements", {
 })
 
 # Integrate memory with Agent module
-dev = c.module('dev')()
+dev = c.mod('dev')()
 dev.set_memory(memory)
 ```
 
@@ -121,7 +121,7 @@ The Agent module includes several specialized tools:
 For more detailed guidance, use the Toolbox:
 
 ```python
-toolbox = c.module('dev.tool.toolbox')()
+toolbox = c.mod('dev.tool.toolbox')()
 
 # General help
 toolbox.help()
@@ -149,12 +149,12 @@ The Agent module is designed to work seamlessly with other modules in the ecosys
 
 ```python
 # Web scraping integration
-web_scraper = c.module('web_scraper')()
+web_scraper = c.mod('web_scraper')()
 results = web_scraper.forward("latest AI developments")
 dev.forward(f"Create a summary of these developments: {results['context']}")
 
 # Memory integration
-memory = c.module('dev.tool.memory')()
+memory = c.mod('dev.tool.memory')()
 dev.set_memory(memory)
 ```
 

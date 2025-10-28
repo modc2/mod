@@ -24,7 +24,7 @@ class SumText:
     cache_dir: str = '~/.summarize/cache'
 
     def __init__(self, model='model.openrouter'):
-        self.model = c.module(model)()
+        self.model = c.mod(model)()
 
     def forward(self,  
               text: str = "1 + 2 = 1  and 1 + 2 = 1", # Path to the file containing options or a file  

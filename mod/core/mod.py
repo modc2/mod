@@ -369,7 +369,6 @@ class Mod:
         if relative: 
             cwd = os.getcwd()
             files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
-
         if search != None:
             files = [f for f in files if search in f]
         return files
@@ -1291,9 +1290,11 @@ class Mod:
             tree =  self._cached_trees[cache_key]
         else:
             path = path or self.core_path
-            paths = [f for f in self.files(path, depth=depth) if any([f.endswith('.' + ft) for ft in self.file_types])]
             if folders :
-                paths = list(set([os.path.dirname(f) for f in paths]))
+                paths = list(set([os.path.dirname(f) for f in self.files(path, depth=depth)]))
+            else: 
+                paths = [f for f in self.files(path, depth=depth) if any([f.endswith('.' + ft) for ft in self.file_types])]
+
             tree = {self.get_path_name(f):f for f in paths}
             filter_k = lambda k: all(not k.startswith(prefix) for prefix in avoid_prefixes) and all(not k.endswith(suffix) for suffix in avoid_suffixes) and all(not term in k.split('.') for term in avoid_terms)
 
@@ -1339,7 +1340,6 @@ class Mod:
             **self.core_tree(search=search, **kwargs),
                 }
 
-
     def dirpath(self, mod=None, relative=True) -> str:
         """
         get the directory path of the mod
@@ -1358,8 +1358,6 @@ class Mod:
         return  dirpath
 
     dp = dirpath
-
-    
 
     def gitignore_path(self, path=None):
         path = path or self.lib_path
@@ -1724,6 +1722,3 @@ class Mod:
 
     def txs(self, *args, **kwargs) -> 'Callable':
         return self.fn('server/txs')( *args, **kwargs)
-
-if __name__ == "__main__":
-    Mod().run()

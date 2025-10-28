@@ -75,11 +75,10 @@ class  IpfsClient:
         response.raise_for_status()
         cid =  response.json()["Hash"]
         if pin:
-            print(f"Pinning data with CID: {cid}")
             self.pin_add(cid)
         return cid
 
-    def rm_data(self, ipfs_hash: str) -> Dict[str, Any]:
+    def rm(self, ipfs_hash: str) -> Dict[str, Any]:
         """Remove a JSON object from IPFS by its hash.
         
         Args:
@@ -87,7 +86,8 @@ class  IpfsClient:
         Returns:
             Dictionary with removal status
         """
-        return self.pin_rm(ipfs_hash)
+        self.pin_rm(ipfs_hash)
+        return {"Status": "Removed"}
 
 
     def get_data(self, ipfs_hash: str) -> Dict[str, Any]:
@@ -101,7 +101,7 @@ class  IpfsClient:
         content = self.get_file(ipfs_hash)
         return json.loads(content)
 
-    def mod(self, mod: m.Mod='store', pin=True) -> Dict[str, Any]:
+    def mod(self, mod: m.Mod='store', pin=True, schema=False, content=False) -> Dict[str, Any]:
         """Add a mod Mod to IPFS.
         
         Args:
@@ -111,7 +111,13 @@ class  IpfsClient:
             Dictionary with IPFS hash and other metadata
         """
         cid = self.mod2cid().get(mod, mod)
-        return self.get_data(cid) if cid else None
+        mod =  self.get_data(cid) if cid else None
+        if schema: 
+            mod['schema'] = self.get_data(mod['schema'])
+        if content:
+            mod['content'] = self.get_data(mod['content'])
+        return mod
+
 
     def mod_content(self, mod: m.Mod='store') -> Dict[str, Any]:
         """Retrieve a mod Mod from IPFS by its name.
@@ -131,7 +137,12 @@ class  IpfsClient:
     mod2cid_path = '~/.ipfs/mods.json'
     # Register or update a mod in IPFS
 
-    def reg(self, mod = 'store', key=None, comment=None, update=False, branch='main') -> Dict[str, Any]:
+    def reg(self, mod = 'store', 
+            key=None, 
+            comment=None, 
+            update=False, 
+            forbidden_mods = ['mod'],
+            branch='main') -> Dict[str, Any]:
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
         current_time = m.time()
         key = m.key(key)
@@ -141,12 +152,14 @@ class  IpfsClient:
         if prev is None:
            info = {
                    'content': cid,
+                   'schema': self.add_data(m.schema(mod)),
                    'prev': None, # previous state
                    'name': mod,
                    'created':  current_time,  # created timestamp
                    'updated': current_time, 
                    'key': key.address, 
                    'nonce': 1 # noncf
+
                    }
         # fam
         else:
@@ -156,10 +169,23 @@ class  IpfsClient:
                 info['content'] = cid
                 info['nonce'] = info['nonce'] + 1
                 info['updated'] = current_time
+                info['schema'] = self.add_data(m.schema(mod))
         info['signature'] = key.sign(info, mode='str')
-        mod2cid[mod] = self.add_data(info)
+        info_cid = self.add_data(info)
+        info['cid'] = info_cid # not included in signature
+        mod2cid[mod] = info_cid
         m.put(self.mod2cid_path, mod2cid)
         return info # fam fdffffffjferfejrfjoijiojhwefefijh
+
+
+    def mods(self) -> List[str]:
+        """List all registered mods in IPFS.
+        
+        Returns:
+            List of mod names
+        """
+        mod2cid = self.mod2cid()
+        return list(mod2cid.keys())
 
     def history(self, mod='store', features=['content', 'updated']):
 
@@ -199,8 +225,15 @@ class  IpfsClient:
     def mod2cid(self, update=False) -> Dict[str, str]:
         return m.get(self.mod2cid_path, {}, update=update)
 
-    def mods(self):
-        return m.ls('~/.ipfs/mods/')
+    def regall(self, mods: List[m.Mod]=None, key=None, comment=None, update=False, branch='main') -> Dict[str, Any]:
+        mods = mods or m.mods()
+        mod2info = {}
+        for mod in mods:
+            print(f"Registering mod: {mod}")
+            info = self.reg(mod, key=key, comment=comment, update=update, branch=branch)
+            mod2info[mod] = info
+        return mod2info
+
 
     def add_mod(self, mod: m.Mod) -> Dict[str, Any]:
         """Add a mod Mod to IPFS.
@@ -211,13 +244,11 @@ class  IpfsClient:
         Returns:
             Dictionary with IPFS hash and other metadata
         """
-        path = f'~/.ipfs/mods/{mod}'
         file2cid = {}
         content = m.content(mod)
         for file,content in content.items():
             cid = self.add_data(content, pin=True)
             file2cid[file] = cid
-            print(f"Added file: {file} with CID: {cid}")
         return self.add_data(file2cid)
 
 

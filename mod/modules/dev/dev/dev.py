@@ -11,7 +11,7 @@ import mod as c
 class Dev:
 
     def __init__(self, 
-                 tools = ["create_file", "rm_file", "edit_file", 'select_files', "cmd"],
+                 tools = ["create_file", "rm_file"],
                  model: str = 'model.openrouter', 
                  **kwargs):
 
@@ -68,9 +68,9 @@ class Dev:
     tmp_mod_prefix = 'dev.tmp'
 
     def forward(self, 
-                text: str = 'make this into a predictive defi prediction market ', 
+                text: str = 'make this like the base ', 
                 *extra_text, 
-                mod='surfi',
+                mod=None,
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
@@ -80,31 +80,21 @@ class Dev:
                 steps = 1,
                 src='./',
                 safety=True,
+                base = None,
                 remote=False,
                 trials=4,
                 **kwargs) -> Dict[str, str]:
         """
         use this to run the agent with a specific text and parameters
         """
-        # if src != None: 
-        #     remote = False
-        if remote:
-            params = locals()
-            [params.pop(k) for k in ['self', 'extra_text']]
-            params['remote'] = False
-            tmp_mod = f'{self.tmp_mod_prefix}.{mod}' 
-            c.cpmod(mod, tmp_mod)
-            params['mod'] = tmp_mod
-            c.serve(tmp_mod, env=self.model.env() )
-            cmd =  f"c dev/ {self.pm.params2cmd(params)}"
-            print(f"Running remote command: {cmd}")
-            return self.pm.exec(tmp_mod,cmd)
-        
-        src = src or c.dp(mod)
-        cid = c.cid(mod)
+        if mod != None:
+            src = c.dirpath(mod)
+        print(f"Dev Agent running with src={src}, model={model}, steps={steps}, temperature={temperature}, max_tokens={max_tokens}, stream={stream}, mode={mode}, safety={safety}")
         text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = self.preprocess(text=text)
-        self.add_memory(self.tool('select_files')(src=src))
+        self.add_memory(self.tool('select_files')(src))
+        if base:
+            self.add_memory(c.content(base))
         files = c.files(src)
         self.clear_memory()
         for step in range(steps):

@@ -10,12 +10,11 @@ services:
     environment:
     - NEXT_PUBLIC_API_URL=http://0.0.0.0:8000
     - NEXT_PUBLIC_APP_URL=http://0.0.0.0:3000
-    # image: mod:latest
     ports:
     - 3000:3000
     restart: unless-stopped
     shm_size: 100g
     volumes:
-    - ~/mod/mod/modules/app:/app
+    - /Users/homie/mod/mod/modules/app:/app
     - /app/node_modules
     working_dir: /app

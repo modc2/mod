@@ -83,36 +83,34 @@ class X402Middleware:
             print(f"[x402] verify error: {e}")
             return False
 
+    def example(self):
+        from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Example integration (optional)
-if __name__ == "__main__":
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+        class BaseHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.startswith("/ipfs/premium"):
+                    self._send_json({"data": "premium IPFS object"})
+                else:
+                    self._send_json({"data": "public IPFS object"})
 
-    class BaseHandler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path.startswith("/ipfs/premium"):
-                self._send_json({"data": "premium IPFS object"})
-            else:
-                self._send_json({"data": "public IPFS object"})
+            def _send_json(self, data):
+                body = json.dumps(data).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
 
-        def _send_json(self, data):
-            body = json.dumps(data).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+        class WrappedHandler(BaseHandler):
+            def __init__(self, *args, **kwargs):
+                self.middleware = X402Middleware(
+                    app=lambda h: BaseHandler.do_GET(h),
+                    receiver="YourSolanaAddressHere",
+                    protected_paths=["/ipfs/premium"]
+                )
+                super().__init__(*args, **kwargs)
 
-    class WrappedHandler(BaseHandler):
-        def __init__(self, *args, **kwargs):
-            self.middleware = X402Middleware(
-                app=lambda h: BaseHandler.do_GET(h),
-                receiver="YourSolanaAddressHere",
-                protected_paths=["/ipfs/premium"]
-            )
-            super().__init__(*args, **kwargs)
+            def do_GET(self):
+                self.middleware.handle(self)
 
-        def do_GET(self):
-            self.middleware.handle(self)
-
-    HTTPServer(("0.0.0.0", 50149), WrappedHandler).serve_forever()
+        HTTPServer(("0.0.0.0", 50149), WrappedHandler).serve_forever()

@@ -23,7 +23,6 @@ class Tx:
                     'schema': dict,
                     'client': dict,  # client auth
                     'server': dict,  # server auth
-                    'id': str
                 }, # the schema of the transaction
                 key:str = None, 
                  version='v0'):
@@ -73,36 +72,15 @@ class Tx:
             'client': auths['client'], # the client auth (dict)
             'server': auths['server'], # the server auth (dict)
         }
-        tx['id'] = m.hash(tx) # the hash of the transaction (str)
-        assert self.verify(tx)
-        # 
         tx_path = f'{tx["client"]["key"]}/{tx["server"]["key"]}/{fn}_{auths["client"]["time"]}'
-        m.print('tx', tx)
         self.store.put(tx_path, tx)
         return tx
 
     create_tx = create = tx = forward
 
-
-
-    def verify(self, tx):
-        """
-        verify the transaction
-        """
-        auth_data = self.get_role_auth_data_map(**tx)
-        for role in self.roles:
-            assert self.auth.verify(tx[role], data=auth_data[role]), f'{role} auth is invalid'
-        return True
-
     def paths(self, path=None):
         return self.store.paths(path=path)
 
-    def encrypted_paths(self, path=None):
-        """
-        Get the encrypted paths of the transactions
-        """
-        return self.store.encrypted_paths(path=path)
-   
     def _rm_all(self):
         """
         DANGER: This will permanently remove all transactions from the store.
@@ -216,28 +194,7 @@ class Tx:
 
         tx = self.forward(**tx)
 
-        assert self.verify(tx), 'Transaction is invalid'
-        print('Transaction is valid')
-
         return { 'time': time.time() - t0, 'msg': 'Transaction test passed'}
-
-    def get_auths(self, mod:str, fn:str, params:dict, result:Any, key=None):
-        """
-        Get the auths for the transaction
-        """
-        auth_data = self.get_role_auth_data_map(mod, fn, params, result)
-        return {role : self.auth.headers(auth_data[role], key=key) for role in self.roles}
-
-    def get_role_auth_data_map(self, mod:str, fn:str, params:dict, result:Any, **_ignore_params):
-        """
-        Get the auth data for each role 
-            client: the client auth data
-            server: the server auth data
-        """
-        return {
-                'client': {'fn': fn, 'params': params},
-                'server': {'fn': fn, 'params': params, 'result': result}
-                }
 
 
 

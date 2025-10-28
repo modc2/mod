@@ -15,7 +15,7 @@ Choose either Nix or system toolchain.
 nix develop
 cargo build --release
 cargo test --all --release
-./target/release/modnet-node --version
+./target/release/modchain --version
 ```
 
 ### Without Nix (system toolchain)
@@ -29,7 +29,7 @@ cargo test --all --release
 
 ## Project Layout
 
-- `node/` — node binary crate (`modnet-node`)
+- `node/` — node binary crate (`modchain`)
 - `runtime/` — runtime crate
 - `pallets/` — custom pallets
 - `flake.nix` — single-source Nix devshell (canonical)

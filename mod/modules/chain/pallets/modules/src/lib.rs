@@ -352,7 +352,7 @@ pub mod pallet {
             // Basic character validation (alphanumeric + some special chars)
             let valid_chars = cid_str
                 .chars()
-                .all(|c| m.is_ascii_alphanumeric() || c == '-' || c == '_');
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
             ensure!(valid_chars, Error::<T>::InvalidCidFormat);
 
             Ok(())

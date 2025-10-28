@@ -16,7 +16,7 @@ class SelectFiles:
             default_provider: Provider to use if no model is provided
             default_model: Default model to use for ranking
         """
-        self.model = c.module(provider)(model=model)
+        self.model = c.mod(provider)(model=model)
 
     def forward(self,  
               path: Union[List[str], Dict[Any, str]] = './',  

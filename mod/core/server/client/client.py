@@ -36,10 +36,7 @@ class Client:
                 update_info: bool = False, # whether to update the info from the server
                 **extra_kwargs 
     ):
-
-
-        # step 2 : get the key
-        url = self.get_url( fn=fn)
+        url = self.get_url(fn)
         key = self.get_key(key)
         fn = url.split('/')[-2]
         m.print(f'Client({url} key={key.name})', color='yellow')
@@ -94,9 +91,13 @@ class Client:
             url, fn = '/'.join(fn.split('/')[:-1]), fn.split('/')[-1]
             if len(fn) == 0:
                 fn = self.fn
-        else: 
-            url = self.url
-        url = self.namespace.get(str(url), url)
+        else :
+            if self.url is None:
+                url = fn
+                fn= self.fn
+            else:
+                url = self.url
+        url = self.namespace.get(url, url)
         if not url.startswith(self.mode):
             url = f'{self.mode}://{url}'
         return url + '/' + fn + '/'

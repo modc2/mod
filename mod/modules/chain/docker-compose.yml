@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  testnet:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chain-testnet
+    ports:
+      - "9944:9944"
+      - "9933:9933"
+      - "30333:30333"
+    command: |
+      ./target/release/node-template \
+        --dev \
+        --rpc-external \
+        --rpc-cors all \
+        --unsafe-rpc-external \
+        --ws-external \
+        --tmp
+    volumes:
+      - ~/.modchain/testnet:/data
+
+volumes:
+  testnet-data:

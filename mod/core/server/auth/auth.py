@@ -29,19 +29,6 @@ class Auth:
         self.signature_keys = signature_keys
         self.max_age = max_age
 
-
-    def get_data(self, fn:str, params:dict, result:Optional[Any]=None) -> dict:
-        """
-        Get the data to be signed
-        """
-        data = {
-            'fn': fn,
-            'params': params,
-        }
-        if result is not None:
-            data['result'] = result
-        return data
-
     def get_sig_data(self, headers: Dict[str, str]) -> str:
         assert all(k in headers for k in self.signature_keys), f'Missing keys in headers {headers}'
         return json.dumps({k: headers[k] for k in self.signature_keys}, separators=(',', ':'))
@@ -133,24 +120,3 @@ class Auth:
         return {'headers': headers}
 
 
-    def sand(self):
-
-        headers = {
-  "data": "77c7d662fd19f9c6844796d3c909ae727fb4b500e17184af20e895c1f8dc7b3b",
-  "time": "1756312652.381",
-  "key": "5FxnwR1rJ3yzHwRPVNgBjG79J9q7LVTUy6suePFjx9UfNpaC",
-  "signature": "0xae9b1eac55d27f36fd1e225af4fcc775e45ffadc5b8657a2d61457e206987f7ce0e1f5fc47c2e34382a6d185039096c51e4495304d17fd7a629ccd3065001984",
-  "hash_type": "sha256",
-  "crypto_type": "sr25519",
-  "cost": "10",
-  "sigData": "{\"data\":\"77c7d662fd19f9c6844796d3c909ae727fb4b500e17184af20e895c1f8dc7b3b\",\"time\":\"1756312652.381\",\"cost\":\"10\"}",
-#   "verified": true
-}
-        sigDataRecontructed = json.dumps({k: headers[k] for k in ['data', 'time', 'cost']})
-        # assert sigDataRecontructed == headers['sigData'], f'sigData does not
-
-        # reconstruct the signed data
-        sigDataRecontructed = json.dumps({k: headers[k] for k in ['data', 'time', 'cost']}, separators=(',', ':'))
-        assert m.hash(sigDataRecontructed) == m.hash(headers['sigData']), f'sigData does not match {sigDataRecontructed} != {headers["sigData"]}'
-        # return sigDataRecontructed
-        return m.verify(headers['sigData'], headers['signature'], headers['key'])

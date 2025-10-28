@@ -122,13 +122,13 @@ if [ "$SKIP_RUST" = false ]; then
   log_info "Building release version..."
   log_info "Building with try-runtime feature enabled to fix pallet-staking error"
   # Build specific packages to avoid frame-storage-access-test-runtime
-  WASM_BUILD_TOOLCHAIN=nightly cargo build -p modnet-runtime -p modnet-node --locked --release --features try-runtime || log_error "Build failed with try-runtime feature"
+  WASM_BUILD_TOOLCHAIN=nightly cargo build -p modnet-runtime -p modchain --locked --release --features try-runtime || log_error "Build failed with try-runtime feature"
   
   # Test
   log_info "Running tests..."
   log_info "Running tests with try-runtime feature enabled to fix pallet-staking error"
   # Test specific packages to avoid frame-storage-access-test-runtime
-  WASM_BUILD_TOOLCHAIN=nightly cargo test -p modnet-runtime -p modnet-node --locked --release --features try-runtime -- --nocapture || log_error "Tests failed"
+  WASM_BUILD_TOOLCHAIN=nightly cargo test -p modnet-runtime -p modchain --locked --release --features try-runtime -- --nocapture || log_error "Tests failed"
   
   log_info "Rust CI checks completed successfully!"
 fi

@@ -41,7 +41,8 @@ class PM:
         env = env or {}
         params = params or {}
         params.update({'port': port or m.free_port(), 'key': key or mod, 'remote': False, 'mod': mod})
-        cmd = f"m serve {self.params2cmd(params)}"
+        params_cmd = self.params2cmd(params)
+        cmd = f"m serve {params_cmd}"
         volumes = self.volumes(mod, key=params['key'])
         dirpath = m.dirpath(mod)
         docker_dirpath = self.convert_docker_path(dirpath)
@@ -243,6 +244,16 @@ class PM:
 
     def dockerfile(self, mod='mod'):
         return m.get_text(self.dockerfile_path(mod))
+
+    def compose_up(self, mod='chain', daemon: bool = True):
+        """
+        Run docker-compose up in the specified path.
+        """
+        cmd = 'docker-compose up'
+        path = m.dirpath(mod)
+        if daemon:
+            cmd += ' -d'
+        return os.system('cd ' + path + ' && ' + cmd)
 
     def build(self,
               path: Optional[str] = None,
