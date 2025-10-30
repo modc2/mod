@@ -145,7 +145,7 @@ class Vali:
 
         assert self.auth.verify_headers(proof), f'Invalid Proof {proof}'
 
-    def epoch(self, search=None, result_features=['score',  'name'], key=None, **kwargs):
+    def epoch(self, search=None, result_features=['score',  'name', 'key'], key=None, **kwargs):
         self.set_network(search=search, **kwargs)
         n = len(self.mods)
         if key:
@@ -171,7 +171,7 @@ class Vali:
         self.vote(results)
         if len(results) > 0:
             df = c.df(results)
-            return df
+            return df[result_features]
         else:
             epoch_info = {
                 'epochs' : self.epochs,

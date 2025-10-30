@@ -1,20 +1,19 @@
 networks:
-  host:
+  default:
     external: true
+    name: modnet
 services:
   mod:
     container_name: mod
     deploy: {}
-    entrypoint: bash -c "m serve port=50079 key=mod remote=0 mod=mod"
+    entrypoint: bash -c "m serve port=50148 key=server remote=0 mod=mod"
     environment: []
     image: mod:latest
     ports:
-    - 50079:50079
+    - 50148:50148
     restart: unless-stopped
     shm_size: 100g
     volumes:
     - ~/mod:/root/mod
-    - ~/.mod/server:/root/.mod/server
-    - ~/.mod/key/mod:/root/.mod/key/mod
-    - ~/.mod/mod:/root/.mod/mod
+    - ~/.mod:/root/.mod
     working_dir: /root/mod

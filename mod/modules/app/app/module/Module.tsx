@@ -74,7 +74,7 @@ export default function Module({ module_name }: ModuleProps) {
     try {
       update ? setSyncing(true) : setLoading(true)
       const client = new Client(undefined, keyInstance)
-      const params = { module: module_name, update:update, content: true , public: true, schema: true}
+      const params = { mod: module_name, content: true , schema: true}
       const foundModule = await client.call('mod', params)
       if (foundModule) {
         setModule(foundModule as ModuleType)

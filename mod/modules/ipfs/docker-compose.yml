@@ -1,18 +1,17 @@
 networks:
   default:
-    driver: bridge
+    external: true
+    name: modnet
 services:
   ipfs:
     container_name: ipfs
     deploy: {}
-    entrypoint: bash -c "m serve port=50095 key=ipfs remote=0 mod=ipfs"
-    environment:
-    - IPFS_API_URL=http://ipfs_node:5001/api/v0
+    entrypoint: bash -c "m serve port=50077 key=ipfs remote=0 mod=ipfs"
     extra_hosts:
     - 0.0.0.0:host-gateway
     image: mod:latest
     ports:
-    - 50095:50095
+    - 50077:50077
     restart: unless-stopped
     shm_size: 100g
     volumes:
@@ -22,7 +21,7 @@ services:
     - ~/.mod/ipfs:/root/.mod/ipfs
     - ~/mod/mod/modules/ipfs:/root/mod/mod/modules/ipfs
     working_dir: /root/mod/mod/modules/ipfs
-  ipfs_node:
+  ipfs.node:
     container_name: ipfs_node
     extra_hosts:
     - 0.0.0.0:host-gateway

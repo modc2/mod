@@ -33,7 +33,7 @@ const epoch = (m: any) =>
   typeof m?.updated_at === 'string' ? Math.floor(new Date(m.updated_at).getTime()/1000) :
   typeof m?.time === 'number' ? m.time : Math.floor(Date.now()/1000);
 
-const ownerOf = (m: any) => m?.owner || m?.creator || m?.author || m?.admin || 'unknown';
+const ownerOf = (m: any) => m?.key || m?.creator || m?.author || m?.admin || 'unknown';
 
 const hueFrom = (s: string) => { let h = 0; for (let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h%360; };
 const coverDataUri = (a: string, b: string, w = 384, h = 192) => {
@@ -62,7 +62,7 @@ const ModuleCard = memo(({ module }: ModuleCardProps) => {
 
   const time = useMemo(() => epoch(module as any), [module]);
   const owner = useMemo(() => ownerOf(module as any), [module]);
-  const cid = useMemo(() => (module as any)?.cid || null, [module]);
+  const cid = useMemo(() => (module as any)?.content || null, [module]);
   const description = useMemo(() => (module as any)?.description || (module as any)?.desc || 'No description available', [module]);
 
   const onOpen = useCallback((e: React.MouseEvent | React.KeyboardEvent) => {

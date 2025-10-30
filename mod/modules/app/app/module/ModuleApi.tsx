@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Client } from '@/app/client/client';
 import { CopyButton } from '@/app/components/CopyButton';
 import { useUserContext } from '@/app/context/UserContext';
-import { Auth } from '@/app/key';
+import Auth from '@/app/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MagnifyingGlassIcon,

@@ -14,7 +14,7 @@ class AesKey:
     def __init__(self, password='fam'):
         self.set_password(password)
 
-    def encrypt(self, data, password=None, verify_decryption=True):
+    def encrypt(self, data, password=None, verify_decryption=False):
         password = self.get_password(password)  
         data = copy.deepcopy(data)
         data = json.dumps(data)

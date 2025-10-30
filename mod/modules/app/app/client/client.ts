@@ -66,8 +66,7 @@ export class Client {
         let delta_seconds = (Date.now() - start_time) / 1000;
 
         console.log(`response ${this.url}/${fn} generation took ${delta_seconds} seconds`);
-
-      
+        console.log(response)
       if (!response.ok) {
         // Handle HTTP errors
         // if success field exists and is false, return the error message

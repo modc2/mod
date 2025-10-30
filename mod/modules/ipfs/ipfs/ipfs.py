@@ -13,6 +13,10 @@ class  IpfsClient:
     """Simple IPFS client using requests library only."""
     host_options = ['0.0.0.0', 'ipfs_node']
     def __init__(self, url: str = None):
+        self.set_url(url)
+        self.session = requests.Session()
+
+    def set_url(self, url: str = None): 
         if url is None:
             for host in self.host_options:
                 url = f"http://{host}:5001/api/v0"
@@ -23,7 +27,8 @@ class  IpfsClient:
                 except requests.exceptions.RequestException:
                     print(f"Could not connect to IPFS node at {url}")
         self.url = url 
-        self.session = requests.Session()
+        print(f"Using IPFS node at {self.url}")
+        return {"url": self.url}
         
     def test_connection(self) -> bool:
         """Test connection to the IPFS node.
@@ -541,3 +546,7 @@ class  IpfsClient:
         ipfs_hash = self.add_data(test_obj)
         retrieved_obj = self.get_data(ipfs_hash)
         return retrieved_obj == test_obj
+
+
+    def __str__(self):
+        return f"IpfsClient(url={self.url})"

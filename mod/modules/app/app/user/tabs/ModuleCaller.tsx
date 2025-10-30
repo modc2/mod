@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Send, Copy, CheckCircle, Terminal, Zap, AlertCircle } from 'lucide-react'
 import { Key } from '@/app/key'
 import { Auth, AuthHeaders } from '@/app/client/auth'
-import { Client } from '@/app/client'
+import  Client  from '@/app/client'
 import { copyToClipboard } from '@/app/utils' // Import the utility function
 import { CopyButton } from '@/app/components'
 

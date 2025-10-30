@@ -89,7 +89,7 @@ export default function Modules() {
           ...(searchTerm ? { search: searchTerm } : {}),
         }
 
-        const raw = (await client.call('mods', params, { signal: ac.signal })) as ModuleType[]
+        const raw = (await client.call('mods', params)) as ModuleType[]
         const pageItems = Array.isArray(raw) ? raw : []
         const nextList = append ? [...state.modules, ...pageItems] : pageItems
         const dedup = new Map(nextList.map((m) => [m.key, m]))

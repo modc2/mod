@@ -22,6 +22,18 @@ class PM:
         self.path = path
         self.store = m.mod('store')(store_path)
 
+    def compose_up(self, mod='chain', daemon:bool=True):
+        """
+        Run docker-compose up in the specified path.
+        """
+        docker_compose_paths = self.compose_files(mod)
+        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
+        cmd = 'docker-compose up'
+        path = m.dirpath(mod)
+        if daemon:
+            cmd += ' -d'
+        return os.system('cd ' + path + ' && ' + cmd)
+
     def forward(self,  
                 mod : str ='api', 
                 port : Optional[int] = None, 
@@ -113,6 +125,8 @@ class PM:
             serve_config['volumes'] = volumes
         if env:
             serve_config['environment'] = [f"{k}={v}" for k,v in env.items()] if env else []
+
+        
         serve_config['working_dir'] = working_dir
         if build:
             serve_config.pop('image', None)
@@ -121,6 +135,10 @@ class PM:
             serve_config['entrypoint'] = f'bash -c "{cmd}"'
         # Write the docker-compose file
         cwd = cwd or os.getcwd() 
+
+        # allow for other modules to call this module from their containers
+
+        
         
         if compose_path == None:
             compose_paths = self.compose_paths(name)
@@ -133,10 +151,20 @@ class PM:
         else:
             compose_config = {'version': '3.8', 'services': {}}
         
+
+
+        compose_config['networks'] = {
+            'default': {
+                'external': True,
+                'name': 'modnet'
+            }
+        }
         if name in compose_config['services']:
             compose_config['services'][name].update(serve_config)
+            # compose_config['extra_hosts'] = ["0.0.0.0:host-gateway"]
         else:
             compose_config['services'][name] = serve_config
+        
         m.put_yaml(compose_path, compose_config)
         compose_cmd = f'cd {cwd} && ' +  ' '.join(['docker-compose', '-f', compose_path, 'up'])
         if daemon:
@@ -664,11 +692,9 @@ class PM:
     def convert_docker_path(self, p):
         return p.replace('~', '/root').replace(m.home_path, '/root')
         
-    def volumes(self, mod='store', key=None, default_paths= [m.lib_path, m.storage_path + '/server']):
+    def volumes(self, mod='store', key=None, default_paths= [m.lib_path, m.storage_path]) -> Dict[str, str]:
         key = key or mod
         paths = default_paths.copy()
-        paths.append(m.storage_path + '/key/' + key)
-        paths.append(m.storage_path + '/' + mod)
         volumes = { p: self.convert_docker_path(p) for p in paths}
         module_path = m.dirpath(mod)
         volumes[module_path] = self.convert_docker_path(module_path)

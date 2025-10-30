@@ -7,11 +7,13 @@ import time
 import mod as m
 
 class  Modchain:
+    endpoints = ['mods', 'names', 'reg', 'mod']
+
 
     def __init__(self, store = 'ipfs'):
         self.store = m.mod(store)()
 
-    def mod(self, mod: m.Mod='store', schema=False, content=False) -> Dict[str, Any]:
+    def mod(self, mod: m.Mod='store', schema=False, content=False, **kwargs) -> Dict[str, Any]:
         """Add a mod Mod to IPFS.
         
         Args:
@@ -26,6 +28,8 @@ class  Modchain:
             mod['schema'] = self.store.get_data(mod['schema'])
         if content:
             mod['content'] = self.store.get_data(mod['content'])
+            for file, cid in mod['content'].items():
+                mod['content'][file] = self.store.get_data(cid)
         return mod
 
     
@@ -96,14 +100,14 @@ class  Modchain:
         return info # fam fdffffffjferfejrfjoijiojhwefefijh
 
 
-    def mods(self, search=None) -> List[str]:
+    def mods(self, search=None, **kwargs) -> List[str]:
         """List all registered mods in IPFS.
         
         Returns:
             List of mod names
         """
-        registry = self.registry()
-        return list(registry.keys())
+        registry = self.registry(search=search)
+        return [self.mod(k) for k in registry.keys()]
 
     def names(self, search=None):
         mods = list(self.registry(search=search).keys())

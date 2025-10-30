@@ -1276,7 +1276,7 @@ class Mod:
                 depth=10, 
                 root_names = ['mod'], 
                 avoid_terms = ['src', 'mods', '_mods', 'core'],
-                avoid_prefixes = ['__', '_'],
+                avoid_prefixes = ['__'],
                 avoid_suffixes = ['__', '/utils'],
                 ignore_suffixes = ['/src', '/core'],
                 folders:bool = True, 
@@ -1704,8 +1704,6 @@ class Mod:
         """
         self.mod('cli')().forward()
 
-    def test(self, mod = None,  **kwargs) ->  Dict[str, str]:
-        return self.fn('test/forward')( mod,  **kwargs )
 
     def hasattr(self, mod, k):
         """
