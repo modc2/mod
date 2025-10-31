@@ -24,7 +24,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 type TabType = 'app' | 'api' | 'content'
 
 interface ModuleProps {
-  module_name: string
+  key: string
+  module: string
   content?: boolean
   api?: boolean
 }
@@ -60,7 +61,14 @@ const text2color = (text: string): string => {
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }
 
-export default function Module({ module_name }: ModuleProps) {
+// [mod]/[key]/page.tsx, how do i get the key and mod name from the path?
+
+export default function Module({ params }: { params: { mod: string, key: string } }){
+
+  const module_name = params.mod
+  const module_key = params.key
+  console.log("params", params)
+
   const { keyInstance, authLoading } = useUserContext()
 
   const [mod, setModule] = useState<ModuleType | undefined>()
@@ -74,8 +82,10 @@ export default function Module({ module_name }: ModuleProps) {
     try {
       update ? setSyncing(true) : setLoading(true)
       const client = new Client(undefined, keyInstance)
-      const params = { mod: module_name, content: true , schema: true}
+      const params = { mod: module_name, content: true , schema: true, key:module_key}
       const foundModule = await client.call('mod', params)
+      console.log("fetched module", foundModule)
+
       if (foundModule) {
         setModule(foundModule as ModuleType)
         setError('')

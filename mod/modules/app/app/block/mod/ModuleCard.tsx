@@ -39,7 +39,7 @@ export default function ModuleCard({ mod }) {
 
   return (
     <Link
-      href={`/${mod.key}/${mod.name}`}
+      href={`/${mod.name}/${mod.key}`}
       className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-950 to-black p-6 shadow-[0_0_20px_rgba(0,0,0,0.45)] hover:border-blue-400/50 hover:shadow-[0_0_25px_rgba(0,140,255,0.25)] transition-all duration-300"
     >
       {/* hover gradient */}
