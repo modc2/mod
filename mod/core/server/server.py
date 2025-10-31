@@ -53,6 +53,7 @@ class Server:
         request = self.get_request(fn=fn, request=request) # get the request
         fn = request['fn']
         params = request['params']
+        cost = request['cost']
         info = self.mod.info()
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
         fn_obj = getattr(self.mod, fn) # get the function object from the mod
@@ -82,11 +83,11 @@ class Server:
 
                 self.tracker.forward(
                     mod=info["name"],
-                    schema=info['schema'].get(fn, {}),
                     fn=fn, # 
                     params=params, # params of the inputes
                     result=gen_result,
                     client=request['client'],
+                    cost=cost,
                     server=server_auth, 
                     key=self.key)
             # if the result is a generator, return a stream
@@ -103,7 +104,6 @@ class Server:
                 fn=fn, # 
                 params=params, # params of the inputes
                 result=result,
-                schema=info['schema'].get(fn, {}),
                 client=request['client'], # client auth
                 server= server_auth , 
                 key=self.key)
@@ -131,10 +131,13 @@ class Server:
         loop = asyncio.get_event_loop()
         params = loop.run_until_complete(request.json())
         params = json.loads(params) if isinstance(params, str) else params
+        
         assert self.auth.hash({"fn": fn, "params": params}) == headers['data'], f'Invalid data hash for {params}'
         role = self.role(headers['key']) # get the role of the user
         if role not in self.sudo_roles:
             assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
+        headers =  {k:v for k,v in headers.items() if k in self.auth.auth_features}
+
         return {'fn': fn, 'params': params, 'client': headers, 'role': role, 'cost': cost}
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
@@ -339,7 +342,6 @@ class Server:
               ):
         port = self.get_port(port)
         mod = mod or 'mod'
-        key = key or mod
         params = {**(params or {}), **extra_params}
         if remote:
             return m.mod('pm')().forward(mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)

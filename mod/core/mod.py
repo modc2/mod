@@ -1387,7 +1387,7 @@ class Mod:
         dirpath = self.mods_path + '/' + name.replace('.', '/')
         self.cmd(f'cp -r {path} {dirpath}')
         files = self.files(dirpath, relative=True)
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files, 'cid': self.cid(name)}
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
 
     def add_mod(self, base = 'base', name= 'base2', path=None, update=True, ):
         """

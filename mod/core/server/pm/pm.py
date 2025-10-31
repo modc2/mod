@@ -125,7 +125,6 @@ class PM:
             serve_config['volumes'] = volumes
         if env:
             serve_config['environment'] = [f"{k}={v}" for k,v in env.items()] if env else []
-
         
         serve_config['working_dir'] = working_dir
         if build:
@@ -135,11 +134,6 @@ class PM:
             serve_config['entrypoint'] = f'bash -c "{cmd}"'
         # Write the docker-compose file
         cwd = cwd or os.getcwd() 
-
-        # allow for other modules to call this module from their containers
-
-        
-        
         if compose_path == None:
             compose_paths = self.compose_paths(name)
             if len(compose_paths) > 0:

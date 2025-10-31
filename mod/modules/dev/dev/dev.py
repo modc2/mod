@@ -83,6 +83,7 @@ class Dev:
                 base = None,
                 remote=False,
                 trials=4,
+                
                 **kwargs) -> Dict[str, str]:
         """
         use this to run the agent with a specific text and parameters
@@ -93,6 +94,7 @@ class Dev:
         text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = self.preprocess(text=text)
         self.add_memory(self.tool('select_files')(src))
+        self.add_memory()
         if base:
             self.add_memory(c.content(base))
         files = c.files(src)
@@ -178,7 +180,11 @@ class Dev:
     def load_step(self, text):
         text = text.split(self.anchors['tool'][0])[1].split(self.anchors['tool'][1])[0]
         c.print("STEP:", text, color='yellow')
-        step = json.loads(text)
+        try:
+            step = json.loads(text)
+        except json.JSONDecodeError as e:
+            text = self.tool('fix_json')(text)
+            step = json.loads(text)
         assert 'tool' in text
         assert 'params' in text
         return step

@@ -26,7 +26,7 @@ class Auth:
         self.crypto_type = crypto_type
         self.key = m.get_key(key=key, crypto_type=crypto_type)
         self.hash_type = hash_type
-        self.signature_keys = signature_keys
+        self.auth_features = signature_keys + ['key', 'signature']
         self.max_age = max_age
 
     def get_sig_data(self, headers: Dict[str, str]) -> str:

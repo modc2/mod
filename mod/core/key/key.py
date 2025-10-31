@@ -576,13 +576,17 @@ class Key:
 
     def time(self ):
         return int(time.time())
+
     def password(self, udpate=False):
         x = m.get('password', update=udpate)
         if x != None:
             return x
-        x = self.time()
-        x =  m.hash(str(x * x + 2 * x + 1))
-        return m.hash(str(x))
+        else: 
+                
+            x = self.time()
+            x =  m.hash(str(x * x + 2 * x + 1))
+            m.put('password', x)
+        return x
 
     def get_encryption_key(self,  password:str=None, key:Optional[str]=None):
         from .aes import AesKey
@@ -601,6 +605,7 @@ class Key:
             return False
         enc_text = {'data': enc_data,  "address": data['address'], "crypto_type": data['crypto_type'], 'encrypted': True}
         m.put(path, enc_text)
+        assert self.is_key_encrypted(path)
         return enc_text
     
     def is_key_encrypted(self, key, data=None, crypto_type=None):
@@ -630,15 +635,17 @@ class Key:
     password_path = storage_path+'/password'
     min_password_chars = 8
     
-    def set_password(self, password):
+    def set_password(self, password=None):
+        import getpass
+        if password == None:
+            password = getpass.getpass('Enter password:')
         assert len(password) >= self.min_password_chars
         return m.put(self.password_path, password)
 
-    def get_password(self, max_age=3600, update=False):
-        password =  m.get(self.password_path, max_age=max_age, udate=update)
+    def password(self,update=False):
+        password =  m.get(self.password_path, udate=update)
         if password == None: 
-            m.rm(self.password_path)
-            password = input(f'Your password is expired, please reset it (min_chars={self.min_password_chars})')
+            m.rm(self.password_path)            
             self.set_password(password)
         return password
 

@@ -6,8 +6,8 @@ from pathlib import Path
 import time
 import mod as m
 
-class  Modchain:
-    endpoints = ['mods', 'names', 'reg', 'mod']
+class  Api:
+    endpoints = ['mods', 'names', 'reg', 'mod', 'users', 'user_info', 'n']
 
 
     def __init__(self, store = 'ipfs'):
@@ -48,17 +48,16 @@ class  Modchain:
 
 
 
-    def reg(self, mod = 'store', 
+    def reg(self, 
+            mod = 'store', 
             key=None, 
             comment=None, 
             update=False, 
-            forbidden_mods = ['mod'],
-            branch='main') -> Dict[str, Any]:
+            forbidden_mods = ['mod']) -> Dict[str, Any]:
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
         current_time = m.time()
         key = m.key(key)
         prev_cid = self.get_mod_cid(mod, update=update)
-        url = m.namespace().get(mod, None)
 
         if prev_cid is None:
            info = {
@@ -70,7 +69,6 @@ class  Modchain:
                    'updated': current_time, 
                    'key': key.address, 
                    'nonce': 1, # noncf
-                   'url': url,
 
                    }
         # fam
@@ -90,14 +88,14 @@ class  Modchain:
 
                     }
                 )
-            info['url'] = url
+        info['url'] = m.namespace().get(mod, None)
         info.pop('signature', None)
         info['signature'] = key.sign(info, mode='str')
         info_cid = self.store.add_data(info)
         self.put_mod_cid(mod, info_cid)
         assert self.verify(info)
         
-        return info # fam fdffffffjferfejrfjoijiojhwefefijh
+        return info 
 
 
     def mods(self, search=None, **kwargs) -> List[str]:
@@ -174,12 +172,12 @@ class  Modchain:
         m.put(self.registry_path, registry)
         return False
 
-    def regall(self, mods: List[m.Mod]=None, key=None, comment=None, update=False, branch='main') -> Dict[str, Any]:
+    def regall(self, mods: List[m.Mod]=None, key=None, comment=None, update=False) -> Dict[str, Any]:
         mods = mods or m.mods()
         mod2info = {}
         for mod in mods:
             print(f"Registering mod: {mod}")
-            info = self.reg(mod, key=key, comment=comment, update=update, branch=branch)
+            info = self.reg(mod, key=key, comment=comment, update=updat)
             mod2info[mod] = info
         return mod2info
 
@@ -227,3 +225,77 @@ class  Modchain:
         mod_info = {k:v for k,v in mod_info.items() if k != 'signature'}
         valid = m.verify(mod_info, signature=signature, address=key_address, mode='str')
         return valid
+
+    def user_keys(self) -> List[str]:
+        """List all unique users who have registered mods in IPFS.
+        
+        Returns:
+            List of user addresses
+        """
+        registry = self.registry()
+        users = set()
+        for mod_name, cid in registry.items():
+            mod_info = self.mod(mod_name)
+            users.add(mod_info['key'])
+        return list(users)
+    def users(self, search=None, **kwargs) -> List[Dict[str, Any]]:
+        """List all users who have registered mods in IPFS.
+        
+        Args:
+            search: Optional search term to filter users
+        Returns:
+            List of user information dictionaries
+        """
+        user_keys = self.user_keys()
+        users_info = []
+        for user_key in user_keys:
+            if search and search not in user_key:
+                continue
+            info = self.user_info(user_key)
+            users_info.append(info)
+        return users_info
+
+    def user_mods(self, user_address: str = None) -> List[str]:
+        """List all mods registered by a specific user in IPFS.
+        
+        Args:
+            user_address: Address of the user
+        Returns:
+            List of mod names   
+        """
+        if user_address is None:
+            user_address = m.key().address
+        registry = self.registry()
+        user_mods = []
+        for mod_name, cid in registry.items():
+            mod_info = self.mod(mod_name)
+            user_mods.append(mod_info)
+        return user_mods
+
+    def user_info(self, user_address: str = None) -> Dict[str, Any]:
+        """Get information about a specific user in IPFS.
+        
+        Args:
+            user_address: Address of the user
+        Returns:
+            Dictionary with user information
+        """
+        if user_address is None:
+            user_address = m.key().address
+        mods = self.user_mods(user_address)
+        info = {
+            'key': user_address,
+            'mods': mods,
+            'balance': self.balance(user_address)
+        }
+        return info
+        
+    def balance(self, user_address: str = None) -> float:
+        """Get the balance of a specific user in IPFS.
+        
+        Args:
+            user_address: Address of the user
+        Returns:
+            Balance as a float
+        """
+        return 0

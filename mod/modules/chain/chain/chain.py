@@ -33,7 +33,7 @@ class  Modchain:
     # Register or update a mod in IPFS
 
     def get_mod_cid(self, mod, update=False):
-        registry = m.get(self.registry_path, {}, update=False)
+        registry = m.get(self.registry_path, {}, update=update)
         return  registry.get(mod, None)
     
     def put_mod_cid(self, mod:str, cid:str):
@@ -44,7 +44,8 @@ class  Modchain:
 
 
 
-    def reg(self, mod = 'store', 
+    def reg(self, 
+            mod = 'store', 
             key=None, 
             comment=None, 
             update=False, 

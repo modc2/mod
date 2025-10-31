@@ -1,17 +1,17 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { Header } from './header/Header'
-import { UserProvider } from './context/UserContext'
-import { SearchProvider } from './context/SearchContext'
-import { ClientSidebar } from './sidebar/ClientSidebar'
+import { Header } from '@/app/block/header/Header'
+import { UserProvider } from '@/app/block/context/UserContext'
+import { SearchProvider } from '@/app/block/context/SearchContext'
+import { ClientSidebar } from '@/app/block/sidebar/ClientSidebar'
 import "react-responsive-modal/styles.css"
 import "@/app/globals.css"
-import { SidebarProvider } from './context/SidebarContext'
+import { SidebarProvider } from '@/app/block/context/SidebarContext'
 
 export const metadata: Metadata = {
   title: "dhub",
-  description: "dhub - the hub for modules. built with commune-ai/commune",
+  description: "dhub - the hub for mods. built with commune-ai/commune",
   robots: 'all',
   icons: [{ rel: 'icon', url: '/favicon.ico' }]
 }

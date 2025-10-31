@@ -1,107 +1,96 @@
 import mod as c
-import json
 import os
-from typing import List, Dict, Union, Optional, Any
+import re
+from typing import Optional
 
 print = c.print
 
 class Tool:
-
-    def forward(self,  
-              path: str = './',
-              content: str = 'hey',
-              start_anchor: str = 'blah blah',
-              end_anchor: str = 'is up',
-              mode: str = 'between',  # 'between', 'after', 'before', 'append', 'prepend'
-              create_if_missing: bool = True,
-              **kwargs) -> str:
+    def forward(
+        self,
+        path: str = "./",
+        content: str = "hey",
+        start_anchor: Optional[str] = None,
+        end_anchor: Optional[str] = None,
+        create_if_missing: bool = True,
+        strict: bool = False,
+        use_regex: bool = False,
+        **kwargs
+    ) -> str:
         """
-        Insert content into a file at various positions
-        
-        Args:
-            path: Path to the file
-            content: Content to insert
-            start_anchor: Starting anchor text
-            end_anchor: Ending anchor text (used in 'between' mode)
-            mode: Where to insert content:
-                - 'between': Insert between start and end anchors
-                - 'after': Insert after start_anchor
-                - 'before': Insert before start_anchor
-                - 'append': Append to end of file
-                - 'prepend': Prepend to beginning of file
-            create_if_missing: Create file if it doesn't exist
+        Smartly insert content into a file.
+
+        Behavior:
+        - If both start and end anchors exist → replace text between them
+        - If only start anchor exists → insert after it
+        - If only end anchor exists → insert before it
+        - If neither exists → append to end
         """
         path = os.path.abspath(path)
-        
-        # Handle file creation if needed
+
+        # --- load or create file ---
         if not os.path.exists(path):
             if create_if_missing:
-                c.print(f"Creating new file: {path}", color='yellow')
-                c.write(path, '')
-                text = ''
+                c.print(f"[+] Creating new file: {path}", color="yellow")
+                c.write(path, "")
+                text = ""
             else:
                 raise FileNotFoundError(f"File not found: {path}")
         else:
-            # Read the file content
             text = c.text(path)
-        
-        # Handle different insertion modes
-        if mode == 'append':
-            result = text + content
-        elif mode == 'prepend':
-            result = content + text
-        elif mode == 'after':
-            if start_anchor not in text:
-                c.print(f"Warning: Start anchor '{start_anchor}' not found. Appending to end.", color='yellow')
-                result = text + content
-            else:
-                pos = text.find(start_anchor) + len(start_anchor)
-                result = text[:pos] + content + text[pos:]
-        elif mode == 'before':
-            if start_anchor not in text:
-                c.print(f"Warning: Start anchor '{start_anchor}' not found. Prepending to beginning.", color='yellow')
-                result = content + text
-            else:
-                pos = text.find(start_anchor)
-                result = text[:pos] + content + text[pos:]
-        elif mode == 'between':
-            # Check if anchors exist
-            if start_anchor not in text or end_anchor not in text:
-                c.print(f"Warning: Anchors not found. Using fallback mode.", color='yellow')
-                if start_anchor in text:
-                    # Only start anchor found, insert after it
-                    pos = text.find(start_anchor) + len(start_anchor)
-                    result = text[:pos] + content + text[pos:]
-                else:
-                    # No anchors found, append to end
-                    result = text + content
-            else:
-                # Find positions of anchors
-                start_pos = text.find(start_anchor)
-                end_pos = text.find(end_anchor, start_pos + len(start_anchor))
-                
-                if end_pos <= start_pos:
-                    # End anchor comes before start anchor, try to find next occurrence
-                    end_pos = text.find(end_anchor, start_pos + len(start_anchor))
-                    if end_pos == -1:
-                        c.print(f"Warning: End anchor after start anchor not found. Inserting after start anchor.", color='yellow')
-                        pos = start_pos + len(start_anchor)
-                        result = text[:pos] + content + text[pos:]
-                    else:
-                        # Insert between anchors
-                        before_start = text[:start_pos + len(start_anchor)]
-                        after_end = text[end_pos:]
-                        result = before_start + content + after_end
-                else:
-                    # Normal case: insert between anchors
-                    before_start = text[:start_pos + len(start_anchor)]
-                    after_end = text[end_pos:]
-                    result = before_start + content + after_end
+
+        # --- helpers ---
+        def find_anchor(pattern: str, s: str, start: int = 0) -> Optional[int]:
+            if not pattern:
+                return None
+            if use_regex:
+                m = re.search(pattern, s[start:])
+                return m.start() + start if m else None
+            pos = s.find(pattern, start)
+            return pos if pos != -1 else None
+
+        def find_anchor_end(pattern: str, s: str, start: int = 0) -> Optional[int]:
+            if not pattern:
+                return None
+            if use_regex:
+                m = re.search(pattern, s[start:])
+                return m.end() + start if m else None
+            pos = s.find(pattern, start)
+            return pos + len(pattern) if pos != -1 else None
+
+        result = text
+
+        # --- intelligent insertion logic ---
+        start_pos = find_anchor_end(start_anchor, text) if start_anchor else None
+        end_pos = find_anchor(end_anchor, text, start_pos or 0) if end_anchor else None
+
+        if start_anchor and end_anchor and start_pos is not None and end_pos is not None and end_pos > start_pos:
+            # Replace between anchors
+            result = text[:start_pos] + content + text[end_pos:]
+            c.print(f"[=] Inserted between anchors.", color="cyan")
+
+        elif start_pos is not None:
+            # Only start anchor found → insert after
+            result = text[:start_pos] + content + text[start_pos:]
+            c.print(f"[=] Inserted after start anchor.", color="cyan")
+
+        elif end_pos is not None:
+            # Only end anchor found → insert before
+            result = text[:end_pos - len(end_anchor)] + content + text[end_pos - len(end_anchor):]
+            c.print(f"[=] Inserted before end anchor.", color="cyan")
+
         else:
-            raise ValueError(f"Invalid mode: {mode}. Use 'between', 'after', 'before', 'append', or 'prepend'")
-        
-        # Write the result back to the file
-        c.write(path, result)
-        c.print(f"Successfully updated file: {path}", color='green')
-        
+            msg = f"No anchors found."
+            if strict:
+                raise ValueError(msg)
+            c.print(f"[!] {msg} Appending to end.", color="yellow")
+            result = text + content
+
+        # --- write result if changed ---
+        if result != text:
+            c.write(path, result)
+            c.print(f"[✓] Updated file: {path}", color="green")
+        else:
+            c.print(f"[=] No change to file: {path}", color="blue")
+
         return result

@@ -19,7 +19,7 @@ class Tool:
     output_format = 'DICT(data:str)'
     cache_dir: str = '~/.fix/cache'
 
-    def __init__(self, model='anthropic/claude-opus-4', ):
+    def __init__(self, model='anthropic/claude-sonnet-4.5', ):
         self.model = c.mod('model.openrouter')(model=model)
     def forward(self,  
               content: str = '{}',  # Path to the file containing options or a file

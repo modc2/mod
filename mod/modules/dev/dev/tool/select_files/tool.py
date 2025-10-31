@@ -29,12 +29,13 @@ class SelectFiles:
         if mod:
             path = c.dirpath(mod)
         files = c.files(path)
-        files = c.fn('select_options/')(
-            query=query,
-            options= c.files(path),
-            n=n,
-            **kwargs
-        )
+        if len(files) > 1:
+            files = c.fn('select_options/')(
+                query=query,
+                options= c.files(path),
+                n=n,
+                **kwargs
+            )
         files =  [os.path.expanduser(file).replace(os.path.expanduser('~'), '~') for file in files]
         if content:
             results = {}
