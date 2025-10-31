@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
-import { ModuleType } from '@/app/types/mod'
+import { ModuleType } from '@/apptypes'
 import { useUserContext } from '@/app/block/context/UserContext'
 import {
   CodeBracketIcon,

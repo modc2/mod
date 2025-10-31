@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Copy, LogOut, Key as KeyIcon, Shield, Globe, FileSignature, CheckCircle, History, Package, User, Terminal, Lock, Zap } from 'lucide-react'
 import { Key } from '@/app/block/key'
-import type { User } from '@/app/types/user'
+import type { User } from '@/apptypes'
 import { CopyButton } from '@/app/block/CopyButton'
 
 

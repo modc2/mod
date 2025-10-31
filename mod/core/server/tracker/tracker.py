@@ -151,27 +151,3 @@ class Tx:
         Get the number of transactions
         """
         return len(self.store.items())
-
-    def tx2age(self):
-        return self.store.path2age()
-        
-    def test(self):
-        """
-        Test the transaction
-        """
-        t0 = time.time()
-        tx = {
-            'mod': 'test',
-            'fn': 'test',
-            'params': {'a': 1, 'b': 2},
-            'result': {'a': 1, 'b': 2},
-            'cost': 0
-        }
-
-        tx = self.forward(**tx)
-
-        return { 'time': time.time() - t0, 'msg': 'Transaction test passed'}
-
-
-
-

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, LogOut, FileSignature, Package, User } from 'lucide-react'
 import { Key } from '@/app/block/key'
-import type { User as UserType } from '@/app/types/user'
+import type { User as UserType } from '@/apptypes'
 import { ModuleCaller } from '@/app/block/user/tabs/ModuleCaller'
 import { SignVerifyTab } from './tabs/SignVerifyTab'
 import { CopyButton } from '@/app/block/CopyButton'

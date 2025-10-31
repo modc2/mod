@@ -1,4 +1,6 @@
 
+
+
   export type ModuleType = {
       name: string
       key: string // address 
@@ -18,3 +20,17 @@ interface ModulesState {
     error: string | null
   }
   
+
+export interface UserType {
+  key: string
+  mods: ModuleType[]
+  balance: number
+}
+
+
+export interface UsersState {
+  users: UserType[]
+  n: number
+  loading: boolean
+  error: string | null
+}

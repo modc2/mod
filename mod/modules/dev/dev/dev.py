@@ -93,12 +93,11 @@ class Dev:
         print(f"Dev Agent running with src={src}, model={model}, steps={steps}, temperature={temperature}, max_tokens={max_tokens}, stream={stream}, mode={mode}, safety={safety}")
         text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = self.preprocess(text=text)
+        self.clear_memory()
         self.add_memory(self.tool('select_files')(src))
-        self.add_memory()
         if base:
             self.add_memory(c.content(base))
         files = c.files(src)
-        self.clear_memory()
         for step in range(steps):
             c.print(f"STEP({step + 1}/{steps}) ", color='green')
             prompt = self.prompt.format(

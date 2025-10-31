@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { GlobeAltIcon, ArrowLeftIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
-import { ModuleType } from '@/app/types/mod'
+import { ModuleType } from '@/apptypes'
 
 interface ModuleAppProps {
   mod: ModuleType

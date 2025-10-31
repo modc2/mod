@@ -1,59 +1,13 @@
-'use client'
+"use client"
 
 import { useEffect, useState } from 'react'
 import { Loading } from '@/app/block/Loading'
-import { ModuleType } from '@/app/block/types/mod'
 import { Footer } from '@/app/block/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-
-interface UserType {
-  key: string
-  mods: ModuleType[]
-  balance: number
-}
-
-interface UsersState {
-  users: UserType[]
-  n: number
-  loading: boolean
-  error: string | null
-}
-
-function UserCard({ user }: { user: UserType }) {
-  return (
-    <div className="group relative w-full max-w-3xl mx-auto overflow-hidden rounded-2xl border border-green-500/20 bg-gradient-to-b from-zinc-950 to-black p-6 shadow-[0_0_25px_rgba(0,255,120,0.08)] hover:border-green-400/40 hover:shadow-[0_0_35px_rgba(0,255,120,0.2)] transition-all duration-500">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-semibold text-green-400 tracking-tight truncate">{user.key}</h2>
-        <span className="text-sm font-medium text-green-300/80 bg-green-900/30 px-3 py-1 rounded-lg border border-green-800/40">
-          {user.balance}Ξ
-        </span>
-      </div>
-
-      <div className="border-t border-green-900/40 my-4" />
-
-      <div className="space-y-3">
-        {user.mods.length === 0 ? (
-          <p className="text-green-700 text-sm italic">no mods</p>
-        ) : (
-          <ul className="flex flex-wrap gap-2">
-            {user.mods.map((mod) => (
-              <li
-                key={mod.key}
-                className="px-3 py-1 text-sm uppercase bg-green-900/30 text-green-300/90 rounded-lg border border-green-800/60 hover:border-green-400/70 hover:bg-green-800/40 hover:text-green-100 transition-all"
-              >
-                {mod.name}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* glowing orb effect */}
-      <div className="absolute -top-16 -right-16 w-48 h-48 bg-green-500/10 rounded-full blur-3xl opacity-0 group-hover:opacity-20 transition" />
-    </div>
-  )
-}
+import { UsersState, UserType } from '@/app/types'
+import { UserCard } from '@/app/users/UserCard'
+import { Users as UsersIcon, AlertCircle } from 'lucide-react'
 
 export default function Users() {
   const { keyInstance, client } = useUserContext()
@@ -95,26 +49,69 @@ export default function Users() {
   }, [searchFilters.searchTerm, page, pageSize, keyInstance])
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-green-400 font-mono flex flex-col items-center">
-      {/* error message */}
+    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex flex-col">
+      {/* Header */}
+      <div className="sticky top-0 z-40 border-b border-white/[0.08] bg-black/80 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 shadow-[0_8px_16px_rgba(139,92,246,0.3)]">
+              <UsersIcon className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-blue-100 to-purple-200">
+                Users
+              </h1>
+              {!state.loading && state.n > 0 && (
+                <p className="text-sm text-white/50 mt-1">
+                  {state.n} {state.n === 1 ? 'user' : 'users'} found
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Error message */}
       {state.error && (
-        <div className="w-full max-w-2xl m-4 p-3 border border-red-500 bg-red-900/20 text-red-400 text-center rounded-lg">
-          ERROR: {state.error}
+        <div className="max-w-4xl mx-auto w-full px-6 mt-8">
+          <div className="flex items-start gap-4 p-6 rounded-2xl border border-rose-500/25 bg-gradient-to-br from-rose-500/15 to-rose-600/10 backdrop-blur-xl">
+            <AlertCircle className="w-6 h-6 text-rose-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-semibold text-rose-300 mb-1">Error Loading Users</h3>
+              <p className="text-sm text-rose-200/80">{state.error}</p>
+            </div>
+          </div>
         </div>
       )}
 
-      <main className="w-full flex-1 px-4 py-10 flex flex-col items-center space-y-6">
-        {state.loading ? (
-          <div className="py-20 text-center text-green-400">
-            <Loading />
-          </div>
-        ) : state.users.length === 0 ? (
-          <div className="py-20 text-center text-green-700 text-sm">
-            {searchFilters.searchTerm ? 'NO USERS MATCH.' : 'NO USERS FOUND.'}
-          </div>
-        ) : (
-          state.users.map((u) => <UserCard key={u.key} user={u} />)
-        )}
+      {/* Main content */}
+      <main className="flex-1 px-6 py-12">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {state.loading ? (
+            <div className="py-32 flex flex-col items-center justify-center gap-4">
+              <Loading />
+              <p className="text-white/50 text-sm">Loading users...</p>
+            </div>
+          ) : state.users.length === 0 ? (
+            <div className="py-32 flex flex-col items-center justify-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center">
+                <UsersIcon className="w-8 h-8 text-white/20" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-xl font-semibold text-white/60 mb-2">
+                  {searchFilters.searchTerm ? 'No matching users' : 'No users found'}
+                </h3>
+                <p className="text-sm text-white/40">
+                  {searchFilters.searchTerm 
+                    ? 'Try adjusting your search filters' 
+                    : 'Users will appear here once they register'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            state.users.map((u) => <UserCard key={u.key} user={u} />)
+          )}
+        </div>
       </main>
 
       <Footer />

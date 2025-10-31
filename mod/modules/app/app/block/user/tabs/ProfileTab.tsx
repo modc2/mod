@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { User, Copy, CheckCircle, Globe, Shield, Lock, Key as KeyIcon, LogOut, Zap } from 'lucide-react'
 import { Key } from '@/app/block/key'
-import type { User as UserType } from '@/app/types/user'
+import type { User as UserType } from '@/apptypes'
 import { copyToClipboard } from '@/app/utils' // Import the utility function
 
 interface ProfileTabProps {
