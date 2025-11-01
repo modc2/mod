@@ -69,6 +69,7 @@ export default function Module({ module_name }: ModuleProps) {
   const [syncing, setSyncing] = useState<boolean>(false)
   const [activeTab, setActiveTab] = useState<TabType>('api')
   const [hasFetched, setHasFetched] = useState(false)
+  const [columnSize, setColumnSize] = useState<'compact' | 'normal' | 'wide'>('normal')
 
   const fetchModule = useCallback(async (update = false) => {
     try {
@@ -110,61 +111,88 @@ export default function Module({ module_name }: ModuleProps) {
     { id: 'app',  icon: ComputerDesktopIcon },
     { id: 'content', icon: CodeBracketIcon },
   ]
+
+  const columnWidths = {
+    compact: 'max-w-4xl',
+    normal: 'max-w-6xl',
+    wide: 'max-w-7xl'
+  }
   
   return (
     <div className="min-h-screen bg-black text-white mod-page">
       <div className="w-full">
-        {/* Compact Professional Header */}
-        <div className="w-full px-4 py-3 border-b border-white/10 bg-gradient-to-r from-black via-gray-900/50 to-black">
-          <div className="flex flex-wrap items-center gap-3">
+        {/* Enhanced Header with Column Size Control */}
+        <div className="w-full px-6 py-4 border-b border-white/10 bg-gradient-to-r from-black via-gray-900/50 to-black">
+          <div className="flex flex-wrap items-center gap-4">
             <span
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-2xl font-bold"
+              className="inline-flex items-center gap-3 px-5 py-3 rounded-lg text-4xl font-bold"
               style={{ color: moduleColor, backgroundColor: `${moduleColor}14`, border: `2px solid ${moduleColor}33` }}
             >
-              <CubeIcon className="h-7 w-7" />
+              <CubeIcon className="h-10 w-10" />
               {mod.name}
             </span>
 
             {Array.isArray(mod.tags) && mod.tags.map((tag, i) => (
               <span
                 key={`${tag}-${i}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-base border"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xl border"
                 style={{ color: moduleColor, backgroundColor: `${moduleColor}0f`, borderColor: `${moduleColor}33` }}
               >
-                <TagIcon className="h-4 w-4" />
+                <TagIcon className="h-6 w-6" />
                 {tag}
               </span>
             ))}
 
             <div className="flex-1 min-w-[8px]" />
 
+            {/* Column Size Selector */}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-black/60" style={{ borderColor: `${moduleColor}33` }}>
+              <span className="text-base font-semibold" style={{ color: moduleColor }}>Width:</span>
+              {(['compact', 'normal', 'wide'] as const).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setColumnSize(size)}
+                  className={`px-4 py-2 rounded-md text-base font-bold transition-all ${
+                    columnSize === size ? 'text-black' : ''
+                  }`}
+                  style={{
+                    backgroundColor: columnSize === size ? moduleColor : 'transparent',
+                    color: columnSize === size ? '#000' : `${moduleColor}99`,
+                    border: `1px solid ${moduleColor}33`
+                  }}
+                >
+                  {size.charAt(0).toUpperCase() + size.slice(1)}
+                </button>
+              ))}
+            </div>
+
             {mod.key && (
               <div
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-base border bg-black/60"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xl border bg-black/60"
                 style={{ borderColor: `${moduleColor}33` }}
               >
-                <KeyIcon className="h-4 w-4" style={{ color: moduleColor }} />
-                <span className="font-mono">{shorten(mod.key)}</span>
+                <KeyIcon className="h-6 w-6" style={{ color: moduleColor }} />
+                <span className="font-mono text-lg">{shorten(mod.key)}</span>
                 <CopyButton size="sm" content={mod.key} />
               </div>
             )}
 
             <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-base border bg-black/60"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xl border bg-black/60"
               style={{ borderColor: `${moduleColor}33` }}
             >
-              <ClockIcon className="h-4 w-4" style={{ color: moduleColor }} />
-              <span className="font-medium">{time2str(mod.created)}</span>
+              <ClockIcon className="h-6 w-6" style={{ color: moduleColor }} />
+              <span className="font-medium text-lg">{time2str(mod.created)}</span>
             </div>
 
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="inline-flex items-center justify-center h-10 w-10 rounded-lg border-2 transition font-bold text-lg"
+              className="inline-flex items-center justify-center h-12 w-12 rounded-lg border-2 transition font-bold text-xl"
               style={{ borderColor: `${moduleColor}4D`, color: moduleColor, backgroundColor: syncing ? `${moduleColor}10` : 'transparent' }}
               title="Sync"
             >
-              <ArrowPathIcon className={`h-5 w-5 ${syncing ? 'animate-spin' : ''}`} />
+              <ArrowPathIcon className={`h-7 w-7 ${syncing ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
@@ -177,12 +205,12 @@ export default function Module({ module_name }: ModuleProps) {
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className="group relative px-6 py-3 text-base font-bold flex items-center gap-2 transition-all"
+                className="group relative px-8 py-4 text-xl font-bold flex items-center gap-3 transition-all"
               >
                 {active && (
                   <motion.div layoutId="activeTab" className="absolute inset-0" style={{ backgroundColor: `${moduleColor}10` }} />
                 )}
-                <Icon className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />
+                <Icon className="h-7 w-7 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />
                 <span className="relative z-10 uppercase tracking-wide" style={{ color: active ? moduleColor : `${moduleColor}80` }}>
                   {id}
                 </span>
@@ -194,7 +222,7 @@ export default function Module({ module_name }: ModuleProps) {
           })}
         </div>
 
-        {/* Content Area */}
+        {/* Content Area with Dynamic Width */}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -202,7 +230,7 @@ export default function Module({ module_name }: ModuleProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="p-4"
+            className={`mx-auto p-6 ${columnWidths[columnSize]}`}
           >
             {activeTab === 'app' && (
               mod.url_app ? (
@@ -210,9 +238,9 @@ export default function Module({ module_name }: ModuleProps) {
                   <ModuleApp mod={mod} moduleColor={moduleColor} />
                 </div>
               ) : (
-                <div className="h-[400px] flex items-center justify-center text-xl text-white/70">
+                <div className="h-[400px] flex items-center justify-center text-2xl text-white/70">
                   <div className="text-center">
-                    <ComputerDesktopIcon className="h-16 w-16 mx-auto mb-4 opacity-70" />
+                    <ComputerDesktopIcon className="h-20 w-20 mx-auto mb-4 opacity-70" />
                     <p className="font-bold">No Application Available</p>
                   </div>
                 </div>

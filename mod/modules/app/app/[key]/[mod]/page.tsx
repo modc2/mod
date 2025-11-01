@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
-import { ModuleType } from '@/apptypes'
+import { ModuleType } from '@/app/types'
 import { useUserContext } from '@/app/block/context/UserContext'
 import {
   CodeBracketIcon,
@@ -60,8 +60,6 @@ const text2color = (text: string): string => {
   const lightness = 50 + (Math.abs(hash >> 16) % 20)
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }
-
-// [mod]/[key]/page.tsx, how do i get the key and mod name from the path?
 
 export default function Module({ params }: { params: { mod: string, key: string } }){
 
@@ -122,9 +120,8 @@ export default function Module({ params }: { params: { mod: string, key: string 
   ]
   
   return (
-    <div className="min-h-screen bg-black text-white mod-page">
-      <div className="w-full">
-        {/* Compact Professional Header */}
+    <div className="min-h-screen bg-black text-white mod-page w-full">
+      <div className="w-full max-w-full">
         <div className="w-full px-4 py-3 border-b border-white/10 bg-gradient-to-r from-black via-gray-900/50 to-black">
           <div className="flex flex-wrap items-center gap-3">
             <span
@@ -179,7 +176,6 @@ export default function Module({ params }: { params: { mod: string, key: string 
           </div>
         </div>
 
-        {/* Professional Tabs */}
         <div className="flex border-b border-white/10 bg-black/90">
           {tabs.map(({ id, icon: Icon }) => {
             const active = activeTab === id
@@ -204,7 +200,6 @@ export default function Module({ params }: { params: { mod: string, key: string 
           })}
         </div>
 
-        {/* Content Area */}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -212,11 +207,11 @@ export default function Module({ params }: { params: { mod: string, key: string 
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="p-4"
+            className="w-full p-4"
           >
             {activeTab === 'app' && (
               mod.url_app ? (
-                <div className="rounded-lg border border-white/10 overflow-hidden">
+                <div className="w-full rounded-lg border border-white/10 overflow-hidden">
                   <ModuleApp mod={mod} moduleColor={moduleColor} />
                 </div>
               ) : (
@@ -229,15 +224,17 @@ export default function Module({ params }: { params: { mod: string, key: string 
               )
             )}
             {activeTab === 'content' && (
-              <ModuleContent
-                files={mod.content || {}}
-                showSearch={true}
-                compactMode={false}
-              />
+              <div className="w-full">
+                <ModuleContent
+                  files={mod.content || {}}
+                  showSearch={true}
+                  compactMode={false}
+                />
+              </div>
             )}
 
             {activeTab === 'api' && (
-              <div className="rounded-lg border border-white/10">
+              <div className="w-full rounded-lg border border-white/10">
                 <ModuleSchema mod={mod} />
               </div>
             )}
