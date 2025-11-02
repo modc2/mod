@@ -10,11 +10,13 @@ import mod as c
 
 class Dev:
 
+
     def __init__(self, 
                  tools = ["create_file", "rm_file"],
                  model: str = 'model.openrouter', 
                  **kwargs):
 
+        self.tools_prefix = f"{__file__.split('/')[-2]}.tool"
         self.pm = c.mod('pm')()
         self.set_tools(tools)
         self.model = c.mod(model)()
@@ -22,9 +24,10 @@ class Dev:
                 make sure the params is a legit json string within the STEP ANCHORS
                 YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN
                 <PLAN>
+                <COMMENT>This is a plan to achieve the goal, follow the steps one by one</COMMENT>
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 1 
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 2
-                <STEP>JSON(tool:finish, params:{})</STEP> # FINAL STEP
+                <STEP>JSON(tool:finish, params:dict)</STEP> # FINAL STEP
                 </PLAN>
         """
 
@@ -82,6 +85,7 @@ class Dev:
                 safety=True,
                 base = None,
                 remote=False,
+
                 trials=4,
                 
                 **kwargs) -> Dict[str, str]:
@@ -97,20 +101,9 @@ class Dev:
         self.add_memory(self.tool('select_files')(src))
         if base:
             self.add_memory(c.content(base))
-        files = c.files(src)
         for step in range(steps):
-            c.print(f"STEP({step + 1}/{steps}) ", color='green')
-            prompt = self.prompt.format(
-                query=query,
-                src=src,
-                files=files,
-                step=step,
-                steps=steps,
-                goal=self.goal,
-                tool2schema=self.tool2schema,
-                memory= self.get_memory(),
-                output_format=self.output_format
-            )
+            params = dict( query=query, src=src, step=step, steps=steps )
+            prompt = self.process_prompt(params)
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
             plan =  self.get_plan(output, safety=safety) 
             if self.is_plan_complete(plan):
@@ -120,6 +113,19 @@ class Dev:
                 c.print("Plan is not complete, continuing to next step.", color='yellow')
             self.add_memory(plan)
         return plan
+
+    def process_prompt(self, params:dict):
+        
+        prompt = self.prompt.format(
+            goal=self.goal,
+            output_format=self.output_format,
+            tool2schema=self.tool2schema,
+            memory=self.get_memory(),
+            files= c.files(params['src']),
+            **params
+        )
+        return prompt
+
 
     def is_plan_complete(self, plan: list) -> bool:
         return bool(plan[-1]['tool'].lower() == 'finish')
@@ -216,9 +222,7 @@ class Dev:
         return plan
 
 
-    tools_prefix = f"{__file__.split('/')[-2]}.tool"
-
-    def set_tools(self, tools,  search=None, update=False, verbose=False) -> List[str]:
+    def set_tools(self, tools,  search=None, update=False) -> List[str]:
         result = []
         for tool in tools:
             if search and search not in tool:
@@ -231,7 +235,7 @@ class Dev:
             try:
                 self.tool2schema[t] = self.schema(t)
             except Exception as e:
-                c.print(f"Error getting schema for tool {t}: {e}", color='red', verbose=verbose)
+                m.print(f"Error getting schema for tool {t}: {e}", color='red')
                 continue
         c.print(f"Tools({tools})")
         return self.tools

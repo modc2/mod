@@ -46,7 +46,7 @@ class  Api:
         else:
             return (key or m.key()).address
 
-    def get_mod_cid(self, mod, key=None, update=False):
+    def modcid(self, mod, key=None, update=False):
         key = self.get_address(key)
         registry = m.get(self.registry_path, {}, update=False)
         return  registry.get(key, {}).get(mod, None)
@@ -62,35 +62,62 @@ class  Api:
         m.put(self.registry_path, registry)
         return cid
 
+    def add_mod(self, mod: m.Mod) -> Dict[str, Any]:
+        """Add a mod Mod to IPFS.
+        
+        Args:
+            mod: Commune Mod object
+            
+        Returns:
+            Dictionary with IPFS hash and other metadata
+        """
+        file2cid = {}
+        content = m.content(mod)
+        for file,content in content.items():
+            cid = self.add_data(content)
+            file2cid[file] = cid
+        return self.add_data(file2cid)
     def add_data(self, data):
         return self.store.add_data(data)
 
-    def add_content(self, mod: m.Mod='store', comment=None) -> Dict[str, str]:
-        return self.add_data({'data': self.store.add_mod(mod), 'comment': comment})
+    def add_content(self, mod: str='store', comment=None) -> Dict[str, str]:
+        return self.add_data({'data': self.add_mod(mod), 'comment': comment, 'time': m.time()})
 
-    def add_schema(self, mod: m.Mod='store') -> str:
+    def add_schema(self, mod: str='store') -> str:
         return self.add_data(m.schema(mod))
-    def reg(self, 
-            mod = 'store', 
-            key=None, 
-            comment=None, 
-            update=False) -> Dict[str, Any]:
+
+    def get_url(self, url: str) -> str:
+        url = m.namespace().get(url, None)
+        return url
+
+
+    def reg(self, mod = 'store',  key=None,  comment=None,  update=False) -> Dict[str, Any]:
+        """
+        Register or update a mod Mod in IPFS.
+        Args:
+            mod:  Mod str
+            key: Key object or address string
+            comment: Optional comment about the registration
+            update: Whether to force update from IPFS
+        Returns:
+            Dictionary with registration info
+
+        """
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
         current_time = m.time()
         key = m.key(key)
-        prev_cid = self.get_mod_cid(mod, key=key, update=update)
+        prev_cid = self.modcid(mod, key=key, update=update)
         content_cid = self.add_content(mod, comment=comment)
-
+        schema_cid = self.add_schema(mod)
         if prev_cid is None:
             info = {
                    'content': content_cid,
-                   'schema': self.add_data(m.schema(mod)),
+                   'schema': schema_cid,
                    'prev': prev_cid, # previous state
                    'name': mod,
                    'created':  current_time,  # created timestamp
                    'updated': current_time, 
                    'key': key.address, 
-                   'nonce': 1, # noncf
 
                    }
         # fam
@@ -102,19 +129,16 @@ class  Api:
                     {
                     'prev': prev_cid, 
                     'content': content_cid,
-                    'nonce':  info['nonce'] + 1,
+                    'schema': schema_cid,
                     'updated': current_time,
-                    'schema': self.add_data(m.schema(mod)),
-
+                    'schema': schema_cid,
                     }
                 )
-        info['url'] = m.namespace().get(mod, None)
+        info['url'] = self.get_url(mod)
         info.pop('signature', None)
         info['signature'] = key.sign(info, mode='str')
         self.update_registry(mod, info)
         return info 
-
-
 
     def mods(self, search=None, key='all', **kwargs) -> List[str]:
         """List all registered mods in IPFS.
@@ -137,19 +161,23 @@ class  Api:
         mods = list(self.registry(search=search).keys())
         return mods
 
-    def history(self, mod='store', features=['content', 'updated']):
+    def history(self, mod='store', features=['time', 'comment'] , key=None):
 
         history = []
-        info = self.mod(mod)
+        info = self.mod(mod, key=key)
         while True:
             prev = info['prev']
-            nonce = info['nonce']
-            history.append(info)
+            # nonce = info['nonce']
             if prev == None:
                 break
             info = self.mod(info['prev'])
-        df =  m.df(history)[features]
-        return df.to_dict(orient='records')
+            content_info = self.store.get_data(info['content'])
+            history.append(content_info)
+
+        return history
+
+    def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
+        return m.txs(mod=mod, limit=limit, update=update)
 
     def diff(self, mod = 'store', update=False) -> Dict[str, Any]:
         mod = self.mod(mod)
@@ -182,6 +210,7 @@ class  Api:
             registry = user2registry.get(self.get_address(key), {})
             registry = filter_registry(registry)
             return registry
+            
     def all_registry(self, update=False) -> Dict[str, Any]:
         registry =  m.get(self.registry_path, {}, update=update)
         return registry
@@ -230,6 +259,38 @@ class  Api:
         mod_info = self.mod(mod)
         schema = self.store.get_data( mod_info['schema'])
         return schema
+
+    def get_content(self, cid: str, expand=True) -> Dict[str, Any]:
+        """Get the content of a mod Mod from IPFS using its CID.
+        
+        Args:
+            cid: Content CID
+            expand: Whether to expand file contents
+        """
+        content = self.store.get_data(cid)
+        if expand:
+            for file, file_cid in content.items():
+                content[file] = self.store.get_data(file_cid)
+        return content
+
+
+        
+
+    def setback(self, mod: m.Mod='app', content:str = 3, key=None ) -> Dict[str, Any]:
+        history = self.history(mod=mod, key=key)
+        history_row = history[-content]
+        print(f"Setting back mod: {mod} to content at time: {history_row}")
+        content_cid = history_row['data']
+        dirpath = m.dp(mod)
+        content =  self.get_content(content_cid, expand=True)
+        for file, file_content in content.items():
+            filepath = os.path.join(dirpath, file)
+            m.write(filepath, file_content)
+            m.print(f"[✓] Restored file: {filepath}", color="green")
+        info = self.reg(mod=mod, key=key, comment=f'setback to time {history_row["time"]}')
+        return info
+        
+
 
     def content(self, mod: m.Mod='store', expand=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
@@ -328,3 +389,9 @@ class  Api:
             Balance as a float
         """
         return 0
+
+    def edit(self, mod: str, *query,  key=None, dev_mod='dev' ) -> Dict[str, Any]:
+        dev = m.mod(dev_mod)()
+        text = ' '.join(list(map(str, query)))
+        dev.forward(mod=mod, text=text)
+        return self.reg(mod=mod, key=key, comment=text)

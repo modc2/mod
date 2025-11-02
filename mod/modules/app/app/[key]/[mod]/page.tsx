@@ -15,6 +15,7 @@ import {
   ComputerDesktopIcon,
   CubeIcon,
 } from '@heroicons/react/24/outline'
+import { Globe } from 'lucide-react'
 import { CopyButton } from '@/app/block/CopyButton'
 import { ModuleContent } from '@/app/block/mod/ModuleContent'
 import ModuleSchema from '@/app/block/mod/ModuleApi'
@@ -113,10 +114,10 @@ export default function Module({ params }: { params: { mod: string, key: string 
 
   const moduleColor = text2color(mod.name)
 
-  const tabs: Array<{ id: TabType; icon: any }> = [
-    { id: 'api', icon: ServerIcon },
-    { id: 'app',  icon: ComputerDesktopIcon },
-    { id: 'content', icon: CodeBracketIcon },
+  const tabs: Array<{ id: TabType; icon: any; label: string }> = [
+    { id: 'api', icon: ServerIcon, label: 'API' },
+    { id: 'app',  icon: ComputerDesktopIcon, label: 'APP' },
+    { id: 'content', icon: CodeBracketIcon, label: 'CONTENT' },
   ]
   
   return (
@@ -177,7 +178,7 @@ export default function Module({ params }: { params: { mod: string, key: string 
         </div>
 
         <div className="flex border-b border-white/10 bg-black/90">
-          {tabs.map(({ id, icon: Icon }) => {
+          {tabs.map(({ id, icon: Icon, label }) => {
             const active = activeTab === id
             return (
               <button
@@ -189,8 +190,9 @@ export default function Module({ params }: { params: { mod: string, key: string 
                   <motion.div layoutId="activeTab" className="absolute inset-0" style={{ backgroundColor: `${moduleColor}10` }} />
                 )}
                 <Icon className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />
+                {id === 'content' && <Globe className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />}
                 <span className="relative z-10 uppercase tracking-wide" style={{ color: active ? moduleColor : `${moduleColor}80` }}>
-                  {id}
+                  {id === 'content' ? 'MODS' : label}
                 </span>
                 {active && (
                   <motion.div layoutId="activeTabBorder" className="absolute bottom-0 left-0 right-0 h-1" style={{ backgroundColor: moduleColor }} />

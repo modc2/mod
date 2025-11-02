@@ -8,7 +8,7 @@ import { ModuleType } from '@/app/types'
 import { Footer } from '@/app/block/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { Plus, X, RotateCcw, Sparkles } from 'lucide-react'
+import { Plus, X, RotateCcw, Sparkles, Globe } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author'
 

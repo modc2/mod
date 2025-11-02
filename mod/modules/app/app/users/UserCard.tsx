@@ -1,9 +1,9 @@
 'use client'
 
 import { UserType } from '@/app/types'
-import { User, Package, ExternalLink } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { UserCircleIcon, CubeIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
-import { useRef, useState, useEffect } from 'react'
 
 interface UserCardProps {
   user: UserType
@@ -27,97 +27,67 @@ const shorten = (str: string): string => {
 
 export function UserCard({ user }: UserCardProps) {
   const userColor = text2color(user.key)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const [canScrollLeft, setCanScrollLeft] = useState(false)
-  const [canScrollRight, setCanScrollRight] = useState(false)
-
-  const checkScroll = () => {
-    if (scrollContainerRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current
-      setCanScrollLeft(scrollLeft > 0)
-      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 1)
-    }
-  }
-
-  useEffect(() => {
-    checkScroll()
-    const container = scrollContainerRef.current
-    if (container) {
-      container.addEventListener('scroll', checkScroll)
-      window.addEventListener('resize', checkScroll)
-      return () => {
-        container.removeEventListener('scroll', checkScroll)
-        window.removeEventListener('resize', checkScroll)
-      }
-    }
-  }, [user.mods])
 
   return (
-    <div
-      className="group relative rounded-2xl border bg-gradient-to-br from-black/60 to-black/40 backdrop-blur-xl p-6 transition-all duration-300 hover:shadow-2xl hover:scale-[1.01]"
-      style={{ borderColor: `${userColor}30` }}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border bg-gradient-to-br from-black/60 to-black/40 backdrop-blur-sm overflow-hidden"
+      style={{ borderColor: `${userColor}33` }}
     >
-      <div className="flex items-start justify-between gap-4 mb-4">
+      <div className="p-4">
         <div className="flex items-center gap-4">
+          {/* User Icon */}
           <div
-            className="w-14 h-14 rounded-xl flex items-center justify-center border-2"
-            style={{ backgroundColor: `${userColor}15`, borderColor: `${userColor}40` }}
+            className="flex-shrink-0 w-16 h-16 rounded-xl flex items-center justify-center"
+            style={{ backgroundColor: `${userColor}14`, border: `2px solid ${userColor}33` }}
           >
-            <User className="w-7 h-7" style={{ color: userColor }} />
+            <UserCircleIcon className="w-10 h-10" style={{ color: userColor }} />
           </div>
-          <div>
-            <h3 className="text-xl font-bold text-white/90 mb-1">User</h3>
-            <p className="text-sm font-mono text-white/60">{shorten(user.key)}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 px-4 py-2 rounded-lg border" style={{ backgroundColor: `${userColor}10`, borderColor: `${userColor}30` }}>
-          <Package className="w-4 h-4" style={{ color: userColor }} />
-          <span className="text-sm font-semibold" style={{ color: userColor }}>
-            {user.mods?.length || 0} {user.mods?.length === 1 ? 'Module' : 'Modules'}
-          </span>
-        </div>
-      </div>
 
-      {user.mods && user.mods.length > 0 && (
-        <div className="relative">
-          <div className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Modules</div>
-          <div className="relative group/scroll">
-            {canScrollLeft && (
-              <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black/80 to-transparent z-10 pointer-events-none" />
-            )}
-            {canScrollRight && (
-              <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black/80 to-transparent z-10 pointer-events-none" />
-            )}
-            <div
-              ref={scrollContainerRef}
-              className="flex gap-2 overflow-x-auto scrollbar-hide scroll-smooth pb-2"
-              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-            >
-              {user.mods.map((mod) => {
-                const modColor = text2color(mod.name)
-                return (
+          {/* User Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-lg font-bold font-mono truncate" style={{ color: userColor }}>
+                {shorten(user.key)}
+              </h3>
+              <div className="flex items-center gap-2 px-3 py-1 rounded-md text-sm border" style={{ borderColor: `${userColor}33`, backgroundColor: `${userColor}0f` }}>
+                <CubeIcon className="w-4 h-4" style={{ color: userColor }} />
+                <span className="font-semibold" style={{ color: userColor }}>{user.mods?.length || 0}</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1 rounded-md text-sm border" style={{ borderColor: `${userColor}33`, backgroundColor: `${userColor}0f` }}>
+                <CurrencyDollarIcon className="w-4 h-4" style={{ color: userColor }} />
+                <span className="font-semibold" style={{ color: userColor }}>{user.balance || 0}</span>
+              </div>
+            </div>
+
+            {/* Modules List */}
+            {user.mods && user.mods.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {user.mods.slice(0, 5).map((mod, idx) => (
                   <Link
-                    key={mod.key}
+                    key={idx}
                     href={`/${user.key}/${mod.name}`}
-                    className="flex-shrink-0 group/mod px-4 py-2.5 rounded-lg border transition-all duration-200 hover:scale-105 hover:shadow-lg"
+                    className="px-3 py-1 rounded-md text-xs font-mono border transition-all hover:scale-105"
                     style={{
-                      backgroundColor: `${modColor}08`,
-                      borderColor: `${modColor}25`,
+                      borderColor: `${userColor}33`,
+                      backgroundColor: `${userColor}0a`,
+                      color: `${userColor}cc`
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold whitespace-nowrap" style={{ color: modColor }}>
-                        {mod.name}
-                      </span>
-                      <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover/mod:opacity-100 transition-opacity" style={{ color: modColor }} />
-                    </div>
+                    {mod.name}
                   </Link>
-                )
-              })}
-            </div>
+                ))}
+                {user.mods.length > 5 && (
+                  <span className="px-3 py-1 text-xs" style={{ color: `${userColor}99` }}>
+                    +{user.mods.length - 5} more
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    </motion.div>
   )
 }

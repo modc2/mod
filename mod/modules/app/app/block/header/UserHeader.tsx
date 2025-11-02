@@ -1,100 +1,52 @@
 'use client'
 
-import { useState } from 'react'
-import { UserProfile } from '@/app/block/user/User'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { CopyButton } from '@/app/block/CopyButton'
+import { WalletIcon, CubeIcon } from '@heroicons/react/24/outline'
 
-export const UserHeader = () => {
-  const [password, setPassword] = useState('')
-  const [showProfile, setShowProfile] = useState(false)
-  const { user, keyInstance, signIn, signOut, isLoading } = useUserContext()
-
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      if (!password) {
-        setPassword(crypto.randomUUID().replace(/-/g, '').slice(0, 16))
-      }
-      await signIn(password)
-      setPassword('')
-      setShowProfile(true)
-    } catch (err) {
-      console.error('Failed to sign in:', err)
-    }
-  }
-
-  const handleLogout = () => {
-    signOut()
-    setShowProfile(false)
-  }
-
-  if (isLoading) {
-    return (
-      <div className="h-12 px-4 flex items-center font-mono text-green-400">
-        Loading...
-      </div>
-    )
-  }
-
-  return (
-    <>
-      <div className="flex items-center gap-3">
-        {keyInstance ? (
-          <div
-            onClick={() => setShowProfile(!showProfile)}
-            title={`Address: ${keyInstance.address}`}
-            aria-pressed={showProfile}
-            role="button"
-            className={`cursor-pointer select-none h-11 px-3 border font-mono tracking-wider rounded-lg flex items-center gap-2 transition-all
-              ${showProfile
-                ? 'bg-green-500 text-black border-green-500'
-                : 'bg-black text-green-400 border-green-500 hover:border-green-400 hover:text-green-300'}`}
-          >
-            {/* Flex row: text and copy button inline */}
-            <span className="text-sm leading-none flex items-center">
-              {keyInstance.address.slice(0, 6)}…{keyInstance.address.slice(-4)}
-            </span>
-            <div className="flex items-center justify-center">
-              <CopyButton
-                code={keyInstance.address as string}
-                size="sm"
-                className="text-green-400 hover:text-green-300"
-              />
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSignIn} className="flex gap-2">
-            <input
-              type="password"
-              placeholder="SECRET"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-11 px-3 bg-black border border-green-500 text-green-400 placeholder-green-700
-                         focus:outline-none focus:border-green-400 w-36 font-mono text-sm rounded-lg"
-            />
-            <button
-              type="submit"
-              className="h-11 px-5 border border-green-500 text-green-400 hover:bg-green-500 hover:text-black
-                         font-mono text-sm tracking-wider transition-colors rounded-lg"
-            >
-              LOGIN
-            </button>
-          </form>
-        )}
-      </div>
-
-      {user && keyInstance && (
-        <UserProfile
-          user={user}
-          isOpen={showProfile}
-          onClose={() => setShowProfile(false)}
-          keyInstance={keyInstance}
-          onLogout={handleLogout}
-        />
-      )}
-    </>
-  )
+const text2color = (text: string): string => {
+  if (!text) return '#00ff00'
+  let hash = 0
+  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
+  const golden_ratio = 0.618033988749895
+  const hue = (hash * golden_ratio * 360) % 360
+  const saturation = 65 + (Math.abs(hash >> 8) % 35)
+  const lightness = 50 + (Math.abs(hash >> 16) % 20)
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
 }
 
-export default UserHeader
+export function UserHeader() {
+  const { user, authLoading } = useUserContext()
+
+  if (authLoading || !user) return null
+
+  const balanceColor = text2color('balance')
+  const modsColor = text2color('modules')
+
+  return (
+    <div className="flex items-center gap-2">
+      <div 
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border"
+        style={{ 
+          color: balanceColor, 
+          backgroundColor: `${balanceColor}14`, 
+          borderColor: `${balanceColor}33` 
+        }}
+      >
+        <WalletIcon className="h-4 w-4" />
+        <span>{user.balance || 0}</span>
+      </div>
+      
+      <div 
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold border"
+        style={{ 
+          color: modsColor, 
+          backgroundColor: `${modsColor}14`, 
+          borderColor: `${modsColor}33` 
+        }}
+      >
+        <CubeIcon className="h-4 w-4" />
+        <span>{user.mods?.length || 0}</span>
+      </div>
+    </div>
+  )
+}

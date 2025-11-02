@@ -13,7 +13,7 @@
     }
 
 
-interface ModulesState {
+export interface ModulesState {
     mods: ModuleType[]
     n: number
     loading: boolean

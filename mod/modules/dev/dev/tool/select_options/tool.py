@@ -40,6 +40,7 @@ class SelectOptions:
               model: str =  'anthropic/claude-opus-4',
               context: Optional[str] = None,
               temperature: float = 0.5,
+              include_scores = True,
               content: bool = True,
               allow_selection: bool = False,
               anchors = ["<START_JSON>", "</END_JSON>"],

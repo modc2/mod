@@ -79,7 +79,7 @@ class Tx:
     def paths(self, path=None):
         return self.store.paths(path=path)
 
-    def _rm_all(self):
+    def clear(self):
         """
         DANGER: This will permanently remove all transactions from the store.
         remove the transactions
@@ -107,9 +107,9 @@ class Tx:
             search=None,
             client= None,
             server= None,
-            n = 1,
+            n = None,
             max_age:float = 3600, 
-            features:list = ['mod', 'fn', 'params', 'cost', 'duration', 'age',  'time','client', 'server'],
+            features:list = ['mod', 'fn', 'params', 'cost'],
             shorten_features = ['client', 'server'],
             to_json = False
             ):
@@ -122,28 +122,23 @@ class Tx:
         if to_json:
             return txs[:n]
         else:
-            df = m.df(txs)
-            if n is not None:
-                df = df.head(n)
-            df = df[features] if features is not None else df
-            df = m.df(txs)
-            current_time = time.time()
-            if len(df) == 0:
-                return df  
-            df = df.sort_values(by='time', ascending=False)
+            # filter by features
+            
+            df = m.df(txs)[features]
+            # df = df.sort_values(by='time', ascending=False)
      
-            df['time_start_utc'] = df['client'].apply(lambda x: float(x['time']))
-            df['age'] = time.time() - df['time_start_utc']
-            df = df[df['age'] <  max_age] if max_age is not None else df
-            df['time_end_utc'] = df['server'].apply(lambda x: float(x['time']))
-            df['duration'] = df['time_end_utc'] - df['time_start_utc']
-            df['time'] = df['time_start_utc'].apply(lambda x: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(x)))
-            df['client'] = df['client'].apply(lambda x: x['key'])
-            df['server'] = df['server'].apply(lambda x: x['key'])
-            shorten_fn = lambda x: x if len(x) <= 10 else x[:4] + '...' + x[-4:]
-            for f in shorten_features:
-                if f in df.columns:
-                    df[f] = df[f].apply(shorten_fn)
+            # df['time_start_utc'] = df['client'].apply(lambda x: float(x['time']))
+            # df['age'] = time.time() - df['time_start_utc']
+            # df = df[df['age'] <  max_age] if max_age is not None else df
+            # df['time_end_utc'] = df['server'].apply(lambda x: float(x['time']))
+            # df['duration'] = df['time_end_utc'] - df['time_start_utc']
+            # df['time'] = df['time_start_utc'].apply(lambda x: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(x)))
+            # df['client'] = df['client'].apply(lambda x: x['key'])
+            # df['server'] = df['server'].apply(lambda x: x['key'])
+            # shorten_fn = lambda x: x if len(x) <= 10 else x[:4] + '...' + x[-4:]
+            # for f in shorten_features:
+            #     if f in df.columns:
+            #         df[f] = df[f].apply(shorten_fn)
         return df
 
     def n(self):

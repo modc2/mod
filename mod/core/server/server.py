@@ -46,15 +46,30 @@ class Server:
             result =  inspect.isgeneratorfunction(obj)
         return result
 
+    def print_request(self, request: dict):
+        """
+        print the request nicely
+        """
+        fn = request.get('fn', '')
+        params = request['params'] if 'params' in request else {}
+        client = request['client']['key'] if 'client' in request and 'key' in request['client'] else ''
+        cost = request['cost'] if 'cost' in request else 0
+        print(f"""--- Request ---""", color='blue')
+        print(f'fn={fn}\n params={params}\nclient={client}\ncost={cost}', color='blue')
+        print(f'-------------------', color='blue')
+
+
     def forward(self, fn:str, request: Request):
         """
         runt the function
         """
         request = self.get_request(fn=fn, request=request) # get the request
+        self.print_request(request)
         fn = request['fn']
         params = request['params']
         cost = request['cost']
         info = self.mod.info()
+        
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
         fn_obj = getattr(self.mod, fn) # get the function object from the mod
         if callable(fn_obj):
@@ -137,7 +152,6 @@ class Server:
         if role not in self.sudo_roles:
             assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
         headers =  {k:v for k,v in headers.items() if k in self.auth.auth_features}
-
         return {'fn': fn, 'params': params, 'client': headers, 'role': role, 'cost': cost}
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:

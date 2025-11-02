@@ -583,6 +583,7 @@ class Mod:
             file.write(text)
         # get size
         return {'success': True, 'path': f'{path}', 'size': len(text)*8}
+
     path = write =  get_path
     
     def ls(self, path:str = './', 
@@ -1380,7 +1381,7 @@ class Mod:
             self.put_text(gitignore_path, gitignore)
         return {'name': name, 'path': gitignore_mod_path, 'msg': 'Removed from .gitignore'}
 
-    def from_path(self, path, name=None, update=True):
+    def addpath(self, path, name=None, update=True):
         assert os.path.exists(path), f'Path {path} does not exist'
         path = self.abspath(path)
         name = name or path.split('/')[-1]
@@ -1476,7 +1477,7 @@ class Mod:
     def repos(self, search=None):
         return list(self.repo2path(search=search).keys())
 
-    def help(self, query:str = 'what is this', *extra_query , mod='mod', **kwargs):
+    def help(self, mod='mod', query:str = 'what is this', *extra_query, **kwargs):
         query = ' '.join(list(map(str, [query, *extra_query])))
         mod =  mod or mod
         context = self.context(path=self.core_path)
@@ -1720,3 +1721,12 @@ class Mod:
 
     def txs(self, *args, **kwargs) -> 'Callable':
         return self.fn('server/txs')( *args, **kwargs)
+
+    # imported from different modules
+
+    def edit(self, *args, **kwargs):
+        return self.fn('api/edit')( *args, **kwargs)
+    e = edit
+
+    def reg(self, *args, **kwargs):
+        return self.fn('api/reg')( *args, **kwargs)

@@ -29,20 +29,6 @@ class  IpfsClient:
         self.url = url 
         print(f"Using IPFS node at {self.url}")
         return {"url": self.url}
-        
-    def test_connection(self) -> bool:
-        """Test connection to the IPFS node.
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
-        try:
-            response = self.session.post(f"{self.url}/id", timeout=5)
-            response.raise_for_status()
-            return True
-        except requests.exceptions.RequestException as e:
-            print(f"Connection test failed: {e}")
-            return False
     
     def add_file(self, file_path: str) -> Dict[str, Any]:
         """Add a single file to IPFS.
@@ -106,173 +92,6 @@ class  IpfsClient:
         content = self.get_file(ipfs_hash)
         return json.loads(content)
 
-    def mod(self, mod: m.Mod='store', pin=True, schema=False, content=False) -> Dict[str, Any]:
-        """Add a mod Mod to IPFS.
-        
-        Args:
-            mod: Commune Mod object
-            
-        Returns:
-            Dictionary with IPFS hash and other metadata
-        """
-        cid = self.mod2cid().get(mod, mod)
-        mod =  self.get_data(cid) if cid else None
-        if schema: 
-            mod['schema'] = self.get_data(mod['schema'])
-        if content:
-            mod['content'] = self.get_data(mod['content'])
-        return mod
-
-
-    def mod_content(self, mod: m.Mod='store') -> Dict[str, Any]:
-        """Retrieve a mod Mod from IPFS by its name.
-        
-        Args:
-            mod: Commune Mod object
-        Returns:
-
-            Mod content as dictionary
-        """
-        mod_info = self.mod(mod)
-        mod_content = {}
-        for file,file_cid in self.get_data(mod_info['content']).items():
-            mod_content[file] = self.get_data(file_cid)
-        return mod_content
-    
-    mod2cid_path = '~/.ipfs/mods.json'
-    # Register or update a mod in IPFS
-
-    def reg(self, mod = 'store', 
-            key=None, 
-            comment=None, 
-            update=False, 
-            forbidden_mods = ['mod'],
-            branch='main') -> Dict[str, Any]:
-        # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
-        current_time = m.time()
-        key = m.key(key)
-        mod2cid = m.get(self.mod2cid_path, {}, update=update)
-        prev = mod2cid.get(mod, None)
-        cid = self.add_mod(mod)
-        if prev is None:
-           info = {
-                   'content': cid,
-                   'schema': self.add_data(m.schema(mod)),
-                   'prev': None, # previous state
-                   'name': mod,
-                   'created':  current_time,  # created timestamp
-                   'updated': current_time, 
-                   'key': key.address, 
-                   'nonce': 1 # noncf
-
-                   }
-        # fam
-        else:
-            info = self.get_data(prev)
-            if info['content'] != cid:
-                info['prev'] = prev # previous state
-                info['content'] = cid
-                info['nonce'] = info['nonce'] + 1
-                info['updated'] = current_time
-                info['schema'] = self.add_data(m.schema(mod))
-        info['signature'] = key.sign(info, mode='str')
-        info_cid = self.add_data(info)
-        info['cid'] = info_cid # not included in signature
-        mod2cid[mod] = info_cid
-        m.put(self.mod2cid_path, mod2cid)
-        return info # fam fdffffffjferfejrfjoijiojhwefefijh
-
-
-    def mods(self) -> List[str]:
-        """List all registered mods in IPFS.
-        
-        Returns:
-            List of mod names
-        """
-        mod2cid = self.mod2cid()
-        return list(mod2cid.keys())
-
-    def history(self, mod='store', features=['content', 'updated']):
-
-        history = []
-        info = self.mod(mod)
-        while True:
-            prev = info['prev']
-            nonce = info['nonce']
-            history.append(info)
-            if prev == None:
-                break
-            info = self.mod(info['prev'])
-        df =  m.df(history)[features]
-        return df
-
-    def diff(self, mod = 'store', update=False) -> Dict[str, Any]:
-        mod = self.mod(mod)
-        prev = mod.get('prev', None)
-        print(f"Getting diff for mod: {mod}, prev: {prev}")
-        prev_content = self.get_data(self.mod(prev)['content'])
-        print(prev_content)
-        current_content = self.get_data(mod['content'])
-        diffs = {}
-        for file in set(list(prev_content.keys()) + list(current_content.keys())):
-            prev_file_content = prev_content.get(file, None)
-            current_file_content = current_content.get(file, None)
-            if prev_file_content != current_file_content:
-                diffs[file] = {
-                    'previous': prev_file_content,
-                    'current': current_file_content
-                }
-            
-        return diffs
-        
-        
-
-    def mod2cid(self, update=False) -> Dict[str, str]:
-        return m.get(self.mod2cid_path, {}, update=update)
-
-    def regall(self, mods: List[m.Mod]=None, key=None, comment=None, update=False, branch='main') -> Dict[str, Any]:
-        mods = mods or m.mods()
-        mod2info = {}
-        for mod in mods:
-            print(f"Registering mod: {mod}")
-            info = self.reg(mod, key=key, comment=comment, update=update, branch=branch)
-            mod2info[mod] = info
-        return mod2info
-
-
-    def add_mod(self, mod: m.Mod) -> Dict[str, Any]:
-        """Add a mod Mod to IPFS.
-        
-        Args:
-            mod: Commune Mod object
-            
-        Returns:
-            Dictionary with IPFS hash and other metadata
-        """
-        file2cid = {}
-        content = m.content(mod)
-        for file,content in content.items():
-            cid = self.add_data(content, pin=True)
-            file2cid[file] = cid
-        return self.add_data(file2cid)
-
-
-    def file2cid(self, mod = 'store') -> Dict[str, str]:
-        """Get mapping of files to their IPFS CIDs for a mod Mod.
-        
-        Args:
-            mod: Commune Mod object
-        Returns:
-            Dictionary fam mapping file names to IPFS CIDs
-        """
-        dp = m.dirpath(mod)
-        print(f"Getting file to CID mapping for mod from dirpath: {dp}")
-        file2cid = {}
-        content = m.content(mod)
-        for file,content in content.items():
-            cid = self.add_data(content)
-            file2cid[file] = cid
-        return file2cid
     def get_file(self, ipfs_hash: str) -> bytes:
         """Retrieve a file from IPFS by its hash.
         
@@ -521,21 +340,7 @@ class  IpfsClient:
             self.start_node()
             time.sleep(1)
 
-    def test_mod(self, mod='store') -> bool:
-        """Test connection to IPFS node by adding and retrieving a mod Mod.
-        
-        Returns:
-            True if test is successful, False otherwise
-        """
-        print("Testing IPFS mod connection...", mod)
-        info = self.reg(mod)
-        mod_file2cid = self.mod(info['content'])
-        original_file2cid = self.file2cid(mod)
-        for file,cid in mod_file2cid.items():
-            assert original_file2cid[file] == cid, f"CID mismatch for file {file}: {original_file2cid[file]} != {cid}"
-        return True
-
-    def test_data(self) -> bool:
+    def test(self) -> bool:
         """Test connection to IPFS node by adding and retrieving test data.
         
         Returns:

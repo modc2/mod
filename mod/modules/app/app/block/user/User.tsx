@@ -1,145 +1,215 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { X, LogOut, FileSignature, Package, User } from 'lucide-react'
-import { Key } from '@/app/block/key'
-import type { User as UserType } from '@/apptypes'
-import { ModuleCaller } from '@/app/block/user/tabs/ModuleCaller'
-import { SignVerifyTab } from './tabs/SignVerifyTab'
+import { UserType } from '@/app/types'
 import { CopyButton } from '@/app/block/CopyButton'
-import { InfoTab } from './tabs/InfoTab'
+import { KeyIcon, CubeIcon, ClockIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { motion } from 'framer-motion'
 
-interface UserProfileProps {
+interface UserProps {
   user: UserType
-  isOpen: boolean
-  onClose: () => void
-  keyInstance: Key
-  onLogout: () => void
 }
 
-export const UserProfile = ({ user, isOpen, onClose, keyInstance, onLogout }: UserProfileProps) => {
-  const [isAnimating, setIsAnimating] = useState(false)
-  const [activeTab, setActiveTab] = useState<'profile' | 'sign' | 'mod'>('profile')
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStartX, setDragStartX] = useState(0)
-  const [panelWidth, setPanelWidth] = useState(400)
-  const MIN_WIDTH = 320
-  const MAX_WIDTH = 600
+const shorten = (str: string): string => {
+  if (!str || str.length <= 12) return str
+  return `${str.slice(0, 8)}...${str.slice(-4)}`
+}
 
-  useEffect(() => { if (isOpen) setIsAnimating(true) }, [isOpen])
+const time2str = (time: number): string => {
+  const d = new Date(time * 1000)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60_000) return 'now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+  })
+}
 
-  const handleClose = () => { setIsAnimating(false); setTimeout(onClose, 150) }
-  const handleLogout = () => { onLogout(); handleClose() }
+const text2color = (text: string): string => {
+  if (!text) return '#00ff00'
+  let hash = 0
+  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
+  const golden_ratio = 0.618033988749895
+  const hue = (hash * golden_ratio * 360) % 360
+  const saturation = 70 + (Math.abs(hash >> 8) % 25)
+  const lightness = 55 + (Math.abs(hash >> 16) % 15)
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
+}
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true); setDragStartX(e.clientX); e.preventDefault()
-  }
-
-  useEffect(() => {
-    const move = (e: MouseEvent) => {
-      if (!isDragging) return
-      const deltaX = dragStartX - e.clientX
-      const w = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, panelWidth + deltaX))
-      setPanelWidth(w); setDragStartX(e.clientX)
-    }
-    const up = () => setIsDragging(false)
-
-    if (isDragging) {
-      document.addEventListener('mousemove', move)
-      document.addEventListener('mouseup', up)
-      document.body.style.cursor = 'ew-resize'
-      document.body.style.userSelect = 'none'
-    }
-    return () => {
-      document.removeEventListener('mousemove', move)
-      document.removeEventListener('mouseup', up)
-      document.body.style.cursor = 'auto'
-      document.body.style.userSelect = 'auto'
-    }
-  }, [isDragging, dragStartX, panelWidth])
-
-  if (!isOpen && !isAnimating) return null
-
-  const tabIcons = { profile: User, sign: FileSignature, mods: Package }
+export function User({ user }: UserProps) {
+  const userColor = text2color(user.key)
+  const modCount = user.mods?.length || 0
+  const balance = user.balance || 0
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 bg-black/80 z-40 transition-opacity duration-150 ${isAnimating ? 'opacity-100' : 'opacity-0'}`}
-        onClick={handleClose}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="group relative overflow-hidden rounded-2xl border bg-gradient-to-br from-black via-zinc-950 to-black p-6 transition-all hover:shadow-2xl"
+      style={{ 
+        borderColor: `${userColor}30`,
+        boxShadow: `0 0 0 1px ${userColor}10`
+      }}
+    >
+      {/* Gradient overlay on hover */}
+      <div 
+        className="absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        style={{
+          background: `radial-gradient(circle at top right, ${userColor}08, transparent 70%)`
+        }}
       />
 
-      {/* Sidebar */}
-      <div
-        className={`fixed top-0 right-0 h-full z-50 transform transition-transform duration-150
-                    ${isAnimating ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ width: `${panelWidth}px` }}
-      >
-        <div className="h-full bg-black text-green-200 font-mono border-l border-green-500/40">
-          {/* Drag handle (thin, retro) */}
-          <div
-            className="absolute top-0 left-0 h-full w-[2px] bg-green-500/40 cursor-ew-resize"
-            onMouseDown={handleMouseDown}
-            aria-label="Resize panel"
-          />
-
-          {/* Header */}
-          <div className="px-4 py-3 border-b border-green-500/40 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CopyButton content={keyInstance.address as string} />
-              <code className="text-xs text-green-400/90">
-                {keyInstance.address.slice(0, 8)}…{keyInstance.address.slice(-6)}
-              </code>
+      <div className="relative z-10 space-y-5">
+        {/* Header Section */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            {/* Avatar */}
+            <div 
+              className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-2 bg-gradient-to-br from-black to-zinc-900 shadow-lg"
+              style={{ 
+                borderColor: `${userColor}50`,
+                boxShadow: `0 0 20px ${userColor}20`
+              }}
+            >
+              <KeyIcon className="h-8 w-8" style={{ color: userColor }} />
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleLogout}
-                className="px-2 py-1 border border-green-500/50 text-green-300 hover:bg-green-500/10"
-                title="Logout"
-              >
-                <LogOut size={16} />
-              </button>
-              <button
-                onClick={handleClose}
-                className="px-2 py-1 border border-green-500/50 text-green-300 hover:bg-green-500/10"
-                title="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </div>
 
-          {/* Tabs (simple row, underline active) */}
-          <div className="flex border-b border-green-500/30">
-            {Object.entries(tabIcons).map(([tab, Icon]) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab as any)}
-                className={`flex-1 px-3 py-2 text-xs uppercase tracking-wide
-                            ${activeTab === tab
-                              ? 'text-green-300 border-b-2 border-green-400'
-                              : 'text-green-600 hover:text-green-300'}`}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Icon size={14} />
-                  {tab}
+            {/* Key Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span 
+                  className="text-sm font-bold uppercase tracking-wider"
+                  style={{ color: `${userColor}90` }}
+                >
+                  User Key
                 </span>
-              </button>
-            ))}
+                <CheckCircleIcon 
+                  className="h-4 w-4" 
+                  style={{ color: userColor }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <code 
+                  className="text-lg font-mono font-semibold tracking-tight"
+                  style={{ color: userColor }}
+                >
+                  {shorten(user.key)}
+                </code>
+                <CopyButton content={user.key} size="sm" />
+              </div>
+            </div>
           </div>
-
-          {/* Content */}
-          <div className="p-4 space-y-4 overflow-y-auto h-[calc(100%-9rem)]">
-            {activeTab === 'profile' && <InfoTab keyInstance={keyInstance} />}
-            {activeTab === 'sign' && <SignVerifyTab keyInstance={keyInstance} />}
-            {activeTab === 'mod' && <ModuleCaller keyInstance={keyInstance} />}
-          </div>
-
-          {/* Resize indicator (retro blink) */}
-          {isDragging && <div className="absolute top-0 left-0 h-full w-[2px] bg-green-400 animate-pulse pointer-events-none" />}
         </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 gap-4">
+          {/* Modules Count */}
+          <div 
+            className="rounded-xl border p-4 backdrop-blur-sm transition-all hover:scale-105"
+            style={{ 
+              borderColor: `${userColor}20`,
+              backgroundColor: `${userColor}05`
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div 
+                className="rounded-lg p-2"
+                style={{ backgroundColor: `${userColor}15` }}
+              >
+                <CubeIcon className="h-5 w-5" style={{ color: userColor }} />
+              </div>
+              <div>
+                <div className="text-2xl font-bold" style={{ color: userColor }}>
+                  {modCount}
+                </div>
+                <div className="text-xs font-medium text-white/50">
+                  Modules
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Balance */}
+          <div 
+            className="rounded-xl border p-4 backdrop-blur-sm transition-all hover:scale-105"
+            style={{ 
+              borderColor: `${userColor}20`,
+              backgroundColor: `${userColor}05`
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div 
+                className="rounded-lg p-2"
+                style={{ backgroundColor: `${userColor}15` }}
+              >
+                <ClockIcon className="h-5 w-5" style={{ color: userColor }} />
+              </div>
+              <div>
+                <div className="text-2xl font-bold" style={{ color: userColor }}>
+                  {balance.toFixed(2)}
+                </div>
+                <div className="text-xs font-medium text-white/50">
+                  Balance
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modules List Preview */}
+        {modCount > 0 && (
+          <div 
+            className="rounded-xl border p-4"
+            style={{ 
+              borderColor: `${userColor}15`,
+              backgroundColor: `${userColor}03`
+            }}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <CubeIcon className="h-4 w-4" style={{ color: `${userColor}80` }} />
+              <span className="text-sm font-semibold" style={{ color: `${userColor}90` }}>
+                Recent Modules
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {user.mods?.slice(0, 5).map((mod: any, idx: number) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all hover:scale-105"
+                  style={{ 
+                    borderColor: `${userColor}30`,
+                    backgroundColor: `${userColor}08`,
+                    color: `${userColor}dd`
+                  }}
+                >
+                  {mod.name || 'Unknown'}
+                </span>
+              ))}
+              {modCount > 5 && (
+                <span
+                  className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium"
+                  style={{ color: `${userColor}70` }}
+                >
+                  +{modCount - 5} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
-    </>
+
+      {/* Hover border effect */}
+      <div 
+        className="absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+        style={{
+          boxShadow: `inset 0 0 0 1px ${userColor}30`
+        }}
+      />
+    </motion.div>
   )
 }
