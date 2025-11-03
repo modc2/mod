@@ -32,8 +32,17 @@ export default function Modules() {
         return [...list].sort((a, b) => (a.author || '').localeCompare(b.author || ''))
       case 'recent':
       default:
-        return [...list].sort((a, b) => (b.time || 0) - (a.time || 0))
+        return [...list].sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
     }
+  }
+
+  const filterModsBySearch = (list: ModuleType[], term: string) => {
+    if (!term) return list
+    const lowerTerm = term.toLowerCase()
+    return list.filter(mod => 
+      (mod.name?.toLowerCase().includes(lowerTerm)) ||
+      (mod.key?.toLowerCase().includes(lowerTerm))
+    )
   }
 
   const fetchAll = async () => {
@@ -41,10 +50,10 @@ export default function Modules() {
     setLoading(true)
     setError(null)
     try {
-      const params = searchTerm ? { search: searchTerm } : {}
-      console.log('Fetching modules with params:', params)
-      const raw = (await client.call('mods', params)) as ModuleType[]
-      const sorted = Array.isArray(raw) ? sortModules(raw) : []
+      const raw = (await client.call('mods', {})) as ModuleType[]
+      const allMods = Array.isArray(raw) ? raw : []
+      const filtered = filterModsBySearch(allMods, searchTerm)
+      const sorted = sortModules(filtered)
       setMods(sorted)
     } catch (err: any) {
       setError(err?.message || 'Failed to load modules')

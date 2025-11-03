@@ -148,11 +148,8 @@ export function UserHeader() {
           }}
         >
           <div className="space-y-4">
-            <div className="flex items-center gap-2.5 pb-3 border-b" style={{ borderColor: `${userColor}30` }}>
-              <UserIcon className="w-5 h-5" style={{ color: userColor }} />
-              <span className="font-bold text-lg" style={{ color: userColor }}>Account Details</span>
-            </div>
-            
+
+     
             <div className="space-y-3">
               <div className="flex items-center justify-between p-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
                 <div className="flex items-center gap-2 text-white/70">
@@ -169,19 +166,7 @@ export function UserHeader() {
                 </div>
                 <span className="font-bold text-lg" style={{ color: userColor }}>{modsCount}</span>
               </div>
-              
-              <div className="pt-3 border-t" style={{ borderColor: `${userColor}30` }}>
-                <div className="flex items-center gap-2 text-white/70 mb-2">
-                  <KeyIcon className="w-4 h-4" />
-                  <span className="text-sm font-medium">Address</span>
-                </div>
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/5">
-                  <code className="text-xs font-mono flex-1" style={{ color: userColor }}>
-                    {userAddress}
-                  </code>
-                  <CopyButton content={userAddress} size="sm" />
-                </div>
-              </div>
+
             </div>
           </div>
         </div>

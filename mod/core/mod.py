@@ -1602,13 +1602,12 @@ class Mod:
         assert self.mod_exists(mod), f'mod {mod} does not exist'
         return {'msg': f'mod {mod} linked successfully'}
 
-    def push(self, path = None, comment=None):
-        path = self.dp(path)
+    def push(self,  comment, *extra_comment, mod = None):
+        path = self.dp(mod)
+        comment = ' '.join([comment, *extra_comment])
         assert os.path.exists(path), f'Path {path} does not exist'
-        if comment == None:
-            comment = input('Enter the comment for the commit: ')
-        cmd = f'cd {self.mods_path}; git add {path} ; git commit -c"{comment}" ; git push'
-        self.cmd(cmd, cwd=self.mods_path)
+        cmd = f'cd {path}; git add . ; git commit -c "{comment}" ; git push'
+        return os.system(cmd)
         
     def git_info(self, path:str = None, name:str = None, n=10):
         return self.fn('git/get_info', {'path': path, 'name': name, 'n': n})

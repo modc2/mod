@@ -114,7 +114,7 @@ export default function UserPage({ params }: { params: { key: string } }) {
                 style={{ borderColor: `${userColor}33` }}
               >
                 <KeyIcon className="h-4 w-4" style={{ color: userColor }} />
-                <span className="font-mono">{shorten(user.key)}</span>
+                <span className="font-mono select-all">{user.key}</span>
                 <CopyButton size="sm" content={user.key} />
               </div>
             )}
@@ -144,7 +144,7 @@ export default function UserPage({ params }: { params: { key: string } }) {
               </div>
               <div className="p-4 rounded-lg border" style={{ borderColor: `${userColor}33`, backgroundColor: `${userColor}0a` }}>
                 <div className="text-sm text-white/60 mb-1">Address</div>
-                <div className="text-lg font-mono" style={{ color: userColor }}>{shorten(user.key)}</div>
+                <div className="text-lg font-mono select-all" style={{ color: userColor }}>{user.key}</div>
               </div>
             </div>
           </div>

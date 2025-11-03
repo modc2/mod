@@ -39,9 +39,9 @@ export function Header() {
                 isModsPage ? 'shadow-lg' : 'hover:shadow-md'
               }`}
               style={{
-                backgroundColor: isModsPage ? `${modsColor}20` : `${modsColor}08`,
-                borderColor: isModsPage ? `${modsColor}60` : `${modsColor}30`,
-                color: modsColor,
+                backgroundColor: isModsPage ? modsColor : 'transparent',
+                borderColor: modsColor,
+                color: isModsPage ? '#000000' : modsColor,
               }}
             >
               <CubeIcon className="h-5 w-5" />
@@ -54,9 +54,9 @@ export function Header() {
                 isUsersPage ? 'shadow-lg' : 'hover:shadow-md'
               }`}
               style={{
-                backgroundColor: isUsersPage ? `${usersColor}20` : `${usersColor}08`,
-                borderColor: isUsersPage ? `${usersColor}60` : `${usersColor}30`,
-                color: usersColor,
+                backgroundColor: isUsersPage ? usersColor : 'transparent',
+                borderColor: usersColor,
+                color: isUsersPage ? '#000000' : usersColor,
               }}
             >
               <UsersIcon className="h-5 w-5" />
