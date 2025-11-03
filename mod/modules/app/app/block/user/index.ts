@@ -1,2 +1,2 @@
-export { UserProfile } from './User'
-export type { User } from '@/apptypes'
+export { User } from './User'
+export type { UserType } from '@/app/types'

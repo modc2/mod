@@ -26,7 +26,7 @@ export default function Users() {
   const fetchUsers = async () => {
     setState((p) => ({ ...p, loading: true, error: null }))
     try {
-      if (!keyInstance) throw new Error('No key instance available')
+      if (!client) throw new Error('No client available')
       const params: any = {
         page,
         page_size: pageSize,
@@ -45,8 +45,8 @@ export default function Users() {
   }
 
   useEffect(() => {
-    if (keyInstance) fetchUsers()
-  }, [searchFilters.searchTerm, page, pageSize, keyInstance])
+    if (client) fetchUsers()
+  }, [searchFilters.searchTerm, page, pageSize, client])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex flex-col">

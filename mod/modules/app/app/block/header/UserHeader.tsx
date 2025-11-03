@@ -5,22 +5,7 @@ import { useUserContext } from '@/app/block/context/UserContext'
 import { UserIcon, ArrowRightOnRectangleIcon, KeyIcon, CurrencyDollarIcon, CubeIcon } from '@heroicons/react/24/outline'
 import { CopyButton } from '@/app/block/CopyButton'
 import 'react-responsive-modal/styles.css'
-
-const shorten = (str: string): string => {
-  if (!str || str.length <= 12) return str
-  return `${str.slice(0, 6)}...${str.slice(-4)}`
-}
-
-const text2color = (text: string): string => {
-  if (!text) return '#00ff00'
-  let hash = 0
-  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  const golden_ratio = 0.618033988749895
-  const hue = (hash * golden_ratio * 360) % 360
-  const saturation = 65 + (Math.abs(hash >> 8) % 35)
-  const lightness = 50 + (Math.abs(hash >> 16) % 20)
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
-}
+import {text2color, shorten} from "@/app/utils";
 
 export function UserHeader() {
   const { keyInstance, setKeyInstance, user, authLoading, signIn, signOut } = useUserContext()

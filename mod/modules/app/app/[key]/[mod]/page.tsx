@@ -21,46 +21,9 @@ import { ModuleContent } from '@/app/block/mod/ModuleContent'
 import ModuleSchema from '@/app/block/mod/ModuleApi'
 import { ModuleApp } from '@/app/block/mod/ModuleApp'
 import { motion, AnimatePresence } from 'framer-motion'
-
+import { time2str, text2color, shorten } from '@/app/utils'
 type TabType = 'app' | 'api' | 'content'
 
-interface ModuleProps {
-  key: string
-  module: string
-  content?: boolean
-  api?: boolean
-}
-
-const shorten = (str: string): string => {
-  if (!str || str.length <= 12) return str
-  return `${str.slice(0, 8)}...${str.slice(-4)}`
-}
-
-const time2str = (time: number): string => {
-  const d = new Date(time * 1000)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  if (diff < 60_000) return 'now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-  })
-}
-
-const text2color = (text: string): string => {
-  if (!text) return '#00ff00'
-  let hash = 0
-  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  const golden_ratio = 0.618033988749895
-  const hue = (hash * golden_ratio * 360) % 360
-  const saturation = 65 + (Math.abs(hash >> 8) % 35)
-  const lightness = 50 + (Math.abs(hash >> 16) % 20)
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
-}
 
 export default function Module({ params }: { params: { mod: string, key: string } }){
 

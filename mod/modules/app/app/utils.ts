@@ -46,6 +46,13 @@ export const time2str = (time: number): string => {
   })
 }
 
+
+export const time2utc = (time: number): string => {
+  const d = new Date(time * 1000)
+  return d.toISOString().replace('T', ' ').substring(0, 19) 
+}
+
+
 export const text2color = (text: string): string => {
   if (!text) return '#00ff00'
   let hash = 0

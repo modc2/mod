@@ -8,7 +8,6 @@ import mod as m
 
 class  Api:
     endpoints = ['mods', 'names', 'reg', 'mod', 'users', 'user_info', 'n']
-    forbidden_mods = ['mod']
 
     def __init__(self, store = 'ipfs', key=None):
         self.store = m.mod(store)()
