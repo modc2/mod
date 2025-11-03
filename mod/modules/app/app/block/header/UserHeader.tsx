@@ -111,8 +111,8 @@ export function UserHeader() {
           onMouseEnter={() => setShowTooltip(true)}
           onMouseLeave={() => setShowTooltip(false)}
         >
-          <UserIcon className="w-6 h-6" style={{ color: userColor }} />
-          <span className="font-mono font-bold text-lg" style={{ color: userColor }}>
+          <UserIcon className="w-5 h-5" style={{ color: userColor }} />
+          <span className="font-mono font-bold text-base" style={{ color: userColor }}>
             {truncatedAddress}
           </span>
           <CopyButton content={userAddress} size="sm" />
@@ -125,7 +125,7 @@ export function UserHeader() {
             title="Sign Out"
             style={{ color: userColor }}
           >
-            <ArrowRightOnRectangleIcon className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+            <ArrowRightOnRectangleIcon className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>
       </Link>

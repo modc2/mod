@@ -1,6 +1,7 @@
 networks:
   default:
-    driver: bridge
+    external: true
+    name: modnet
 services:
   app:
     build:

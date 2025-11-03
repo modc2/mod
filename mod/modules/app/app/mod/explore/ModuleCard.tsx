@@ -39,7 +39,7 @@ export default function ModuleCard({ mod }: ModuleCardProps) {
           <Link href={`${mod.name}/${mod.key}`} className="flex-1 min-w-0">
             <div className="flex items-center gap-2 group/link">
               <div className={`flex-shrink-0 p-2 bg-gradient-to-br ${colors.from} ${colors.to} rounded-lg border border-white/20 group-hover/link:scale-110 transition-transform duration-300`}>
-                <Package className={`w-5 h-5 ${colors.text}`} />
+                <Package className={`${colors.text}`} size={20} strokeWidth={2} />
               </div>
               <h3 className={`text-2xl font-bold text-white group-hover/link:text-transparent group-hover/link:bg-gradient-to-r group-hover/link:${colors.hover} group-hover/link:bg-clip-text transition-all duration-300 truncate`}>
                 {mod.name}
@@ -48,7 +48,7 @@ export default function ModuleCard({ mod }: ModuleCardProps) {
           </Link>
 
           <div className="flex-shrink-0 flex items-center gap-2 bg-black/50 border border-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm hover:bg-black/60 transition-colors">
-            <User className="w-4 h-4 text-white/60" />
+            <User className="text-white/60" size={16} strokeWidth={2} />
             <code className="text-sm text-white/80 font-mono max-w-[100px] truncate" title={mod.key}>
               {mod.key}
             </code>
@@ -59,7 +59,7 @@ export default function ModuleCard({ mod }: ModuleCardProps) {
         <div className="flex flex-wrap gap-2">
           {mod.cid && (
             <div className="flex items-center gap-2 bg-black/40 border border-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm hover:bg-black/50 transition-colors">
-              <Hash className={`w-4 h-4 ${colors.text}/80`} />
+              <Hash className={`${colors.text}/80`} size={16} strokeWidth={2} />
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-white/60 font-medium">CID:</span>
                 <code className={`text-sm ${colors.text} font-mono max-w-[180px] truncate`} title={mod.cid}>
@@ -72,7 +72,7 @@ export default function ModuleCard({ mod }: ModuleCardProps) {
 
           {mod.updated && (
             <div className="flex items-center gap-2 bg-black/40 border border-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm">
-              <Calendar className={`w-4 h-4 ${colors.text}/80`} />
+              <Calendar className={`${colors.text}/80`} size={16} strokeWidth={2} />
               <span className="text-sm text-white/60 font-medium">Updated:</span>
               <span className={`text-sm ${colors.text} font-semibold`}>
                 {formatDate(mod.updated)}
