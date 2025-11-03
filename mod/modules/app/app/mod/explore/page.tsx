@@ -3,12 +3,12 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
-import ModuleCard from '@/app/mods/ModuleCard'
+import ModuleCard from './ModuleCard'
 import { ModuleType } from '@/app/types'
 import { Footer } from '@/app/block/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { Plus, X, RotateCcw, Sparkles, Globe } from 'lucide-react'
+import { Plus, X, RotateCcw, Sparkles } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author'
 
@@ -29,7 +29,7 @@ export default function Modules() {
       case 'name':
         return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       case 'author':
-        return [...list].sort((a, b) => (a.author || '').localeCompare(b.author || ''))
+        return [...list].sort((a, b) => (a.key || '').localeCompare(b.key || ''))
       case 'recent':
       default:
         return [...list].sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
@@ -41,7 +41,8 @@ export default function Modules() {
     const lowerTerm = term.toLowerCase()
     return list.filter(mod => 
       (mod.name?.toLowerCase().includes(lowerTerm)) ||
-      (mod.key?.toLowerCase().includes(lowerTerm))
+      (mod.key?.toLowerCase().includes(lowerTerm)) ||
+      (mod.desc?.toLowerCase().includes(lowerTerm))
     )
   }
 
@@ -56,6 +57,7 @@ export default function Modules() {
       const sorted = sortModules(filtered)
       setMods(sorted)
     } catch (err: any) {
+      console.error('Error fetching modules:', err)
       setError(err?.message || 'Failed to load modules')
     } finally {
       setLoading(false)
@@ -68,7 +70,6 @@ export default function Modules() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-
       {error && (
         <div className="mx-auto max-w-4xl px-6 mt-6">
           <div className="p-5 border border-rose-500/30 bg-gradient-to-br from-rose-500/10 to-rose-600/5 rounded-2xl flex items-start justify-between backdrop-blur-sm">
@@ -122,7 +123,7 @@ export default function Modules() {
         <div className="mx-auto max-w-4xl space-y-4">
           {mods.map((mod) => (
             <div
-              key={mod.key}
+              key={`${mod.key}-${mod.name}`}
               className="transform hover:scale-[1.02] transition-all duration-300 ease-out"
             >
               <ModuleCard mod={mod} />

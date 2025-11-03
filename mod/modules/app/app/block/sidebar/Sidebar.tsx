@@ -6,8 +6,8 @@ import { KeyIcon, UsersIcon } from '@heroicons/react/24/outline'
 import { motion } from 'framer-motion'
 
 const navigation = [
-  { name: 'Keys', href: '/mods', icon: KeyIcon },
-  { name: 'Users', href: '/users', icon: UsersIcon },
+  { name: 'Keys', href: '/mod/explore', icon: KeyIcon },
+  { name: 'Users', href: '/user/explore', icon: UsersIcon },
 ]
 
 export function Sidebar() {

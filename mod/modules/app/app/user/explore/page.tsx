@@ -6,7 +6,7 @@ import { Footer } from '@/app/block/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { UsersState, UserType } from '@/app/types'
-import { UserCard } from '@/app/users/UserCard'
+import { UserCard } from './UserCard'
 import { Users as UsersIcon, AlertCircle } from 'lucide-react'
 
 export default function Users() {

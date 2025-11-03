@@ -35,9 +35,9 @@ export function SearchHeader() {
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Search mods..."
-          className="bg-white/5 border border-white/10 text-white px-4 py-2 pl-10 rounded-xl text-sm hover:bg-white/10 hover:border-white/20 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all w-64"
+          className="bg-white/10 border-3 border-white/40 text-white px-6 py-4 pl-14 rounded-xl text-xl font-bold hover:bg-white/15 hover:border-white/50 focus:outline-none focus:ring-3 focus:ring-white/60 focus:border-white/60 transition-all w-80 shadow-xl shadow-black/30"
         />
-        <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
+        <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-white/80" />
       </div>
     </form>
   )

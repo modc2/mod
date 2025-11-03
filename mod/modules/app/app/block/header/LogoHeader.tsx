@@ -9,9 +9,9 @@ export const LogoHeader = () => {
     const moduleColor = '#10b981'
     
     return (
-    <div className="relative w-10 h-10 flex-shrink-0 cursor-pointer z-50">
+    <div className="relative w-14 h-14 flex-shrink-0 cursor-pointer z-50">
               <motion.div 
-                onClick={() => router.push('/mods')}
+                onClick={() => router.push('/mod/explore')}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.8 }}
                 transition={{ duration: 0.2 }}
@@ -21,7 +21,7 @@ export const LogoHeader = () => {
                   boxShadow: `0 0 30px ${moduleColor}30`
                 }}
               >
-                <CubeIcon className='h-10 w-10' style={{ color: moduleColor }} />
+                <CubeIcon className='h-14 w-14' style={{ color: moduleColor }} />
               </motion.div>
     </div>
     )
