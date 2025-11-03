@@ -4,6 +4,7 @@ import { ModuleType } from '@/app/types'
 import { CopyButton } from '@/app/block/CopyButton'
 import Link from 'next/link'
 import { Package, Calendar, User, Hash } from 'lucide-react'
+import { time2utc } from '@/app/utils'
 
 interface ModuleCardProps {
   mod: ModuleType
@@ -19,14 +20,6 @@ const MODULE_COLORS = [
 ]
 
 export default function ModuleCard({ mod }: ModuleCardProps) {
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })
-  }
-
   const colorIndex = mod.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % MODULE_COLORS.length
   const colors = MODULE_COLORS[colorIndex]
 
@@ -70,12 +63,22 @@ export default function ModuleCard({ mod }: ModuleCardProps) {
             </div>
           )}
 
+          {mod.created && (
+            <div className="flex items-center gap-2 bg-black/40 border border-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm">
+              <Calendar className={`${colors.text}/80`} size={16} strokeWidth={2} />
+              <span className="text-sm text-white/60 font-medium">Created:</span>
+              <span className={`text-sm ${colors.text} font-semibold`} title={time2utc(mod.created)}>
+                {time2utc(mod.created)}
+              </span>
+            </div>
+          )}
+
           {mod.updated && (
             <div className="flex items-center gap-2 bg-black/40 border border-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm">
               <Calendar className={`${colors.text}/80`} size={16} strokeWidth={2} />
               <span className="text-sm text-white/60 font-medium">Updated:</span>
-              <span className={`text-sm ${colors.text} font-semibold`}>
-                {formatDate(mod.updated)}
+              <span className={`text-sm ${colors.text} font-semibold`} title={time2utc(mod.updated)}>
+                {time2utc(mod.updated)}
               </span>
             </div>
           )}

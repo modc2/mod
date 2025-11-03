@@ -3,9 +3,11 @@
 import { useState, FormEvent, useEffect } from 'react'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { useRouter } from 'next/navigation'
 
 export function SearchHeader() {
   const { handleSearch } = useSearchContext()
+  const router = useRouter()
   const [inputValue, setInputValue] = useState('')
   const [isNarrow, setIsNarrow] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -22,11 +24,8 @@ export function SearchHeader() {
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const trimmed = inputValue.trim()
-    if (trimmed) {
-      handleSearch(trimmed)
-    } else {
-      handleSearch('')
-    }
+    handleSearch(trimmed)
+    router.push('/mod/explore')
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,11 +40,8 @@ export function SearchHeader() {
     if (e.key === 'Enter') {
       e.preventDefault()
       const trimmed = inputValue.trim()
-      if (trimmed) {
-        handleSearch(trimmed)
-      } else {
-        handleSearch('')
-      }
+      handleSearch(trimmed)
+      router.push('/mod/explore')
     }
     if (e.key === 'Escape') {
       setIsExpanded(false)
