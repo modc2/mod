@@ -33,7 +33,10 @@ export function Header() {
       <div className="flex h-20 items-center justify-between px-4 md:px-6">
         <div className="flex items-center gap-6">
           <LogoHeader />
-          
+          <SearchHeader />
+        </div>
+        
+        <div className="flex items-center gap-4">
           {!isNarrow && (
             <nav className="flex items-center gap-2">
               <Link
@@ -118,10 +121,7 @@ export function Header() {
               )}
             </div>
           )}
-        </div>
-        
-        <div className="flex items-center gap-4">
-          <SearchHeader />
+          
           <UserHeader />
         </div>
       </div>

@@ -1,17 +1,26 @@
+'use client'
+
 import { useDebounce } from '@/app/hooks/useDebounce'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { CubeIcon } from '@heroicons/react/24/solid'
+import { useSearchContext } from '@/app/block/context/SearchContext'
 
 export const LogoHeader = () => {
     const router = useRouter()
+    const { handleSearch } = useSearchContext()
     const moduleColor = '#10b981'
+    
+    const handleLogoClick = () => {
+      handleSearch('')
+      router.push('/mod/explore')
+    }
     
     return (
     <div className="relative w-14 h-14 flex-shrink-0 cursor-pointer z-50">
               <motion.div 
-                onClick={() => router.push('/mod/explore')}
+                onClick={handleLogoClick}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.8 }}
                 transition={{ duration: 0.2 }}
