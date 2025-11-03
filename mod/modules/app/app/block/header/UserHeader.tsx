@@ -6,6 +6,7 @@ import { UserIcon, ArrowRightOnRectangleIcon, KeyIcon, CurrencyDollarIcon, CubeI
 import { CopyButton } from '@/app/block/CopyButton'
 import 'react-responsive-modal/styles.css'
 import {text2color, shorten} from "@/app/utils";
+import Link from 'next/link'
 
 export function UserHeader() {
   const { keyInstance, setKeyInstance, user, authLoading, signIn, signOut } = useUserContext()
@@ -95,33 +96,39 @@ export function UserHeader() {
   const userColor = text2color(userAddress)
   const balance = user?.balance || 0
   const modsCount = user?.mods?.length || 0
+  const truncatedAddress = userAddress.length > 12 ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}` : userAddress
 
   return (
     <div className="relative">
-      <div
-        className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all hover:shadow-xl hover:scale-105 active:scale-95 backdrop-blur-sm"
-        style={{
-          borderColor: `${userColor}40`,
-          backgroundColor: `${userColor}15`,
-          boxShadow: `0 4px 20px ${userColor}20`,
-        }}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        <UserIcon className="w-5 h-5" style={{ color: userColor }} />
-        <span className="font-mono font-bold text-sm" style={{ color: userColor }}>
-          {shorten(userAddress)}
-        </span>
-        <CopyButton content={userAddress} size="sm" />
-        <button
-          onClick={handleSignOut}
-          className="ml-1 p-1.5 rounded-lg hover:bg-white/10 transition-all group"
-          title="Sign Out"
-          style={{ color: userColor }}
+      <Link href={`/user/${userAddress}`}>
+        <div
+          className="flex items-center gap-2.5 px-5 py-3.5 rounded-xl border cursor-pointer transition-all hover:shadow-xl hover:scale-105 active:scale-95 backdrop-blur-sm"
+          style={{
+            borderColor: `${userColor}40`,
+            backgroundColor: `${userColor}15`,
+            boxShadow: `0 4px 20px ${userColor}20`,
+          }}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
         >
-          <ArrowRightOnRectangleIcon className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
-        </button>
-      </div>
+          <UserIcon className="w-6 h-6" style={{ color: userColor }} />
+          <span className="font-mono font-bold text-lg" style={{ color: userColor }}>
+            {truncatedAddress}
+          </span>
+          <CopyButton content={userAddress} size="sm" />
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              handleSignOut()
+            }}
+            className="ml-1 p-1.5 rounded-lg hover:bg-white/10 transition-all group"
+            title="Sign Out"
+            style={{ color: userColor }}
+          >
+            <ArrowRightOnRectangleIcon className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        </div>
+      </Link>
 
       {showTooltip && (
         <div
