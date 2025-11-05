@@ -1,4 +1,4 @@
-import commune as c
+import mod as c
 import subprocess
 import requests
 import base64

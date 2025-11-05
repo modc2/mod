@@ -98,12 +98,6 @@ class Dev:
         self.add_memory(self.tool('select_files')(path=path, query=query))
         if base:
             self.add_memory(m.content(base))
-
-        print(f"Dev Agent starting with query: {query}", color='green')
-        print(f"Using model: {model}", color='green')
-        print(f"Using path: {path}", color='green')
-        print(f"Using steps: {steps}", color='green')
-        print(f"Using temperature: {temperature}", color='green')
         for step in range(steps):
             prompt = self.prompt.format(
                 goal=self.goal,
@@ -125,11 +119,6 @@ class Dev:
                 m.print("Plan is not complete, continuing to next step.", color='yellow')
             self.add_memory(plan)
         return plan
-
-    def process_prompt(self, params:dict):
-        
-
-        return prompt
 
 
     def is_plan_complete(self, plan: list) -> bool:

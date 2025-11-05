@@ -48,7 +48,7 @@ class PM:
                 call_interval : float = 0.2, # time between calls to check if server is up
                 ):
         """
-        Runs a mod as a Docker container with port forwarding as a server.
+        Runs a mod as a Docker container with port forwarding as a 
         """
         env = env or {}
         params = params or {}

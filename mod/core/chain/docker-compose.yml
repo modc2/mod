@@ -6,14 +6,15 @@ services:
   mod:
     container_name: mod
     deploy: {}
-    entrypoint: bash -c "m serve port=50420 key=server remote=0 mod=mod"
-    environment: []
+    entrypoint: bash -c "m serve port=50144 key=mod remote=0 mod=mod"
     image: mod:latest
     ports:
-    - 50420:50420
+    - 50144:50144
     restart: unless-stopped
     shm_size: 100g
     volumes:
     - ~/mod:/root/mod
     - ~/.mod:/root/.mod
-    working_dir: /root/mod
+    - ~/mod/mod/core/chain:/root/mod/mod/core/chain
+    working_dir: /root/mod/mod/core/chain
+version: '3.8'

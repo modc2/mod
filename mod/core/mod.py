@@ -448,7 +448,7 @@ class Mod:
                 raise Exception('Unknown config format', configs[0])
         return config
 
-    def fn2mod(self, search=None, update=True, core = True, local = True, verbose=False):
+    def fn2mod(self, search=None, update=False, core = True, local = True, verbose=False):
         fn2mod = {}
         path = self.get_path('fn2mod')
         fn2mod = self.get(path, {}, update=update)
@@ -1223,36 +1223,6 @@ class Mod:
             return self.dirpath(mod)
         return os.getcwd()
 
-    def get_path_name(self, f):
-        f = self.abspath(f)
-        for language in self.file_types:
-            suffix = '.' + language
-            if f.endswith(suffix):
-                f = f.split(suffix)[0]
-                break
-        if f.startswith(self.core_path):
-            path = self.core_path
-        elif f.startswith(self.mods_path):
-            path = self.mods_path
-        elif f.startswith(os.getcwd()):
-            path = os.getcwd()
-        if f.startswith(self.home_path):
-            f = f[len(self.home_path):]
-        if f.startswith('/'):
-            f = f[1:]
-        # replace dublicates
-        f_chunks = f.split('/')
-        result = ''
-        for f_chunk in f_chunks: 
-            if f_chunk in result:
-                continue
-            else:
-                result += f_chunk + '/'
-        if result.endswith('/'):
-            result = result[:-1]
-        result = result.replace('/', '.')
-        return result
-
     def anchor_file(self, path):
 
         """
@@ -1294,7 +1264,7 @@ class Mod:
         return None
 
 
-    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'mod']) -> str:
+    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'modules', 'mod']) -> str:
         name = name or 'mod'
         if isinstance(name, str) and any([name.startswith(p) for p in ['.', '~', '/']]):
             name = self.path2name(name)
@@ -1345,7 +1315,7 @@ class Mod:
             else: 
                 paths = [f for f in self.files(path, depth=depth) if any([f.endswith('.' + ft) for ft in self.file_types])]
 
-            tree = {self.get_path_name(f):f for f in paths}
+            tree = {self.get_name(f):f for f in paths}
 
             def process_v(x):
                 for k in ignore_suffixes: 
@@ -1674,12 +1644,21 @@ class Mod:
         assert self.mod_exists(mod), f'mod {mod} does not exist'
         return {'msg': f'mod {mod} linked successfully'}
 
-    def push(self,  comment, *extra_comment, mod = None):
-        path = self.dp(mod)
+    def confirm(self, message:str = 'Are you sure?', suffix = ' (y/n): '):
+        confirm = input(message + suffix)
+        if confirm.lower() != 'y':
+            raise KeyboardInterrupt('Operation cancelled by user')
+        return True
+
+    def push(self,  comment, *extra_comment, mod = None, safety=True):
+        path = self.dp(mod, relative=True)
         comment = ' '.join([comment, *extra_comment])
         assert os.path.exists(path), f'Path {path} does not exist'
         cmd = f'cd {path} && git add . && git commit -m "{comment}" && git push'
-        return os.system(cmd)
+        if safety:
+            self.confirm(f'Are you sure you want to push to {path} with comment: {comment}?')
+        os.system(cmd)
+        return {'msg': f'Pushed to {path} with comment: {comment}'}
         
     def git_info(self, path:str = None, name:str = None, n=10):
         return self.fn('git/get_info', {'path': path, 'name': name, 'n': n})

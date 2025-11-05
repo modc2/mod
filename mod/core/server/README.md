@@ -70,7 +70,7 @@ m.serve('my_module', port=8000)
 
 # Or manually
 server = m.mod('server')()
-server.serve(module='my_module', port=8000)
+serve(module='my_module', port=8000)
 ```
 
 ### Making Client Requests
@@ -82,7 +82,7 @@ import mod as m
 result = m.call('my_module/function', arg1=value1, arg2=value2)
 
 # Using client
-client = m.mod('server.client')(url='my_module')
+client = m.mod('client')(url='my_module')
 result = client.forward(fn='function', kwargs={'arg1': value1, 'arg2': value2})
 
 # Virtual client
@@ -113,13 +113,13 @@ The server module includes role-based access control for managing permissions:
 
 ```python
 # Add a role to a user
-server.add_role(address='user_address', role='admin')
+add_role(address='user_address', role='admin')
 
 # Check a user's role
-role = server.get_role(address='user_address')
+role = get_role(address='user_address')
 
 # Remove a role
-server.remove_role(address='user_address', role='admin')
+remove_role(address='user_address', role='admin')
 ```
 
 ### Rate Limiting
@@ -128,10 +128,10 @@ The server includes rate limiting based on user roles and network state:
 
 ```python
 # Get rate limit for a user and function
-rate_limit = server.rate_limit(user='user_address', fn='function_name')
+rate_limit = rate_limit(user='user_address', fn='function_name')
 
 # Get current rate for a user
-rate = server.rate(user='user_address')
+rate = rate(user='user_address')
 ```
 
 ### Process Management
@@ -139,7 +139,7 @@ rate = server.rate(user='user_address')
 Manage server processes using the ProcessManager:
 
 ```python
-pm = m.mod('server.pm')()
+pm = m.mod('pm')()
 
 # Start a process
 pm.run(fn='module/function', name='process_name')

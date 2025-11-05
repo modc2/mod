@@ -21,10 +21,10 @@ class Server:
         self, 
         path = '~/.mod/server', # the path to store the server data
         verbose:bool = True, # whether to print the output
-        pm = 'server.pm', # the process manager to use
-        serializer = 'server.serializer', # the serializer to use
-        tracker = 'server.tracker', # the tracker to use
-        auth = 'server.auth', # the auth to use
+        pm = 'pm', # the process manager to use
+        serializer = 'serializer', # the serializer to use
+        tx = 'tx', # the tx to use
+        auth = 'auth', # the auth to use
         sudo_roles = ['admin'], # the roles that can access all functions
         **_kwargs):
         
@@ -32,7 +32,7 @@ class Server:
         self.verbose = verbose
         self.pm = m.mod(pm)() # sets the mod to the pm
         self.serializer = m.mod(serializer)() # sets the serializer
-        self.tracker = m.mod(tracker)()
+        self.tx = m.mod(tx)()
         self.auth = m.mod(auth)()
         self.sudo_roles = sudo_roles
     
@@ -54,9 +54,17 @@ class Server:
         params = request['params'] if 'params' in request else {}
         client = request['client']['key'] if 'client' in request and 'key' in request['client'] else ''
         cost = request['cost'] if 'cost' in request else 0
-        print(f"""--- Request ---""", color='blue')
-        print(f'fn={fn}\n params={params}\nclient={client}\ncost={cost}', color='blue')
-        print(f'-------------------', color='blue')
+        right_buffer = '>'*64
+        left_buffer = '<'*64
+        print(right_buffer, color='blue')
+        print(f"""Request\t""" , color='blue')
+        print(left_buffer)
+        print_params = {'fn': fn, 'params': params, 'client': client, 'cost': cost, 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+        # side ways dataframe where each param is a row
+        df = pd.DataFrame(print_params.items(), columns=['param', 'value'])
+        print(df.to_string(index=False), color='blue')
+        print(right_buffer, color='blue')
+
 
 
     def forward(self, fn:str, request: Request):
@@ -87,42 +95,33 @@ class Server:
         if self.is_generator(result):
             def generator_wrapper(generator):
                 result =  {'data': [], 'start_time': time.time(), 'end_time': None, 'cost': 0}
-                print(f'Starting generator for fn {fn} with params {params}', color='green', verbose=self.verbose)
                 for item in generator:
                     print(item, end='')
                     gen_result['data'].append(item)
                     yield item
-                print(f'Ending generator for fn {fn} with params {params}', color='green', verbose=self.verbose)
                 # save the transaction between the headers and server for future auditing
-                server_auth = self.auth.headers(data={"fn": fn, "params": params, "result": result, "cost": cost})
-
-                self.tracker.forward(
+                self.tx.forward(
                     mod=info["name"],
                     fn=fn, # 
                     params=params, # params of the inputes
                     result=gen_result,
                     client=request['client'],
                     cost=cost,
-                    server=server_auth, 
+                    server= self.auth.headers(data={"fn": fn, "params": params, "result": result, "cost": cost}), 
                     key=self.key)
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-
             # save the transaction between the headers and server for future auditing
             result = self.serializer.forward(result) # serialize the result
-            fn = request['fn']
-            params = request['params']
-            server_auth = self.auth.generate(data={"fn": fn, "params": params, "result": result})
-            tx = self.tracker.forward(
+            tx = self.tx.forward(
                 mod=info["name"],
                 fn=fn, # 
                 params=params, # params of the inputes
-                result=result,
                 client=request['client'], # client auth
-                server= server_auth , 
+                result=result,
+                server= self.auth.generate(data={"fn": fn, "params": params, "result": result}) , 
                 key=self.key)
-            print(f'Finished fn {fn} with params {params}', color='green', verbose=self.verbose)
             return result
         
         raise Exception('Should not reach here, something went wrong in forward')
@@ -156,9 +155,13 @@ class Server:
         return {'fn': fn, 'params': params, 'client': headers, 'role': role, 'cost': cost}
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
-        return  self.tracker.txs( *args, **kwargs)
+        return  self.tx.txs( *args, **kwargs)
         
-    def get_port(self, port:Optional[int]=None):
+    def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
+        if port == None: 
+            config = m.config(mod)
+            if config != None and 'port' in config:
+                port = config['port']
         port = port or m.free_port()
         return port
 
@@ -355,8 +358,9 @@ class Server:
               daemon = True, 
               **extra_params 
               ):
-        port = self.get_port(port)
         mod = mod or 'mod'
+        port = self.get_port(port, mod=mod)
+        print(f'Serving {mod} on port {port}', color='green', verbose=self.verbose)
         params = {**(params or {}), **extra_params}
         if remote:
             return m.mod('pm')().forward(mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)

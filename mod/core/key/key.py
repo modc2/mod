@@ -443,13 +443,16 @@ class Key:
         path: The derivation path to use for generating the key
         crypto_type: Use KeyType.[SR25519|ED25519|ECDSA] cryptography for generating the Key
         """
+        address = os.listdir(path + '/' + crypto_type)[0].split('/')[-1].split('.json')[0]
         name = name or path.split('/')[0]
         if self.key_exists(name, crypto_type=crypto_type):
             self.rm_key(name, crypto_type=crypto_type)
         new_path = self.get_path(name)
         shutil.copytree(path, new_path, dirs_exist_ok=True)
         assert self.key_exists(name, crypto_type=crypto_type), f'key does not exist at {new_path}'
-        return self.get_key(name, crypto_type=crypto_type)
+        key = self.get_key(name, crypto_type=crypto_type)
+        assert key.address == address, f'address mismatch {key.address} != {address}'
+        return key
         
    
     def from_private_key(

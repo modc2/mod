@@ -172,7 +172,7 @@ class Cli:
                 fn = argv.pop(0)
 
             else:
-                fn2mod = m.fn2mod()
+                fn2mod = m.fn2mod(local=False, core=True)
                 if argv[0] in fn2mod:
                     # scenario 3: first argument is the function name so we will look it up in the fn2mod
                     print(f'Found function {argv[0]} in module {fn2mod[argv[0]]}')

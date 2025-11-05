@@ -1,139 +1,117 @@
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-import requests
+from web3 import Web3
+from eth_abi import decode
+import time
+
 from ..exchange import BaseExchange
 
 
 class Uniswap(BaseExchange):
-    """Uniswap DEX implementation (Ethereum/EVM)"""
+    """Uniswap DEX implementation for Base chain with full on-chain scraping"""
+    
+    # Base chain Uniswap V3 contracts
+    FACTORY_ADDRESS = '0x33128a8fC17869897dcE68Ed026d694621f6FDfD'
+    QUOTER_ADDRESS = '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a'
+    
+    # Event signatures
+    SWAP_EVENT_SIGNATURE = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67'
+    MINT_EVENT_SIGNATURE = '0x7a53080ba414158be7ec69b987b5fb7d07dee101fe85488f0853ae16239d0bde'
+    BURN_EVENT_SIGNATURE = '0x0c396cd989a39f4459b5fa1aed6a9a8dcdbc45908acfd67e028cd568da98982c'
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
-        self.api_url = self.config.get('api_url', 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3')
-        self.rpc_url = self.config.get('rpc_url', 'https://eth-mainnet.g.alchemy.com/v2/')
-        self.router_address = self.config.get('router_address', '0xE592427A0AEce92De3Edee1F18E0157C05861564')
-        self.private_key = self.config.get('private_key')
-        self.version = self.config.get('version', 'v3')
+        # Base chain RPC - using public endpoint
+        self.rpc_url = self.config.get('rpc_url', 'https://mainnet.base.org')
+        self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        self.factory_address = self.config.get('factory_address', self.FACTORY_ADDRESS)
+        self.quoter_address = self.config.get('quoter_address', self.QUOTER_ADDRESS)
         
-    def swap(
+    def scrape_history(
         self,
         token_in: str,
         token_out: str,
-        amount_in: float,
-        slippage: float = 0.01,
+        start_block: int,
+        end_block: int,
+        block_interval: int = 100,
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
-        Execute a swap on Uniswap
+        Scrape Uniswap history on Base chain between any blocks using pure on-chain data
+        
+        Args:
+            token_in: Input token address
+            token_out: Output token address
+            start_block: Starting block number
+            end_block: Ending block number
+            block_interval: Number of blocks to query at once (avoid rate limits)
+        
+        Returns:
+            List of historical swap events with prices and volumes
         """
         try:
-            # Get quote
-            price_data = self.get_price(token_in, token_out, amount_in)
-            expected_out = price_data['amount_out']
-            min_out = expected_out * (1 - slippage)
+            pool_address = self._get_pool_address(token_in, token_out)
+            if not pool_address:
+                return []
             
-            # Build swap parameters
-            swap_params = {
-                'tokenIn': token_in,
-                'tokenOut': token_out,
-                'fee': kwargs.get('fee', 3000),  # 0.3% default
-                'recipient': kwargs.get('recipient', self.config.get('wallet_address')),
-                'deadline': kwargs.get('deadline', int(datetime.now().timestamp()) + 300),
-                'amountIn': int(amount_in * 1e18),  # Convert to wei
-                'amountOutMinimum': int(min_out * 1e18),
-                'sqrtPriceLimitX96': kwargs.get('sqrtPriceLimitX96', 0)
-            }
+            all_events = []
+            current_block = start_block
             
-            # Execute swap
-            result = self._execute_swap(swap_params)
+            while current_block <= end_block:
+                to_block = min(current_block + block_interval, end_block)
+                
+                # Get swap events
+                swap_events = self._get_swap_events(pool_address, current_block, to_block)
+                
+                # Parse and process events
+                for event in swap_events:
+                    parsed_event = self._parse_swap_event(event, token_in, token_out)
+                    if parsed_event:
+                        all_events.append(parsed_event)
+                
+                current_block = to_block + 1
+                time.sleep(0.1)  # Rate limiting
             
-            return {
-                'success': result.get('success', False),
-                'amount_out': result.get('amount_out', expected_out),
-                'tx_hash': result.get('tx_hash', ''),
-                'price': price_data['price'],
-                'gas_used': result.get('gas_used', 0)
-            }
+            return all_events
+            
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'amount_out': 0,
-                'tx_hash': None,
-                'price': 0
-            }
+            return [{'error': str(e)}]
     
-    def get_price(
+    def get_price_at_block(
         self,
         token_in: str,
         token_out: str,
+        block_number: int,
         amount_in: float = 1.0,
-        timestamp: Optional[datetime] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Get price from Uniswap
+        Get price at specific block using on-chain slot0 data
         """
         try:
-            if timestamp:
-                # Historical price
-                return self._get_historical_price(token_in, token_out, amount_in, timestamp)
-            else:
-                # Current price via GraphQL
-                query = '''
-                {
-                  pool(id: "%s") {
-                    token0Price
-                    token1Price
-                    liquidity
-                    volumeUSD
-                    token0 {
-                      id
-                      symbol
-                    }
-                    token1 {
-                      id
-                      symbol
-                    }
-                  }
+            pool_address = self._get_pool_address(token_in, token_out)
+            if not pool_address:
+                return {'price': 0, 'error': 'Pool not found'}
+            
+            # Get slot0 data (sqrtPriceX96, tick, etc)
+            slot0_data = self._get_slot0(pool_address, block_number)
+            
+            if slot0_data:
+                sqrt_price_x96 = slot0_data['sqrtPriceX96']
+                price = self._sqrt_price_to_price(sqrt_price_x96)
+                
+                return {
+                    'price': price,
+                    'amount_out': amount_in * price,
+                    'block_number': block_number,
+                    'tick': slot0_data.get('tick'),
+                    'liquidity': slot0_data.get('liquidity', 0)
                 }
-                '''
-                
-                pool_id = kwargs.get('pool_id') or self._find_pool(token_in, token_out)
-                
-                response = requests.post(
-                    self.api_url,
-                    json={'query': query % pool_id}
-                )
-                data = response.json()
-                
-                if 'data' in data and data['data']['pool']:
-                    pool = data['data']['pool']
-                    
-                    # Determine price direction
-                    if pool['token0']['id'].lower() == token_in.lower():
-                        price = float(pool['token0Price'])
-                    else:
-                        price = float(pool['token1Price'])
-                    
-                    amount_out = amount_in * price
-                    
-                    return {
-                        'price': price,
-                        'amount_out': amount_out,
-                        'timestamp': datetime.now(),
-                        'liquidity': float(pool['liquidity']),
-                        'volume_24h': float(pool.get('volumeUSD', 0))
-                    }
-                else:
-                    raise Exception('Pool not found')
+            
+            return {'price': 0, 'error': 'Could not fetch slot0'}
+            
         except Exception as e:
-            return {
-                'price': 0,
-                'amount_out': 0,
-                'timestamp': timestamp or datetime.now(),
-                'error': str(e)
-            }
+            return {'price': 0, 'error': str(e)}
     
     def get_historical_prices(
         self,
@@ -145,100 +123,238 @@ class Uniswap(BaseExchange):
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Get historical prices from Uniswap via The Graph
+        Get historical prices by scraping blocks at time intervals
         """
         try:
-            pool_id = kwargs.get('pool_id') or self._find_pool(token_in, token_out)
+            # Convert timestamps to block numbers
+            start_block = self._timestamp_to_block(int(start_time.timestamp()))
+            end_block = self._timestamp_to_block(int(end_time.timestamp()))
             
-            query = '''
-            {
-              poolHourDatas(
-                where: {
-                  pool: "%s",
-                  periodStartUnix_gte: %d,
-                  periodStartUnix_lte: %d
-                },
-                orderBy: periodStartUnix,
-                orderDirection: asc
-              ) {
-                periodStartUnix
-                token0Price
-                token1Price
-                volumeUSD
-                liquidity
-                high
-                low
-              }
-            }
-            ''' % (pool_id, int(start_time.timestamp()), int(end_time.timestamp()))
+            # Calculate block interval based on time interval
+            interval_seconds = self._parse_interval(interval)
+            blocks_per_interval = interval_seconds // 2  # Base has ~2 second blocks
             
-            response = requests.post(
-                self.api_url,
-                json={'query': query}
+            prices = []
+            current_block = start_block
+            
+            while current_block <= end_block:
+                price_data = self.get_price_at_block(token_in, token_out, current_block)
+                
+                if price_data.get('price', 0) > 0:
+                    block_data = self.w3.eth.get_block(current_block)
+                    price_data['timestamp'] = datetime.fromtimestamp(block_data['timestamp'])
+                    prices.append(price_data)
+                
+                current_block += blocks_per_interval
+                time.sleep(0.1)
+            
+            return prices
+            
+        except Exception as e:
+            return [{'error': str(e)}]
+    
+    def _get_pool_address(self, token0: str, token1: str, fee: int = 3000) -> Optional[str]:
+        """
+        Compute pool address using CREATE2
+        """
+        try:
+            # Sort tokens
+            if int(token0, 16) > int(token1, 16):
+                token0, token1 = token1, token0
+            
+            # Encode pool key
+            pool_key = Web3.solidity_keccak(
+                ['address', 'address', 'uint24'],
+                [Web3.to_checksum_address(token0), Web3.to_checksum_address(token1), fee]
             )
-            data = response.json()
             
-            if 'data' in data and 'poolHourDatas' in data['data']:
-                return [
-                    {
-                        'price': float(item['token0Price']),
-                        'amount_out': float(item['token0Price']),
-                        'timestamp': datetime.fromtimestamp(item['periodStartUnix']),
-                        'volume': float(item.get('volumeUSD', 0)),
-                        'liquidity': float(item.get('liquidity', 0)),
-                        'high': float(item.get('high', item['token0Price'])),
-                        'low': float(item.get('low', item['token0Price']))
-                    }
-                    for item in data['data']['poolHourDatas']
-                ]
-            return []
+            # Compute CREATE2 address
+            init_code_hash = '0xe34f199b19b2b4f47f68442619d555527d244f78a3297ea89325f843f87b8b54'
+            
+            pool_address = Web3.solidity_keccak(
+                ['bytes1', 'address', 'bytes32', 'bytes32'],
+                ['0xff', self.factory_address, pool_key, init_code_hash]
+            )
+            
+            return Web3.to_checksum_address('0x' + pool_address.hex()[-40:])
+            
+        except Exception as e:
+            return None
+    
+    def _get_swap_events(self, pool_address: str, from_block: int, to_block: int) -> List[Dict]:
+        """
+        Get swap events from pool using eth_getLogs
+        """
+        try:
+            filter_params = {
+                'fromBlock': hex(from_block),
+                'toBlock': hex(to_block),
+                'address': pool_address,
+                'topics': [self.SWAP_EVENT_SIGNATURE]
+            }
+            
+            logs = self.w3.eth.get_logs(filter_params)
+            return logs
+            
         except Exception as e:
             return []
     
-    def _execute_swap(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute swap transaction on-chain"""
-        # Implement actual Web3 transaction signing and sending
-        # This is a placeholder
-        return {
-            'success': True,
-            'amount_out': 0,
-            'tx_hash': '0x...',
-            'gas_used': 150000
-        }
-    
-    def _find_pool(self, token_in: str, token_out: str, fee: int = 3000) -> str:
-        """Find pool address for token pair"""
-        query = '''
-        {
-          pools(
-            where: {
-              token0: "%s",
-              token1: "%s",
-              feeTier: %d
-            }
-          ) {
-            id
-          }
-        }
-        ''' % (token_in.lower(), token_out.lower(), fee)
-        
-        response = requests.post(self.api_url, json={'query': query})
-        data = response.json()
-        
-        if 'data' in data and data['data']['pools']:
-            return data['data']['pools'][0]['id']
-        return ''
-    
-    def _get_historical_price(self, token_in: str, token_out: str, amount_in: float, timestamp: datetime) -> Dict[str, Any]:
-        """Get historical price at specific timestamp"""
-        prices = self.get_historical_prices(token_in, token_out, timestamp, timestamp, '1h')
-        if prices:
-            price_data = prices[0]
+    def _parse_swap_event(self, event: Dict, token_in: str, token_out: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse swap event log
+        """
+        try:
+            # Decode swap event data
+            # event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)
+            
+            data = event['data']
+            topics = event['topics']
+            
+            # Decode indexed parameters
+            sender = '0x' + topics[1].hex()[-40:]
+            recipient = '0x' + topics[2].hex()[-40:]
+            
+            # Decode non-indexed parameters
+            decoded = decode(
+                ['int256', 'int256', 'uint160', 'uint128', 'int24'],
+                bytes.fromhex(data[2:])
+            )
+            
+            amount0 = decoded[0]
+            amount1 = decoded[1]
+            sqrt_price_x96 = decoded[2]
+            liquidity = decoded[3]
+            tick = decoded[4]
+            
+            price = self._sqrt_price_to_price(sqrt_price_x96)
+            
+            block_data = self.w3.eth.get_block(event['blockNumber'])
+            
             return {
-                'price': price_data['price'],
-                'amount_out': amount_in * price_data['price'],
-                'timestamp': timestamp,
-                'liquidity': price_data.get('liquidity'),
-                'volume_24h': price_data.get('volume')
+                'block_number': event['blockNumber'],
+                'transaction_hash': event['transactionHash'].hex(),
+                'timestamp': datetime.fromtimestamp(block_data['timestamp']),
+                'sender': sender,
+                'recipient': recipient,
+                'amount0': amount0 / 1e18,
+                'amount1': amount1 / 1e18,
+                'price': price,
+                'liquidity': liquidity,
+                'tick': tick
             }
-        return {'price': 0, 'amount_out': 0, 'timestamp': timestamp}
+            
+        except Exception as e:
+            return None
+    
+    def _get_slot0(self, pool_address: str, block_number: int) -> Optional[Dict[str, Any]]:
+        """
+        Get slot0 data from pool at specific block
+        """
+        try:
+            # slot0() function signature
+            function_signature = '0x3850c7bd'
+            
+            result = self.w3.eth.call(
+                {'to': pool_address, 'data': function_signature},
+                block_number
+            )
+            
+            # Decode slot0 return values
+            decoded = decode(
+                ['uint160', 'int24', 'uint16', 'uint16', 'uint16', 'uint8', 'bool'],
+                result
+            )
+            
+            return {
+                'sqrtPriceX96': decoded[0],
+                'tick': decoded[1],
+                'observationIndex': decoded[2],
+                'observationCardinality': decoded[3],
+                'observationCardinalityNext': decoded[4],
+                'feeProtocol': decoded[5],
+                'unlocked': decoded[6]
+            }
+            
+        except Exception as e:
+            return None
+    
+    def _sqrt_price_to_price(self, sqrt_price_x96: int) -> float:
+        """
+        Convert sqrtPriceX96 to human readable price
+        """
+        try:
+            price = (sqrt_price_x96 / (2 ** 96)) ** 2
+            return price
+        except:
+            return 0.0
+    
+    def _timestamp_to_block(self, timestamp: int) -> int:
+        """
+        Estimate block number from timestamp (Base has ~2 second blocks)
+        """
+        try:
+            latest_block = self.w3.eth.get_block('latest')
+            latest_timestamp = latest_block['timestamp']
+            latest_block_number = latest_block['number']
+            
+            time_diff = latest_timestamp - timestamp
+            block_diff = time_diff // 2  # 2 second blocks on Base
+            
+            estimated_block = max(0, latest_block_number - block_diff)
+            return int(estimated_block)
+            
+        except Exception as e:
+            return 0
+    
+    def _parse_interval(self, interval: str) -> int:
+        """
+        Parse interval string to seconds
+        """
+        unit = interval[-1]
+        value = int(interval[:-1])
+        
+        if unit == 's':
+            return value
+        elif unit == 'm':
+            return value * 60
+        elif unit == 'h':
+            return value * 3600
+        elif unit == 'd':
+            return value * 86400
+        else:
+            return 3600  # default 1 hour
+    
+    def swap(
+        self,
+        token_in: str,
+        token_out: str,
+        amount_in: float,
+        slippage: float = 0.01,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Execute a swap on Uniswap (requires private key configuration)
+        """
+        return {
+            'success': False,
+            'error': 'Swap execution requires private key configuration',
+            'amount_out': 0
+        }
+    
+    def get_price(
+        self,
+        token_in: str,
+        token_out: str,
+        amount_in: float = 1.0,
+        timestamp: Optional[datetime] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Get current or historical price
+        """
+        if timestamp:
+            block_number = self._timestamp_to_block(int(timestamp.timestamp()))
+            return self.get_price_at_block(token_in, token_out, block_number, amount_in)
+        else:
+            latest_block = self.w3.eth.block_number
+            return self.get_price_at_block(token_in, token_out, latest_block, amount_in)
