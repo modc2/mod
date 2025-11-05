@@ -4,8 +4,11 @@ import json
 import time
 from typing import Dict, Optional, Any
 import mod as m
+import hashlib
 
 class Auth:
+
+    separators=(',', ':')
 
     def __init__(self, 
                 key=None, 
@@ -29,10 +32,6 @@ class Auth:
         self.auth_features = signature_keys + ['key', 'signature']
         self.max_age = max_age
 
-    def get_sig_data(self, headers: Dict[str, str]) -> str:
-        assert all(k in headers for k in self.signature_keys), f'Missing keys in headers {headers}'
-        return json.dumps({k: headers[k] for k in self.signature_keys}, separators=(',', ':'))
-
     def forward(self,  data: Any,  key=None, cost=0) -> dict:
         """
         Generate the headers with the JWT token
@@ -42,25 +41,14 @@ class Auth:
             'data': self.hash(data),
             'time': str(time.time()),
             'cost': str(cost),
-            'key': key.key_address,
+            'key': key.address,
         }
-        result['signature'] = key.sign(self.get_sig_data(result), mode='str')
+        result['signature'] = key.sign(self.get_data(result), mode='str')
         return result
 
     headers = generate = forward
 
-    def get_key(self, key=None):
-        """
-        Get the key to use for signing
-        """
-        if key is None:
-            key = self.key
-        else:
-            key = m.get_key(key, crypto_type=self.crypto_type)
-        assert hasattr(key, 'key_address'), f'Invalid key {key}'
-        return key
-
-    def verify(self, headers: str, data:Optional[Any]=None, max_age=1000) -> bool:
+    def verify(self, headers: str, data:Optional[Any]=None, max_age=10) -> bool:
         """
         Verify and decode a JWT token
         provide the data if you want to verify the data hash
@@ -70,14 +58,24 @@ class Auth:
         age = abs(time.time() - float(headers['time']))
         max_age = max_age or self.max_age
         assert age < max_age, f'Token is stale {age} > {max_age}'
-        verified = self.key.verify(self.get_sig_data(headers), signature=headers['signature'], address=headers['key'])
+        verified = self.key.verify(self.get_data(headers), signature=headers['signature'], address=headers['key'])
         assert verified, f'Invalid signature {headers}'
         if data != None:
             assert headers['data'] == self.hash(data), f'Invalid data {data}'
         return verified
 
-    verify_headers = verify
+    def get_key(self, key=None):
+        """
+        Get the key to use for signing
+        """
+        if key is None:
+            key = self.key
+        else:
+            key = m.get_key(key, crypto_type=self.crypto_type)
+        assert hasattr(key, 'address'), f'Invalid key {key}'
+        return key
 
+    verify_headers = verify
 
     def _is_identity_hash_type(self):
         return self.hash_type in ['identity', None, 'none']
@@ -86,37 +84,22 @@ class Auth:
         """
         Hash the data using sha256
         """
-        data = json.dumps(data, separators=(',', ':'))
+        data = json.dumps(data, separators=self.separators)
         if self.hash_type == 'sha256':
-            return m.hash(data)
+            return hashlib.sha256(data.encode()).hexdigest()
         elif self._is_identity_hash_type():
             return data
         else: 
             raise ValueError(f'Invalid hash type {self.hash_type}')
 
-    def reverse_hash(self, data: str) -> Any:
-        """
-        Reverse the hash to get the original data
-        This is not possible for sha256, so we return the data as is
-        """
-        data = json.loads(data, separators=(',', ':'))
-        if self.hash_type in ['identity', None, 'none']:
-            return 
-        else:
-            raise ValueError(f'Reverse hash not supported for {self.hash_type}')
-
-        if key is None:
-            key = self.key
-        else:
-            key = m.get_key(key, crypto_type=self.crypto_type)
-        assert hasattr(key, 'key_address'), f'Invalid key {key}'
-        return key
+    def get_data(self, headers: Dict[str, str]) -> str:
+        assert all(k in headers for k in self.signature_keys), f'Missing keys in headers {headers}'
+        return json.dumps({k: headers[k] for k in self.signature_keys}, separators=self.separators)
 
     def test(self, key='test.auth', crypto_type='sr25519'):
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
         auth = Auth(key=key, crypto_type=crypto_type)
         headers = auth.forward(data, key=key)
         assert auth.verify(headers)
-        return {'headers': headers}
-
+        return {'test_passed': True, 'headers': headers}
 

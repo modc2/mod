@@ -30,6 +30,7 @@ class  Api:
             mod['content'] = self.store.get_data(self.store.get_data(mod['content'])['data'])
             for file, cid in mod['content'].items():
                 mod['content'][file] = self.store.get_data(cid)
+        mod['cid'] = cid
         return mod
 
     
@@ -108,34 +109,25 @@ class  Api:
         prev_cid = self.modcid(mod, key=key, update=update)
         content_cid = self.add_content(mod, comment=comment)
         schema_cid = self.add_schema(mod)
-        if prev_cid is None:
-            info = {
-                   'content': content_cid,
-                   'schema': schema_cid,
-                   'prev': prev_cid, # previous state
-                   'name': mod,
-                   'created':  current_time,  # created timestamp
-                   'updated': current_time, 
-                   'key': key.address, 
 
-                   }
-        # fam
-        else:
+        new_info = {
+            'content': content_cid,
+            'schema': schema_cid,
+            'prev': prev_cid, # previous state
+            'name': mod,
+            'created':  current_time,  # created timestamp
+            'updated': current_time, 
+            'key': key.address,
+            'url': self.get_url(mod),
+        }
+        if prev_cid is not None:
             info = self.store.get_data(prev_cid)
-            assert info['key'] == key.address, 'Key mismatch'
-            if info['content'] != content_cid:
-                info.update(
-                    {
-                    'prev': prev_cid, 
-                    'content': content_cid,
-                    'schema': schema_cid,
-                    'updated': current_time,
-                    'schema': schema_cid,
-                    }
-                )
-        info['url'] = self.get_url(mod)
+            assert info['key'] == new_info['key'], 'Key mismatch'
+            if info['content'] != new_info['content']:
+                info.update(new_info)
         info.pop('signature', None)
         info['signature'] = key.sign(info, mode='str')
+        info['cid'] = self.add_data(info)
         self.update_registry(mod, info)
         return info 
 
@@ -160,7 +152,7 @@ class  Api:
         mods = list(self.registry(search=search).keys())
         return mods
 
-    def history(self, mod='store', features=['time', 'comment'] , key=None):
+    def history(self, mod='store', features=['time', 'comment'] , key=None, df=False) -> List[Dict[str, Any]]:
 
         history = []
         info = self.mod(mod, key=key)
@@ -173,8 +165,10 @@ class  Api:
             content_info = self.store.get_data(info['content'])
             history.append(content_info)
 
+        if df:
+            return m.df(history)[features]
         return history
-
+    h = history
     def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
         return m.txs(mod=mod, limit=limit, update=update)
 
@@ -241,7 +235,10 @@ class  Api:
         mod2info = {}
         for mod in mods:
             print(f"Registering mod: {mod}")
-            info = self.reg(mod, key=key, comment=comment, update=updat)
+            try:
+                info = self.reg(mod, key=key, comment=comment)
+            except:
+                print(f'Failed {mod}')
             mod2info[mod] = info
         return mod2info
 
@@ -407,3 +404,7 @@ class  Api:
         text = ' '.join(list(map(str, query)))
         dev.forward(mod=mod, text=text, safety=False)
         return self.reg(mod=mod, key=key, comment=text)
+
+
+    def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
+        return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)

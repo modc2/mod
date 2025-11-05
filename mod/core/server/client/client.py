@@ -24,42 +24,32 @@ class Client:
         self.timeout = timeout
         self.fn = fn
         self.namespace = m.namespace()
-
         # ensure info from the server is fetched
 
     def forward(self, 
                 fn  = 'info', 
                 params: Optional[Union[list, dict]] = {}, # if you want to pass params as a list or dict
-                timeout:int=None,  # the timeout for the request
+                timeout:int=10,  # the timeout for the request
                 key : str = None,  # the key to use for the request
                 cost=0,
-                update_info: bool = False, # whether to update the info from the server
+                stream: bool = True,
                 **extra_kwargs 
     ):
         url = self.get_url(fn)
         key = self.get_key(key)
         fn = url.split('/')[-2]
-        m.print(f'Client({url} key={key.name})', color='yellow')
         # step 3: get the params
         params = params or {}
         params.update(extra_kwargs)   
         headers = self.auth.forward({'fn': fn, 'params': params}, key=key, cost=cost)
-        result = self.post(
-            url=url, 
-            params=params, 
-            headers=headers, 
-            timeout=timeout, 
-        )
-        return result
-
-    def post(self, url,  params=None, headers=None, timeout=None, stream=True):
-        # step 5: make the request
-        timeout = timeout or self.timeout
-
+        # step 4: make the request
         with requests.Session() as conn:
             response = conn.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
+        return self.process_response(response)
 
-        # step 6: handle the response
+    
+    def process_response(self, response):
+        # step 5: handle the response
         if response.status_code != 200:
             raise Exception(response.text)
         if 'text/event-stream' in response.headers.get('Content-Type', ''):
@@ -75,8 +65,6 @@ class Client:
                 if response.status_code != 200:
                     raise Exception(result)
         return result
-
-    
     def get_key(self,key=None):
         key = key or  self.key
         if isinstance(key, str):

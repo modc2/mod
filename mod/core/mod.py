@@ -16,16 +16,6 @@ nest_asyncio.apply()
 
 class Mod: 
 
-    config = {
-        "name": "mod",
-        "version": "0.1.0",
-        "desc": "A Python package for mod utilities",
-        "shortcuts": {'pm': 'server.pm', 'local': 'server'},
-        "routes": {},
-        "expose" : ["forward", "info"],
-        "port_range": [50050, 50150]
-                
-    }
     file_types = ['py'] # default file types
     anchor_names = ['agent', 'mod', 'block'] # default anchor names
     endpoints = ['ask']
@@ -53,23 +43,25 @@ class Mod:
         assert isinstance(port_range[1], int), 'Port range must be a list of integers'
         return port_range
 
-
     def sync(self, mod=None, verbose=False, config = None):
-        if os.getcwd() == os.path.expanduser('~'):
+        if os.getcwd() in [os.path.expanduser('~'), '/']:
             raise ValueError(f'For your safety we do not allow syncing in the home directory {os.getcwd()}, please cd into a project directory like cd mod or cd mymod')
+        
         self.root_path =os.path.dirname(os.path.dirname(__file__))
         self.lib_path  = self.libpath = self.repo_path  = self.repopath = os.path.dirname(self.root_path) # the path to the repo
         self.core_path = '/'.join(__file__.split('/')[:-1])
         self.tests_path = f'{self.lib_path}/tests'
+        module_path_options = ['mods', 'modules', '_mods', '_modules', 'locals']
         self.mods_path = list(filter(lambda x: os.path.exists(x), 
-                                                            [f'{self.root_path}/{option}' for option in ['mod', 'modules']]))[0] # the path to the mods
+                                                            [f'{self.root_path}/{option}' for option in module_path_options]))[0] # the path to the mods
+        self.imported_module_path = self.root_path +'/_links'
         self.home_path = self.homepath = os.path.expanduser('~')
-        self.name  = self.config['name']
+        config =self.config()
+        self.name  = config['name']
         self.storage_path = f'{self.home_path}/.{self.name}'
-        self.port_range = self.config['port_range']
-        self.expose = self.endpoints = self.config['expose']
+        self.port_range = config['port_range']
+        self.expose = self.endpoints = config['expose']
         self.anchor_names.append(self.name)
-        
         
         if mod is not None:
             print(f'Syncing mod {mod}')
@@ -92,13 +84,13 @@ class Mod:
 
     @property
     def shortcuts(self):
-        shortcuts = self.config['shortcuts']
+        shortcuts = self.config()['shortcuts']
         shortcuts[self.name] = 'mod'
         shortcuts = {self.get_name(k): self.get_name(v) for k, v in shortcuts.items() if isinstance(v, str)}
         return shortcuts
 
     def sync_links(self):
-        links = self.config.get('links', {})
+        links = self.config().get('links', {})
         for name, repo in links.items():
             repo_path = self.mods_path + f'/{name}'
             if not os.path.exists(repo_path):
@@ -131,11 +123,27 @@ class Mod:
         if not isinstance(mod, str):
             return mod
         mod = self.get_name(mod)
+
+        if not hasattr(self, '_mod_cache'):
+            self._mod_cache = {}
+
+        if mod in self._mod_cache:
+            return self._mod_cache[mod]
+        
         obj =  self.anchor_object(mod)
+        self._mod_cache[mod] = obj
         return obj
 
 
     mod = mod
+
+    def text2color(self, text:str='info') -> str:
+        # i want to convert he text into a color through maping the string to a real value and mapping that to a color
+
+        real_value = sum([ord(c) for c in text])
+
+        color_value = real_value % 256
+        return f'\033[38;5;{color_value}m{text}\033[0m'
 
     def forward(self, fn:str='info', params:dict=None, auth=None) -> Any:
         params = params or {}
@@ -348,7 +356,7 @@ class Mod:
     def files(self, 
               path='./', 
               search:str = None, 
-              avoid_terms = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_mods', '/artifacts', 'egg-info'], 
+              avoid_terms = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_mods', '/artifacts', 'egg-info',  '/private/'], 
               endswith:str = None,
               include_hidden:bool = False, 
               always_include_terms = ['.gitignore', '.dockerignore'],
@@ -387,6 +395,11 @@ class Mod:
     def sign(self, data:dict  = None, key: str = None,  crypto_type='sr25519', mode='str', **kwargs) -> bool:
         return self.get_key(key, crypto_type=crypto_type).sign(data, mode=mode, **kwargs)
 
+    def sand(self, text:str='fam'):
+        colored_text = self.text2color(text)
+        print(colored_text + text + '\033[0m')
+        # print()
+
     def size(self, mod) -> int:
         return len(str(self.content(mod)))
 
@@ -410,21 +423,41 @@ class Mod:
     def routes(self, obj=None):
         obj = obj or self
         routes = {}
-        if hasattr(self.config, 'routes'):
-            routes.update(self.config.routes)
+        config = self.config()
+        if hasattr(config, 'routes'):
+            routes.update(conifg.routes)
         for util in self.get_utils():
             k = '.'.join(util.split('.')[:-1])
             v = util.split('.')[-1]
             routes[k] = routes.get(k , [])
             routes[k].append(v)
         return routes
+    def set_config(self, config=None):
 
-    def fn2mod(self, search=None, update=True, core_only = True, verbose=False):
+        if config is None:
+            configs = self.configs(config)
+            # sort configs by shortest then by json first
+            configs = sorted(configs, key=lambda x: len(x))
+            assert len(configs) > 0, 'No config found'
+            # is this json or yaml
+            if configs[0].endswith('.json'):
+                config = self.get_json(configs[0])
+            elif configs[0].endswith('.yaml') or configs[0].endswith('.yml'):
+                config = self.get_yaml(configs[0])
+            else:
+                raise Exception('Unknown config format', configs[0])
+        return config
+
+    def fn2mod(self, search=None, update=True, core = True, local = True, verbose=False):
         fn2mod = {}
         path = self.get_path('fn2mod')
         fn2mod = self.get(path, {}, update=update)
         if len(fn2mod) == 0:
-            mods = self.core_mods() if core_only else self.mods()
+            mods = []
+            if core:
+                mods = self.core_mods() 
+            if local:
+                mods += self.local_mods()
             for m in mods:
                 try:
                     for fn in self.fns(m):
@@ -488,7 +521,7 @@ class Mod:
         path_exists = lambda p: os.path.exists(p)
         if not path_exists(path): 
             for pe in possible_extensions:
-                if path.endswith(pe) and os.path.exists(path + f'.{pe}'):
+                if os.path.exists(path + f'.{pe}'):
                     path = path + f'.{pe}'
                     break
             if not path_exists(path):
@@ -755,7 +788,7 @@ class Mod:
     def call(self, fn , params=None, **kwargs): 
         return self.fn('client/forward')(fn, params, **kwargs)
     
-    def content(self, mod = None , search=None, ignore_folders = ['mods', 'mods'], relative=False,  **kwargs) ->  Dict[str, str]:
+    def content(self, mod = None , search=None, ignore_folders = ['mods', 'mods', 'private', 'data'], relative=False,  **kwargs) ->  Dict[str, str]:
         """
         get the content of the mod as a dict of file path to file content
         return a dict of file path to file content
@@ -831,6 +864,18 @@ class Mod:
                     self.print(f'mod2schemaError({e})', color='red', verbose=verbose)
             # self.put('mod2schema', mod2schema)
         return mod2schema 
+    def mod2fns(self, mod=None, max_age=30, update=False, core=True, verbose=False) -> List[str]:
+        mod2fns = self.get('mod2fns', default=None, max_age=max_age, update=update)
+        if mod2fns == None:
+            mods = self.core_mods() if core else self.mods()
+            mod2fns = {}
+            for mod in mods:
+                try:
+                    mod2fns[mod] = self.fns(mod)
+                except Exception as e:
+                    self.print(f'mod2fnsError({e})', color='red', verbose=verbose)
+            # self.put('mod2fns', mod2fns)
+        return mod2fns
 
     def info(self, 
             mod:str='mod',  # the mod to get the info of
@@ -1191,8 +1236,8 @@ class Mod:
             path = self.mods_path
         elif f.startswith(os.getcwd()):
             path = os.getcwd()
-        if f.startswith(path):
-            f = f[len(path):]
+        if f.startswith(self.home_path):
+            f = f[len(self.home_path):]
         if f.startswith('/'):
             f = f[1:]
         # replace dublicates
@@ -1233,7 +1278,7 @@ class Mod:
         if path not in tree :
             tree = self.tree(folders=False)
             if not path in tree:
-                key_options = [k for k in tree.keys() if path in k]
+                key_options = [k for k in tree.keys() if all(path_chunk in k for path_chunk in path.split('.'))]
                 if len(key_options) >= 1:
                     path =  key_options[0]
                     return tree[path]
@@ -1249,12 +1294,15 @@ class Mod:
         return None
 
 
-    def get_name(self, name:Optional[str]=None):
+    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'mod']) -> str:
         name = name or 'mod'
         if isinstance(name, str) and any([name.startswith(p) for p in ['.', '~', '/']]):
             name = self.path2name(name)
         if isinstance(name, str) and '/' in name:
             name = name.replace('/', '.')
+        for name_chunk in name.split('.'):
+            if name_chunk in avoid_terms:
+                name = name.replace(name_chunk + '.', '').replace('.' + name_chunk, '')
         return name
 
     def anchor_object(self, path):
@@ -1271,13 +1319,14 @@ class Mod:
                 return self.anchor_object(list(tree.values())[0])
             raise Exception(f'No anchor file found in {path}')
         
+
     def get_tree(self, 
                 path:Optional[str]=None, 
                 search:Optional[str]=None, 
                 depth=10, 
                 root_names = ['mod'], 
                 avoid_terms = ['src', 'mods', '_mods', 'core'],
-                avoid_prefixes = ['__'],
+                avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
                 ignore_suffixes = ['/src', '/core'],
                 folders:bool = True, 
@@ -1297,7 +1346,6 @@ class Mod:
                 paths = [f for f in self.files(path, depth=depth) if any([f.endswith('.' + ft) for ft in self.file_types])]
 
             tree = {self.get_path_name(f):f for f in paths}
-            filter_k = lambda k: all(not k.startswith(prefix) for prefix in avoid_prefixes) and all(not k.endswith(suffix) for suffix in avoid_suffixes) and all(not term in k.split('.') for term in avoid_terms)
 
             def process_v(x):
                 for k in ignore_suffixes: 
@@ -1306,10 +1354,11 @@ class Mod:
                 x_list =  x.split('/')
                 if x_list[-1] == x_list[-2]: 
                     x = '/'.join(x_list[:-1])
+                # remove avoid terms
                 return x
                     
 
-            tree = {self.get_name(k):process_v(v) for k,v in tree.items() if filter_k(k)}
+            tree = {self.get_name(k):process_v(v) for k,v in tree.items()}
 
 
             for k,v in self.shortcuts.items():
@@ -1341,10 +1390,12 @@ class Mod:
             **self.core_tree(search=search, **kwargs),
                 }
 
-    def dirpath(self, mod=None, relative=True) -> str:
+    def dirpath(self, mod=None, relative=False) -> str:
         """
         get the directory path of the mod
         """
+        if mod == None:
+            return self.lib_path
 
         mod = self.get_name(mod)
         mod = self.shortcuts.get(mod, mod)
@@ -1356,6 +1407,8 @@ class Mod:
         else: 
             raise Exception(f'Module {mod} not found')
         # remove any trailing repeats of the mod name in the dirpath
+        if relative:
+            dirpath = os.path.relpath(dirpath, self.lib_path)
         return  dirpath
 
     dp = dirpath
@@ -1534,7 +1587,22 @@ class Mod:
 
     killall = kill_all
 
-    def configs(self, path='./', 
+
+    _config_cache = {}
+    def config(self, mod=None):
+        """
+        Returns the config file in the path
+        """
+        if str(mod) in self._config_cache:
+            return self._config_cache[str(mod)]
+        configs = self.configs(mod=mod)
+        if len(configs) == 0:
+            return {}
+        config =  self.get_json(configs[0])
+        self._config_cache[str(mod)] = config
+        return config
+
+    def configs(self, mod=None, 
                 modes=['yaml', 'json'], 
                 search=None, 
                 config_name_options = ['config', 'cfg', 'mod', 'block',  'agent', 'mod', 'bloc', 'server'],
@@ -1542,12 +1610,16 @@ class Mod:
         """
         Returns a list of config files in the path
         """
+        if mod == None:
+            path = '/'.join(__file__.split('/')[:-3])
+        else:
+            path = self.dirpath(mod)
         def is_config(f):
             return any(f.endswith(f'/{name}.{m}') for name in config_name_options for m in modes)
         configs =  [f for f in  self.files(path) if is_config(f)]
         if search != None:
             configs = [f for f in configs if search in f]
-        return configs
+        return list(sorted(configs, key=lambda x: len(x)))
 
     def serve(self, mod:str = 'mod', port:int=None, remote=True, **kwargs):
         return self.fn('server/serve')(mod, port=port, remote=remote, **kwargs)
@@ -1573,7 +1645,7 @@ class Mod:
         return url
     
     def links(self, mod:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
-        return self.config['links']
+        return self.config()['links']
 
     def islink(self, mod:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
         return bool(mod in self.links())
@@ -1606,7 +1678,7 @@ class Mod:
         path = self.dp(mod)
         comment = ' '.join([comment, *extra_comment])
         assert os.path.exists(path), f'Path {path} does not exist'
-        cmd = f'cd {path}; git add . ; git commit -c "{comment}" ; git push'
+        cmd = f'cd {path} && git add . && git commit -m "{comment}" && git push'
         return os.system(cmd)
         
     def git_info(self, path:str = None, name:str = None, n=10):
@@ -1650,6 +1722,8 @@ class Mod:
         """
         from_path = self.dirpath(from_mod)
         to_path = self.mods_path + '/' + to_mod.replace('.', '/')
+        for f in self.files(t):
+            print(f'Moving {f} to {to_path + "/" + f[len(from_path)+1:]}')
         return self.mv(from_path, to_path)
 
     mv_mod = mvmod
@@ -1716,7 +1790,7 @@ class Mod:
         return self.obj('mod.core.utils.hash')(obj, mode=mode, **kwargs)
 
     def test(self, mod = None,  **kwargs) ->  Dict[str, str]:
-        return self.fn('test/forward')( mod=mod,  **kwargs )
+        return self.fn('tester/forward')( mod=mod,  **kwargs )
 
     def txs(self, *args, **kwargs) -> 'Callable':
         return self.fn('server/txs')( *args, **kwargs)

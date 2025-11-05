@@ -45,6 +45,17 @@ from .utils import (extract_derive_path,
 
 # imoport 
 class Key:
+
+
+    # mod dependencies
+
+    glob = m.glob
+    put = m.put
+    get = m.get
+    rm = m.rm
+    hash = m.hash
+    time = m.time
+
     crypto_type_map = {'ed25519': 0, 'sr25519': 1, 'ecdsa': 2}
     crypto_type2networks = {
         'sr25519': ['dot', 'comai', 'com', 'bt'],
@@ -148,7 +159,7 @@ class Key:
             key_json = json.loads(key.to_json())
             assert crypto_type == self.get_crypto_type(key_json['crypto_type']), f'crypto_type mismatch {crypto_type} != {key_json["crypto_type"]}'
             path = self.get_path(path) + '/' + crypto_type+ '/' + key.address + '.json'
-            m.put(path, key_json)
+            self.put(path, key_json)
             assert self.key_exists(path, crypto_type=crypto_type), f'key does not exist at {path}'
         return self.get_key(path, crypto_type=crypto_type)
     
@@ -218,14 +229,17 @@ class Key:
                     keys.pop(key) 
         return keys
 
-    def key2path(self, crypto_type=crypto_type) -> dict:
+    def key2path(self, search=None, crypto_type=crypto_type) -> dict:
         """
         defines the path for each key
         """
         crypto_type = self.get_crypto_type(crypto_type)
-        key_paths  = m.glob(self.storage_path)
+        key_paths  = self.glob(self.storage_path)
         key2path = {}
         for p in key_paths:
+            if search:
+                if not search in p:
+                    continue
             if '/'+crypto_type+'/' in p:
                 name = p.split('/'+crypto_type+'/')[0].split(self.storage_path)[-1].strip('/')
                 key2path[name] = p         
@@ -244,6 +258,9 @@ class Key:
         key2path = self.key2path(crypto_type=crypto_type)
         key2address = {}
         for key, path in key2path.items():
+            if search:
+                if not search in key:
+                    continue
             key2address[key] = path.split('/')[-1].split('.')[0]
         return key2address
 
@@ -306,7 +323,7 @@ class Key:
         """
         crypto_type = self.get_crypto_type(crypto_type)
         key_path = self.get_key_path(key, crypto_type=crypto_type)
-        data = m.get(key_path)       
+        data = self.get(key_path)       
         if isinstance(data, str):
             data = data.replace("'", '"')
             data = json.loads(data)
@@ -316,19 +333,15 @@ class Key:
 
     def _rm_all_keys(self):
         if input(f'Are you sure to remove {self.storage_path} (y to continue)') == 'y': 
-            return m.rm(self.storage_path)
+            return self.rm(self.storage_path)
         else:
             return 'RM_ALL_KEYS ABORTED'
 
     def rm_key(self, key=None, crypto_type=None, **kwargs):
         key2path = self.key2path(crypto_type=crypto_type)
-        keys = list(key2path.keys())
-        if key not in keys:
-            if key in key2path.values():
-                key = [k for k,v in key2path.items() if v == key][0]
-            else:
-                raise Exception(f'key {key} not found, available keys: {keys}')
-        m.rm(key2path[key])
+        assert os.path.exists(key2path[key])
+        os.remove(key2path[key])
+        assert not self.key_exists(key, crypto_type=crypto_type), f'Failed to delete key {key}'
         return {'deleted':[key]}
 
     def is_mnemonic(self, mnemonic:str) -> bool:
@@ -415,6 +428,29 @@ class Key:
             keypair = Key(private_key=private_key, crypto_type=crypto_type)
         keypair.mnemonic = mnemonic
         return keypair
+
+    def key_eqauls(self, key2: 'Key') -> bool:
+        """
+        Compares two Keys
+        """
+        return self.private_key == key2.private_key and self.public_key == key2.public_key and self.crypto_type == key2.crypto_type
+
+    def from_path(self, path: str,  name=None, crypto_type=crypto_type) -> 'Key':
+        """
+        Creates Key for specified derivation path
+        Parameters
+        ----------
+        path: The derivation path to use for generating the key
+        crypto_type: Use KeyType.[SR25519|ED25519|ECDSA] cryptography for generating the Key
+        """
+        name = name or path.split('/')[0]
+        if self.key_exists(name, crypto_type=crypto_type):
+            self.rm_key(name, crypto_type=crypto_type)
+        new_path = self.get_path(name)
+        shutil.copytree(path, new_path, dirs_exist_ok=True)
+        assert self.key_exists(name, crypto_type=crypto_type), f'key does not exist at {new_path}'
+        return self.get_key(name, crypto_type=crypto_type)
+        
    
     def from_private_key(
             self, 
@@ -578,38 +614,39 @@ class Key:
         return int(time.time())
 
     def password(self, udpate=False):
-        x = m.get('password', update=udpate)
+        x = self.get('password', update=udpate)
         if x != None:
             return x
         else: 
                 
             x = self.time()
-            x =  m.hash(str(x * x + 2 * x + 1))
-            m.put('password', x)
+            x =  self.hash(str(x * x + 2 * x + 1))
+            self.put('password', x)
         return x
 
     def get_encryption_key(self,  password:str=None, key:Optional[str]=None):
+        """
+        get the encryption key
+        """
         from .aes import AesKey
-        if password == None:
-            password = self.password()
-        # if password is a key, use the key's private key as password
-        return AesKey(password)
+        return AesKey(password or self.password())
 
     def encrypt_key(self, path = 'test.enc', key=None, crypto_type=None,  password=None):
         assert self.key_exists(path), f'file {path} does not exist'
         assert not self.is_key_encrypted(path), f'{path} already encrypted'
         path = self.get_key_path(path)
-        data = m.get(path)
+        data = self.get(path)
         enc_data = self.encrypt(deepcopy(data), password=password)
         if not isinstance(data, dict): 
             return False
         enc_text = {'data': enc_data,  "address": data['address'], "crypto_type": data['crypto_type'], 'encrypted': True}
-        m.put(path, enc_text)
+        self.put(path, enc_text)
         assert self.is_key_encrypted(path)
         return enc_text
     
     def is_key_encrypted(self, key, data=None, crypto_type=None):
         return self.is_encrypted(self.get_data(key, crypto_type=crypto_type) )
+
     def encrypted_keys(self, crypto_type=None):
         crypto_type = self.get_crypto_type(crypto_type)
         keys = self.keys(crypto_type=crypto_type)
@@ -627,7 +664,7 @@ class Key:
         data = self.get_data(path, crypto_type=crypto_type)
         assert self.is_encrypted(data), f'{path} not encrypted'
         dec_text =  self.decrypt(data['data'], password=password, key=key)
-        m.put(path, dec_text)
+        self.put(path, dec_text)
         assert not self.is_key_encrypted(path, crypto_type=crypto_type ), f'failed to decrypt {path}'
         loaded_key = self.get_key(path, crypto_type=crypto_type)
         return { 'path':path , 'address': loaded_key.ss58_address,'crypto_type': loaded_key.crypto_type}
@@ -640,12 +677,13 @@ class Key:
         if password == None:
             password = getpass.getpass('Enter password:')
         assert len(password) >= self.min_password_chars
-        return m.put(self.password_path, password)
+        return self.put(self.password_path, password)
+
 
     def password(self,update=False):
-        password =  m.get(self.password_path, udate=update)
+        password =  self.get(self.password_path, udate=update)
         if password == None: 
-            m.rm(self.password_path)            
+            self.rm(self.password_path)            
             self.set_password(password)
         return password
 
@@ -740,8 +778,131 @@ class Key:
         return key.crypto_type_name + '/' + key.address
 
     def child(self, partner_key_address : str = 'fam', key= None,  seed=None):
-        seed = seed or str(m.time() * m.random_int())
+        seed = seed or str(self.time() )
         key = self.get_key(key) if key != None else self
-        child_key = self.from_uri(m.hash(key.sign(seed), crypto_type=key.crypto_type_name))
+        child_key = self.from_uri(self.hashhash(key.sign(seed), crypto_type=key.crypto_type_name))
         return child_key
 
+
+
+    def test_signing(self,  crypto_type=[0,1,2], data='test'):
+        # at the moment, the ed25519 is not supported in the current version of pycryptodome
+        if isinstance(crypto_type, list):
+            return  [test_signing(k, data=data) for k in crypto_type]
+
+        key = Key()
+        crypto_type = key.get_crypto_type(crypto_type)
+        key = Key(crypto_type=crypto_type)
+        sig = key.sign(data)
+        assert key.verify(data,sig, key.public_key)
+        return {'success':True, 'data':data, 'crypto_type' : key.crypto_type}
+
+    def test_encryption(self,  values = [10, 'fam', 'hello world'], crypto_type=[0,1,2]):
+        if isinstance(crypto_type, list):
+            return [self.test_encryption(values=values, crypto_type=k) for k in crypto_type]
+
+        key = Key()
+        crypto_type = key.get_crypto_type(crypto_type)
+        for value in values:
+            value = str(value)
+            key = key.new_key(crypto_type=crypto_type)
+            enc = key.encrypt(value)
+            dec = key.decrypt(enc)
+            assert str(dec) == value, f'encryption failed, {dec} != {value}'
+        return {'encrypted':enc, 'decrypted': dec, 'crypto_type':key.crypto_type}
+
+    def test_encryption_with_password(self, value = 10, password = 'fam', crypto_type=[0,1,2]):
+        if isinstance(crypto_type, list):
+            return [self.test_encryption_with_password(value=value, password=password, crypto_type=k) for k in crypto_type]
+        key = Key()
+        crypto_type = key.get_crypto_type(crypto_type)
+        value = str(value)
+        key = key.new_key(crypto_type=crypto_type)
+        enc = key.encrypt(value, password=password)
+        dec = key.decrypt(enc, password=password)
+        assert str(dec) == value, f'encryption failed, {dec} != {value}'
+        return {'encrypted':enc, 'decrypted': dec, 'crypto_type': crypto_type}
+
+    def test_key_encryption(self, test_key='test.key', crypto_type=[0,1,2]):
+        if isinstance(crypto_type, list):
+            return [self.test_key_encryption(test_key=test_key, crypto_type=k) for k in crypto_type]
+        key = Key()
+        crypto_type = key.get_crypto_type(crypto_type)
+        key = key.add_key(test_key, refresh=True)
+        og_key = key.get_key(test_key)
+        r = key.encrypt_key(test_key)
+        key.decrypt_key(test_key, password=r['password'])
+        key = key.get_key(test_key)
+        assert key.ss58_address == og_key.ss58_address, f'key encryption failed, {key.ss58_address} != {self.ss58_address}'
+        return {'success': True, 'msg': 'test_key_encryption passed'}
+
+    def test_key_management(self, key1='test.key' , key2='test2.key', crypto_type=[0,1,2]):
+
+        if isinstance(crypto_type, list):
+            return [self.test_key_management(key1=key1, key2=key2, crypto_type=k) for k in crypto_type]
+        key = Key()
+        crypto_type = key.get_crypto_type(crypto_type)
+        if self.key_exists(key1):
+            key.rm_key(key1)
+        if self.key_exists(key2):
+            key.rm_key(key2)
+        key.add_key(key1)
+        k1 = key.get_key(key1)
+        assert key.key_exists(key1), f'Key management failed, key still exists'
+        key.mv_key(key1, key2)
+        k2 = key.get_key(key2)
+        assert k1.ss58_address == k2.ss58_address, f'Key management failed, {k1.ss58_address} != {k2.ss58_address}'
+        assert key.key_exists(key2), f'Key management failed, key does not exist'
+        assert not key.key_exists(key1), f'Key management failed, key still exists'
+        key.mv_key(key2, key1)
+        assert key.key_exists(key1), f'Key management failed, key does not exist'
+        assert not key.key_exists(key2), f'Key management failed, key still exists'
+        key.rm_key(key1)
+        # self.rm_key(key2)
+        assert not key.key_exists(key1), f'Key management failed, key still exists'
+        assert not key.key_exists(key2), f'Key management failed, key still exists'
+        return {'success': True, 'msg': 'test_key_management passed'}
+
+
+    def test_signing(self, crypto_type=[1,2], data='test'):
+        # TODO: for some reason, the ed25519 is not supported in the current version of pycryptodome
+        for k in crypto_type:
+            key = Key(crypto_type=k)
+            sig = key.sign(data)
+            assert key.verify(data,sig, public_key=key.public_key)
+        key = Key()
+        sig = key.sign('test')
+        assert key.verify('test',sig, public_key=key.public_key)
+        return {'success':True}
+
+    def test_key_encryption(self, path = 'test.enc', password='1234'):
+        key = Key()
+        if key.key_exists(path):
+            key.rm_key(path)
+        key.add_key(path, refresh=True)
+        assert key.is_key_encrypted(path) == False, f'file {path} is encrypted'
+        key.encrypt_key(path, password=password)
+        assert key.is_key_encrypted(path) == True, f'file {path} is not encrypted'
+        key.decrypt_key(path, password=password)
+        assert key.is_key_encrypted(path) == False, f'file {path} is encrypted'
+        key.rm_key(path)
+        assert not key.key_exists(path), f'file {path} not deleted'
+        assert not os.path.exists(path), f'file {path} not deleted'
+        return {'success': True, 'msg': 'test_key_encryption passed'}
+
+    def test_move_key(self):
+        key = Key()
+        keys = ['testfrom', 'testto']
+        for k in keys:
+            if self.key_exists(k):
+                self.rm_key(k)
+        og_key = key.get_key('testfrom')
+        assert key.key_exists('testfrom')
+        key.mv_key('testfrom', 'testto')
+        assert key.key_exists('testto')
+        assert not key.key_exists('testfrom')
+        new_key = key.get_key('testto')
+        assert og_key.ss58_address == new_key.ss58_address
+        self.rm_key('testto')
+        assert not key.key_exists('testto')
+        return {'success':True, 'msg':'test_move_key passed', 'key':new_key.ss58_address}

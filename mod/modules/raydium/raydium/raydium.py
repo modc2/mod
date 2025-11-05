@@ -37,6 +37,14 @@ class RaydiumAPI:
             print(f"Error fetching pairs: {e}")
             return []
     
+    def search_pairs(self, query: str='sol') -> List[Dict[str, Any]]:
+        """Search for pairs matching the query string"""
+        all_pairs = self.get_all_pairs()
+        query_lower = query.lower()
+        return [
+            pair for pair in all_pairs 
+            if query_lower in pair.get('name', '').lower()
+        ]
     def get_pair_info(self, pair_address: str) -> Optional[Dict[str, Any]]:
         """Get detailed info for a specific pair"""
         try:

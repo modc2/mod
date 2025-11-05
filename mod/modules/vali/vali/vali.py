@@ -34,7 +34,7 @@ class Vali:
         self.search = search
         self.set_key(key)
         self.set_task(task)
-        self.auth = c.mod('auth')()
+        self.auth = c.mod('server.auth')()
         self.set_network(network=network, subnet=subnet, tempo=tempo,  search=search,  path=path, update=update)
         if loop:
             c.thread(self.run_loop) 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Loading } from '@/app/block/Loading'
-import { Footer } from '@/app/block/Footer'
+import { Footer } from '@/app/block/footer/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { UsersState, UserType } from '@/app/types'

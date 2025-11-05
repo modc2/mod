@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Loading } from '@/app/block/Loading'
-import { Footer } from '@/app/block/Footer'
+import { Footer } from '@/app/block/footer/Footer'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { UserType, ModuleType } from '@/app/types'
 import { AlertCircle, User as UserIcon, Package, Hash } from 'lucide-react'

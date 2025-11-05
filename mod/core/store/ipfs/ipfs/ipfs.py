@@ -106,7 +106,7 @@ class  IpfsClient:
         response.raise_for_status()
         return response.content
     
-    def add_folder(self, folder_path: str, recursive: bool = True, ignore_terms = ['__pycache__', '/.', 'private']) -> List[Dict[str, Any]]:
+    def add_folder(self, folder_path: str, recursive: bool = True, ignore_terms = ['__pycache__', '/.']) -> List[Dict[str, Any]]:
         """Add a folder to IPFS.
         
         Args:
@@ -190,16 +190,6 @@ class  IpfsClient:
                 except Exception as e:
                     print(f"Error retrieving {link['Name']}: {e}")
         return file2content
-
-
-    def cid(self, data: Dict[str, Any] = None) -> str:
-        """Add data to IPFS and return its CID.
-        
-        Args:
-            data: Dictionary to add as JSON 
-
-        """
-        return self.add_data(data, pin=False)
 
     def cat(self, ipfs_hash: str) -> bytes:
         """Retrieve content from IPFS by hash.

@@ -42,21 +42,20 @@ class ModChain:
 
     def __init__(
         self,
-        network:str=None,
-        url:str=None,
+        url: str = None,
+        network:str='main',
         mode = 'wss',
         num_connections: int = 1,
         wait_for_finalization: bool = False,
         test = True,
         archive = False,
         ws_options = {},
-        net = None,
         path = os.path.expanduser(f'~/.mod/chain') 
 
     ):
         self.path = path
         self.store = c.mod('store')(path)
-        self.set_network(network=network or net or self.default_network, # add a little shortcut,
+        self.set_network(network=network, # add a little shortcut,
                          mode=mode,
                          url=url,  
                          test = test,
@@ -76,18 +75,13 @@ class ModChain:
                         archive = False,
                         num_connections: int = 1,
                         ws_options: dict[str, int] = {},
-                        alias_map = {'chain': 'main'},
                         wait_for_finalization: bool = False ):
         t0 = c.time()
-        network = alias_map.get(network, network)
-        if test: 
-            network = 'test'
-        self.network = network
+        self.network = 'test' if test else network
         self.ws_options = ws_options
-        self.archive = archive
-        self.mode = mode or 'wss'
+        self.mode = mode
         if url == None:
-            url_options = self.urls[self.network].get('archive' if self.archive else 'rpc', [])
+            url_options = self.urls[self.network].get('archive' if archive else 'rpc', [])
             url = c.choice(url_options)
             if not url.startswith(mode):
                 url = mode + '://' + url
@@ -734,12 +728,7 @@ class ModChain:
         # Get the runtime version
         return self.query(name='SpecVersionRuntimeVersion', module='System')
 
-    def query(
-        self,
-        name: str,
-        params: list[Any] = [],
-        module: str = "SubspaceModule",
-    ) -> Any:
+    def query( self, name: str = 'Modules',  params: list[Any] = [],  module: str = "Modules" ) -> Any:
         """
         Queries a storage function on the network.
 
@@ -756,29 +745,17 @@ class ModChain:
         Raises:
             NetworkQueryError: If the query fails or is invalid.
         """
-        if  'Weights' in name:
-            module = 'SubnetEmissionModule'
         if '/' in name:
             module, name = name.split('/')
-        result = self.query_batch({module: [(name, params)]})
-        return result[name]
+        return self.query_batch({module: [(name, params)]})[name]
 
-    def pallets(self):
-        """
-        Retrieves the list of pallets from the network.
 
-        Returns:
-            A list of pallets available on the network.
-        """
-        with self.get_conn(init=True) as substrate:
-            pallets = substrate.get_metadata_pallets()
-        return pallets
 
     def query_map(
         self,
         name: str='Emission',
         params: list[Any] = [],
-        module: str = "SubspaceModule",
+        module: str = "Modules",
         extract_value: bool = True,
         max_age=None,
         update=False,
@@ -921,26 +898,6 @@ class ModChain:
         balances =  self.query_map("Account", params=[], module="System", *args, **kwargs)
         return {k: balances[k]['data']['free'] for k in balances}
 
-
-    def tx_rate_limit(self) -> int:
-        """
-        Queries the network for the transaction rate limit.
-        """
-
-        return self.query(
-            "TxRateLimit",
-        )
-
-    def subnet_burn(self) -> int:
-        """
-        Queries the network for the subnet burn value.
-        """
-
-        return self.to_joules(self.query(
-            "SubnetBurn",
-        ))
-    
-
     def balance(
         self,
         addr: Ss58Address=None,
@@ -977,11 +934,9 @@ class ModChain:
 
     to_j = to_joules
         
-
     def valid_ss58_address(self, address):
         from .utils.ss58 import is_valid_ss58_address
         return is_valid_ss58_address(address)
-
 
     def get_key_address(self, key:str ) -> str:
         if isinstance(key, str):
@@ -1056,11 +1011,6 @@ class ModChain:
     @property
     def block_number(self) -> int:
         return self.get_conn().block_number(block_hash=None)
-    
-    @staticmethod
-    def vec82str(x):
-        x = x or []
-        return ''.join([chr(ch) for ch in x]).strip()
 
     def __str__(self):
         return f'Chain(network={self.network}, url={self.url})'
@@ -1104,10 +1054,8 @@ class ModChain:
         amount = float(str(amount).replace(',', ''))
 
         params = {"dest": dest, "value":int(self.to_nanos(amount))}
-        return self.call( module="Balances", fn="transfer_keep_alive", params=params, key=key, multisig=multisig, safety=safety)
+        return self.call( module="Modules", fn="transfer_keep_alive", params=params, key=key, multisig=multisig, safety=safety)
 
-    def reg(self, name='compare', metadata=None, url='0.0.0.0:8888', module_key=None, key=None, subnet=2, net=None):
-        raise NotImplementedError('not implemented')
     
     def dereg(self, key: Keypair, subnet: int=0):
         raise NotImplementedError('not implemented')
@@ -1135,7 +1083,7 @@ class ModChain:
         key: Keypair,
         signatories: list[Ss58Address],
         threshold: int,
-        module: str = "SubspaceModule",
+        module: str = "Modules",
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = None,
         sudo: bool = False,
@@ -1227,7 +1175,7 @@ class ModChain:
         fn: str,
         params: dict[str, Any],
         key: Keypair,
-        module: str = "SubspaceModule",
+        module: str = "Modules",
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
         multisig = None,
@@ -1332,7 +1280,7 @@ class ModChain:
         multisig = None,
         signatories: list[Ss58Address]=None,
         threshold: int = None,
-        module: str = "SubspaceModule",
+        module: str = "Modules",
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = None,
         sudo: bool = False,
@@ -1489,56 +1437,7 @@ class ModChain:
         return multisigs
 
     mss = multisigs
-    
-    def transfer(
-        self,
-        key: Keypair = None,
-        amount: int = None,
-        dest: Ss58Address = None,
-        safety: bool = True,
-        multisig: Optional[str] = None
-    ) -> ExtrinsicReceipt:
-        """
-        Transfers a specified amount of tokens from the signer's account to the
-        specified account.
 
-        Args:
-            key: The keypair associated with the sender's account.
-            amount: The amount to transfer, in nanotokens.
-            dest: The SS58 address of the recipient.
-
-        Returns:
-            A receipt of the transaction.
-
-        Raises:
-            InsufficientBalanceError: If the sender's account does not have
-              enough balance.
-            ChainTransactionError: If the transaction fails.
-        """
-        if self.is_float(dest):
-            dest = amount
-            amount = float(str(dest).replace(',', ''))
-        if key == None:
-            key = input('Enter key: ')
-        key = self.get_key(key)
-        if dest == None:
-            dest = input('Enter destination address: ')
-        dest = self.get_key_address(dest)
-        if amount == None:
-            amount = input('Enter amount: ')
-        amount = float(str(amount).replace(',', '')
-        )
-
-        params = {"dest": dest, "value":int(self.to_nanos(amount))}
-        if safety:
-            address2key = c.address2key()
-            from_name = address2key.get(key.ss58_address, key.ss58_address)
-            to_name = address2key.get(dest, dest)
-            c.print(f'Transfer({from_name} --({params["value"]/(10**9)}c)--> {to_name})')
-            if input(f'Are you sure you want to transfer? (y/n): ') != 'y':
-                return False
-        return self.call( module="Balances", fn="transfer_keep_alive", params=params, key=key, multisig=multisig)
-    
     def send(
         self, key, amount, dest, multisig=None, safety=True
     ) -> ExtrinsicReceipt:
@@ -1633,23 +1532,53 @@ class ModChain:
         """
         Retrieves a list of available pallets (modules) in the substrate network. 
         """
-        with self.get_conn(init=True) as substrate:
-            metadata = substrate.get_metadata()
-            # return metadata
-            # modules = [module.name for module in metadata.modules]
-        return [p.__dict__ for p in metadata.pallets]
+        metadata = self.metadata()
+        return [p['name'] for p in metadata['pallets']]
     
-    def pallet2fns(self) -> dict[str, list[str]]:
+
+    def pallet2fns(self, pallet='Modules') -> dict[str, Any]:
         """
-        Retrieves a mapping of function names for a given pallet (module) in the substrate network.
+        Retrieves the schema for a specific pallet (module) in the substrate network.
         """
         with self.get_conn(init=True) as substrate:
             metadata = substrate.get_metadata() 
         pallets = {pallet.name: pallet for pallet in metadata.pallets}
-        pallet2fns = {pallet_name: [call.name for call in pallet.calls] for pallet_name, pallet in pallets.items()}
-        return pallet2fns
+        pallet_obj = pallets.get(pallet)
+        if not pallet_obj:
+            raise ValueError(f"Pallet {pallet} not found")
+        schema = {}
+        for call in pallet_obj.calls:
+            schema[call.name] = call.__dict__['value_serialized']
+        return schema
 
-    def get_fn_schema(self, pallet='Balances', fn='transfer_allow_death') -> dict[str, Any]:
+    def pallet2storage(self, pallet='Modules') -> dict[str, Any]:
+        """
+        Retrieves the storage schema for a specific pallet (module) in the substrate network.
+        """
+        with self.get_conn(init=True) as substrate:
+            metadata = substrate.get_metadata() 
+        pallets = {pallet.name: pallet for pallet in metadata.pallets}
+        pallet =pallets.get(pallet)
+        schema = {}
+        if pallet.storage:
+            for storage_item in pallet.storage:
+                schema[storage_item.name] = storage_item.__dict__['value_serialized']
+        return schema
+
+
+    def metadata(self) -> dict[str, Any]:
+        pallet2fns = self.pallet2fns()
+        pallet2storage = self.pallet2storage()
+        metadata = {}
+        for pallet in pallet2fns.keys():
+            metadata[pallet] = {
+                'fns': pallet2fns[pallet],
+                'storage': pallet2storage.get(pallet, {})
+            }
+        return metadata
+        
+
+    def get_fn_schema(self, pallet='Modules', fn='transfer_allow_death') -> dict[str, Any]:
         """
         Retrieves the schema for a specific function within a pallet (module) in the substrate network.
         """
@@ -1665,17 +1594,38 @@ class ModChain:
         raise ValueError(f"Function {fn} not found in pallet {pallet}")
 
 
-    def metadata(self, update=False) -> Any:
-        """
-        Retrieves the metadata of the substrate network.
-        """
-        path = '~/.mod/substrate/metadata'
-        with self.get_conn(init=True) as substrate:
-            metadata = substrate.get_metadata()
-        metadata.to_dict()
-        
-        return metadata
-        
-
-
+    def old_balances(self):
+        path = "~/.comclassic/balances.json"
+        return c.get_json(path, {})
     
+    def oldbal(self): 
+        key2address = c.key2address()
+        balances = self.old_balances()
+        my_balances = {}
+        for key, address in key2address.items():
+            if address in balances:
+                my_balances[key] = balances.get(address, 0)//10**9
+        return my_balances
+
+    def claim(self, key=None):
+        return self.call( module="ComClaim", fn="claim", params={}, key=key)
+
+    def reg(self , name='api', take=0, key='bako'):
+        key = m.key(key)
+        info = c.fn('api/reg')(name)
+        params = {'name': key.address +info['name'], 'data': info['content'], 'url': info['url'] , 'take': take}
+        return self.call( module="Modules", fn="register_module", params=params, key=key)
+
+    def update(self, name='api', key='bako'):
+        info = c.fn('api/reg')(name)
+        params = {'name': info['name'], 'data': info['content'], 'url': info['url'] }
+        return self.call( module="Modules", fn="update_module", params=params, key=key)
+
+    def storage(self, feature='Modules', module='Modules', update=False):
+        return self.query_map(feature, module=module, update=update)
+
+    def mods(self, update=False):
+        mods = self.storage(feature='Modules', module='Modules', update=update)
+        return mods
+
+    # def modules()

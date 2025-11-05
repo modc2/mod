@@ -5,10 +5,10 @@ import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
 import ModuleCard from './ModuleCard'
 import { ModuleType } from '@/app/types'
-import { Footer } from '@/app/block/Footer'
+import { Footer } from '@/app/block/footer/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp, Zap } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author'
 
@@ -91,8 +91,8 @@ export default function Modules() {
                   <Sparkles className="text-purple-300" size={28} strokeWidth={2.5} />
                 </div>
                 <div className="text-left">
-                  <div className="text-purple-300 font-black text-2xl uppercase tracking-wider drop-shadow-lg">ADVANCED SETTINGS</div>
-                  <div className="text-purple-400/70 font-bold text-sm uppercase tracking-wide">Customize your view</div>
+                  <div className="text-purple-300 font-black text-2xl uppercase tracking-wider drop-shadow-lg">SETTINGS</div>
+                  <div className="text-purple-400/70 font-bold text-sm uppercase tracking-wide">Customize your vibe</div>
                 </div>
               </div>
               <div className="p-3 bg-gradient-to-br from-purple-500/30 to-pink-500/30 border-2 border-purple-400/50 rounded-xl group-hover:rotate-180 transition-all duration-500 shadow-lg shadow-purple-500/30">
@@ -105,7 +105,7 @@ export default function Modules() {
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
                   <div className="flex-1 w-full">
                     <div className="text-purple-300 font-black text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
-                      <div className="w-1 h-5 bg-gradient-to-b from-purple-400 to-pink-400 rounded-full"></div>
+                      <Zap className="text-purple-400" size={18} strokeWidth={2.5} />
                       SORT BY
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -127,7 +127,7 @@ export default function Modules() {
 
                   <div className="flex-1 w-full">
                     <div className="text-blue-300 font-black text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
-                      <div className="w-1 h-5 bg-gradient-to-b from-blue-400 to-cyan-400 rounded-full"></div>
+                      <Zap className="text-blue-400" size={18} strokeWidth={2.5} />
                       COLUMNS
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -184,7 +184,7 @@ export default function Modules() {
               <Sparkles className="w-24 h-24 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-4xl mb-8 font-black uppercase tracking-wide drop-shadow-2xl">
-              {searchTerm ? 'NO MODULES MATCH YOUR SEARCH' : 'NO MODULES FOUND'}
+              {searchTerm ? 'NO MODULES MATCH YOUR SEARCH' : 'NO MODULES YET'}
             </div>
             {!searchTerm && (
               <button className="inline-flex items-center gap-4 border-2 border-purple-500/50 bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-blue-500/20 text-purple-300 px-10 py-5 rounded-2xl hover:bg-purple-500/30 hover:border-purple-400/70 hover:shadow-2xl hover:shadow-purple-500/40 hover:scale-105 transition-all duration-300 font-black text-2xl uppercase tracking-wide group backdrop-blur-xl">
@@ -205,7 +205,7 @@ export default function Modules() {
           {mods.map((mod) => (
             <div
               key={`${mod.key}-${mod.name}`}
-              className="transform hover:scale-[1.03] transition-all duration-300 ease-out"
+              className="transform hover:scale-[1.02] transition-all duration-300 ease-out"
             >
               <ModuleCard mod={mod} />
             </div>

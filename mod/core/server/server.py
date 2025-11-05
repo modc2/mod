@@ -122,6 +122,7 @@ class Server:
                 client=request['client'], # client auth
                 server= server_auth , 
                 key=self.key)
+            print(f'Finished fn {fn} with params {params}', color='green', verbose=self.verbose)
             return result
         
         raise Exception('Should not reach here, something went wrong in forward')

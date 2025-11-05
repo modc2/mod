@@ -4,7 +4,6 @@ import { Send, Copy, CheckCircle, Terminal, Zap, AlertCircle } from 'lucide-reac
 import { Key } from '@/app/block/key'
 import { Auth, AuthHeaders } from '@/app/block/client/auth'
 import  Client  from '@/app/block/client'
-import { copyToClipboard } from '@/app/utils' // Import the utility function
 import { CopyButton } from '@/app/block/CopyButton'
 
 interface ModuleCallerProps {

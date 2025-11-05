@@ -6,20 +6,20 @@ import mod as c
 from pathlib import Path
 from typing import Dict, List, Union, Optional, Any, Tuple
 from .utils import *
-import mod as c
-print=c.print
+import mod as m
+print=m.print
 class Dev:
 
 
     def __init__(self, 
-                 tools = ["create_file", "rm_file"],
+                 tools = ["create_file", "rm_file", 'websearch'],
                  model: str = 'model.openrouter', 
                  **kwargs):
 
         self.tools_prefix = f"{__file__.split('/')[-2]}.tool"
-        self.pm = c.mod('pm')()
+        self.pm = m.mod('pm')()
         self.set_tools(tools)
-        self.model = c.mod(model)()
+        self.model = m.mod(model)()
         self.output_format=  """
                 make sure the params is a legit json string within the STEP ANCHORS
                 YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN
@@ -92,12 +92,12 @@ class Dev:
         use this to run the agent with a specific text and parameters
         """
         if mod != None:
-            path = c.dirpath(mod)
+            path = m.dirpath(mod)
         text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = self.preprocess(text=text)
         self.add_memory(self.tool('select_files')(path=path, query=query))
         if base:
-            self.add_memory(c.content(base))
+            self.add_memory(m.content(base))
 
         print(f"Dev Agent starting with query: {query}", color='green')
         print(f"Using model: {model}", color='green')
@@ -114,15 +114,15 @@ class Dev:
                 path=path,
                 step=step,
                 steps=steps,
-                files = c.files(path),
+                files = m.files(path),
             )            
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
             plan =  self.get_plan(output, safety=safety) 
             if self.is_plan_complete(plan):
-                c.print("Plan is complete, stopping execution.", color='green')
+                m.print("Plan is complete, stopping execution.", color='green')
                 break
             else:
-                c.print("Plan is not complete, continuing to next step.", color='yellow')
+                m.print("Plan is not complete, continuing to next step.", color='yellow')
             self.add_memory(plan)
         return plan
 
@@ -164,7 +164,7 @@ class Dev:
             # restrictions can currently only handle one fn argument, future support for multiple
             if (not fn_detected) and word.startswith(magic_prefix) :
                 word = word[len(magic_prefix):]
-                step = {'tool': c.fn(word), 'params': {}, 'idx': i + 2}
+                step = {'tool': m.fn(word), 'params': {}, 'idx': i + 2}
                 fn_detected=True
             else:
                 if fn_detected and '=' in word:
@@ -172,7 +172,7 @@ class Dev:
                     try:
                         value = json.loads(value)
                     except json.JSONDecodeError:
-                        c.print(f"Could not parse {value} as JSON, using string.", color='yellow')
+                        m.print(f"Could not parse {value} as JSON, using string.", color='yellow')
                         continue
                     fns[-1]['params'][key] = value
                     query += str(step['fn'](**step['params']))
@@ -189,7 +189,7 @@ class Dev:
 
     def load_step(self, text):
         text = text.split(self.anchors['tool'][0])[1].split(self.anchors['tool'][1])[0]
-        c.print("STEP:", text, color='yellow')
+        m.print("STEP:", text, color='yellow')
         try:
             step = json.loads(text)
         except json.JSONDecodeError as e:
@@ -207,12 +207,12 @@ class Dev:
         plan = []
         for ch in output:
             text += ch
-            c.print(ch, end='')
+            m.print(ch, end='')
             if self.is_text_plan_step(text):
                 plan.append(self.load_step(text))
                 text = text.split(self.anchors['tool'][-1])[-1]
 
-        c.print("Plan:", plan, color='yellow')
+        m.print("Plan:", plan, color='yellow')
         if safety:
             input_text = input("Do you want to execute the plan? (y/Y) for YES: ")
             if not input_text in ['y', 'Y']:
@@ -223,7 +223,7 @@ class Dev:
             else:
                 result = self.tool(step['tool'])(**step['params'])
                 plan[i]['result'] = result
-                c.print(f"Step {i+1}/{len(plan)} executed: {step['tool']} with params {step['params']} -> result: {result}", color='green')
+                m.print(f"Step {i+1}/{len(plan)} executed: {step['tool']} with params {step['params']} -> result: {result}", color='green')
         return plan
 
 
@@ -242,21 +242,21 @@ class Dev:
             except Exception as e:
                 m.print(f"Error getting schema for tool {t}: {e}", color='red')
                 continue
-        c.print(f"Tools({tools})")
+        m.print(f"Tools({tools})")
         return self.tools
 
     def schema(self, tool: str, fn='forward') -> Dict[str, str]:
         """
         Get the schema for a specific tool.
         """
-        return  c.schema(self.tools_prefix + '.' +tool.replace('/', '.'))[fn]
+        return  m.schema(self.tools_prefix + '.' +tool.replace('/', '.'))[fn]
 
     def tool(self, tool_name: str='cmd', *args, **kwargs) -> Any:
         """
         Execute a specific tool by name with provided arguments.
         """
         tool_name = tool_name.replace('/', '.')
-        return c.mod(self.tools_prefix + '.' + tool_name)(*args, **kwargs).forward
+        return m.mod(self.tools_prefix + '.' + tool_name)(*args, **kwargs).forward
 
     def test(self, query='make a python file that stores 2+2 in a variable and prints it', path='./', steps=3):
         """

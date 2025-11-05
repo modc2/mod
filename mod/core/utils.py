@@ -100,45 +100,6 @@ def is_error( x:Any):
             return True
     return False
 
-# As a context manager
-@contextmanager
-def print_load(message="Loading", duration=5):
-    spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    CYAN = "\033[96m"
-    RESET = "\033[0m"
-    factor = 4
-    
-    # Create a flag to control the animation
-    stop_animation = False
-    
-    def animate():
-        start_time = time.time()
-        try:
-            while not stop_animation:
-                for frame in spinner:
-                    if stop_animation:
-                        break
-                    loading_text = f"\r{CYAN}{frame*factor}{message}({int(time.time() - start_time)}s){frame*factor}"
-                    sys.stdout.write(loading_text)
-                    sys.stdout.flush()
-                    time.sleep(0.1)
-        except KeyboardInterrupt:
-            sys.stdout.write("\r" + " " * (len(message) + 10))
-            sys.stdout.write(f"\r{CYAN}Loading cancelled!{RESET}\n")
-    
-    # Start animation in a separate thread
-    import threading
-    thread = threading.Thread(target=animate)
-    thread.start()
-    
-    try:
-        yield
-    finally:
-        # Stop the animation
-        stop_animation = True
-        thread.join()
-        sys.stdout.write("\r" + " " * (len(message) + 10))
-        sys.stdout.write(f"\r{CYAN}✨ {message} complete!{RESET}\n")
 
 def test_loading_animation():
     with print_load("Testing", duration=3):
@@ -165,6 +126,10 @@ def print_console( *text:str,
         color = random_color()
     if color:
         kwargs['style'] = color
+
+    # add the color buffer
+    if color:
+        buffer = f'[{color}]'
     
     if buffer != None:
         text = [buffer] + list(text) + [buffer]
