@@ -66,7 +66,14 @@ class ModChain:
                          wait_for_finalization=wait_for_finalization)
 
     def set_connections(self, num_connections: int = 1):
-        return self.set_network(num_connections=num_connections)
+        t0 = m.time()
+        self.num_connections = num_connections
+        self.connections_queue = queue.Queue(self.num_connections)
+        for _ in range(self.num_connections):
+            self.connections_queue.put(SubstrateInterface(self.url, ws_options=self.ws_options, use_remote_preset=True ))
+        self.connection_latency = round(m.time() - t0, 2)
+        m.print(f'Chain (network={self.network} url={self.url} connections={self.num_connections} latency={self.connection_latency}s)', color='blue') 
+        return {'num_connections': self.num_connections, 'connection_latency': self.connection_latency}
 
     def set_network(self, 
                         network='main',
@@ -87,7 +94,7 @@ class ModChain:
             if not url.startswith(mode):
                 url = mode + '://' + url
             self.url = url
-        self.num_connections = num_connections
+        self.set_connections(num_connections)
         self.wait_for_finalization = wait_for_finalization
         return {
                 'network': self.network, 
@@ -118,12 +125,7 @@ class ModChain:
         """
 
         if not hasattr(self, 'connections_queue'):
-            t0 = m.time()
-            self.connections_queue = queue.Queue(self.num_connections)
-            for _ in range(self.num_connections):
-                self.connections_queue.put(SubstrateInterface(self.url, ws_options=self.ws_options, use_remote_preset=True ))
-            self.connection_latency = round(m.time() - t0, 2)
-            m.print(f'Chain(network={self.network} url={self.url} connections={self.num_connections} latency={self.connection_latency}s)', color='blue') 
+            self.set_connections(self.num_connections)
         conn = self.connections_queue.get(timeout=timeout)
         if init:
             conn.init_runtime()  # type: ignore
@@ -990,9 +992,6 @@ class ModChain:
                 ch = ch.upper()
             new_name += ch
         return new_name
-                
-    def mods(self): 
-        raise NotImplementedError('not implemented')
 
     def format_amount(self, x, fmt='nano') :
         if type(x) in [dict]:
@@ -1565,22 +1564,6 @@ class ModChain:
                 'storage': pallet2storage.get(pallet, {})
             }
         return metadata
-        
-
-    def get_fn_schema(self, pallet='Modules', fn='transfer_allow_death') -> dict[str, Any]:
-        """
-        Retrieves the schema for a specific function within a pallet (module) in the substrate network.
-        """
-        with self.get_conn(init=True) as substrate:
-            metadata = substrate.get_metadata() 
-        pallets = {pallet.name: pallet for pallet in metadata.pallets}
-        pallet_obj = pallets.get(pallet)
-        if not pallet_obj:
-            raise ValueError(f"Pallet {pallet} not found")
-        for call in pallet_obj.calls:
-            if call.name == fn:
-                return call.__dict__['value_serialized']
-        raise ValueError(f"Function {fn} not found in pallet {pallet}")
 
 
     def old_balances(self):
@@ -1700,7 +1683,8 @@ class ModChain:
         mods = self.mods(update=update)
         mod = mods[mod_id]
         info = m.fn('api/mod')(name, key=key)
-        
+        info['id'] = mod_id
+        info['collateral'] = mod.get('collateral', 0)
         return info
     
         

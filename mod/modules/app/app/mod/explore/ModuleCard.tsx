@@ -3,93 +3,150 @@
 import { ModuleType } from '@/app/types'
 import { CopyButton } from '@/app/block/CopyButton'
 import Link from 'next/link'
-import { Package, Calendar, User, Hash, Sparkles } from 'lucide-react'
-import { time2str, text2color, shorten } from '@/app/utils'
+import { Package, User, Clock, Hash, Coins } from 'lucide-react'
+import { shorten, text2color } from "@/app/utils"
 
 interface ModuleCardProps {
   mod: ModuleType
 }
 
-const MODULE_COLORS = [
-  { from: 'from-purple-500/20', to: 'to-pink-500/20', text: 'text-purple-400', hover: 'from-purple-400 to-pink-400', border: 'border-purple-500/40', glow: 'shadow-purple-500/20' },
-  { from: 'from-blue-500/20', to: 'to-cyan-500/20', text: 'text-blue-400', hover: 'from-blue-400 to-cyan-400', border: 'border-blue-500/40', glow: 'shadow-blue-500/20' },
-  { from: 'from-green-500/20', to: 'to-emerald-500/20', text: 'text-green-400', hover: 'from-green-400 to-emerald-400', border: 'border-green-500/40', glow: 'shadow-green-500/20' },
-  { from: 'from-orange-500/20', to: 'to-red-500/20', text: 'text-orange-400', hover: 'from-orange-400 to-red-400', border: 'border-orange-500/40', glow: 'shadow-orange-500/20' },
-  { from: 'from-yellow-500/20', to: 'to-amber-500/20', text: 'text-yellow-400', hover: 'from-yellow-400 to-amber-400', border: 'border-yellow-500/40', glow: 'shadow-yellow-500/20' },
-  { from: 'from-indigo-500/20', to: 'to-violet-500/20', text: 'text-indigo-400', hover: 'from-indigo-400 to-violet-400', border: 'border-indigo-500/40', glow: 'shadow-indigo-500/20' },
-]
+function getTimeAgo(timestamp: number): string {
+  const now = Math.floor(Date.now() / 1000)
+  const seconds = now - timestamp
+  
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d ago`
+  if (seconds < 31536000) return `${Math.floor(seconds / 2592000)}mo ago`
+  return `${Math.floor(seconds / 31536000)}y ago`
+}
 
 export default function ModuleCard({ mod }: ModuleCardProps) {
-  const colorIndex = mod.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % MODULE_COLORS.length
-  const colors = MODULE_COLORS[colorIndex]
-  const keyColor = text2color(mod.key)
+  const moduleColor = text2color(mod.name)
+  const userColor = text2color(mod.key)
+  
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 139, g: 92, b: 246 }
+  }
+  
+  const rgb = hexToRgb(moduleColor)
+  const bgColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`
+  const borderColor = moduleColor
+  const hoverBgColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`
+  const userRgb = hexToRgb(userColor)
 
   return (
-    <div className={`group relative bg-gradient-to-br ${colors.from} ${colors.to} border-2 ${colors.border} rounded-2xl p-6 hover:border-white/50 hover:shadow-2xl hover:${colors.glow} transition-all duration-300 backdrop-blur-sm overflow-hidden h-full flex flex-col hover:scale-[1.02]`}>
-      <div className={`absolute inset-0 bg-gradient-to-br ${colors.from} via-transparent ${colors.to} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-      
-      <div className="relative z-10 space-y-4 flex-1 flex flex-col">
-        <Link href={`${mod.name}/${mod.key}`} className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3 mb-5">
-            <div className="flex items-center gap-4 group/link flex-1 min-w-0">
-              <div className={`flex-shrink-0 p-3 bg-gradient-to-br ${colors.from} ${colors.to} rounded-xl border-2 border-white/40 group-hover/link:scale-110 group-hover/link:rotate-6 transition-all duration-300 shadow-xl`}>
-                <Package className={`${colors.text}`} size={36} strokeWidth={2.5} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className={`text-3xl font-black text-white group-hover/link:text-transparent group-hover/link:bg-gradient-to-r group-hover/link:${colors.hover} group-hover/link:bg-clip-text transition-all duration-300 truncate uppercase tracking-wide drop-shadow-lg`}>
-                  {mod.name}
-                </h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <Sparkles className={`${colors.text}`} size={14} strokeWidth={2.5} />
-                  <span className="text-xs text-white/60 font-bold uppercase tracking-wider">Module</span>
-                </div>
-              </div>
+    <Link
+      href={`/mod/${mod.name}/${mod.key}`}
+      className="group relative border-2 rounded-2xl p-6 backdrop-blur-md transition-all duration-300 hover:shadow-2xl hover:scale-[1.02] block"
+      style={{
+        backgroundColor: bgColor,
+        borderColor: moduleColor,
+        boxShadow: `0 0 20px ${moduleColor}20`
+      }}
+    >
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div 
+            className="flex-shrink-0 p-3 rounded-xl border-2 transition-all duration-300 group-hover:scale-110 group-hover:rotate-6 shadow-lg"
+            style={{
+              backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`,
+              borderColor: moduleColor
+            }}
+          >
+            <Package size={32} strokeWidth={2.5} style={{ color: moduleColor }} />
+          </div>
+          
+          <div className="flex-1 min-w-0">
+            <h3 
+              className="text-2xl font-black lowercase tracking-wide truncate mb-1"
+              style={{ color: moduleColor }}
+              title={mod.name}
+            >
+              {mod.name}
+            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/50 font-bold lowercase tracking-wide">module</span>
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-3 mb-5">
-            {mod.content && (
-              <div className="flex items-center gap-2 bg-black/60 border-2 border-white/30 px-4 py-2.5 rounded-xl backdrop-blur-sm hover:bg-black/70 hover:border-white/50 transition-all shadow-lg group/cid">
-                <Hash className={`${colors.text} group-hover/cid:rotate-12 transition-transform`} size={18} strokeWidth={2.5} />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-white/70 font-bold uppercase tracking-wide">CID:</span>
-                  <code className={`text-sm ${colors.text} font-mono font-bold max-w-[140px] truncate`} title={mod.content}>
-                    {shorten(mod.content)}
-                  </code>
-                  <CopyButton text={mod.content} />
-                </div>
-              </div>
-            )}
-
-            {mod.updated && (
-              <div className="flex items-center gap-2 bg-black/60 border-2 border-white/30 px-4 py-2.5 rounded-xl backdrop-blur-sm shadow-lg">
-                <Calendar className={`${colors.text}`} size={18} strokeWidth={2.5} />
-                <span className="text-sm text-white/70 font-bold uppercase tracking-wide">Updated:</span>
-                <span className={`text-sm ${colors.text} font-black`}>
-                  {time2str(mod.updated)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {mod.desc && (
-            <div className="bg-black/50 border-2 border-white/30 px-5 py-4 rounded-xl backdrop-blur-sm flex-1 shadow-lg hover:bg-black/60 transition-all">
-              <p className="text-base text-white/90 leading-relaxed line-clamp-3 font-medium">
-                {mod.desc}
-              </p>
-            </div>
-          )}
-        </Link>
-
-        <div className="flex items-center gap-2 bg-black/60 border-2 border-white/30 px-4 py-2.5 rounded-xl backdrop-blur-sm shadow-lg mt-auto group/key hover:bg-black/70 transition-all">
-          <User className={`${colors.text} group-hover/key:scale-110 transition-transform`} size={16} strokeWidth={2.5} />
-          <span className="text-xs text-white/60 font-bold uppercase tracking-wide">Key:</span>
-          <code className="text-xs font-mono font-bold text-white/80 flex-1 truncate" title={mod.key}>
-            {mod.key}
-          </code>
-          <CopyButton text={mod.key} size="sm" />
         </div>
+
+        <Link 
+          href={`/user/${mod.key}`}
+          className="relative flex-shrink-0 p-3 rounded-xl border-2 transition-all duration-300 hover:scale-110 group/user shadow-lg"
+          style={{
+            backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.2)`,
+            borderColor: userColor
+          }}
+          title={`view user profile: ${mod.key}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <User size={24} strokeWidth={2.5} style={{ color: userColor }} />
+        </Link>
       </div>
-    </div>
+
+      {mod.desc && (
+        <p className="text-white/70 text-sm mb-5 line-clamp-2 leading-relaxed">
+          {mod.desc}
+        </p>
+      )}
+
+      <div className="space-y-3">
+        {mod.balance !== undefined && (
+          <div 
+            className="flex items-center gap-2 border-2 px-4 py-3 rounded-xl backdrop-blur-sm transition-all hover:bg-opacity-80" 
+            style={{ 
+              borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`,
+              backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`
+            }}
+          >
+            <Coins size={16} strokeWidth={2.5} style={{ color: moduleColor }} />
+            <span className="text-xs text-white/50 font-bold lowercase tracking-wide">balance:</span>
+            <span className="text-xs font-bold flex-1" style={{ color: moduleColor }}>
+              {mod.balance.toLocaleString()}
+            </span>
+          </div>
+        )}
+
+        {mod.content && (
+          <div 
+            className="flex items-center gap-2 border-2 px-4 py-3 rounded-xl backdrop-blur-sm transition-all hover:bg-opacity-80" 
+            style={{ 
+              borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`,
+              backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`
+            }}
+          >
+            <Hash size={16} strokeWidth={2.5} style={{ color: moduleColor }} />
+            <span className="text-xs text-white/50 font-bold lowercase tracking-wide">cid:</span>
+            <code className="text-xs font-mono font-bold flex-1 truncate" style={{ color: moduleColor }} title={mod.content}>
+              {shorten(mod.content, 12)}
+            </code>
+            <CopyButton text={mod.content} size="sm" />
+          </div>
+        )}
+
+        {mod.updated && (
+          <div 
+            className="flex items-center gap-2 border-2 px-4 py-3 rounded-xl backdrop-blur-sm transition-all hover:bg-opacity-80" 
+            style={{ 
+              borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`,
+              backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`
+            }}
+          >
+            <Clock size={16} strokeWidth={2.5} style={{ color: moduleColor }} />
+            <span className="text-xs text-white/50 font-bold lowercase tracking-wide">updated:</span>
+            <span className="text-xs font-bold" style={{ color: moduleColor }}>
+              {new Date(mod.updated * 1000).toLocaleDateString()} ({getTimeAgo(mod.updated)})
+            </span>
+          </div>
+        )}
+      </div>
+    </Link>
   )
 }

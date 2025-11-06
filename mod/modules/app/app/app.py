@@ -15,21 +15,21 @@ class App:
 
     serve = forward  # Alias for serve method
         
-    def app(self, public=False, remote=True, build=True):
+    def app(self, public=False, remote=True, build=False):
         cwd = m.dirpath('app') 
         ip = m.ip() if public else '0.0.0.0'
         api_url = f'http://{ip}:{self.api_port}'
         app_url = f'http://{ip}:{self.app_port}'
+        print(f'App URL: {app_url} cwd: {cwd}')
         params = {
             'name': 'app', 
-            'build': {'context': './'},
+            'image': 'app:latest',
             'port':  self.app_port,
             'env': {'NEXT_PUBLIC_API_URL': api_url, 
                     'NEXT_PUBLIC_APP_URL': app_url},
             'volumes': [f'{cwd}:/app','/app/node_modules'],
             'cwd': cwd  ,
             'working_dir': '/app',
-            # 'cmd': 'npm start',
             'daemon': remote,
         }
         return m.mod('pm')().run(**params)

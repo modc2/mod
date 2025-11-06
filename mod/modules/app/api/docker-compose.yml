@@ -17,4 +17,21 @@ services:
     - ~/.mod:/root/.mod
     - ~/mod/mod/modules/app/api:/root/mod/mod/modules/app/api
     working_dir: /root/mod/mod/modules/app/api
+  app:
+    build:
+      context: /Users/homie/mod/mod/modules/app
+    container_name: app
+    deploy: {}
+    environment:
+    - NEXT_PUBLIC_API_URL=http://0.0.0.0:8000
+    - NEXT_PUBLIC_APP_URL=http://0.0.0.0:3000
+    image: app:latest
+    ports:
+    - 3000:3000
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - /Users/homie/mod/mod/modules/app:/app
+    - /app/node_modules
+    working_dir: /app
 version: '3.8'

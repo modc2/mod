@@ -79,7 +79,7 @@ class PM:
 
     def run(self,
             name : str = "mod",
-            image: str = 'mod:latest', # the docker image to use
+            image: str = None, # the docker image to use
             cwd: Optional = None, # the working directory to run docker-compose in
             cmd: str = None, entrypoint: str = None, # command to run in the container
             volumes: Dict = None, # volume mappings
@@ -92,6 +92,7 @@ class PM:
             remote: bool = False,
             env: Optional[Dict] = None,
             working_dir : str = '/app',
+            tag = 'latest',
             compose_path: str = None, # the path to the compose file
             restart: str = 'unless-stopped',
             build =  None,
@@ -108,6 +109,8 @@ class PM:
             'container_name': name,
             'restart': restart
         }
+        if image == None:
+            image = self.ensure_image(mod=name, tag=tag)
         # Handle command
         serve_config['deploy'] = {'resources': resources} if resources else {}
         serve_config['shm_size'] = shm_size
@@ -224,6 +227,23 @@ class PM:
                 if file.lower() == 'dockerfile':
                     dockerfiles.append(os.path.join(root, file))
         return dockerfiles
+
+    mod = 'mod'
+    def ensure_image(self, mod='mod', tag:Optional[str]='latest') -> str:
+    
+        dockerfiles = self.dockerfiles(mod)
+        if len(dockerfiles) == 0 and mod != self.mod:
+            print(f'No Dockerfile found in {mod}')
+            return self.mod + ':' + tag
+        else:
+            print(f'Building Docker image for {mod}')
+            path = m.dirpath(mod)
+            if not self.image_exists(mod):
+                print(f'No image found for {mod}, building...')
+                self.build(tag=image_tag, mod=mod)
+            image_tag = f'{mod}:{tag}' if tag else mod
+            return image_tag
+        
 
     def compose_paths(self, mod='ipfs'):
         """
@@ -356,6 +376,19 @@ class PM:
             return results['repository'].tolist()
         else:
             return results
+
+    def image_names(self) -> List[str]:
+        """
+        Get a list of Docker image names.
+        """
+        images = self.images(df=False)
+        return [img.split(':')[0] for img in images]
+
+    def image_exists(self, name: str) -> bool:
+        """
+        Check if a Docker image exists.
+        """
+        return name in self.image_names()
 
     def logs(self,
              name: str,

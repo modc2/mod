@@ -45,7 +45,7 @@ class SelectFiles:
                 results[f] = self.get_text(f)
         else: 
             results = files
-        print(f"Selected files for query '{query}': {results}", color="green")
+        print(f"Selected files >>> ",files, color="cyan")
         return results
 
     def get_text(self, path: str) -> str:

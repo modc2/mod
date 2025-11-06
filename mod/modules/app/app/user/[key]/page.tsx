@@ -28,9 +28,10 @@ export function User({ user }: UserProps) {
   const colorIndex = user.key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % USER_COLORS.length
   const colors = USER_COLORS[colorIndex]
   const modCount = user.mods?.length || 0
+  const userColor = text2color(user.key)
 
   return (
-    <div className={`group relative bg-gradient-to-br ${colors.from} ${colors.to} border ${colors.border} rounded-xl p-8 hover:border-white/30 hover:shadow-2xl hover:shadow-white/10 transition-all duration-300 backdrop-blur-sm overflow-hidden`}>
+    <div className={`group relative bg-gradient-to-br ${colors.from} ${colors.to} border-2 rounded-xl p-8 hover:shadow-2xl transition-all duration-300 backdrop-blur-sm overflow-hidden`} style={{ borderColor: `${userColor}80`, boxShadow: `0 0 20px ${userColor}40` }}>
       <div className={`absolute inset-0 bg-gradient-to-br ${colors.from} via-transparent ${colors.to} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
       
       <div className="relative z-10 space-y-6">
@@ -40,10 +41,11 @@ export function User({ user }: UserProps) {
               <UserIcon className={`${colors.text}`} size={40} strokeWidth={2} />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className={`text-5xl font-bold ${colors.text}`}>
-                  {shorten(user.key)}
-                </h1>
+
+              <div className="flex items-center gap-2">
+                <code className="text-xl font-mono font-bold" style={{ color: userColor }} title={user.key}>
+                  {shorten(user.key, 8)}
+                </code>
                 <CopyButton text={user.key} />
               </div>
             </div>
@@ -51,7 +53,7 @@ export function User({ user }: UserProps) {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-black/40 border border-white/20 rounded-lg p-5 backdrop-blur-sm">
+          <div className="bg-black/40 border-2 rounded-lg p-5 backdrop-blur-sm" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
             <div className="flex items-center gap-3 mb-2">
               <Package className={`${colors.text}/80`} size={24} strokeWidth={2} />
               <span className="text-xl text-white/60 font-medium">Modules</span>
@@ -62,7 +64,7 @@ export function User({ user }: UserProps) {
           </div>
 
           {user.balance !== undefined && (
-            <div className="bg-black/40 border border-white/20 rounded-lg p-5 backdrop-blur-sm">
+            <div className="bg-black/40 border-2 rounded-lg p-5 backdrop-blur-sm" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
               <div className="flex items-center gap-3 mb-2">
                 <Hash className={`${colors.text}/80`} size={24} strokeWidth={2} />
                 <span className="text-xl text-white/60 font-medium">Balance</span>
@@ -75,7 +77,7 @@ export function User({ user }: UserProps) {
         </div>
 
         {user.address && (
-          <div className="bg-black/40 border border-white/20 px-4 py-3 rounded-lg backdrop-blur-sm flex items-center gap-3">
+          <div className="bg-black/40 border-2 px-4 py-3 rounded-lg backdrop-blur-sm flex items-center gap-3" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
             <Hash className={`${colors.text}/80`} size={20} strokeWidth={2} />
             <span className="text-lg text-white/60 font-medium">Address:</span>
             <code className={`text-lg ${colors.text} font-mono flex-1`} title={user.address}>
@@ -159,7 +161,7 @@ export default function UserPage() {
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 gap-4">
                     {userMods.map((mod: ModuleType) => (
-                      <div key={`${mod.key}-${mod.name}`} className="transform hover:scale-[1.02] transition-all duration-300 ease-out">
+                      <div key={`${mod.name}-${mod.key}`} className="transform hover:scale-[1.02] transition-all duration-300 ease-out">
                         <ModuleCard mod={mod} />
                       </div>
                     ))}

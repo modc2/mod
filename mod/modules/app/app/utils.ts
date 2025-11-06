@@ -26,9 +26,9 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 
-export const shorten = (str: string): string => {
-  if (!str || str.length <= 12) return str
-  return `${str.slice(0, 8)}...${str.slice(-4)}`
+export const shorten = (str: string, len: number = 4): string => {
+  if (!str || str.length <= len) return str
+  return `${str.slice(0, len)}...`
 }
 
 export const time2str = (time: number): string => {

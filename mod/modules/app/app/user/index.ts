@@ -1,2 +1,2 @@
-export { User } from './[key]/User'
+export { User } from './[key]/page'
 export type { UserType } from '@/app/types'

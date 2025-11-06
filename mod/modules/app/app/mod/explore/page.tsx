@@ -8,9 +8,9 @@ import { ModuleType } from '@/app/types'
 import { Footer } from '@/app/block/footer/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp, Zap } from 'lucide-react'
+import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp, Zap, Coins } from 'lucide-react'
 
-type SortKey = 'recent' | 'name' | 'author'
+type SortKey = 'recent' | 'name' | 'author' | 'balance'
 
 export default function Modules() {
   const { keyInstance } = useUserContext()
@@ -32,6 +32,8 @@ export default function Modules() {
         return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       case 'author':
         return [...list].sort((a, b) => (a.key || '').localeCompare(b.key || ''))
+      case 'balance':
+        return [...list].sort((a, b) => (b.balance || 0) - (a.balance || 0))
       case 'recent':
       default:
         return [...list].sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
@@ -109,16 +111,17 @@ export default function Modules() {
                       SORT BY
                     </div>
                     <div className="flex flex-wrap gap-3">
-                      {(['recent', 'name', 'author'] as SortKey[]).map((s) => (
+                      {(['recent', 'name', 'author', 'balance'] as SortKey[]).map((s) => (
                         <button
                           key={s}
                           onClick={() => setSort(s)}
-                          className={`px-6 py-3 rounded-xl font-black text-base uppercase transition-all duration-300 ${
+                          className={`px-6 py-3 rounded-xl font-black text-base uppercase transition-all duration-300 flex items-center gap-2 ${
                             sort === s
                               ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-2 border-purple-300 shadow-2xl shadow-purple-500/50 scale-110'
                               : 'bg-purple-500/20 text-purple-300 border-2 border-purple-500/40 hover:bg-purple-500/30 hover:scale-105 hover:border-purple-400/60'
                           }`}
                         >
+                          {s === 'balance' && <Coins size={18} strokeWidth={2.5} />}
                           {s}
                         </button>
                       ))}
