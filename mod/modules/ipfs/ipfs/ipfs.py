@@ -81,7 +81,7 @@ class  IpfsClient:
         return {"Status": "Removed"}
 
 
-    def get_data(self, ipfs_hash: str) -> Dict[str, Any]:
+    def get(self, ipfs_hash: str) -> Dict[str, Any]:
         """Retrieve a JSON object from IPFS by its hash.
         
         Args:
@@ -273,7 +273,7 @@ class  IpfsClient:
         test_obj = {"test_key": "test_value"}
         print("Testing IPFS data connection...", test_obj)
         ipfs_hash = self.add_data(test_obj)
-        retrieved_obj = self.get_data(ipfs_hash)
+        retrieved_obj = self.get(ipfs_hash)
         return retrieved_obj == test_obj
 
 

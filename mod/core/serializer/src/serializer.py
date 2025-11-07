@@ -34,7 +34,7 @@ class Serializer:
         elif type(x) in self.json_serializable_types:
             return x
         else:
-            data_type = get_data_type_string(x)
+            data_type = get_type_string(x)
             serializer = self.get_serializer(data_type)
             result = {'data':  serializer.serialize(x),  'data_type': serializer.date_type,    'serialized': True}
             return result

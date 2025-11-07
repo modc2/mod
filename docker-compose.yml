@@ -6,7 +6,7 @@ services:
   mod:
     container_name: mod
     deploy: {}
-    entrypoint: bash -c "m serve port=50420 key=mod remote=0 mod=mod"
+    entrypoint: bash -c "m serve port=50420 key=server remote=0 mod=mod"
     environment: []
     image: mod:latest
     ports:

@@ -37,13 +37,13 @@ class  Api:
         """
         
         cid = self.registry(key=key).get(mod, mod)
-        mod =  self.store.get_data(cid) if cid else None
+        mod =  self.store.get(cid) if cid else None
         if schema: 
-            mod['schema'] = self.store.get_data(mod['schema'])
+            mod['schema'] = self.store.get(mod['schema'])
         if content:
-            mod['content'] = self.store.get_data(self.store.get_data(mod['content'])['data'])
+            mod['content'] = self.store.get(self.store.get(mod['content'])['data'])
             for file, cid in mod['content'].items():
-                mod['content'][file] = self.store.get_data(cid)
+                mod['content'][file] = self.store.get(cid)
         mod['cid'] = cid
         return mod
 
@@ -134,7 +134,7 @@ class  Api:
             'url': self.get_url(mod),
         }
         if prev_cid is not None:
-            old_info = self.store.get_data(prev_cid)
+            old_info = self.store.get(prev_cid)
             assert old_info['key'] == info['key'], 'Key mismatch'
             if old_info['content'] != info['content']:
                 info = {**old_info, **info}
@@ -175,7 +175,7 @@ class  Api:
             if prev == None:
                 break
             info = self.mod(info['prev'])
-            content_info = self.store.get_data(info['content'])
+            content_info = self.store.get(info['content'])
             history.append(content_info)
 
         if df:
@@ -190,8 +190,8 @@ class  Api:
         prev = mod.get('prev', None)
         print(f"Getting diff for mod: {mod}, prev: {prev}")
         content_cid = self.mod(prev)['content']['data']
-        prev_content = self.store.get_data(content_cid)
-        current_content = self.store.get_data(mod['content'])
+        prev_content = self.store.get(content_cid)
+        current_content = self.store.get(mod['content'])
         diffs = {}
         for file in set(list(prev_content.keys()) + list(current_content.keys())):
             prev_file_content = prev_content.get(file, None)
@@ -230,10 +230,10 @@ class  Api:
     def dereg(self, mod = 'store', key=None) -> bool:
         registry = self.registry(key=key)
         cid = registry.get(mod)
-        mod_data = self.store.get_data(cid)
+        mod_data = self.store.get(cid)
         content_cid = mod_data['content']
         schema_cid = mod_data['schema']
-        content_map = self.store.get_data(content_cid)
+        content_map = self.store.get(content_cid)
         for file, file_cid in content_map.items():
             self.store.rm(file_cid)
         self.store.rm(content_cid)
@@ -266,7 +266,7 @@ class  Api:
             Schema dictionary
         """
         mod_info = self.mod(mod)
-        schema = self.store.get_data( mod_info['schema'])
+        schema = self.store.get( mod_info['schema'])
         return schema
 
     def get_content(self, cid: str, expand=True) -> Dict[str, Any]:
@@ -276,10 +276,10 @@ class  Api:
             cid: Content CID
             expand: Whether to expand file contents
         """
-        content = self.store.get_data(cid)
+        content = self.store.get(cid)
         if expand:
             for file, file_cid in content.items():
-                content[file] = self.store.get_data(file_cid)
+                content[file] = self.store.get(file_cid)
         return content
 
 
@@ -324,10 +324,10 @@ class  Api:
             Content dictionary
         """
         mod_info = self.mod(mod)
-        content = self.store.get_data( mod_info['content'])
+        content = self.store.get( mod_info['content'])
         if expand: 
             for file, cid in content.items():
-                content[file] = self.store.get_data(cid)
+                content[file] = self.store.get(cid)
         return content
 
 

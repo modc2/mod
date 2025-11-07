@@ -11,7 +11,7 @@ def str2dict( data:str) -> bytes:
         data = json.loads(data)
     return data
 
-def get_data_type_string( x):
+def get_type_string( x):
     # GET THE TYPE OF THE VALUE
     data_type = str(type(x)).split("'")[1].lower()
     if 'munch' in data_type:
