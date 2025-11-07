@@ -7,16 +7,18 @@ import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { UsersState, UserType } from '@/app/types'
 import { UserCard } from './UserCard'
+import { UserSettings } from '@/app/block/settings/UserSettings'
 import { Users as UsersIcon, AlertCircle, Sparkles, ChevronDown, ChevronUp, LayoutGrid , Zap, Coins} from 'lucide-react'
 
-
+type SortKey = 'mods' | 'balance'
 
 export default function Users() {
   const { keyInstance, client } = useUserContext()
   const { searchFilters } = useSearchContext()
   const [columns, setColumns] = useState(3)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [sort, setSort] = useState<'mods' | 'balance'>('mods')
+  const [sort, setSort] = useState<SortKey>('mods')
+  const [userSettings, setUserSettings] = useState({ theme: 'dark', notifications: true, language: 'en', privacy: 'public' })
 
   const sortUsers = (list: UserType[]) => {
     switch (sort) {
@@ -74,7 +76,6 @@ export default function Users() {
       <main className="flex-1 px-6 py-8">
         <div className="max-w-7xl mx-auto space-y-6">
 
-
           <div className="bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 border-2 border-purple-500/30 rounded-2xl shadow-2xl shadow-purple-500/20 overflow-hidden backdrop-blur-xl">
             <button
               onClick={() => setAdvancedOpen(!advancedOpen)}
@@ -85,7 +86,7 @@ export default function Users() {
                   <Sparkles className="text-purple-300" size={28} strokeWidth={2.5} />
                 </div>
                 <div className="text-left">
-                  <div className="text-purple-300 font-black text-2xl uppercase tracking-wider drop-shadow-lg"> SETTINGS</div>
+                  <div className="text-purple-300 font-black text-2xl uppercase tracking-wider drop-shadow-lg">SETTINGS</div>
                 </div>
               </div>
               <div className="p-3 bg-gradient-to-br from-purple-500/30 to-pink-500/30 border-2 border-purple-400/50 rounded-xl group-hover:rotate-180 transition-all duration-500 shadow-lg shadow-purple-500/30">
@@ -140,6 +141,7 @@ export default function Users() {
                       ))}
                     </div>
                   </div>
+
                 </div>
               </div>
             )}

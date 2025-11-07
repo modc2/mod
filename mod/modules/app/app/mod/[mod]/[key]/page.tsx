@@ -82,11 +82,11 @@ export default function Mod({ params }: { params: { mod: string, key: string } }
     { id: 'content', icon: CodeBracketIcon, label: 'CONTENT' },
   ]
   
-  return (
-    <div className="min-h-screen bg-black text-white mod-page w-full">
+  return (  return (
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white mod-page w-full">
       <div className="w-full max-w-full">
-        <div className="w-full px-4 py-3 border-b border-white/10 bg-gradient-to-r from-black via-gray-900/50 to-black">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="w-full px-4 py-4 border-b border-white/10 bg-black/95 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center gap-3">          <div className="flex flex-wrap items-center gap-3">
             <span
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-2xl font-bold"
               style={{ color: moduleColor, backgroundColor: `${moduleColor}14`, border: `2px solid ${moduleColor}33` }}
@@ -139,43 +139,43 @@ export default function Mod({ params }: { params: { mod: string, key: string } }
           </div>
         </div>
 
-        <div className="flex border-b border-white/10 bg-black/90">
+        <div className="flex border-b border-white/10 bg-black/90">        <div className="flex border-b border-white/10 bg-black/95 backdrop-blur-sm">
           {tabs.map(({ id, icon: Icon, label }) => {
             const active = activeTab === id
             return (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className="group relative px-6 py-3 text-base font-bold flex items-center gap-2 transition-all"
+                className="group relative px-6 py-3.5 text-sm font-bold flex items-center gap-2.5 transition-all hover:bg-white/5"
               >
                 {active && (
-                  <motion.div layoutId="activeTab" className="absolute inset-0" style={{ backgroundColor: `${moduleColor}10` }} />
+                  <motion.div layoutId="activeTab" className="absolute inset-0" style={{ backgroundColor: `${moduleColor}12` }} />
                 )}
-                <Icon className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />
-                {id === 'content' && <Globe className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}80` }} />}
-                <span className="relative z-10 uppercase tracking-wide" style={{ color: active ? moduleColor : `${moduleColor}80` }}>
+                <Icon className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}70` }} />
+                {id === 'content' && <Globe className="h-5 w-5 relative z-10" style={{ color: active ? moduleColor : `${moduleColor}70` }} />}
+                <span className="relative z-10 uppercase tracking-wider" style={{ color: active ? moduleColor : `${moduleColor}70` }}>
                   {id === 'content' ? 'CONTENT' : label}
                 </span>
                 {active && (
-                  <motion.div layoutId="activeTabBorder" className="absolute bottom-0 left-0 right-0 h-1" style={{ backgroundColor: moduleColor }} />
+                  <motion.div layoutId="activeTabBorder" className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: moduleColor }} />
                 )}
               </button>
             )
           })}
-        </div>
+        </div>        </div>
 
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait">        <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="w-full p-4"
+            className="w-full"
           >
             {activeTab === 'app' && (
               mod.url_app ? (
-                <div className="w-full rounded-lg border border-white/10 overflow-hidden">
+                <div className="w-full h-[calc(100vh-280px)] min-h-[600px] rounded-lg border border-white/10 overflow-hidden bg-black/50">
                   <ModApp mod={mod} moduleColor={moduleColor} />
                 </div>
               ) : (
@@ -198,12 +198,12 @@ export default function Mod({ params }: { params: { mod: string, key: string } }
             )}
 
             {activeTab === 'api' && (
-              <div className="w-full rounded-lg border border-white/10">
+              <div className="w-full h-[calc(100vh-280px)] min-h-[600px] rounded-lg border border-white/10 overflow-hidden bg-black/50">
                 <ModApi mod={mod} />
               </div>
             )}
           </motion.div>
-        </AnimatePresence>
+        </AnimatePresence>        </AnimatePresence>
       </div>
     </div>
   )

@@ -30,10 +30,11 @@ class SelectFiles:
         if mod:
             path = c.dirpath(mod)
         files = c.files(path)
+        print('getting files', files,path, color="yellow")
         if len(files) > 1:
             files = c.fn('select_options/')(
                 query=query,
-                options= c.files(path),
+                options= files,
                 n=n,
                 model=model,
                 **kwargs

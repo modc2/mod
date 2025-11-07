@@ -12,7 +12,7 @@ class Dev:
 
 
     def __init__(self, 
-                 tools = ["create_file", "rm_file", 'websearch'],
+                 tools = ["create_file", "rm_file", 'websearch', 'edit_file'],
                  model: str = 'model.openrouter', 
                  **kwargs):
 

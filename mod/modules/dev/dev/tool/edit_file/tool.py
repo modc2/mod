@@ -12,8 +12,8 @@ class Tool:
         self,
         path: str,
         content: str,
-        start_anchor: str = "",
-        end_anchor: str = "",
+        start_line: int = 0,
+        end_line: str = 10,
         strict: bool = False,
         use_regex: bool = False,
         backup: bool = False,
@@ -21,22 +21,6 @@ class Tool:
     ) -> Dict[str, Any]:
         """
         Intelligently edit file content using anchor-based positioning.
-
-        Insertion Strategy:
-        - Both anchors present → Replace content between them
-        - Start anchor only → Insert content after it
-        - End anchor only → Insert content before it
-        - No anchors → Append to file end (error if strict=True)
-
-        Args:
-            path: Target file path
-            content: Content to insert/replace
-            start_anchor: Pattern marking start position
-            end_anchor: Pattern marking end position
-            strict: Fail if anchors not found
-            use_regex: Enable regex pattern matching
-            backup: Create backup before modification
-
         Returns:
             Dict containing success status, message, updated content, and metadata
         """
@@ -46,43 +30,13 @@ class Tool:
         assert os.path.exists(path), f"File not found: {path}"
         
         original_text = c.text(path)
-        modified_text = original_text
-
-        # Locate anchor positions
-        start_pos = self._find_anchor_end(start_anchor, original_text, use_regex) if start_anchor else None
-        end_pos = self._find_anchor(end_anchor, original_text, start_pos or 0, use_regex) if end_anchor else None   
-
-        assert start_pos is not None or end_pos is not None or not strict, "Anchors not found in strict mode"
-        if start_pos is not None and end_pos is not None:
-            assert end_pos >= start_pos, "End anchor precedes start anchor"
-        
-        # Execute insertion strategy
-        if start_pos is not None and end_pos is not None:
-            modified_text = original_text[:start_pos] + content + original_text[end_pos:]
-            msg = "Content replaced between anchors"
-        elif start_pos is not None:
-            modified_text = original_text[:start_pos] + content + original_text[start_pos:]
-            msg = "Content inserted after start anchor"
-        elif end_pos is not None:
-            modified_text = original_text[:end_pos] + content + original_text[end_pos:]
-            msg = "Content inserted before end anchor"
-        else:
-            modified_text = original_text + content
-            msg = "Content appended to file"
-            
-        c.print(f"[✓] {msg}", color="green")
-        
-        # Persist changes if modified
-        if modified_text == original_text:
-            return {"success": True, "message": "No changes detected", "content": modified_text, "path": path, "changed": False}
-        
-        if backup:
-            c.put_text(f"{path}.backup", original_text)
-            c.print(f"[✓] Backup created: {path}.backup", color="yellow")
-        
-        c.put_text(path, modified_text)
+        prefix_lines = original_text.splitlines(keepends=True)[:start_line]
+        suffix_lines = original_text.splitlines(keepends=True)[end_line:]
+        modified_text = '\n'.join(prefix_lines + [content] + suffix_lines)
         c.print(f"[✓] File updated: {path}", color="green")
-        return {"success": True, "message": msg, "content": modified_text, "path": path, "changed": True}
+        return  {
+            "success": True,
+            "message": f"File '{path}' updated successfully."}
             
     def _find_anchor(self, pattern: str, text: str, start: int = 0, use_regex: bool = False) -> Optional[int]:
         """Locate anchor start position in text."""

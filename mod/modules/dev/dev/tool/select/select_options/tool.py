@@ -33,7 +33,7 @@ class SelectOptions:
               query: str = 'i want a what is most similar to a tiger', 
               options = ['a cat', 'a dog', 'a bird'],
               n: int = 1,  
-              trials: int = 3,
+              trials: int = 4,
               min_score: int = 0,
               max_score: int = 10,
               threshold: int = 5,
@@ -66,7 +66,7 @@ class SelectOptions:
             List of the most relevant options
         """
         
-        options_map = {i: option for i, option in enumerate(options)}
+        options_map = {int(i): option for i, option in enumerate(options)}
         if not options_map:
             return []
            
@@ -102,30 +102,40 @@ class SelectOptions:
             output += ch
             if anchors[1] in output:
                 break
-                
-        # Extract and parse the JSON
-        try:
-            if anchors[0] in output:
-                json_str = output.split(anchors[0])[1].split(anchors[1])[0]
-            else:
-                json_str = output
-            if verbose:
-                print("\nParsing response...", color="cyan")
-            print(f"Raw output: {json_str}", color="red")
-            result = json.loads(json_str)
 
-        except json.JSONDecodeError as e:
-            if verbose:
-                print(f"JSON parsing error: {e}", color="red")
-                print(f"Raw output: {output}", color="red")
-            if trials > 0:
-                print(f"Retrying... ({trials} attempts left)", color="yellow")
-                return self.forward(options, query, n, trials - 1, min_score, max_score, threshold, model, context, temperature, allow_selection, verbose)
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}")
+        result = None  
+        # Extract and parse the JSON
+        for i in range(trials):
+            try:
+                if anchors[0] in output:
+                    json_str = output.split(anchors[0])[1].split(anchors[1])[0]
+                else:
+                    json_str = output
+                if verbose:
+                    print("\nParsing response...", color="cyan")
+                print(f"Raw output: {json_str}", color="red")
+                result = json.loads(json_str)
+                break
+
+            except json.JSONDecodeError as e:
+                if verbose:
+                    print(f"JSON parsing error: {e}. Retrying... ({i+1}/{trials})", color="red")
+                continue
+        if result is None:
+            raise ValueError("Failed to parse JSON response after multiple attempts.")
         # Filter and convert to final output format
         filtered_options = []
         if isinstance(result, list):
             result = {"data": result}
+        # incase the indexes are strings, convert to int
+        for i in result["data"]:
+            if isinstance(i, list) and len(i) == 2:
+                idx, score = i
+                if isinstance(idx, str):
+                    idx = int(idx)
+                if isinstance(score, str):
+                    
+                    score = int(score)
         for item in result["data"]:
             if isinstance(item, list) and len(item) == 2:
                 idx, score = item

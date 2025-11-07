@@ -36,13 +36,13 @@ export function UserCard({ user }: UserCardProps) {
         <div className="flex items-start justify-between gap-2">
           <Link href={`/user/${user.key}`} className="flex items-center gap-2 group/link flex-1 min-w-0">
             <div className="flex-shrink-0 p-2 rounded-lg border group-hover/link:scale-110 transition-all duration-300" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
-              <User size={20} strokeWidth={2.5} style={{ color: keyColor }} />
+              <User size={28} strokeWidth={2.5} style={{ color: keyColor }} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
                 <div className="flex items-center gap-2">
-                  <KeyIcon size={14} strokeWidth={2.5} style={{ color: keyColor }} />
-                  <code className="text-base font-mono font-bold truncate block" style={{ color: keyColor }} title={user.key}>
+                  <KeyIcon size={18} strokeWidth={2.5} style={{ color: keyColor }} />
+                  <code className="text-2xl font-mono font-bold truncate block" style={{ color: keyColor }} title={user.key}>
                     {shorten(user.key, 8, 8)}
                   </code>
                   <CopyButton text={user.key} size="sm" />
@@ -56,11 +56,11 @@ export function UserCard({ user }: UserCardProps) {
           <div className="flex gap-2">
             <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm flex-1" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
               <div className="flex items-center gap-1.5 mb-0.5">
-                <Package size={12} strokeWidth={2.5} style={{ color: keyColor }} />
-                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: keyColor }}>Modules</span>
+                <Package size={16} strokeWidth={2.5} style={{ color: keyColor }} />
+                <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Modules</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <code className="text-xs font-mono font-bold" style={{ color: keyColor }}>
+                <code className="text-base font-mono font-bold" style={{ color: keyColor }}>
                   {modCount}
                 </code>
               </div>
@@ -69,11 +69,11 @@ export function UserCard({ user }: UserCardProps) {
             {user.balance !== undefined && (
               <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm flex-1" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <Wallet size={12} strokeWidth={2.5} style={{ color: keyColor }} />
-                  <span className="text-xs font-bold uppercase tracking-wide" style={{ color: keyColor }}>Balance</span>
+                  <Wallet size={16} strokeWidth={2.5} style={{ color: keyColor }} />
+                  <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Balance</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <code className="text-xs font-mono font-bold" style={{ color: keyColor }}>
+                  <code className="text-base font-mono font-bold" style={{ color: keyColor }}>
                     {balance.toFixed(2)}
                   </code>
                 </div>
@@ -84,11 +84,11 @@ export function UserCard({ user }: UserCardProps) {
           {user.address && (
             <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
               <div className="flex items-center gap-1.5 mb-0.5">
-                <Hash size={12} strokeWidth={2.5} style={{ color: keyColor }} />
-                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: keyColor }}>Address</span>
+                <Hash size={16} strokeWidth={2.5} style={{ color: keyColor }} />
+                <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Address</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <code className="text-xs font-mono font-bold truncate flex-1" style={{ color: keyColor }} title={user.address}>
+                <code className="text-base font-mono font-bold truncate flex-1" style={{ color: keyColor }} title={user.address}>
                   {shorten(user.address, 6, 6)}
                 </code>
                 <CopyButton text={user.address} size="sm" />

@@ -36,16 +36,28 @@ class Client:
                 **extra_kwargs 
     ):
         url = self.get_url(fn)
+        
         key = self.get_key(key)
         fn = url.split('/')[-2]
+    
         # step 3: get the params
         params = params or {}
         params.update(extra_kwargs)   
         headers = self.auth.forward({'fn': fn, 'params': params}, key=key, cost=cost)
         # step 4: make the request
         with requests.Session() as conn:
-            response = conn.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
+            try:
+                response = conn.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
+            except requests.exceptions.ConnectionError as e:
+                url = url.replace('0.0.0.0', self.get_mod_from_url('/'.join(url.split('/')[2:-2]))) 
+                response = conn.post( url, json=params,  headers=headers, timeout=timeout, stream=stream) 
+
         return self.process_response(response)
+
+    def ping(self, url):
+        with requests.Session() as conn: 
+            response = conn.post( url)
+        return response
 
     
     def process_response(self, response):
@@ -90,6 +102,14 @@ class Client:
             url = f'{self.mode}://{url}'
         return url + '/' + fn + '/'
 
+    def get_mod_from_url(self, url:str):
+        """
+        gets the mod name from the url
+        """
+        for mod_name, mod_url in self.namespace.items():
+            if mod_url.startswith(url):
+                return mod_name 
+        raise Exception(f"Could not find mod for url: {url}")
     call = forward
 
     def process_stream_line(self, line , stream_prefix = 'data: '):

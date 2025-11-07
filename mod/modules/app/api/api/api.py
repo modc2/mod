@@ -9,9 +9,10 @@ import mod as m
 class  Api:
     endpoints = ['mods', 'names', 'reg', 'mod', 'users', 'user_info', 'n']
 
-    def __init__(self, store = 'ipfs', key=None):
+    def __init__(self, store = 'ipfs', chain='chain', key=None):
         self.store = m.mod(store)()
         self.key = m.key(key)
+        self.chain = m.mod(chain)()
 
     def exists(self, mod: m.Mod='store', key=None) -> bool:
         """Check if a mod Mod exists in IPFS.
@@ -122,7 +123,6 @@ class  Api:
         prev_cid = self.modcid(mod, key=key, update=update)
         content_cid = self.add_content(mod, comment=comment)
         schema_cid = self.add_schema(mod)
-
         info = {
             'content': content_cid,
             'schema': schema_cid,
@@ -140,7 +140,7 @@ class  Api:
                 info = {**old_info, **info}
         info.pop('signature', None)
         info['signature'] = key.sign(info, mode='str')
-        info['cid'] = self.add_data(info)
+        info['data'] = self.add_data(info)
         self.update_registry(mod, info)
         return info 
 
@@ -412,11 +412,12 @@ class  Api:
         """
         return 0
 
-    def edit(self, *query,  key=None,  mod: str='app', dev_mod='dev' ) -> Dict[str, Any]:
-        dev = m.mod(dev_mod)()
+    def edit(self, *query,  mod: str='app',  key=None, reg=False) -> Dict[str, Any]:
+        dev = m.mod('dev')()
         text = ' '.join(list(map(str, query)))
         dev.forward(mod=mod, text=text, safety=False)
-        return self.reg(mod=mod, key=key, comment=text)
+        if reg:
+            return m.fn('api/reg')(mod=mod, key=key, comment=text)
 
     def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
         return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)

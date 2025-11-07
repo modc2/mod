@@ -362,13 +362,14 @@ class Mod:
               always_include_terms = ['.gitignore', '.dockerignore'],
               relative = False, # relative to the current working directory
               startswith:str = None,
+              depth=6,
               **kwargs) -> List[str]:
         """
         Lists all files in the path
         """
         # if self.mod_exists(path):
         #     path = self.dirpath(path)
-        files =self.glob(path, **kwargs)
+        files =self.glob(path, depth=depth,**kwargs)
         if not include_hidden:
             files = [f for f in files if not '/.' in f ]
         files = list(filter(lambda f: not any([at in f for at in avoid_terms]), files))
@@ -1447,7 +1448,7 @@ class Mod:
         return self.fn('pm/urls')(*args, **kwargs)
 
     def servers(self, *args, **kwargs):
-        return self.mod('pm')().servers(*args, **kwargs)
+        return list(self.namespace().keys())
 
     executor_cache = {}
     def executor(self,  max_workers=8, mode='thread', cache=True):

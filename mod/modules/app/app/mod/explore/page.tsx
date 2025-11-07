@@ -8,6 +8,7 @@ import { ModuleType } from '@/app/types'
 import { Footer } from '@/app/block/footer/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
+import { ModSettings } from '@/app/block/settings/ModSettings'
 import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp, Zap, Coins } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance'
@@ -23,6 +24,7 @@ export default function Modules() {
   const [sort, setSort] = useState<SortKey>('recent')
   const [columns, setColumns] = useState<number>(2)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [modSettings, setModSettings] = useState({ visibility: 'public', autoApprove: false, maxUsers: 100, permissions: ['read'], rateLimit: 10 })
 
   const searchTerm = searchFilters.searchTerm?.trim() || ''
 
@@ -149,6 +151,7 @@ export default function Modules() {
                       ))}
                     </div>
                   </div>
+
                 </div>
               </div>
             )}
