@@ -6,12 +6,11 @@ import { GlobeAltIcon, ArrowLeftIcon, ExclamationTriangleIcon } from '@heroicons
 import Link from 'next/link'
 import { ModuleType } from '@/apptypes'
 
-interface ModuleAppProps {
+interface ModAppProps {
   mod: ModuleType
-  moduleColor: string
 }
 
-export function ModuleApp({ mod, moduleColor }: ModuleAppProps) {
+export function ModApp({ mod, moduleColor= 'white' }: ModAppProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 

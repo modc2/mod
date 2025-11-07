@@ -9,12 +9,9 @@ import {
 } from '@heroicons/react/24/outline';
 
 interface ModContentProps {
-  files: Record<string, string>;
-  title?: string;
-  showSearch?: boolean;
-  showFileTree?: boolean;
-  compactMode?: boolean;
-  defaultExpandedFolders?: boolean;
+  mod: {
+    content: Record<string, string>;
+  };
 }
 
 type FileNode = {
@@ -208,12 +205,13 @@ function FileTreeItem({
 }
 
 export const ModContent: React.FC<ModContentProps> = ({
-  files,
+  mod: { content: files },
   showSearch = true,
   showFileTree = true,
   compactMode = false,
   defaultExpandedFolders = true,
 }) => {
+
   const [searchTerm, setSearchTerm] = useState('');
   const [fileSearchTerm, setFileSearchTerm] = useState('');
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());

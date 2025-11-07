@@ -2,183 +2,106 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Loading } from '@/app/block/Loading'
-import { Footer } from '@/app/block/footer/Footer'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { UserType, ModuleType } from '@/app/types'
-import { AlertCircle, User as UserIcon, Package, Hash } from 'lucide-react'
-import { CopyButton } from '@/app/block/CopyButton'
-import { text2color, shorten, USER_COLORS } from '@/app/utils'
+import { UserType } from '@/app/types'
+import { Loading } from '@/app/block/Loading'
+import { UserCard } from '@/app/user/explore/UserCard'
 import ModCard from '@/app/mod/explore/ModCard'
+import { Footer } from '@/app/block/footer/Footer'
 
+type TabType = 'mods'
 
-interface UserProps {
-  user: UserType
-}
-
-export function User({ user }: UserProps) {
-  const colorIndex = user.key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % USER_COLORS.length
-  const modCount = user.mods?.length || 0
-  const userColor = text2color(user.key)
-  const colors = {
-    from:  userColor + '40',
-    to:    userColor + '80',
-    text:  `text-[${userColor}]`
-    
-  }
-
+function UserModules({ userData }: { userData: UserType }) {
+  const { mods } = userData
   return (
-    <div className={`group relative bg-gradient-to-br ${colors.from} ${colors.to} border-2 rounded-xl p-4 hover:shadow-2xl transition-all duration-300 backdrop-blur-sm overflow-hidden`} style={{ borderColor: `${userColor}80`, boxShadow: `0 0 20px ${userColor}40` }}>
-      <div className={`absolute inset-0 bg-gradient-to-br ${colors.from} via-transparent ${colors.to} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-      
-      <div className="relative z-10 space-y-3">
-        <div className="flex items-center gap-2">
-          <div className={`flex-shrink-0 p-1.5 bg-gradient-to-br ${colors.from} ${colors.to} rounded-lg border border-white/20`}>
-            <UserIcon className={`${colors.text}`} size={24} strokeWidth={2} />
-          </div>
-          <div className="flex-1 min-w-0 flex items-center gap-2">
-            <code className="text-xl font-mono font-bold select-all cursor-text" style={{ color: userColor }} title={user.key}>
-              {shorten(user.key, 16)}
-            </code>
-            <CopyButton text={user.key} size="sm" />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="flex-1 bg-black/40 border-2 rounded-lg p-3 backdrop-blur-sm" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <Package className={`${colors.text}/80`} size={16} strokeWidth={2} />
-              <span className="text-sm text-white/60 font-medium">Mods</span>
-            </div>
-            <div className={`text-2xl font-bold ${colors.text}`}>
-              {modCount}
-            </div>
-          </div>
-
-          {user.balance !== undefined && (
-            <div className="flex-1 bg-black/40 border-2 rounded-lg p-3 backdrop-blur-sm" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Hash className={`${colors.text}/80`} size={16} strokeWidth={2} />
-                <span className="text-sm text-white/60 font-medium">Balance</span>
-              </div>
-              <div className={`text-2xl font-bold ${colors.text}`}>
-                {user.balance.toFixed(2)}
-              </div>
-            </div>
-          )}
-
-          {user.address && (
-            <div className="flex-1 bg-black/40 border-2 rounded-lg p-3 backdrop-blur-sm" style={{ borderColor: `${userColor}60`, backgroundColor: `${userColor}10` }}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Hash className={`${colors.text}/80`} size={16} strokeWidth={2} />
-                <span className="text-sm text-white/60 font-medium">Key</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <code className={`text-base ${colors.text} font-mono select-all cursor-text truncate`} title={user.address}>
-                  {shorten(user.address, 10)}
-                </code>
-                <CopyButton text={user.address} size="sm" />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {mods.map((mod) => (
+        <ModCard mod={mod} key={mod.key} />
+      ))}
     </div>
   )
 }
 
 export default function UserPage() {
-  const user = useParams()
-  const { client } = useUserContext()
-  
-  const [state, setState] = useState<{
-    user: UserType | null
-    loading: boolean
-    error: string | null
-  }>({
-    user: null,
-    loading: true,
-    error: null
-  })
+  const params = useParams()
+  const userKey = params?.key as string
+  const { client, keyInstance } = useUserContext()
+  const [user, setUser] = useState<UserType | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<TabType>('mods')
 
   useEffect(() => {
-    const fetchUserDetails = async () => {
-      if (!client || !user.key) {
-        setState({ user: null, loading: false, error: 'No client or user key available' })
-        return
-      }
-
-      setState(prev => ({ ...prev, loading: true, error: null }))
-      
+    const fetchUser = async () => {
+      if (!client || !userKey) return
+      setLoading(true)
+      setError(null)
       try {
-        const userData: UserType = await client.call('user_info', { key: user.key })
-        setState({ user: userData, loading: false, error: null })
+        const userData = await client.call('user_info', { key: userKey })
+        console.log('Fetched user data:', userData)
+        setUser(userData as UserType)
       } catch (err: any) {
-        console.error('Failed to fetch user details:', err)
-        setState({
-          user: null,
-          loading: false,
-          error: err.message || 'Failed to load user details'
-        })
+        console.error('Error fetching user:', err)
+        setError(err?.message || 'Failed to load user')
+      } finally {
+        setLoading(false)
       }
     }
+    fetchUser()
+  }, [client, userKey])
 
-    fetchUserDetails()
-  }, [user.key, client])
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
+        <Loading />
+      </div>
+    )
+  }
 
-  const userMods = state.user?.mods || []
+  if (error || !user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-red-400 mb-4">ERROR</h1>
+          <p className="text-xl text-white/70">{error || 'User not found'}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const tabs: { id: TabType; label: string }[] = [
+    { id: 'mods', label: 'mods' },
+  ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex flex-col">
-      {state.error && (
-        <div className="max-w-6xl mx-auto w-full px-8 mt-10">
-          <div className="flex items-start gap-5 p-8 rounded-3xl bg-gradient-to-br from-rose-500/20 to-rose-600/15 backdrop-blur-xl border-2 border-rose-500/30">
-            <AlertCircle className="w-8 h-8 text-rose-400 flex-shrink-0 mt-1" />
-            <div className="flex-1 min-w-0">
-              <h3 className="text-2xl font-bold text-rose-300 mb-2">Error Loading User</h3>
-              <p className="text-lg text-rose-200/90">{state.error}</p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
+      <main className="flex-1 px-6 py-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="mb-8">
+            <UserCard user={user} />
+          </div>
+
+          <div className="flex flex-wrap gap-3 mb-6">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-6 py-3 rounded-xl font-black text-base uppercase transition-all duration-300 ${
+                  activeTab === tab.id
+                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-2 border-purple-300 shadow-2xl shadow-purple-500/50 scale-105'
+                    : 'bg-purple-500/20 text-purple-300 border-2 border-purple-500/40 hover:bg-purple-500/30 hover:scale-105 hover:border-purple-400/60'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 border-2 border-purple-500/30 rounded-2xl p-6 backdrop-blur-xl shadow-2xl shadow-purple-500/20">
+            {activeTab === 'mods' && <UserModules userData={user} />}
           </div>
         </div>
-      )}
-
-      <main className="flex-1 px-8 py-16">
-        <div className="max-w-6xl mx-auto">
-          {state.loading ? (
-            <div className="py-40 flex flex-col items-center justify-center gap-6">
-              <Loading />
-              <p className="text-white/60 text-xl font-medium">Loading user details...</p>
-            </div>
-          ) : state.user ? (
-            <div className="space-y-8">
-              <User user={state.user} />
-              
-              {userMods.length > 0 && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 gap-4">
-                    {userMods.map((mod: ModuleType) => (
-                      <div key={`${mod.name}-${mod.key}`} className="transform hover:scale-[1.02] transition-all duration-300 ease-out">
-                        <ModCard mod={mod} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="py-40 flex flex-col items-center justify-center gap-6">
-              <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center">
-                <UserIcon className="w-10 h-10 text-white/20" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-3xl font-bold text-white/70 mb-3">User Not Found</h3>
-                <p className="text-lg text-white/50">The requested user could not be found</p>
-              </div>
-            </div>
-          )}
-        </div>
       </main>
-
       <Footer />
     </div>
   )
