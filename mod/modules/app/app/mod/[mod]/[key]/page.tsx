@@ -13,10 +13,8 @@ import { AlertCircle } from 'lucide-react'
 
 export default function ModulePage(  ) {
   const params = useParams()
-  console.log('Route params:', params)
   const modName = params.mod as string
   const modKey = params.key as string
-  console.log('Module Name:', modName, 'Module Key:', modKey)
 
   const { keyInstance } = useUserContext()
   const client = useMemo(() => new Client(undefined, keyInstance), [keyInstance])
@@ -33,7 +31,6 @@ export default function ModulePage(  ) {
       setError(null)
       try {
         const data = await client.call('mod', { mod: modName, key: modKey , content:true, schema:true })
-        console.log('Fetched module data:', data)
         setMod(data as ModuleType)
       } catch (err: any) {
         console.error('Error fetching module:', err)
