@@ -1,0 +1,2 @@
+class Mod:
+    pass

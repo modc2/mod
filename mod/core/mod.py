@@ -1414,13 +1414,26 @@ class Mod:
         files = self.files(dirpath, relative=True)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
 
-    def add_mod(self,  name= 'base2', base = 'base', path=None, update=True, ):
+    def addmod(self,  path  , name=None):
         """
         make a new mod
         """
-        dirpath = self.abspath(self.mods_path +'/'+ name.replace('.', '/'))
-        content = self.content(base)
-        for k,v in content.items():
+
+        mods_path = mods_path or self.mods_path
+        if 'github' in path:
+            name = name or path.split('/')[-1].replace('.git', '')
+            os.system('git clone {}')
+        elif 'ipfs' in path:
+            cid = path.split('/')[-1]
+            config = c.mod('ipfs/get')(cid)
+            name = name or config['name']
+            raise NotImplementedError('IPFS support not implemented yet')
+        else:
+            assert  os.path.exists(path)
+            return self.addpath(path)
+
+        new_path = mods_path + '/' + name.replace('.', '/')
+        for k,v in self.content(base).items():
             new_path = dirpath + '/' +  k.replace(base, name)
             print(f'Creating {new_path} for mod {name}')
             self.put_text( new_path, v)
@@ -1429,6 +1442,7 @@ class Mod:
         files = self.files(dirpath)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'files': files, 'base': base, 'cid': self.cid(name)}
 
+    add_mod = addmod
 
     def test_fork(self, base = 'base', name= 'base2', path=None, update=True, ):
         """
@@ -1601,7 +1615,7 @@ class Mod:
     def app(self, mod=None, **kwargs):
         if mod:
             return self.fn(mod + '/app' )()
-        return self.fn('app/')(**kwargs)
+        return self.fn('app/serve')(**kwargs)
 
     def api(self, *args, **kwargs):
        return self.fn('app/api')(*args, **kwargs)

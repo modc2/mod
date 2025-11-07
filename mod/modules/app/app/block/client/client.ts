@@ -13,7 +13,7 @@ export class Client {
   }
 
   public getUrl(url?: string, mode: string = 'http'): string {
-    url = url || process.env.NEXT_PUBLIC_API_URL || 'localhost:8000';
+    url = url || process.env.API_URL || 'localhost:8000';
     if (!url.startsWith(mode + '://')) {
       url = mode + '://' + url;
     }

@@ -23,8 +23,7 @@ services:
     container_name: app
     deploy: {}
     environment:
-    - NEXT_PUBLIC_API_URL=http://0.0.0.0:8000
-    - NEXT_PUBLIC_APP_URL=http://0.0.0.0:3000
+    - API_URL=http://0.0.0.0:8000
     image: app:latest
     ports:
     - 3000:3000

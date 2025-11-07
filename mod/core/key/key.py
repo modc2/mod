@@ -682,14 +682,12 @@ class Key:
         assert len(password) >= self.min_password_chars
         return self.put(self.password_path, password)
 
-
     def password(self,update=False):
         password =  self.get(self.password_path, udate=update)
         if password == None: 
             self.rm(self.password_path)            
             self.set_password(password)
         return password
-
 
     def encrypt_all_keys(self, password=None, crypto_type=None):
         crypto_type = self.get_crypto_type(crypto_type)

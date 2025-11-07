@@ -59,6 +59,7 @@ class PM:
         dirpath = m.dirpath(mod)
         docker_dirpath = self.convert_docker_path(dirpath)
         if docker_in_docker:
+            # mount the docker socket
             docker_dirpath = os.environ.get('DOCKER_SOCKET_PATH', '/var/run/docker.sock')
             volumes[docker_dirpath] = docker_dirpath
         working_directory = volumes[ dirpath.replace(m.home_path, '~')]
