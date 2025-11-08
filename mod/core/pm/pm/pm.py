@@ -723,7 +723,7 @@ class PM:
     def convert_docker_path(self, p):
         return p.replace('~', '/root').replace(m.home_path, '/root')
         
-    def volumes(self, mod='store', key=None, default_paths= [m.lib_path, m.storage_path]) -> Dict[str, str]:
+    def volumes(self, mod='store', key=None, default_paths= [m.root_path, m.storage_path]) -> Dict[str, str]:
         key = key or mod
         paths = default_paths.copy()
         volumes = { p: self.convert_docker_path(p) for p in paths}
