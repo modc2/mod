@@ -72,7 +72,7 @@ class SelectOptions:
            
         # Format context if provided        
 
-        output_format = f"{anchors[0]}(data:LIST(LIST(idx:INT, score:INT)))){anchors[1]}"
+        output_format = f"{anchors[0]}(LIST(LIST(idx:INT, score:INT)))){anchors[1]}"
 
         prompt = f"""
             --PARAMS--
@@ -84,28 +84,20 @@ class SelectOptions:
             MAX_SCORE={max_score}
             THRESHOLD={threshold} DO NOT PRINT THE OPTIONS IF THEY ARE NOT RELEVANT
             N={n}
-            OUTPUT_FORMAT={output_format}
+            OUTPUT_FORMAT={output_format} RESPOND IN JSON FORMAT ONLY
             --RESULT--     
         """
         
-        # Generate the response
-        output = ''
-        response = self.model.forward( 
-            prompt, 
-            model=model, 
-            stream=True,
-            temperature=temperature
-        )
-        for ch in response: 
-            if verbose:
-                print(ch, end='')
-            output += ch
-            if anchors[1] in output:
-                break
-
         result = None  
+        # Generate the response
         # Extract and parse the JSON
         for i in range(trials):
+            output = ''
+            response = self.model.forward( prompt, model=model, stream=True, temperature=temperature)
+            for chunk in response:
+                print(chunk, color="blue")
+                output += chunk
+            output = output.replace('(', '{').replace(')', '}')
             try:
                 if anchors[0] in output:
                     json_str = output.split(anchors[0])[1].split(anchors[1])[0]
@@ -118,32 +110,19 @@ class SelectOptions:
                 break
 
             except json.JSONDecodeError as e:
-                if verbose:
-                    print(f"JSON parsing error: {e}. Retrying... ({i+1}/{trials})", color="red")
+                print(f"JSON parsing error: {e}. Retrying... ({i+1}/{trials})", color="red")
                 continue
         if result is None:
             raise ValueError("Failed to parse JSON response after multiple attempts.")
         # Filter and convert to final output format
         filtered_options = []
-        if isinstance(result, list):
-            result = {"data": result}
         # incase the indexes are strings, convert to int
-        for i in result["data"]:
-            if isinstance(i, list) and len(i) == 2:
-                idx, score = i
-                if isinstance(idx, str):
-                    idx = int(idx)
-                if isinstance(score, str):
-                    
-                    score = int(score)
-        for item in result["data"]:
-            if isinstance(item, list) and len(item) == 2:
-                idx, score = item
-                if score >= threshold and idx in options_map:
-                    filtered_options.append( options_map[idx])         
-        if verbose:
-            print(f"Found {filtered_options} relevant options", color="green")
-        # Allow user to select files by index if requested
+        for item in result:
+            idx, score = item
+            idx = int(idx)
+            if score >= threshold and idx in options_map:
+                filtered_options.append( options_map[idx])         
+        print(f"Found {filtered_options} relevant options", color="green")
         results =  [option for option in filtered_options]
         return results
 
