@@ -21,7 +21,7 @@ WORKDIR /root/mod
 COPY . .
 
 # Install Python package in editable mode
-RUN pip install --force-reinstall -e ./
+RUN pip install -e ./
 
 # Keep container alive
 CMD ["tail", "-f", "/dev/null"]
