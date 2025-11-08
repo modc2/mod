@@ -1304,12 +1304,9 @@ class Mod:
                 update=False,  
                 **kwargs): 
         path = path or self.core_path
-        if not hasattr(self, '_cached_trees'):
-            self._cached_trees = {}
-        cache_key = f'{path}_{depth}_{folders}_{search}_{avoid_prefixes}_{avoid_suffixes}'
-        if not update and cache_key in self._cached_trees:
-            tree =  self._cached_trees[cache_key]
-        else:
+        cache_key = f'cache_tree/{path}_{depth}_{folders}_{search}_{avoid_prefixes}_{avoid_suffixes}'
+        tree = self.get(cache_key, default=None, update=update)
+        if tree == None:
             path = path or self.core_path
             if folders :
                 paths = list(set([os.path.dirname(f) for f in self.files(path, depth=depth)]))
@@ -1326,8 +1323,7 @@ class Mod:
                 if x_list[-1] == x_list[-2]: 
                     x = '/'.join(x_list[:-1])
                 # remove avoid terms
-                return x
-                    
+                return x    
 
             tree = {self.get_name(k):process_v(v) for k,v in tree.items()}
 
@@ -1337,7 +1333,7 @@ class Mod:
                     tree[k] = tree[v]
 
             tree = dict(sorted(tree.items()))
-            self._cached_trees[cache_key] = tree
+            self.put(cache_key, tree)
 
         if search:
             search = self.get_name(search)

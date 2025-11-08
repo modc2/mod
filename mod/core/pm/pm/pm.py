@@ -254,10 +254,10 @@ class PM:
         """
         compose_files = []
         path = m.dp(mod, relative=False)
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                if file.lower() in ['docker-compose.yml', 'docker-compose.yaml']:
-                    compose_files.append(os.path.join(root, file))
+        for file in os.listdir(path):
+            if file.lower() in ['docker-compose.yml', 'docker-compose.yaml']:
+                compose_files.append(os.path.join(path, file))
+                break
         return compose_files
 
     def dockerfile(self, mod='mod'):
