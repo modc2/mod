@@ -112,17 +112,6 @@ export function UserHeader() {
             whiteSpace: 'nowrap',
           }}
         >
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <div className="text-xs text-white/60 font-bold uppercase tracking-wider">Wallet Type</div>
-              <div className="px-2 py-1 rounded-md font-black text-xs uppercase" style={{ backgroundColor: `${userColor}30`, color: userColor }}>
-                {walletType}
-              </div>
-            </div>
-            {walletMode === 'subwallet' && (
-              <div className="text-xs text-white/50 font-mono mt-1">SubWallet Connected</div>
-            )}
-          </div>
 
           {user?.balance !== undefined && (
             <div className="flex flex-col">
@@ -148,6 +137,7 @@ export function UserHeader() {
               <div className="font-mono font-black text-sm truncate max-w-[180px]" style={{ color: userColor }}>
                 {shorten(displayAddress, 8, 8)}
               </div>
+              <span className="text-white/40 font-mono text-xs">({walletType})</span>
               <CopyButton content={displayAddress} size="sm" style={{color: userColor}} />
             </div>
           </div>

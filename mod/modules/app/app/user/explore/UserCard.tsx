@@ -3,7 +3,7 @@
 import { UserType } from '@/app/types'
 import { CopyButton } from '@/app/block/CopyButton'
 import Link from 'next/link'
-import { User, Hash, Package, Wallet, KeyIcon } from 'lucide-react'
+import { User, Hash, Package, Wallet, KeyIcon, Shield } from 'lucide-react'
 import { shorten, text2color } from "@/app/utils";
 
 interface UserCardProps {
@@ -14,6 +14,7 @@ export function UserCard({ user }: UserCardProps) {
   const keyColor = text2color(user.key)
   const modCount = user.mods?.length || 0
   const balance = user.balance || 0
+  const walletType = user.crypto_type || 'sr25519'
 
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
@@ -46,6 +47,9 @@ export function UserCard({ user }: UserCardProps) {
                     {shorten(user.key, 8, 8)}
                   </code>
                   <CopyButton text={user.key} size="sm" />
+                  <div className="ml-1 px-2 py-0.5 rounded border text-xs font-mono font-bold" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)`, color: keyColor }}>
+                    {walletType}
+                  </div>
                 </div>
               </div>
             </div>
@@ -53,6 +57,7 @@ export function UserCard({ user }: UserCardProps) {
         </div>
 
         <Link href={`/user/${user.key}`} className="flex-1 min-w-0 space-y-2">
+
           <div className="flex gap-2">
             <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm flex-1" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -89,7 +94,7 @@ export function UserCard({ user }: UserCardProps) {
               </div>
               <div className="flex items-center gap-1.5">
                 <code className="text-base font-mono font-bold truncate flex-1" style={{ color: keyColor }} title={user.address}>
-                  {shorten(user.address, 6, 6)}
+                  {shorten(user.address, 6, 6)} 
                 </code>
                 <CopyButton text={user.address} size="sm" />
               </div>

@@ -1,3 +1,4 @@
 import {Key} from "./key";
+import {LocalKeyManager} from "./LocalKeyManager";
 
-export {Key};
+export {Key, LocalKeyManager};

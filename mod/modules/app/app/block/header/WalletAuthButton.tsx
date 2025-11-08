@@ -115,7 +115,7 @@ export default function WalletAuthButton() {
 
   if (authLoading) {
     return (
-      <div className="px-6 py-4 bg-gray-800/50 border-2 border-white/30 text-white rounded-xl backdrop-blur-md" style={{height: '60px'}}>
+      <div className="px-6 py-4 bg-black border-2 border-white/30 text-white rounded-xl backdrop-blur-md" style={{height: '60px'}}>
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           <span className="font-bold text-lg">Loading...</span>
@@ -132,47 +132,45 @@ export default function WalletAuthButton() {
     <>
       <button
         onClick={() => setShowAuthModal(true)}
-        className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-2 border-green-400 text-white rounded-2xl font-black text-xl uppercase tracking-wider transition-all hover:scale-105 active:scale-95 shadow-xl hover:shadow-2xl"
-        style={{height: '60px', boxShadow: '0 0 30px rgba(34, 197, 94, 0.4)'}}
+        className="px-8 py-4 bg-black hover:bg-white/5 border-2 border-white/40 hover:border-white/60 text-white rounded-xl font-bold text-xl uppercase tracking-wider transition-all hover:scale-105 active:scale-95"
+        style={{height: '60px'}}
       >
         <div className="flex items-center gap-3">
-          <KeyIcon className="w-7 h-7" />
+          <KeyIcon className="w-6 h-6" />
           <span>SIGN IN</span>
         </div>
       </button>
 
       {showAuthModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-gray-900 to-black border-4 border-green-500 rounded-3xl p-8 max-w-lg w-full shadow-2xl" style={{boxShadow: '0 0 60px rgba(34, 197, 94, 0.5)'}}>
-            <h2 className="text-4xl font-black text-green-400 mb-6 uppercase tracking-wider text-center" style={{textShadow: '0 0 20px rgba(34, 197, 94, 0.8)'}}>AUTHENTICATE</h2>
+          <div className="bg-black border-2 border-white/40 rounded-xl p-8 max-w-lg w-full">
+            <h2 className="text-3xl font-bold text-white mb-6 uppercase tracking-wider text-center">AUTHENTICATE</h2>
             
             <div className="flex gap-3 mb-6">
               <button
                 onClick={() => setAuthMode('local')}
-                className={`flex-1 px-6 py-4 rounded-xl font-black text-lg uppercase tracking-wider transition-all border-2 ${
+                className={`flex-1 px-6 py-4 rounded-xl font-bold text-lg uppercase tracking-wider transition-all border-2 ${
                   authMode === 'local'
-                    ? 'bg-green-500 text-black border-green-400 shadow-xl scale-105'
-                    : 'bg-gray-800/50 text-green-400 border-green-500/50 hover:bg-gray-700/50 hover:scale-105'
+                    ? 'bg-white/10 text-white border-white/60'
+                    : 'bg-black text-white/60 border-white/30 hover:bg-white/5 hover:border-white/40'
                 }`}
-                style={authMode === 'local' ? {boxShadow: '0 0 30px rgba(34, 197, 94, 0.6)'} : {}}
               >
                 <div className="flex items-center justify-center gap-2">
-                  <KeyIcon className="w-6 h-6" />
+                  <KeyIcon className="w-5 h-5" />
                   <span>LOCAL KEY</span>
                 </div>
               </button>
               <button
                 onClick={() => setAuthMode('subwallet')}
-                className={`flex-1 px-6 py-4 rounded-xl font-black text-lg uppercase tracking-wider transition-all border-2 ${
+                className={`flex-1 px-6 py-4 rounded-xl font-bold text-lg uppercase tracking-wider transition-all border-2 ${
                   authMode === 'subwallet'
-                    ? 'bg-green-500 text-black border-green-400 shadow-xl scale-105'
-                    : 'bg-gray-800/50 text-green-400 border-green-500/50 hover:bg-gray-700/50 hover:scale-105'
+                    ? 'bg-white/10 text-white border-white/60'
+                    : 'bg-black text-white/60 border-white/30 hover:bg-white/5 hover:border-white/40'
                 } ${accounts.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                 disabled={accounts.length === 0}
-                style={authMode === 'subwallet' ? {boxShadow: '0 0 30px rgba(34, 197, 94, 0.6)'} : {}}
               >
                 <div className="flex items-center justify-center gap-2">
-                  <WalletIcon className="w-6 h-6" />
+                  <WalletIcon className="w-5 h-5" />
                   <span>SUBWALLET</span>
                 </div>
               </button>
@@ -181,55 +179,54 @@ export default function WalletAuthButton() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {authMode === 'local' ? (
                 <div>
-                  <label className="block text-green-400 mb-3 font-black text-lg uppercase tracking-wider">PASSWORD</label>
+                  <label className="block text-white/70 mb-3 font-bold text-base uppercase tracking-wider">PASSWORD</label>
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-5 py-4 bg-black/80 border-2 border-green-500 text-green-400 rounded-xl font-mono text-lg focus:outline-none focus:border-green-300 focus:shadow-lg transition-all"
-                    style={{boxShadow: '0 0 20px rgba(34, 197, 94, 0.2)'}}
+                    className="w-full px-5 py-4 bg-black border-2 border-white/40 text-white rounded-xl font-mono text-base focus:outline-none focus:border-white/60 transition-all"
                     placeholder="Enter your password"
                     autoFocus
                   />
                 </div>
               ) : (
                 <div>
-                  <label className="block text-green-400 mb-3 font-black text-lg uppercase tracking-wider">SELECT WALLET</label>
+                  <label className="block text-white/70 mb-3 font-bold text-base uppercase tracking-wider">SELECT WALLET</label>
                   {accounts.length === 0 ? (
-                    <div className="p-5 bg-yellow-900/30 border-2 border-yellow-500 rounded-xl">
-                      <p className="text-yellow-400 font-bold text-base">⚠️ No wallet extension detected. Please install SubWallet or Polkadot.js extension.</p>
+                    <div className="p-5 bg-yellow-900/20 border-2 border-yellow-500/40 rounded-xl">
+                      <p className="text-yellow-400 font-bold text-sm">⚠️ No wallet extension detected. Please install SubWallet or Polkadot.js extension.</p>
                     </div>
                   ) : (
                     <>
-                      <div className="max-h-80 overflow-y-auto bg-black/80 border-2 border-green-500 rounded-xl scrollbar-thin scrollbar-thumb-green-500 scrollbar-track-gray-900" style={{boxShadow: '0 0 20px rgba(34, 197, 94, 0.2)'}}>
+                      <div className="max-h-80 overflow-y-auto bg-black border-2 border-white/40 rounded-xl">
                         {accounts.map((account) => (
                           <button
                             key={account.address}
                             type="button"
                             onClick={() => setSelectedAccount(account.address)}
-                            className={`w-full text-left px-5 py-4 font-mono text-base transition-all border-b border-green-500/20 last:border-b-0 hover:bg-green-500/10 ${
+                            className={`w-full text-left px-5 py-4 font-mono text-sm transition-all border-b border-white/20 last:border-b-0 hover:bg-white/5 ${
                               selectedAccount === account.address
-                                ? 'bg-green-500/20 text-green-300 font-bold'
-                                : 'text-green-400'
+                                ? 'bg-white/10 text-white font-bold'
+                                : 'text-white/70'
                             }`}
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex-1 min-w-0">
-                                <div className="font-black text-lg truncate">{account.meta.name}</div>
-                                <div className="text-sm text-green-500/70 mt-1 truncate">
+                                <div className="font-bold text-base truncate">{account.meta.name}</div>
+                                <div className="text-xs text-white/50 mt-1 truncate">
                                   {account.address.slice(0, 12)}...{account.address.slice(-12)}
                                 </div>
                               </div>
                               {selectedAccount === account.address && (
-                                <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 ml-3">
-                                  <span className="text-black font-black text-lg">✓</span>
+                                <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center flex-shrink-0 ml-3">
+                                  <span className="text-black font-bold text-sm">✓</span>
                                 </div>
                               )}
                             </div>
                           </button>
                         ))}
                       </div>
-                      <p className="text-sm text-gray-400 mt-3 font-mono leading-relaxed bg-gray-900/50 p-3 rounded-lg border border-gray-700">
+                      <p className="text-xs text-white/50 mt-3 font-mono leading-relaxed bg-white/5 p-3 rounded-lg border border-white/20">
                         💡 A derived key will be created for client operations. You won't need to sign every request.
                       </p>
                     </>
@@ -238,7 +235,7 @@ export default function WalletAuthButton() {
               )}
 
               {error && (
-                <div className="text-red-400 font-bold text-base border-2 border-red-500 bg-red-900/30 p-4 rounded-xl" style={{boxShadow: '0 0 20px rgba(239, 68, 68, 0.3)'}}>
+                <div className="text-red-400 font-bold text-sm border-2 border-red-500/40 bg-red-900/20 p-4 rounded-xl">
                   ❌ {error}
                 </div>
               )}
@@ -247,8 +244,7 @@ export default function WalletAuthButton() {
                 <button
                   type="submit"
                   disabled={loading || (authMode === 'subwallet' && accounts.length === 0)}
-                  className="flex-1 px-6 py-4 bg-green-500 text-black hover:bg-green-400 rounded-xl font-black text-xl uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95 shadow-xl"
-                  style={{boxShadow: '0 0 30px rgba(34, 197, 94, 0.5)'}}
+                  className="flex-1 px-6 py-4 bg-white/10 text-white hover:bg-white/20 border-2 border-white/40 hover:border-white/60 rounded-xl font-bold text-lg uppercase tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
                 >
                   {loading ? '⏳ LOADING...' : '🚀 SIGN IN'}
                 </button>
@@ -259,7 +255,7 @@ export default function WalletAuthButton() {
                     setPassword('')
                     setError('')
                   }}
-                  className="px-6 py-4 bg-gray-800/50 text-green-400 border-2 border-green-500/50 hover:bg-gray-700/50 rounded-xl font-black text-xl uppercase tracking-wider transition-all hover:scale-105 active:scale-95"
+                  className="px-6 py-4 bg-black text-white/70 border-2 border-white/30 hover:bg-white/5 hover:border-white/40 rounded-xl font-bold text-lg uppercase tracking-wider transition-all hover:scale-105 active:scale-95"
                 >
                   CANCEL
                 </button>
