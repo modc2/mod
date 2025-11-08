@@ -412,12 +412,11 @@ class  Api:
         """
         return 0
 
-    def edit(self, *query,  mod: str='app',  key=None, reg=False) -> Dict[str, Any]:
+    def edit(self, *query,  mod: str='app',  key=None) -> Dict[str, Any]:
         dev = m.mod('dev')()
         text = ' '.join(list(map(str, query)))
         dev.forward(mod=mod, text=text, safety=False)
-        if reg:
-            return m.fn('api/reg')(mod=mod, key=key, comment=text)
+        return m.fn('api/reg')(mod=mod, key=key, comment=text)
 
     def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
         return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)

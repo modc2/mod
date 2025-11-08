@@ -33,6 +33,7 @@ install_requires = [
     'paramiko>=3.5.1',
     'nest_asyncio>=1.6.0',
     'uvicorn>=0.22.0',  # updated to avoid Python 3.12 loop_factory issues
+    'hypercorn>=0.14.0',
     'scalecodec>=1.2.10,<1.3',
     'aiofiles>=24.1.0',
     'aiohttp>=3.12.13',

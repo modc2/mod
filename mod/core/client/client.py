@@ -36,15 +36,12 @@ class Client:
                 **extra_kwargs 
     ):
         url = self.get_url(fn)
-        
         key = self.get_key(key)
         fn = url.split('/')[-2]
-    
         # step 3: get the params
         params = params or {}
         params.update(extra_kwargs)   
-        headers = self.auth.forward({'fn': fn, 'params': params}, key=key, cost=cost)
-        # step 4: make the request
+        headers = self.auth.forward(dict(fn=fn, params=params), key=key, cost=cost)
         with requests.Session() as conn:
             try:
                 response = conn.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)

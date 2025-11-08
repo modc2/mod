@@ -412,7 +412,12 @@ class Server:
             return result
         self.app.post("/{fn}")(server_fn)
         self.show_info()
-        uvicorn.run(self.app,  host='0.0.0.0', port=port)
+
+        from hypercorn.config import Config
+        from hypercorn.asyncio import serve
+        config = Config()
+        config.bind = [f"0.0.0.0:{port}"]
+        asyncio.run(serve(self.app, config))
 
     def show_info(self):
         print('--- Server Info ---', color='green', verbose=self.verbose)

@@ -15,6 +15,13 @@ RUN apt-get install -y \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && ln -sf /usr/bin/pip3 /usr/bin/pip
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip, setuptools, wheel
+RUN pip install --upgrade pip setuptools wheel
 
 # Workdir + Install App
 WORKDIR /root/mod
