@@ -56,9 +56,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await cryptoWaitReady()
       const key = new Key(newPassword)
+      const wallet_mode = localStorage.getItem('wallet_mode') || 'local'
+      const user_address = wallet_mode === 'local' ? key.address : localStorage.getItem('wallet_address') || key.address
       const userData = {
-        address: key.address,
+        address: user_address,
         crypto_type: key.crypto_type,
+        wallet_mode: wallet_mode
       }
       
       setKeyInstance(key)

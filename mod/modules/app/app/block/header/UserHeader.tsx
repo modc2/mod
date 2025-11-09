@@ -11,36 +11,18 @@ import { useRouter } from 'next/navigation'
 import WalletAuthButton from './WalletAuthButton'
 
 export function UserHeader() {
-  const { keyInstance, user, authLoading, signIn, signOut } = useUserContext()
-  const [showPasswordInput, setShowPasswordInput] = useState(false)
-  const [password, setPassword] = useState('')
-  const [isSigningIn, setIsSigningIn] = useState(false)
+  const { keyInstance, user, authLoading, signOut } = useUserContext()
   const [isExpanded, setIsExpanded] = useState(false)
   const router = useRouter()
 
   const handleSignOut = () => {
     signOut()
-    setShowPasswordInput(true)
     setIsExpanded(false)
   }
 
-  const handleSignIn = async () => {
-    if (!password.trim()) return
-    setIsSigningIn(true)
-    try {
-      await signIn(password)
-      setShowPasswordInput(false)
-      setPassword('')
-    } catch (error) {
-      console.error('Failed to sign in:', error)
-    } finally {
-      setIsSigningIn(false)
-    }
-  }
-
   const handleUserClick = () => {
-    if (keyInstance?.address) {
-      router.push(`/user/${keyInstance.address}`)
+    if (user?.address) {
+      router.push(`/user/${user.address}`)
     }
   }
 
@@ -61,11 +43,11 @@ export function UserHeader() {
     )
   }
 
-  const userColor = text2color(keyInstance.address)
+  const userColor = text2color(user.address)
   const walletMode = localStorage.getItem('wallet_mode')
-  const walletType = localStorage.getItem('wallet_type') || keyInstance.crypto_type
+  const walletType = localStorage.getItem('wallet_type') || user.crypto_type
   const displayAddress = walletMode === 'subwallet' 
-    ? localStorage.getItem('wallet_address') || keyInstance.address
+    ? localStorage.getItem('wallet_address') || user.address
     : keyInstance.address
 
   return (

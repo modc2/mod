@@ -1,11 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { Key } from '@/app/block/key'
-import { Client } from '@/app/block/client/client'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
 import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
-import { stringToU8a, u8aToHex } from '@polkadot/util'
 import { KeyIcon, WalletIcon } from '@heroicons/react/24/outline'
 
 type AuthMode = 'local' | 'subwallet'
@@ -41,6 +38,8 @@ export default function WalletAuthButton() {
     setError('')
     
     try {
+
+      localStorage.setItem('wallet_mode', 'local')
       await signIn(password)
       setShowAuthModal(false)
       setPassword('')
@@ -68,27 +67,14 @@ export default function WalletAuthButton() {
 
       const extensions = await web3Enable('MOD')
       if (extensions.length === 0) throw new Error('No extension found')
-
-      const injector = await web3FromAddress(selectedAccount)
       
       const derivationPath = `//mod//client`
       const derivedSeed = `${selectedAccount}${derivationPath}`
-      
-      const localKey = new Key(derivedSeed, 'sr25519')
-      
-      const userData = {
-        address: selectedAccount,
-        crypto_type: account.type || 'sr25519',
-        walletMode: 'subwallet',
-        derivedAddress: localKey.address
-      }
-      
-      await signIn(derivedSeed)
-      
+          
       localStorage.setItem('wallet_mode', 'subwallet')
       localStorage.setItem('wallet_address', selectedAccount)
       localStorage.setItem('wallet_type', account.type || 'sr25519')
-      
+      await signIn(derivedSeed)
       setShowAuthModal(false)
     } catch (err: any) {
       setError(err.message || 'Failed to connect wallet')
@@ -96,14 +82,6 @@ export default function WalletAuthButton() {
       setLoading(false)
     }
   }
-
-  const handleSignOut = () => {
-    signOut()
-    localStorage.removeItem('wallet_mode')
-    localStorage.removeItem('wallet_address')
-    localStorage.removeItem('wallet_type')
-  }
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (authMode === 'local') {
