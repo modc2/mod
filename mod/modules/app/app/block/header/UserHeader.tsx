@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import WalletAuthButton from './WalletAuthButton'
 
 export function UserHeader() {
-  const { keyInstance, user, authLoading, signOut } = useUserContext()
+  const {  user, authLoading, signOut } = useUserContext()
   const [isExpanded, setIsExpanded] = useState(false)
   const router = useRouter()
 
@@ -35,7 +35,7 @@ export function UserHeader() {
     )
   }
 
-  if (!keyInstance) {
+  if (!user) {
     return (
       <div className="flex items-center gap-4">
         <WalletAuthButton />
@@ -48,7 +48,7 @@ export function UserHeader() {
   const walletType = localStorage.getItem('wallet_type') || user.crypto_type
   const displayAddress = walletMode === 'subwallet' 
     ? localStorage.getItem('wallet_address') || user.address
-    : keyInstance.address
+    : user.address
 
   return (
     <div 

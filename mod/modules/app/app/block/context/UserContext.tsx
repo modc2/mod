@@ -5,11 +5,8 @@ import { cryptoWaitReady } from '@polkadot/util-crypto'
 import { Client } from '@/app/block/client/client'
 
 interface UserContextType {
-  keyInstance: Key | null
-  setKeyInstance: (key: Key | null) => void
   user: { address: string; crypto_type: string; balance?: number; mods?: any[] } | null
-  password: string
-  signIn: (password: string) => Promise<void>
+  signIn: () => Promise<void>
   signOut: () => void
   authLoading: boolean
   client: Client | null
@@ -18,7 +15,6 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [keyInstance, setKeyInstance] = useState<Key | null>(null)
   const [user, setUser] = useState<{ address: string; crypto_type: string; balance?: number; mods?: any[] } | null>(null)
   const [password, setPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(true)
@@ -30,20 +26,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const storedUser = localStorage.getItem('user_data')
         const storedPassword = localStorage.getItem('user_password')
-        
+        console.log('Restoring auth session from localStorage:', { storedUser, storedPassword })
         if (storedUser && storedPassword) {
           await cryptoWaitReady()
           const userData = JSON.parse(storedUser)
           const key = new Key(storedPassword)
           setUser(userData)
-          setKeyInstance(key)
-          setPassword(storedPassword)
           setClient(new Client(undefined, key))
         }
       } catch (error) {
         console.error('Failed to restore auth session:', error)
         localStorage.removeItem('user_data')
-        localStorage.removeItem('user_password')
       } finally {
         setAuthLoading(false)
       }
@@ -52,10 +45,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializeAuth()
   }, [])
 
-  const signIn = async (newPassword: string) => {
+  const signIn = async () => {
     try {
       await cryptoWaitReady()
-      const key = new Key(newPassword)
+  
+      const wallet_password = localStorage.getItem('wallet_password') || '42069'
+      const key = new Key(wallet_password)
+
       const wallet_mode = localStorage.getItem('wallet_mode') || 'local'
       const user_address = wallet_mode === 'local' ? key.address : localStorage.getItem('wallet_address') || key.address
       const userData = {
@@ -63,15 +59,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         crypto_type: key.crypto_type,
         wallet_mode: wallet_mode
       }
-      
-      setKeyInstance(key)
       setUser(userData)
-      setPassword(newPassword)
       setClient(new Client(undefined, key))
       
       // Persist to localStorage
       localStorage.setItem('user_data', JSON.stringify(userData))
-      localStorage.setItem('user_password', newPassword)
     } catch (error) {
       console.error('Failed to sign in:', error)
       throw error
@@ -79,16 +71,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   const signOut = () => {
-    setKeyInstance(null)
     setUser(null)
     setPassword('')
     setClient(null)
     localStorage.removeItem('user_data')
-    localStorage.removeItem('user_password')
   }
 
   return (
-    <UserContext.Provider value={{ keyInstance, setKeyInstance, user, password, signIn, signOut, authLoading, client }}>
+    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client }}>
       {children}
     </UserContext.Provider>
   )

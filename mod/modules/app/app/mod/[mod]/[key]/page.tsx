@@ -13,11 +13,9 @@ import { AlertCircle } from 'lucide-react'
 
 export default function ModulePage(  ) {
   const params = useParams()
+  const { client } = useUserContext()
   const modName = params.mod as string
   const modKey = params.key as string
-
-  const { keyInstance } = useUserContext()
-  const client = useMemo(() => new Client(undefined, keyInstance), [keyInstance])
 
   const [mod, setMod] = useState<ModuleType | null>(null)
   const [loading, setLoading] = useState(true)
@@ -33,8 +31,7 @@ export default function ModulePage(  ) {
         const data = await client.call('mod', { mod: modName, key: modKey , content:true, schema:true })
         setMod(data as ModuleType)
       } catch (err: any) {
-        console.error('Error fetching module:', err)
-        setError(err?.message || 'Failed to load module')
+        console.error('Failed to fetch mod:', err)
       } finally {
         setLoading(false)
       }

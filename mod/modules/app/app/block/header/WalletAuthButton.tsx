@@ -40,7 +40,8 @@ export default function WalletAuthButton() {
     try {
 
       localStorage.setItem('wallet_mode', 'local')
-      await signIn(password)
+      localStorage.setItem('wallet_password', password)
+      await signIn()
       setShowAuthModal(false)
       setPassword('')
     } catch (err: any) {
@@ -74,7 +75,7 @@ export default function WalletAuthButton() {
       localStorage.setItem('wallet_mode', 'subwallet')
       localStorage.setItem('wallet_address', selectedAccount)
       localStorage.setItem('wallet_type', account.type || 'sr25519')
-      await signIn(derivedSeed)
+      await signIn()
       setShowAuthModal(false)
     } catch (err: any) {
       setError(err.message || 'Failed to connect wallet')

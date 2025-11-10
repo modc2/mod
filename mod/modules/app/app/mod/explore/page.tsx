@@ -14,8 +14,7 @@ import { Plus, X, RotateCcw, Sparkles, ChevronDown, ChevronUp, Zap, Coins } from
 type SortKey = 'recent' | 'name' | 'author' | 'balance'
 
 export default function Modules() {
-  const { keyInstance } = useUserContext()
-  const client = useMemo(() => new Client(undefined, keyInstance), [keyInstance])
+  const {  client } = useUserContext()
   const { searchFilters } = useSearchContext()
 
   const [mods, setMods] = useState<ModuleType[]>([])
@@ -53,7 +52,6 @@ export default function Modules() {
   }
 
   const fetchAll = async () => {
-    if (!keyInstance) return
     setLoading(true)
     setError(null)
     try {
@@ -72,7 +70,7 @@ export default function Modules() {
 
   useEffect(() => {
     fetchAll()
-  }, [keyInstance, searchTerm, sort])
+  }, [client, searchTerm, sort])
 
   const gridColsClass = {
     1: 'grid-cols-1',
