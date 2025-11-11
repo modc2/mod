@@ -24,7 +24,7 @@ class PM:
         self.network = network
         self.store = m.mod('store')(path)
 
-    def compose_up(self, mod='chain', daemon:bool=True):
+    def up(self, mod='chain', daemon:bool=True):
         """
         Run docker-compose up in the specified path.
         """
@@ -35,6 +35,8 @@ class PM:
         if daemon:
             cmd += ' -d'
         return os.system('cd ' + path + ' && ' + cmd)
+
+    
 
     def forward(self,  
                 mod : str ='api', 
@@ -56,7 +58,6 @@ class PM:
         port = port or m.free_port()
         params.update({'port': port, 'key': key or mod, 'remote': False, 'mod': mod})
         cmd  = f"m serve {self.params2cmd(params)}" 
-        # set up volumes
         dirpath = m.dirpath(mod)
         if volumes is None:
             paths =  [m.lib_path, m.storage_path, dirpath]
@@ -321,7 +322,7 @@ class PM:
     def dockerfile(self, mod='mod'):
         return m.get_text(self.dockerfile_path(mod))
 
-    def compose_up(self, mod='chain', daemon: bool = True):
+    def up(self, mod='chain', daemon: bool = True):
         """
         Run docker-compose up in the specified path.
         """

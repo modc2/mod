@@ -22,6 +22,7 @@ class App:
         image = f'{mod}:latest'
         cwd = m.dirpath(mod) 
         ip = ip or (m.ip() if public else '0.0.0.0')
+        env = {'NEXT_PUBLIC_API_URL': f'http://{ip}:{api_port}'}
         return m.fn('pm/run')(
                     name=mod, 
                     volumes=[f'{cwd}:/app','/app/node_modules'], 
@@ -31,7 +32,7 @@ class App:
                     daemon=remote, 
                     port=port, 
                     # cmd='npm start',
-                    env={'API_URL': f'http://{ip}:{api_port}'}, 
+                    env=env, 
                     build=build
                     )
 

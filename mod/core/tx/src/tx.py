@@ -111,23 +111,24 @@ class Tx:
             max_age:float = 3600, 
             features:list = ['mod', 'fn', 'params', 'cost', 'client'],
             shorten_features = ['client', 'server'],
-            to_json = False
+            records = False
             ):
         path = None
         if client is not None:
             path = f'{client}/'
         if server is not None:
             path = f'*/{server}' if path is not None else f'/{server}/'
-        txs = [x for x in self.store.values(path) if self.is_tx(x)]   
-        if to_json:
-            return txs[:n]
-        else:
-            # filter by features
-            
-            df = m.df(txs)[features]
-            df['time'] = df['client'].apply(lambda x: float(x['time']))
-            df = df.sort_values(by='time', ascending=False)
-        return df
+        txs = [x for x in self.store.values(path, max_age=max_age) if self.is_tx(x)]  
+
+        result = txs[:n]
+        if not records:
+            result = m.df(txs)
+            if len(result) == 0:
+                return result
+            result = result[features]
+            result['time'] = result['client'].apply(lambda x: float(x['time']))
+            result = result.sort_values(by='time', ascending=False)
+        return result
 
     def n(self):
         """

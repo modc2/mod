@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  bitcoin-node:
+    image: ruimarinho/bitcoin-core:latest
+    container_name: bitcoin-testnet
+    ports:
+      - "18332:18332"
+      - "18333:18333"
+    volumes:
+      - bitcoin-data:/home/bitcoin/.bitcoin
+    command: |
+      -testnet
+      -server
+      -rpcuser=bitcoinrpc
+      -rpcpassword=bitcoinrpcpassword
+      -rpcallowip=0.0.0.0/0
+      -rpcbind=0.0.0.0
+      -txindex=1
+    networks:
+      - bitchain-network
+
+  bitchain-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bitchain-app
+    depends_on:
+      - bitcoin-node
+    environment:
+      - BITCOIN_RPC_USER=bitcoinrpc
+      - BITCOIN_RPC_PASSWORD=bitcoinrpcpassword
+      - BITCOIN_RPC_HOST=bitcoin-node
+      - BITCOIN_RPC_PORT=18332
+    volumes:
+      - ./:/app
+    networks:
+      - bitchain-network
+    command: python bitchain.py
+
+volumes:
+  bitcoin-data:
+
+networks:
+  bitchain-network:
+    driver: bridge

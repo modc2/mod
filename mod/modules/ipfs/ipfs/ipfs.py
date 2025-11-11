@@ -255,4 +255,4 @@ class  IpfsClient:
 
     def ensure_env(self):
         """Ensure that the IPFS environment is set up."""
-        m.fn('pm/compose_up')(self.node_name)
+        m.fn('pm/up')(self.node_name)

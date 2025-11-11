@@ -74,20 +74,18 @@ class Mod:
             print(f'Syncing mod {mod}')
             return self.fn(f'{mod}/sync')()
 
-        routes = self.routes()
+
+        self.set_routes(self.routes())
+
+        return {'success': True, 'msg': 'synced mods and utils'}
+
+
+    def set_routes(self, routes:dict, verbose=True):
         for mod, fns in routes.items():
             mod = self.import_mod(mod)
             for fn in fns: 
-                if hasattr(self, fn):
-                    if verbose:
-                        print(f'Warning: {fn} already exists')
-                else:
-                    if verbose:
-                        print(f'Adding {fn} from {mod.__name__}')
-                    fn_obj = getattr(mod, fn, None)
-                    setattr(self, fn, fn_obj)
-
-        return {'success': True, 'msg': 'synced mods and utils'}
+                if not hasattr(self, fn):
+                    setattr(self, fn, getattr(mod, fn, None))
 
     @property
     def shortcuts(self):
@@ -1422,33 +1420,19 @@ class Mod:
         files = self.files(dirpath, relative=True)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
 
-    def addmod(self,  path  , name=None):
+    def addmod(self,  path  , name=None, base='base', update=True):
         """
         make a new mod
         """
-
-        mods_path = mods_path or self.mods_path
-        if 'github' in path:
-            name = name or path.split('/')[-1].replace('.git', '')
-            os.system('git clone {}')
-        elif 'ipfs' in path:
-            cid = path.split('/')[-1]
-            config = c.mod('ipfs/get')(cid)
-            name = name or config['name']
-            raise NotImplementedError('IPFS support not implemented yet')
-        else:
-            assert  os.path.exists(path)
-            return self.addpath(path)
-
-        new_path = mods_path + '/' + name.replace('.', '/')
+        name = name or path.split('/')[-1]
+        mods_path = self.mods_path
+        dirpath = mods_path + '/' + name.replace('.', '/')
         for k,v in self.content(base).items():
             new_path = dirpath + '/' +  k.replace(base, name)
             print(f'Creating {new_path} for mod {name}')
             self.put_text( new_path, v)
-        if not name:
-            name = input('Mod name/github/ipfs/url')
         files = self.files(dirpath)
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'files': files, 'base': base, 'cid': self.cid(name)}
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': self.cid(name)}
 
     add_mod = addmod
 
@@ -1500,8 +1484,8 @@ class Mod:
     def epoch(self, *args, **kwargs):
         return self.fn('vali/epoch')(*args, **kwargs)
 
-    def up(self, image = 'mod'):
-        return self.cmd('make up', cwd=self.lib_path)
+    def up(self, mod = 'mod'):
+        return self.fn('pm/up')(mod)
 
     def enter(self, image = 'mod'):
         return self.fn('pm/enter')(image)

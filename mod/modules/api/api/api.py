@@ -250,9 +250,9 @@ class  Api:
             print(f"Registering mod: {mod}")
             try:
                 info = self.reg(mod, key=key, comment=comment)
+                mod2info[mod] = info
             except:
                 print(f'Failed {mod}')
-            mod2info[mod] = info
         return mod2info
 
 
@@ -413,3 +413,5 @@ class  Api:
 
     def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
         return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)
+
+    def
