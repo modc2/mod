@@ -21,40 +21,40 @@ pip install -e ./
 
 ## Quick Start - CLI Commands
 
-The framework provides a CLI tool `c` for common operations:
+The framework provides a CLI tool `m` or `c` for common operations:
 
 ```bash
 # Server Management
-c serve api              # Serve API on port 8000
-c kill api              # Stop server
-c killall               # Stop all servers
-c servers               # List running servers
-c namespace             # Show module → URL mapping
+m serve api              # Serve API on port 8000
+m kill api              # Stop server
+m killall               # Stop all servers
+m servers               # List running servers
+m namespace             # Show module → URL mapping
 
 # Module Information
-c dp api                # Get directory path
-c code api              # Get class code
-c code api/function     # Get function code
-c schema api/function   # Get function schema
-c content api           # Get full module content
-c info api              # Get complete module info
-c mods                  # List all modules
+m dp api                # Get directory path
+m code api              # Get class code
+m code api/function     # Get function code
+m schema api/function   # Get function schema
+m content api           # Get full module content
+m info api              # Get complete module info
+m mods                  # List all modules
 
 # Module Operations
-c addmod <path>         # Add module from path/GitHub
-c rmmod <name>          # Remove module
-c cpmod from to         # Copy module
-c clone <url>           # Clone from GitHub
+m addmod <path>         # Add module from path/GitHub
+m rmmod <name>          # Remove module
+m cpmod from to         # Copy module
+m clone <url>           # Clone from GitHub
 
 # Development
-c app                   # Deploy application
-c test <mod>            # Run tests
-c push "message"        # Git commit and push
+m app                   # Deploy application
+m test <mod>            # Run tests
+m push "message"        # Git commit and push
 
 # AI Integration
-c ask "question"        # Ask AI (OpenRouter)
-c help mod "question"   # Get help about module
-c about mod "query"     # Ask about module
+m ask "question"        # Ask AI (OpenRouter)
+m help mod "question"   # Get help about module
+m about mod "query"     # Ask about module
 ```
 
 ## Core Features
@@ -73,7 +73,7 @@ local_mods = m.local_mods()          # Local modules only
 info = m.info('module_name')         # Complete module info
 schema = m.schema('module_name')     # Function signatures
 code = m.code('module_name')         # Source code
-content = m.content('module_name')   # All files
+content = m.content('module_name')   # All files (file2content) where the files are relative to the module dirpath
 cid = m.cid('module_name')          # Content hash
 
 # Check existence
@@ -371,30 +371,30 @@ m.rmmod('old_module')
 
 ```bash
 # 1. Create new module
-c clone https://github.com/user/template
-c cpmod template my_module
+m clone https://github.com/user/template
+m cpmod template my_module
 
 # 2. Develop
-c code my_module          # View code
-c serve my_module         # Test server
-c test my_module          # Run tests
+m code my_module          # View code
+m serve my_module         # Test server
+m test my_module          # Run tests
 
 # 3. Deploy
-c app my_module           # Deploy app
-c servers                 # Check status
+m app my_module           # Deploy app
+m servers                 # Check status
 
 # 4. Update
-c push "Added feature X" my_module
+m push "Added feature X" my_module
 ```
 
 ## Docker Integration
 
 ```bash
 # Build and deploy
-c up                      # Start containers
-c enter mod               # Enter container
-c logs api               # View logs
-c build my_module        # Build module
+m up                      # Start containers
+m enter mod               # Enter container
+m logs api               # View logs
+m build my_module        # Build module
 ```
 
 ## Security Features
