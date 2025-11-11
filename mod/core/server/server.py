@@ -26,6 +26,7 @@ class Server:
         tx = 'tx', # the tx to use
         auth = 'auth', # the auth to use
         sudo_roles = ['admin'], # the roles that can access all functions
+        run_mode = 'hypercorn',
         **_kwargs):
         
         self.store = m.mod('store')(path)
@@ -35,6 +36,7 @@ class Server:
         self.tx = m.mod(tx)()
         self.auth = m.mod(auth)()
         self.sudo_roles = sudo_roles
+        self.run_mode = run_mode
     
     def is_generator(self, obj):
         """
@@ -361,7 +363,7 @@ class Server:
 
 
 
-        if hasattr(m.mod(mod), 'serve'):
+        if hasattr(m.mod(mod), 'serve') and mod != 'mod':
             return m.mod(mod)().serve(port=port)
         mod = mod or 'mod'
         port = self.get_port(port, mod=mod)
@@ -418,12 +420,19 @@ class Server:
             return result
         self.app.post("/{fn}")(server_fn)
         self.show_info()
+        self.run_app(port, port=port)
 
-        from hypercorn.config import Config
-        from hypercorn.asyncio import serve
-        config = Config()
-        config.bind = [f"0.0.0.0:{port}"]
-        asyncio.run(serve(self.app, config))
+    def run_app(self, app:FastAPI, port:int):
+        if self.run_mode == 'uvicorn':
+            uvicorn.run(self.app, host='0.0.0.0', port=port)
+        elif self.run_mode == 'hypercorn':
+            from hypercorn.config import Config
+            from hypercorn.asyncio import serve
+            config = Config()
+            config.bind = [f"0.0.0.0:{port}"]
+            asyncio.run(serve(self.app, config))
+        else:
+            raise Exception(f'Unknown mode {mode} for run_app')
 
     def show_info(self):
         print('--- Server Info ---', color='green', verbose=self.verbose)
