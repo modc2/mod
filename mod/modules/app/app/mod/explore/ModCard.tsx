@@ -3,7 +3,11 @@
 import { ModuleType } from '@/app/types'
 import { text2color, shorten, time2str } from '@/app/utils'
 import { CopyButton } from '@/app/block/CopyButton'
-import { Package, Hash, Clock, KeyIcon } from 'lucide-react'
+import { Package, Hash, Clock } from 'lucide-react'
+import { KeyIcon } from '@heroicons/react/24/outline'
+import { CubeIcon, UsersIcon, Bars3Icon } from '@heroicons/react/24/outline'
+
+
 import Link from 'next/link'
 
 interface ModCardProps {
@@ -36,20 +40,20 @@ export default function ModCard({ mod }: ModCardProps) {
         <div className="relative z-10 space-y-2.5 flex-1 flex flex-col">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 group/link flex-1 min-w-0">
-              <div className="flex-shrink-0 p-2 rounded-lg border group-hover/link:scale-110 transition-all duration-300" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
-                <Package size={28} strokeWidth={2.5} style={{ color: modColor }} />
-              </div>
+                              <CubeIcon className="h-6 w-6"  style={{ color: modColor }} />
+
               <div className="flex-1 min-w-0">
                 <code className="text-2xl font-mono font-bold truncate block" style={{ color: modColor }} title={mod.name}>
                   {mod.name}
                 </code>
               </div>
+ 
             </div>
             
             <div className="flex-shrink-0">
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
                 <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
-                  <KeyIcon size={18} strokeWidth={2.5} style={{ color: userColor }} />
+                  <KeyIcon className="w-6 h-6" style={{ color: userColor }} />
                 </Link>
                 <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                   <code className="text-sm font-mono font-bold" style={{ color: userColor }} title={mod.key}>

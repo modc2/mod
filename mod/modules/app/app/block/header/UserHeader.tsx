@@ -63,7 +63,6 @@ export function UserHeader() {
 
   const userColor = text2color(user.address)
   const walletMode = localStorage.getItem('wallet_mode')
-  const walletType = localStorage.getItem('wallet_type') || user.crypto_type
   const displayAddress = walletMode === 'subwallet' 
     ? localStorage.getItem('wallet_address') || user.address
     : user.address
@@ -138,7 +137,6 @@ export function UserHeader() {
               <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: userColor }}>
                 {shorten(displayAddress, 8, 8)}
               </div>
-              <span className="text-white/40 font-mono text-base">({walletType})</span>
               <CopyButton content={displayAddress} size="sm" style={{color: userColor}} />
             </div>
           </div>

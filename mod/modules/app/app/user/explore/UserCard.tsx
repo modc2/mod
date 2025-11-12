@@ -1,7 +1,9 @@
 'use client'
 import { text2color, shorten } from '@/app/utils'
 import { CopyButton } from '@/app/block/CopyButton'
-import { KeyIcon } from 'lucide-react'
+// import { KeyIcon } from 'lucide-react'
+import { KeyIcon } from '@heroicons/react/24/outline'
+
 import { UserType } from '@/app/types'
 import Link from 'next/link'
 
@@ -32,7 +34,7 @@ export const UserCard = ({ user, mode = 'explore' }: UserCardProps) => {
       
       <div className="relative z-10 flex items-center gap-3">
         <div className="flex-shrink-0 p-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
-          <KeyIcon size={24} strokeWidth={2.5} style={{ color: userColor }} />
+          <KeyIcon className="w-9 h-9" style={{ color: userColor }} />
         </div>
         
         <div className="flex items-center gap-2">
