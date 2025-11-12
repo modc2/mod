@@ -32,47 +32,47 @@ export default function ModCard({ mod }: ModCardProps) {
 
   return (
     <Link href={`/mod/${mod.name}/${mod.key}`}>
-      <div className="group relative border-2 rounded-xl px-4 py-2.5 hover:shadow-xl transition-all duration-300 backdrop-blur-sm overflow-hidden hover:scale-[1.01] bg-black cursor-pointer" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}` }}>
+      <div className="group relative border-2 rounded-xl px-6 py-4 hover:shadow-xl transition-all duration-300 backdrop-blur-sm overflow-hidden hover:scale-[1.01] bg-black cursor-pointer" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}` }}>
         <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${modColor}, transparent, ${modColor})` }} />
         
-        <div className="relative z-10 flex items-center gap-3">
+        <div className="relative z-10 flex items-center gap-4">
           {/* Module Name */}
-          <div className="flex items-center gap-2 min-w-0">
-            <CubeIcon className="h-5 w-5 flex-shrink-0" style={{ color: modColor }} />
-            <code className="text-base font-mono font-bold truncate" style={{ color: modColor }} title={mod.name}>
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <CubeIcon className="h-7 w-7 flex-shrink-0" style={{ color: modColor }} />
+            <code className="text-xl font-mono font-bold truncate" style={{ color: modColor }} title={mod.name}>
               {mod.name}
             </code>
           </div>
           
           {/* Description - compact */}
           {mod.desc && (
-            <p className="hidden lg:block text-sm text-white/60 truncate flex-1 min-w-0">{mod.desc}</p>
+            <p className="hidden lg:block text-base text-white/60 truncate flex-1 min-w-0">{mod.desc}</p>
           )}
 
           {/* CID */}
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-            <Hash size={16} strokeWidth={2.5} style={{ color: modColor }} />
-            <code className="text-sm font-mono font-bold" style={{ color: modColor }} title={mod.cid}>
+          <div className="hidden md:flex items-center gap-2 px-4 py-2.5 rounded-md border min-w-[140px]" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+            <Hash size={18} strokeWidth={2.5} style={{ color: modColor }} />
+            <code className="text-base font-mono font-bold" style={{ color: modColor }} title={mod.cid}>
               {shorten(mod.cid, 4, 4)}
             </code>
             <CopyButton text={mod.cid} size="sm" />
           </div>
 
           {/* Updated */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-            <Clock size={16} strokeWidth={2.5} style={{ color: modColor }} />
-            <code className="text-sm font-mono font-bold" style={{ color: modColor }} title={mod.updated}>
+          <div className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-md border min-w-[120px]" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+            <Clock size={18} strokeWidth={2.5} style={{ color: modColor }} />
+            <code className="text-base font-mono font-bold" style={{ color: modColor }} title={mod.updated}>
               {time2str(mod.updated)}
             </code>
           </div>
 
           {/* Author */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border flex-shrink-0" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-md border flex-shrink-0 min-w-[140px]" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
             <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
-              <KeyIcon className="w-5 h-5" style={{ color: userColor }} />
+              <KeyIcon className="w-6 h-6" style={{ color: userColor }} />
             </Link>
             <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
-              <code className="text-sm font-mono font-bold" style={{ color: userColor }} title={mod.key}>
+              <code className="text-base font-mono font-bold" style={{ color: userColor }} title={mod.key}>
                 {shorten(mod.key, 4, 4)}
               </code>
             </Link>

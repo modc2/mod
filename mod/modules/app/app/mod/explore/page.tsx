@@ -124,8 +124,8 @@ export default function Modules() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
-      <main className="flex-1 px-6 py-8" role="main">
-        <div className="mx-auto max-w-7xl mb-6">
+      <main className="flex-1 px-2 py-0" role="main">
+        <div className="mx-auto max-w-7xl mb-4">
           <ModCardSettings
             sort={sort}
             onSortChange={setSort}
@@ -137,7 +137,7 @@ export default function Modules() {
         </div>
 
         {error && (
-          <div className="mx-auto max-w-7xl mb-6">
+          <div className="mx-auto max-w-7xl mb-4">
             <div className="p-4 border-2 border-red-500/60 bg-gradient-to-r from-red-500/20 to-pink-500/20 rounded-xl flex items-start justify-between backdrop-blur-xl shadow-lg">
               <div className="flex-1">
                 <div className="text-red-300 font-bold mb-1 text-lg uppercase tracking-wide">ERROR</div>
@@ -163,7 +163,7 @@ export default function Modules() {
         )}
 
         {!loading && mods.length === 0 && !error && (
-          <div className="mx-auto max-w-4xl text-center py-20">
+          <div className="mx-auto max-w-4xl text-center py-12">
             <div className="mb-6 inline-block p-6 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-2xl border-2 border-purple-500/40 shadow-xl backdrop-blur-xl">
               <Sparkles className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
@@ -174,7 +174,7 @@ export default function Modules() {
         )}
 
         {loading && (
-          <div className="flex justify-center py-20">
+          <div className="flex justify-center py-12">
             <Loading />
           </div>
         )}

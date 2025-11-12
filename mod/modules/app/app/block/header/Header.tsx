@@ -1,7 +1,6 @@
 'use client'
 
 import { LogoHeader } from './LogoHeader'
-import { SearchHeader } from './SearchHeader'
 import { UserHeader } from './UserHeader'
 import { NodeUrlSettings } from './NodeUrlSettings'
 import { usePathname } from 'next/navigation'
@@ -30,53 +29,13 @@ export function Header() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b-2 bg-black" style={{ borderColor: '#00ff0040' }}>
-      <div className="flex h-20 items-center px-4 md:px-6" style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}>
-        <div className="flex items-center gap-6">
+    <header className="sticky top-0 z-50 w-full  bg-black" style={{ borderColor: '#00ff0040' }}>
+      <div className="flex items-center   justify-between">
+        <div className=" items-center">
           <LogoHeader />
-          
-          {!isNarrow && (
-            <nav className="flex items-center gap-3">
-              <Link
-                href="/mod/explore"
-                className={`group flex items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 backdrop-blur-md ${
-                  isModsPage ? 'shadow-xl scale-105 active:scale-100' : 'hover:shadow-lg hover:scale-105 active:scale-95'
-                }`}
-                style={{
-                  backgroundColor: isModsPage ? `${modsColor}50` : `${modsColor}25`,
-                  borderColor: `${modsColor}80`,
-                  color: modsColor,
-                  boxShadow: isModsPage ? `0 0 20px ${modsColor}60, inset 0 2px 8px ${modsColor}30` : `0 0 10px ${modsColor}20`,
-                }}
-                title="Modules"
-              >
-                <CubeIcon className="h-6 w-6" />
-              </Link>
-              
-              <Link
-                href="/user/explore"
-                className={`group flex items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 backdrop-blur-md ${
-                  isUsersPage ? 'shadow-xl scale-105 active:scale-100' : 'hover:shadow-lg hover:scale-105 active:scale-95'
-                }`}
-                style={{
-                  backgroundColor: isUsersPage ? `${usersColor}50` : `${usersColor}25`,
-                  borderColor: `${usersColor}80`,
-                  color: usersColor,
-                  boxShadow: isUsersPage ? `0 0 20px ${usersColor}60, inset 0 2px 8px ${usersColor}30` : `0 0 10px ${usersColor}20`,
-                }}
-                title="Users"
-              >
-                <UsersIcon className="h-6 w-6" />
-              </Link>
-            </nav>
-          )}
         </div>
         
-        <div className="flex items-center justify-center">
-          <SearchHeader />
-        </div>
-        
-        <div className="flex items-center gap-4 justify-end">
+        <div className="flex items-center  justify-end">
           {isNarrow && (
             <div className="relative">
               <button 
