@@ -217,17 +217,6 @@ class Mod:
             objx = self 
         return obj.__name__
 
-    def config_path(self, obj = None) -> str:
-        if obj in [None, 'mod']:
-            filename =  '/'.join(__file__.split('/')[:-2]+['config']) 
-            config_path = None
-        else:
-            filename = self.dirpath(obj) + '/config'
-        for filetype in ['json', 'yaml']:
-            config_path = filename + '.' + filetype 
-        assert config_path != None
-        return config_path
-
     def storage_dir(self, mod=None):
         if mod == None: 
             mod = 'mod'
@@ -235,9 +224,6 @@ class Mod:
             mod = self.modname(mod)
         return os.path.abspath(os.path.expanduser(f'~/.mod/{mod}'))
     
-    def is_owner(self, key:str) -> bool:
-        return self.get_key().key_address == key
-
     def is_home(self, path:str = None) -> bool:
         """
         Check if the path is the home path
@@ -441,7 +427,7 @@ class Mod:
     def set_config(self, config=None):
 
         if config is None:
-            configs = self.configs(config)
+            configs = self.config_paths(config)
             # sort configs by shortest then by json first
             configs = sorted(configs, key=lambda x: len(x))
             assert len(configs) > 0, 'No config found'
@@ -1572,14 +1558,14 @@ class Mod:
         """
         if str(mod) in self._config_cache:
             return self._config_cache[str(mod)]
-        configs = self.configs(mod=mod)
+        configs = self.config_paths(mod=mod)
         if len(configs) == 0:
             return {}
         config =  self.get_json(configs[0])
         self._config_cache[str(mod)] = config
         return config
 
-    def configs(self, mod=None, 
+    def config_paths(self, mod=None, 
                 modes=['yaml', 'json'], 
                 search=None, 
                 config_name_options = ['config', 'cfg', 'mod', 'block',  'agent', 'mod', 'bloc', 'server'],
@@ -1597,6 +1583,12 @@ class Mod:
         if search != None:
             configs = [f for f in configs if search in f]
         return list(sorted(configs, key=lambda x: len(x)))
+
+    def config_path(self, mod=None, **kwargs):
+        configs = self.config_paths(mod=mod, **kwargs)
+        if len(configs) == 0:
+            return None
+        return configs[0]
 
     def serve(self, mod:str = 'mod', port:int=None, remote=True, **kwargs):
         return self.fn('server/serve')(mod, port=port, remote=remote, **kwargs)

@@ -7,9 +7,10 @@ from typing import Optional, Union
 import mod as m
 
 class Store:
-    endpoints=['get', 'put', 'ls']
 
-    def __init__(self, path='~/.mod',  file_type='json',  password = None ):
+    expose=['get', 'put', 'ls']
+
+    def __init__(self, path='~/.mod/store',   password = None , file_type='json'):
 
         """
         Store class to manage the storage of data in files

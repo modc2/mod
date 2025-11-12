@@ -22,6 +22,7 @@ class SelectFiles:
               query: str = 'most relevant', 
               path: Union[List[str], Dict[Any, str]] = './',  
               n: int = 10, 
+              trials = 3,
               mod=None,
               content: bool = True,
               model='qwen/qwen3-coder-flash',
@@ -32,13 +33,19 @@ class SelectFiles:
         files = c.files(path)
         print('getting files', files,path, color="yellow")
         if len(files) > 1:
-            files = c.fn('select_options/')(
-                query=query,
-                options= files,
-                n=n,
-                model=model,
-                **kwargs
-            )
+            for trial in range(trials):
+                try:
+                    files = c.fn('select_options/')(
+                        query=query,
+                        options= files,
+                        n=n,
+                        model=model,
+                        **kwargs
+                    )
+                    break
+                except Exception as e: 
+                    print(f"Trial {trial+1} failed with error: {e}", color="red")
+                    continue
         files =  [os.path.expanduser(file).replace(os.path.expanduser('~'), '~') for file in files]
         if content:
             results = {}

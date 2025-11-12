@@ -1,5 +1,5 @@
 'use client'
-import WalletAuthButton from './WalletAuthButton'
+import { WalletAuthButton } from './WalletAuthButton'
 
 export const AuthButton = () => {
   return <WalletAuthButton />

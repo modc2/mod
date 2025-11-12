@@ -57,3 +57,6 @@ class Tool:
             "message": "File edited",
             "content": new_text
         }
+
+
+    def test

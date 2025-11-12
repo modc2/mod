@@ -113,7 +113,7 @@ class WebErrorProbe:
                 hits.append(Hit(url=url, pattern=pat.pattern, excerpt=excerpt))
         return hits
 
-    def forward(self, url: str) -> Dict[str, Any]:
+    def forward(self, url: str='0.0.0.0:3000') -> Dict[str, Any]:
         """
         Run the probe against a single URL and return a structured report.
         """

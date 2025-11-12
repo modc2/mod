@@ -25,13 +25,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initializeAuth = async () => {
       try {
         const storedUser = localStorage.getItem('user_data')
-        const storedPassword = localStorage.getItem('user_password')
+        const storedPassword = localStorage.getItem('user_password') || '420'
         console.log('Restoring auth session from localStorage:', { storedUser, storedPassword })
-        if (storedUser && storedPassword) {
+        if (storedUser) {
+  
+          setUser(JSON.parse(storedUser))
+        }
+        if (storedPassword) {
           await cryptoWaitReady()
-          const userData = JSON.parse(storedUser)
           const key = new Key(storedPassword)
-          setUser(userData)
           setClient(new Client(undefined, key))
         }
       } catch (error) {

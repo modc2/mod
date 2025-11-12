@@ -413,5 +413,3 @@ class  Api:
 
     def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
         return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)
-
-    def

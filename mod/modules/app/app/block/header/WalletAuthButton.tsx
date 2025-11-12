@@ -7,7 +7,7 @@ import { KeyIcon, WalletIcon } from '@heroicons/react/24/outline'
 
 type AuthMode = 'local' | 'subwallet'
 
-export default function WalletAuthButton() {
+export function WalletAuthButton() {
   const { user, signIn, signOut, authLoading } = useUserContext()
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [authMode, setAuthMode] = useState<AuthMode>('local')
@@ -246,3 +246,5 @@ export default function WalletAuthButton() {
     </>
   )
 }
+
+export default WalletAuthButton

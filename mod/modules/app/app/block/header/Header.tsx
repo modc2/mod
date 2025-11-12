@@ -3,6 +3,7 @@
 import { LogoHeader } from './LogoHeader'
 import { SearchHeader } from './SearchHeader'
 import { UserHeader } from './UserHeader'
+import { NodeUrlSettings } from './NodeUrlSettings'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { CubeIcon, UsersIcon, Bars3Icon } from '@heroicons/react/24/outline'
@@ -69,11 +70,11 @@ export function Header() {
               </Link>
             </nav>
           )}
-          
-          <SearchHeader />
         </div>
         
         <div className="flex items-center gap-4">
+          <SearchHeader />
+          
           {isNarrow && (
             <div className="relative">
               <button 
@@ -85,7 +86,7 @@ export function Header() {
               </button>
               {showMenu && (
                 <div 
-                  className="absolute top-full left-0 mt-2 border-2 border-white/20 bg-black/95 backdrop-blur-md rounded-lg shadow-xl min-w-[200px]"
+                  className="absolute top-full right-0 mt-2 border-2 border-white/20 bg-black/95 backdrop-blur-md rounded-lg shadow-xl min-w-[200px]"
                   onMouseEnter={() => setShowMenu(true)}
                   onMouseLeave={() => setShowMenu(false)}
                 >

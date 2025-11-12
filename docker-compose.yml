@@ -16,4 +16,5 @@ services:
     volumes:
     - ~/mod:/root/mod
     - ~/.mod:/root/.mod
+    - ~/mod:/root/mod
     working_dir: /root/mod

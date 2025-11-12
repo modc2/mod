@@ -43,7 +43,7 @@ class Auth:
             'cost': str(cost),
             'key': key.address,
         }
-        result['signature'] = key.sign(self.get(result), mode='str')
+        result['signature'] = key.sign(self.get_data(result), mode='str')
         return result
 
     headers = generate = forward
@@ -58,7 +58,7 @@ class Auth:
         age = abs(time.time() - float(headers['time']))
         max_age = max_age or self.max_age
         assert age < max_age, f'Token is stale {age} > {max_age}'
-        verified = self.key.verify(self.get(headers), signature=headers['signature'], address=headers['key'])
+        verified = self.key.verify(self.get_data(headers), signature=headers['signature'], address=headers['key'])
         assert verified, f'Invalid signature {headers}'
         if data != None:
             assert headers['data'] == self.hash(data), f'Invalid data {data}'
@@ -92,7 +92,7 @@ class Auth:
         else: 
             raise ValueError(f'Invalid hash type {self.hash_type}')
 
-    def get(self, headers: Dict[str, str]) -> str:
+    def get_data(self, headers: Dict[str, str]) -> str:
         assert all(k in headers for k in self.signature_keys), f'Missing keys in headers {headers}'
         return json.dumps({k: headers[k] for k in self.signature_keys}, separators=self.separators)
 

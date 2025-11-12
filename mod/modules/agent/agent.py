@@ -37,11 +37,6 @@ class Agent:
         tx_id = c.hash(tx)
         print('tx_id', tx_id)
         result =  self.provider.forward(**params)
-        
-
-
-
-        
         return self.postprocess(result)
 
     def ask(self, *text, **kwargs): 

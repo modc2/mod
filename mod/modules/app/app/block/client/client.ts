@@ -9,6 +9,7 @@ export class Client {
 
   constructor(url?: string, key?: Key, mode: string = 'http') {
     this.url = this.getUrl(url, mode);
+
     this.key = key;
     this.auth = new Auth(key);
   }

@@ -2,7 +2,7 @@
         "name": "mod",
         "version": "0.1.0",
         "desc": "A Python package for mod utilities",
-        "shortcuts": {"pm": "pm", "local": "server", "auth": "auth", "client": "client"},
+        "shortcuts": {"local": "server"},
         "routes": {},
         "expose" : ["forward", "info"],
         "port_range": [50050, 50150],

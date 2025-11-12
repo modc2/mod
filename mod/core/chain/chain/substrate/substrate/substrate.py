@@ -1678,7 +1678,7 @@ class Substrate:
         info['collateral'] = mod.get('collateral', 0)
         return info
 
-    def call_rpc(self, mod = 'Balances', 
+    def rpc_payload(self, mod = 'Balances', 
                         fn='transfer_keep_alive', 
                         params={'dest': '5HmHcqweTcHrvifMna2r7NEjX9jcNUDr4QNiizMz2dU5wCgp', 'value': 0}, 
                         era: dict[str, int] = None, 
@@ -1698,12 +1698,10 @@ class Substrate:
             era = era or '00'
             # sign it and get the payload
             payload = call.value
-            signature_payload = substrate.generate_signature_payload(
-                    call=call, era=era, nonce=nonce, tip=tip, tip_asset_id=tip_asset_id
-                )
+            signature_payload = substrate.generate_signature_payload(call=call, era=era, nonce=nonce, tip=tip, tip_asset_id=tip_asset_id)
 
             rpc_payload = {
-                'meethod': 'author_submitExtrinsic',
+                'method': 'author_submitExtrinsic',
                 'params': {
                     'call': payload,
                     'era': era,
@@ -1711,12 +1709,91 @@ class Substrate:
                     'tip': tip,
                     'tip_asset_id': tip_asset_id,
                 },
-                'signature_payload': signature_payload,
+                'signature_payload': signature_payload.data.hex(),
             }
-            substrate.send_rpc(rpc_payload)
+            
 
-        return key.sign(signature_payload)
+
+        return rpc_payload
+
+
+    def call_with_signature(self, 
+        module: str,
+        fn: str,
+        params: dict[str, Any],
+        nonce: int = None,
+        era: dict[str, int] = None,
+        tip = 0,
+        tip_asset_id = None,
+        signature: str = None,
+        wait_for_inclusion: bool = True,
+        wait_for_finalization: bool = False,
+    ) -> ExtrinsicReceipt:
+        """
+        Sends a signed call to the network node using the provided RPC payload
+        and signature.
+
+        Args:
+            rpc_payload: The RPC payload containing the call details.
+            signature: The signature for the call.
+            wait_for_inclusion: Whether to wait for the call's inclusion in a
+                block.
+            wait_for_finalization: Whether to wait for the transaction's
+                finalization.
+
+        Returns:
+            The receipt of the submitted extrinsic.
+        """
+
+        rpc_payload = self.rpc_payload(
+            mod=module,
+            fn=fn,
+            params=params,
+            era=era,
+            nonce=nonce,
+            tip=tip,
+            tip_asset_id=tip_asset_id,
+        )  
+
+        return response
+
+
+    def send_call_with_signature(
+        self,
+        rpc_payload: dict[str, Any],
+        signature: str,
+    ) -> ExtrinsicReceipt:
+        """
+        Sends a signed call to the network node using the provided RPC payload
+        and signature.
+
+        Args:
+            rpc_payload: The RPC payload containing the call details.
+            signature: The signature for the call.
+
+        Returns:
+            The receipt of the submitted extrinsic.
+        """
+
+        with self.get_conn() as substrate:
+            extrinsic = substrate.create_signed_extrinsic_from_rpc_payload(
+                rpc_payload=rpc_payload,
+                signature=signature,
+            )
+
+            response = substrate.submit_extrinsic(
+                extrinsic=extrinsic,
+                wait_for_inclusion=True,
+                wait_for_finalization=self.wait_for_finalization,
+            )
+
+        if not response.is_success:
+            raise ChainTransactionError(
+                response.error_message, response  # type: ignore
+            )
+
+        return response
+
     
-        
-    # def modules()
+# def modules()
 

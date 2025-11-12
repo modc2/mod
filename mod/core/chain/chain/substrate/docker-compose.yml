@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  substrate:
+    container_name: substrate
+    deploy: {}
+    entrypoint: bash -c "m serve port=50102 key=substrate remote=0 mod=substrate"
+    image: mod:latest
+    ports:
+    - 50102:50102
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/core/chain/chain/substrate:/root/mod/mod/core/chain/chain/substrate
+    working_dir: /root/mod/mod/core/chain/chain/substrate
+version: '3.8'

@@ -25,19 +25,33 @@ class Server:
         serializer = 'serializer', # the serializer to use
         tx = 'tx', # the tx to use
         auth = 'auth', # the auth to use
-        sudo_roles = ['admin'], # the roles that can access all functions
+        sudo_roles = [ 'owner'], # the roles that can access all functions
         run_mode = 'hypercorn',
         **_kwargs):
-        
+
         self.store = m.mod('store')(path)
         self.verbose = verbose
-        self.pm = m.mod(pm)() # sets the mod to the pm
+        self.set_pm(pm)
         self.serializer = m.mod(serializer)() # sets the serializer
         self.tx = m.mod(tx)()
         self.auth = m.mod(auth)()
         self.sudo_roles = sudo_roles
         self.run_mode = run_mode
+
+
+    def set_pm(self, pm: Union[str, 'Module', Any], sync_fns = ['logs', 'namespace', 'kill', 'kill_all']):
+        self.pm = m.mod(pm)()
+        for fn in sync_fns:
+            if hasattr(self.pm, fn) and hasattr(pm, fn):
+                setattr(self.pm, fn, getattr(pm, fn))
+
     
+    
+    def is_owner(self, key:str) -> bool:
+        if not hasattr(self, 'owner_address'):
+            self.owner_address = m.key().address
+        return self.owner_address == key
+
     def is_generator(self, obj):
         """
         Is this shiz a generator dawg?
@@ -75,12 +89,10 @@ class Server:
         """
         print('Server: Forwarding request for function', fn)
         request = self.get_request(fn=fn, request=request) # get the request
-        self.print_request(request)
         fn = request['fn']
         params = request['params']
         cost = request['cost']
         info = self.mod.info()
-        
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
         fn_obj = getattr(self.mod, fn) # get the function object from the mod
         if callable(fn_obj):
@@ -95,27 +107,28 @@ class Server:
             # if the fn is not callable, return it
             result = fn_obj
 
+
         if self.is_generator(result):
             def generator_wrapper(generator):
-                result =  {'data': [], 'start_time': time.time(), 'end_time': None, 'cost': 0}
+                gen_result =  {'data': [], 'start_time': time.time(), 'end_time': None, 'cost': 0}
                 for item in generator:
                     print(item, end='')
                     gen_result['data'].append(item)
                     yield item
                 # save the transaction between the headers and server for future auditing
-                # self.tx.forward(
-                #     mod=info["name"],
-                #     fn=fn, # 
-                #     params=params, # params of the inputes
-                #     result=gen_result,
-                #     client=request['client'],
-                #     cost=cost,
-                #     server= self.auth.headers(data={"fn": fn, "params": params, "result": result, "cost": cost}), 
-                #     key=self.key)
+                self.tx.forward(
+                    mod=info["name"],
+                    fn=fn, # 
+                    params=params, # params of the inputes
+                    client=request['client'],
+                    cost=cost,
+                    result=gen_result,
+                    server= self.auth.generate(data={"fn": fn, "params": params, "result": gen_result, 'client': request['client']}, cost=cost), 
+                    key=self.key)
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-            # save the transaction between the headers and server for future auditing
+
             result = self.serializer.forward(result) # serialize the result
             tx = self.tx.forward(
                 mod=info["name"],
@@ -123,21 +136,17 @@ class Server:
                 params=params, # params of the inputes
                 client=request['client'], # client auth
                 result=result,
-                server= self.auth.generate(data={"fn": fn, "params": params, "result": result}) , 
+                server=self.auth.generate(data={"fn": fn, "params": params, "result": result, 'client': request['client']}, cost=cost), 
                 key=self.key)
             return result
         
         raise Exception('Should not reach here, something went wrong in forward')
 
 
-
-    @property
-    def roles(self):
-        if not hasattr(self, '_roles'):
-            self._roles = self.get_roles()
-        return self._roles
-
     def get_request(self, fn:str, request) -> float:
+        """
+        process the request
+        """
         if fn == '':
             fn = 'info'
         headers = dict(request.headers) 
@@ -149,13 +158,12 @@ class Server:
         loop = asyncio.get_event_loop()
         params = loop.run_until_complete(request.json())
         params = json.loads(params) if isinstance(params, str) else params
-        
-        assert self.auth.hash({"fn": fn, "params": params}) == headers['data'], f'Invalid data hash for {params}'
-        role = self.role(headers['key']) # get the role of the user
-        if role not in self.sudo_roles:
-            assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
+        is_owner =  self.is_owner(headers['key'])
+        assert is_owner or (fn in info['public_fns']), f"Function {fn} not in fns={info['fns']}"
         headers =  {k:v for k,v in headers.items() if k in self.auth.auth_features}
-        return {'fn': fn, 'params': params, 'client': headers, 'role': role, 'cost': cost}
+        request =  {'fn': fn, 'params': params, 'client': headers, 'is_owner': is_owner, 'cost': cost}
+        self.print_request(request)
+        return request
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
         return  self.tx.txs( *args, **kwargs)
@@ -212,90 +220,48 @@ class Server:
 
     def call(self, fn , params=None, **kwargs): 
         return self.fn('client/forward')(fn, params, **kwargs)
+
+    def whitelist_user(self, user:str, update:bool = False):
+        """
+        check if the address is whitelisted
+        """
+        whitelist = self.store.get(f'whitelist', [], max_age=max_age, update=update)
+        whitelist.append(user)
+        whitelist = list(set(whitelist))
+        self.store.put(f'whitelist', whitelist)
+        return {'whitelist': whitelist, 'user': user }
+
+    def unwhitelist_user(self, user:str, update:bool = False):
+        """
+        check if the address is whitelisted
+        """
+        whitelist = self.store.get(f'whitelist', [], update=update)
+        whitelist.remove(user)
+        whitelist = list(set(whitelist))
+        self.store.put(f'whitelist', whitelist)
+        return {'whitelist': whitelist, 'user': user }
     
-    def role(self, user) -> str:
+    def whitelist(self,  update:bool = False):
         """
-        get the role of the address ( owner, local, public)
+        check if the address is whitelisted
         """
-        assert not self.is_blacklisted(user), f"Address {user} is blacklisted"
-        role = 'public'
-        if m.is_owner(user):
-            # can call any fn
-            role =  'owner'
-        else:
-            # non admin roles (cant call every fn)            
-            # check if the user has a role
-            if user in self.roles:
-                role = roles[user]
-            if not hasattr(self, 'address2key'):
-                self.address2key = m.address2key()
-            if user in self.address2key:
-                role =  'local'
-            else:
-                role = 'public' # default role is public
-        return role
+        return self.store.get(f'whitelist', [], update=update)
 
-    def get_roles(self, max_age:int = 60, update:bool = False):
-        """
-        get the roles of the addresses
-        """
-        roles = self.store.get(f'roles', {}, max_age=max_age, update=update)
-        return roles
-
-    def add_role(self, address:str, role:str, max_age:int = 60, update:bool = False):
-        """
-        add a role to the address
-        """
-        roles = self.store.get(f'roles', {}, max_age=max_age, update=update)
-        roles[address] = role
-        self.store.put(f'roles', roles)
-        return {'roles': roles, 'address': address }
-
-    def remove_role(self, address:str, role:str, max_age:int = 60, update:bool = False):
-        """
-        remove a role from the address
-        """
-        roles = self.store.get(f'roles', {}, max_age=max_age, update=update)
-        if address in roles:
-            del roles[address]
-        self.store.put(f'roles', roles)
-        return {'roles': roles, 'address': address }
-
-    def get_role(self, address:str, max_age:int = 60, update:bool = False):
-        """
-        get the role of the address
-        """
-        roles = self.store.get(f'roles', {}, max_age=max_age, update=update)
-        if address in roles:
-            return roles[address]
-        else:
-            return 'public'
-
-    def has_role(self, address:str, role:str, max_age:int = 60, update:bool = False):
-        """
-        check if the address has the role
-        """
-        roles = self.store.get(f'roles', {}, max_age=max_age, update=update)
-        if address in roles:
-            return roles[address] == role
-        else:
-            return False
-
-    def blacklist_user(self, user:str, max_age:int = 60, update:bool = False):
+    def blacklist_user(self, user:str, update:bool = False):
         """
         check if the address is blacklisted
         """
-        blacklist = self.store.get(f'blacklist', [], max_age=max_age, update=update)
+        blacklist = self.store.get(f'blacklist', [],  update=update)
         blacklist.append(user)
         blacklist = list(set(blacklist))
         self.store.put(f'blacklist', blacklist)
         return {'blacklist': blacklist, 'user': user }
 
-    def unblacklist_user(self, user:str, max_age:int = 60, update:bool = False):
+    def unblacklist_user(self, user:str,  update:bool = False):
         """
         check if the address is blacklisted
         """
-        blacklist = self.store.get(f'blacklist', [], max_age=max_age, update=update)
+        blacklist = self.store.get(f'blacklist', [],  update=update)
         blacklist.remove(user)
         blacklist = list(set(blacklist))
         self.store.put(f'blacklist', blacklist)
@@ -305,13 +271,13 @@ class Server:
         """
         check if the address is blacklisted
         """
-        return self.store.get(f'blacklist', [], max_age=max_age, update=update)
+        return self.store.get(f'blacklist', [], update=update)
 
-    def is_blacklisted(self, user:str, max_age:int = 60, update:bool = False):
+    def is_blacklisted(self, user:str,  update:bool = False):
         """
         check if the address is blacklisted
         """
-        blacklist = self.blacklist(max_age=max_age, update=update)
+        blacklist = self.blacklist( update=update)
         return user in blacklist
 
     def wait_for_server(self, name:str, max_time:int=10, trial_backoff:int=0.5, network:str='local', verbose=True, max_age:int=20):
@@ -345,14 +311,14 @@ class Server:
     def namespace(self,  search=None,**kwargs) -> dict:
         return self.pm.namespace(search=search, **kwargs)
 
-    def ensure_env(self, mod):
+    def prepare_server(self, mod, fn_options = ['ensure_env']):
         mod_obj = m.mod(mod)
-        if hasattr(mod_obj, 'ensure_env'):
-            print('Ensuring environment for mod', mod)
-            mod_obj().ensure_env()
+        for fn in fn_options:
+            if hasattr(mod_obj, fn):
+                print(f'Preparing server: running {fn}()', color='green', verbose=self.verbose)
+                getattr(mod_obj, fn)()
+                break
         return True
-            
-        
 
     def serve(self, 
               mod: Union[str, 'Module', Any] = None, # the mod in either a string
@@ -371,31 +337,24 @@ class Server:
               **extra_params 
               ):
         mod = mod or 'mod'
-        self.ensure_env(mod)
+        self.prepare_server(mod)
         port = self.get_port(port, mod=mod)
         print(f'Serving {mod} on port {port}', color='green', verbose=self.verbose)
         params = {**(params or {}), **extra_params}
         if remote:
             return m.mod('pm')().forward(mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)
+        self.serve_mod(mod=mod, params=params, key=key, public=public, fns=fns, port=port)
 
-        self.set_mod(mod=mod, params=params, key=key, public=public, fns=fns, port=port)
+    def get_public_fns(self, 
+                        fns  = None, 
+                        helper_fns = ['info', 'forward'],
+                        fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'public_fns', 'expose_fns']
+                        ) -> List[str]: 
 
-    def set_mod(self, 
-                mod: Union[str, 'Module', Any], 
-                port:Optional[int]=None,
-                params:Optional[dict] = None, 
-                key:Optional[str]=None,
-                public:bool=False, 
-                fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions'],
-                hide_private_fns: bool = True,  # whether to include private fns
-                helper_fns = ['info', 'forward'],
-                fns:Optional[List[str]]=None, ):
+        """
+        get the public functions
+        """
 
-        
-        self.mod = m.mod(mod)(**(params or {}))
-        self.key = m.key(key)
-        self.url =  '0.0.0.0:' + str(port)
-        info = m.info(mod, key=self.key, public=public, schema=True, url=self.url)
         fns =  fns or []
         # if no fns are provided, get them from the mod attributes
         if len(fns) == 0:
@@ -403,12 +362,21 @@ class Server:
                 if hasattr(self.mod, fa) and isinstance(getattr(self.mod, fa), list):
                     fns = getattr(self.mod, fa) 
                     break
-        # does not start with _ and is not a private fn
-        if hide_private_fns:
-            fns = [fn for fn in fns if not fn.startswith('_') ]
-        fns = list(set(fns + helper_fns))
-        info['schema'] = {fn:  info['schema'].get(fn, {}) for fn in fns if fn in  info['schema']}
-        info['fns'] = sorted(list(set(list(info['schema'].keys()) + helper_fns)))
+        return list(set(fns + helper_fns))
+
+    def serve_mod(self, 
+                mod: Union[str, 'Module', Any], 
+                port:Optional[int]=None,
+                params:Optional[dict] = None, 
+                key:Optional[str]=None,
+                public:bool=False, 
+                fns:Optional[List[str]]=None ):
+
+        self.mod = m.mod(mod)(**(params or {}))
+        self.key = m.key(key)
+        self.url =  '0.0.0.0:' + str(port)
+        info = m.info(mod, key=self.key, public=public, schema=True, url=self.url)
+        info['public_fns'] = self.get_public_fns(fns)
         self.info = info
         def get_info( schema:bool = True, fns=True):
             info_ = m.copy(self.info)

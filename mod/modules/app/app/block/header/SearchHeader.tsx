@@ -9,7 +9,7 @@ export function SearchHeader() {
   const { handleSearch } = useSearchContext()
   const router = useRouter()
   const [inputValue, setInputValue] = useState('')
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(true)
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -34,7 +34,6 @@ export function SearchHeader() {
       router.push('/mod/explore')
     }
     if (e.key === 'Escape') {
-      setIsExpanded(false)
       setInputValue('')
       handleSearch('')
     }
@@ -54,7 +53,7 @@ export function SearchHeader() {
         <button
           type="button"
           onClick={toggleExpand}
-          className="p-3 rounded-lg border-2 border-white/40 bg-white/15 hover:bg-white/20 hover:border-white/50 transition-all hover:scale-110 active:scale-95"
+          className="p-3 rounded-lg border-2 border-green-500/50 bg-black/80 hover:bg-black/90 hover:border-green-500 transition-all hover:scale-105 active:scale-95 shadow-md"
           style={{height: '56px', width: '56px'}}
         >
           <MagnifyingGlassIcon className="w-6 h-6 text-white" />
@@ -67,17 +66,16 @@ export function SearchHeader() {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Search mods..."
-            autoFocus
-            className="bg-white/15 border-3 border-white/40 text-white px-6 py-4 pl-14 pr-14 rounded-xl text-xl font-bold hover:bg-white/20 hover:border-white/50 focus:outline-none focus:ring-3 focus:ring-white/60 focus:border-white/60 transition-all shadow-xl shadow-black/30"
+            className="bg-black/90 border-2 border-green-500/50 text-white px-4 py-3 pl-12 pr-12 rounded-lg text-lg font-normal hover:bg-black hover:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/70 focus:border-green-500 transition-all shadow-md backdrop-blur-sm"
             style={{height: '56px', width: '320px'}}
           />
-          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-white/80" />
+          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/80" />
           <button
             type="button"
             onClick={toggleExpand}
             className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded transition-all hover:scale-110 active:scale-95"
           >
-            <XMarkIcon className="w-6 h-6 text-white/80" />
+            <XMarkIcon className="w-5 h-5 text-white/80" />
           </button>
         </div>
       )}

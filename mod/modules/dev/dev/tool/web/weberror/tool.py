@@ -216,12 +216,11 @@ class BrowserErrorScraper:
             
         return errors
     
-    def forward(self, url: str, show_errors: bool = True) -> Dict:
+    def forward(self, show_errors: bool = True) -> Dict:
         """
-        Main method to navigate and extract all errors.
+        Main method to read error input from console and parse it.
         
         Args:
-            url: URL to scrape
             show_errors: Whether to print errors to console
             
         Returns:
@@ -229,49 +228,121 @@ class BrowserErrorScraper:
         """
         self.errors.clear()
         
-        # Navigate to page
-        self.navigate(url)
+        # Read error input from console
+        print("\n" + "="*80)
+        print("🔍 BROWSER ERROR PARSER - Console Input Mode")
+        print("="*80)
+        print("\nPaste your error message below (press Enter twice when done):")
+        print("-"*80)
         
-        # Extract all types of errors
-        console_errors = self.extract_console_errors()
-        overlay_errors = self.extract_error_overlay()
-        network_errors = self.extract_network_errors()
+        lines = []
+        empty_count = 0
+        while empty_count < 2:
+            try:
+                line = input()
+                if line.strip() == "":
+                    empty_count += 1
+                else:
+                    empty_count = 0
+                    lines.append(line)
+            except EOFError:
+                break
         
-        # Combine all errors
-        self.errors.extend(console_errors)
-        self.errors.extend(overlay_errors)
-        self.errors.extend(network_errors)
+        error_text = "\n".join(lines)
+        
+        # Parse the error text
+        if error_text.strip():
+            parsed_error = self._parse_console_input(error_text)
+            if parsed_error:
+                self.errors.append(parsed_error)
         
         # Build result
         result = {
-            'url': url,
             'timestamp': time.time(),
             'total_errors': len(self.errors),
-            'console_errors': len(console_errors),
-            'overlay_errors': len(overlay_errors),
-            'network_errors': len(network_errors),
             'errors': [asdict(error) for error in self.errors],
-            'has_errors': len(self.errors) > 0
+            'has_errors': len(self.errors) > 0,
+            'raw_input': error_text
         }
         
         # Show errors if requested
         if show_errors and result['has_errors']:
             self._display_errors(result)
         elif show_errors:
-            print(f"\n✅ No errors found on {url}")
+            print(f"\n✅ No errors parsed from input")
         
         return result
+    
+    def _parse_console_input(self, error_text: str) -> Optional[ErrorInfo]:
+        """Parse error information from console input text"""
+        import re
+        
+        try:
+            lines = error_text.split('\n')
+            
+            # Try to identify error type and message
+            error_type = 'Unknown Error'
+            message = ''
+            stack_trace = []
+            file_path = None
+            line_number = None
+            column_number = None
+            
+            # Common error patterns
+            error_patterns = [
+                r'(\w+Error):\s*(.+)',
+                r'(Exception):\s*(.+)',
+                r'(Error)\s+(.+)',
+            ]
+            
+            for i, line in enumerate(lines):
+                # Try to match error type and message
+                for pattern in error_patterns:
+                    match = re.search(pattern, line)
+                    if match:
+                        error_type = match.group(1)
+                        message = match.group(2).strip()
+                        # Rest of lines are stack trace
+                        stack_trace = [l.strip() for l in lines[i+1:] if l.strip()]
+                        break
+                if message:
+                    break
+            
+            # If no pattern matched, use first line as message
+            if not message and lines:
+                message = lines[0].strip()
+                stack_trace = [l.strip() for l in lines[1:] if l.strip()]
+            
+            # Try to extract file location from stack trace
+            for trace_line in stack_trace:
+                # Pattern: at file.js:line:column or (file.js:line:column)
+                match = re.search(r'(?:at\s+)?(?:\()?([^\s()]+\.(?:js|tsx?|jsx?)):(\d+):(\d+)', trace_line)
+                if match:
+                    file_path = match.group(1)
+                    line_number = int(match.group(2))
+                    column_number = int(match.group(3))
+                    break
+            
+            return ErrorInfo(
+                error_type=error_type,
+                message=message,
+                stack_trace=stack_trace,
+                file_path=file_path,
+                line_number=line_number,
+                column_number=column_number
+            )
+            
+        except Exception as e:
+            print(f"Error parsing console input: {e}")
+            return None
     
     def _display_errors(self, result: Dict) -> None:
         """Display errors in a readable format"""
         print(f"\n{'='*80}")
-        print(f"🔍 ERROR REPORT FOR: {result['url']}")
+        print(f"🔍 ERROR PARSING RESULTS")
         print(f"{'='*80}")
         print(f"\n📊 Summary:")
         print(f"  Total Errors: {result['total_errors']}")
-        print(f"  Console Errors: {result['console_errors']}")
-        print(f"  Overlay Errors: {result['overlay_errors']}")
-        print(f"  Network Errors: {result['network_errors']}")
         
         for i, error in enumerate(result['errors'], 1):
             print(f"\n{'─'*80}")
@@ -299,11 +370,6 @@ class BrowserErrorScraper:
             json.dump([asdict(error) for error in self.errors], f, indent=2)
         print(f"Errors saved to {filepath}")
     
-    def get_screenshot(self, filepath: str = 'error_screenshot.png') -> None:
-        """Take a screenshot of the current page"""
-        self.driver.save_screenshot(filepath)
-        print(f"Screenshot saved to {filepath}")
-    
     def close(self) -> None:
         """Close the browser"""
         if self.driver:
@@ -321,12 +387,12 @@ class BrowserErrorScraper:
 
 # Example usage
 if __name__ == "__main__":
-    # Using context manager
-    with BrowserErrorScraper(headless=False) as scraper:
-        # Navigate and extract all errors with display
-        result = scraper.forward('http://localhost:3000', show_errors=True)
-        
-        # Save to file if errors exist
-        if result['has_errors']:
-            scraper.save_errors('browser_errors.json')
-            scraper.get_screenshot('error_page.png')
+    # Using without browser - just parse console input
+    scraper = BrowserErrorScraper(headless=False)
+    
+    # Read and parse error from console
+    result = scraper.forward(show_errors=True)
+    
+    # Save to file if errors exist
+    if result['has_errors']:
+        scraper.save_errors('parsed_errors.json')
