@@ -39,34 +39,34 @@ export function Header() {
             <nav className="flex items-center gap-3">
               <Link
                 href="/mod/explore"
-                className={`flex items-center gap-3 px-6 py-4 rounded-xl border-2 transition-all duration-200 font-black uppercase tracking-wider backdrop-blur-md ${
-                  isModsPage ? 'shadow-2xl scale-105 active:scale-100' : 'hover:shadow-xl hover:scale-105 active:scale-95'
+                className={`group flex items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 backdrop-blur-md ${
+                  isModsPage ? 'shadow-xl scale-105 active:scale-100' : 'hover:shadow-lg hover:scale-105 active:scale-95'
                 }`}
                 style={{
                   backgroundColor: isModsPage ? `${modsColor}50` : `${modsColor}25`,
                   borderColor: `${modsColor}80`,
                   color: modsColor,
-                  boxShadow: isModsPage ? `0 0 30px ${modsColor}60, inset 0 2px 10px ${modsColor}30` : `0 0 15px ${modsColor}20`,
+                  boxShadow: isModsPage ? `0 0 20px ${modsColor}60, inset 0 2px 8px ${modsColor}30` : `0 0 10px ${modsColor}20`,
                 }}
+                title="Modules"
               >
-                <CubeIcon className="h-7 w-7" />
-                <span className="font-black text-xl drop-shadow-lg">MODS</span>
+                <CubeIcon className="h-6 w-6" />
               </Link>
               
               <Link
                 href="/user/explore"
-                className={`flex items-center gap-3 px-6 py-4 rounded-xl border-2 transition-all duration-200 font-black uppercase tracking-wider backdrop-blur-md ${
-                  isUsersPage ? 'shadow-2xl scale-105 active:scale-100' : 'hover:shadow-xl hover:scale-105 active:scale-95'
+                className={`group flex items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 backdrop-blur-md ${
+                  isUsersPage ? 'shadow-xl scale-105 active:scale-100' : 'hover:shadow-lg hover:scale-105 active:scale-95'
                 }`}
                 style={{
                   backgroundColor: isUsersPage ? `${usersColor}50` : `${usersColor}25`,
                   borderColor: `${usersColor}80`,
                   color: usersColor,
-                  boxShadow: isUsersPage ? `0 0 30px ${usersColor}60, inset 0 2px 10px ${usersColor}30` : `0 0 15px ${usersColor}20`,
+                  boxShadow: isUsersPage ? `0 0 20px ${usersColor}60, inset 0 2px 8px ${usersColor}30` : `0 0 10px ${usersColor}20`,
                 }}
+                title="Users"
               >
-                <UsersIcon className="h-7 w-7" />
-                <span className="font-black text-xl drop-shadow-lg">USERS</span>
+                <UsersIcon className="h-6 w-6" />
               </Link>
             </nav>
           )}
@@ -81,6 +81,7 @@ export function Header() {
                 onMouseEnter={() => setShowMenu(true)} 
                 className="p-4 rounded-lg border-2 border-white/40 bg-white/15 hover:bg-white/20 transition-all active:scale-95" 
                 style={{height: '56px'}}
+                title="Menu"
               >
                 <Bars3Icon className="h-6 w-6 text-white" />
               </button>
@@ -93,7 +94,7 @@ export function Header() {
                   <nav className="flex flex-col p-2">
                     <Link
                       href="/mod/explore"
-                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all duration-200 mb-2 font-black uppercase backdrop-blur-md ${
+                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all duration-200 mb-2 backdrop-blur-md ${
                         isModsPage ? 'shadow-xl active:scale-95' : 'hover:shadow-lg active:scale-95'
                       }`}
                       style={{
@@ -102,14 +103,15 @@ export function Header() {
                         color: modsColor,
                         boxShadow: isModsPage ? `0 0 20px ${modsColor}50, inset 0 2px 8px ${modsColor}30` : `0 0 10px ${modsColor}20`,
                       }}
+                      title="Modules"
                     >
                       <CubeIcon className="h-6 w-6" />
-                      <span className="font-black text-lg drop-shadow-lg">MODS</span>
+                      <span className="font-bold text-base">MODS</span>
                     </Link>
                     
                     <Link
                       href="/user/explore"
-                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all duration-200 font-black uppercase backdrop-blur-md ${
+                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border-2 transition-all duration-200 backdrop-blur-md ${
                         isUsersPage ? 'shadow-xl active:scale-95' : 'hover:shadow-lg active:scale-95'
                       }`}
                       style={{
@@ -118,9 +120,10 @@ export function Header() {
                         color: usersColor,
                         boxShadow: isUsersPage ? `0 0 20px ${usersColor}50, inset 0 2px 8px ${usersColor}30` : `0 0 10px ${usersColor}20`,
                       }}
+                      title="Users"
                     >
                       <UsersIcon className="h-6 w-6" />
-                      <span className="font-black text-lg drop-shadow-lg">USERS</span>
+                      <span className="font-bold text-base">USERS</span>
                     </Link>
                   </nav>
                 </div>

@@ -1,21 +1,18 @@
 'use client'
-
-import { UserType } from '@/app/types'
+import { text2color, shorten } from '@/app/utils'
 import { CopyButton } from '@/app/block/CopyButton'
+import { KeyIcon } from 'lucide-react'
+import { UserType } from '@/app/types'
 import Link from 'next/link'
-import { User, Hash, Package, Wallet, KeyIcon, Shield } from 'lucide-react'
-import { shorten, text2color } from "@/app/utils";
 
 interface UserCardProps {
   user: UserType
+  mode?: 'explore' | 'page'
 }
 
-export function UserCard({ user }: UserCardProps) {
-  const keyColor = text2color(user.key)
-  const modCount = user.mods?.length || 0
-  const balance = user.balance || 0
-  const walletType = user.crypto_type || 'sr25519'
-
+export const UserCard = ({ user, mode = 'explore' }: UserCardProps) => {
+  const userColor = text2color(user.key)
+  
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
     return result ? {
@@ -25,83 +22,58 @@ export function UserCard({ user }: UserCardProps) {
     } : { r: 139, g: 92, b: 246 }
   }
   
-  const rgb = hexToRgb(keyColor)
+  const rgb = hexToRgb(userColor)
   const borderColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`
   const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`
 
-  return (
-    <div className="group relative border-2 rounded-xl p-4 hover:shadow-xl transition-all duration-300 backdrop-blur-sm overflow-hidden h-full flex flex-col hover:scale-[1.01] bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}` }}>
-      <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${keyColor}, transparent, ${keyColor})` }} />
+  const CardContent = () => (
+    <div className="group relative border rounded-lg px-4 py-3 hover:shadow-lg transition-all duration-200 backdrop-blur-sm bg-black flex items-center gap-3" style={{ borderColor: borderColor, boxShadow: `0 0 8px ${glowColor}` }}>
+      <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur transition-all duration-300 rounded-lg" style={{ background: `linear-gradient(45deg, ${userColor}, transparent, ${userColor})` }} />
       
-      <div className="relative z-10 space-y-2.5 flex-1 flex flex-col">
-        <div className="flex items-start justify-between gap-2">
-          <Link href={`/user/${user.key}`} className="flex items-center gap-2 group/link flex-1 min-w-0">
-            <div className="flex-shrink-0 p-2 rounded-lg border group-hover/link:scale-110 transition-all duration-300" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
-              <User size={28} strokeWidth={2.5} style={{ color: keyColor }} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-                <div className="flex items-center gap-2">
-                  <KeyIcon size={18} strokeWidth={2.5} style={{ color: keyColor }} />
-                  <code className="text-2xl font-mono font-bold truncate block" style={{ color: keyColor }} title={user.key}>
-                    {shorten(user.key, 8, 8)}
-                  </code>
-                  <CopyButton text={user.key} size="sm" />
-                  <div className="ml-1 px-2 py-0.5 rounded border text-xs font-mono font-bold" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)`, color: keyColor }}>
-                    {walletType}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Link>
+      <div className="relative z-10 flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex-shrink-0 p-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
+          <KeyIcon size={24} strokeWidth={2.5} style={{ color: userColor }} />
         </div>
-
-        <Link href={`/user/${user.key}`} className="flex-1 min-w-0 space-y-2">
-
-          <div className="flex gap-2">
-            <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm flex-1" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Package size={16} strokeWidth={2.5} style={{ color: keyColor }} />
-                <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Modules</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <code className="text-base font-mono font-bold" style={{ color: keyColor }}>
-                  {modCount}
-                </code>
-              </div>
-            </div>
-
-            {user.balance !== undefined && (
-              <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm flex-1" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <Wallet size={16} strokeWidth={2.5} style={{ color: keyColor }} />
-                  <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Balance</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <code className="text-base font-mono font-bold" style={{ color: keyColor }}>
-                    {balance.toFixed(2)}
-                  </code>
-                </div>
-              </div>
-            )}
+        
+        <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <code className="text-xl font-mono font-bold" style={{ color: userColor }} title={user.key}>
+              {shorten(user.key, 6, 6)}
+            </code>
+            <CopyButton text={user.key} size="sm" />
           </div>
-
-          {user.address && (
-            <div className="border px-2.5 py-1.5 rounded-lg backdrop-blur-sm" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Hash size={16} strokeWidth={2.5} style={{ color: keyColor }} />
-                <span className="text-sm font-bold uppercase tracking-wide" style={{ color: keyColor }}>Address</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <code className="text-base font-mono font-bold truncate flex-1" style={{ color: keyColor }} title={user.address}>
-                  {shorten(user.address, 6, 6)} 
-                </code>
-                <CopyButton text={user.address} size="sm" />
-              </div>
+          
+          {user.balance !== undefined && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+              <span className="text-sm font-bold uppercase tracking-wide" style={{ color: userColor }}>Balance:</span>
+              <code className="text-lg font-mono font-bold" style={{ color: userColor }}>
+                {user.balance}
+              </code>
             </div>
           )}
-        </Link>
+          
+          {user.mods && user.mods.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+              <span className="text-sm font-bold uppercase tracking-wide" style={{ color: userColor }}>Mods:</span>
+              <code className="text-lg font-mono font-bold" style={{ color: userColor }}>
+                {user.mods.length}
+              </code>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
+
+  if (mode === 'explore') {
+    return (
+      <Link href={`/user/${user.key}`} className="block">
+        <CardContent />
+      </Link>
+    )
+  }
+
+  return <CardContent />
 }
+
+export default UserCard

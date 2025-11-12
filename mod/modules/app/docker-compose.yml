@@ -9,7 +9,7 @@ services:
     container_name: app
     deploy: {}
     environment:
-    - API_URL=http://70.73.8.64:8000
+    - NEXT_PUBLIC_API_URL=http://0.0.0.0:8000
     image: app:latest
     ports:
     - 3000:3000

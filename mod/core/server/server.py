@@ -312,7 +312,7 @@ class Server:
         return self.pm.namespace(search=search, **kwargs)
 
     def prepare_server(self, mod, fn_options = ['ensure_env']):
-        mod_obj = m.mod(mod)
+        mod_obj = m.mod(mod)()
         for fn in fn_options:
             if hasattr(mod_obj, fn):
                 print(f'Preparing server: running {fn}()', color='green', verbose=self.verbose)

@@ -364,30 +364,27 @@ class PM:
         """
         return name in self.servers()
         
-    def kill(self, name: str, sudo: bool = False, verbose: bool = False, prune: bool = False) -> Dict[str, str]:
+    def kill(self, name: str) -> Dict[str, str]:
         """
         Kill and remove a container.
         """
         if not self.exists(name):
             return {'status': 'not_found', 'name': name}
         try:
-            m.cmd(f'docker kill {name}', sudo=sudo, verbose=verbose)
-            m.cmd(f'docker rm {name}', sudo=sudo, verbose=verbose)
-            if prune:
-                self.prune()
-            result =  {'status': 'killed', 'name': name}
-            print(result)
+            os.system(f'docker kill {name}' )
+            os.system(f'docker rm {name}')
+            print(f'Killed container --> {name}')
             return result
         except Exception as e:
             return {'status': 'error', 'name': name, 'error': str(e)}
 
-    def kill_all(self, sudo: bool = False, verbose: bool = True) -> Dict[str, str]:
+    def kill_all(self) -> Dict[str, str]:
         """
         Kill all running containers.
         """
         try:
             for container in self.servers():
-                self.kill(container, sudo=sudo, verbose=verbose)
+                self.kill(container)
             return {'status': 'all_containers_killed'}
         except Exception as e:
             return {'status': 'error', 'error': str(e), 'servers': self.servers()}

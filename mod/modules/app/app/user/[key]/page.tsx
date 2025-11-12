@@ -11,7 +11,7 @@ import { Footer } from '@/app/block/footer/Footer'
 import { SignVerifyTab } from './tabs/SignVerifyTab'
 import { TransferTab } from './tabs/TransferTab'
 
-type TabType = 'mods' | 'sign'
+type TabType = 'mods' | 'sign' | 'transfer'
 
 function UserModules({ userData }: { userData: UserType }) {
   const { mods } = userData
@@ -73,7 +73,7 @@ export default function UserPage() {
   const tabs: { id: TabType; label: string }[] = [
     { id: 'mods', label: 'mods' },
     { id: 'sign', label: 'sign & verify' },
-    { id : 'transfer', label: 'transfer' }
+    { id: 'transfer', label: 'transfer' }
   ]
 
   return (
@@ -81,7 +81,7 @@ export default function UserPage() {
       <main className="flex-1 px-6 py-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="mb-8">
-            <UserCard user={userData} />
+            <UserCard user={userData} mode="page" />
           </div>
 
           <div className="flex flex-wrap gap-3 mb-6">
