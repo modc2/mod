@@ -938,7 +938,7 @@ class Substrate:
     to_j = to_joules
         
     def valid_ss58_address(self, address):
-        from .utils.ss58 import is_valid_ss58_address
+        from .ss58 import is_valid_ss58_address
         return is_valid_ss58_address(address)
 
     def get_key_address(self, key:str ) -> str:

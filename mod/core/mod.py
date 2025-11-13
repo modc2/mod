@@ -95,22 +95,6 @@ class Mod:
         shortcuts = {k: v for k, v in shortcuts.items() if isinstance(v, str)}
         return shortcuts
 
-    def sync_links(self):
-        links = self.config().get('links', {})
-        for name, repo in links.items():
-            repo_path = self.mods_path + f'/{name}'
-            if not os.path.exists(repo_path):
-                print(f'Cloning {repo} into {repo_path}')
-                self.cmd(f'git clone {repo} {repo_path}')
-            else:
-                print(f'Updating {repo} in {repo_path}')
-                self.cmd('git pull', cwd=repo_path)
-        # add the path to the gitignore if not already there
-        gitignore_path = self.lib_path + '/.gitignore'
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, 'r') as f:
-                gitignore = f.read()
-
     def mod(self, 
                 mod: str = 'mod', 
                 params: dict = None,  
@@ -1376,26 +1360,6 @@ class Mod:
 
     dp = dirpath
 
-    def gitignore_path(self, path=None):
-        path = path or self.lib_path
-        return self.abspath(path + '/.gitignore')
-
-    def gitignore(self, path=None, **kwargs):
-        return self.get_text(self.gitignore_path(path))
-    def gitignore_contents(self, *args, **kwargs):
-        return self.gitignore( *args, **kwargs)
-
-    def gitignore_mod_path(self, name):
-        return self.mods_path + '/' + name.replace(self.lib_path + '/', '') 
-
-    def rm_mod_gitignore(self, name):
-        gitignore = self.gitignore()
-        gitignore_path = self.gitignore_path()
-        gitignore_mod_path = self.gitignore_mod_path(name)
-        if gitignore_mod_path in gitignore:
-            gitignore = gitignore.replace(gitignore_mod_path, '')
-            self.put_text(gitignore_path, gitignore)
-        return {'name': name, 'path': gitignore_mod_path, 'msg': 'Removed from .gitignore'}
 
     def addpath(self, path, name=None, update=True):
         assert os.path.exists(path), f'Path {path} does not exist'
@@ -1594,48 +1558,6 @@ class Mod:
         if mod:
             return self.fn(mod + '/app' )()
         return self.fn('app/serve')(**kwargs)
-
-    def api(self, *args, **kwargs):
-       return self.fn('app/api')(*args, **kwargs)
-
-    def code_link(self, url:str='mod-ai/mod'):
-        gitprefix = 'https://github.com/'
-        gitsuffix = '.git'
-        if not url.startswith(gitprefix):
-            url = gitprefix + url
-        if not url.endswith(gitsuffix):
-            url = url + gitsuffix
-        return url
-    
-    def links(self, mod:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
-        return self.config()['links']
-
-    def islink(self, mod:str = 'ipfs-service', expected_features = ['api', 'app', "code"]):
-        return bool(mod in self.links())
-
-    def link(self, mod:str = 'ipfs-service', update=False):
-        links = self.links()
-        if self.mod_exists(mod) and update: 
-            self.rm_mod(mod)
-        if not mod in links: 
-            return {'msg': f'mod {mod} not in links ', 'links': links}
-        elif self.mod_exists(mod):
-            return {'msg': f'mod {mod} already exists', 'links': links}
-        else: 
-            return self.addmod(links[mod], update=update)
-
-    def unlink(self, mod:str = 'ipfs-service'):
-        if self.mod_exists(mod):
-            return self.rm_mod(mod)
-        else:
-            return {'msg': f'mod {mod} does not exist'}
-            
-    def test_link(self, mod:str = 'ipfs-service'):
-        self.unlink(mod)
-        assert not self.mod_exists(mod), f'mod {mod} still exists'
-        self.link(mod)
-        assert self.mod_exists(mod), f'mod {mod} does not exist'
-        return {'msg': f'mod {mod} linked successfully'}
 
     def confirm(self, message:str = 'Are you sure?', suffix = ' (y/n): '):
         confirm = input(message + suffix)

@@ -37,13 +37,13 @@ class  Api:
         """
         
         cid = self.registry(key=key).get(mod, mod)
-        mod =  self.store.get(cid) if cid else None
+        mod =  self.get(cid) if cid else None
         if schema: 
-            mod['schema'] = self.store.get(mod['schema'])
+            mod['schema'] = self.get(mod['schema'])
         if content:
-            mod['content'] = self.store.get(self.store.get(mod['content'])['data'])
+            mod['content'] = self.get(self.get(mod['content'])['data'])
             for file, cid in mod['content'].items():
-                mod['content'][file] = self.store.get(cid)
+                mod['content'][file] = self.get(cid)
         mod['cid'] = cid
         return mod
 
@@ -67,12 +67,16 @@ class  Api:
     
     def update_registry(self, mod:str, info:dict):
         # assert self.verify(info)
-        cid = self.add_data(info)
+        if 'cid' in info:
+            cid = info['cid']
+        else:
+            cid = self.add(info)
         registry = m.get(self.registry_path, {})
         key = info['key']
         if key not in registry:
             registry[key] = {}
         registry[key][mod] = cid
+        print(f"Updated registry for mod: {mod}, cid: {cid}")
         m.put(self.registry_path, registry)
         return cid
 
@@ -88,17 +92,20 @@ class  Api:
         file2cid = {}
         content = m.content(mod)
         for file,content in content.items():
-            cid = self.add_data(content)
+            cid = self.add(content)
             file2cid[file] = cid
-        return self.add_data(file2cid)
-    def add_data(self, data):
-        return self.store.add_data(data)
+        return self.add(file2cid)
+    def add(self, data):
+        return self.store.add(data)
+
+    def get(self, cid: str) -> Any:
+        return self.store.get(cid)
 
     def add_content(self, mod: str='store', comment=None) -> Dict[str, str]:
-        return self.add_data({'data': self.add_mod(mod), 'comment': comment, 'time': m.time()})
-
+        return self.add({'data': self.add_mod(mod), 'comment': comment, 'time': m.time()})
+    
     def add_schema(self, mod: str='store') -> str:
-        return self.add_data(m.schema(mod))
+        return self.add(m.schema(mod))
 
     def get_url(self, url: str) -> str:
         url = m.namespace().get(url, None)
@@ -118,30 +125,42 @@ class  Api:
 
         """
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
+        prev_cid = self.registry(key=key).get(mod, None)
         current_time = m.time()
         key = m.key(key)
-        prev_cid = self.modcid(mod, key=key, update=update)
-        content_cid = self.add_content(mod, comment=comment)
-        schema_cid = self.add_schema(mod)
-        info = {
-            'content': content_cid,
-            'schema': schema_cid,
-            'prev': prev_cid, # previous state
-            'name': mod,
-            'created':  current_time,  # created timestamp
-            'updated': current_time, 
-            'key': key.address,
-            'url': self.get_url(mod),
-        }
-        if prev_cid is not None:
-            old_info = self.store.get(prev_cid)
-            assert old_info['key'] == info['key'], 'Key mismatch'
-            if old_info['content'] != info['content']:
-                info = {**old_info, **info}
-        info.pop('signature', None)
-        info['signature'] = key.sign(info, mode='str')
-        info['data'] = self.add_data(info)
-        self.update_registry(mod, info)
+        if prev_cid == None:
+            info = {
+                'content': self.add_content(mod, comment=comment),
+                'schema': self.add_schema(mod),
+                'prev': prev_cid, # previous state
+                'name': mod,
+                'created':  current_time,  # created timestamp
+                'updated': current_time, 
+                'key': key.address,
+                'url': self.get_url(mod),
+            }
+            info['signature'] = key.sign(info, mode='str')
+            info['cid'] = self.update_registry(mod, info)
+        else:
+            info = self.mod(prev_cid, key=key)
+            info.pop('cid', None)
+            assert key.address == info['key'], f'Key mismatch {key.address} != {info["key"]}'
+            content_cid = self.add_content(mod, comment=comment)
+            old_content_cid = info['content']
+            if content_cid == old_content_cid:
+                return info  # No changes, return existing info
+            else:
+                new_info = {
+                    'content': content_cid,
+                    'schema': self.add_schema(mod),
+                    'prev': prev_cid, # previous state
+                    'updated': current_time, 
+                    'url': self.get_url(mod),
+                }
+                info = {**info, **new_info}
+                info['signature'] = key.sign(info, mode='str')
+                info['cid'] = self.update_registry(mod, info)
+        
         return info 
 
     def mods(self, search=None, key='all', **kwargs) -> List[str]:
@@ -165,19 +184,31 @@ class  Api:
         mods = list(self.registry(search=search, key=key, **kwargs).keys())
         return mods
 
+    def is_valid_cid(self, cid: str) -> bool:
+        """Check if a given string is a valid IPFS CID.
+        
+        Args:
+            cid: IPFS CID string
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            self.get(cid)
+            return True
+        except:
+            return False
+
     def history(self, mod='store', features=['time', 'comment'] , key=None, df=False) -> List[Dict[str, Any]]:
 
-        history = []
+        history = []        
+        if mod not in registry:
+            return history
         info = self.mod(mod, key=key)
         while True:
-            prev = info['prev']
-            # nonce = info['nonce']
-            if prev == None:
+            history.append(info)
+            if info['prev'] == None:
                 break
             info = self.mod(info['prev'])
-            content_info = self.store.get(info['content'])
-            history.append(content_info)
-
         if df:
             return m.df(history)[features]
         return history
@@ -190,8 +221,8 @@ class  Api:
         prev = mod.get('prev', None)
         print(f"Getting diff for mod: {mod}, prev: {prev}")
         content_cid = self.mod(prev)['content']['data']
-        prev_content = self.store.get(content_cid)
-        current_content = self.store.get(mod['content'])
+        prev_content = self.get(content_cid)
+        current_content = self.get(mod['content'])
         diffs = {}
         for file in set(list(prev_content.keys()) + list(current_content.keys())):
             prev_file_content = prev_content.get(file, None)
@@ -217,10 +248,6 @@ class  Api:
             registry = filter_registry(registry)
             return registry
             
-    def all_registry(self, update=False) -> Dict[str, Any]:
-        registry =  m.get(self.registry_path, {}, update=update)
-        return registry
-
     def clear(self) -> bool:
         m.put(self.registry_path, {})
         self.store._rm_all_pins()
@@ -230,10 +257,10 @@ class  Api:
     def dereg(self, mod = 'store', key=None) -> bool:
         registry = self.registry(key=key)
         cid = registry.get(mod)
-        mod_data = self.store.get(cid)
+        mod_data = self.get(cid)
         content_cid = mod_data['content']
         schema_cid = mod_data['schema']
-        content_map = self.store.get(content_cid)
+        content_map = self.get(content_cid)
         for file, file_cid in content_map.items():
             self.store.rm(file_cid)
         self.store.rm(content_cid)
@@ -266,7 +293,7 @@ class  Api:
             Schema dictionary
         """
         mod_info = self.mod(mod)
-        schema = self.store.get( mod_info['schema'])
+        schema = self.get( mod_info['schema'])
         return schema
 
     def get_content(self, cid: str, expand=True) -> Dict[str, Any]:
@@ -276,36 +303,110 @@ class  Api:
             cid: Content CID
             expand: Whether to expand file contents
         """
-        content = self.store.get(cid)
+        content = self.get(cid)
         if expand:
             for file, file_cid in content.items():
-                content[file] = self.store.get(file_cid)
+                content[file] = self.get(file_cid)
         return content
+
+    def verify_mod(self, mod: m.Mod='store', key=None) -> bool:
+        """Verify the signature of a mod Mod in IPFS.
         
-    def setback(self, mod: m.Mod='app', content:str = 3, key=None ) -> Dict[str, Any]:
-        content = self.get_content(self.history(mod=mod, key=key)[-1]['data'])
+        Args:
+            mod: Commune Mod object
+            key: Key object or address string
+        Returns:
+            True if signature is valid, False otherwise
+        """
+
+        mod_info = self.mod(mod, key=key)
+        key_address = mod_info['key']
+        signature = mod_info['signature']
+        mod_info = {k:v for k,v in mod_info.items() if k not in ['signature', 'cid']}
+        valid = m.verify(mod_info, signature=signature, address=key_address, mode='str')
+        return valid
+
+    def verify_history(self, mod:str='store', key=None) -> bool:
+        """Verify the entire history of a mod Mod in IPFS.
+        
+        Args:
+            mod: Commune Mod object
+            key: Key object or address string
+        Returns:
+            True if entire history is valid, False otherwise
+        """
+        history = self.history(mod, key=key)
+        for info in history:
+            key_address = info['key']
+            signature = info['signature']
+            mod_info = {k:v for k,v in info.items() if k not in ['signature', 'cid']}
+            valid = m.verify(mod_info, signature=signature, address=key_address, mode='str')
+            if not valid:
+                return False
+        return True
+
+    def setback(self, mod:str, cid:str , key=None ) -> Dict[str, Any]:
+        """
+        Setback a mod Mod to a previous CID in IPFS.
+        Args:
+            mod: Commune Mod object
+            cid: Target CID to setback to
+            key: Key object or address string
+        """
+        modinfo = self.mod(cid, key=key)
+        history = self.history(mod, key=key)
+        assert cid in [h['cid'] for h in history], "Specified CID not found in mod history"
+        content = self.get_content(self.get( modinfo['content'])['data'])
         dirpath = m.dp(mod)
         write_files= []
         for file, file_content in content.items():
             filepath = os.path.join(dirpath, file)
             write_files.append(filepath)
-            m.print(f"[✓] Restored file: {filepath}", color="green")
             m.put_text(filepath, file_content)     
-        # delete files that are not in the setback content
         delete_files = []
         for file in m.files(dirpath):
             filepath = os.path.join(dirpath, file)
             if filepath not in write_files:
                 delete_files.append(filepath)
                 os.remove(filepath)
+                filepath_dir = os.path.dirname(filepath)
+                if len(os.listdir(filepath_dir)) == 0:
+                    os.rmdir(filepath_dir)
                 m.print(f"[✓] Deleted file: {filepath}", color="yellow")
-
+        modinfo = self.update_registry(mod, modinfo)
+        history = self.history(mod, key=key)
+        assert cid == history[0]['cid'], "Setback failed: content CID mismatch"
         return {
             'mod': mod,
             'write':write_files,
             'delete': delete_files
-        }
+        }  
+
+    def rm_mod(self, mod: m.Mod='store', key=None) -> bool:
+        """Remove a mod Mod from IPFS.
         
+        Args:
+            mod: Commune Mod object
+        Returns:
+            True if removal was successful, False otherwise
+        """
+        registry = self.registry(key=key)
+        history = self.history(mod, key=key)
+        for info in history:
+            cid = info['cid']
+            content_info_cid = info['content']
+            content_cid = self.get(content_info_cid)['data']
+            schema_cid = info['schema']
+            content_map = self.get(content_cid)
+            for file, file_cid in content_map.items():
+                self.store.rm(file_cid)
+            self.store.rm(content_info_cid)
+            self.store.rm(schema_cid)
+            self.store.rm(cid)
+
+        del registry[mod]
+        m.put(self.registry_path, registry)
+        return True      
 
     def content(self, mod: m.Mod='store', expand=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
@@ -317,10 +418,10 @@ class  Api:
             Content dictionary
         """
         mod_info = self.mod(mod)
-        content = self.store.get( mod_info['content'])
+        content = self.get( mod_info['content'])
         if expand: 
             for file, cid in content.items():
-                content[file] = self.store.get(cid)
+                content[file] = self.get(cid)
         return content
 
 
@@ -409,7 +510,7 @@ class  Api:
         dev = m.mod('dev')()
         text = ' '.join(list(map(str, query)))
         dev.forward(mod=mod, text=text, safety=False)
-        return m.fn('api/reg')(mod=mod, key=key, comment=text)
+        return self.reg(mod=mod, key=key, comment=text)
 
     def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
         return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)

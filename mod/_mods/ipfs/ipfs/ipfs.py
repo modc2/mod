@@ -51,7 +51,7 @@ class  IpfsClient:
             response.raise_for_status()
             return response.json()
 
-    def add_data(self, data: Dict[str, Any] = None, pin=True) -> Dict[str, Any]:
+    def add(self, data: Dict[str, Any] = None, pin=True) -> Dict[str, Any]:
         """Add a JSON object to IPFS.
         
         Args:
@@ -69,7 +69,7 @@ class  IpfsClient:
         if pin:
             self.pin_add(cid)
         return cid
-
+    put = add
     def rm(self, ipfs_hash: str) -> Dict[str, Any]:
         """Remove a JSON object from IPFS by its hash.
         
@@ -78,7 +78,10 @@ class  IpfsClient:
         Returns:
             Dictionary with removal status
         """
-        self.pin_rm(ipfs_hash)
+        try:
+            self.pin_rm(ipfs_hash)
+        except Exception as e:
+            print(f"Error unpinning {ipfs_hash}: {e}")
         return {"Status": "Removed"}
 
 
@@ -114,7 +117,7 @@ class  IpfsClient:
             data: Dictionary to add as JSON 
 
         """
-        return self.add_data(data, pin=False)
+        return self.add(data, pin=False)
 
     def cat(self, ipfs_hash: str) -> bytes:
         """Retrieve content from IPFS by hash.
@@ -246,7 +249,7 @@ class  IpfsClient:
         """
         test_obj = {"test_key": "test_value"}
         print("Testing IPFS data connection...", test_obj)
-        ipfs_hash = self.add_data(test_obj)
+        ipfs_hash = self.add(test_obj)
         retrieved_obj = self.get(ipfs_hash)
         return retrieved_obj == test_obj
 
