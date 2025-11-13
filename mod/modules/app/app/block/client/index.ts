@@ -1,2 +1,3 @@
-import {Client} from '@/app/block/client'
-export default Client
+import {Client} from './client'
+
+export default Client;

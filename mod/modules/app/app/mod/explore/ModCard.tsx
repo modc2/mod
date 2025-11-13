@@ -53,7 +53,7 @@ export default function ModCard({ mod }: ModCardProps) {
           <div className="hidden md:flex items-center gap-2 px-4 py-2.5 rounded-md border min-w-[140px]" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
             <Hash size={18} strokeWidth={2.5} style={{ color: modColor }} />
             <code className="text-base font-mono font-bold" style={{ color: modColor }} title={mod.cid}>
-              {shorten(mod.cid, 4, 4)}
+              {mod.cid ? shorten(mod.cid, 4, 4) : 'N/A'}
             </code>
             <CopyButton text={mod.cid} size="sm" />
           </div>
@@ -61,8 +61,8 @@ export default function ModCard({ mod }: ModCardProps) {
           {/* Updated */}
           <div className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-md border min-w-[120px]" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
             <Clock size={18} strokeWidth={2.5} style={{ color: modColor }} />
-            <code className="text-base font-mono font-bold" style={{ color: modColor }} title={mod.updated}>
-              {time2str(mod.updated)}
+            <code className="text-base font-mono font-bold" style={{ color: modColor }} title={mod.updated ? mod.updated.toString() : undefined}>
+              {mod.updated ? time2str(mod.updated) : 'N/A'}
             </code>
           </div>
 

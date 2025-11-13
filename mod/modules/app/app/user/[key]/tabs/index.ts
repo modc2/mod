@@ -1,7 +1,3 @@
-export { RegisterTab } from './RegisterTab'
 export { TransferTab } from './TransferTab'
 export { SignVerifyTab } from './SignVerifyTab'
 export { ChainInfo } from './ChainInfo'
-export { ModuleCaller } from './ModuleCaller'
-export { TransactionsTab } from './TransactionsTab'
-export { UserModules } from './UserModules'

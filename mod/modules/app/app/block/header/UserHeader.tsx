@@ -137,7 +137,7 @@ export function UserHeader() {
               <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: userColor }}>
                 {shorten(displayAddress, 8, 8)}
               </div>
-              <CopyButton content={displayAddress} size="sm" style={{color: userColor}} />
+              <CopyButton content={displayAddress} size="sm"  />
             </div>
           </div>
 

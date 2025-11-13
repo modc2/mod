@@ -7,10 +7,11 @@ import {
   MagnifyingGlassIcon, CodeBracketIcon, DocumentTextIcon, PhotoIcon, FilmIcon,
   MusicalNoteIcon, ArchiveBoxIcon, DocumentChartBarIcon, ClipboardDocumentIcon
 } from '@heroicons/react/24/outline';
+import { ModuleType } from '@/app/types';
 
 interface ModContentProps {
   mod: {
-    content: Record<string, string>;
+    content: Record<string, string> | undefined | string;
   };
 }
 
@@ -204,14 +205,14 @@ function FileTreeItem({
   );
 }
 
-export const ModContent: React.FC<ModContentProps> = ({
-  mod: { content: files },
-  showSearch = true,
-  showFileTree = true,
-  compactMode = false,
-  defaultExpandedFolders = true,
-}) => {
+export function ModContent({ mod }: { mod: ModuleType }) {
 
+  const files = typeof mod.content === 'object' && mod.content !== null ? mod.content : {};
+
+  const showSearch = true
+  const showFileTree = true
+  const compactMode = false
+  const defaultExpandedFolders = true
   const [searchTerm, setSearchTerm] = useState('');
   const [fileSearchTerm, setFileSearchTerm] = useState('');
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
@@ -243,9 +244,14 @@ export const ModContent: React.FC<ModContentProps> = ({
         for (let i = 0; i < parts.length - 1; i++) folders.add(parts.slice(0, i + 1).join('/'));
       }
       n.children?.forEach((c) => check(c, cp));
-    };
-    fileTree.forEach((n) => check(n));
-    setExpandedFolders((prev) => new Set([...prev, ...folders]));
+// NEW CODE
+  };
+  fileTree.forEach((n) => check(n));
+  setExpandedFolders((prev) => {
+    const newSet = new Set(prev);
+    folders.forEach(folder => newSet.add(folder));
+    return newSet;
+  });
   }, [fileSearchTerm, fileTree]);
 
   useEffect(() => {
@@ -253,6 +259,7 @@ export const ModContent: React.FC<ModContentProps> = ({
 
     const results: { path: string; lineNumbers: number[] }[] = [];
     Object.entries(files).forEach(([path, content]) => {
+      if (typeof content !== 'string') return;
       const lines = content.split('\n');
       const matchLines: number[] = [];
       const q = searchTerm.toLowerCase();
@@ -263,22 +270,33 @@ export const ModContent: React.FC<ModContentProps> = ({
     setCollapsedFiles(new Set());
   }, [searchTerm, files]);
 
-  const fileSections = useMemo(() =>
-    Object.entries(files).map(([path, content]) => ({
-      path,
-      name: path.split('/').pop() || path,
-      content,
-      language: getLanguageFromPath(path),
-      hash: hashShort(content),
-      lineCount: content.split('\n').length,
-      size: formatFileSize(content.length),
-    })), [files]
-  );
+const fileSections = useMemo(() =>
+  Object.entries(files)
+    .map(([path, content]) => {
+      if (typeof content !== 'string') return null;
+      
+      return {
+        path,
+        name: path.split('/').pop() || path,
+        content,
+        language: getLanguageFromPath(path),
+        hash: hashShort(content),
+        lineCount: content.split('\n').length,
+        size: formatFileSize(content.length),
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null), 
+  [files]
+);
 
   const filteredSections = useMemo(() => {
     if (!searchTerm) return fileSections;
     const q = searchTerm.toLowerCase();
-    return fileSections.filter((s) => s.path.toLowerCase().includes(q) || s.content.toLowerCase().includes(q));
+
+    return fileSections.filter((s) =>{
+      if (!s) return false;
+      return (s.path.toLowerCase().includes(q) || s.content.toLowerCase().includes(q));
+  });
   }, [fileSections, searchTerm]);
 
   const stats = useMemo(() => {

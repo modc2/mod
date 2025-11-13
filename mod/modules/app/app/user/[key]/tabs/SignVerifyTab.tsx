@@ -71,7 +71,9 @@ export const SignVerifyTab = ({ keyInstance }: SignVerifyTabProps) => {
       }
     } catch (error) {
       console.error('Error signing message:', error)
-      alert(`Failed to sign: ${error.message}`)
+      if (error instanceof Error) {
+        alert(`Failed to sign: ${error.message}`)
+      }
     }
   }
 
@@ -140,7 +142,7 @@ export const SignVerifyTab = ({ keyInstance }: SignVerifyTabProps) => {
               </code>
               <button
                 onClick={() => {
-                  copyToClipboard(signature, 'signature')
+                  copyToClipboard(signature)
                   setCopiedField('signature')
                   setTimeout(() => setCopiedField(null), 2000)
                 }}

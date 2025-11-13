@@ -8,7 +8,7 @@ class App:
             api_port=8000, 
             ipfs_port=8001,
             mod = 'app',
-            public=False, 
+            prod =False, dev =None, # if prod is True, dev is False
             remote=True, 
             ip = None,
             build=False):
@@ -21,17 +21,23 @@ class App:
             m.serve('api', port=api_port)
         image = f'{mod}:latest'
         cwd = m.dirpath(mod) 
-        ip = ip or (m.ip() if public else '0.0.0.0')
+        ip = ip or'0.0.0.0'
         env = {'NEXT_PUBLIC_API_URL': f'http://{ip}:{api_port}'}
+        cmd = 'npm run build && npm run start' if prod else 'npm run dev'
+        volumes = [f'{cwd}:/app','/app/node_modules', '~/.mod:/root/.mod', '~/mod:/root/mod', '/app/.next']
+        if dev != None:
+            prod = not dev
+        if prod: 
+            print('Building production app...')
         return m.fn('pm/run')(
                     name=mod, 
-                    volumes=[f'{cwd}:/app','/app/node_modules', '~/.mod:/root/.mod', '~/mod:/root/mod'], 
+                    volumes=volumes, 
                     cwd=cwd, 
                     image=image,
                     working_dir=f'/{mod}',
                     daemon=remote, 
                     port=port, 
-                    # cmd='npm start',
+                    cmd=cmd,
                     env=env, 
                     build=build
                     )

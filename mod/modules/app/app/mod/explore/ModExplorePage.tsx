@@ -1,70 +1,113 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
-import { UserCard } from './UserCard'
-import { UserCardSettings } from './UserCardSettings'
-import { UserType } from '@/app/types'
+import ModCard from './ModCard'
+import { ModCardSettings } from './ModCardSettings'
+import { ModuleType } from '@/app/types'
 import { Footer } from '@/app/block/footer/Footer'
+import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
-import { X, RotateCcw, Users } from 'lucide-react'
+import { X, RotateCcw, Sparkles } from 'lucide-react'
 
-type SortKey = 'recent' | 'name' | 'balance' | 'modules'
+type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
 
-export default function UsersPage() {
+export default function Modules() {
   const { client } = useUserContext()
-  const [users, setUsers] = useState<UserType[]>([])
+  const { searchFilters } = useSearchContext()
+
+  const [mods, setMods] = useState<ModuleType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sort, setSort] = useState<SortKey>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('user_explorer_sort') as SortKey) || 'recent'
+      return (localStorage.getItem('mod_explorer_sort') as SortKey) || 'recent'
     }
     return 'recent'
   })
   const [columns, setColumns] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      return parseInt(localStorage.getItem('user_explorer_columns') || '2')
+      return parseInt(localStorage.getItem('mod_explorer_columns') || '2')
     }
     return 2
   })
+  const [userFilter, setUserFilter] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mod_explorer_user_filter') || ''
+    }
+    return ''
+  })
+
+  const searchTerm = searchFilters.searchTerm?.trim() || ''
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('user_explorer_sort', sort)
+      localStorage.setItem('mod_explorer_sort', sort)
     }
   }, [sort])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('user_explorer_columns', columns.toString())
+      localStorage.setItem('mod_explorer_columns', columns.toString())
     }
   }, [columns])
 
-  const sortUsers = (list: UserType[]) => {
-    switch (sort) {
-      case 'balance':
-        return [...list].sort((a, b) => (b.balance || 0) - (a.balance || 0))
-      case 'modules':
-        return [...list].sort((a, b) => (b.mods?.length || 0) - (a.mods?.length || 0))
-      default:
-        return [...list].sort((a, b) => (b.balance || 0) - (a.balance || 0))
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mod_explorer_user_filter', userFilter)
     }
+  }, [userFilter])
+
+  const sortModules = (list: ModuleType[]) => {
+    switch (sort) {
+      case 'name':
+        return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      case 'author':
+        return [...list].sort((a, b) => (a.key || '').localeCompare(b.key || ''))
+      case 'updated':
+        return [...list].sort((a, b) => (b.updated || 0) - (a.updated || 0))
+      case 'created':
+        return [...list].sort((a, b) => (b.created || 0) - (a.created || 0))
+      case 'recent':
+      default:
+        return [...list].sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
+    }
+  }
+
+  const filterModsBySearch = (list: ModuleType[], term: string) => {
+    if (!term) return list
+    const lowerTerm = term.toLowerCase()
+    return list.filter(mod => 
+      (mod.name?.toLowerCase().includes(lowerTerm)) ||
+      (mod.key?.toLowerCase().includes(lowerTerm)) ||
+      (mod.desc?.toLowerCase().includes(lowerTerm))
+    )
+  }
+
+  const filterModsByUser = (list: ModuleType[], userKey: string) => {
+    if (!userKey) return list
+    const lowerUserKey = userKey.toLowerCase()
+    return list.filter(mod => mod.key?.toLowerCase().includes(lowerUserKey))
   }
 
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
     try {
-      if (!client) throw new Error('Client not initialized')
-      const raw = (await client.call('users', {})) as UserType[]
-      const allUsers = Array.isArray(raw) ? raw : []
-      const sorted = sortUsers(allUsers)
-      setUsers(sorted)
+      if (!client) {
+        setError('Client not initialized')
+        return
+      }
+      const raw = (await client.call('mods', {})) as ModuleType[]
+      const allMods = Array.isArray(raw) ? raw : []
+      let filtered = filterModsBySearch(allMods, searchTerm)
+      filtered = filterModsByUser(filtered, userFilter)
+      const sorted = sortModules(filtered)
+      setMods(sorted)
     } catch (err: any) {
-      console.error('Error fetching users:', err)
-      setError(err?.message || 'Failed to load users')
+      console.error('Error fetching modules:', err)
+      setError(err?.message || 'Failed to load modules')
     } finally {
       setLoading(false)
     }
@@ -72,7 +115,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchAll()
-  }, [client, sort])
+  }, [client, searchTerm, sort, userFilter])
 
   const gridColsClass = {
     1: 'grid-cols-1',
@@ -83,13 +126,15 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
-      <main className="flex-1 px-6 py-2" role="main">
+      <main className="flex-1 px-2 py-0" role="main">
         <div className="mx-auto max-w-7xl mb-4">
-          <UserCardSettings
+          <ModCardSettings
             sort={sort}
             onSortChange={setSort}
             columns={columns}
             onColumnsChange={setColumns}
+            userFilter={userFilter}
+            onUserFilterChange={setUserFilter}
           />
         </div>
 
@@ -119,13 +164,13 @@ export default function UsersPage() {
           </div>
         )}
 
-        {!loading && users.length === 0 && !error && (
+        {!loading && mods.length === 0 && !error && (
           <div className="mx-auto max-w-4xl text-center py-12">
             <div className="mb-6 inline-block p-6 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-2xl border-2 border-purple-500/40 shadow-xl backdrop-blur-xl">
-              <Users className="w-16 h-16 text-purple-300" strokeWidth={2} />
+              <Sparkles className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">
-              NO USERS YET
+              {searchTerm || userFilter ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
             </div>
           </div>
         )}
@@ -137,12 +182,12 @@ export default function UsersPage() {
         )}
 
         <div className={`mx-auto max-w-7xl grid ${gridColsClass} gap-6`}>
-          {users.map((user) => (
+          {mods.map((mod) => (
             <div
-              key={user.key}
+              key={`${mod.name}-${mod.key}`}
               className="transform hover:scale-[1.02] transition-all duration-300 ease-out"
             >
-              <UserCard user={user} />
+              <ModCard mod={mod} />
             </div>
           ))}
         </div>

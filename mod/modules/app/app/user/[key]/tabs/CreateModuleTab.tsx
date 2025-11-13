@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Package, Upload, Github, Database, Send, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import { Key } from '@/app/block/key'
 import { Auth } from '@/app/block/client/auth'
-import { Client } from '@/app/block/client'
+import  Client  from '@/app/block/client'
 
 interface CreateModuleTabProps {
   keyInstance: Key

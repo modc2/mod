@@ -10,6 +10,9 @@
       updated?: number // time of last update
       schema?: string // the schema of the mod
       url?: string // the url of the server
+      url_app?: string // the url of the app
+      collateral?: number // collateral locked in the mod
+      cid?: string // CID of the mod content
     }
 
 
@@ -25,6 +28,7 @@ export interface UserType {
   key: string
   mods: ModuleType[]
   balance: number
+  crypto_type?: string
 }
 
 

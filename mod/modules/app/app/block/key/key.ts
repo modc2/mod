@@ -111,7 +111,7 @@ import {
       }
     }
 
-    public sign(message: string): Promise<string> {
+    public sign(message: string): string {
       if (!message) {
         throw new Error('Empty message cannot be signed')
       }

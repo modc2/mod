@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import Key from '@/app/block/key';
+import {Key} from '@/app/block/key';
 
 export interface AuthHeaders {
   data: string;
@@ -26,11 +26,14 @@ export class Auth {
    * @param signatureKeys - The keys to use for signing
    */
   constructor(
-    key: Key,
+    key: Key | undefined,
     hashType: string = 'sha256',
     maxStaleness: number = 60,
     signatureKeys: string[] = ['data', 'time', 'cost']
   ) {
+    if (!key) {
+      throw new Error('Key is required for Auth');
+    }
     this.key = key;
     this.hashType = hashType;
     this.maxStaleness = maxStaleness;
@@ -93,7 +96,7 @@ export class Auth {
     return Date.now() / 1000; // Returns current timestamp in seconds
   }
 
-  public verify(headers: AuthHeaders, data?: any): AuthHeaders {
+  public verify(headers: AuthHeaders, data?: any): boolean {
     // Check staleness
     const currentTime = this.time()
     const headerTime = parseFloat(headers.time);
@@ -145,7 +148,7 @@ export class Auth {
   /**
    * Alias for verify method
    */
-  public verifyHeaders(headers: AuthHeaders, data?: any): AuthHeaders {
+  public verifyHeaders(headers: AuthHeaders, data?: any): boolean {
     return this.verify(headers, data);
   }
 
@@ -176,12 +179,12 @@ export class Auth {
   public static async test(
     key: Key,
     crypto_type: string = 'sr25519'
-  ): Promise<{ headers: AuthHeaders; verified: boolean }> {
+  ): Promise<{ headers: boolean; verified: boolean }> {
     const data = { fn: 'test', params: { a: 1, b: 2 } };
     const auth = new Auth(key, crypto_type);
     
     // Generate headers
-    const headers = auth.headers(data);
+    const headers = auth.generate(data);
     
     // Verify headers without data
     auth.verify(headers);

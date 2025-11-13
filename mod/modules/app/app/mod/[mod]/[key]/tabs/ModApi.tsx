@@ -37,7 +37,7 @@ const ui = {
 };
 
 export const ModApi = ({ mod }: { mod: any }) => {
-  const { keyInstance } = useUserContext();
+  const { user, client } = useUserContext();
 
   const schema: Record<string, SchemaType> = mod?.schema || {};
 
@@ -106,10 +106,6 @@ export const ModApi = ({ mod }: { mod: any }) => {
     setResponse(null);
 
     try {
-      const client = new Client(undefined, keyInstance);
-      const auth = new Auth(keyInstance);
-      const headers = auth.generate({ fn: selectedFunction, params });
-      setAuthHeaders(headers);
 
       // build url params safely (stringify objects)
       const qs = new URLSearchParams(
@@ -122,7 +118,12 @@ export const ModApi = ({ mod }: { mod: any }) => {
       ).toString();
       setUrlParams(qs);
 
-      const res = await client.call('call', { fn: selectedFunction, params });
+      if (!client) {
+        setError('Client not initialized');
+        setLoading(false);
+        return;
+      }
+      const res = await client.call(selectedFunction, params );
       setResponse(res);
     } catch (err: any) {
       setError(err?.message || 'Failed to execute function');

@@ -374,6 +374,8 @@ class PM:
             os.system(f'docker kill {name}' )
             os.system(f'docker rm {name}')
             print(f'Killed container --> {name}')
+            # remove from namespace cache
+            self.namespace(update=True)
             return result
         except Exception as e:
             return {'status': 'error', 'name': name, 'error': str(e)}

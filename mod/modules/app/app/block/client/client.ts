@@ -1,13 +1,13 @@
 import {Auth, AuthHeaders} from '@/app/block/client/auth';
-import Key from '@/app/block/key';
+import {Key} from '@/app/block/key';
 
 
 export class Client {
   public url: string;
-  public key: Key;
+  public key: Key | undefined;
   public auth: Auth;
 
-  constructor(url?: string, key?: Key, mode: string = 'http') {
+  constructor(url?: string, key?: Key  , mode: string = 'http') {
     this.url = this.getUrl(url, mode);
 
     this.key = key;

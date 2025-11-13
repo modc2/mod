@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react'
 import {
   Send,
@@ -43,10 +44,11 @@ export const TransferTab: React.FC = () => {
       const api = await ApiPromise.create({ provider })
       await api.isReady
 
-      const accountInfo = await api.query.system.account(address)
+      const accountInfo: any = await api.query.system.account(address)
       const freeBalance = accountInfo.data.free.toBigInt()
-      setBalance((Number(freeBalance) / 1e12).toFixed(4))
-
+      const formattedBalance = Number(freeBalance) / 1e12
+      setBalance(formattedBalance.toFixed(6))
+      
       await api.disconnect()
     } catch (err) {
       console.error('Balance fetch error:', err)
@@ -80,7 +82,7 @@ export const TransferTab: React.FC = () => {
 
       const transferAmount = BigInt(Math.floor(amountFloat * 1e12))
 
-      const senderInfo = await api.query.system.account(walletAddress)
+      const senderInfo: any = await api.query.system.account(walletAddress)
       const senderBalance = senderInfo.data.free.toBigInt()
       const feeBuffer = BigInt(100_000_000)
       if (senderBalance < transferAmount + feeBuffer)

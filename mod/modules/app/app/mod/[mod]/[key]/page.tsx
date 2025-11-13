@@ -31,6 +31,10 @@ export default function ModulePage() {
       setLoading(true)
       setError(null)
       try {
+        if (!client) {
+          setError('Client not initialized')
+          return
+        }
         const data = await client.call('mod', { mod: modName, key: modKey, content: true, schema: true })
         setMod(data as ModuleType)
       } catch (err: any) {

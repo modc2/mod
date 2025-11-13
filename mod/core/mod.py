@@ -91,7 +91,7 @@ class Mod:
     def shortcuts(self):
         shortcuts = self.config()['shortcuts']
         shortcuts[self.name] = 'mod'
-        shortcuts = {self.get_name(k): self.get_name(v) for k, v in shortcuts.items() if isinstance(v, str)}
+        shortcuts = {k: v for k, v in shortcuts.items() if isinstance(v, str)}
         return shortcuts
 
     def sync_links(self):
@@ -1252,7 +1252,8 @@ class Mod:
         anchor_names += [path.split('/')[-1]]
         if len(path.split('/')) > 1:
             anchor_names += [path.split('/')[-2]]
-        for f in self.files(path, depth=2):
+        files = list(sorted( self.files(path, depth=4), key=lambda x: len(x)))
+        for f in files:
             if any([f.endswith('/' + an + '.' + ft) for an in anchor_names for ft in self.file_types]):
                 return f
         return None
@@ -1278,10 +1279,8 @@ class Mod:
             class_obj_path = classes[-1]
             return self.obj(class_obj_path)
         else: 
-            tree = self.tree(folders=False, search=path)
-            if len(tree) >= 1:
-                return self.anchor_object(list(tree.values())[0])
-            raise Exception(f'No anchor file found in {path}')
+            print(self.tree(search=path), anchor_file)
+            raise Exception(f'No anchor file found in {path}, ')
         
 
     def get_tree(self, 
