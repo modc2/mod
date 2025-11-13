@@ -338,6 +338,10 @@ class Server:
               ):
         mod = mod or 'mod'
         self.prepare_server(mod)
+        if mod not in ['mod']:
+            _mod = m.mod(mod)
+            if hasattr(_mod, 'serve'):
+                return _mod().serve(**extra_params)
         port = self.get_port(port, mod=mod)
         print(f'Serving {mod} on port {port}', color='green', verbose=self.verbose)
         params = {**(params or {}), **extra_params}

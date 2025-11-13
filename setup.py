@@ -98,12 +98,9 @@ setup(
     install_requires=install_requires,
     extras_require=extras_require,
     entry_points={
-        'console_scripts': [
-            'm=mod.core.main:run',
-            'c=mod.core.main:run'
-        ],
+        'console_scripts': ['m=mod:main','c=mod:main' ],
     },
-    keywords=['modular', 'sdk', 'machine learning', 'deep-learning', 'crypto'],
+    keywords=['modular', 'sdk', 'ai', 'crypto'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',

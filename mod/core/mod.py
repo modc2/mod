@@ -18,7 +18,8 @@ class Mod:
 
     file_types = ['py'] # default file types
     anchor_names = ['agent', 'mod', 'block'] # default anchor names
-    endpoints = ['ask']
+    endpoints = ['ask'] # default endpoints
+    lib_name = __file__.split('/')[-2] # mod/core/mod.py -> mod 
 
     def __init__(self, 
                   config = None,
@@ -1259,7 +1260,7 @@ class Mod:
         return None
 
 
-    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'modules', 'mod']) -> str:
+    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'core', 'modules', 'mod']) -> str:
         name = name or 'mod'
         if isinstance(name, str) and any([name.startswith(p) for p in ['.', '~', '/']]):
             name = self.path2name(name)
@@ -1288,10 +1289,10 @@ class Mod:
                 search:Optional[str]=None, 
                 depth=10, 
                 root_names = ['mod'], 
-                avoid_terms = ['src', 'mods', '_mods', 'core'],
+                avoid_terms = ['src', 'mods', '_mods', 'core', 'core'],
                 avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
-                ignore_suffixes = ['/src', '/core'],
+                ignore_suffixes = ['/src', '/core', '/core', '/mod'],
                 folders:bool = True, 
                 update=False,  
                 **kwargs): 
@@ -1451,9 +1452,6 @@ class Mod:
             executor =  ProcessPoolExecutor(max_workers=max_workers)
         elif mode == 'thread':
             executor =  self.mod('executor')(max_workers=max_workers)
-        elif mode == 'async':
-            from mod.core.api.src.async_executor import AsyncExecutor
-            executor = AsyncExecutor(max_workers=max_workers)
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'thread', 'process' or 'async'.")
         if cache:
@@ -1534,11 +1532,9 @@ class Mod:
             readme2text[f] = self.get_text(f)
         return readme2text
 
-    def import_mod(self, mod:str = 'mod.core.utils', lib_name = 'mod'):
+    def import_mod(self, mod:str):
         from importlib import import_module
-        double_lib_name = f'{lib_name}.{lib_name}'
-        if double_lib_name in mod:
-            mod = mod.replace(double_lib_name, lib_name)
+        mod = mod.replace(f'{self.lib_name}.{self.lib_name}', self.lib_name)
         return import_module(mod)
 
     def kill(self, server:str = 'mod'):
@@ -1548,7 +1544,6 @@ class Mod:
         return self.fn('pm/kill_all')()
 
     killall = kill_all
-
 
     _config_cache = {}
     def config(self, mod=None):
