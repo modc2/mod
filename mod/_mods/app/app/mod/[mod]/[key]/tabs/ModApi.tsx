@@ -1,10 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Client } from '@/app/block/client/client';
 import { CopyButton } from '@/app/block/CopyButton';
 import { useUserContext } from '@/app/block/context/UserContext';
-import Auth from '@/app/block/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MagnifyingGlassIcon,

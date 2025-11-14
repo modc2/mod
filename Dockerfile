@@ -1,18 +1,19 @@
 FROM python:3.12-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Install git and other dependencies
+# Install git
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 # NodeJS + NPM
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm \
     && npm install -g pm2 \
     && rm -rf /var/lib/apt/lists/*
 
-# VERIFY PYTHON INSTALLATION
-RUN python --version
-
-# intsall PM2 globally
-RUN npm install -g pm2
-# Verify NodeJS and NPM installation
+# NOM ANDY INSTALLATION
 RUN node --version
 RUN npm --version
 
@@ -23,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.cargo/bin:$PATH"
 RUN rustc --version
+
 
 
 # Upgrade pip, setuptools, wheel

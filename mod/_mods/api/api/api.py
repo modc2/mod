@@ -7,12 +7,21 @@ import time
 import mod as m
 
 class  Api:
-    endpoints = ['mods', 'names', 'reg', 'mod', 'users', 'user_info', 'n']
+    endpoints = ['mods',
+                 'names', 
+                 'reg', 
+                 'mod',
+                 'users', 
+                 'user_info', 
+                 'n', 
+                 'reg_from_info',
+                 'mod_preview']
 
     def __init__(self, store = 'ipfs', chain='chain', key=None):
         self.store = m.mod(store)()
         self.key = m.key(key)
         self.chain = m.mod(chain)()
+        self.model = m.mod('model.openrouter')()
 
     def exists(self, mod: m.Mod='store', key=None) -> bool:
         """Check if a mod Mod exists in IPFS.
@@ -51,7 +60,7 @@ class  Api:
     registry_path = '~/.mod/api/registry.json'
     # Register or update a mod in IPFS
 
-    def get_address(self, key=None):
+    def key_address(self, key=None):
         if isinstance(key, str):
             if self.key.valid_ss58_address(key):
                 return key
@@ -61,17 +70,18 @@ class  Api:
             return (key or m.key()).address
 
     def modcid(self, mod, key=None, update=False):
-        key = self.get_address(key)
+        key = self.key_address(key)
         registry = m.get(self.registry_path, {}, update=False)
         return  registry.get(key, {}).get(mod, None)
     
-    def update_registry(self, mod:str, info:dict):
+    def update_registry(self, info:dict):
         # assert self.verify(info)
         if 'cid' in info:
             cid = info['cid']
         else:
             cid = self.add(info)
         registry = m.get(self.registry_path, {})
+        mod = info['name']
         key = info['key']
         if key not in registry:
             registry[key] = {}
@@ -95,6 +105,7 @@ class  Api:
             cid = self.add(content)
             file2cid[file] = cid
         return self.add(file2cid)
+
     def add(self, data):
         return self.store.add(data)
 
@@ -102,17 +113,97 @@ class  Api:
         return self.store.get(cid)
 
     def add_content(self, mod: str='store', comment=None) -> Dict[str, str]:
-        return self.add({'data': self.add_mod(mod), 'comment': comment, 'time': m.time()})
+        return self.add({'data': self.add_mod(mod), 'comment': comment})
     
     def add_schema(self, mod: str='store') -> str:
-        return self.add(m.schema(mod))
+        try:
+            return self.add(m.schema(mod))
+        except Exception as e:
+            return self.add({})
 
     def get_url(self, url: str) -> str:
         url = m.namespace().get(url, None)
         return url
 
+    def mod_preview(self, 
+                    url: str, 
+                    mod=None, 
+                    signature = None, 
+                    key=None, 
+                    collateral=0.0,
+                    comment=None, 
+                    external = False) -> Dict[str, Any]:
 
-    def reg(self, mod = 'store',  key=None,  comment=None,  update=False) -> Dict[str, Any]:
+        """
+        Register a mod Mod from a URL in IPFS.
+        Args:
+            url: URL to fetch mod data from
+            mod:  Mod str
+            signature: Optional signature for verification
+            key: Key object or address string
+            comment: Optional comment about the registration
+        Returns:
+            Dictionary with registration info
+        """
+
+
+        if 'github.com' in url or 'gitlab.com' in url:
+            if mod is None:
+                mod = url.split('/')[-1].replace('.git','')
+            # assert not m.mod_exists(mod), f'Mod {mod} already exists. Please choose a different mod name or deregister the existing mod first.'
+            dirpath = m.mods_path + '/_ext/'
+            modpath = os.path.join(dirpath, mod)
+            if not os.path.exists(modpath):
+                git_cmd = f'git clone {url} {modpath}'
+                os.makedirs(dirpath, exist_ok=True)
+                os.system(git_cmd)
+                m.print(f"[✓] Cloned repository from {url} to {modpath}", color="green")
+        else:
+            raise ValueError(f'Unsupported URL for reg_from_url: {url}')
+        info = self.reg_info(mod=mod, key=key, comment=comment, collateral=collateral)
+        return info
+
+    def reg_from_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
+        # assert self.verify_mod(info)
+        self.update_registry(info)
+    def add_from_url(self, url: str) -> str:
+        """
+        Add data from a URL to IPFS.
+        Args:
+            url: URL to fetch data from
+        Returns:
+            IPFS CID of the added data
+        """
+    def reg_info(self, mod='store', key=None, comment=None, collateral=0.0) -> Dict[str, Any]:
+        """
+        Register mod Mod data in IPFS.
+        """
+        current_time = m.time()
+        key = self.key_address(key)
+        prev_cid =self.registry(key).get(mod, None)
+        prev_info = self.mod(prev_cid, key=key) if prev_cid else {}
+        content_cid = self.add_content(mod, comment=comment)
+        prev_content_cid = prev_info.get('content', None)
+        if content_cid == str(prev_content_cid):
+            prev_info.pop('cid', None)
+            prev_info['collateral'] = collateral
+            return prev_info  # No changes, return existing info
+        else:
+            info = {
+                'content': content_cid,
+                'schema': self.add_schema(mod),
+                'prev': prev_cid, # previous state
+                'created':  prev_info.get('created', current_time),  # created timestamp
+                'updated': current_time, 
+                'name': prev_info.get('name', mod),  # mod name
+                'collateral': collateral,
+                'key': prev_info.get('key', key),
+                'url': self.get_url(mod),
+            }
+        return info
+
+
+    def reg(self, mod = 'store',  key=None,  comment=None, signature=None,  update=False) -> Dict[str, Any]:
         """
         Register or update a mod Mod in IPFS.
         Args:
@@ -124,42 +215,27 @@ class  Api:
             Dictionary with registration info
 
         """
+        if isinstance(mod, dict):
+            return self.reg_from_info(mod)
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
         prev_cid = self.registry(key=key).get(mod, None)
         current_time = m.time()
         key = m.key(key)
         if prev_cid == None:
-            info = {
-                'content': self.add_content(mod, comment=comment),
-                'schema': self.add_schema(mod),
-                'prev': prev_cid, # previous state
-                'name': mod,
-                'created':  current_time,  # created timestamp
-                'updated': current_time, 
-                'key': key.address,
-                'url': self.get_url(mod),
-            }
-            info['signature'] = key.sign(info, mode='str')
-            info['cid'] = self.update_registry(mod, info)
+            info = self.reg_info(mod=mod, key=key)
+            info['signature'] = signature or  key.sign(info, mode='str')
+            info['cid'] = self.update_registry(info)
         else:
             info = self.mod(prev_cid, key=key)
-            info.pop('cid', None)
             assert key.address == info['key'], f'Key mismatch {key.address} != {info["key"]}'
-            content_cid = self.add_content(mod, comment=comment)
-            old_content_cid = info['content']
-            if content_cid == old_content_cid:
+            reg_info = self.reg_info(mod=mod, key=key)
+            if reg_info['content'] == info['content'] and reg_info['schema'] == info['schema']:
                 return info  # No changes, return existing info
             else:
-                new_info = {
-                    'content': content_cid,
-                    'schema': self.add_schema(mod),
-                    'prev': prev_cid, # previous state
-                    'updated': current_time, 
-                    'url': self.get_url(mod),
-                }
-                info = {**info, **new_info}
+                info = {**info, **reg_info}
+                info.pop('cid', None)
                 info['signature'] = key.sign(info, mode='str')
-                info['cid'] = self.update_registry(mod, info)
+                info['cid'] = self.update_registry(info)
         
         return info 
 
@@ -198,8 +274,33 @@ class  Api:
         except:
             return False
 
-    def history(self, mod='store', features=['time', 'comment'] , key=None, df=False) -> List[Dict[str, Any]]:
+    def hash_history(self, mod='store', key=None, df=False) -> List[str]:
+        """Get the hash history of a mod Mod in IPFS.
+        
+        Args:
+            mod: Commune Mod object
+            key: Key object or address string
+        Returns:
+            List of CIDs in the mod's history
+        """
+        registry = self.registry(key=key)
+        history = []        
+        if mod not in registry:
+            return history
+        for info in self.history(mod, key=key):
+            content_info = self.get(info['content'])
+            history.append({'time': m.time2str(info['updated']), 'cid': info['cid'], 'comment': content_info['comment']})
+            if info['prev'] == None:
+                break
+        if df:
+            import pandas as pd
+            history = pd.DataFrame(history)
+        return history
+    hh = hash_history
 
+    def history(self, mod='store' , key=None, df=False) -> List[Dict[str, Any]]:
+
+        registry = self.registry(key=key)
         history = []        
         if mod not in registry:
             return history
@@ -209,8 +310,6 @@ class  Api:
             if info['prev'] == None:
                 break
             info = self.mod(info['prev'])
-        if df:
-            return m.df(history)[features]
         return history
     h = history
     def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
@@ -236,6 +335,9 @@ class  Api:
         return diffs
         
     def registry(self,  key=None, search=None, update=False) -> Dict[str, str]:
+        """
+        Get the mod registry from IPFS.
+        """
         user2registry =  m.get(self.registry_path, {}, update=update)
         filter_registry = lambda r: {k:v for k,v in r.items() if (search == None or search in k)}
         if key == 'all':
@@ -244,7 +346,7 @@ class  Api:
                 registry[user] = filter_registry(user_registry)
             return registry
         else:
-            registry = user2registry.get(self.get_address(key), {})
+            registry = user2registry.get(self.key_address(key), {})
             registry = filter_registry(registry)
             return registry
             
@@ -309,22 +411,7 @@ class  Api:
                 content[file] = self.get(file_cid)
         return content
 
-    def verify_mod(self, mod: m.Mod='store', key=None) -> bool:
-        """Verify the signature of a mod Mod in IPFS.
-        
-        Args:
-            mod: Commune Mod object
-            key: Key object or address string
-        Returns:
-            True if signature is valid, False otherwise
-        """
 
-        mod_info = self.mod(mod, key=key)
-        key_address = mod_info['key']
-        signature = mod_info['signature']
-        mod_info = {k:v for k,v in mod_info.items() if k not in ['signature', 'cid']}
-        valid = m.verify(mod_info, signature=signature, address=key_address, mode='str')
-        return valid
 
     def verify_history(self, mod:str='store', key=None) -> bool:
         """Verify the entire history of a mod Mod in IPFS.
@@ -373,7 +460,7 @@ class  Api:
                 if len(os.listdir(filepath_dir)) == 0:
                     os.rmdir(filepath_dir)
                 m.print(f"[✓] Deleted file: {filepath}", color="yellow")
-        modinfo = self.update_registry(mod, modinfo)
+        modinfo = self.update_registry(modinfo)
         history = self.history(mod, key=key)
         assert cid == history[0]['cid'], "Setback failed: content CID mismatch"
         return {
@@ -472,14 +559,14 @@ class  Api:
         Returns:
             List of mod names   
         """
-        key = self.get_address(key)
+        key = self.key_address(key)
         registry = self.registry(key)
         mods = []
         for mod in list(registry.keys()):
             mods.append(self.mod(mod, key=key))
         return mods
 
-    def user_info(self, key: str = None) -> Dict[str, Any]:
+    def user(self, key: str = None) -> Dict[str, Any]:
         """Get information about a specific user in IPFS.
         
         Args:
@@ -487,7 +574,7 @@ class  Api:
         Returns:
             Dictionary with user information
         """
-        key = self.get_address(key)
+        key = self.key_address(key)
         mods = self.user_mods(key)
         info = {
             'key': key,
@@ -496,7 +583,17 @@ class  Api:
         }
         return info
         
-    def balance(self, user_address: str = None) -> float:
+    user_info = user
+
+    def balances(self) -> Dict[str, float]:
+        """Get balances of all users in IPFS.
+        
+        Returns:
+            Dictionary mapping user addresses to their balances
+        """
+        return self.chain.balances()
+        
+    def balance(self, key_address: str = None) -> float:
         """Get the balance of a specific user in IPFS.
         
         Args:
@@ -504,7 +601,7 @@ class  Api:
         Returns:
             Balance as a float
         """
-        return 0
+        return self.balances().get(key_address, 0.0) 
 
     def edit(self, *query,  mod: str='app',  key=None) -> Dict[str, Any]:
         dev = m.mod('dev')()
@@ -512,5 +609,8 @@ class  Api:
         dev.forward(mod=mod, text=text, safety=False)
         return self.reg(mod=mod, key=key, comment=text)
 
-    def chat(self, text, *extra_texts, key=None, mod: str='model.openrouter', stream=False) -> Dict[str, Any]:
-        return m.mod(mod)().forward(' '.join([text] + list(extra_texts)), stream=stream)
+    def chat(self, text, *extra_texts, mod: str='model.openrouter',**kwargs) -> Dict[str, Any]:
+        return self.model.forward(' '.join([text] + list(extra_texts)), stream=stream, **kwargs)
+    
+    def models(self, search=None, mod: str='model.openrouter', **kwargs) -> List[Dict[str, Any]]:
+        return self.model.models(search=search, **kwargs)

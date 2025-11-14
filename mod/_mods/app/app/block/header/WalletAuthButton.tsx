@@ -59,6 +59,7 @@ export function WalletAuthButton() {
 
     setLoading(true)
     setError('')
+    localStorage.setItem('wallet_mode', 'subwallet')
 
     try {
       await cryptoWaitReady()

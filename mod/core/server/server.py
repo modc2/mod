@@ -44,8 +44,6 @@ class Server:
         for fn in sync_fns:
             if hasattr(self.pm, fn) and hasattr(pm, fn):
                 setattr(self.pm, fn, getattr(pm, fn))
-
-    
     
     def is_owner(self, key:str) -> bool:
         if not hasattr(self, 'owner_address'):
@@ -82,19 +80,26 @@ class Server:
         print(right_buffer, color='blue')
 
 
+    _obj_cache = {}
 
     def forward(self, fn:str, request: Request):
         """
         runt the function
         """
         print('Server: Forwarding request for function', fn)
-        request = self.get_request(fn=fn, request=request) # get the request
+        request = self.gate(fn=fn, request=request) # get the request
         fn = request['fn']
         params = request['params']
         cost = request['cost']
         info = self.mod.info()
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
-        fn_obj = getattr(self.mod, fn) # get the function object from the mod
+        if '/' in fn:
+
+            temp_mod = fn.split('/')[0]
+            fn = '/'.join(fn.split('/')[1:])
+            fn_obj = getattr(m.mod(temp_mod)(), fn)
+        else:
+            fn_obj = getattr(self.mod, fn) # get the function object from the mod
         if callable(fn_obj):
             if len(params) == 2 and 'args' in params and 'kwargs' in params :
                 kwargs = dict(params.get('kwargs')) 
@@ -143,7 +148,7 @@ class Server:
         raise Exception('Should not reach here, something went wrong in forward')
 
 
-    def get_request(self, fn:str, request) -> float:
+    def gate(self, fn:str, request) -> float:
         """
         process the request
         """
@@ -154,14 +159,18 @@ class Server:
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
         client_cost = float(headers.get('cost', 0))
         assert client_cost >= cost, f'Insufficient cost {client_cost} for fn {fn} with cost {cost}'
-        self.auth.verify(headers) # verify the headers
         loop = asyncio.get_event_loop()
         params = loop.run_until_complete(request.json())
         params = json.loads(params) if isinstance(params, str) else params
-        is_owner =  self.is_owner(headers['key'])
-        assert is_owner or (fn in info['public_fns']), f"Function {fn} not in fns={info['fns']}"
-        headers =  {k:v for k,v in headers.items() if k in self.auth.auth_features}
-        request =  {'fn': fn, 'params': params, 'client': headers, 'is_owner': is_owner, 'cost': cost}
+        assert self.auth.verify(headers, data={"fn": fn, "params": params}) # verify the headers
+        if not self.is_owner(headers['key']):
+            assert fn in info['public_fns'], f"Function {fn} not in fns={info['fns']}"
+        request =  {
+                    'fn': fn, 
+                    'params': params, 
+                    'client': {k:v for k,v in headers.items() if k in self.auth.auth_features}, 
+                    'cost': cost
+                    }
         self.print_request(request)
         return request
 

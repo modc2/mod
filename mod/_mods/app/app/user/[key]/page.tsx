@@ -6,7 +6,6 @@ import { useUserContext } from '@/app/block/context/UserContext'
 import { UserType } from '@/app/types'
 import { Loading } from '@/app/block/Loading'
 import { UserCard } from '@/app/user/explore/UserCard'
-import { Footer } from '@/app/block/footer/Footer'
 import { SignVerify, Transfer, UserModules } from './tabs'
 
 type TabType = 'mods' | 'sign' | 'transfer'
@@ -94,7 +93,6 @@ export default function UserPage() {
           </div>
         </div>
       </main>
-      <Footer />
     </div>
   )
 }

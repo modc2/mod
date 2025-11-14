@@ -26,13 +26,20 @@ class Auth:
         :param signature_keys: the keys to use for signing 
         """
         self.signature_keys = signature_keys
-        self.crypto_type = crypto_type
-        self.key = m.get_key(key=key, crypto_type=crypto_type)
+        self.set_key(key=key, crypto_type=crypto_type)
         self.hash_type = hash_type
         self.auth_features = signature_keys + ['key', 'signature']
         self.max_age = max_age
 
-    def forward(self,  data: Any,  key=None, cost=0) -> dict:
+    def set_key(self, key, crypto_type=None):
+        """
+        Set the key to use for signing
+        """
+
+        self.key = m.key(key=key, crypto_type=crypto_type)
+        self.crypto_type = crypto_type or self.key.crypto_type_name
+
+    def forward(self,  data: dict,  key=None, cost=0, token='MOD') -> dict:
         """
         Generate the headers with the JWT token
         """
@@ -41,6 +48,7 @@ class Auth:
             'data': self.hash(data),
             'time': str(time.time()),
             'cost': str(cost),
+            "token": token,
             'key': key.address,
         }
         result['signature'] = key.sign(self.get_data(result), mode='str')
@@ -48,7 +56,7 @@ class Auth:
 
     headers = generate = forward
 
-    def verify(self, headers: str, data:Optional[Any]=None, max_age=10) -> bool:
+    def verify(self, headers: str, data:Optional[Any], max_age=10) -> bool:
         """
         Verify and decode a JWT token
         provide the data if you want to verify the data hash
@@ -99,7 +107,7 @@ class Auth:
     def test(self, key='test.auth', crypto_type='sr25519'):
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
         auth = Auth(key=key, crypto_type=crypto_type)
-        headers = auth.forward(data, key=key)
-        assert auth.verify(headers)
+        headers = auth.generate(data, key=key)
+        assert auth.verify(headers, data), 'Auth test failed'
         return {'test_passed': True, 'headers': headers}
 

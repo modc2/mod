@@ -1,12 +1,10 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
 import { UserCard } from './UserCard'
 import { UserCardSettings } from './UserCardSettings'
 import { UserType } from '@/app/types'
-import { Footer } from '@/app/block/footer/Footer'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { X, RotateCcw, Users } from 'lucide-react'
 
@@ -83,7 +81,7 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
-      <main className="flex-1 px-6 py-2" role="main">
+      <main className="flex-1 px-6 pt-0 pb-0" role="main">
         <div className="mx-auto max-w-7xl mb-4">
           <UserCardSettings
             sort={sort}
@@ -148,7 +146,6 @@ export default function UsersPage() {
         </div>
       </main>
 
-      <Footer />
     </div>
   )
 }

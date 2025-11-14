@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { KeyIcon, UsersIcon, ChevronLeftIcon, ChevronRightIcon, FunnelIcon, CubeIcon } from '@heroicons/react/24/outline'
+import { KeyIcon, UsersIcon, ChevronLeftIcon, ChevronRightIcon, FunnelIcon, CubeIcon, PlusIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BackendSettings } from './BackendSettings'
 import { useState, useRef, useEffect } from 'react'
@@ -11,11 +11,13 @@ import { useSidebarContext } from '@/app/block/context/SidebarContext'
 const navigation = [
   { name: 'Mods', href: '/mod/explore', icon: CubeIcon },
   { name: 'Users', href: '/user/explore', icon: UsersIcon },
+  { name: 'Create', href: '/create', icon: PlusIcon },
+  { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
 ]
 
-const MIN_WIDTH = 64
+const MIN_WIDTH = 80
 const MAX_WIDTH = 400
-const DEFAULT_WIDTH = 256
+const DEFAULT_WIDTH = 280
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -39,16 +41,6 @@ export function Sidebar() {
     e.preventDefault()
     e.stopPropagation()
     setIsResizing(true)
-  }
-
-  const handleSidebarClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement
-    const isClickableElement = target.closest('a, button, input, [role="button"]')
-    const isResizeHandle = target.closest('.resize-handle')
-    
-    if (!isClickableElement && !isResizeHandle) {
-      toggleSidebar()
-    }
   }
 
   useEffect(() => {
@@ -91,7 +83,6 @@ export function Sidebar() {
         transition={{ duration: 0.3, ease: 'easeInOut' }}
         className="fixed left-0 top-20 h-[calc(100vh-5rem)] border-r border-white/10 bg-gradient-to-b from-black via-gray-950 to-black z-40 hover:border-green-500/50 transition-all shadow-2xl shadow-green-500/10"
         style={{ width: displayWidth }}
-        onClick={handleSidebarClick}
       >
         <div className="flex h-full flex-col relative">
           <div className="absolute top-2 right-2 z-50">
@@ -118,11 +109,11 @@ export function Sidebar() {
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`group relative flex items-center gap-x-3 rounded-lg p-3 text-sm font-semibold transition-all duration-200 ${
+                  className={`group relative flex items-center rounded-lg p-3 text-base font-semibold transition-all duration-200 ${
                     isActive
                       ? 'bg-green-500/20 text-green-400 shadow-lg shadow-green-500/20 border border-green-500/30'
                       : 'text-gray-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20'
-                  }`}
+                  } ${isSidebarExpanded ? 'gap-x-3' : 'justify-center'}`}
                   title={!isSidebarExpanded ? item.name : undefined}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -130,21 +121,21 @@ export function Sidebar() {
                     className="shrink-0 transition-transform duration-200 group-hover:scale-110"
                     style={{
                       color: isActive ? '#4ade80' : '#9ca3af',
-                      width: '1.5rem',
-                      height: '1.5rem',
-                      minWidth: '1.5rem',
-                      minHeight: '1.5rem'
+                      width: '1.75rem',
+                      height: '1.75rem',
+                      minWidth: '1.75rem',
+                      minHeight: '1.75rem'
                     }}
                     aria-hidden="true"
                   />
                   <AnimatePresence>
                     {isSidebarExpanded && (
                       <motion.span
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: 'auto' }}
-                        exit={{ opacity: 0, width: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="overflow-hidden whitespace-nowrap text-sm font-semibold"
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -10 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="whitespace-nowrap text-base font-semibold"
                       >
                         {item.name}
                       </motion.span>

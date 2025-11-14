@@ -60,8 +60,8 @@ class Mod:
         self.core_path = '/'.join(__file__.split('/')[:-1])
         self.tests_path = f'{self.lib_path}/tests'
         module_path_options = ['mods', 'modules', '_mods', '_modules', 'locals']
-        self.mods_path = list(filter(lambda x: os.path.exists(x), 
-                                                            [f'{self.root_path}/{option}' for option in module_path_options]))[0] # the path to the mods
+        self.mods_path = list(filter(lambda x: os.path.exists(x), [f'{self.root_path}/{option}' for option in module_path_options]))[0] # the path to the mods
+        self.ext_path = f'{self.root_path}/_ext'
         self.imported_module_path = self.root_path +'/_links'
         self.home_path = self.homepath = os.path.expanduser('~')
         config =self.config()
@@ -181,33 +181,20 @@ class Mod:
         dirpath = self.dirpath(mod)
         dockerfiles = [f for f in os.listdir(dirpath) if f.startswith('Dockerfile')]
         return [os.path.join(dirpath, f) for f in dockerfiles]
-        
-    def modname(self, obj=None):
-        obj = obj or Mod
-        if  isinstance(obj, str):
-            obj = self.mod(obj)
-        mod_file =  inspect.getfile(obj)
-        return self.path2name(mod_file)
 
     def vs(self, path = None):
         path = path or __file__
         path = os.path.abspath(path)
         return self.cmd(f'code {path}')
-    
-    def mod_class(self, obj=None) -> str:
-        return (obj or self).__name__
 
-    def class_name(self, obj= None) -> str:
+    def mod_class(self, obj= None) -> str:
         if obj == None: 
             objx = self 
         return obj.__name__
 
     def storage_dir(self, mod=None):
-        if mod == None: 
-            mod = 'mod'
-        else:
-            mod = self.modname(mod)
-        return os.path.abspath(os.path.expanduser(f'~/.mod/{mod}'))
+        mod = (mod or self.name).replace('/', '.')
+        return os.path.abspath(os.path.expanduser(f'~/.{self.name}/{mod}'))
     
     def is_home(self, path:str = None) -> bool:
         """
@@ -1233,27 +1220,28 @@ class Mod:
                     return tree[path]
             else:
                 return tree[path]
-        path = tree.get(path, path)
-        anchor_names += [path.split('/')[-1]]
+        path = tree[path]
+        anchor_names += path.split('/')
         if len(path.split('/')) > 1:
             anchor_names += [path.split('/')[-2]]
         files = list(sorted( self.files(path, depth=4), key=lambda x: len(x)))
         for f in files:
             if any([f.endswith('/' + an + '.' + ft) for an in anchor_names for ft in self.file_types]):
                 return f
+        
         return None
 
 
-    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'core', 'modules', 'mod']) -> str:
+    def get_name(self, name:Optional[str]=None, avoid_terms = ['src', 'mods', '_mods', 'core', 'core', 'modules', 'mod', '_ext']) -> str:
         name = name or 'mod'
-        if isinstance(name, str) and any([name.startswith(p) for p in ['.', '~', '/']]):
+        if any([name.startswith(p) for p in ['.', '~', '/']]):
             name = self.path2name(name)
-        if isinstance(name, str) and '/' in name:
-            name = name.replace('/', '.')
+        name = name.replace('/', '.')
+        new_name = []
         for name_chunk in name.split('.'):
-            if name_chunk in avoid_terms:
-                name = name.replace(name_chunk + '.', '').replace('.' + name_chunk, '')
-        return name
+            if name_chunk not in avoid_terms:
+                new_name.append(name_chunk)
+        return '.'.join(new_name)
 
     def anchor_object(self, path):
         path = self.get_name(path)
@@ -1272,7 +1260,6 @@ class Mod:
                 path:Optional[str]=None, 
                 search:Optional[str]=None, 
                 depth=10, 
-                root_names = ['mod'], 
                 avoid_terms = ['src', 'mods', '_mods', 'core', 'core'],
                 avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
@@ -1300,12 +1287,14 @@ class Mod:
                     if x.endswith(k):
                         x = x[:-len(k)]
                 x_list =  x.split('/')
-                if x_list[-1] == x_list[-2]: 
-                    x = '/'.join(x_list[:-1])
+                if len(x_list) >=2 :
+                    if x_list[-1] == x_list[-2]: 
+                        x = '/'.join(x_list[:-1])
                 self._tree_cache[cache_key] = x
                 # remove avoid terms
                 return x    
             tree = {self.get_name(k):process_v(v) for k,v in tree.items()}
+            tree = {k:v for k,v in tree.items() if len(k) > 0}
             self._tree_cache[cache_key] = tree
 
 
@@ -1327,6 +1316,9 @@ class Mod:
     def mods_tree(self, search=None,  depth=10, **kwargs): 
         return self.get_tree(self.mods_path, search=search, depth=depth, **kwargs)
 
+    def ext_tree(self, search=None, depth=10, **kwargs):
+        return self.get_tree(self.ext_path, depth=depth,  search=search, **kwargs )
+
     def local_tree(self, search=None, depth=10, **kwargs):
         return self.get_tree(os.getcwd(), depth=depth,  search=search, **kwargs )
 
@@ -1341,7 +1333,7 @@ class Mod:
         """
         get the directory path of the mod
         """
-        if mod == None:
+        if mod == None or mod == 'mod':
             return self.lib_path
 
         mod = self.get_name(mod)
@@ -1697,3 +1689,21 @@ class Mod:
 
     def reg(self, *args, **kwargs):
         return self.fn('api/reg')( *args, **kwargs)
+
+    def children(self, mod:str='mod', depth:int=5, **kwargs) -> List[str]:
+        tree = self.get_tree(self.dirpath(mod), **kwargs)
+        return list(tree.keys())
+    leaves = childs = children
+
+    def hh(self, *args, **kwargs):
+        return self.fn('api/hh')( *args, **kwargs)
+
+    def setback(self, *args, **kwargs):
+        return self.fn('api/setback')( *args, **kwargs)
+
+    def time2str(self, t:float=None, fmt:str='%Y-%m-%d %H:%M:%S') -> str:
+        """
+        Convert a timestamp to a string
+        """
+        t = t or time.time()
+        return time.strftime(fmt, time.localtime(t))

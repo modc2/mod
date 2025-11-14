@@ -10,6 +10,7 @@ interface UserContextType {
   signOut: () => void
   authLoading: boolean
   client: Client | null
+  localKey: Key | null
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
@@ -19,6 +20,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [password, setPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(true)
   const [client, setClient] = useState<Client | null>(null)
+  const [localKey, setLocalKey] = useState<Key | null>(null)
 
   // Initialize from localStorage on mount
   useEffect(() => {
@@ -27,15 +29,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const storedUser = localStorage.getItem('user_data')
         const storedPassword = localStorage.getItem('user_password') || '420'
         console.log('Restoring auth session from localStorage:', { storedUser, storedPassword })
+        await cryptoWaitReady()
+        const key = new Key(storedPassword)
+        setLocalKey(key)
+        // localStorage.setItem('wallet_mode', 'local')
         if (storedUser) {
-  
           setUser(JSON.parse(storedUser))
         }
-        if (storedPassword) {
-          await cryptoWaitReady()
-          const key = new Key(storedPassword)
-          setClient(new Client(undefined, key))
-        }
+        setClient(new Client(undefined, key))
       } catch (error) {
         console.error('Failed to restore auth session:', error)
         localStorage.removeItem('user_data')
@@ -53,6 +54,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
       const wallet_password = localStorage.getItem('wallet_password') || '42069'
       const key = new Key(wallet_password)
+      setLocalKey(key)
 
       const wallet_mode = localStorage.getItem('wallet_mode') || 'local'
       const user_address = wallet_mode === 'local' ? key.address : localStorage.getItem('wallet_address') || key.address
@@ -76,11 +78,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null)
     setPassword('')
     setClient(null)
+    localStorage.removeItem('wallet_mode')
+    localStorage.removeItem('wallet_password')
+    localStorage.removeItem('wallet_address')
     localStorage.removeItem('user_data')
   }
 
   return (
-    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client }}>
+    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client, localKey }}>
       {children}
     </UserContext.Provider>
   )

@@ -8,7 +8,7 @@ import mod as m
 
 class  IpfsClient:
 
-
+    prefix = 'ipfs'
     endpoints = ['pin', 'add_mod', 'reg', 'mod', 'pins']
     """Simple IPFS client using requests library only."""
     node_name = 'ipfs.node'
@@ -70,42 +70,47 @@ class  IpfsClient:
             self.pin_add(cid)
         return cid
     put = add
-    def rm(self, ipfs_hash: str) -> Dict[str, Any]:
+    def rm(self, cid: str) -> Dict[str, Any]:
         """Remove a JSON object from IPFS by its hash.
         
         Args:
-            ipfs_hash: IPFS hash of the JSON object
+            cid: IPFS hash of the JSON object
         Returns:
             Dictionary with removal status
         """
         try:
-            self.pin_rm(ipfs_hash)
+            self.pin_rm(cid)
         except Exception as e:
-            print(f"Error unpinning {ipfs_hash}: {e}")
+            print(f"Error unpinning {cid}: {e}")
         return {"Status": "Removed"}
 
-
-    def get(self, ipfs_hash: str) -> Dict[str, Any]:
+    def get(self, cid: str) -> Dict[str, Any]:
         """Retrieve a JSON object from IPFS by its hash.
         
         Args:
-            ipfs_hash: IPFS hash of the JSON object
+            cid: IPFS hash of the JSON object
         Returns:
             Dictionary with the JSON content
         """
-        content = self.get_file(ipfs_hash)
+        if cid.startswith(self.prefix + '/'):
+            cid = cid[len(self.prefix) + 1 :]
+        content = self.get_file(cid)
         return json.loads(content)
 
-    def get_file(self, ipfs_hash: str) -> bytes:
+    def resolve_cid(self, ipfs_path: str) -> str:
+        return ipfs_path.replace(self.prefix + '/', '')
+
+    def get_file(self, cid: str) -> bytes:
         """Retrieve a file from IPFS by its hash.
         
         Args:
-            ipfs_hash: IPFS hash of the file
+            cid: IPFS hash of the file
         Returns:
             File content as bytes
         """
+        cid = self.resolve_cid(cid)
         url = f"{self.url}/cat"
-        params = {'arg': ipfs_hash}
+        params = {'arg': cid}
         response = self.session.post(url, params=params)
         response.raise_for_status()
         return response.content
@@ -119,17 +124,17 @@ class  IpfsClient:
         """
         return self.add(data, pin=False)
 
-    def cat(self, ipfs_hash: str) -> bytes:
+    def cat(self, cid: str) -> bytes:
         """Retrieve content from IPFS by hash.
         
         Args:
-            ipfs_hash: IPFS hash of the content
+            cid: IPFS hash of the content
             
         Returns:
             Content as bytes
         """
         url = f"{self.url}/cat"
-        params = {'arg': ipfs_hash}
+        params = {'arg': cid}
         response = self.session.post(url, params=params)
         response.raise_for_status()
         return response.content
@@ -137,44 +142,44 @@ class  IpfsClient:
         
         return {'success': True, 'path': output_path}
 
-    def pin_rm(self, ipfs_hash: str) -> Dict[str, Any]:
+    def pin_rm(self, cid: str) -> Dict[str, Any]:
         """Unpin content from local IPFS node.
         
         Args:
-            ipfs_hash: IPFS hash to unpin
+            cid: IPFS hash to unpin
         Returns:
             Dictionary with unpin status
 
         """
         url = f"{self.url}/pin/rm"
-        params = {'arg': ipfs_hash}
+        params = {'arg': cid}
         response = self.session.post(url, params=params)
         response.raise_for_status()
         return response.json()
-    def pinned(self, ipfs_hash: str) -> bool:
+    def pinned(self, cid: str) -> bool:
         """Check if content is pinned on local IPFS node.
         
         Args:
-            ipfs_hash: IPFS hash to check
+            cid: IPFS hash to check
 
         Returns:
             True if pinned, False otherwise
         """
         pins = self.pins()
-        return ipfs_hash in pins.get('Keys', {})
+        return cid in pins.get('Keys', {})
 
     
-    def pin_add(self, ipfs_hash: str) -> Dict[str, Any]:
+    def pin_add(self, cid: str) -> Dict[str, Any]:
         """Pin content to local IPFS node.
         
         Args:
-            ipfs_hash: IPFS hash to pin
+            cid: IPFS hash to pin
             
         Returns:
             Dictionary with pin status
         """
         url = f"{self.url}/pin/add"
-        params = {'arg': ipfs_hash}
+        params = {'arg': cid}
         response = self.session.post(url, params=params)
         response.raise_for_status()
         return response.json()
@@ -193,17 +198,17 @@ class  IpfsClient:
             return {cid: pins.get(cid)} if cid in pins else {}
         return response.json()
     
-    def pin_rm(self, ipfs_hash: str) -> Dict[str, Any]:
+    def pin_rm(self, cid: str) -> Dict[str, Any]:
         """Unpin content from local IPFS node.
         
         Args:
-            ipfs_hash: IPFS hash to unpin
+            cid: IPFS hash to unpin
             
         Returns:
             Dictionary with unpin status
         """
         url = f"{self.url}/pin/rm"
-        params = {'arg': ipfs_hash}
+        params = {'arg': cid}
         response = self.session.post(url, params=params)
         response.raise_for_status()
         return response.json()
@@ -249,8 +254,8 @@ class  IpfsClient:
         """
         test_obj = {"test_key": "test_value"}
         print("Testing IPFS data connection...", test_obj)
-        ipfs_hash = self.add(test_obj)
-        retrieved_obj = self.get(ipfs_hash)
+        cid = self.add(test_obj)
+        retrieved_obj = self.get(cid)
         return retrieved_obj == test_obj
 
     def __str__(self):

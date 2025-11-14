@@ -1,12 +1,10 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
 import ModCard from './ModCard'
 import { ModCardSettings } from './ModCardSettings'
 import { ModuleType } from '@/app/types'
-import { Footer } from '@/app/block/footer/Footer'
 import { useSearchContext } from '@/app/block/context/SearchContext'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { X, RotateCcw, Sparkles } from 'lucide-react'
@@ -126,7 +124,7 @@ export default function Modules() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
-      <main className="flex-1 px-2 py-0" role="main">
+      <main className="flex-1 px-2 pt-0 pb-0" role="main">
         <div className="mx-auto max-w-7xl mb-4">
           <ModCardSettings
             sort={sort}
@@ -193,7 +191,6 @@ export default function Modules() {
         </div>
       </main>
 
-      <Footer />
     </div>
   )
 }

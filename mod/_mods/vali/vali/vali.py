@@ -127,8 +127,11 @@ class Vali:
         module['score'] =  result.get('score', 0) if isinstance(result, dict) else result
         module['time'] = c.time()
         module['duration'] = c.time() - t0
-        module['proof'] = self.auth.headers(module, key=self.key)
-        self.verify_proof(module) # verify the proof
+        proof_data = c.copy(module)
+        module['proof'] = self.auth.headers(proof_data, key=self.key)
+        proof = module.get('proof', None)
+        assert self.auth.verify(proof, data=proof_data), f'Invalid Proof {proof}'
+
         path = self.get_module_path(module['key'])
         c.put_json(path, module)
         return module
@@ -140,12 +143,7 @@ class Vali:
         path = self.get_module_path(module)
         return c.get_json(path)
 
-    def verify_proof(self, module:dict):
-        proof = module.get('proof', None)
-
-        assert self.auth.verify_headers(proof), f'Invalid Proof {proof}'
-
-    def epoch(self, search=None, result_features=['score',  'name', 'key'], key=None, **kwargs):
+    def epoch(self, search=None, result_features=['score',  'name'], key=None, **kwargs):
         self.set_network(search=search, **kwargs)
         n = len(self.mods)
         if key:
@@ -171,6 +169,7 @@ class Vali:
         self.vote(results)
         if len(results) > 0:
             df = c.df(results)
+            print(results)
             return df[result_features]
         else:
             epoch_info = {

@@ -131,6 +131,7 @@ class Key:
         self.multiaddress = self.multi()
         return {'address':address, 'crypto_type':crypto_type}
 
+
     def get_crypto_type(self, crypto_type=None):
         if crypto_type == None:
             crypto_type = self.crypto_type

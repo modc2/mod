@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Client } from '@/app/block/client/client'
 import { Loading } from '@/app/block/Loading'
 import { ModuleType } from '@/app/types'
 import { useUserContext } from '@/app/block/context/UserContext'
 import { ModContent, ModApi, ModApp } from './tabs'
-import { Footer } from '@/app/block/footer/Footer'
 import ModCard from '@/app/mod/explore/ModCard'
 import { AlertCircle } from 'lucide-react'
 import { text2color } from '@/app/utils'
@@ -127,7 +125,6 @@ export default function ModulePage() {
         </div>
       </main>
 
-      <Footer />
     </div>
   )
 }
