@@ -37,17 +37,13 @@ class Client:
     ):
         url = self.get_url(fn)
         key = self.get_key(key)
-        fn = url.split('/')[-2]
-        # step 3: get the params
-        params = params or {}
-        params.update(extra_kwargs)   
-
-        headers = self.auth.forward(dict(fn=fn, params=params), key=key, cost=cost)
+        fn = url.split('/')[-1]
+        params = {**(params or {}), **extra_kwargs}
+        headers = self.auth.forward({'fn': fn, 'params': params}, key=key, cost=cost)
         headers.update({
             "Accept": "application/json",
             "Content-Type": "application/json",
         })
-        print(f'Client forwarding to {url} with params: {params} and headers: {headers}')
         response = requests.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
         # step 5: handle the response
         if response.status_code != 200:

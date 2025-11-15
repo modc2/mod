@@ -93,6 +93,7 @@ class Auth:
         Hash the data using sha256
         """
         data = json.dumps(data, separators=self.separators)
+        print(f'Hashing data: {data} with hash type {self.hash_type}')
         if self.hash_type == 'sha256':
             return hashlib.sha256(data.encode()).hexdigest()
         elif self._is_identity_hash_type():

@@ -162,7 +162,7 @@ class Server:
         loop = asyncio.get_event_loop()
         params = loop.run_until_complete(request.json())
         params = json.loads(params) if isinstance(params, str) else params
-        assert self.auth.verify(headers, data={"fn": fn, "params": params}) # verify the headers
+        assert self.auth.verify(headers, data={'fn': fn, 'params': params}) # verify the headers
         if not self.is_owner(headers['key']):
             assert fn in info['public_fns'], f"Function {fn} not in fns={info['fns']}"
         request =  {

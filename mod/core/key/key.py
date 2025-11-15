@@ -186,6 +186,25 @@ class Key:
     def root_key(self):
         return self.get_key(self.default_key)
 
+    def get_key_dirpath(self, key:str, crypto_type=None):
+        crypto_type = self.get_crypto_type(crypto_type)
+        key_path = self.get_key_path(key, crypto_type=crypto_type)
+        return '/'.join(key_path.split('/')[:-1])
+
+    def check_duplicate_addresses(self, name='mod', crypto_type=None):
+        dirpath = self.get_key_dirpath(name, crypto_type=crypto_type)
+        paths =  list(map(lambda p: dirpath + '/' + p, os.listdir(dirpath) ))
+        return paths
+
+    def key2duplicates(self, search=None, crypto_type=None):
+        keys = self.keys(search=search, crypto_type=crypto_type)
+        duplicates = {}
+        for key in keys:
+            paths = self.check_duplicate_addresses(key, crypto_type=crypto_type)
+            if len(paths) > 1:
+                duplicates[key] = len(paths)
+        return duplicates
+
     def get_key(self, 
                 path:str,
                 password:Optional[str]=None, 
@@ -235,15 +254,20 @@ class Key:
         defines the path for each key
         """
         crypto_type = self.get_crypto_type(crypto_type)
-        key_paths  = self.glob(self.storage_path)
+        key_names  = os.listdir(self.storage_path)
         key2path = {}
-        for p in key_paths:
+        for kn in key_names:
             if search:
-                if not search in p:
+                if not search in kn:
                     continue
-            if '/'+crypto_type+'/' in p:
-                name = p.split('/'+crypto_type+'/')[0].split(self.storage_path)[-1].strip('/')
-                key2path[name] = p         
+            key_path = self.storage_path + '/' + kn + '/' + crypto_type + '/'
+            if not os.path.exists(key_path):
+                continue
+            key_address_filenames = os.listdir( key_path)
+            for filename in key_address_filenames:
+                full_path = key_path + filename
+                if os.path.isfile(full_path):
+                    key2path[kn] =  full_path  
         return key2path
     
     def key2address(self, search=None, crypto_type=None,  **kwargs):
@@ -338,10 +362,17 @@ class Key:
         else:
             return 'RM_ALL_KEYS ABORTED'
 
-    def rm_key(self, key=None, crypto_type=None, **kwargs):
+    def key2dirpath(self, crypto_type=None, **kwargs):
+        crypto_type = self.get_crypto_type(crypto_type)
         key2path = self.key2path(crypto_type=crypto_type)
-        assert os.path.exists(key2path[key])
-        os.remove(key2path[key])
+        key2dirpath = {}
+        for key, path in key2path.items():
+            key2dirpath[key] = '/'.join(path.split('/')[:-1])
+        return key2dirpath
+    def rm_key(self, key=None, crypto_type=None, **kwargs):
+        key2dirpath = self.key2dirpath(crypto_type=crypto_type)
+        assert os.path.exists(key2dirpath[key])
+        shutil.rmtree(key2dirpath[key])
         assert not self.key_exists(key, crypto_type=crypto_type), f'Failed to delete key {key}'
         return {'deleted':[key]}
 
