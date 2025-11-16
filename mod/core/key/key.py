@@ -369,6 +369,7 @@ class Key:
         for key, path in key2path.items():
             key2dirpath[key] = '/'.join(path.split('/')[:-1])
         return key2dirpath
+        
     def rm_key(self, key=None, crypto_type=None, **kwargs):
         key2dirpath = self.key2dirpath(crypto_type=crypto_type)
         assert os.path.exists(key2dirpath[key])

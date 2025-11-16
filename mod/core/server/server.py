@@ -206,10 +206,8 @@ class Server:
         mods = self.store.get(path, None, max_age=max_age, update=update)
         if mods == None :
             urls = self.urls(search=search, **kwargs)
-            print(f'Updating mods from {path}', color='yellow')
             futures  = [m.submit(m.call, {"fn":url + '/info'}, timeout=timeout, mode='thread') for url in urls]
             mods =  m.wait(futures, timeout=timeout)
-            print(f'Found {len(mods)} mods', color='green')
             mods = list(filter(module_filter, mods))
             self.store.put(path, mods)
         else:

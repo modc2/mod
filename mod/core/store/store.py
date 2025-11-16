@@ -61,6 +61,7 @@ class Store:
             os.makedirs(path, exist_ok=True)
         return {'path': path}
 
+
     def get(self, path, default=None, max_age=None, update=False, password=None, verbose=False):
         """
         Get the data from the file
@@ -78,10 +79,11 @@ class Store:
             data = self.get_json(path)
         else:
             raise NotImplementedError(f'File type {self.filetype} not implemented')
+        if bool(max_age != None and self.get_age(path) > max_age) or update:
+            return default 
         data = self.validate_data(data)
-        update =  update or  bool(max_age != None and self.get_age(path) > max_age)
-        if update:
-            return default
+
+
         if self.private or password != None:
             return self.decrypt_data(data, password=password)
         return data
@@ -275,7 +277,7 @@ class Store:
         obj = self.get_json(path)
         if self.is_encrypted(path): 
             return {'msg': 'aready encrytped'}
-        result = {'encrypted_data': self.encrypt_data(obj, password=password)}
+        result = {'data': self.encrypt_data(obj, password=password)}
         assert self.is_encrypted(result), f'Failed to encrypt {result}'
         if save:
             self.put_json(path, result)
@@ -288,9 +290,8 @@ class Store:
         """
         Decrypt data using the given key
         """
-        if 'encrypted_data' not in data:
-            return data
-        data = data['encrypted_data']
+        if 'data' in data:
+            data = data['data']
         key = self.get_key(password)
         decrypted_data = key.decrypt(data)
         return decrypted_data
@@ -315,7 +316,7 @@ class Store:
         else:
             obj = path
   
-        return bool(isinstance(obj, dict) and 'encrypted_data' in obj)
+        return bool(isinstance(obj, dict) and 'data' in obj)
 
     def is_private(self, path=None) -> bool:
         """
@@ -354,8 +355,9 @@ class Store:
 
     def get_key(self, password: str=None) -> str:
         if password is None:
+            assert hasattr(self, 'key')
             return self.key
-        return m.mod('key.aes')(password=password or self.password)
+        return m.mod('key.aes')(password=password)
 
     def encrypt_all(self, password=None) -> list:
         """
@@ -396,3 +398,57 @@ class Store:
         for p in paths:
             data.append({'path': p.replace(path+'/', '')[:-len('.json')], 'age': self.get_age(p), 'size': os.path.getsize(p), 'encrypted': self.is_encrypted(p)})
         return m.df(data)
+
+    def put_text(self, path: str, text: str) -> str:
+        with open(path, 'w') as f:
+            f.write(text)
+        return path
+
+    def encrypt_folder(self, folder_path: str, password='fam') -> list:
+        """
+        Encrypt all files in the given folder
+        """
+        folder_path = self.abspath(folder_path)
+        path2text = self.path2text(folder_path)
+        path2text_encrypted =  self.encrypt_data(path2text, password=password)
+        encrypted_data_path = self.encrypted_folder_data_path(folder_path)
+        self.put_text(encrypted_data_path,  path2text_encrypted)
+        # rm original files
+        for p in path2text:
+            path = os.path.join(folder_path, p)
+            if os.path.isfile(path):
+                print(f'Removing original file {path}')
+                os.remove(path)
+        return path2text_encrypted
+
+    def encrypted_folder_data_path(self, folder_path: str) -> str:
+        return self.get_path(folder_path + f'/encrypted_folder.txt')
+    
+    def decrypt_folder(self, folder_path, password=None) -> dict:
+        """
+        Decrypt all files in the given folder
+        """
+        folder_path = self.abspath(folder_path)
+        encrypted_data_path = self.encrypted_folder_data_path(folder_path)
+        assert os.path.exists(encrypted_data_path), f'Failed to find encrypted folder at {encrypted_data_path}'
+        encrypted_data = self.get_text(encrypted_data_path)
+        path2text = self.decrypt_data(encrypted_data, password=password)
+        for rel_path, text in path2text.items():
+            abs_path = os.path.join(folder_path, rel_path)
+            self.put_text(abs_path, text)
+        os.remove(encrypted_data_path)
+        return path2text
+
+    def path2text(self, folder_path: str) -> dict:
+        folder_path = self.abspath(folder_path)
+        assert os.path.exists(folder_path), f'Failed to find folder at {folder_path}'
+        assert os.path.isdir(folder_path), f'Path {folder_path} is not a folder'
+        path2text = {}
+        import glob
+        paths = glob.glob(f'{folder_path}/**/*', recursive=True)
+        for p in paths:
+            if os.path.isfile(p):
+                rel_path = os.path.relpath(p, folder_path)
+                path2text[rel_path] = self.get_text(p)
+        return path2text
+    file2text = path2text

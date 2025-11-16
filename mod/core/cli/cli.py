@@ -40,7 +40,6 @@ class Cli:
         print(f'[{time_string}] Calling({module}/{fn}, params:{params["kwargs"]})', color='blue')
         result = fn_obj(*params["args"], **params["kwargs"]) if callable(fn_obj) else fn_obj
         duration = round(time.time() - time_start, 3)
-        print(f'Result(duration={duration}s)\n')
         self.print(result)
         print(f'\n--- Completed in {duration}s ---', color='blue')
 

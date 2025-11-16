@@ -1,12 +1,11 @@
 
-
-import mod as c
+import mod as m
 import time
 import json
 
 class TestStore:
     def __init__(self, mod='store',  path='~/.commune/store/test', **kwargs):
-        self.store = c.mod(mod)(path, **kwargs)
+        self.store = m.mod(mod)(path, **kwargs)
 
     def test_encrypt(self, path: str= 'test/a',  key: str='fam') -> str:
             """
@@ -14,7 +13,7 @@ class TestStore:
             """
 
 
-            store = c.mod('store')(path='~/.commune/store/test_encrypt', password=key)
+            store = m.mod('store')(path='~/.commune/store/test_encrypt', password=key)
             if store.exists(path):
                 store.rm(path)
             assert not store.exists(path), f'Failed to delete {path}'
@@ -23,7 +22,7 @@ class TestStore:
             store.put(path, value)
             obj = store.get(path)
             assert store.exists(path), f'Failed to find {path}'
-            key = c.key(key)
+            key = m.key(key)
             store.encrypt(path)
             assert store.is_encrypted(path), f'Failed to encrypt {path}'
             result = store.decrypt(path)
@@ -53,7 +52,7 @@ class TestStore:
         """
         Test the private store
         """
-        store = c.mod('store')(path='~/.commune/store/test_private', password=key)
+        store = m.mod('store')(path='~/.commune/store/test_private', password=key)
         store.rm_all()
         for path, value in data.items():
             print(f'Putting {path} with value {value}')
@@ -69,7 +68,7 @@ class TestStore:
         """
         Test the encrypt all function
         """
-        store = c.mod('store')(path='~/.commune/store/test_encrypt_all')
+        store = m.mod('store')(path='~/.commune/store/test_encrypt_all')
         store.rm_all()
         for path, value in data.items():
             print(f'Putting {path} with value {value}')
@@ -79,3 +78,23 @@ class TestStore:
         
         store.rm_all()
         return {'success': True, 'msg': 'Passed all tests in encrypt all'}
+
+    
+    def test_encrypt_folder(self,  mod='mod_test' , password='fam') -> bool:
+        """
+        Test encrypting and decrypting a folder
+        """
+        store = self.store
+        if m.mod_exists(mod):
+            m.rmmod(mod)
+        m.addmod(mod)
+        folder_path = m.dp(mod)
+        store.encrypt_folder(folder_path, password=password)
+        path2text =store.decrypt_folder(folder_path, password=password)
+        og_path2text = store.path2text(folder_path)
+        for k in og_path2text:
+            assert k in path2text, f'Key {k} not found in decrypted folder'
+            assert og_path2text[k] == path2text[k], f'Value for key {k} does not match original'
+        m.rmmod(mod)
+        assert m.mod_exists(mod) == False, f'Failed to remove mod {mod}'
+        return {'msg': 'Encryption and decryption successful'}

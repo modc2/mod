@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 import yaml
 
-class PM:
+class PM2:
     """
     A mod for interacting with PM2 process manager.
     Manages server processes with PM2, providing start, stop, restart, and monitoring capabilities.
@@ -60,9 +60,9 @@ class PM:
         dirpath = m.dirpath(mod)
         cwd = cwd or dirpath
         
-        return self.start(name=name, script=cmd, cwd=cwd, env=env, interpreter=interpreter)
+        return self.run(name=name, script=cmd, cwd=cwd, env=env, interpreter=interpreter)
 
-    def start(self, name: str, script: str = None, cwd: str = None, env: Dict = None, interpreter: str = 'python3', **kwargs) -> Dict[str, Any]:
+    def run(self, name: str, script: str = None, cwd: str = None, env: Dict = None, interpreter: str = 'python3', **kwargs) -> Dict[str, Any]:
         """
         Start a process with PM2.
         
@@ -107,6 +107,7 @@ class PM:
             'command': cmd_str,
             'success': result == 0
         }
+    start = run
 
     def stop(self, name: str) -> Dict[str, str]:
         """
