@@ -30,7 +30,7 @@ class App:
                     working_dir=working_dir,
                     port=port, 
                     cmd='npm run build && npm run start' if prod else 'npm run dev',
-                    env={'NEXT_PUBLIC_API_URL': url}, 
+                    env={'NEXT_PUBLIC_API_URL': api_url}, 
                     **kwargs
                     )
 
