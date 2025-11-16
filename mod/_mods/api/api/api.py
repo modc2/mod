@@ -14,6 +14,7 @@ class  Api:
                  'users', 
                  'user_info', 
                  'n', 
+                 'balance',
                  'reg_from_info',
                  'mod_preview']
 
