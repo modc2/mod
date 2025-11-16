@@ -1229,6 +1229,7 @@ class Substrate:
             if sudo:
                 call = substrate.compose_call(call_module="Sudo", call_function="sudo", call_params={"call": call.value})
 
+            nonce=nonce or substrate.get_account_nonce(key.ss58_address)
             if multisig != None:
                 multisig = self.get_multisig(multisig)
                 # send the multisig extrinsic
@@ -1538,6 +1539,40 @@ class Substrate:
             schema[call.name] = call.__dict__['value_serialized']
         return schema
 
+    def pallets(self) -> list[str]:
+        """
+        Retrieves a list of available pallets (modules) in the substrate network. 
+        """
+        with self.get_conn(init=True) as substrate:
+            metadata = substrate.get_metadata() 
+        return [pallet.name for pallet in metadata.pallets]
+
+    def pallet_schema(self, pallet='Modules') -> dict[str, Any]:
+        """
+        Retrieves the schema for a specific pallet (module) in the substrate network.
+        """
+        pallet_schema = {}
+        for fn in self.pallet_fns(pallet=pallet):
+            pallet_schema[fn] = self.pallet_fn_schema(pallet=pallet, fn=fn)
+        return pallet_schema
+
+    def pallet_fns(self, pallet='Modules') -> list[str]:
+        """
+        Retrieves a list of function names for a specific pallet (module) in the substrate network.
+        """
+        pallet_schema = self.pallet2fns(pallet=pallet)
+        return list(pallet_schema.keys())
+
+    def pallet_fn_schema(self, pallet='Modules', fn='register_module') -> dict[str, Any]:
+        """
+        Retrieves the schema for a specific function in a pallet (module) in the substrate network.
+        """
+        pallet_schema = self.pallet2fns(pallet=pallet)
+        fn_schema = pallet_schema.get(fn)
+        if not fn_schema:
+            raise ValueError(f"Function {fn} not found in pallet {pallet}")
+        return fn_schema
+
     def pallet2storage(self, pallet='Modules') -> dict[str, Any]:
         """
         Retrieves the storage schema for a specific pallet (module) in the substrate network.
@@ -1678,121 +1713,145 @@ class Substrate:
         info['collateral'] = mod.get('collateral', 0)
         return info
 
-    def rpc_payload(self, mod = 'Balances', 
-                        fn='transfer_keep_alive', 
-                        params={'dest': '5HmHcqweTcHrvifMna2r7NEjX9jcNUDr4QNiizMz2dU5wCgp', 'value': 0}, 
-                        era: dict[str, int] = None, 
-                        nonce=None,
-                        tip_asset_id = None,
-                        tip = 0,
-                        key = None
-                         ):
 
-        key = self.get_key(key)
-        with self.get_conn(init=True) as substrate:
-            call = substrate.compose_call(  # type: ignore
-                call_module=mod, call_function=fn, call_params=params
-            )
-            # Retrieve nonce
-            nonce = nonce or substrate.get_account_nonce(key.ss58_address) or 0
-            era = era or '00'
-            # sign it and get the payload
-            payload = call.value
-            signature_payload = substrate.generate_signature_payload(call=call, era=era, nonce=nonce, tip=tip, tip_asset_id=tip_asset_id)
-
-            rpc_payload = {
-                'method': 'author_submitExtrinsic',
-                'params': {
-                    'call': payload,
-                    'era': era,
-                    'nonce': nonce,
-                    'tip': tip,
-                    'tip_asset_id': tip_asset_id,
-                },
-                'signature_payload': signature_payload.data.hex(),
-            }
-            
-
-
-        return rpc_payload
-
-
-    def call_with_signature(self, 
-        module: str,
+    def compose_call(
+        self,
+        mod: str,
         fn: str,
         params: dict[str, Any],
+    ):
+        print(f"Composing call: mod={mod}, fn={fn}, params={params}")
+        with self.get_conn() as conn:
+            print(f"Got substrate connection: {conn}")
+            call = conn.compose_call(  # type: ignore
+                call_module=mod, call_function=fn, call_params=params
+            )
+            print(f"Composed call: {call}")
+        return call
+
+    def get_signature_payload(
+        self,
+        mod : str,
+        fn: str,
+        params : dict[str, Any],
+        address: Ss58Address,
+        era: dict[str, int],
+        nonce=None,
+        tip = 0,
+        tip_asset_id = None,
+    ) -> str:
+    
+        call = self.compose_call(mod=mod, fn=fn, params=params)
+        with self.get_conn(init=True) as substrate:
+            nonce = nonce or substrate.get_account_nonce(address) or 0
+            kwargs = dict(call=call, era=era or '00', nonce=nonce, tip=tip, tip_asset_id=tip_asset_id)
+            signature_payload = substrate.generate_signature_payload(**kwargs)
+        return signature_payload
+
+    def nonce(self, address: Ss58Address) -> int:
+        with self.get_conn(init=True) as substrate:
+            nonce = substrate.get_account_nonce(address) or 0
+        return nonce
+
+    def call_with_signature(
+        self,
+        mod : str = 'Balances',
+        fn : str = 'transfer_keep_alive',
+        params : dict[str, Any] = {'dest': "5DCi2qDU8GEaVFe98PnWVGLok2S6Yvpfpfhm45FtbdTmPMG4", 'value': 10},
         nonce: int = None,
         era: dict[str, int] = None,
         tip = 0,
         tip_asset_id = None,
+        address = None,
         signature: str = None,
-        wait_for_inclusion: bool = True,
-        wait_for_finalization: bool = False,
+        crypto_type= 1,
+        wait_for_finalization = False,
+        wait_for_inclusion = True,
+        
     ) -> ExtrinsicReceipt:
         """
-        Sends a signed call to the network node using the provided RPC payload
-        and signature.
+        Transfers a specified amount of tokens from the signer's account to the
+        specified account using a provided signature.
 
         Args:
-            rpc_payload: The RPC payload containing the call details.
-            signature: The signature for the call.
-            wait_for_inclusion: Whether to wait for the call's inclusion in a
-                block.
-            wait_for_finalization: Whether to wait for the transaction's
-                finalization.
+            dest: The SS58 address of the recipient.
+            amount: The amount to transfer, in nanotokens.
+            signature: The signature for the transfer call.
 
         Returns:
             The receipt of the submitted extrinsic.
         """
 
-        rpc_payload = self.rpc_payload(
-            mod=module,
-            fn=fn,
-            params=params,
-            era=era,
-            nonce=nonce,
-            tip=tip,
-            tip_asset_id=tip_asset_id,
-        )  
+        assert signature is not None, "Signature is required"
+        assert address is not None, "Address is required"
 
-        return response
-
-
-    def send_call_with_signature(
-        self,
-        rpc_payload: dict[str, Any],
-        signature: str,
-    ) -> ExtrinsicReceipt:
-        """
-        Sends a signed call to the network node using the provided RPC payload
-        and signature.
-
-        Args:
-            rpc_payload: The RPC payload containing the call details.
-            signature: The signature for the call.
-
-        Returns:
-            The receipt of the submitted extrinsic.
-        """
-
-        with self.get_conn() as substrate:
-            extrinsic = substrate.create_signed_extrinsic_from_rpc_payload(
-                rpc_payload=rpc_payload,
-                signature=signature,
+        nonce = self.nonce(address)
+        signature_payload = self.get_signature_payload(
+                mod=mod,
+                fn=fn,
+                params=params,
+                address=address,
+                era=era,
+                nonce=nonce,
+                tip=tip,
+                tip_asset_id=tip_asset_id,
             )
-
+        # verify signature
+        assert m.verify(signature_payload, signature, address), "Invalid signature"
+        
+        with self.get_conn() as substrate:
+            call = substrate.compose_call(  # type: ignore
+                call_module=mod, 
+                call_function=fn, 
+                call_params=params
+            )
+            extrinsic = substrate.create_signed_extrinsic(
+                call=call, 
+                signature=signature, 
+                nonce=nonce, 
+                crypto_type=crypto_type, 
+                tip=tip,
+                address=address,
+                )  # type: ignore
             response = substrate.submit_extrinsic(
                 extrinsic=extrinsic,
-                wait_for_inclusion=True,
-                wait_for_finalization=self.wait_for_finalization,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
             )
 
-        if not response.is_success:
-            raise ChainTransactionError(
-                response.error_message, response  # type: ignore
-            )
+        return {'exntrinsic_hash': response.extrinsic_hash, 'block_hash': response.block_hash}
 
+    def test_call_signature(self):
+        key = m.key()
+        address = key.address
+        dest = m.key('test').address
+        mod = 'Balances'
+        fn = 'transfer_keep_alive'
+        params = {'dest': dest, 'value': 0.1 * 10**self.decimals}
+        nonce = self.nonce(address)
+        signature_payload = self.get_signature_payload(
+            mod=mod,
+            fn=fn,
+            params=params,
+            address=address,
+            nonce=nonce,
+            era=None,
+        )
+
+        signature = key.sign(signature_payload)
+        response = self.call_with_signature(
+            mod=mod,
+            fn=fn,
+            params=params,
+            address=address,
+            signature=signature,
+            nonce=nonce,
+        )
         return response
+
+
+            
+
 
     
 # def modules()

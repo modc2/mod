@@ -294,9 +294,9 @@ class PM:
 
     def dockerfile(self, mod='mod'):
         path = self.dockerfile_path(mod)
-        if path is None:
+        if path == None:
             return None
-        return self.dockerfiles(mod)[0]
+        return self.dockerfiles(mod)
 
     def has_dockerfile(self, mod='mod'):
         """
@@ -320,7 +320,10 @@ class PM:
         return dockerfiles[0] if len(dockerfiles) > 0 else None
 
     def dockerfile(self, mod='mod'):
-        return m.get_text(self.dockerfile_path(mod))
+        dockerfile_path = self.dockerfile_path(mod)
+        if dockerfile_path is None:
+            return None
+        return m.get_text(dockerfile_path)
 
     def up(self, mod='chain', daemon: bool = True):
         """
@@ -787,6 +790,8 @@ class PM:
                 port = self.get_port(container)
                 namespace[container] =  ip + ':'+  str(port)
             self.store.put(path, namespace)
+        if search != None:
+            namespace = {k:v for k,v in namespace.items() if search in k}
         return namespace
 
     def urls(self, search=None, mode='http') -> List[str]:
@@ -857,9 +862,6 @@ class PM:
             print('Test complete.')
             self.kill(mod)
             return result
-
-    def nodes(self,mod):
-        return self.dockerfile(mod)
 
     def ensure_network(self, network: str=None):
         network = network or self.network

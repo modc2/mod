@@ -16,13 +16,11 @@ export const CreateMod = ( ) => {
   const [modName, setModName] = useState('')
   const [collateral, setCollateral] = useState(0.0)
   const [isLoading, setIsLoading] = useState(false)
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [signatureInfo, setSignatureInfo] = useState<{signature: string, timestamp: number, address: string} | null>(null)
   const [isLocalWallet, setIsLocalWallet] = useState(false)
   const [walletAddress, setWalletAddress] = useState('')
-  const [regInfo, setRegInfo] = useState<string>('')
   const [createdMod, setCreatedMod] = useState<ModuleType | null>(null)
 
   useEffect(() => {
@@ -37,22 +35,28 @@ export const CreateMod = ( ) => {
   const handleUrlChange = (value: string, inferredType: UrlType) => {
     setModUrl(value)
     setUrlType(inferredType)
-    const namePart = value.split('/')[value.split('/').length - 1]
-    setModName(namePart)
+    let name = value.split('/')[value.split('/').length - 1]
+    // remove .git suffix if present
+    name = name.endsWith('.git') ? name.slice(0, -4) : name
+    name = name.toLowerCase()
+    setModName(name)
   }
 
   const handleNameChange = (e) => {
     setModName(e.target.value || '')
   }
 
-  const generateRegInfo = async () => {
+  const handleCreateModule = async () => {
     if (!modUrl.trim()) {
       setError('Please enter a valid URL or hash')
       return
     }
 
-    setIsPreviewLoading(true)
+    setIsLoading(true)
     setError(null)
+    setSuccess(null)
+    setSignatureInfo(null)
+    setCreatedMod(null)
 
     try {
       if (!client) {
@@ -60,10 +64,10 @@ export const CreateMod = ( ) => {
       }
       let signature: string
       let signerAddress: string
-      let mod_preview: any
+      let reg_payload: any
       if (isSubwalletEnabled && walletAddress) {
-        mod_preview = await client.call('mod_preview', {'url': modUrl.trim(), 'key':walletAddress , 'collateral': collateral})
-        let messageToSign = JSON.stringify(mod_preview)
+        reg_payload = await client.call('reg_payload', {'url': modUrl.trim(), 'key':walletAddress , 'collateral': collateral})
+        let messageToSign = JSON.stringify(reg_payload)
 
         const extensions = await web3Enable('MOD')
         if (extensions.length === 0) {
@@ -87,80 +91,21 @@ export const CreateMod = ( ) => {
         if (!localKey) {
           throw new Error('Local key not found. Please sign in with Local Key.')
         }
-        mod_preview = await client.call('mod_preview', {'url': modUrl.trim(), 'key':localKey.address , 'collateral': collateral})
-        let messageToSign = JSON.stringify(mod_preview)
+        reg_payload = await client.call('reg_payload', {'url': modUrl.trim(), 'key':localKey.address , 'collateral': collateral})
+        let messageToSign = JSON.stringify(reg_payload)
         signature = localKey.sign(messageToSign)
         signerAddress = localKey.address
       } else {
         throw new Error('No signing method available. Please connect SubWallet or sign in with Local Key first.')
       }
       const previewData = {
-        ...mod_preview,
+        ...reg_payload,
         signature: signature,
       }
-        
-      setRegInfo(JSON.stringify(previewData, null, 2))
-      setError(null)
-    } catch (err: any) {
-      console.error('Preview generation error:', err)
-      setError(err.message || 'Failed to generate preview')
-      setRegInfo('')
-    } finally {
-      setIsPreviewLoading(false)
-    }
-  }
 
-  const handleCreateModule = async () => {
-    if (!modUrl.trim()) {
-      setError('Please enter a valid URL or hash')
-      return
-    }
-
-    setIsLoading(true)
-    setError(null)
-    setSuccess(null)
-    setSignatureInfo(null)
-    setCreatedMod(null)
-
-    try {
-      const timestamp = Date.now()
-      const messageToSign = `${modUrl.trim()}:${timestamp}`
-      let signature: string
-      let signerAddress: string
-      let wallet_mode = localStorage.getItem('wallet_mode') || 'local'
-      if (wallet_mode === 'subwallet' && walletAddress) {
-        const extensions = await web3Enable('MOD')
-        if (extensions.length === 0) {
-          throw new Error('SubWallet not found. Please install it.')
-        }
-        
-        const injector = await web3FromAddress(walletAddress)
-        const signRaw = injector?.signer?.signRaw
-        
-        if (signRaw) {
-          const { signature: sig } = await signRaw({
-            address: walletAddress,
-            data: u8aToHex(stringToU8a(messageToSign)),
-            type: 'bytes'
-          })
-          signature = sig
-          signerAddress = walletAddress
-        } else {
-          throw new Error('SubWallet signing not available')
-        }
-      } else if (wallet_mode === 'local' && localKey) {
-        signature = localKey.sign(messageToSign)
-        signerAddress = localKey.address
-      } else {
-        throw new Error('No signing method available. Please connect SubWallet or sign in with Local Key first.')
-      }
-
-      const regInfoObj = regInfo ? JSON.parse(regInfo) : null 
-      if (!client) {
-        throw new Error('Client not initialized')
-      }
-      const response = await client.call('reg', {mod: regInfoObj} )
+      const response = await client.call('reg', {mod: previewData} )
       
+      const timestamp = Date.now()
       setSignatureInfo({
         signature: signature,
         timestamp: timestamp,
@@ -174,7 +119,7 @@ export const CreateMod = ( ) => {
         cid: response?.cid || '',
         created: timestamp,
         updated: timestamp,
-        balance: 0
+        collateral: 0
       }
       
       setCreatedMod(newMod)
@@ -182,7 +127,6 @@ export const CreateMod = ( ) => {
       setModUrl('')
       setModName('')
       setCollateral(0.0)
-      setRegInfo('')
     } catch (err: any) {
       console.error('Module creation error:', err)
       setError(err.message || 'Failed to create module')
@@ -254,36 +198,6 @@ export const CreateMod = ( ) => {
                 </div>
               </div>
             </div>
-
-            <button
-              onClick={generateRegInfo}
-              disabled={!modUrl.trim() || (!isSubwalletEnabled && !isLocalWallet) || isPreviewLoading}
-              className="w-full py-5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 border-2 border-white/60 text-white font-black rounded-lg uppercase text-2xl disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all shadow-[0_0_40px_rgba(255,255,255,0.4)] hover:shadow-[0_0_50px_rgba(255,255,255,0.6)]"
-            >
-              {isPreviewLoading ? (
-                <>
-                  <Loader2 size={28} className="animate-spin" />
-                  <span>GENERATING PREVIEW...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle size={28} />
-                  <span>PREVIEW MODULE JSON</span>
-                </>
-              )}
-            </button>
-
-            {regInfo && (
-              <div className="rounded-lg bg-black/80 border-2 border-white/60 p-6 shadow-[0_0_30px_rgba(255,255,255,0.2)]">
-                <div className="flex items-center gap-2 text-white font-black text-2xl uppercase mb-4 tracking-widest drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                  <CheckCircle size={24} />
-                  <span>JSON PREVIEW</span>
-                </div>
-                <pre className="text-white font-mono text-lg overflow-x-auto bg-black/90 p-5 rounded-lg border-2 border-white/40 max-h-80 overflow-y-auto">
-                  {regInfo}
-                </pre>
-              </div>
-            )}
 
             <button
               onClick={handleCreateModule}

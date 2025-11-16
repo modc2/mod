@@ -1,4 +1,4 @@
-import commune as c
+import mod as m
 import bittensor as bt
 from typing import List, Dict, Any, Optional
 from bittensor.utils.balance import Balance
@@ -50,8 +50,8 @@ class Bt:
         subnet = subnet.__dict__
         subnet['subnet_identity'] = subnet['subnet_identity'].__dict__ if subnet.get('subnet_identity', None) != None else None
         # convert alpha_in, alpha_out, tao_in into float 
-        for key in ['alpha_in', 'alpha_out', 'tao_in']:
-            if key in subnet:
+        for key in subnet.keys():
+            if isinstance(subnet[key], Balance):
                 subnet[key] = subnet[key].tao
         return subnet
 
@@ -67,7 +67,7 @@ class Bt:
         return len(self.neurons(netuid=netuid))
 
     
-    def subnet(self, netuid: int = 2, block: Optional = None) -> Dict:
+    def subnet(self, netuid: int = 2, block: Optional = None, tojson=True) -> Dict:
         """Get subnet information
         Args:
             netuid (int): Network UID
@@ -79,7 +79,11 @@ class Bt:
         
 
 
-        return self.subtensor.subnet(netuid=netuid, block=block)
+        subnet =  self.subtensor.subnet(netuid=netuid, block=block)
+        if tojson:
+            return self.subnet2json(subnet)
+        return subnet   
+
 
 
 
@@ -102,19 +106,22 @@ class Bt:
             List of subnet information dictionaries
         """
         path = '~/.bt/subnets.json'
-        subnets = c.get(path,  None, update=update, max_age=max_age)
+        subnets = m.get(path,  None, update=update, max_age=max_age)
         if subnets is not None:
             return subnets
         subnets_info =  self.get_all_subnets_info(block=block)
         subnets = []
         for subnet_info in subnets_info:
             netuid = subnet_info.netuid
-            subnet = self.subnet(netuid=netuid, block=block).__dict__
-            subnet['subnet_identity'] = subnet['subnet_identity'].__dict__ if subnet.get('subnet_identity', None) != None else None
+            subnet = self.subnet(netuid=netuid, block=block)
+            subnet['subnet_identity'] = subnet['subnet_identity'] if subnet.get('subnet_identity', None) != None else None
             if neurons:
                 neurons = self.neurons(netuid=netuid)
                 subnet['neurons'] = neurons
+            # remove the balance objects by converting to tao float
+
             subnets.append(subnet)
+        m.put(path, subnets)
         
             
         return subnets
@@ -180,7 +187,24 @@ class Bt:
             List of subnet UIDs
         """
         return self.subtensor.get_subnets()
-    
+
+    def gits(self) -> List[str]:
+        """Get git URLs for a subnet
+        Args:
+            netuid (int): Network UID
+        Returns:
+            List of git URLs
+        """
+        giturls = []
+        for subnet in self.subnets():
+            subnet_identity = subnet.get('subnet_identity', {})
+            if subnet_identity:
+                github_repo = subnet_identity.get('github_repo', None)
+                if github_repo:
+                    giturls.append(github_repo)
+        return giturls
+
+            
     def metagraph(self, netuid: int = 1) -> Any:
         """Get metagraph for a subnet
         Args:

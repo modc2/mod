@@ -16,7 +16,7 @@ class  Api:
                  'n', 
                  'balance',
                  'reg_from_info',
-                 'mod_preview']
+                 'reg_payload']
 
     def __init__(self, store = 'ipfs', chain='chain', key=None):
         self.store = m.mod(store)()
@@ -101,6 +101,7 @@ class  Api:
             Dictionary with IPFS hash and other metadata
         """
         file2cid = {}
+        mod = mod.lower()
         content = m.content(mod)
         for file,content in content.items():
             cid = self.add(content)
@@ -126,7 +127,7 @@ class  Api:
         url = m.namespace().get(url, None)
         return url
 
-    def mod_preview(self, 
+    def reg_payload(self, 
                     url: str, 
                     mod=None, 
                     signature = None, 
@@ -149,10 +150,10 @@ class  Api:
 
 
         if 'github.com' in url or 'gitlab.com' in url:
-            if mod is None:
-                mod = url.split('/')[-1].replace('.git','')
+            mod = url.split('/')[-1].split('.git')[0] 
             # assert not m.mod_exists(mod), f'Mod {mod} already exists. Please choose a different mod name or deregister the existing mod first.'
-            dirpath = m.mods_path + '/_ext/'
+            mod = mod.lower()
+            dirpath = m.ext_path
             modpath = os.path.join(dirpath, mod)
             if not os.path.exists(modpath):
                 git_cmd = f'git clone {url} {modpath}'
@@ -161,6 +162,7 @@ class  Api:
                 m.print(f"[✓] Cloned repository from {url} to {modpath}", color="green")
         else:
             raise ValueError(f'Unsupported URL for reg_from_url: {url}')
+        m.ext_tree(update=1)
         info = self.reg_info(mod=mod, key=key, comment=comment, collateral=collateral)
         return info
 

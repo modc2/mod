@@ -364,6 +364,8 @@ class Mod:
             files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
         if search != None:
             files = [f for f in files if search in f]
+        if len(files) == 0 and self.mod_exists(path):
+            return self.files(self.dirpath(path), search=search, avoid_folders=avoid_folders, endswith=endswith, include_hidden=include_hidden, relative=relative, startswith=startswith, depth=depth, **kwargs)
         return files
 
     def files_size(self):
@@ -989,17 +991,6 @@ class Mod:
             classes.extend(v)
         return classes  
 
-    def mod2readme(self): 
-        mod2readme = {}
-        for mod in self.mods():
-            dp = self.dirpath(mod)
-            files = self.files(dp)
-            mod2readme[mod] = [f for f in files if f.endswith('.md')]
-            if len(mod2readme[mod]) == 0:
-                del mod2readme[mod]
-            else:
-                mod2readme[mod] = self.get_text(mod2readme[mod][0])
-        return len(str(mod2readme))    
 
     def mnemonic(self, words=24):
         """
@@ -1204,11 +1195,13 @@ class Mod:
         path = path.replace('/', '.')
         # IF FOR SOME REASON WE ARE SPECIFYING A PATH THAT IS A FILE (NOT IN THE TREE AS THE TREE ONLY HAS FOLDERS)
         path = self.dirpath(path)
-        anchor_names =  self.anchor_names.copy() + path.split('/')[-2:]
+
+        # this is rather nuanced, but it basically says that the anchor names are the anchor names plus the path chunks
+        # removing the home_path prefix
+        anchor_names =  self.anchor_names.copy() + path[len(self.home_path+'/'):].split('/')
         files = list(sorted( self.files(path, depth=file_depth), key=lambda x: len(x)))
         # filter files that are in the file types
-        file_types = ['py']
-        files = [f for f in files if any([f.endswith('.' + ft) for ft in file_types])]
+        files = [f for f in files if any([f.endswith('.' + ft) for ft in self.file_types])]
         if len(files) == 1:
             return files[0]
         for f in files:
@@ -1267,8 +1260,10 @@ class Mod:
         tree = self.get(cache_key, None, update=update)
         if tree == None:
             path = path or self.core_path
-            filter_path_by_file_types = lambda p: any([p.endswith('.' + ft) for ft in self.file_types])
-            paths = list(self.folders(path, depth=max_depth))
+            if folders:
+                paths = list(self.folders(path, depth=max_depth))
+            else:
+                paths = list(self.files(path, depth=max_depth))
             def process_path(x):
                 for k in ignore_suffixes: 
                     if x.endswith(k):
@@ -1319,7 +1314,7 @@ class Mod:
     def local_tree(self, search=None, depth=1, **kwargs):
         return self.get_tree(os.getcwd(), depth=depth,  search=search, **kwargs )
 
-    def tree(self, search=None, depth=3, **kwargs):
+    def tree(self, search=None, depth=8, **kwargs):
         """
         get the full tree of the mods, local and core
         ORDER OF PRIORITY:
@@ -1333,7 +1328,9 @@ class Mod:
         
         """
         local_tree = self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {}
+        ext_tree = self.ext_tree(search=search, depth=depth, **kwargs)
         return {
+            **ext_tree,
             **self.mods_tree(search=search, depth=depth,  **kwargs),
             **local_tree,
             **self.core_tree(search=search, depth=depth, **kwargs),
@@ -1345,7 +1342,9 @@ class Mod:
         """
         if mod == None or mod == 'mod':
             return self.lib_path
+
         mod = self.shortcuts.get(mod, mod)
+        mod = mod.lower()
         tree = self.tree(folders=True, depth=depth)
         tree_options = [k for k in tree.keys() if all([part in k for part in mod.split('.')])]
         # sort by length ascending

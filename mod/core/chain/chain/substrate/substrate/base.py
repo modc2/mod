@@ -1576,8 +1576,16 @@ class SubstrateInterface:
         return signature_payload.data
 
     def create_signed_extrinsic(
-            self, call: GenericCall, keypair: Keypair, era: dict = None, nonce: int = None,
-            tip: int = 0, tip_asset_id: int = None, signature: Union[bytes, str] = None
+            self, 
+            call: GenericCall, 
+            keypair: Keypair = None, 
+            era: dict = None, 
+            nonce: int = None,
+            tip: int = 0, 
+            tip_asset_id: int = None, 
+            address = None,
+            signature: Union[bytes, str] = None,
+            crypto_type: int = None
     ) -> GenericExtrinsic:
         """
         Creates an extrinsic signed by given account details
@@ -1628,7 +1636,9 @@ class SubstrateInterface:
                 signature_version = signature[0]
                 signature = signature[1:]
             else:
-                signature_version = keypair.crypto_type
+                if crypto_type is None:
+                    crypto_type = keypair.crypto_type
+                signature_version = crypto_type 
 
         else:
             # Create signature payload
@@ -1645,8 +1655,15 @@ class SubstrateInterface:
         # Create extrinsic
         extrinsic = self.runtime_config.create_scale_object(type_string='Extrinsic', metadata=self.metadata)
 
+        if address != None:
+            # get public_key from address
+            public_key = self.ss58_decode(address)
+        else: 
+            public_key = keypair.public_key.hex()
+            
+
         value = {
-            'account_id': f'0x{keypair.public_key.hex()}',
+            'account_id': f'0x{public_key}',
             'signature': f'0x{signature.hex()}',
             'call_function': call.value['call_function'],
             'call_module': call.value['call_module'],
