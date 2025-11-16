@@ -16,13 +16,21 @@ class  Api:
                  'n', 
                  'balance',
                  'reg_from_info',
+                 'call_with_signature', 
+                 'get_signature_payload',
                  'reg_payload']
 
     def __init__(self, store = 'ipfs', chain='chain', key=None):
         self.store = m.mod(store)()
         self.key = m.key(key)
-        self.chain = m.mod(chain)()
+        self.set_chain(chain)
         self.model = m.mod('model.openrouter')()
+
+    def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload']):
+        self.chain = m.mod(chain)()
+        for fn_name in sync_fns:
+            print(f"Syncing chain fn: {fn_name}")
+            setattr(self, fn_name, getattr(self.chain, fn_name))
 
     def exists(self, mod: m.Mod='store', key=None) -> bool:
         """Check if a mod Mod exists in IPFS.
@@ -617,3 +625,37 @@ class  Api:
     
     def models(self, search=None, mod: str='model.openrouter', **kwargs) -> List[Dict[str, Any]]:
         return self.model.models(search=search, **kwargs)
+
+    # chain stuff
+    def nonce(self, key=None) -> int:
+        key = self.key_address(key)
+        return self.chain.nonce(key)
+
+    def test_call_signature(self):
+        key = m.key()
+        address = key.address
+        dest = m.key('test').address
+        mod = 'Balances'
+        fn = 'transfer_keep_alive'
+        params = {'dest': dest, 'value': 0.1 * 10**12}
+        nonce = self.nonce(address)
+        signature_payload = m.call('api/get_signature_payload',
+            params=dict(mod=mod,
+            fn=fn,
+            params=params,
+            address=address,
+            nonce=nonce,
+            era=None)
+        )
+
+        signature = key.sign(signature_payload, mode='str')
+        assert m.verify(signature_payload, signature, address), "Invalid signature"
+        response = m.call('api/call_with_signature',
+            params=dict(mod=mod,
+            fn=fn,
+            params=params,
+            address=address,
+            signature=signature,
+            nonce=nonce)
+        )
+        return response

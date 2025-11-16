@@ -133,8 +133,6 @@ class Server:
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-
-            result = self.serializer.forward(result) # serialize the result
             tx = self.tx.forward(
                 mod=info["name"],
                 fn=fn, # 

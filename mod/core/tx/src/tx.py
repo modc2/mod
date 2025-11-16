@@ -50,7 +50,6 @@ class Tx:
         """ 
         create a transaction
         """
-        result = self.serializer.forward(result)
 
         if client is None or server is None: 
             auths = self.get_auths(mod, fn, params, result, key=key)

@@ -6,10 +6,12 @@ import re
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
+from hashlib import blake2b
 from typing import Any, Mapping, TypeVar, cast, List, Dict, Optional
 from collections import defaultdict
 from .storage import StorageKey
 from .key import  Keypair# type: ignore
+from scalecodec.base import ScaleBytes
 from .base import ExtrinsicReceipt, SubstrateInterface
 from .types import (ChainTransactionError,
                     NetworkQueryError, 
@@ -1746,7 +1748,8 @@ class Substrate:
             nonce = nonce or substrate.get_account_nonce(address) or 0
             kwargs = dict(call=call, era=era or '00', nonce=nonce, tip=tip, tip_asset_id=tip_asset_id)
             signature_payload = substrate.generate_signature_payload(**kwargs)
-        return signature_payload
+        # convert scale bytes to bytes
+        return signature_payload.to_hex()
 
     def nonce(self, address: Ss58Address) -> int:
         with self.get_conn(init=True) as substrate:
@@ -1784,8 +1787,10 @@ class Substrate:
 
         assert signature is not None, "Signature is required"
         assert address is not None, "Address is required"
-
-        nonce = self.nonce(address)
+        if isinstance(signature, str) and signature.startswith('0x'):
+            signature = bytes.fromhex(signature[2:])
+        if nonce is None:
+            nonce = self.nonce(address)
         signature_payload = self.get_signature_payload(
                 mod=mod,
                 fn=fn,
@@ -1796,6 +1801,7 @@ class Substrate:
                 tip=tip,
                 tip_asset_id=tip_asset_id,
             )
+        # convert string interger to scale bytes
         # verify signature
         assert m.verify(signature_payload, signature, address), "Invalid signature"
         
@@ -1838,7 +1844,8 @@ class Substrate:
             era=None,
         )
 
-        signature = key.sign(signature_payload)
+        signature = key.sign(signature_payload, mode='str')
+        assert m.verify(signature_payload, signature, address), "Signature verification failed"
         response = self.call_with_signature(
             mod=mod,
             fn=fn,
