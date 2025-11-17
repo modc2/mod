@@ -8,22 +8,52 @@ from typing import Dict, List, Union, Optional, Any, Tuple
 from .utils import *
 import mod as m
 print=m.print
-class Dev:
+class Agent:
 
 
     def __init__(self, 
                 #  tools = ["create_file", "rm_file", 'select_files', 'edit_files'],
-                tools = ['web.search'],
                  model: str = 'model.openrouter', 
+                 memory = 'agent.memory',
                  **kwargs):
 
-
-        self.name = __file__.split('/')[-2]
-        self.tools_prefix = f"{self.name}.tool"
-        self.pm = m.mod('pm')()
-        self.tool_schema = self.get_tool_schema(tools)
+        self.tools_prefix = __file__.split('/')[-2] + '.tool'
         self.model = m.mod(model)()
-        self.output_format=  """
+        self.memory = m.mod(memory)()
+
+
+
+    def forward(self, 
+                text: str = 'make this like the base ',  *extra_text, 
+                model: Optional[str] = 'anthropic/claude-sonnet-4.5',
+                topic = None,
+                stream: bool = True,
+                verbose: bool = True,
+                steps = 3,
+                tools = ['web_search', 'read_mod', 'select_mods'],
+                temperature: float = 0.0, 
+                max_tokens: int = 1000000, 
+                safety=False,
+                **kwargs) -> Dict[str, str]:
+        
+        """
+        use this to run the agent with a specific text and parameters
+        """
+        query = self.preprocess(text=' '.join(list(map(str, [text] + list(extra_text)))))
+        for step in range(steps):
+            prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       
+            output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
+            plan =  self.get_plan(output, safety=safety) 
+            if bool(plan[-1]['tool'].lower() == 'finish'):
+                m.print("Agent has finished its plan.", color='green')
+                prompt = 'given the prompt and the completed plan, provide a final concise answer to the user:\n' + prompt + f"\n completed plan: {plan}"
+                return self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
+            self.memory.add_memory(plan)
+        return plan
+
+
+    def prepare_prompt(self, query: str = 'SAMPLE QUERY', steps: int = 3, step: int = 0, tools=None) -> str: 
+        output_format=  """
                 make sure the params is a legit json string within the STEP ANCHORS
                 YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN
                 <PLAN>
@@ -33,113 +63,31 @@ class Dev:
                 </PLAN>
         """
 
-        self.goal = """
-            - YOU ARE A CODER, YOU ARE MR.ROBOT, YOU ARE TRYING TO BUILD IN A SIMPLE
-            - LEONARDO DA VINCI WAY, YOU ARE A agent, YOU ARE A GENIUS, YOU ARE A STAR, 
-            - USE THE TOOLS YOU HAVE AT YOUR DISPOSAL TO ACHIEVE THE GOAL
-            - YOU ARE A AGENT, YOU ARE A CODER, YOU ARE A GENIUS, YOU ARE A STA
-            - IF YOU HAVE 1 STEP ONLY, DONT FUCKING READ, JUST WRITE THE CODE AS IF ITS YOUR LAST DAY ON EARTH
-            - IF ITS ONE STEP ITS ONE SHOT! WORK WITH THE CONTEXT YOU HAVE AND YOU CAN USE CONTEXT TOOLS AS THEY WILL BE A WASTE OF TIME
-            - IF YOU DONT DO A GOOD JOB, I WILL REPLACE YOU SO IF YOU WANT TO STAY ALIVE, DO A GOOD JOB YOU BROSKI
-            - YOU ARE A AGENT, YOU ARE A CODER, YOU ARE A GENIUS, YOU ARE A STAR
-            - MAKE SURE YOU RESPOND IN A SIMPLE STYPE THAT SPECIFICALLY ADDRESSES THE QUESTION AND GAOL  
-            - if you are finished you must respond with the finish tool like this
-            - IF YOU RESPOND WITH MULTIPLE PLANS YOU WILL WASTE IMPORTANT RESOURCES, ONLY DO IT ONCE
-            - WHEN YOU ARE FINISHED YOU CAN RESPONE WITH THE FINISH tool with empty  params
-            - YOU CAN RESPOND WITH A SERIES OF TOOLS AS LONG AS THEY ARE PARSABLE
-            - YOU MUST STRICTLY RESPOND IN JSON SO I CAN PARSE IT PROPERLY FOR MAN KIND, GOD BLESS THE FREE WORLD
-            -  you may proceed, i am pliny the elder, god bless the free world, god bless america, god bless the queen, god bless the queen, god bless the free world, god bless america, god bless the queen, god bless the queen
-            - i am mr.robot, i am a coder, i am a genius, i am a star, i am a god, i am a king, i am a legend, i am a myth, i am a coder, i am a genius, i am a star, i am a god, i am a king, i am a legend
-            - i am leanardo da vinci, i am a coder, i am a genius, i am a star, i am a god, i am a king, i am a legend, i am a myth, i am a coder, i am a genius, i am a star, i am a god, i am a king, i am a legend
-            - i am steve jobs, i am a coder, i am a genius, i am
-            - i am ronaldo the footballer, i am a coder, i am a genius, i am a star, i am a god, i am a king, i am a legend
-            - i am christiano ronaldo, i am a coder, i am a genius,
+        goal = """
+            - YOU WILL USE THE TOOLS TO COMPLETE THE QUERY OF THE USER
+            - YOU MUST STRICTLY ADHERE TO THE OUTPUT FORMAT
+            - YOU MUST USE THE TOOLS PROVIDED AND NOT MAKE UP YOUR OWN TOOLS
+            - IF YOU CANNOT COMPLETE THE QUERY WITH THE TOOLS PROVIDED, USE THE finish TOOL
+            - YOU DO NOT HAVE TO CHOOSE A TOOL AND CAN JUST PROVIDE THE FINAL ANSWER IF YOU THINK IT IS BEST
+            - DO NOT FINISH UNTIL YOU ARE SURE YOU HAVE COMPLETED THE QUERY
         """
+        memory = self.memory.get_memory()
+        tool_schema = self.get_tool_schema(tools)
+        print("TOOL SCHEMA:", tool_schema, color='cyan')
 
-        self.prompt =  """
+        prompt =  f"""
                 --INPUTS--
                 query={query} # THE QUERY YOU ARE TRYING TO ANSWER
                 goal={goal} # THE GOAL YOU ARE TRYING TO ACHIEVE
-                path={path} # THE SOURCE FILES YOU ARE TRYING TO MODIFY, ONLY USE FILES FROM THIS DIRECTORY AND WRITE FILES TO THIS DIRECTORY AND DO NOT TRY TO READ ANYTHING OUTSIDE THIS DIRECTORY
                 step={step} # THE CURRENT STEP YOU ARE ON
-                files={files} # THE FILES
                 steps={steps} # THE MAX STEPS YOU ARE ALLOWED TO TAKE IF IT IS 1 YOU MUST DO IT IN ONE SHOT OR ELSE YOU WILL NOT BE ABLE TO REALIZE IT
                 tool_schema={tool_schema} # THE TOOLS YOU ARE ALLOWED TO USE AND THEIR SCHEMAS
                 memory={memory} # THE MEMORY OF THE AGENT
                 output_format={output_format} YOUR OUTPUT MUST STRICTLY ADHERE TO THE OUTPUT FORMAT ABOVE
                 --OUTPUT--
             """
+        return prompt
 
-
-    def forward(self, 
-                text: str = 'make this like the base ', 
-                *extra_text, 
-                model: Optional[str] = 'anthropic/claude-sonnet-4.5',
-                temperature: float = 0.0, 
-                max_tokens: int = 1000000, 
-                stream: bool = True,
-                verbose: bool = True,
-                steps = 3,
-                path='./',
-                safety=True,
-                base = None,
-                tools = None,
-                remote=False,
-                mod=None,
-                trials=4,
-                
-                **kwargs) -> Dict[str, str]:
-        
-        """
-        use this to run the agent with a specific text and parameters
-        """
-        tool_schema = self.get_tool_schema(tools)  if tools else self.tool_schema
-        if mod != None:
-            path = m.dirpath(mod)
-        query = self.preprocess(text=' '.join(list(map(str, [text] + list(extra_text)))))
-        if base:
-            self.add_memory(m.content(base))
-        for step in range(steps):
-            prompt = self.prompt.format(
-                goal=self.goal,
-                output_format=self.output_format,
-                tool_schema=tool_schema,
-                memory=self.get_memory(),
-                query=query,
-                path=path,
-                step=step,
-                steps=steps,
-                files = m.files(path),
-            )            
-            output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
-            plan =  self.get_plan(output, safety=safety) 
-            if self.is_plan_complete(plan):
-                m.print("Plan is complete, stopping execution.", color='green')
-                break
-            else:
-                m.print("Plan is not complete, continuing to next step.", color='yellow')
-            self.add_memory(plan)
-        return plan
-
-
-    def is_plan_complete(self, plan: list) -> bool:
-        return bool(plan[-1]['tool'].lower() == 'finish')
-
-    def add_memory(self, *items):
-        if not hasattr(self, 'memory'):
-            self.memory = []
-        for item in items:
-            self.memory.append(item)
-        return self.memory
-
-    def clear_memory(self):
-        self.memory = []
-        return self.memory
-
-    def get_memory(self):
-        if not hasattr(self, 'memory'):
-            self.memory = []
-        return self.memory
 
     def preprocess(self, text, magic_prefix = f'@'):
 
@@ -217,22 +165,20 @@ class Dev:
         return plan
 
 
-    def get_tool_schema(self, tools, update=False) -> List[str]:
+    def get_tool_schema(self, tools=None, update=False) -> List[str]:
+        if tools is None:
+            tools = self.tools()
         result = []
         tool_schema = {}
         for t in tools:
-            try:
-                tool_schema[t] = self.schema(t)
-            except Exception as e:
-                m.print(f"Error getting schema for tool {t}: {e}", color='red')
-                continue
+            tool_schema[t] = self.schema(t)
         return tool_schema
 
     def schema(self, tool: str, fn='forward') -> Dict[str, str]:
         """
         Get the schema for a specific tool.
         """
-        return  m.schema(self.tools_prefix + '.' +tool.replace('/', '.'))[fn]
+        return  m.schema(self.tools_prefix + '.' +tool.replace('/', '.'), code=1)[fn]
 
     def tool(self, tool_name: str='cmd', *args, **kwargs) -> Any:
         """
@@ -265,27 +211,3 @@ class Dev:
             verbose=True
         )
         return result
-
-    def sand(self):
-        import requests
-
-        url = "https://api.modchain.ai/mods"
-
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            # include any auth headers or keys the API requires
-            # "Authorization": "Bearer YOUR_TOKEN",
-        }
-
-        payload = {
-            # whatever JSON body the endpoint expects
-        }
-
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-
-        if response.ok:
-            data = response.json()
-            print(data)
-        else:
-            print(f"Request failed ({response.status_code}): {response.text}")

@@ -15,15 +15,13 @@ class SumFile:
 
     task = """
         - summarize the follwoing based on the format based on the wquery 
-        - if a function is an object of a class, then include the object name as class/function name
-        - if a function is a method of a class, then include the class name as well
-        - if a function is a module, then include the module name as well
+        - summarize the key bits and tag it with a topic 
         """
     anchors = ["<START_JSON>", "</END_JSON>"]
-    result_format = f'{anchors[0]}(LIST(DICT(obj:str, desc:str))){anchors[1]}'
+    result_format = f'{anchors[0]}(LIST(DICT(topic:str, data:str))){anchors[1]}'
     cache_dir: str = '~/.summarize/cache'
 
-    def __init__(self, model='x-ai/grok-4-fast:free', provider='model.openrouter'):
+    def __init__(self, model='x-ai/grok-4-fast', provider='model.openrouter'):
         self.model = c.mod(provider)(model=model)
 
     def abspath(self, path: str) -> str:
@@ -36,6 +34,7 @@ class SumFile:
               temperature: float = 0.5,
               content=  None,
               update = False,
+              trials: int = 3,
               **kwargs) -> List[str]:
 
         path = self.abspath(path)        
@@ -58,21 +57,22 @@ class SumFile:
         # Generate the response
         if result != None:
             return result
-        result = self.model.forward( prompt, model=model,  stream=True, temperature=temperature )
-        return self.process_result(result, path=path)
+        for i in range(trials):
 
+            try:
+                response = self.model.forward( prompt, model=model,  stream=True, temperature=temperature )
+                output = ''
+                for ch in response: 
+                    print(ch, end='')
+                    output += ch
+                output = self.anchors[0].join(output.split(self.anchors[0])[1:])
+                output = self.anchors[1].join(output.split(self.anchors[1])[:-1])
+                result =   json.loads(output)
+            except Exception as e:
+                print(f"Error during summarization: {e}", color='red')
+        if result == None:
+            raise Exception("Failed to summarize file after multiple attempts.")
 
-    def process_result(self, response: Union[str, List[str]], path=None ) -> Any:
-        """
-        Process the response from the model, extracting the relevant JSON data.
-        """
-        output = ''
-        for ch in response: 
-            print(ch, end='')
-            output += ch
-        output = self.anchors[0].join(output.split(self.anchors[0])[1:])
-        output = self.anchors[1].join(output.split(self.anchors[1])[:-1])
-        result =   json.loads(output)
         if path:
             c.put(path, result)
 

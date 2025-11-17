@@ -1,11 +1,12 @@
 import mod as m
 
 class SeelctMods:
-    def forward(self, query='most relevent tool that can store things', *extra_query, n=1):
+    def forward(self, query='most relevent tool that can store things', *extra_query, n=10):
         """
         read the content of a mod file
+        
         """
-        return m.fn('select_options/')(options=m.mods(), query=query)[0:n]
+        return m.fn('select_options/')(options=m.mods(), query=query)
 
     def test(self , mod='read_mod', n=1):
         """

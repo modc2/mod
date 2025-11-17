@@ -1345,15 +1345,21 @@ class Mod:
 
         mod = self.shortcuts.get(mod, mod)
         mod = mod.lower()
-        tree = self.tree(folders=True, depth=depth)
-        tree_options = [k for k in tree.keys() if all([part in k for part in mod.split('.')])]
-        # sort by length ascending
-        tree_options = sorted(tree_options, key=lambda x: len(x))
-        if len(tree_options) > 0:
-            k = tree_options[0]
-            dirpath = tree[k]
-        else: 
-            raise Exception(f'Module {mod} not found')
+        def get_dirpath_from_tree( update=False):
+            tree = self.tree(folders=True, depth=depth, update=update)
+            tree_options = [k for k in tree.keys() if all([part in k for part in mod.split('.')])]
+            tree_options = sorted(tree_options, key=lambda x: len(x))
+            if len(tree_options) > 0:
+                dirpath = tree[tree_options[0]]  
+            else:
+                dirpath = None
+            return dirpath
+
+        dirpath = get_dirpath_from_tree(update=False)
+        if dirpath == None:
+            dirpath = get_dirpath_from_tree(update=True)
+            if dirpath == None:
+                raise Exception(f'Module {mod} not found')
         # remove any trailing repeats of the mod name in the dirpath
         if relative:
             dirpath = os.path.relpath(dirpath, self.lib_path)

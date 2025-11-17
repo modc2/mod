@@ -1,123 +1,123 @@
 import os
 import subprocess
-import paramiko
 from pathlib import Path
+import json
 
-class SSHManager:
-    def __init__(self, user, host=None, key_type="ed25519", port=22):
-        """
-        SSHManager handles SSH key generation, uploading, and secure connections.
-
-        :param user: Username (local or remote)
-        :param host: Remote hostname or IP (None for local key generation)
-        :param key_type: "rsa" or "ed25519"
-        :param port: SSH port (default: 22)
-        """
-        self.user = user
-        self.host = host
-        self.port = port
-        self.key_type = key_type
+class SSHKeyManager:
+    def __init__(self, key_type= 'ed25519'):
         self.ssh_dir = Path.home() / ".ssh"
-        self.private_key_path = self.ssh_dir / f"id_{key_type}"
-        self.public_key_path = Path(str(self.private_key_path) + ".pub")
-
-    # -----------------------
-    # 1. Generate SSH keypair
-    # -----------------------
-    def generate_keypair(self, overwrite=False, comment="generated-by-SSHManager"):
-        """Generate an SSH keypair if it doesn't already exist."""
-        if self.private_key_path.exists() and not overwrite:
-            print(f"[+] Key already exists at {self.private_key_path}")
-            return
-
         self.ssh_dir.mkdir(mode=0o700, exist_ok=True)
+        self.key_type = key_type
+        self.prefix = f'id_{key_type}'
+
+    def list_keys(self , include_fingerprint=False):
+        """List all existing SSH keys without revealing system information."""
+        keys = []
+        for key_file in self.ssh_dir.glob("id_*"):
+            if not key_file.name.endswith(".pub"):
+                pub_file = Path(str(key_file) + ".pub")
+                if pub_file.exists():
+                    with open(pub_file, 'r') as f:
+                        pub_content = f.read().strip()
+                        # Remove comment/hostname from public key
+                        parts = pub_content.split()
+                        sanitized_key = f"{parts[0]} {parts[1]}" if len(parts) >= 2 else pub_content
+                        key_type = parts[0].replace("ssh-", "") if len(parts) >= 1 else "unknown"
+                        if key_type != self.key_type:
+                            continue
+                        keys.append({
+                            "name": key_file.name,
+                            'key_type': key_type,
+                            "public_key": sanitized_key,
+        
+                        })
+                        if include_fingerprint:
+                            fingerprint = self._get_fingerprint(pub_file)
+                            keys[-1]['fingerprint'] = fingerprint
+        return keys
+
+    def _get_fingerprint(self, pub_key_path):
+        """Get SSH key fingerprint."""
+        try:
+            result = subprocess.run(
+                ["ssh-keygen", "-lf", str(pub_key_path)],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip()
+        except:
+            return "Unable to get fingerprint"
+
+    def generate_key(self, key_name=None, comment=""):
+        """Generate SSH key without hostname in comment."""
+        if not key_name:
+            key_name = f"id_{key_type}"
+        
+        key
+        key_path = self.ssh_dir / f'{self.prefix}_{key_name}'
+        
+        if key_path.exists():
+            print(f"Key {key_name} already exists!")
+            return False
+
         cmd = [
             "ssh-keygen",
-            "-t", self.key_type,
-            "-C", comment,
-            "-f", str(self.private_key_path),
-            "-N", "",  # empty passphrase
+            "-t", key_type,
+            "-C", comment if comment else "",
+            "-f", str(key_path),
+            "-N", ""
         ]
+        
         subprocess.run(cmd, check=True)
-        print(f"[✓] Generated {self.key_type} key at {self.private_key_path}")
+        
+        # Sanitize the public key to remove any system info
+        pub_path = Path(str(key_path) + ".pub")
+        with open(pub_path, 'r') as f:
+            content = f.read().strip()
+        
+        parts = content.split()
+        if len(parts) >= 2:
+            sanitized = f"{parts[0]} {parts[1]}"
+            if comment:
+                sanitized += f" {comment}"
+            with open(pub_path, 'w') as f:
+                f.write(sanitized + "\n")
+        
+        print(f"[✓] Generated {key_type} key: {key_name}")
+        return True
 
-    # ---------------------------------
-    # 2. Upload public key to server
-    # ---------------------------------
-    def upload_key(self, password=None):
-        """
-        Upload the public key to a remote server's ~/.ssh/authorized_keys
-        """
-        if not self.host:
-            raise ValueError("Host not specified for upload.")
-        if not self.public_key_path.exists():
-            raise FileNotFoundError("Public key not found. Run generate_keypair() first.")
-
-        # Use ssh-copy-id if available
-        cmd = [
-            "ssh-copy-id",
-            "-i", str(self.public_key_path),
-            f"{self.user}@{self.host}"
-        ]
-
-        if password:
-            # Use paramiko if we need to provide password (non-interactive)
-            print("[*] Uploading key via Paramiko...")
-            self._upload_key_paramiko(password)
+    def remove_key(self, key_name):
+        """Remove SSH key pair."""
+        key_path = self.ssh_dir / key_name
+        pub_path = Path(str(key_path) + ".pub")
+        
+        removed = []
+        if key_path.exists():
+            key_path.unlink()
+            removed.append(str(key_path))
+        if pub_path.exists():
+            pub_path.unlink()
+            removed.append(str(pub_path))
+        
+        if removed:
+            print(f"[✓] Removed: {', '.join(removed)}")
+            return True
         else:
-            subprocess.run(cmd, check=True)
-            print(f"[✓] Uploaded key to {self.user}@{self.host}")
+            print(f"[!] Key {key_name} not found")
+            return False
 
-    def _upload_key_paramiko(self, password):
-        """Fallback method if ssh-copy-id isn't available or password is needed."""
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(self.host, username=self.user, password=password)
+    def get_public_key(self, key_name, sanitized=True):
+        """Get public key content without system information."""
+        pub_path = self.ssh_dir / f"{key_name}.pub"
+        if not pub_path.exists():
+            return None
+        
+        with open(pub_path, 'r') as f:
+            content = f.read().strip()
+        
+        if sanitized:
+            parts = content.split()
+            return f"{parts[0]} {parts[1]}" if len(parts) >= 2 else content
+        return content
 
-        pub_key = self.public_key_path.read_text().strip()
-        stdin, stdout, stderr = client.exec_command("mkdir -p ~/.ssh && chmod 700 ~/.ssh")
-        client.exec_command(f"echo '{pub_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys")
-        client.close()
-        print(f"[✓] Public key added to {self.user}@{self.host}")
-
-    # ------------------------------
-    # 3. Connect and run a command
-    # ------------------------------
-    def run(self, command):
-        """Connect to the remote server using the private key and run a command."""
-        if not self.host:
-            raise ValueError("Host not specified for SSH command.")
-
-        key = paramiko.Ed25519Key.from_private_key_file(self.private_key_path) \
-              if self.key_type == "ed25519" else \
-              paramiko.RSAKey.from_private_key_file(self.private_key_path)
-
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(self.host, username=self.user, pkey=key, port=self.port)
-
-        stdin, stdout, stderr = client.exec_command(command)
-        output = stdout.read().decode()
-        error = stderr.read().decode()
-        client.close()
-
-        if error:
-            print(f"[!] Error: {error}")
-        return output.strip()
-
-    # -----------------------------------------
-    # 4. Disable password authentication (server)
-    # -----------------------------------------
-    def harden_server(self, password=None):
-        """
-        Disables password login and root login on the remote server.
-        """
-        print("[*] Hardening SSH server...")
-        cmd = """
-        sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config &&
-        sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config &&
-        sudo systemctl restart sshd || sudo service ssh restart
-        """
-        output = self.run(cmd)
-        print("[✓] Password authentication disabled. SSH key only mode enforced.")
-        return output
