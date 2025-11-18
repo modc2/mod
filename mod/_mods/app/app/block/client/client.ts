@@ -9,7 +9,7 @@ export class Client {
   public auth: Auth;
 
   constructor(url?: string, key?: Key ) {
-    this.url = process.env.NEXT_PUBLIC_API_URL || config.api_url || 'http://localhost:8000/api';
+    this.url = process.env.NEXT_PUBLIC_API_URL || config.api_url || 'http://localhost:8000';
     console.log('Client initialized with URL:', this.url);
     this.key = key;
     this.auth = new Auth(key);
