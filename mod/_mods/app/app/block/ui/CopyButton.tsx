@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline'
-import { copyToClipboard, shorten } from '../utils'
+import { copyToClipboard, shorten } from '../../utils'
 
 interface CopyButtonProps {
   text?: string

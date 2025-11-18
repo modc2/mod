@@ -1,4 +1,4 @@
-import {Auth, AuthHeaders} from '@/app/block/client/auth';
+import {Auth, AuthHeaders} from './auth';
 import {Key} from '@/app/block/key';
 import config from '@/tailwind.config';
 

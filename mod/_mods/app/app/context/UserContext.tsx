@@ -2,10 +2,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Key } from '@/app/block/key'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
-import { Client } from '@/app/block/client/client'
+import  Client from '@/app/block/client'
+import { UserType } from '@/app/types'
 
 interface UserContextType {
-  user: { address: string; crypto_type: string; balance?: number; mods?: any[] } | null
+  user: UserType | null
   signIn: () => Promise<void>
   signOut: () => void
   authLoading: boolean

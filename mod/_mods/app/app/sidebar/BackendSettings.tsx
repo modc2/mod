@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { Cog6ToothIcon } from '@heroicons/react/24/outline'
-import { useSidebarContext } from '@/app/block/context/SidebarContext'
+import { useSidebarContext } from '@/app/context/SidebarContext'
 
 const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 

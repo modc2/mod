@@ -2,17 +2,20 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { useUserContext } from '@/app/block/context/UserContext'
+import { useUserContext } from '@/app/context'
 import { UserType } from '@/app/types'
-import { Loading } from '@/app/block/Loading'
+import { Loading } from '@/app/block/ui/Loading'
 import { UserCard } from '@/app/user/explore/UserCard'
-import { SignVerify, Transfer, UserModules } from './tabs'
+import { Transfer } from '@/app/user/wallet/Transfer'
+import { SignVerify } from '@/app/user/wallet/SignVerify'
+import {UserModules} from '@/app/user/wallet/UserModules'
+
 
 type TabType = 'mods' | 'sign' | 'transfer'
 
 export default function UserPage() {
   const params = useParams()
-  const userKey = params?.key as string
+  const userKey = params?.user as string
   const { client, user } = useUserContext()
   const [userData, setUserData] = useState<UserType | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,9 +60,9 @@ export default function UserPage() {
   }
 
   const tabs: { id: TabType; label: string }[] = [
+    { id: 'transfer', label: 'transfer' },
     { id: 'mods', label: 'mods' },
-    { id: 'sign', label: 'sign & verify' },
-    { id: 'transfer', label: 'transfer' }
+    { id: 'sign', label: 'sign & verify' }
   ]
 
   return (

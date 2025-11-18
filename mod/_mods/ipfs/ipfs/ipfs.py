@@ -17,7 +17,7 @@ class  IpfsClient:
         self.set_url(url)
         self.session = requests.Session()
 
-    def set_url(self, url: str = None): 
+    def set_url(self, url: str ): 
         if url is None:
             for host in self.host_options:
                 url = f"http://{host}:5001/api/v0"
@@ -261,6 +261,6 @@ class  IpfsClient:
     def __str__(self):
         return f"IpfsClient(url={self.url})"
 
-    def ensure_env(self):
-        """Ensure that the IPFS environment is set up."""
-        m.fn('pm/up')(self.node_name)
+    # def ensure_env(self):
+    #     """Ensure that the IPFS environment is set up."""
+    #     m.fn('pm/up')(self.node_name)

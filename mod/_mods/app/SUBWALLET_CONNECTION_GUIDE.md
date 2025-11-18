@@ -33,7 +33,7 @@ The SubWallet connection option is located in the **authentication modal** that 
 
 ### Technical Details:
 
-**File Location:** `/root/mod/mod/modules/app/app/block/header/WalletAuthButton.tsx`
+**File Location:** `/root/mod/mod/modules/app/app/header/WalletAuthButton.tsx`
 
 **Component Hierarchy:**
 - Header Component → AuthButton → WalletAuthButton

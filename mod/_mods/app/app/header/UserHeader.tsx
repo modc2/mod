@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useUserContext } from '@/app/block/context/UserContext'
+import { useUserContext } from '@/app/context'
 import { UserIcon, ArrowRightOnRectangleIcon, KeyIcon } from '@heroicons/react/24/outline'
-import { CopyButton } from '@/app/block/CopyButton'
+import { CopyButton } from '@/app/block/ui/CopyButton'
 import 'react-responsive-modal/styles.css'
 import {text2color, shorten} from "@/app/utils";
 import Link from 'next/link'

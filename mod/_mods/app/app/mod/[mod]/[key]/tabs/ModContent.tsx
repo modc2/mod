@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { CopyButton } from '@/app/block/CopyButton';
+import { CopyButton } from '@/app/block/ui/CopyButton';
 import {
   ChevronDownIcon, ChevronRightIcon, DocumentIcon, FolderIcon, FolderOpenIcon,
   MagnifyingGlassIcon, CodeBracketIcon, DocumentTextIcon, PhotoIcon, FilmIcon,

@@ -9,17 +9,16 @@ import {
 } from 'lucide-react'
 import { ApiPromise, WsProvider } from '@polkadot/api'
 import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
-
+import {Network} from '@/app/network/network'
 export const Transfer: React.FC = () => {
   const [toAddress, setToAddress] = useState('')
   const [amount, setAmount] = useState('')
-  const [network, setNetwork] = useState('test')
   const [response, setResponse] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [walletAddress, setWalletAddress] = useState('')
   const [balance, setBalance] = useState<string>('0')
-
+  const network = new Network('test');
   const networks = [
     { id: 'test', label: 'Modchain Devnet', url: 'wss://dev.api.modchain.ai' },
   ]
@@ -37,19 +36,7 @@ export const Transfer: React.FC = () => {
 
   const fetchBalance = async (address: string) => {
     try {
-      const selectedNetwork = networks.find((n) => n.id === network)
-      if (!selectedNetwork) return
-
-      const provider = new WsProvider(selectedNetwork.url)
-      const api = await ApiPromise.create({ provider })
-      await api.isReady
-
-      const accountInfo: any = await api.query.system.account(address)
-      const freeBalance = accountInfo.data.free.toBigInt()
-      const formattedBalance = Number(freeBalance) / 1e12
-      setBalance(formattedBalance.toFixed(6))
-      
-      await api.disconnect()
+      setBalance(await network.balance(address))
     } catch (err) {
       console.error('Balance fetch error:', err)
     }
@@ -64,13 +51,12 @@ export const Transfer: React.FC = () => {
     setResponse(null)
 
     try {
-      const selectedNetwork = networks.find((n) => n.id === network)
+      const selectedNetwork = networks.find((n) => n.id === 'test')
       if (!selectedNetwork) throw new Error('Network not found')
 
-      const provider = new WsProvider(selectedNetwork.url)
-      const api = await ApiPromise.create({ provider })
-      await api.isReady
-
+      await network.connect()
+      const api = network.api
+      if (!api) throw new Error('API not connected')
       const recipientAddress = api.registry.createType(
         'AccountId32',
         toAddress
@@ -211,15 +197,12 @@ export const Transfer: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-purple-400 text-sm font-mono">
                 <CheckCircle size={16} />
-                <span>SUBWALLET CONNECTED</span>
               </div>
               <div className="text-purple-300 text-sm font-mono">
                 {balance} MOD
               </div>
             </div>
-            <div className="text-purple-500/70 text-xs font-mono mt-1">
-              {walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}
-            </div>
+
           </>
         ) : (
           <div className="flex items-center gap-2 text-red-400 text-sm font-mono">
@@ -231,33 +214,12 @@ export const Transfer: React.FC = () => {
 
       {/* Transfer Form */}
       <div className="space-y-3 p-4 rounded-lg bg-gradient-to-br from-green-500/5 border border-green-500/20">
-        <div className="flex items-center gap-2 text-green-500/70 text-sm font-mono uppercase mb-3">
-          <ArrowRightLeft size={16} />
-          <span>Transfer Tokens</span>
-        </div>
 
         <div className="space-y-3">
-          <div>
-            <label className="text-xs text-green-500/70 font-mono uppercase">
-              Network
-            </label>
-            <select
-              value={network}
-              onChange={(e) => setNetwork(e.target.value)}
-              disabled={isLoading}
-              className="w-full mt-1 bg-black/50 border border-green-500/30 rounded px-3 py-2 text-green-400 font-mono text-sm focus:outline-none focus:border-green-500 disabled:opacity-50"
-            >
-              {networks.map((net) => (
-                <option key={net.id} value={net.id}>
-                  {net.label}
-                </option>
-              ))}
-            </select>
-          </div>
 
           <div>
             <label className="text-xs text-green-500/70 font-mono uppercase">
-              To Address
+              dest
             </label>
             <input
               type="text"

@@ -1,5 +1,5 @@
 import type { MDXComponents } from 'mdx/types'
-import { CopyButton } from './app/block/CopyButton'
+import { CopyButton } from './app/block/ui/CopyButton'
 
 export function useMDXComponents(blocks: MDXComponents): MDXComponents {
   return {

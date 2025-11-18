@@ -69,7 +69,6 @@ export class Auth {
       }
     });
 
-
     // Sign the data
     let signatureDataString = JSON.stringify(signatureData); // Ensure it's a plain object
 

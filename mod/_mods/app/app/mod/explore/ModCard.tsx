@@ -2,7 +2,7 @@
 
 import { ModuleType } from '@/app/types'
 import { text2color, shorten, time2str } from '@/app/utils'
-import { CopyButton } from '@/app/block/CopyButton'
+import { CopyButton } from '@/app/block/ui/CopyButton'
 import { Hash, Clock } from 'lucide-react'
 import { KeyIcon } from '@heroicons/react/24/outline'
 import { CubeIcon } from '@heroicons/react/24/outline'

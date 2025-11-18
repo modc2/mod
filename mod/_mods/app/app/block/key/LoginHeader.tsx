@@ -1,11 +1,11 @@
 'use client'
 
-import { UserHeader } from '../header/UserHeader'
+import { UserHeader } from '@/app/header/UserHeader'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { CubeIcon, UsersIcon, Bars3Icon, MagnifyingGlassIcon, PlusCircleIcon } from '@heroicons/react/24/outline'
 import { useState, useEffect } from 'react'
-import { useSearchContext } from '@/app/block/context/SearchContext'
+import { useSearchContext } from '@/app/context/SearchContext'
 import { useRouter } from 'next/navigation'
 
 export function LoginHeader() {

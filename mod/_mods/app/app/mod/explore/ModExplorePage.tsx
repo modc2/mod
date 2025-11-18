@@ -1,12 +1,12 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
-import { Loading } from '@/app/block/Loading'
+import { Loading } from '@/app/block/ui/Loading'
 import ModCard from './ModCard'
 import { ModCardSettings } from './ModCardSettings'
 import { ModuleType } from '@/app/types'
-import { useSearchContext } from '@/app/block/context/SearchContext'
-import { useUserContext } from '@/app/block/context/UserContext'
+import { useSearchContext } from '@/app/context/SearchContext'
+import { useUserContext } from '@/app/context'
 import { X, RotateCcw, Sparkles, Maximize2, Minimize2 } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'

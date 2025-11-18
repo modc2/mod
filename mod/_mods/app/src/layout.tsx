@@ -2,11 +2,11 @@
 
 import './globals.css'
 import { Inter } from 'next/font/google'
-import { Sidebar } from '@/app/sidebar/Sidebar'
-import { Header } from '@/app/header/Header'
-import { UserProvider } from '@/app/context'
-import { SearchProvider } from '@/app/context/SearchContext'
-import { SidebarProvider } from '@/app/context/SidebarContext'
+import { Sidebar } from '@/block/sidebar/Sidebar'
+import { Header } from '@/header/Header'
+import { UserProvider } from '@/context'
+import { SearchProvider } from '@/context/SearchContext'
+import { SidebarProvider } from '@/context/SidebarContext'
 
 const inter = Inter({ subsets: ['latin'] })
 

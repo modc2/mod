@@ -4,15 +4,14 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { KeyIcon, UsersIcon, ChevronLeftIcon, ChevronRightIcon, FunnelIcon, CubeIcon, PlusIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BackendSettings } from './BackendSettings'
 import { useState, useRef, useEffect } from 'react'
-import { useSidebarContext } from '@/app/block/context/SidebarContext'
+import { useSidebarContext } from '@/app/context/SidebarContext'
 
 const navigation = [
   { name: 'Mods', href: '/mod/explore', icon: CubeIcon },
   { name: 'Users', href: '/user/explore', icon: UsersIcon },
-  { name: 'Create', href: '/create', icon: PlusIcon },
-  { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
+  { name: 'Create', href: '/mod/create', icon: PlusIcon },
+  // { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
 ]
 
 const FIXED_WIDTH = 80

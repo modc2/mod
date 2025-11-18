@@ -23,13 +23,14 @@ export interface ModulesState {
     error: string | null
   }
   
-
 export interface UserType {
-  key: string
-  mods: ModuleType[]
-  balance: number
-  crypto_type?: string
+  address: string
+  crypto_type: string
+  balance?: number
+  mods?: any[]
+  network?: string
 }
+
 
 
 export interface UsersState {

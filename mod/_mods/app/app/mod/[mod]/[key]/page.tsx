@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Loading } from '@/app/block/Loading'
+import { Loading } from '@/app/block/ui/Loading'
 import { ModuleType } from '@/app/types'
-import { useUserContext } from '@/app/block/context/UserContext'
+import { useUserContext } from '@/app/context'
 import { ModContent, ModApi, ModApp } from './tabs'
 import ModCard from '@/app/mod/explore/ModCard'
 import { AlertCircle } from 'lucide-react'

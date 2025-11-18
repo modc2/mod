@@ -1,2 +1,2 @@
-export {  Loading } from './Loading'
-export { CopyButton } from './CopyButton'
+export {  Loading } from './ui/Loading'
+export { CopyButton } from './ui/CopyButton'

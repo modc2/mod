@@ -35,7 +35,16 @@ class PM:
         if daemon:
             cmd += ' -d'
         return os.system('cd ' + path + ' && ' + cmd)
-
+        
+    def down(self, mod='chain'):
+        """
+        Run docker-compose down in the specified path.
+        """
+        docker_compose_paths = self.compose_files(mod)
+        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
+        cmd = 'docker-compose down'
+        path = m.dirpath(mod)
+        return os.system('cd ' + path + ' && ' + cmd)
     
 
     def forward(self,  

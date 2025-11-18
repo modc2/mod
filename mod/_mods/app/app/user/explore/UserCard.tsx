@@ -1,6 +1,6 @@
 'use client'
 import { text2color, shorten } from '@/app/utils'
-import { CopyButton } from '@/app/block/CopyButton'
+import { CopyButton } from '@/app/block/ui/CopyButton'
 import { KeyIcon } from '@heroicons/react/24/outline'
 import { UserType } from '@/app/types'
 import Link from 'next/link'

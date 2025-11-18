@@ -341,12 +341,16 @@ class Server:
               daemon = True, 
               **extra_params 
               ):
-        mod = mod or 'mod'
-        self.prepare_server(mod)
-        if mod not in ['mod']:
-            _mod = m.mod(mod)
+        mod = mod or m.name
+        if mod not in [m.name]:
+            try:
+                _mod = m.mod(mod)
+            except Exception as e:
+                print(f'Error loading mod {mod}: {m.detailed_error(e)}', color='red')
+                return m.fn('pm/up')(mod)
             if hasattr(_mod, 'serve'):
                 return _mod().serve(**extra_params)
+        self.prepare_server(mod)
         port = self.get_port(port, mod=mod)
         print(f'Serving {mod} on port {port}', color='green', verbose=self.verbose)
         params = {**(params or {}), **extra_params}

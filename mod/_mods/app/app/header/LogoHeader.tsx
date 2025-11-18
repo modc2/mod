@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { CubeIcon } from '@heroicons/react/24/outline'
-import { useSidebarContext } from '@/app/block/context/SidebarContext'
+import { useSidebarContext } from '@/app/context/SidebarContext'
 import { useRouter } from 'next/navigation'
 
 export function LogoHeader() {

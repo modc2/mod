@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useUserContext } from '@/app/block/context/UserContext'
+import { useUserContext } from '@/app/context'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
 import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
 import { KeyIcon, WalletIcon } from '@heroicons/react/24/outline'
