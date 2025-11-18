@@ -1,17 +1,18 @@
-
 import React, { useState } from 'react'
 import {
-  Send,
+  RefreshCw,
   Zap,
   CheckCircle,
   AlertCircle,
 } from 'lucide-react'
 import {useUserContext} from '@/app/context/UserContext'
-export const Transfer: React.FC = () => {
 
+export const UpdateMod: React.FC = () => {
   const { network, user } = useUserContext()
-  const [toAddress, setToAddress] = useState('')
-  const [amount, setAmount] = useState('')
+  const [modName, setModName] = useState('')
+  const [modData, setModData] = useState('')
+  const [modUrl, setModUrl] = useState('')
+  const [take, setTake] = useState('0')
   const [response, setResponse] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,8 +38,8 @@ export const Transfer: React.FC = () => {
     }
   }
 
-  const executeTransfer = async () => {
-    if (!toAddress || !amount) return setError('Please fill in all fields')
+  const executeUpdate = async () => {
+    if (!modName || !modData || !modUrl) return setError('Please fill in all required fields')
     if (!walletAddress) return setError('No wallet connected')
 
     setIsLoading(true)
@@ -46,22 +47,26 @@ export const Transfer: React.FC = () => {
     setResponse(null)
 
     try {
-
-      const result = await network.transfer(
+      const result = await network.update(
         walletAddress,
-        toAddress,
-        parseFloat(amount)
+        modName,
+        modData,
+        modUrl,
+        parseInt(take)
       )
 
       setResponse({
         ...result,
-        amount: parseFloat(amount),
-        to: toAddress,
-        from: walletAddress,
+        name: modName,
+        data: modData,
+        url: modUrl,
+        take: parseInt(take),
       })
       await fetchBalance(walletAddress)
-      setToAddress('')
-      setAmount('')
+      setModName('')
+      setModData('')
+      setModUrl('')
+      setTake('0')
     } catch (err: any) {      
       let msg = err?.message || String(err)
       if (msg.includes('1010')) 
@@ -96,7 +101,6 @@ export const Transfer: React.FC = () => {
                 {balance} MOD
               </div>
             </div>
-
           </>
         ) : (
           <div className="flex items-center gap-2 text-red-400 text-sm font-mono">
@@ -106,48 +110,71 @@ export const Transfer: React.FC = () => {
         )}
       </div>
 
-      {/* Transfer Form */}
-      <div className="space-y-3 p-4 rounded-lg bg-gradient-to-br from-green-500/5 border border-green-500/20">
-
+      {/* Update Form */}
+      <div className="space-y-3 p-4 rounded-lg bg-gradient-to-br from-yellow-500/5 border border-yellow-500/20">
         <div className="space-y-3">
-
           <div>
-            <label className="text-xs text-green-500/70 font-mono uppercase">
-              dest
+            <label className="text-xs text-yellow-500/70 font-mono uppercase">
+              Module Name
             </label>
             <input
               type="text"
-              value={toAddress}
-              onChange={(e) => setToAddress(e.target.value)}
+              value={modName}
+              onChange={(e) => setModName(e.target.value)}
               disabled={isLoading}
-              placeholder="5GrwvaEF5zXb26..."
-              className="w-full mt-1 bg-black/50 border border-green-500/30 rounded px-3 py-2 text-green-400 font-mono text-sm placeholder-green-600/50 focus:outline-none focus:border-green-500 disabled:opacity-50"
+              placeholder="my-module"
+              className="w-full mt-1 bg-black/50 border border-yellow-500/30 rounded px-3 py-2 text-yellow-400 font-mono text-sm placeholder-yellow-600/50 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
             />
           </div>
 
           <div>
-            <label className="text-xs text-green-500/70 font-mono uppercase">
-              Amount (MOD)
+            <label className="text-xs text-yellow-500/70 font-mono uppercase">
+              Data (CID)
+            </label>
+            <input
+              type="text"
+              value={modData}
+              onChange={(e) => setModData(e.target.value)}
+              disabled={isLoading}
+              placeholder="QmXxx..."
+              className="w-full mt-1 bg-black/50 border border-yellow-500/30 rounded px-3 py-2 text-yellow-400 font-mono text-sm placeholder-yellow-600/50 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-yellow-500/70 font-mono uppercase">
+              URL
+            </label>
+            <input
+              type="text"
+              value={modUrl}
+              onChange={(e) => setModUrl(e.target.value)}
+              disabled={isLoading}
+              placeholder="https://..."
+              className="w-full mt-1 bg-black/50 border border-yellow-500/30 rounded px-3 py-2 text-yellow-400 font-mono text-sm placeholder-yellow-600/50 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-yellow-500/70 font-mono uppercase">
+              Take (%)
             </label>
             <input
               type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              value={take}
+              onChange={(e) => setTake(e.target.value)}
               disabled={isLoading}
               min="0"
-              step="0.000000001"
-              placeholder="0.0"
-              className="w-full mt-1 bg-black/50 border border-green-500/30 rounded px-3 py-2 text-green-400 font-mono text-sm placeholder-green-600/50 focus:outline-none focus:border-green-500 disabled:opacity-50"
+              max="100"
+              placeholder="0"
+              className="w-full mt-1 bg-black/50 border border-yellow-500/30 rounded px-3 py-2 text-yellow-400 font-mono text-sm placeholder-yellow-600/50 focus:outline-none focus:border-yellow-500 disabled:opacity-50"
             />
-            <p className="text-xs text-green-500/50 mt-1 font-mono">
-              Available: {balance} MOD
-            </p>
           </div>
 
           <button
-            onClick={executeTransfer}
-            disabled={!toAddress || !amount || isLoading || !walletAddress}
-            className="w-full py-2 border border-green-500/50 text-green-400 hover:bg-green-500/10 hover:border-green-500 transition-all rounded font-mono uppercase disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={executeUpdate}
+            disabled={!modName || !modData || !modUrl || isLoading || !walletAddress}
+            className="w-full py-2 border border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10 hover:border-yellow-500 transition-all rounded font-mono uppercase disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isLoading ? (
               <>
@@ -156,8 +183,8 @@ export const Transfer: React.FC = () => {
               </>
             ) : (
               <>
-                <Send size={16} />
-                <span>Send Transfer</span>
+                <RefreshCw size={16} />
+                <span>Update Module</span>
               </>
             )}
           </button>
@@ -170,7 +197,7 @@ export const Transfer: React.FC = () => {
           className={`space-y-3 p-4 rounded-lg border ${
             error
               ? 'from-red-500/5 border-red-500/20'
-              : 'from-green-500/5 border-green-500/20'
+              : 'from-yellow-500/5 border-yellow-500/20'
           }`}
         >
           <div className="flex items-center gap-2 text-sm font-mono uppercase">
@@ -181,8 +208,8 @@ export const Transfer: React.FC = () => {
               </>
             ) : (
               <>
-                <CheckCircle size={16} className="text-green-500" />
-                <span className="text-green-500">Success</span>
+                <CheckCircle size={16} className="text-yellow-500" />
+                <span className="text-yellow-500">Success</span>
               </>
             )}
           </div>
@@ -192,7 +219,7 @@ export const Transfer: React.FC = () => {
               {error}
             </div>
           ) : (
-            <pre className="text-green-400 font-mono text-xs overflow-x-auto bg-black/50 p-3 rounded border border-green-500/20">
+            <pre className="text-yellow-400 font-mono text-xs overflow-x-auto bg-black/50 p-3 rounded border border-yellow-500/20">
               {JSON.stringify(response, null, 2)}
             </pre>
           )}
@@ -202,4 +229,4 @@ export const Transfer: React.FC = () => {
   )
 }
 
-export default Transfer
+export default UpdateMod

@@ -4,11 +4,13 @@ import { Key } from '@/app/block/key'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
 import  Client from '@/app/block/client'
 import { UserType } from '@/app/types'
+import { Network } from '@/app/network/network'
 
 interface UserContextType {
   user: UserType | null
   signIn: () => Promise<void>
   signOut: () => void
+  network: Network | null
   authLoading: boolean
   client: Client | null
   localKey: Key | null
@@ -17,16 +19,19 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<{ address: string; crypto_type: string; balance?: number; mods?: any[] } | null>(null)
+  const [user, setUser] = useState<{ key: string; crypto_type: string; balance?: number; mods?: any[] } | null>(null)
   const [password, setPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(true)
   const [client, setClient] = useState<Client | null>(null)
+  const [network, setNetwork] = useState<Network| null>(null)
   const [localKey, setLocalKey] = useState<Key | null>(null)
+
 
   // Initialize from localStorage on mount
   useEffect(() => {
     const initializeAuth = async () => {
       try {
+        setNetwork(new Network('test'))
         const storedUser = localStorage.getItem('user_data')
         const storedPassword = localStorage.getItem('user_password') || '420'
         console.log('Restoring auth session from localStorage:', { storedUser, storedPassword })
@@ -53,16 +58,24 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await cryptoWaitReady()
   
-      const wallet_password = localStorage.getItem('wallet_password') || '42069'
+      const wallet_password = localStorage.getItem('wallet_password') || 'this_is_a_shitty_password_for_the_default_local_wallet'
       const key = new Key(wallet_password)
       setLocalKey(key)
 
       const wallet_mode = localStorage.getItem('wallet_mode') || 'local'
-      const user_address = wallet_mode === 'local' ? key.address : localStorage.getItem('wallet_address') || key.address
+      const user_key = wallet_mode === 'local' ? key.address : localStorage.getItem('wallet_address') || key.address
+      let balance = 0
+      if (!network) {
+        throw new Error('Network not initialized')
+      }
+      network.balance(user_key).then((bal) => balance = bal.toNumber()).catch((err) => console.error('Failed to fetch balance during sign-in:', err))
+      
       const userData = {
-        address: user_address,
+        key: user_key,
         crypto_type: key.crypto_type,
-        wallet_mode: wallet_mode
+        wallet_mode: wallet_mode,
+        balance: balance,
+        
       }
       setUser(userData)
       setClient(new Client(undefined, key))
@@ -86,7 +99,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client, localKey }}>
+    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client, localKey , network }}>
       {children}
     </UserContext.Provider>
   )

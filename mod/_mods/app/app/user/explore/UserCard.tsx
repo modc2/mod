@@ -10,7 +10,7 @@ interface UserCardProps {
   mode?: 'explore' | 'page'
 }
 
-export const UserCard = ({ user, mode = 'explore' }: UserCardProps) => {
+export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
   const userColor = text2color(user.key)
   
   const hexToRgb = (hex: string) => {

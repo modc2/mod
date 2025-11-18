@@ -58,6 +58,7 @@ export default function UsersPage() {
       if (!client) throw new Error('Client not initialized')
       const raw = (await client.call('users', {})) as UserType[]
       const allUsers = Array.isArray(raw) ? raw : []
+      // 
       const sorted = sortUsers(allUsers)
       setUsers(sorted)
     } catch (err: any) {

@@ -70,9 +70,6 @@ export function WalletAuthButton() {
       const extensions = await web3Enable('MOD')
       if (extensions.length === 0) throw new Error('No extension found')
       
-      const derivationPath = `//mod//client`
-      const derivedSeed = `${selectedAccount}${derivationPath}`
-          
       localStorage.setItem('wallet_mode', 'subwallet')
       localStorage.setItem('wallet_address', selectedAccount)
       localStorage.setItem('wallet_type', account.type || 'sr25519')

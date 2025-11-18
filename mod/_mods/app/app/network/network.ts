@@ -95,6 +95,44 @@ export class Network
     return result;
 }
 
+    async register(walletAddress: string, name: string, data: string, url: string, take: number) : Promise<any> {
+      await this.connect()
+      if (!this.api) throw new Error('API not connected')
+      const api = this.api
+
+      const extensions = await web3Enable('MOD')
+      if (extensions.length === 0)
+        throw new Error('SubWallet not found. Please install it.')
+      
+      const injector = await web3FromAddress(walletAddress)
+      if (!injector?.signer)
+        throw new Error('No signer available from SubWallet')
+
+      const tx = api.tx.modules.registerModule(name, data, url, take)
+      const result = await this.submitTx(tx, walletAddress, injector)
+      await this.disconnect()
+      return result;
+    }
+
+    async update(walletAddress: string, name: string, data: string, url: string, take: number) : Promise<any> {
+      await this.connect()
+      if (!this.api) throw new Error('API not connected')
+      const api = this.api
+
+      const extensions = await web3Enable('MOD')
+      if (extensions.length === 0)
+        throw new Error('SubWallet not found. Please install it.')
+      
+      const injector = await web3FromAddress(walletAddress)
+      if (!injector?.signer)
+        throw new Error('No signer available from SubWallet')
+
+      const tx = api.tx.modules.updateModule(name, data, url, take)
+      const result = await this.submitTx(tx, walletAddress, injector)
+      await this.disconnect()
+      return result;
+    }
+
     async submitTx(tx: any, walletAddress: string, injector: any) : Promise<any> {
 
         if (!this.api) throw new Error('API not connected')
@@ -113,7 +151,30 @@ export class Network
 
                 tx.signAndSend(
                 walletAddress,
-                { signer: injector.signer })})
+                { signer: injector.signer },
+                (result: any) => {
+                  if (result.status.isInBlock || result.status.isFinalized) {
+                    if (!resolved) {
+                      resolved = true
+                      clearTimeout(timeout)
+                      if (unsub) unsub()
+                      resolve({
+                        blockHash: result.status.asInBlock?.toString() || result.status.asFinalized?.toString(),
+                        status: result.status.isInBlock ? 'InBlock' : 'Finalized'
+                      })
+                    }
+                  }
+                }
+              ).then((unsubFn: () => void) => {
+                unsub = unsubFn
+              }).catch((err: any) => {
+                if (!resolved) {
+                  resolved = true
+                  clearTimeout(timeout)
+                  reject(err)
+                }
+              })
+            })
         return await result;
     }
 

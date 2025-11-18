@@ -62,7 +62,7 @@ export default function UserPage() {
   const tabs: { id: TabType; label: string }[] = [
     { id: 'transfer', label: 'transfer' },
     { id: 'mods', label: 'mods' },
-    { id: 'sign', label: 'sign & verify' }
+    // { id: 'sign', label: 'sign & verify' }
   ]
 
   return (
