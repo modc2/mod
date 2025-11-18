@@ -25,17 +25,18 @@ class SelectFiles:
               trials = 3,
               mod=None,
               content: bool = True,
-              model='qwen/qwen3-coder-flash',
+              model='anthropic/claude-sonnet-4.5',
               avoid_paths: List[str] = ['.git', '__pycache__', 'node_modules', '.venv', 'venv', '.env', '/private', '/tmp'],
+              depth=8,
                **kwargs) -> List[str]:
         if mod:
             path = c.dirpath(mod)
-        files = c.files(path)
+        files = c.files(path, depth=depth)
         print('getting files', files,path, color="yellow")
         if len(files) > 1:
             for trial in range(trials):
                 try:
-                    files = c.fn('select_options/')(
+                    files = c.fn('tool.select_options/')(
                         query=query,
                         options= files,
                         n=n,

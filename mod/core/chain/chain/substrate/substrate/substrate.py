@@ -1737,7 +1737,7 @@ class Substrate:
         fn: str,
         params : dict[str, Any],
         address: Ss58Address,
-        era: dict[str, int],
+        era: dict[str, int] = None,
         nonce=None,
         tip = 0,
         tip_asset_id = None,
@@ -1749,6 +1749,7 @@ class Substrate:
             kwargs = dict(call=call, era=era or '00', nonce=nonce, tip=tip, tip_asset_id=tip_asset_id)
             signature_payload = substrate.generate_signature_payload(**kwargs)
         # convert scale bytes to bytes
+        print(f"Generated signature payload: {signature_payload.to_hex()}")
         return signature_payload.to_hex()
 
     def nonce(self, address: Ss58Address) -> int:
@@ -1785,6 +1786,10 @@ class Substrate:
             The receipt of the submitted extrinsic.
         """
 
+        m.print(params, 'PARAMS')
+        if isinstance(params, dict) and 'value' in params:
+            params['value'] = int(params['value'])
+
         assert signature is not None, "Signature is required"
         assert address is not None, "Address is required"
         if isinstance(signature, str) and signature.startswith('0x'):
@@ -1803,7 +1808,14 @@ class Substrate:
             )
         # convert string interger to scale bytes
         # verify signature
-        assert m.verify(signature_payload, signature, address), "Invalid signature"
+        print(f"Verifying signature for address {address}")
+        print(f"Signature payload: {signature_payload}")
+        print(f"Signature: {signature}")
+
+        assert m.verify(signature_payload, signature, address), f"Invalid signature {signature_payload} {signature} {address}"
+        print(f"Signature verified for address {address}")
+
+        print(f"Submitting call: mod={mod}, fn={fn}, params={params}, address={address}, nonce={nonce}")
         
         with self.get_conn() as substrate:
             call = substrate.compose_call(  # type: ignore
@@ -1818,6 +1830,7 @@ class Substrate:
                 crypto_type=crypto_type, 
                 tip=tip,
                 address=address,
+
                 )  # type: ignore
             response = substrate.submit_extrinsic(
                 extrinsic=extrinsic,
@@ -1833,7 +1846,7 @@ class Substrate:
         dest = m.key('test').address
         mod = 'Balances'
         fn = 'transfer_keep_alive'
-        params = {'dest': dest, 'value': 0.1 * 10**self.decimals}
+        params = {'dest': dest, 'value': int(0.1 * 10**self.decimals)}
         nonce = self.nonce(address)
         signature_payload = self.get_signature_payload(
             mod=mod,

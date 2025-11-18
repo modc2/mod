@@ -15,7 +15,7 @@ class SelectOptions:
             - Only include options with scores >= THRESHOLD
             - Be conservative with scoring to prioritize quality over quantity
             - Respond ONLY with the JSON format specified below
-            - IT NEEDS TO BE JSON
+            - IT NEEDS TO BE JSON AND IT NEEDS TO BE BETWEEN THE ANCHORS PROVIDED
         """
         
     def __init__(self, model='model.openrouter'):
@@ -83,11 +83,14 @@ class SelectOptions:
             MIN_SCORE={min_score}
             MAX_SCORE={max_score}
             THRESHOLD={threshold} DO NOT PRINT THE OPTIONS IF THEY ARE NOT RELEVANT
+            ANCHORS={anchors}
             N={n}
-            OUTPUT_FORMAT={output_format} RESPOND IN JSON FORMAT ONLY
+            OUTPUT_FORMAT={output_format} 
+            YOU NEED TO RESPOND WITH ONLY THE OUTPUT FORMAT AND NOT in '''json bullshit as that will be harder TO PARSE
             --RESULT--     
         """
         
+        print("Generated prompt for SelectOptions:", prompt, color="cyan")
         result = None  
         # Generate the response
         # Extract and parse the JSON
@@ -103,6 +106,7 @@ class SelectOptions:
                     json_str = output.split(anchors[0])[1].split(anchors[1])[0]
                 else:
                     json_str = output
+                
                 if verbose:
                     print("\nParsing response...", color="cyan")
                 print(f"Raw output: {json_str}", color="red")

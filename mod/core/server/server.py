@@ -169,7 +169,7 @@ class Server:
                     'client': {k:v for k,v in headers.items() if k in self.auth.auth_features}, 
                     'cost': cost
                     }
-        self.print_request(request)
+        # self.print_request(request)
         return request
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:

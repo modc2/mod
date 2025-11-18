@@ -1037,8 +1037,11 @@ class Mod:
                 continue
             if chunk not in name_chunks:
                 name_chunks += [chunk]
-        if name_chunks[0] == self.name:
-            name_chunks = name_chunks[1:]
+        if len(name_chunks) > 0:
+            if name_chunks[0] == self.name:
+                name_chunks = name_chunks[1:]
+        else:
+            return self.name
         return '.'.join(name_chunks)
     
     def path2classes(self, path='./', depth=4, tolist = False, **kwargs) :

@@ -20,7 +20,7 @@ class SumText:
         - if a function is a module, then include the module name as well
         """
     anchors = ["<START_JSON>", "</END_JSON>"]
-    result_format = f'{anchors[0]}(LIST(DICT(obj:str, desc:str))){anchors[1]}'
+    result_format = f'{anchors[0]}(LIST(DICT(topic:str, desc:str))){anchors[1]}'
     cache_dir: str = '~/.summarize/cache'
 
     def __init__(self, model='model.openrouter'):
@@ -59,17 +59,3 @@ class SumText:
             c.put(path, result)
 
         return result
-
-
-
-    def summarize_folder(self, path: str = './', **kwargs) -> List[str]:
-        """
-        Summarize the contents of a folder.
-        """
-        files = c.files(path)
-        results = {}
-        n = len(files)
-        for i, file in enumerate(files):
-            print(f"Summarizing file {i + 1}/{n}: {file}")
-            results[file] = self.forward(path=file, **kwargs)
-        return results

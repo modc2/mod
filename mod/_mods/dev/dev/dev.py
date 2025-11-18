@@ -16,7 +16,7 @@ class Dev:
                  model: str = 'model.openrouter', 
                  **kwargs):
 
-        self.tools_prefix = f"{__file__.split('/')[-2]}.tool"
+        self.tools_prefix = "tool"
         self.pm = m.mod('pm')()
         self.set_tools(tools)
         self.model = m.mod(model)()

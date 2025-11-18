@@ -26,7 +26,7 @@ dev.forward("Create a Python function that calculates Fibonacci numbers")
 dev.forward("Add error handling to the function", to="./path/to/file.py")
 
 # Use the toolbox for more guidance
-toolbox = c.mod('dev.tool.toolbox')()
+toolbox = c.mod('tool.toolbox')()
 toolbox.help()
 ```
 
@@ -61,7 +61,7 @@ dev.forward(
 ### Find Relevant Files
 
 ```python
-select = c.mod('dev.tool.select')()
+select = c.mod('tool.select')()
 files = c.files("./project")
 auth_files = select.forward(
     options=files,
@@ -79,7 +79,7 @@ dev.forward("Document these functions: @/get_text ./utils/helpers.py")
 
 ```python
 # Initialize the memory tool
-memory = c.mod('dev.tool.memory')()
+memory = c.mod('tool.memory')()
 
 # Store information in short-term memory
 memory.add_short_term("user_preference", {"theme": "dark", "language": "python"})
@@ -121,7 +121,7 @@ The Agent module includes several specialized tools:
 For more detailed guidance, use the Toolbox:
 
 ```python
-toolbox = c.mod('dev.tool.toolbox')()
+toolbox = c.mod('tool.toolbox')()
 
 # General help
 toolbox.help()
@@ -154,7 +154,7 @@ results = web_scraper.forward("latest AI developments")
 dev.forward(f"Create a summary of these developments: {results['context']}")
 
 # Memory integration
-memory = c.mod('dev.tool.memory')()
+memory = c.mod('tool.memory')()
 dev.set_memory(memory)
 ```
 

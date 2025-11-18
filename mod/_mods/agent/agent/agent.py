@@ -17,7 +17,7 @@ class Agent:
                  memory = 'agent.memory',
                  **kwargs):
 
-        self.tools_prefix = __file__.split('/')[-2] + '.tool'
+        self.tools_prefix = 'tool'
         self.model = m.mod(model)()
         self.memory = m.mod(memory)()
 

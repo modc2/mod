@@ -14,7 +14,7 @@ class ContentTool:
         """
         Find files in a directory matching a specific pattern.
         """
-        result = c.fn('dev.tool.select_files/')(path=path, query=query, trials=4)
+        result = c.fn('tool.select_files/')(path=path, query=query, trials=4)
         content = str(result)
         size = len(content)
         c.print(f"path={path} max_size={max_size} size={size}", color='cyan')
@@ -22,7 +22,7 @@ class ContentTool:
             if threads > 1:
                 c.print(f"Using {threads} threads for summarization", color='yellow')
                 from concurrent.futures import ThreadPoolExecutor
-                summarize = c.fn('dev.tool.sum_file/')
+                summarize = c.fn('tool.sum_file/')
                 future2name = {}
                 for k, v in result.items():
                     params = {'content': v, "query": query}
@@ -36,7 +36,7 @@ class ContentTool:
             else:
                 c.print(f"Using single thread for summarization", color='yellow')
                 for k, v in result.items():
-                    result[k] = c.mod('dev.tool.sum_file').forward({'content': v, "query": query}, timeout=timeout)
+                    result[k] = c.mod('tool.sum_file').forward({'content': v, "query": query}, timeout=timeout)
         else:
             result = content
         c.print(f"Content found: {len(result)} items", color='green')
