@@ -5,10 +5,7 @@ import {
   Zap,
   CheckCircle,
   AlertCircle,
-  ArrowRightLeft,
 } from 'lucide-react'
-import { ApiPromise, WsProvider } from '@polkadot/api'
-import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
 import {Network} from '@/app/network/network'
 export const Transfer: React.FC = () => {
   const [toAddress, setToAddress] = useState('')
@@ -19,13 +16,9 @@ export const Transfer: React.FC = () => {
   const [walletAddress, setWalletAddress] = useState('')
   const [balance, setBalance] = useState<string>('0')
   const network = new Network('test');
-  const networks = [
-    { id: 'test', label: 'Modchain Devnet', url: 'wss://dev.api.modchain.ai' },
-  ]
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
-    
     const address = localStorage.getItem('wallet_address')
     const mode = localStorage.getItem('wallet_mode')
     if (mode === 'subwallet' && address) {
@@ -36,7 +29,8 @@ export const Transfer: React.FC = () => {
 
   const fetchBalance = async (address: string) => {
     try {
-      setBalance(await network.balance(address))
+      const formatedBalance : string = (await network.balance(address)).toFixed(6)
+      setBalance(formatedBalance)
     } catch (err) {
       console.error('Balance fetch error:', err)
     }
@@ -51,131 +45,30 @@ export const Transfer: React.FC = () => {
     setResponse(null)
 
     try {
-      const selectedNetwork = networks.find((n) => n.id === 'test')
-      if (!selectedNetwork) throw new Error('Network not found')
 
-      await network.connect()
-      const api = network.api
-      if (!api) throw new Error('API not connected')
-      const recipientAddress = api.registry.createType(
-        'AccountId32',
-        toAddress
-      ).toString()
-
-      const amountFloat = parseFloat(amount)
-      if (isNaN(amountFloat) || amountFloat <= 0)
-        throw new Error('Invalid amount')
-
-      const transferAmount = BigInt(Math.floor(amountFloat * 1e12))
-
-      const senderInfo: any = await api.query.system.account(walletAddress)
-      const senderBalance = senderInfo.data.free.toBigInt()
-      const feeBuffer = BigInt(100_000_000)
-      if (senderBalance < transferAmount + feeBuffer)
-        throw new Error('Insufficient balance')
-
-      const extensions = await web3Enable('MOD')
-      if (extensions.length === 0)
-        throw new Error('SubWallet not found. Please install it.')
-      
-      const injector = await web3FromAddress(walletAddress)
-      if (!injector?.signer)
-        throw new Error('No signer available from SubWallet')
-
-      const tx = api.tx.balances.transferKeepAlive(
-        recipientAddress,
-        transferAmount
+      const result = await network.transfer(
+        walletAddress,
+        toAddress,
+        parseFloat(amount)
       )
-
-      const result = await new Promise<any>((resolve, reject) => {
-        let unsub: (() => void) | undefined
-        let resolved = false
-        
-        const timeout = setTimeout(() => {
-          if (!resolved) {
-            resolved = true
-            if (unsub) unsub()
-            reject(new Error('Transaction timeout after 120s'))
-          }
-        }, 120_000)
-
-        tx.signAndSend(
-          walletAddress,
-          { signer: injector.signer },
-          ({ status, dispatchError, txHash, events }) => {
-            console.log('📊 Status:', status.type)
-
-            if (dispatchError) {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                if (unsub) unsub()
-                
-                if (dispatchError.isModule) {
-                  const decoded = api.registry.findMetaError(dispatchError.asModule)
-                  const { section, name, docs } = decoded
-                  reject(new Error(`${section}.${name}: ${docs.join(' ')}`))
-                } else {
-                  reject(new Error(dispatchError.toString()))
-                }
-              }
-              return
-            }
-
-            if (status.isInBlock) {
-              console.log('✅ In block:', status.asInBlock.toHex())
-            }
-            
-            if (status.isFinalized) {
-              if (!resolved) {
-                resolved = true
-                clearTimeout(timeout)
-                console.log('🎉 Finalized:', status.asFinalized.toHex())
-                resolve({
-                  success: true,
-                  blockHash: status.asFinalized.toHex(),
-                  txHash: txHash.toHex(),
-                  events: events?.map(e => e.toHuman()),
-                })
-                if (unsub) unsub()
-              }
-            }
-          }
-        ).then((unsubFn) => {
-          unsub = unsubFn
-        }).catch((err) => {
-          if (!resolved) {
-            resolved = true
-            clearTimeout(timeout)
-            reject(err)
-          }
-        })
-      })
 
       setResponse({
         ...result,
         amount: parseFloat(amount),
         to: toAddress,
         from: walletAddress,
-        timestamp: new Date().toISOString(),
       })
-
       await fetchBalance(walletAddress)
       setToAddress('')
       setAmount('')
-      await api.disconnect()
-    } catch (err: any) {
-      console.error('❌ Transfer failed:', err)
-      
+    } catch (err: any) {      
       let msg = err?.message || String(err)
-
       if (msg.includes('1010')) 
         msg = 'Insufficient balance for fees.'
       else if (msg.toLowerCase().includes('cancel'))
         msg = 'Transaction cancelled by user.'
       else if (msg.includes('timeout'))
         msg = 'Transaction timeout. Please try again.'
-
       setError(msg)
     } finally {
       setIsLoading(false)
