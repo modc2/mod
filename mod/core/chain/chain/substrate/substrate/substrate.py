@@ -34,6 +34,7 @@ IPFS_REGEX = re.compile(r"^Qm[1-9A-HJ-NP-Za-km-z]{44}$")
 
 class Substrate:
 
+    chain = 'modchain'
     urls = {
         "test": {
             "rpc": ["dev.api.modchain.ai"]
@@ -76,6 +77,8 @@ class Substrate:
         m.print(f'Chain (network={self.network} url={self.url} connections={self.num_connections} latency={self.connection_latency}s)', color='blue') 
         return {'num_connections': self.num_connections, 'connection_latency': self.connection_latency}
 
+    def network_prefix(self):
+        return self.chain + '/' + self.network
     def set_network(self, 
                         network='main',
                         mode = 'wss',

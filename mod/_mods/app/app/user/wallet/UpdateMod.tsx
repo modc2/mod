@@ -16,6 +16,13 @@ interface UpdateModProps {
 
 export const UpdateMod: React.FC<UpdateModProps> = ({ mod }) => {
 
+  if (!mod) {
+    return (
+      <div className="text-red-400 font-mono text-base">
+        No module data provided.
+      </div>
+    )
+  }
   const { network, user } = useUserContext()
   const [modName, setModName] = useState(mod.name || '')
   const [modData, setModData] = useState(mod.cid || '')

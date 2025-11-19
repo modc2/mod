@@ -15,16 +15,28 @@ import mod as m
 Substrate = m.mod('chain.substrate')
 class ModChain(Substrate):
 
-    def __init__(self, url: str = None, **kwargs):
-        super().__init__(url=url, **kwargs)
+    chain = 'modchain'
+    def __init__(self, url: str = None, network: str = 'test', **kwargs):
+        super().__init__(url=url, network=network, **kwargs)
     ## MODCHAIN STUFF
     def format_mod_info(self, mod_info):
         mod_info['collateral'] = self.format_amount(mod_info.get('collateral', 0), fmt='j')
         return mod_info
 
-    def mods(self, update=False):
-        mods =  list(self.storage(feature='Modules', module='Modules', update=update).values())
-        mods = [self.format_mod_info(mod) for mod in mods]
+    cached_mods = None
+
+    def mods(self, search=None, key=None, update=False):
+        if update and self.cached_mods is not None:
+            mods = self.cached_mods
+        else:
+            mods =  list(self.storage(feature='Modules', module='Modules', update=update).values())
+            mods = [self.format_mod_info(mod) for mod in mods]
+            self.cached_mods = mods
+        if key:
+            key_address = self.key_address(key)
+            mods = [mod for mod in mods if mod.get('owner') == key_address]
+        if search:
+            mods = [mod for mod in mods if search in mod['name']]
         return mods
         
     def claim(self, key=None):
@@ -96,21 +108,32 @@ class ModChain(Substrate):
             if addr in balances:
                 my_balances[key] = balances[addr]
         return my_balances
+    
+    def key2name2chainid(self, search=None, update=False, **kwargs) -> List[str]:
+        if not hasattr(self, '_key2name2chainid'):
+            self._key2name2chainid = None
+        network_prefix = self.network_prefix()
+        result = {}
+        if self._key2name2chainid is not None and not update:
+            return self._key2name2chainid
+        mods = self.mods(search=search, update=update, **kwargs)
+        for mod in mods:
+            if '/' not in mod['name']:
+                continue
+            key, name = mod['name'].split('/')
+            if name not in result:
+                result[name] = {}
+            result[name][key] = self.get_chainid(mod)
+        self._key2name2chainid = result
+        return result
 
+    def get_chainid(self, mod:dict) -> str:
+        mod['chainid'] = f'{self.network_prefix()}/{mod["id"]}'
+        return mod['chainid']
     def mymods(self, key=None, update=False):
         key = m.key(key)
-        mods = self.mods(update=update)
-        is_my_mod = lambda mod_info: mod_info['name'].startswith(key.address) or mod_info.get('owner') == key.address
+        mods = self.mods(key=key, update=update)
         return list(filter(is_my_mod, mods))
-
-    def mykey2mods(self, update=False):
-        key2mods = self.key2mods(update=update)
-        my_key2mods = {}
-        key2address = m.key2address()
-        for key_str, address in key2address.items():
-            if address in key2mods:
-                my_key2mods[address] = key2mods.get(address, [])
-        return my_key2mods
 
     def mod(self, name='api', key=None, update=False):
         mod_id = self.modid(name=name, key=key, update=update)
@@ -120,8 +143,17 @@ class ModChain(Substrate):
         info['id'] = mod_id
         info['collateral'] = mod.get('collateral', 0)
         return info
+
+    def key_address(self, key=None):
+        if isinstance(key, str):
+            if self.valid_ss58_address(key):
+                return key
+            else:
+                return m.key(key).address
+        else:
+            key = m.key(key)
+            return key.address
     
         
-    myk2m = mykey2mods
     # def modules()
 

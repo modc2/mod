@@ -2,16 +2,16 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { KeyIcon, UsersIcon, ChevronLeftIcon, ChevronRightIcon, FunnelIcon, CubeIcon, PlusIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
+import {  UsersIcon, CubeIcon, ComputerDesktopIcon, HomeIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useRef, useEffect } from 'react'
 import { useSidebarContext } from '@/app/context/SidebarContext'
 
 const navigation = [
+  { name: 'Home', href: '/', icon: HomeIcon },
   { name: 'Mods', href: '/mod/explore', icon: CubeIcon },
   { name: 'Users', href: '/user/explore', icon: UsersIcon },
-  { name: 'Create', href: '/mod/create', icon: PlusIcon },
-  // { name: 'Chat', href: '/chat', icon: ChatBubbleLeftRightIcon },
+  { name: 'Hosts', href: '/host', icon: ComputerDesktopIcon },
 ]
 
 const FIXED_WIDTH = 80

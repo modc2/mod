@@ -71,7 +71,7 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
               </Link>
               <Link href={`/user/${user.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                 <code className="text-lg font-mono font-bold flex" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={user.key}>
-                  {shorten(user.key, 12, 12)}
+                  {shorten(user.key, 4, 4)}
                 </code>
               </Link>
               <CopyButton text={user.key} size="sm" />

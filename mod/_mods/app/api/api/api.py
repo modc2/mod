@@ -255,7 +255,16 @@ class  Api:
         
         return info 
 
-    def mods(self, search=None, key='all', **kwargs) -> List[str]:
+    def onchain_mods(self, search=None, **kwargs) -> List[str]:
+        return self.chain.mods(search=search, **kwargs)
+
+
+    def offchain_mods(self, search=None, **kwargs) -> List[str]:
+        return self.mods(search=search,  **kwargs)
+
+
+
+    def mods(self, search=None, key='all', onchain=False, **kwargs) -> List[str]:
         """List all registered mods in IPFS.
         
         Returns:
@@ -263,13 +272,26 @@ class  Api:
         """
         registry = self.registry(key=key, search=search)
         if key != 'all':
-            return [self.mod(k, key=key) for k in registry.keys()]
+            mods =  [self.mod(k, key=key) for k in registry.keys()]
         else:
             mods = []
             for user_key, user_mods in registry.items():
                 for mod in user_mods.keys():
                     mods.append(self.mod(mod, key=user_key))
-            return mods
+
+            key2name2chainid = self.chain.key2name2chainid(search=search, **kwargs)
+            onchain_mods = []
+        def add_chain_id(mod):
+            if mod['name'] in key2name2chainid and mod['key'] in key2name2chainid[mod['name']]:
+                mod['chain_id'] = key2name2chainid[mod['name']][mod['key']]
+            else:
+                mod['chain_id'] = 'offchain'
+            return mod
+        
+        mods =  list(map(add_chain_id, mods))
+        if onchain:
+            mods = [m for m in mods if m['chain_id'] != None]
+        return mods
 
 
     def names(self, search=None, key=None, **kwargs) -> List[str]:

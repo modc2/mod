@@ -39,7 +39,7 @@ class Agent:
         """
         use this to run the agent with a specific text and parameters
         """
-        query = self.preprocess(text=' '.join(list(map(str, [text] + list(extra_text)))))
+        query = self.preprocess(text=text, *extra_text)
         for step in range(steps):
             prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
@@ -89,33 +89,30 @@ class Agent:
         return prompt
 
 
-    def preprocess(self, text, magic_prefix = f'@'):
+    def preprocess(self, text, *extra_text, magic_prefix = f'@'):
 
+        
+        text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = ''
         words = text.split(' ')
         fn_detected = False
         fns = []
         step = {}
+        fn_tool = None
         for i, word in enumerate(words):
             query += word + ' '
             prev_word = words[i-1] if i > 0 else ''
             # restrictions can currently only handle one fn argument, future support for multiple
             if (not fn_detected) and word.startswith(magic_prefix) :
                 word = word[len(magic_prefix):]
-                step = {'tool': m.fn(word), 'params': {}, 'idx': i + 2}
-                fn_detected=True
+                fn_tool = m.fn(word)
             else:
-                if fn_detected and '=' in word:
-                    key, value = word.split('=')[0], '='.join(word.split('=')[1:])
-                    try:
-                        value = json.loads(value)
-                    except json.JSONDecodeError:
-                        m.print(f"Could not parse {value} as JSON, using string.", color='yellow')
-                        continue
-                    fns[-1]['params'][key] = value
-                    query += str(step['fn'](**step['params']))
-                else:
-                    fn_detected = False
+                if fn_tool is not None:
+                    args = [word]
+                    result = fn_tool(*args)
+                    m.print(f"Function {fn_tool.__name__} detected with args {args}")
+                    query += f"\n# Function {fn_tool.__name__} executed with args {args} -> result: {result}\n"
+                    fn_tool = None
 
         return query
 

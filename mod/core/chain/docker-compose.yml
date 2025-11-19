@@ -3,13 +3,13 @@ networks:
     external: true
     name: modnet
 services:
-  mod:
-    container_name: mod
+  chain:
+    container_name: chain
     deploy: {}
-    entrypoint: bash -c "m serve port=50144 key=mod remote=0 mod=mod"
+    entrypoint: bash -c "m serve port=50070 key=chain remote=0 mod=chain"
     image: mod:latest
     ports:
-    - 50144:50144
+    - 50070:50070
     restart: unless-stopped
     shm_size: 100g
     volumes:

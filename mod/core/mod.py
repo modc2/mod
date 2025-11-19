@@ -748,12 +748,15 @@ class Mod:
         return schema
 
     def code(self, obj = None, search=None, *args, **kwargs) -> Union[str, Dict[str, str]]:
-        if '/' in str(obj):
+
+        if self.mod_exists(obj):
+            obj = self.mod(obj)
+        elif '/' in str(obj):
             obj = self.fn(obj)
         elif hasattr(self, obj):
             obj = getattr(self, obj)
         else:
-            obj = self.mod(obj)
+            raise Exception(f'Object {obj} not found')
         return  inspect.getsource(obj)
         
     def call(self, fn , params=None, **kwargs): 
@@ -1552,10 +1555,10 @@ class Mod:
     def exec(self, mod:str = 'mod', *args, **kwargs):
         return self.fn('pm/exec')(mod, *args, **kwargs)
 
-    def app(self, mod=None, **kwargs):
-        if mod:
-            return self.fn(mod + '/app' )()
-        return self.fn('app/serve')(**kwargs)
+    # def app(self, mod=None, **kwargs):
+    #     if mod:
+    #         return self.fn(mod + '/app' )()
+    #     return self.fn('app/serve')(**kwargs)
 
     def confirm(self, message:str = 'Are you sure?', suffix = ' (y/n): '):
         confirm = input(message + suffix)

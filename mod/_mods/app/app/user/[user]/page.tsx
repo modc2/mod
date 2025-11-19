@@ -10,7 +10,7 @@ import { UserCard } from '@/app/user/explore/UserCard'
 // 
 import { Transfer } from '@/app/user/wallet/Transfer'
 import { SignVerify } from '@/app/user/wallet/SignVerify'
-import { RegisterMod} from '@/app/user/wallet/RegisterMod'
+import RegMod from '@/app/user/wallet/reg'
 import {UpdateMod} from '@/app/user/wallet/UpdateMod'
 import {UserModules} from '@/app/user/wallet/UserModules'
 
@@ -31,8 +31,6 @@ export default function UserPage() {
       if (!client || !userKey) return
       setLoading(true)
       setError(null)
-      
-      
       try {
         const data = await client.call('user', { address: userKey })
         setUserData(data as UserType)
@@ -101,7 +99,7 @@ export default function UserPage() {
             {activeTab === 'mods' && <UserModules userData={userData} />}
             {activeTab === 'sign' && client?.key && <SignVerify keyInstance={client.key} />}
             {activeTab === 'transfer' && client?.key && user && <Transfer />}
-            {activeTab === 'register' && client?.key && user && <RegisterMod />}
+            {activeTab === 'register' && client?.key && user && <RegMod />}
             {activeTab === 'update' && client?.key && user && <UpdateMod />}
 
           </div>

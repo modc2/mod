@@ -94,15 +94,16 @@ export function UserHeader() {
 
 
           {displayAddress && (
-          <div className="flex flex-col min-w-[200px]">
+          <div className="flex flex-col ">
             <div className="flex items-center gap-2">
-              <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: userColor }}>
-                {shorten(displayAddress, 8, 8)}
+              <div className="font-mono font-black text-lg truncate" style={{ color: userColor }}>
+                {shorten(displayAddress, 4, 4)}
               </div>
-              <CopyButton content={displayAddress} size="sm"  />
             </div>
           </div>
           )}
+
+              <CopyButton content={displayAddress} size="lg"  />
 
           <button
             onClick={(e) => {
@@ -110,11 +111,11 @@ export function UserHeader() {
               e.stopPropagation()
               handleSignOut()
             }}
-            className="p-3 rounded-xl hover:bg-red-500/20 transition-all group border-2 border-transparent hover:border-red-500/40 hover:scale-110 active:scale-95 flex-shrink-0"
+            className="p-3 rounded-xl hover:bg-red-500/20 transition-all group border-2 border-transparent hover:border-red-500/40 hover:scale-90 active:scale-95 flex-shrink-0"
             style={{height: '60spx', width: '60px'}}
             title="Sign Out"
           >
-            <ArrowRightOnRectangleIcon className="w-4 h-4 text-red-500 font-black group-hover:translate-x-0.5 transition-transform" />
+            <ArrowRightOnRectangleIcon className="w-7 h-6 text-red-500 font-black group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>
       </div>

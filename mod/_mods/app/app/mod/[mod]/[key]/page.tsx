@@ -37,7 +37,7 @@ export default function ModulePage() {
           setError('Client not initialized')
           return
         }
-        const data = await client.call('mod', { mod: modName, key: modKey, content: true, schema: true })
+        const data = await client.call('mod', { mod: modName, key: modKey, content: false, schema: true })
         if (user?.key && data.key === user.key) {
           setMyMod(true)
         } else {

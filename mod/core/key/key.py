@@ -314,7 +314,7 @@ class Key:
         if key in key2path or key in key2path.values():
             return True
         return False
-    
+
     def get_key_path(self, key, crypto_type=None):
         crypto_type = self.get_crypto_type(crypto_type)
         key2path = self.key2path(crypto_type=crypto_type)

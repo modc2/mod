@@ -13,6 +13,7 @@ interface UserContextType {
   network: Network | null
   authLoading: boolean
   client: Client | null
+  connectClient: () => Promise<void>
   localKey: Key | null
 }
 
@@ -54,6 +55,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializeAuth()
   }, [])
 
+  const connectClient = async () => {
+    if (localKey) {
+      setClient(new Client(undefined, localKey))
+    } else {
+      await cryptoWaitReady()
+      setClient(new Client( undefined, new Key('this_is_a_shitty_password_for_the_default_local_wallet')))
+    }
+  }
   const signIn = async () => {
     try {
       await cryptoWaitReady()
@@ -97,7 +106,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client, localKey , network }}>
+    <UserContext.Provider value={{ user, signIn, signOut, authLoading, client, localKey , network, connectClient }}>
       {children}
     </UserContext.Provider>
   )
