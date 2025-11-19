@@ -9,17 +9,21 @@ import { ModContent, ModApi, ModApp } from './tabs'
 import ModCard from '@/app/mod/explore/ModCard'
 import { AlertCircle } from 'lucide-react'
 import { text2color } from '@/app/utils'
+import UpdateMod from '@/app/user/wallet/UpdateMod'
 
 export default function ModulePage() {
   const params = useParams()
-  const { client } = useUserContext()
+  const { client, user } = useUserContext()
   const modName = params.mod as string
   const modKey = params.key as string
+
+
 
   const [mod, setMod] = useState<ModuleType | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'content' | 'api' | 'app'>('content')
+  const [activeTab, setActiveTab] = useState<'content' | 'api' | 'app' | 'update'>('api')
+  const [myMod, setMyMod] = useState(false)
 
   const moduleColor = mod ? text2color(mod.name || mod.key) : '#ffffff'
 
@@ -34,6 +38,11 @@ export default function ModulePage() {
           return
         }
         const data = await client.call('mod', { mod: modName, key: modKey, content: true, schema: true })
+        if (user?.key && data.key === user.key) {
+          setMyMod(true)
+        } else {
+          setMyMod(false)
+        }
         setMod(data as ModuleType)
       } catch (err: any) {
         console.error('Failed to fetch mod:', err)
@@ -76,8 +85,8 @@ export default function ModulePage() {
   }
 
   const rgb = hexToRgb(moduleColor)
-  const borderColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`
-  const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`
+
+  const availableTabs = myMod ? ['api', 'app', 'update'] : ['api', 'app']
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white flex flex-col">
@@ -87,44 +96,38 @@ export default function ModulePage() {
             <ModCard mod={mod} card_enabled={false} />
           </div>
 
-          <div className="rounded-2xl overflow-hidden backdrop-blur-xl shadow-2xl border-2" style={{ backgroundColor: '#0f0f0f', borderColor: borderColor, boxShadow: `0 0 24px ${glowColor}` }}>
-            <div className="flex border-b-2" style={{ borderColor: borderColor }}>
-              {(['content', 'api', 'app'] as const).map((tab) => {
-                const isActive = activeTab === tab
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className="flex-1 px-6 py-4 font-black text-lg uppercase tracking-wider transition-all duration-300 relative overflow-hidden group"
-                    style={{
-                      backgroundColor: isActive ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)` : 'transparent',
-                      color: isActive ? moduleColor : '#6b7280',
-                      borderBottom: isActive ? `4px solid ${moduleColor}` : 'none'
-                    }}
-                  >
-                    {isActive && (
-                      <div 
-                        className="absolute inset-0 opacity-10" 
-                        style={{ 
-                          background: `linear-gradient(135deg, ${moduleColor}, transparent)` 
-                        }}
-                      />
-                    )}
-                    <span className="relative z-10">{tab}</span>
-                  </button>
-                )
-              })}
-            </div>
+          <div className="flex flex-wrap gap-3 mb-6">
+            {(availableTabs as const).map((tab) => {
+              const isActive = activeTab === tab
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab as any)}
+                  className={`px-6 py-3 rounded-xl font-black text-base uppercase transition-all duration-300 ${
+                    isActive
+                      ? 'text-white border-2 shadow-2xl scale-105'
+                      : 'text-gray-400 border-2 border-gray-600/40 hover:scale-105 hover:border-gray-500/60'
+                  }`}
+                  style={{
+                    backgroundColor: isActive ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`,
+                    borderColor: isActive ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)` : undefined,
+                    boxShadow: isActive ? `0 0 24px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)` : undefined
+                  }}
+                >
+                  {tab}
+                </button>
+              )
+            })}
+          </div>
 
-            <div className="p-6" style={{ backgroundColor: '#0a0a0a' }}>
-              {activeTab === 'content' && <ModContent mod={mod} />}
-              {activeTab === 'api' && <ModApi mod={mod} />}
-              {activeTab === 'app' && <ModApp mod={mod} moduleColor={moduleColor} />}
-            </div>
+          <div>
+            {activeTab === 'content' && <ModContent mod={mod} />}
+            {activeTab === 'api' && <ModApi mod={mod} />}
+            {activeTab === 'app' && <ModApp mod={mod} moduleColor={moduleColor} />}
+            {activeTab === 'update' && myMod && <UpdateMod mod={mod} />}
           </div>
         </div>
       </main>
-
     </div>
   )
 }

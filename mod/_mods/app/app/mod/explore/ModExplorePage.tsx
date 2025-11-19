@@ -12,7 +12,7 @@ import { X, RotateCcw, Sparkles, Maximize2, Minimize2 } from 'lucide-react'
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
 
 export default function Modules() {
-  const { client } = useUserContext()
+  const { client, user } = useUserContext()
   const { searchFilters } = useSearchContext()
 
   const [mods, setMods] = useState<ModuleType[]>([])
@@ -36,6 +36,12 @@ export default function Modules() {
     }
     return ''
   })
+  const [showMyModsOnly, setShowMyModsOnly] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mod_explorer_my_mods_only') === 'true'
+    }
+    return false
+  })
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   const searchTerm = searchFilters.searchTerm?.trim() || ''
@@ -57,6 +63,12 @@ export default function Modules() {
       localStorage.setItem('mod_explorer_user_filter', userFilter)
     }
   }, [userFilter])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mod_explorer_my_mods_only', showMyModsOnly.toString())
+    }
+  }, [showMyModsOnly])
 
   const sortModules = (list: ModuleType[]) => {
     switch (sort) {
@@ -90,6 +102,11 @@ export default function Modules() {
     return list.filter(mod => mod.key?.toLowerCase().includes(lowerUserKey))
   }
 
+  const filterMyMods = (list: ModuleType[]) => {
+    if (!showMyModsOnly || !user) return list
+    return list.filter(mod => mod.key === user.key)
+  }
+
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
@@ -102,6 +119,7 @@ export default function Modules() {
       const allMods = Array.isArray(raw) ? raw : []
       let filtered = filterModsBySearch(allMods, searchTerm)
       filtered = filterModsByUser(filtered, userFilter)
+      filtered = filterMyMods(filtered)
       const sorted = sortModules(filtered)
       setMods(sorted)
     } catch (err: any) {
@@ -114,7 +132,7 @@ export default function Modules() {
 
   useEffect(() => {
     fetchAll()
-  }, [client, searchTerm, sort, userFilter])
+  }, [client, searchTerm, sort, userFilter, showMyModsOnly])
 
   const gridColsClass = {
     1: 'grid-cols-1',
@@ -139,6 +157,8 @@ export default function Modules() {
               onColumnsChange={setColumns}
               userFilter={userFilter}
               onUserFilterChange={setUserFilter}
+              showMyModsOnly={showMyModsOnly}
+              onShowMyModsOnlyChange={setShowMyModsOnly}
             />
             <button
               onClick={toggleFullscreen}
@@ -192,7 +212,7 @@ export default function Modules() {
               <Sparkles className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">
-              {searchTerm || userFilter ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
+              {searchTerm || userFilter || showMyModsOnly ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
             </div>
           </div>
         )}

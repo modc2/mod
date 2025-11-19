@@ -6,12 +6,16 @@ import { useUserContext } from '@/app/context'
 import { UserType } from '@/app/types'
 import { Loading } from '@/app/block/ui/Loading'
 import { UserCard } from '@/app/user/explore/UserCard'
+
+// 
 import { Transfer } from '@/app/user/wallet/Transfer'
 import { SignVerify } from '@/app/user/wallet/SignVerify'
+import { RegisterMod} from '@/app/user/wallet/RegisterMod'
+import {UpdateMod} from '@/app/user/wallet/UpdateMod'
 import {UserModules} from '@/app/user/wallet/UserModules'
 
 
-type TabType = 'mods' | 'sign' | 'transfer'
+type TabType = 'mods' | 'sign' | 'transfer' | 'register' | 'update'
 
 export default function UserPage() {
   const params = useParams()
@@ -64,6 +68,8 @@ export default function UserPage() {
   const tabs: { id: TabType; label: string }[] = [
     { id: 'transfer', label: 'transfer' },
     { id: 'mods', label: 'mods' },
+    { id: 'register', label: 'register' },
+    { id: 'update', label: 'update' },
     // { id: 'sign', label: 'sign & verify' }
   ]
 
@@ -95,6 +101,9 @@ export default function UserPage() {
             {activeTab === 'mods' && <UserModules userData={userData} />}
             {activeTab === 'sign' && client?.key && <SignVerify keyInstance={client.key} />}
             {activeTab === 'transfer' && client?.key && user && <Transfer />}
+            {activeTab === 'register' && client?.key && user && <RegisterMod />}
+            {activeTab === 'update' && client?.key && user && <UpdateMod />}
+
           </div>
         </div>
       </main>

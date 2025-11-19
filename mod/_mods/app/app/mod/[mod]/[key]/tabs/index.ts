@@ -1,4 +1,4 @@
-import {ModApi} from './ModApi'
-import {ModApp} from './ModApp'
-import {ModContent} from './ModContent'
-export { ModApi, ModApp, ModContent }
+export { ModContent } from './ModContent'
+export { ModApi } from './ModApi'
+export { ModApp } from './ModApp'
+export { ModUpdate } from './ModUpdate'

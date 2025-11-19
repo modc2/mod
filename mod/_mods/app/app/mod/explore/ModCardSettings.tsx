@@ -2,6 +2,7 @@
 
 import { Filter } from 'lucide-react'
 import { useState } from 'react'
+import { useUserContext } from '@/app/context'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
 
@@ -12,6 +13,8 @@ interface ModCardSettingsProps {
   onColumnsChange: (columns: number) => void
   userFilter: string
   onUserFilterChange: (filter: string) => void
+  showMyModsOnly: boolean
+  onShowMyModsOnlyChange: (show: boolean) => void
 }
 
 export const ModCardSettings = ({
@@ -20,9 +23,12 @@ export const ModCardSettings = ({
   columns,
   onColumnsChange,
   userFilter,
-  onUserFilterChange
+  onUserFilterChange,
+  showMyModsOnly,
+  onShowMyModsOnlyChange
 }: ModCardSettingsProps) => {
   const [showFilters, setShowFilters] = useState(false)
+  const { user } = useUserContext()
 
   return (
     <div className="flex items-center gap-3">
@@ -58,6 +64,18 @@ export const ModCardSettings = ({
             <option value={3}>3 Columns</option>
             <option value={4}>4 Columns</option>
           </select>
+
+          {user && (
+            <label className="flex items-center gap-2 px-4 py-2 bg-black/60 border border-emerald-500/40 rounded-lg backdrop-blur-xl cursor-pointer hover:border-emerald-500/60 transition-all">
+              <input
+                type="checkbox"
+                checked={showMyModsOnly}
+                onChange={(e) => onShowMyModsOnlyChange(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500"
+              />
+              <span className="text-sm font-bold text-emerald-300 uppercase">My Mods Only</span>
+            </label>
+          )}
         </div>
       )}
     </div>

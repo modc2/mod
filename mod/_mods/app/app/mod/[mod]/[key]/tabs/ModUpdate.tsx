@@ -10,12 +10,11 @@ import {
 import { useUserContext } from '@/app/context/UserContext'
 import { ModuleType } from '@/app/types'
 
-interface UpdateModProps {
+interface ModUpdateProps {
   mod: ModuleType
 }
 
-export const UpdateMod: React.FC<UpdateModProps> = ({ mod }) => {
-
+export const ModUpdate: React.FC<ModUpdateProps> = ({ mod }) => {
   const { network, user } = useUserContext()
   const [modName, setModName] = useState(mod.name || '')
   const [modData, setModData] = useState(mod.cid || '')
@@ -243,4 +242,4 @@ export const UpdateMod: React.FC<UpdateModProps> = ({ mod }) => {
   )
 }
 
-export default UpdateMod
+export default ModUpdate

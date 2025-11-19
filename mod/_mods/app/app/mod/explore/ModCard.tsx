@@ -8,6 +8,7 @@ import { KeyIcon } from '@heroicons/react/24/outline'
 import { CubeIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
 import { useState } from 'react'
+import { useUserContext } from '@/app/context'
 
 interface ModCardProps {
   mod: ModuleType
@@ -21,6 +22,8 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
   const userColor = text2color(mod.key)
   const updatedTimeStr = mod.updated ? time2str(mod.updated) : time2str(Date.now())
   
+  const { user } = useUserContext()
+  const myMod :boolean = user && user.key === mod.key
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
     return result ? {
@@ -60,13 +63,20 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
             </div>
 
             {/* Author on top right */}
+
             <div className="flex items-center gap-2 px-3 py-2 rounded-md border flex-shrink-0" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
+              {myMod && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+                  {myMod ? 'owner' : ''}
+              </div>   
+            )}
+            
               <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
                 <KeyIcon className="w-10 h-10" style={{ color: userColor }} />
               </Link>
               <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                 <code className="text-lg font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.key}>
-                  {shorten(mod.key, 12, 12)}
+                  {shorten(mod.key, 4, 4)}
                 </code>
               </Link>
               <CopyButton text={mod.key} size="sm" />
@@ -122,6 +132,8 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
                 </code>
                 <CopyButton text={updatedTimeStr} size="sm" />
               </div>
+              {/* MyMod */}
+
             </div>
           </div>
         </div>

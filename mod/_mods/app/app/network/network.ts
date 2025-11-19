@@ -178,6 +178,17 @@ export class Network
         return await result;
     }
 
+    async getInjector(walletAddress: string) : Promise<any> {
+        const extensions = await web3Enable('MOD')
+        if (extensions.length === 0)
+          throw new Error('SubWallet not found. Please install it.')
+        
+        const injector = await web3FromAddress(walletAddress)
+        if (!injector?.signer)
+          throw new Error('No signer available from SubWallet')
+        return injector;
+    }
+
 }
 
 

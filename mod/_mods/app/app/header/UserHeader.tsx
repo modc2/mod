@@ -9,33 +9,15 @@ import {text2color, shorten} from "@/app/utils";
 import { useRouter } from 'next/navigation'
 import WalletAuthButton from './WalletAuthButton'
 
-export function UserHeader() {
-  const {  user, authLoading, signOut, client, network } = useUserContext()
-  const [isExpanded, setIsExpanded] = useState(true)
-  const [isNarrow, setIsNarrow] = useState(false)
-  const [isOverBudget, setIsOverBudget] = useState(false)
-  const router = useRouter()
 
-  useEffect(() => {
-    const checkWidth = () => {
-      const narrow = window.innerWidth < 1024
-      setIsNarrow(narrow)
-      if (narrow) {
-        setIsExpanded(false)
-      } else {
-        setIsExpanded(true)
-      }
-    }
-    checkWidth()
-    window.addEventListener('resize', checkWidth)
-    return () => window.removeEventListener('resize', checkWidth)
-  }, [])
+
+
+export function UserHeader() {
+  const {  user, authLoading, signOut} = useUserContext()
+  const router = useRouter()
 
   const handleSignOut = () => {
     signOut()
-    if (isNarrow) {
-      setIsExpanded(false)
-    }
   }
 
   const handleUserClick = () => {
@@ -70,20 +52,18 @@ export function UserHeader() {
   return (
     <div 
       className="relative flex-shrink-0"
-      onMouseEnter={() => !isNarrow && setIsExpanded(true)}
-      onMouseLeave={() => !isNarrow && setIsExpanded(true)}
     >
       <div
         onClick={handleUserClick}
-        className={`flex items-center gap-3 transition-all duration-300 backdrop-blur-xl rounded-2xl border-2 overflow-hidden cursor-pointer hover:shadow-2xl ${isOverBudget ? 'animate-pulse' : ''}`}
+        className={`flex items-center gap-3 transition-all duration-300 backdrop-blur-xl rounded-2xl border-2 overflow-hidden cursor-pointer hover:shadow-2xl`}
         style={{
-          borderColor: isOverBudget ? '#ff0000' : `${userColor}80`,
-          backgroundColor: isOverBudget ? '#ff000025' : `${userColor}15`,
-          boxShadow: isOverBudget ? '0 0 40px #ff000060' : `0 0 30px ${userColor}40`,
+          borderColor:`${userColor}80`,
+          backgroundColor: `${userColor}15`,
+          boxShadow: `0 0 30px ${userColor}40`,
           height: '60px',
           minWidth: '60px',
-          width: isExpanded ? 'auto' : '60px',
-          paddingRight: isExpanded ? '16px' : '0',
+          width:  'auto' ,
+          paddingRight: '16px',
         }}
       >
         <div 
@@ -96,30 +76,27 @@ export function UserHeader() {
             justifyContent: 'center'
           }}
           onClick={(e) => {
-            if (isNarrow) {
-              e.stopPropagation()
-              setIsExpanded(!isExpanded)
-            }
           }}
         >
-          <KeyIcon className="w-9 h-9" style={{ color: isOverBudget ? '#ff0000' : userColor }} />
+          <KeyIcon className="w-9 h-9" style={{ color:  userColor }} />
         </div>
 
         <div 
           className="flex items-center gap-4 transition-all duration-300"
           style={{
-            opacity: isExpanded ? 1 : 0,
-            width: isExpanded ? 'auto' : '0',
+            opacity:  1 ,
+            width:  'auto' ,
             overflow: 'hidden',
             whiteSpace: 'nowrap',
           }}
         >
 
 
+
           {displayAddress && (
           <div className="flex flex-col min-w-[200px]">
             <div className="flex items-center gap-2">
-              <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: isOverBudget ? '#ff0000' : userColor }}>
+              <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: userColor }}>
                 {shorten(displayAddress, 8, 8)}
               </div>
               <CopyButton content={displayAddress} size="sm"  />
