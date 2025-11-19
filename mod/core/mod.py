@@ -1344,9 +1344,8 @@ class Mod:
         """
         if mod == None or mod == 'mod':
             return self.lib_path
-
         mod = self.shortcuts.get(mod, mod)
-        mod = mod.lower()
+        mod = mod.lower().replace('/', '.')
         def get_dirpath_from_tree( update=False):
             tree = self.tree(folders=True, depth=depth, update=update)
             tree_options = [k for k in tree.keys() if all([part in k for part in mod.split('.')])]

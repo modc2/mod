@@ -67,9 +67,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let balance = 0
       if (!network) {
         throw new Error('Network not initialized')
-      }
-      network.balance(user_key).then((bal) => balance = bal.toNumber()).catch((err) => console.error('Failed to fetch balance during sign-in:', err))
-      
+      }      
       const userData = {
         key: user_key,
         crypto_type: key.crypto_type,

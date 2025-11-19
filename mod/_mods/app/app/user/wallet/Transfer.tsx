@@ -24,18 +24,9 @@ export const Transfer: React.FC = () => {
     const mode = localStorage.getItem('wallet_mode')
     if (mode === 'subwallet' && address) {
       setWalletAddress(address)
-      fetchBalance(address)
     }
   }, [])
 
-  const fetchBalance = async (address: string) => {
-    try {
-      const formatedBalance : string = (await network.balance(address)).toFixed(6)
-      setBalance(formatedBalance)
-    } catch (err) {
-      console.error('Balance fetch error:', err)
-    }
-  }
 
   const executeTransfer = async () => {
     if (!toAddress || !amount) return setError('Please fill in all fields')
@@ -59,7 +50,6 @@ export const Transfer: React.FC = () => {
         to: toAddress,
         from: walletAddress,
       })
-      await fetchBalance(walletAddress)
       setToAddress('')
       setAmount('')
     } catch (err: any) {      
@@ -86,18 +76,11 @@ export const Transfer: React.FC = () => {
             : 'bg-gradient-to-br from-red-500/10 border-red-500/30'
         }`}
       >
-        {walletAddress ? (
-          <>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-purple-400 text-sm font-mono">
-                <CheckCircle size={16} />
-              </div>
-              <div className="text-purple-300 text-sm font-mono">
-                {balance} MOD
-              </div>
-            </div>
-
-          </>
+        {walletAddress && network ? (
+          <div className="flex items-center gap-2 text-green-400 text-sm font-mono">
+            <CheckCircle size={16} />
+            <span>CONNECTED {network.url}</span>
+          </div>
         ) : (
           <div className="flex items-center gap-2 text-red-400 text-sm font-mono">
             <AlertCircle size={16} />

@@ -112,7 +112,6 @@ class Server:
             # if the fn is not callable, return it
             result = fn_obj
 
-
         if self.is_generator(result):
             def generator_wrapper(generator):
                 gen_result =  {'data': [], 'start_time': time.time(), 'end_time': None, 'cost': 0}

@@ -64,7 +64,7 @@ export function UserHeader() {
   const userColor = text2color(user.key)
   const walletMode = localStorage.getItem('wallet_mode')
   const displayAddress = walletMode === 'subwallet' 
-    ? localStorage.getItem('wallet_address') || user.key
+    ? localStorage.getItem('wallet_address') || user.key 
     : user.key
 
   return (
@@ -115,6 +115,8 @@ export function UserHeader() {
           }}
         >
 
+
+          {displayAddress && (
           <div className="flex flex-col min-w-[200px]">
             <div className="flex items-center gap-2">
               <div className="font-mono font-black text-lg truncate max-w-[180px]" style={{ color: isOverBudget ? '#ff0000' : userColor }}>
@@ -123,6 +125,7 @@ export function UserHeader() {
               <CopyButton content={displayAddress} size="sm"  />
             </div>
           </div>
+          )}
 
           <button
             onClick={(e) => {

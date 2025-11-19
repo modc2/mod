@@ -906,7 +906,9 @@ class Substrate:
     def balance(
         self,
         addr: Ss58Address=None,
-        fmt = 'j'
+        fmt = 'j',
+        update: bool = False,
+        **kwags
     ) -> int:
         """
         Retrieves the balance of a specific key.

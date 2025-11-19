@@ -7,12 +7,14 @@ import time
 import mod as m
 
 class  Api:
+
+    folder_path = m.abspath('~/.mod/api')
     endpoints = ['mods',
                  'names', 
                  'reg', 
                  'mod',
                  'users', 
-                 'user_info', 
+                 'user', 
                  'n', 
                  'balance',
                  'reg_from_info',
@@ -25,6 +27,9 @@ class  Api:
         self.key = m.key(key)
         self.set_chain(chain)
         self.model = m.mod('model.openrouter')()
+        self.registry_path = self.path('registry.json')
+        self.balances()
+
 
     def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload']):
         self.chain = m.mod(chain)()
@@ -66,15 +71,15 @@ class  Api:
         return mod
 
     
-    registry_path = '~/.mod/api/registry.json'
     # Register or update a mod in IPFS
 
     def key_address(self, key=None):
+        key = key or 'mod'
         if isinstance(key, str):
             if self.key.valid_ss58_address(key):
                 return key
             else:
-                key = m.key(key)
+                return m.key(key).address
         else:
             return (key or m.key()).address
 
@@ -545,7 +550,7 @@ class  Api:
         """
         return list(self.registry('all').keys())
 
-    def users(self, search=None, **kwargs) -> List[Dict[str, Any]]:
+    def users(self, search=None, update=False,**kwargs) -> List[Dict[str, Any]]:
         """List all users who have registered mods in IPFS.
         
         Args:
@@ -558,7 +563,7 @@ class  Api:
         for user_key in user_keys:
             if search and search not in user_key:
                 continue
-            info = self.user_info(user_key)
+            info = self.user(user_key, update=update)
             users_info.append(info)
         return users_info
 
@@ -577,7 +582,15 @@ class  Api:
             mods.append(self.mod(mod, key=key))
         return mods
 
-    def user(self, key: str = None) -> Dict[str, Any]:
+
+    def path(self, path:str) -> str:
+        """Get content from a specific path in IPFS.
+        
+        Args:
+        """
+        return self.folder_path + '/' + path
+
+    def user(self, address: str = None, update=False) -> Dict[str, Any]:
         """Get information about a specific user in IPFS.
         
         Args:
@@ -585,26 +598,34 @@ class  Api:
         Returns:
             Dictionary with user information
         """
-        key = self.key_address(key)
-        mods = self.user_mods(key)
-        info = {
-            'key': key,
-            'mods': mods,
-            'balance': self.balance(key)
-        }
-        return info
+        address = self.key_address(address)
+        mods = self.user_mods(address)
+        path = self.path('users/' + address)
+        user = m.get(path, None, update=update)
+        if user == None:
+            user = {
+                'key': address,
+                'mods': mods,
+                'balance': self.balance(address, update=update)
+            }
+            m.put(path, user)
+        return user
         
-    user_info = user
+    user = user
 
-    def balances(self) -> Dict[str, float]:
+    def balances(self, update=False) -> Dict[str, float]:
         """Get balances of all users in IPFS.
         
         Returns:
             Dictionary mapping user addresses to their balances
         """
-        return self.chain.balances()
+        if not hasattr(self, '_balances'):
+            self._balances =  self.chain.balances(update=update)
+        if update:
+            self._balances =  self.chain.balances(update=update)
+        return self._balances
         
-    def balance(self, key_address: str = None) -> float:
+    def balance(self, key_address: str = None, update=False) -> float:
         """Get the balance of a specific user in IPFS.
         
         Args:
@@ -612,7 +633,10 @@ class  Api:
         Returns:
             Balance as a float
         """
-        return self.balances().get(key_address, 0.0) 
+        key = self.key_address(key_address)
+        if update:
+            self._balances[key_address] =  self.chain.balance(key)
+        return self._balances.get(key_address, 0)
 
     def edit(self, *query,  mod: str='app',  key=None) -> Dict[str, Any]:
         dev = m.mod('dev')()
@@ -631,31 +655,4 @@ class  Api:
         key = self.key_address(key)
         return self.chain.nonce(key)
 
-    def test_call_signature(self):
-        key = m.key()
-        address = key.address
-        dest = m.key('test').address
-        mod = 'Balances'
-        fn = 'transfer_keep_alive'
-        params = {'dest': dest, 'value': 0.1 * 10**12}
-        nonce = self.nonce(address)
-        signature_payload = m.call('api/get_signature_payload',
-            params=dict(mod=mod,
-            fn=fn,
-            params=params,
-            address=address,
-            nonce=nonce,
-            era=None)
-        )
-
-        signature = key.sign(signature_payload, mode='str')
-        assert m.verify(signature_payload, signature, address), "Invalid signature"
-        response = m.call('api/call_with_signature',
-            params=dict(mod=mod,
-            fn=fn,
-            params=params,
-            address=address,
-            signature=signature,
-            nonce=nonce)
-        )
-        return response
+   
