@@ -2,10 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {  UsersIcon, CubeIcon, ComputerDesktopIcon, HomeIcon } from '@heroicons/react/24/outline'
+import {  UsersIcon, CubeIcon, ComputerDesktopIcon, HomeIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useRef, useEffect } from 'react'
 import { useSidebarContext } from '@/app/context/SidebarContext'
+import { useSplitScreenContext } from '@/app/context/SplitScreenContext'
+import { Squares2X2Icon } from '@heroicons/react/24/outline'
 
 const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
@@ -21,6 +23,7 @@ export function Sidebar() {
   const { isSidebarExpanded, toggleSidebar } = useSidebarContext()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [showServerSettings, setShowServerSettings] = useState(false)
+  const { orientation, setOrientation } = useSplitScreenContext()
 
   return (
     <>
@@ -93,7 +96,39 @@ export function Sidebar() {
             })}
           </nav>
 
-          <div className="border-t border-white/10 p-3 bg-black/50 relative">
+          <div className="border-t border-white/10 p-3 bg-black/50 relative space-y-2">
+            <div
+              onMouseEnter={() => setHoveredItem('split')}
+              onMouseLeave={() => setHoveredItem(null)}
+            >
+              <button
+                onClick={() => setOrientation(orientation === 'vertical' ? 'horizontal' : 'vertical')}
+                className="w-full p-2 rounded-md hover:bg-white/5 text-gray-400 hover:text-white transition-colors flex items-center justify-center"
+              >
+                <Squares2X2Icon className={`h-6 w-6 ${orientation === 'horizontal' ? 'rotate-90' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {hoveredItem === 'split' && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="fixed pointer-events-none"
+                    style={{ 
+                      zIndex: 99999,
+                      left: `${FIXED_WIDTH + 8}px`,
+                      bottom: '60px'
+                    }}
+                  >
+                    <div className="bg-gray-900 text-white px-3 py-2 rounded-lg shadow-xl border border-green-500/30 whitespace-nowrap text-sm font-medium">
+                      {orientation === 'vertical' ? 'Horizontal Split' : 'Vertical Split'}
+                      <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-gray-900" />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div
               onMouseEnter={() => setHoveredItem('settings')}
               onMouseLeave={() => setHoveredItem(null)}
@@ -220,5 +255,3 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
     </div>
   )
 }
-
-import { Cog6ToothIcon } from '@heroicons/react/24/outline'

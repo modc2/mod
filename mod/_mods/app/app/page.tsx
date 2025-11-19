@@ -125,29 +125,29 @@ export default function Home() {
         >
           <pre className="text-white text-sm leading-relaxed">
 {`╔═══════════════════════════════════════════════════════════╗
-║  MODCHAIN: BLOCKCHAIN-BASED MODULE REGISTRY               ║
+║  MODCHAIN: BLOCKCHAIN MODULE REGISTRY                     ║
 ╠═══════════════════════════════════════════════════════════╣
 ║                                                           ║
-║  WHAT IS MODCHAIN?                                        ║
-║  • Decentralized app store WITHOUT gatekeepers            ║
-║  • Software modules stored on-chain (immutable)           ║
+║  WHAT:                                                    ║
+║  • Decentralized app store - NO gatekeepers               ║
+║  • Software modules on-chain (immutable)                  ║
 ║  • Cryptographically verified & tamper-proof              ║
-║  • Permissionless publishing & discovery                  ║
+║  • Permissionless publishing                              ║
 ║                                                           ║
-║  HOW IT WORKS:                                            ║
-║  1. Developer creates MOD                                 ║
-║  2. MOD cryptographically signed                          ║
-║  3. Published to blockchain (permanent record)            ║
-║  4. Users discover & verify MODS trustlessly              ║
-║  5. Zero middlemen, zero censorship                       ║
+║  HOW:                                                     ║
+║  1. Create MOD                                            ║
+║  2. Sign cryptographically                                ║
+║  3. Publish to blockchain                                 ║
+║  4. Users verify & install trustlessly                    ║
+║  5. Zero middlemen                                        ║
 ║                                                           ║
-║  WHY MODCHAIN?                                            ║
-║  • Code is law, not corporations                          ║
-║  • Cryptography protects freedom                          ║
+║  WHY:                                                     ║
+║  • Code is law                                            ║
+║  • Cryptography = freedom                                 ║
 ║  • Decentralization prevents control                      ║
-║  • Build & share without permission                       ║
+║  • Build without permission                               ║
 ║                                                           ║
-║  TL;DR: npm + blockchain = unstoppable code distribution  ║
+║  TL;DR: npm + blockchain = unstoppable distribution       ║
 ╚═══════════════════════════════════════════════════════════╝`}
           </pre>
         </motion.div>

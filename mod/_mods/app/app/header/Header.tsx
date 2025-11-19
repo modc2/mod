@@ -4,10 +4,11 @@ import { UserHeader } from './UserHeader'
 import { NodeUrlSettings } from './NodeUrlSettings'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { CubeIcon, UsersIcon, Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { CubeIcon, UsersIcon, Bars3Icon, MagnifyingGlassIcon, Squares2X2Icon, XMarkIcon, ArrowsRightLeftIcon, ArrowsUpDownIcon } from '@heroicons/react/24/outline'
 import { text2color } from '@/app/utils'
 import { useState, useEffect } from 'react'
 import { useSearchContext } from '@/app/context/SearchContext'
+import { useSplitScreenContext } from '@/app/context/SplitScreenContext'
 import { useRouter } from 'next/navigation'
 
 export function Header() {
@@ -18,6 +19,7 @@ export function Header() {
   const [isNarrow, setIsNarrow] = useState(false)
   const [searchCollapsed, setSearchCollapsed] = useState(false)
   const { handleSearch } = useSearchContext()
+  const { isSplitScreen, toggleSplitScreen, orientation, setOrientation } = useSplitScreenContext()
   const router = useRouter()
   const [inputValue, setInputValue] = useState('')
   
@@ -56,6 +58,20 @@ export function Header() {
     }
   }
 
+  const handleLeftSplit = () => {
+    setOrientation('vertical')
+    if (!isSplitScreen) {
+      toggleSplitScreen()
+    }
+  }
+
+  const handleTopSplit = () => {
+    setOrientation('horizontal')
+    if (!isSplitScreen) {
+      toggleSplitScreen()
+    }
+  }
+
   return (
     <header className="sticky top-0 z-50 w-full bg-black" style={{ borderColor: '#00ff0040' }}>
       <div className="flex items-center justify-between px-4 py-2">
@@ -91,7 +107,30 @@ export function Header() {
         </div>
         
         <div className="flex items-center justify-end gap-3">
-          
+          <button
+            onClick={handleLeftSplit}
+            className={`p-3 rounded-lg border-2 transition-all active:scale-95 ${
+              isSplitScreen && orientation === 'vertical'
+                ? 'border-blue-500 bg-blue-500/20 text-blue-400' 
+                : 'border-white/40 bg-white/15 hover:bg-white/20 text-gray-400'
+            }`}
+            style={{height: '64px', width: '64px'}}
+            title="Left Split"
+          >
+            <ArrowsRightLeftIcon className="w-8 h-8" />
+          </button>
+          <button
+            onClick={handleTopSplit}
+            className={`p-3 rounded-lg border-2 transition-all active:scale-95 ${
+              isSplitScreen && orientation === 'horizontal'
+                ? 'border-purple-500 bg-purple-500/20 text-purple-400' 
+                : 'border-white/40 bg-white/15 hover:bg-white/20 text-gray-400'
+            }`}
+            style={{height: '64px', width: '64px'}}
+            title="Top Split"
+          >
+            <ArrowsUpDownIcon className="w-8 h-8" />
+          </button>
           <UserHeader />
         </div>
       </div>

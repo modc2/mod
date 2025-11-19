@@ -9,7 +9,7 @@ export class Client {
   public auth: Auth;
 
   constructor(url?: string, key?: Key ) {
-    this.url = process.env.NEXT_PUBLIC_API_URL || config.api_url || 'http://localhost:8000';
+    this.url = url || process.env.NEXT_PUBLIC_API_URL || config.api_url || 'http://localhost:8000';
     console.log('Client initialized with URL:', this.url);
     this.key = key;
     this.auth = new Auth(key);
@@ -25,9 +25,7 @@ export class Client {
     headers['Content-Type'] = 'application/json';
     headers['Accept'] = 'application/json';
     headers['Access-Control-Request-Method']
-    
     const url: string = `${this.url}/${fn}`;
-    console.log(`Making API call to ${url} with params:`, params, 'and headers:', headers);
     
     try {
       const response = await fetch(url, {

@@ -93,6 +93,7 @@ class Server:
         cost = request['cost']
         info = self.mod.info()
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
+        self.print_request(request)
         if '/' in fn:
 
             temp_mod = fn.split('/')[0]

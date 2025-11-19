@@ -86,6 +86,7 @@ export class Network
         throw new Error('SubWallet not found. Please install it.')
       
     const injector = await web3FromAddress(walletAddress)
+    console.log('injector', injector)
     if (!injector?.signer)
         throw new Error('No signer available from SubWallet')
 

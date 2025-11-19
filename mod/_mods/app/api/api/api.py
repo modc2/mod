@@ -621,10 +621,10 @@ class  Api:
             Dictionary with user information
         """
         address = self.key_address(address)
-        mods = self.user_mods(address)
         path = self.path('users/' + address)
         user = m.get(path, None, update=update)
         if user == None:
+            mods = self.user_mods(address)
             user = {
                 'key': address,
                 'mods': mods,
