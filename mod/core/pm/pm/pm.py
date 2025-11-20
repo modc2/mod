@@ -24,29 +24,6 @@ class PM:
         self.network = network
         self.store = m.mod('store')(path)
 
-    def up(self, mod='chain', daemon:bool=True):
-        """
-        Run docker-compose up in the specified path.
-        """
-        docker_compose_paths = self.compose_files(mod)
-        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
-        cmd = 'docker-compose up'
-        path = m.dirpath(mod)
-        if daemon:
-            cmd += ' -d'
-        return os.system('cd ' + path + ' && ' + cmd)
-        
-    def down(self, mod='chain'):
-        """
-        Run docker-compose down in the specified path.
-        """
-        docker_compose_paths = self.compose_files(mod)
-        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
-        cmd = 'docker-compose down'
-        path = m.dirpath(mod)
-        return os.system('cd ' + path + ' && ' + cmd)
-    
-
     def forward(self,  
                 mod : str ='api', 
                 port : Optional[int] = None, 
@@ -86,6 +63,28 @@ class PM:
                           working_dir=working_dir)
         self.namespace(update=True)
         return result
+
+    def up(self, mod='chain', daemon:bool=True):
+        """
+        Run docker-compose up in the specified path.
+        """
+        docker_compose_paths = self.compose_files(mod)
+        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
+        cmd = 'docker-compose up'
+        path = m.dirpath(mod)
+        if daemon:
+            cmd += ' -d'
+        return os.system('cd ' + path + ' && ' + cmd)
+        
+    def down(self, mod='chain'):
+        """
+        Run docker-compose down in the specified path.
+        """
+        docker_compose_paths = self.compose_files(mod)
+        assert len(docker_compose_paths) > 0, f'No docker-compose file found in {mod}'
+        cmd = 'docker-compose down'
+        path = m.dirpath(mod)
+        return os.system('cd ' + path + ' && ' + cmd)
 
     def get_compose_path(self, name: str):
         dirpath = m.dirpath(name)
@@ -500,7 +499,7 @@ class PM:
         """
         return os.path.expanduser(f'~/.mod/pm/{path}')
 
-    def stats(self, max_age=60, update=False) -> pd.DataFrame:
+    def stats(self, max_age=60, update=False, df=False) -> pd.DataFrame:
         """
         Get container resource usage statistics.
         """
@@ -533,7 +532,8 @@ class PM:
                 row = {_k.lower(): _v for _k, _v in row.items()}
                 stats.append(row)
                 self.store.put(path, stats)
-            
+        if not df:
+            return stats
         return m.df(stats)
 
     def ps(self) -> List[str]:

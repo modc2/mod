@@ -39,7 +39,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export const shorten = (str: string, leading: number = 4, trailing: number = 0): string => {
   const leadingPart = str.slice(0, leading)
   const trailingPart = trailing > 0 ? str.slice(-trailing) : ''
-  return trailing > 0 ? `${leadingPart}...${trailingPart}` : `${leadingPart}...`
+  return trailing > 0 ? `${leadingPart}..${trailingPart}` : `${leadingPart}...`
 }
 
 

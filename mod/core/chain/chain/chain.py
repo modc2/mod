@@ -109,26 +109,39 @@ class ModChain(Substrate):
                 my_balances[key] = balances[addr]
         return my_balances
     
-    def key2name2chainid(self, search=None, update=False, **kwargs) -> List[str]:
-        if not hasattr(self, '_key2name2chainid'):
-            self._key2name2chainid = None
-        network_prefix = self.network_prefix()
+    _registry = None
+    def registry(self, key=None, update=False, **kwargs) -> Dict[str, Dict[str, str]]:
+        """
+        Get the chain registry mapping keys and module names to chain IDs.
+        Args:
+            key: Optional; Key to filter modules by owner.
+            update: If True, forces an update of the registry.
+            **kwargs: Additional arguments for module search.
+        Returns:
+            A dictionary mapping keys to module names and their corresponding chain IDs.
+        """
+
+        net = self.net()
         result = {}
-        if self._key2name2chainid is not None and not update:
-            return self._key2name2chainid
-        mods = self.mods(search=search, update=update, **kwargs)
-        for mod in mods:
-            if '/' not in mod['name']:
-                continue
-            key, name = mod['name'].split('/')
-            if name not in result:
-                result[name] = {}
-            result[name][key] = self.get_chainid(mod)
-        self._key2name2chainid = result
+        if self._registry is None or update:
+            mods = self.mods(update=update, **kwargs)
+            for mod in mods:
+                if '/' not in mod['name']:
+                    continue
+                key, name = mod['name'].split('/')
+                if not self.valid_ss58_address(key):
+                    name, key = mod['name'].split('/')
+                if key not in result:
+                    result[key] = {}
+                result[key][name] = self.get_chainid(mod)
+            self._registry = result
+        result = self._registry
+        if key is not None:
+            result = result.get(key, {})
         return result
 
     def get_chainid(self, mod:dict) -> str:
-        mod['chainid'] = f'{self.network_prefix()}/{mod["id"]}'
+        mod['chainid'] = f'{self.net()}/{mod["id"]}'
         return mod['chainid']
     def mymods(self, key=None, update=False):
         key = m.key(key)

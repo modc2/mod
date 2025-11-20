@@ -4,8 +4,6 @@ networks:
     name: modnet
 services:
   api:
-    build:
-      context: ./
     container_name: api
     deploy: {}
     entrypoint: bash -c "m serve port=8000 key=api remote=0 mod=api"
@@ -17,6 +15,6 @@ services:
     volumes:
     - ~/mod:/root/mod
     - ~/.mod:/root/.mod
-    - ~/mod/mod/_mods/app/api:/root/mod/mod/_mods/app/api
-    working_dir: /root/mod/mod/_mods/app/api
+    - ~/mod/mod/core/api:/root/mod/mod/core/api
+    working_dir: /root/mod/mod/core/api
 version: '3.8'

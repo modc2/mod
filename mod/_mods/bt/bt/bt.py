@@ -98,7 +98,7 @@ class Bt:
         """
         return self.subtensor.get_all_subnets_info(block=block)
 
-    def subnets(self, block: Optional = None, neurons=False, max_age=6000, update=False) -> List[Dict]:
+    def subnets(self, search=None, block: Optional = None, neurons=False, max_age=6000, update=False) -> List[Dict]:
         """List all subnets
         Args:
             block (Optional): Block number
@@ -107,23 +107,28 @@ class Bt:
         """
         path = '~/.bt/subnets.json'
         subnets = m.get(path,  None, update=update, max_age=max_age)
-        if subnets is not None:
-            return subnets
-        subnets_info =  self.get_all_subnets_info(block=block)
-        subnets = []
-        for subnet_info in subnets_info:
-            netuid = subnet_info.netuid
-            subnet = self.subnet(netuid=netuid, block=block)
-            subnet['subnet_identity'] = subnet['subnet_identity'] if subnet.get('subnet_identity', None) != None else None
-            if neurons:
-                neurons = self.neurons(netuid=netuid)
-                subnet['neurons'] = neurons
-            # remove the balance objects by converting to tao float
+        if subnets is None:
+            subnets_info =  self.get_all_subnets_info(block=block)
+            subnets = []
+            for subnet_info in subnets_info:
+                netuid = subnet_info.netuid
+                subnet = self.subnet(netuid=netuid, block=block)
+                subnet['subnet_identity'] = subnet['subnet_identity'] if subnet.get('subnet_identity', None) != None else None
+                if neurons:
+                    neurons = self.neurons(netuid=netuid)
+                    subnet['neurons'] = neurons
+                # remove the balance objects by converting to tao float
 
-            subnets.append(subnet)
-        m.put(path, subnets)
+                subnets.append(subnet)
+            m.put(path, subnets)
+
+        if len(subnets) > 0 and search:
+            filtered_subnets = []
+            for subnet in subnets:
+                if search in subnet.get('subnet_name', '').lower() or search in str(subnet.get('netuid', '')):
+                    filtered_subnets.append(subnet)
+            subnets = filtered_subnets
         
-            
         return subnets
     
     def create_wallet(self, name: str, hotkey: Optional = None) -> Dict:
@@ -203,8 +208,26 @@ class Bt:
                 if github_repo:
                     giturls.append(github_repo)
         return giturls
+    def regall(self, key=None, timeout=100) -> List[Any]:
+        m.tree(update=1)
+        gits = self.gits()
+        api = m.mod('api')()
+        futures = []
+        for git in gits:
+            name = git.split('/')[-1].replace('.git','')
+            if api.exists(name, key=key):
+                m.print(f'{name} already registered, skipping...')
+                continue
+            m.print(f'Registering {name} from {git}...')
+            futures.append(m.future(api.reg_url, {'url': git, 'key': key}, timeout=timeout))
 
-            
+        mods = []
+        for future in m.as_completed(futures, timeout=timeout):
+            result = future.result(timeout=timeout)
+            if isinstance(result, dict) and 'name' in result:
+                mods.append(result['name'])
+                print(mods[-1] + ' registered.')
+        return mods
     def metagraph(self, netuid: int = 1) -> Any:
         """Get metagraph for a subnet
         Args:

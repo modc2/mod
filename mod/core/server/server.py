@@ -38,7 +38,6 @@ class Server:
         self.sudo_roles = sudo_roles
         self.run_mode = run_mode
 
-
     def set_pm(self, pm: Union[str, 'Module', Any], sync_fns = ['logs', 'namespace', 'kill', 'kill_all']):
         self.pm = m.mod(pm)()
         for fn in sync_fns:
@@ -79,8 +78,26 @@ class Server:
         print(df.to_string(index=False), color='blue')
         print(right_buffer, color='blue')
 
-
     _obj_cache = {}
+    def get_fn_obj(self, fn:str) -> Any:
+        if '/' in fn:
+            if fn in self._obj_cache:
+                fn_obj = self._obj_cache[fn]
+                print(f'Using cached function object for {fn}', color='green')
+            else:
+                temp_mod = fn.split('/')[0]
+                fn = '/'.join(fn.split('/')[1:])
+                if hasattr(self.mod, temp_mod):
+                    mod_obj = getattr(self.mod, temp_mod)
+                    fn_obj = getattr(mod_obj, fn)
+                else: 
+                    if m.mod_exists(temp_mod):
+                        mod_obj = m.mod(temp_mod)()
+                        fn_obj = getattr(mod_obj, fn)
+                self._obj_cache[fn] = fn_obj
+        else:
+            fn_obj = getattr(self.mod, fn) # get the function object from the mod
+        return fn_obj
 
     def forward(self, fn:str, request: Request):
         """
@@ -90,61 +107,43 @@ class Server:
         request = self.gate(fn=fn, request=request) # get the request
         fn = request['fn']
         params = request['params']
-        cost = request['cost']
         info = self.mod.info()
-        cost = float(info['schema'].get(fn, {}).get('cost', 0))
+        request['cost'] = float(info['schema'].get(fn, {}).get('cost', 0))
         self.print_request(request)
-        if '/' in fn:
-
-            temp_mod = fn.split('/')[0]
-            fn = '/'.join(fn.split('/')[1:])
-            fn_obj = getattr(m.mod(temp_mod)(), fn)
-        else:
-            fn_obj = getattr(self.mod, fn) # get the function object from the mod
-        if callable(fn_obj):
-            if len(params) == 2 and 'args' in params and 'kwargs' in params :
-                kwargs = dict(params.get('kwargs')) 
-                args = list(params.get('args'))
-            else:
-                args = []
-                kwargs = dict(params)
-            result = fn_obj(*args, **kwargs) 
-        else:
-            # if the fn is not callable, return it
-            result = fn_obj
-
+        fn_obj = self.get_fn_obj(fn)
+        result = fn_obj(**params) if callable(fn_obj) else fn_obj
+        server_auth = {k:v for k,v in request.items() if k in ['fn', 'params', 'client']}
         if self.is_generator(result):
             def generator_wrapper(generator):
-                gen_result =  {'data': [], 'start_time': time.time(), 'end_time': None, 'cost': 0}
+                server_auth['result'] =  []
                 for item in generator:
                     print(item, end='')
-                    gen_result['data'].append(item)
+                    server_auth['result'].append(item)
                     yield item
                 # save the transaction between the headers and server for future auditing
                 self.tx.forward(
                     mod=info["name"],
-                    fn=fn, # 
-                    params=params, # params of the inputes
+                    fn=request['fn'], # 
+                    params=request['params'], # params of the inputes
                     client=request['client'],
-                    cost=cost,
+                    cost=request['cost'],
                     result=gen_result,
-                    server= self.auth.generate(data={"fn": fn, "params": params, "result": gen_result, 'client': request['client']}, cost=cost), 
+                    server= self.auth.generate(data=server_auth, cost=request['cost']), 
                     key=self.key)
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-            tx = self.tx.forward(
-                mod=info["name"],
-                fn=fn, # 
-                params=params, # params of the inputes
-                client=request['client'], # client auth
-                result=result,
-                server=self.auth.generate(data={"fn": fn, "params": params, "result": result, 'client': request['client']}, cost=cost), 
-                key=self.key)
-            return result
-        
-        raise Exception('Should not reach here, something went wrong in forward')
-
+            # save the transaction between the headers and server for future auditing
+            server_auth['result'] = result
+        tx = self.tx.forward(
+            mod=info["name"],
+            fn=request['fn'], # 
+            params=request['params'], # params of the inputes
+            client=request['client'], # client auth
+            result=result,
+            server=self.auth.generate(data={**server_auth, "result": result }, cost=request['cost']), 
+            key=self.key)
+        return result
 
     def gate(self, fn:str, request) -> float:
         """
@@ -162,7 +161,7 @@ class Server:
         params = json.loads(params) if isinstance(params, str) else params
         assert self.auth.verify(headers, data={'fn': fn, 'params': params}) # verify the headers
         if not self.is_owner(headers['key']):
-            assert fn in info['public_fns'], f"Function {fn} not in fns={info['fns']}"
+            assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
         request =  {
                     'fn': fn, 
                     'params': params, 
@@ -356,18 +355,17 @@ class Server:
         params = {**(params or {}), **extra_params}
         if remote:
             return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)
-        self.serve_mod(mod=mod, params=params, key=key, public=public, fns=fns, port=port)
+        self.serve_api(mod=mod, params=params, key=key, public=public, fns=fns, port=port)
 
-    def get_public_fns(self, 
+    def get_fns(self, 
                         fns  = None, 
                         helper_fns = ['info', 'forward'],
-                        fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'public_fns', 'expose_fns']
+                        fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
                         ) -> List[str]: 
 
         """
         get the public functions
         """
-
         fns =  fns or []
         # if no fns are provided, get them from the mod attributes
         if len(fns) == 0:
@@ -377,26 +375,20 @@ class Server:
                     break
         return list(set(fns + helper_fns))
 
-    def serve_mod(self, 
+    def serve_api(self, 
                 mod: Union[str, 'Module', Any], 
                 port:Optional[int]=None,
                 params:Optional[dict] = None, 
                 key:Optional[str]=None,
                 public:bool=False, 
                 fns:Optional[List[str]]=None ):
-
         self.mod = m.mod(mod)(**(params or {}))
         self.key = m.key(key)
         self.url =  '0.0.0.0:' + str(port)
-        info = m.info(mod, key=self.key, public=public, schema=True, url=self.url)
-        info['public_fns'] = self.get_public_fns(fns)
-        self.info = info
+        fns = self.get_fns(fns)
+        info = m.info(mod, key=self.key, public=public, schema=True, url=self.url, fns=fns)
         def get_info( schema:bool = True, fns=True):
-            info_ = m.copy(self.info)
-            if not schema:
-                info_.pop('schema', None)
-            if not fns:
-                info_.pop('fns', None)
+            info_ = m.copy(info)
             return info_ 
         self.mod.info = get_info
         self.app = FastAPI()
@@ -412,9 +404,9 @@ class Server:
             return result
         self.app.post("/{fn}")(server_fn)
         self.show_info()
-        self.run_app(self.app, port=port)
+        self.run_api(self.app, port=port)
 
-    def run_app(self, app:FastAPI, port:int):
+    def run_api(self, app:FastAPI, port:int):
         if self.run_mode == 'uvicorn':
             uvicorn.run(self.app, host='0.0.0.0', port=port)
         elif self.run_mode == 'hypercorn':
@@ -425,15 +417,13 @@ class Server:
             print(f'Starting server with hypercorn on port {port}', color='green', verbose=self.verbose)
             asyncio.run(serve(self.app, config))
         else:
-            raise Exception(f'Unknown mode {mode} for run_app')
+            raise Exception(f'Unknown mode {mode} for run_api')
 
     def show_info(self):
         print('--- Server Info ---', color='green', verbose=self.verbose)
         shorten_v = lambda fn: fn[:6] + '...' + fn[-4:] if len(fn) > 12 else fn
         shorten_keys = ['key', 'cid', 'signature']
         show_info = self.mod.info().copy()
-        show_info.pop('schema', None)
-        show_info['fns'] = show_info['fns']
         print(show_info, color='green', verbose=self.verbose)
         print('-------------------', color='green', verbose=self.verbose)
         return show_info

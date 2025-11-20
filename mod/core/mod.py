@@ -17,6 +17,7 @@ nest_asyncio.apply()
 
 class Mod: 
 
+    avoid_folders = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', '/artifacts', 'egg-info',  '/private/', 'node_modules', '/.venv/', '/venv/', '/.env/']
     file_types = ['py'] # default file types
     anchor_names = ['agent', 'mod', 'block'] # default anchor names
     endpoints = ['ask'] # default endpoints
@@ -317,19 +318,18 @@ class Mod:
             path:str = './', 
             depth:Optional[int]=4, 
             recursive:bool=True, 
-            avoid_folders = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', '/artifacts', 'egg-info',  '/private/', 'node_modules', '/.venv/', '/venv/', '/.env/'], 
             include_hidden=False):
         dirpath = self.abspath(path)
         listdir_paths = self.ls(dirpath, include_hidden=include_hidden, depth=depth)
         dirs = list(filter(lambda f: os.path.isdir(f), listdir_paths))
         if not include_hidden:
             dirs = [ d for d in dirs if '/.' not in d ]
-        if len(avoid_folders) > 0:
-            dirs = [d for d in dirs if not any([at in d for at in avoid_folders])]
+        if len(self.avoid_folders) > 0:
+            dirs = [d for d in dirs if not any([at in d for at in self.avoid_folders])]
         if depth > 1:
             sub_dirs = []
             for d in dirs:
-                sub_dirs += self.dirs(d, depth=depth-1, recursive=recursive, include_hidden=include_hidden, avoid_folders=avoid_folders)
+                sub_dirs += self.dirs(d, depth=depth-1, recursive=recursive, include_hidden=include_hidden)
             dirs += sub_dirs
             dirs = sorted(list(set(dirs)))
             return dirs
@@ -341,7 +341,6 @@ class Mod:
     def files(self, 
               path='./', 
               search:str = None, 
-              avoid_folders = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', '/artifacts', 'egg-info',  '/private/', 'node_modules', '/.venv/', '/venv/', '/.env/'], 
               endswith:str = None,
               include_hidden:bool = False, 
               always_include_terms = ['.gitignore', '.dockerignore'],
@@ -357,14 +356,14 @@ class Mod:
         files =self.glob(path, depth=depth,**kwargs)
         if not include_hidden:
             files = [f for f in files if not '/.' in f ]
-        files = list(filter(lambda f: not any([at in f for at in avoid_folders]), files))
+        files = list(filter(lambda f: not any([at in f for at in self.avoid_folders]), files))
         if relative: 
             cwd = os.getcwd()
             files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
         if search != None:
             files = [f for f in files if search in f]
         if len(files) == 0 and self.mod_exists(path):
-            return self.files(self.dirpath(path), search=search, avoid_folders=avoid_folders, endswith=endswith, include_hidden=include_hidden, relative=relative, startswith=startswith, depth=depth, **kwargs)
+            return self.files(self.dirpath(path), search=search, endswith=endswith, include_hidden=include_hidden, relative=relative, startswith=startswith, depth=depth, **kwargs)
         return files
 
     def files_size(self):
@@ -474,12 +473,10 @@ class Mod:
                  meta = None,
                  verbose: bool = False,
                  **kwargs) -> str:
-        if not path.endswith('.json'):
-            path = path + '.json'
-        path = self.abspath(path)
+        path = self.abspath(path + '.json' if not path.endswith('.json') else path)
         if isinstance(data, dict):
             data = json.dumps(data)
-        self.put_text(path, data)
+            self.put_text(path, data)
         return path
 
     def env(self, key=None):
@@ -854,39 +851,19 @@ class Mod:
     def info(self, 
             mod:str='mod',  # the mod to get the info of
             schema = True, # whether to include the schema of the mod
-            fns  = True, # which functions to include in the schema
-            url = None, # whether to include the url of the mod
+            config=False,
+            url = True, # whether to include the url of the mod
             desc = False, # whether to include the description of the mod
             key = None, # the key to sign the info with
-            public =  False, # whether to include the source code of the mod
+            fns=None,
             **kwargs):
         """
         Get the info of a mod, including its schema, key, cid, and code if specified.
         """
-        mod  =  self.get_name(mod or 'mod')
-        cid = self.cid(mod)
-        key = self.get_key(key or mod)
-        info =  {
-                'name': mod, 
-                'key': key.address,  
-                'cid': cid,
-                'time': time.time(),
-                'public': bool(public),
-                'dirpath': self.dirpath(mod, relative=True),
-                }
-        if public:
-            info['content'] = self.content(mod)
-        if schema:
-            info['schema'] = self.schema(mod , public=public)
-        if fns:
-            info['fns'] = self.fns(mod)
-        if url: 
-            info['url'] = self.namespace().get(mod, None)
-        if desc:
-            info['desc'] = self.desc(mod)
-        info['signature'] = self.sign(info, key=key)
-        assert self.verify_info(info), f'Invalid signature {info["signature"]}'
-        return  info
+        api = self.mod('api')()
+        if not api.exists(mod, key=key):
+            api.reg(mod=mod, key=key)
+        return  api.mod(mod=mod, schema=schema, url=url, desc=desc, key=key, fns=fns,  **kwargs)
 
     card = info 
 
@@ -927,6 +904,8 @@ class Mod:
         else:
             future =  executor.submit(self.fn(fn), *args, **kwargs)
         return future 
+
+    future = fut = submit
 
     def fn(self, fn:Union[callable, str], params:str=None, splitter='/', default_fn='forward', default_mod = 'mod') -> 'Callable':
         """
@@ -1215,7 +1194,6 @@ class Mod:
         
         return None
 
-
     def anchor_object(self, path):
         path = self.get_name(path)
         anchor_file = self.anchor_file(path)
@@ -1247,6 +1225,16 @@ class Mod:
             return self.name
         return name.strip('.').lower()
 
+
+    def kwargs2str(self, kwargs) -> str:
+        kwargs.pop('self', None)
+        kwargs.pop('cls', None)
+        path_chunks = []
+        for k,v in kwargs.items():
+            path_chunks.append(f'{k}={v}')
+        path = '_'.join(path_chunks)
+        return path
+
     def get_tree(self, 
                 path:Optional[str]=None, 
                 search:Optional[str]=None, 
@@ -1261,14 +1249,17 @@ class Mod:
                 **kwargs): 
                 
         path = path or self.core_path
-        cache_key = self.abspath(f'~/.mod/tree/path={path.replace("/", "_")}')
+        cache_key = self.abspath(f'~/.mod/tree/{self.kwargs2str(locals())}')
         tree = self.get(cache_key, None, update=update)
         if tree == None:
+            print(f'Getting tree for path: {path}')
             path = path or self.core_path
             if folders:
                 paths = list(self.folders(path, depth=max_depth))
             else:
                 paths = list(self.files(path, depth=max_depth))
+                print(f'Found {len(paths)} files in {path}')
+                print(f'Found {len(paths)} files in {path}')
             def process_path(x):
                 for k in ignore_suffixes: 
                     if x.endswith(k):
@@ -1333,7 +1324,7 @@ class Mod:
         
         """
         local_tree = self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {}
-        ext_tree = self.ext_tree(search=search, depth=depth, **kwargs)
+        ext_tree = self.ext_tree(search=search, depth=1, **kwargs)
         return {
             **ext_tree,
             **self.mods_tree(search=search, depth=depth,  **kwargs),
@@ -1555,10 +1546,8 @@ class Mod:
     def exec(self, mod:str = 'mod', *args, **kwargs):
         return self.fn('pm/exec')(mod, *args, **kwargs)
 
-    # def app(self, mod=None, **kwargs):
-    #     if mod:
-    #         return self.fn(mod + '/app' )()
-    #     return self.fn('app/serve')(**kwargs)
+    def a(self, mod=None, **kwargs): 
+        return self.serve('app')
 
     def confirm(self, message:str = 'Are you sure?', suffix = ' (y/n): '):
         confirm = input(message + suffix)

@@ -77,8 +77,8 @@ class Substrate:
         m.print(f'Chain (network={self.network} url={self.url} connections={self.num_connections} latency={self.connection_latency}s)', color='blue') 
         return {'num_connections': self.num_connections, 'connection_latency': self.connection_latency}
 
-    def network_prefix(self):
-        return self.chain + '/' + self.network
+    def net(self):
+        return self.chain + ':' + self.network
     def set_network(self, 
                         network='main',
                         mode = 'wss',
@@ -916,10 +916,14 @@ class Substrate:
         """
         Retrieves the balance of a specific key.
         """
-
-        addr = self.get_key_address(addr)
-        result = self.query("Account", module="System", params=[addr])
-        return self.format_amount(result["data"]["free"], fmt=fmt)
+        addr = self.key_address(addr)
+        path = self.get_path(f'{self.network}/balance/{addr}')
+        balance = m.get(path, None, update=update)
+        if balance == None:
+            print(f'Fetching balance for {addr} from network...')
+            balance = self.query("Account", module="System", params=[addr])['data']['free']
+            m.put(path, balance)
+        return self.format_amount(balance, fmt=fmt)
 
     bal = balance
 
@@ -948,7 +952,7 @@ class Substrate:
         from .ss58 import is_valid_ss58_address
         return is_valid_ss58_address(address)
 
-    def get_key_address(self, key:str ) -> str:
+    def key_address(self, key:str ) -> str:
         if isinstance(key, str):
             if  self.valid_ss58_address(key):
                 return key
@@ -1044,7 +1048,7 @@ class Substrate:
         key = self.get_key(key)
         if dest == None:
             dest = input('Enter destination address: ')
-        dest = self.get_key_address(dest)
+        dest = self.key_address(dest)
         if amount == None:
             amount = input('Enter amount: ')
         amount = float(str(amount).replace(',', ''))
@@ -1064,7 +1068,7 @@ class Substrate:
             threshold = multisig_data['threshold']
     
         keys = keys or self.sudo_multisig_data['keys']
-        keys = [self.get_key_address(k) for k in keys]
+        keys = [self.key_address(k) for k in keys]
         with self.get_conn(init=True) as substrate:
         
             multisig_acc = substrate.generate_multisig_account(  # type: ignore

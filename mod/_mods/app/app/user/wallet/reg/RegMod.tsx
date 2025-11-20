@@ -66,7 +66,7 @@ export const RegMod = ( ) => {
       let signerAddress: string
       let reg_payload: any
       if (isSubwalletEnabled && walletAddress) {
-        reg_payload = await client.call('reg_payload', {'url': modUrl.trim(), 'key':walletAddress , 'collateral': collateral})
+        reg_payload = await client.call('reg_url', {'url': modUrl.trim(), 'key':walletAddress , 'collateral': collateral, 'payload': true})
         let messageToSign = JSON.stringify(reg_payload)
 
         const extensions = await web3Enable('MOD')

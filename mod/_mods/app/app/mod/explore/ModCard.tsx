@@ -67,7 +67,7 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
             <div className="flex items-center gap-2 px-3 py-2 rounded-md border flex-shrink-0" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
               {myMod && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-                  {myMod ? 'owner' : ''}
+                  {myMod ? 'me' : ''}
               </div>   
             )}
             
@@ -76,7 +76,7 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
               </Link>
               <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                 <code className="text-lg font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.key}>
-                  {shorten(mod.key, 4, 4)}
+                  {shorten(mod.key, 2, 2)}
                 </code>
               </Link>
               <CopyButton text={mod.key} size="sm" />
