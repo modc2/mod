@@ -34,7 +34,6 @@ class  Api:
     def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload', 'balances', 'balance']):
         self.chain = m.mod(chain)()
         for fn_name in sync_fns:
-            print(f"Syncing chain fn: {fn_name}")
             setattr(self, fn_name, getattr(self.chain, fn_name))
 
     def is_valid_ipfs_cid(self, cid: str) -> bool:
@@ -77,7 +76,7 @@ class  Api:
         self._add_net(mod)
         return mod
 
-    def content(self, mod, key=None, expand=True) -> Dict[str, Any]:
+    def content(self, mod, key=None, expand=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
         
         Args:
@@ -95,6 +94,8 @@ class  Api:
             for file, cid in content.items():
                 content[file] = self.get(cid)
         return content
+
+    
     
     # Register or update a mod in IPFS
     def key_address(self, key=None):
@@ -128,6 +129,7 @@ class  Api:
 
     def add(self, data):
         return self.store.add(data)
+    put = add
 
     def get(self, cid: str) -> Any:
         return self.store.get(cid)

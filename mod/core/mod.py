@@ -17,7 +17,8 @@ nest_asyncio.apply()
 
 class Mod: 
 
-    avoid_folders = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', '/artifacts', 'egg-info',  '/private/', 'node_modules', '/.venv/', '/venv/', '/.env/']
+    # we are going to avoid these folders when listing files
+    avoid_folders = ['__pycache__', '.git', '.ipynb_checkpoints', 'node_modules', 'artifacts', 'egg-info',  'private', 'node_modules', '.venv', 'venv', '.env']
     file_types = ['py'] # default file types
     anchor_names = ['agent', 'mod', 'block'] # default anchor names
     endpoints = ['ask'] # default endpoints
@@ -324,8 +325,7 @@ class Mod:
         dirs = list(filter(lambda f: os.path.isdir(f), listdir_paths))
         if not include_hidden:
             dirs = [ d for d in dirs if '/.' not in d ]
-        if len(self.avoid_folders) > 0:
-            dirs = [d for d in dirs if not any([at in d for at in self.avoid_folders])]
+        dirs = self.avoid_folders_filter(dirs)
         if depth > 1:
             sub_dirs = []
             for d in dirs:
@@ -338,12 +338,17 @@ class Mod:
             
     dirs = folders
 
+
+    def avoid_folders_filter(self, paths:List[str]) -> List[str]:
+        if len(self.avoid_folders) == 0:
+            return paths
+        return [f for f in paths if not any(['/'+at in f for at in self.avoid_folders])]
+
     def files(self, 
               path='./', 
               search:str = None, 
               endswith:str = None,
               include_hidden:bool = False, 
-              always_include_terms = ['.gitignore', '.dockerignore'],
               relative = False, # relative to the current working directory
               startswith:str = None,
               depth=3,
@@ -356,7 +361,7 @@ class Mod:
         files =self.glob(path, depth=depth,**kwargs)
         if not include_hidden:
             files = [f for f in files if not '/.' in f ]
-        files = list(filter(lambda f: not any([at in f for at in self.avoid_folders]), files))
+        files = self.avoid_folders_filter(files)
         if relative: 
             cwd = os.getcwd()
             files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
@@ -774,11 +779,11 @@ class Mod:
 
     cont = codemap =  cm =  content
 
-    def cid(self, mod , **kwargs) -> Union[str, Dict[str, str]]:
+    def cid(self, mod=None , **kwargs) -> Union[str, Dict[str, str]]:
         """
         get the cid of the mod
         """
-        return self.hash(self.content(mod, **kwargs))
+        return self.fn('api/put')(self.content(mod, **kwargs))
 
     def dir(self, obj=None, search=None, *args, **kwargs):
         obj = self.obj(obj)

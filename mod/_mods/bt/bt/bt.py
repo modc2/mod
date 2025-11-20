@@ -108,6 +108,7 @@ class Bt:
         path = '~/.bt/subnets.json'
         subnets = m.get(path,  None, update=update, max_age=max_age)
         if subnets is None:
+            print('Fetching subnets from chain...')
             subnets_info =  self.get_all_subnets_info(block=block)
             subnets = []
             for subnet_info in subnets_info:
@@ -130,6 +131,9 @@ class Bt:
             subnets = filtered_subnets
         
         return subnets
+
+    def mods(self, **kwargs):
+        return self.subnets(**kwargs)
     
     def create_wallet(self, name: str, hotkey: Optional = None) -> Dict:
         """Create a new wallet
