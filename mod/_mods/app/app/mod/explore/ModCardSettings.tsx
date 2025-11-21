@@ -15,6 +15,10 @@ interface ModCardSettingsProps {
   onUserFilterChange: (filter: string) => void
   showMyModsOnly: boolean
   onShowMyModsOnlyChange: (show: boolean) => void
+  showLocalOnly: boolean
+  onShowLocalOnlyChange: (show: boolean) => void
+  showOnchainOnly: boolean
+  onShowOnchainOnlyChange: (show: boolean) => void
 }
 
 export const ModCardSettings = ({
@@ -25,7 +29,11 @@ export const ModCardSettings = ({
   userFilter,
   onUserFilterChange,
   showMyModsOnly,
-  onShowMyModsOnlyChange
+  onShowMyModsOnlyChange,
+  showLocalOnly,
+  onShowLocalOnlyChange,
+  showOnchainOnly,
+  onShowOnchainOnlyChange
 }: ModCardSettingsProps) => {
   const [showFilters, setShowFilters] = useState(false)
   const { user } = useUserContext()
@@ -73,9 +81,29 @@ export const ModCardSettings = ({
                 onChange={(e) => onShowMyModsOnlyChange(e.target.checked)}
                 className="w-4 h-4 accent-emerald-500"
               />
-              <span className="text-sm font-bold text-emerald-300 uppercase">My Mods Only</span>
+              <span className="text-sm font-bold text-emerald-300 uppercase">My Mods</span>
             </label>
           )}
+
+          <label className="flex items-center gap-2 px-4 py-2 bg-black/60 border border-cyan-500/40 rounded-lg backdrop-blur-xl cursor-pointer hover:border-cyan-500/60 transition-all">
+            <input
+              type="checkbox"
+              checked={showLocalOnly}
+              onChange={(e) => onShowLocalOnlyChange(e.target.checked)}
+              className="w-4 h-4 accent-cyan-500"
+            />
+            <span className="text-sm font-bold text-cyan-300 uppercase">Local</span>
+          </label>
+
+          <label className="flex items-center gap-2 px-4 py-2 bg-black/60 border border-orange-500/40 rounded-lg backdrop-blur-xl cursor-pointer hover:border-orange-500/60 transition-all">
+            <input
+              type="checkbox"
+              checked={showOnchainOnly}
+              onChange={(e) => onShowOnchainOnlyChange(e.target.checked)}
+              className="w-4 h-4 accent-orange-500"
+            />
+            <span className="text-sm font-bold text-orange-300 uppercase">Onchain</span>
+          </label>
         </div>
       )}
     </div>

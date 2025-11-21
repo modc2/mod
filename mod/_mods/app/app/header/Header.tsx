@@ -107,7 +107,7 @@ export function Header() {
         </div>
         
         <div className="flex items-center justify-end gap-3">
-          <button
+          {/* <button
             onClick={handleLeftSplit}
             className={`p-3 rounded-lg border-2 transition-all active:scale-95 ${
               isSplitScreen && orientation === 'vertical'
@@ -130,7 +130,7 @@ export function Header() {
             title="Top Split"
           >
             <ArrowsUpDownIcon className="w-8 h-8" />
-          </button>
+          </button> */}
           <UserHeader />
         </div>
       </div>

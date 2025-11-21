@@ -757,6 +757,8 @@ class Substrate:
 
 
 
+
+
     def query_map(
         self,
         name: str='Emission',

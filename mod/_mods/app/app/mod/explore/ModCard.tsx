@@ -9,8 +9,8 @@ import { CubeIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
 import { useState } from 'react'
 import { useUserContext } from '@/app/context'
-// network icon from react/24/outline
 import { GlobeAltIcon } from '@heroicons/react/24/outline'
+
 interface ModCardProps {
   mod: ModuleType
   card_enabled?: boolean
@@ -52,9 +52,7 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
       >
         <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${modColor}, transparent, ${modColor})` }} />
         
-        {/* Two-level layout for contracted cards */}
         <div className="relative z-10">
-          {/* Top level: Name and Key */}
           <div className="flex items-center gap-3 justify-between mb-3">
             <div className="flex items-center gap-2 min-w-0 flex-shrink">
               <CubeIcon className="h-10 w-10 flex-shrink-0" style={{ color: modColor }} />
@@ -64,30 +62,20 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
               <CopyButton text={mod.name} size="sm" />
             </div>
 
-            {/* Author on top right */}
-
             <div className="flex items-center gap-2 px-3 py-2 rounded-md border flex-shrink-0" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
-              {myMod && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-                  {myMod ? 'me' : ''}
-              </div>   
-            )}
-            
               <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
                 <KeyIcon className="w-10 h-10" style={{ color: userColor }} />
               </Link>
-              <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
-                <code className="text-lg font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.key}>
-                  {shorten(mod.key, 2, 2)}
-                </code>
-              </Link>
               <CopyButton text={mod.key} size="sm" />
+              {myMod && (
+                <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
+                  me
+                </div>   
+              )}
             </div>
           </div>
 
-          {/* Bottom level: Description and metadata */}
           <div className="flex items-center gap-3 justify-between">
-            {/* Description - scrollable on hover if too long, only show if exists */}
             {hasDescription && (
               <div className="relative flex-1 min-w-0 overflow-hidden" style={{ maxHeight: isHovered ? '120px' : '24px' }}>
                 <div 
@@ -105,27 +93,22 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
               </div>
             )}
 
-            {/* Metadata fields */}
             <div className="flex items-center gap-2 flex-shrink-0">
               {!card_enabled && mod.cid && (
                 <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border flex-shrink-0" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)` }}>
                   <Hash size={16} strokeWidth={2.5} style={{ color: modColor }} />
-                  <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.cid}>
-                    {shorten(mod.cid, 4, 4)}
-                  </code>
                   <CopyButton text={mod.cid} size="sm" />
                 </div>
               )}
 
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
                 <GlobeAltIcon className="h-4 w-4" style={{ color: modColor }} />
-                <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={`Collateral: ${collateral}`}>
+                <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={`Network: ${mod.net}`}>
                   {mod.net}
                 </code>
                 <CopyButton text={String(mod.net)} size="sm" />
               </div>
 
-              {/* Updated */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
                 <Clock size={16} strokeWidth={2.5} style={{ color: modColor }} />
                 <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={updatedTimeStr}>
@@ -133,8 +116,6 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
                 </code>
                 <CopyButton text={updatedTimeStr} size="sm" />
               </div>
-              {/* MyMod */}
-
             </div>
           </div>
         </div>

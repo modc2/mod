@@ -8,6 +8,8 @@ import mod as m
 
 class  Api:
 
+    sync_interval = 20
+    sync_delay = 3
     protocal = 'mod'
     folder_path = m.abspath('~/.mod/api')
     endpoints = ['mods',
@@ -30,6 +32,7 @@ class  Api:
         self.model = m.mod('model.openrouter')()
         self.registry_path = self.path('registry.json')
         self.balances()
+        self._sync_loop_thread = m.thread(self.sync_loop)
 
     def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload', 'balances', 'balance']):
         self.chain = m.mod(chain)()
@@ -62,6 +65,8 @@ class  Api:
         """
         get the mod Mod from IPFS.
         """
+        # if not self.exists(mod=mod, key=key):
+        #     self.reg(mod=mod, key=key)
         cid = self.modcid(mod=mod, key=key, default=mod)
         mod =  self.get(cid) if cid else None
         if mod == None:
@@ -75,6 +80,48 @@ class  Api:
         mod['protocal'] = mod.get('protocal', self.protocal)
         self._add_net(mod)
         return mod
+
+    def call(self , mod: m.Mod, fn: str, params: Dict[str, Any], time:int, cost:int, signature, **kwargs) -> Any:
+        """
+        Call a function from a mod Mod in IPFS.
+        Args:
+            mod: Commune Mod object
+            fn: Function name to call
+            params: Parameters for the function call
+            key: Key object or address string
+        Returns:
+            Result of the function call
+        """
+        modinfo = self.mod(mod, schema=True, **kwargs)
+        assert fn in modinfo['schema'], f"Function {fn} not found in mod {modinfo['name']}"
+        return m.fn(f"{modinfo['name']}/{fn}")(**params)
+
+    def call_payload(self, mod: m.Mod = 'openrouter', fn: str = 'models', params: Dict[str, Any] = {}, time = None, cost = 0, **kwargs) -> Dict[str, Any]:
+
+        payload = {
+            'mod': mod,
+            'fn': fn,
+            'params': params,
+            'time': time,
+            'cost': cost
+        }
+
+        return payload
+
+    def verify_call_payload(self, payload: Dict[str, Any], signature: str, key=None) -> bool:
+        key = m.key(key)
+        return key.verify(payload, signature, mode='str')
+
+    def test_call(self, mod: m.Mod='openrouter', fn: str='models', params: Dict[str, Any]={}, key=None, **kwargs) -> Any:
+        key = m.key(key)
+        time = m.time()
+        cost = 0
+        payload = self.call_payload(mod=mod, fn=fn, params=params, time=time, cost=cost, **kwargs)
+        signature = key.sign(payload, mode='str')
+        assert self.verify_call_payload(payload, signature, key=key), "Payload verification failed"
+        return self.call(mod=mod, fn=fn, params=params, time=time, cost=cost, signature=signature, **kwargs)
+
+
 
     def content(self, mod, key=None, expand=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
@@ -281,13 +328,40 @@ class  Api:
                 info['signature'] = key.sign(info, mode='str')
                 info['cid'] = self.update_registry(info)
         return info 
+ 
+    sync_info = {}
+    def sync(self, timeout=300,  fns = ['mods', 'balances']) -> Dict[str, Any]:
+        t0 = m.time()
+        results =  m.wait([ m.future(getattr(self.chain, fn), dict(update=True), timeout=timeout) for fn in fns ], timeout=timeout)
+        t1 = m.time()
+        self.sync_info = {'time': t1, 'delta': t1 - t0}
+        return self.sync_info
 
-    def mods(self, search=None, key=None, onchain=False, **kwargs) -> List[str]:
+    def time_since_last_sync(self) -> int:
+        return m.time() - self.last_sync
+
+    def sync_loop(self):
+        if self.sync_delay > 0:
+            m.print(f"Initial delay of {self.sync_delay} seconds before starting sync loop...", color="yellow")
+            time.sleep(self.sync_delay)
+        while True:
+            try:
+                self.sync()
+                print("Sync completed", color="green")
+            except Exception as e:
+                m.print(f"Error during sync: {e}", color="red")
+            m.print(f"Waiting for {self.sync_interval} seconds before next sync...", color="yellow")
+            time.sleep(self.sync_interval)
+
+    def mods(self, search=None, key=None, onchain=False, update=False, **kwargs) -> List[str]:
         """List all registered mods in IPFS.
         
         Returns:
             List of mod names
         """
+  
+        if update: 
+            self.chain.mods(update=update, **kwargs)
         registry = self.registry()
         key = self.key_address(key)
         if key != 'all':
@@ -553,6 +627,6 @@ class  Api:
         hardware =  m.hardware() 
         return hardware
 
-
-
-   
+    def __delete__(self):
+        self._sync_loop_thread.kill()
+        del self._sync_loop_thread

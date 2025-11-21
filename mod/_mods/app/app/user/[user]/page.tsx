@@ -8,11 +8,10 @@ import { Loading } from '@/app/block/ui/Loading'
 import { UserCard } from '@/app/user/explore/UserCard'
 
 // 
-import { Transfer } from '@/app/user/wallet/Transfer'
-import { SignVerify } from '@/app/user/wallet/SignVerify'
+import  Transfer  from '@/app/user/wallet/transfer'
 import RegMod from '@/app/user/wallet/reg'
-import {UpdateMod} from '@/app/user/wallet/UpdateMod'
-import {UserModules} from '@/app/user/wallet/UserModules'
+import UpdateMod from '@/app/user/wallet/update'
+import {UserModules} from '@/app/user/wallet/usermods/UserModules'
 
 
 type TabType = 'mods' | 'sign' | 'transfer' | 'register' | 'update'
@@ -25,7 +24,9 @@ export default function UserPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('mods')
-
+  const { user: currentUser } = useUserContext()
+  const myMod = currentUser && currentUser.key === userKey
+  
   useEffect(() => {
     const fetchUser = async () => {
       if (!client || !userKey) return
@@ -63,13 +64,17 @@ export default function UserPage() {
     )
   }
 
-  const tabs: { id: TabType; label: string }[] = [
+  let tabs: { id: TabType; label: string }[] = [
     { id: 'transfer', label: 'transfer' },
     { id: 'mods', label: 'mods' },
     { id: 'register', label: 'register' },
     { id: 'update', label: 'update' },
     // { id: 'sign', label: 'sign & verify' }
   ]
+
+  if (!myMod) {
+    tabs = tabs.filter(tab => tab.id === 'mods' )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white">
@@ -97,7 +102,6 @@ export default function UserPage() {
 
           <div className="bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 border-2 border-purple-500/30 rounded-2xl p-6 backdrop-blur-xl shadow-2xl shadow-purple-500/20">
             {activeTab === 'mods' && <UserModules userData={userData} />}
-            {activeTab === 'sign' && client?.key && <SignVerify keyInstance={client.key} />}
             {activeTab === 'transfer' && client?.key && user && <Transfer />}
             {activeTab === 'register' && client?.key && user && <RegMod />}
             {activeTab === 'update' && client?.key && user && <UpdateMod />}

@@ -19,6 +19,8 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
   const [refreshing, setRefreshing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const userColor = text2color(user.key)
+  const { user: currentUser } = useUserContext()
+  const myMod = currentUser && currentUser.key === user.key
   
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
@@ -75,6 +77,11 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
                 </code>
               </Link>
               <CopyButton text={user.key} size="sm" />
+              {myMod && (
+              <div className="hidden sm:flex items-center gap-2  rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
+                  {myMod ? 'me' : ''}
+              </div>   
+            )}
             </div>
             
             {/* Refresh Button - Top Right - Only show when not loading */}

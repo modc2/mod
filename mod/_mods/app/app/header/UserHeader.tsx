@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { useUserContext } from '@/app/context'
 import { ArrowRightOnRectangleIcon, KeyIcon } from '@heroicons/react/24/outline'
 import { CopyButton } from '@/app/block/ui/CopyButton'
@@ -8,8 +7,6 @@ import 'react-responsive-modal/styles.css'
 import {text2color, shorten} from "@/app/utils";
 import { useRouter } from 'next/navigation'
 import WalletAuthButton from './WalletAuthButton'
-
-
 
 
 export function UserHeader() {

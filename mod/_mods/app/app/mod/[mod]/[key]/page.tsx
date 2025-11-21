@@ -9,7 +9,7 @@ import { ModContent, ModApi, ModApp } from './tabs'
 import ModCard from '@/app/mod/explore/ModCard'
 import { AlertCircle } from 'lucide-react'
 import { text2color } from '@/app/utils'
-import UpdateMod from '@/app/user/wallet/UpdateMod'
+import UpdateMod from '@/app/user/wallet/update/UpdateMod'
 
 export default function ModulePage() {
   const params = useParams()

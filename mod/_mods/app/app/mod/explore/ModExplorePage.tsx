@@ -42,6 +42,18 @@ export default function Modules() {
     }
     return false
   })
+  const [showLocalOnly, setShowLocalOnly] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mod_explorer_local_only') === 'true'
+    }
+    return false
+  })
+  const [showOnchainOnly, setShowOnchainOnly] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mod_explorer_onchain_only') === 'true'
+    }
+    return false
+  })
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   const searchTerm = searchFilters.searchTerm?.trim() || ''
@@ -69,6 +81,18 @@ export default function Modules() {
       localStorage.setItem('mod_explorer_my_mods_only', showMyModsOnly.toString())
     }
   }, [showMyModsOnly])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mod_explorer_local_only', showLocalOnly.toString())
+    }
+  }, [showLocalOnly])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mod_explorer_onchain_only', showOnchainOnly.toString())
+    }
+  }, [showOnchainOnly])
 
   const sortModules = (list: ModuleType[]) => {
     switch (sort) {
@@ -107,6 +131,16 @@ export default function Modules() {
     return list.filter(mod => mod.key === user.key)
   }
 
+  const filterLocalMods = (list: ModuleType[]) => {
+    if (!showLocalOnly) return list
+    return list.filter(mod => mod.net === 'local' || !mod.net)
+  }
+
+  const filterOnchainMods = (list: ModuleType[]) => {
+    if (!showOnchainOnly) return list
+    return list.filter(mod => mod.net && mod.net !== 'local')
+  }
+
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
@@ -120,6 +154,8 @@ export default function Modules() {
       let filtered = filterModsBySearch(allMods, searchTerm)
       filtered = filterModsByUser(filtered, userFilter)
       filtered = filterMyMods(filtered)
+      filtered = filterLocalMods(filtered)
+      filtered = filterOnchainMods(filtered)
       const sorted = sortModules(filtered)
       setMods(sorted)
     } catch (err: any) {
@@ -132,7 +168,7 @@ export default function Modules() {
 
   useEffect(() => {
     fetchAll()
-  }, [client, searchTerm, sort, userFilter, showMyModsOnly])
+  }, [client, searchTerm, sort, userFilter, showMyModsOnly, showLocalOnly, showOnchainOnly])
 
   const gridColsClass = {
     1: 'grid-cols-1',
@@ -159,6 +195,10 @@ export default function Modules() {
               onUserFilterChange={setUserFilter}
               showMyModsOnly={showMyModsOnly}
               onShowMyModsOnlyChange={setShowMyModsOnly}
+              showLocalOnly={showLocalOnly}
+              onShowLocalOnlyChange={setShowLocalOnly}
+              showOnchainOnly={showOnchainOnly}
+              onShowOnchainOnlyChange={setShowOnchainOnly}
             />
             <button
               onClick={toggleFullscreen}
@@ -212,7 +252,7 @@ export default function Modules() {
               <Sparkles className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">
-              {searchTerm || userFilter || showMyModsOnly ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
+              {searchTerm || userFilter || showMyModsOnly || showLocalOnly || showOnchainOnly ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
             </div>
           </div>
         )}
