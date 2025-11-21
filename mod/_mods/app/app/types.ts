@@ -14,6 +14,7 @@
       chain_id?: string // chain id if applicable
       collateral?: number // collateral locked in the mod
       cid?: string // CID of the mod content
+      net?: string // network of the mod
     }
 
 

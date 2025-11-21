@@ -1,11 +1,11 @@
-import mod as c
+import mod as m
 import json
 import os
 from typing import List, Dict, Union, Optional, Any
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-print = c.print
+print = m.print
 
 class SumMod:
     """
@@ -14,10 +14,12 @@ class SumMod:
     This module processes all files in a directory and provides summaries based on
     a query, with support for caching and parallel processing.
     """
-    sum_folder = c.mod('tool.sum_folder')()
-    def forward(self, module='base', **kwargs):
-        is_folder_module = c.is_folder_module(module)
-        if  is_folder_module:
-            return c.mod('tool.sum_folder')().forward(path=c.dirpath(module), **kwargs)
-        else:
-            return c.mod('sum_file')().forward(path=c.filepath(module), **kwargs)
+    sum_folder = m.mod('tool.sumfolder')()
+    def forward(self, mod='base', update=False ,**kwargs):
+        path = f'~/.mod/summod/{mod}'
+        summary = m.get(path, update=update)
+        if summary == None:
+            summary  =  self.sum_folder.forward(path=m.dirpath(mod), update=update, **kwargs)
+            m.put(path, summary)
+        return summary
+        

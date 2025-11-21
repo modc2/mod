@@ -179,8 +179,6 @@ class PM:
         compose_cmd =  f'cd {cwd} && docker-compose -f {compose_path} up'
         if daemon:
             compose_cmd += ' -d'   
-        print(f'Running command: {compose_cmd}')   
-
 
         self.make_volumes_absolute(compose_config)
         m.put_yaml(compose_path, compose_config)

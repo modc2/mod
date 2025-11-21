@@ -94,7 +94,7 @@ class Dev:
         if mod != None:
             path = m.dirpath(mod)
         text = ' '.join(list(map(str, [text] + list(extra_text))))
-        query = self.preprocess(text=text)
+        query = text 
         self.add_memory(self.tool('select_files')(path=path, query=query))
         if base:
             self.add_memory(m.content(base))

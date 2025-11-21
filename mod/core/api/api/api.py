@@ -89,13 +89,18 @@ class  Api:
             mod = self.mod(mod, key=key)
         else: 
             assert 'content' in mod, "Mod dictionary must contain 'content' key"
-        content = self.get(self.get( mod['content'])['data'])
+        content = self.get(self.get(mod['content'])['data'])
         if expand: 
             for file, cid in content.items():
                 content[file] = self.get(cid)
         return content
 
-    
+    def content_commit(self, mod='app', key=None) -> Dict[str, str]:
+        return self.get(self.mod(mod, key=key)['content'])
+
+    def verify_mod(self, mod: str, key=None) -> bool:
+        return self.mod(mod=mod, key=key)
+
     
     # Register or update a mod in IPFS
     def key_address(self, key=None):
@@ -188,7 +193,7 @@ class  Api:
         else:
             raise ValueError(f'Unsupported URL for reg_from_url: {url}')
         m.ext_tree(update=1)
-        info = self.reg_info(mod=mod, key=key, comment=comment, collateral=collateral)
+        info = self.info(mod=mod, key=key, comment=comment, collateral=collateral)
         if payload:
             return info
         if signature == None:
@@ -203,7 +208,7 @@ class  Api:
         return info
 
 
-    def reg_info(self, mod='store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
+    def info(self, mod='store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
         """
         Register mod Mod data in IPFS.
         """
@@ -211,7 +216,7 @@ class  Api:
         key = self.key_address(key)
         prev_cid = self.modcid(mod=mod, key=key)
         prev_info = self.mod(prev_cid, key=key) if prev_cid else {}
-        content_cid = self.add_content(mod, comment=comment)
+        content_cid = self.add_content(mod=mod, comment=comment)
         prev_content_cid = prev_info.get('content', None)
         if content_cid == str(prev_content_cid):
             prev_info.pop('cid', None)
@@ -230,7 +235,6 @@ class  Api:
                 'key': prev_info.get('key', key),
                 'url': self.get_url(mod),
                 'protocal': protocal,
-                'comment': comment
             }
         return info
 
@@ -260,17 +264,19 @@ class  Api:
         current_time = m.time()
         key = m.key(key)
         if prev_cid == None:
-            info = self.reg_info(mod=mod, key=key, protocal=protocal)
+            info = self.info(mod=mod, key=key, protocal=protocal)
             info['signature'] = signature or  key.sign(info, mode='str')
             info['cid'] = self.update_registry(info)
         else:
-            info = self.mod(prev_cid, key=key)
-            assert key.address == info['key'], f'Key mismatch {key.address} != {info["key"]}'
-            reg_info = self.reg_info(mod=mod, key=key, comment=comment, protocal=protocal)
-            if reg_info['content'] == info['content'] and reg_info['schema'] == info['schema']:
+            prev_info = self.mod(prev_cid, key=key)
+            assert key.address == prev_info['key'], f'Key mismatch {key.address} != {prev_info["key"]}'
+            info = self.info(mod=mod, key=key, comment=comment, protocal=protocal)
+            if 'cid' not in info:
+                info['cid'] = prev_cid
+            if info['content'] == prev_info['content'] and info['schema'] == prev_info['schema']:
                 return info  # No changes, return existing info
             else:
-                info = {**info, **reg_info}
+                info = {**prev_info, **info}
                 info.pop('cid', None)
                 info['signature'] = key.sign(info, mode='str')
                 info['cid'] = self.update_registry(info)

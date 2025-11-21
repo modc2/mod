@@ -30,7 +30,7 @@ class Agent:
                 stream: bool = True,
                 verbose: bool = True,
                 steps = 3,
-                tools = ['web_search', 'read_mod', 'select_mods'],
+                tools = ['websearch'],
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 safety=False,
@@ -39,7 +39,7 @@ class Agent:
         """
         use this to run the agent with a specific text and parameters
         """
-        query = self.preprocess(text=text, *extra_text)
+        query = self.preprocess(text, *extra_text)
         for step in range(steps):
             prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
@@ -208,3 +208,9 @@ class Agent:
             verbose=True
         )
         return result
+
+
+    def edit(self,  query = 'make a an app in nextjs and make it look nice and make a dockerfile and docker compose in the app folder of the agent and assume the agent is wrapped by the server ', *extra_text):
+        query = ' '.join(list(map(str, [query] + list(extra_text))))
+        query += m.code('server') + m.code('client')
+        return m.edit(query, mod='agent')

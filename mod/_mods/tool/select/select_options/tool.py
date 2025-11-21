@@ -106,13 +106,19 @@ class SelectOptions:
                     json_str = output.split(anchors[0])[1].split(anchors[1])[0]
                 else:
                     json_str = output
-                
                 if verbose:
                     print("\nParsing response...", color="cyan")
                 print(f"Raw output: {json_str}", color="red")
-                result = json.loads(json_str)
+                try:
+                    result = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    # now lets take the first { and the last }
+                    start_idx = json_str.find('{')
+                    end_idx = json_str.rfind('}') + 1
+                    json_str = json_str[start_idx:end_idx]
+                    result = json.loads(json_str)
+                
                 break
-
             except json.JSONDecodeError as e:
                 print(f"JSON parsing error: {e}. Retrying... ({i+1}/{trials})", color="red")
                 continue

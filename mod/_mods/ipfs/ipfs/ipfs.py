@@ -26,7 +26,7 @@ class  IpfsClient:
                     if response.status_code == 200:
                         break
                 except requests.exceptions.RequestException:
-                    print(f"Could not connect to IPFS node at {url}")
+                    pass
         self.url = url 
         print(f"Using IPFS node at {self.url}")
         return {"url": self.url}

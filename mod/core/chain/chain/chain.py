@@ -26,7 +26,7 @@ class ModChain(Substrate):
     cached_mods = None
 
     def mods(self, search=None, key=None, update=False):
-        if update and self.cached_mods is not None:
+        if not update and self.cached_mods is not None:
             mods = self.cached_mods
         else:
             mods =  list(self.storage(feature='Modules', module='Modules', update=update).values())
@@ -48,6 +48,7 @@ class ModChain(Substrate):
 
     def modstruct(self, name='api', key=None, update=False, take=0):
         info = m.fn('api/reg')(name, update=update, key=key)
+        print(info)
         params = {
                 'name': info['name'] + '/' + info['key']  , 
                 'data': info['cid'], 

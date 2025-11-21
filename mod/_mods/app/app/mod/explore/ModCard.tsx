@@ -9,7 +9,8 @@ import { CubeIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
 import { useState } from 'react'
 import { useUserContext } from '@/app/context'
-
+// network icon from react/24/outline
+import { GlobeAltIcon } from '@heroicons/react/24/outline'
 interface ModCardProps {
   mod: ModuleType
   card_enabled?: boolean
@@ -60,6 +61,7 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
               <code className="text-2xl font-mono font-bold truncate text-white" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.name}>
                 {mod.name}
               </code>
+              <CopyButton text={mod.name} size="sm" />
             </div>
 
             {/* Author on top right */}
@@ -115,13 +117,12 @@ export default function ModCard({ mod, card_enabled = true}: ModCardProps) {
                 </div>
               )}
 
-              {/* Collateral */}
               <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`, borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` }}>
-                <span className="text-lg" title="Collateral">🪙</span>
+                <GlobeAltIcon className="h-4 w-4" style={{ color: modColor }} />
                 <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={`Collateral: ${collateral}`}>
-                  {collateral}
+                  {mod.net}
                 </code>
-                <CopyButton text={String(collateral)} size="sm" />
+                <CopyButton text={String(mod.net)} size="sm" />
               </div>
 
               {/* Updated */}

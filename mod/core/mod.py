@@ -319,6 +319,7 @@ class Mod:
             path:str = './', 
             depth:Optional[int]=4, 
             recursive:bool=True, 
+            search=None, 
             include_hidden=False):
         dirpath = self.abspath(path)
         listdir_paths = self.ls(dirpath, include_hidden=include_hidden, depth=depth)
@@ -332,9 +333,12 @@ class Mod:
                 sub_dirs += self.dirs(d, depth=depth-1, recursive=recursive, include_hidden=include_hidden)
             dirs += sub_dirs
             dirs = sorted(list(set(dirs)))
-            return dirs
         else:
-            return sorted(list(set(dirs)))
+            dirs =  sorted(list(set(dirs)))
+
+        if search :
+            dirs = [d for d in dirs if search in d]
+        return dirs
             
     dirs = folders
 
@@ -751,10 +755,10 @@ class Mod:
 
     def code(self, obj = None, search=None, *args, **kwargs) -> Union[str, Dict[str, str]]:
 
-        if self.mod_exists(obj):
-            obj = self.mod(obj)
-        elif '/' in str(obj):
+        if '/' in str(obj):
             obj = self.fn(obj)
+        elif self.mod_exists(obj):
+            obj = self.mod(obj)
         elif hasattr(self, obj):
             obj = getattr(self, obj)
         else:
@@ -1254,7 +1258,9 @@ class Mod:
                 **kwargs): 
                 
         path = path or self.core_path
-        cache_key = self.abspath(f'~/.mod/tree/{self.kwargs2str(locals())}')
+        cache_kwarg_keys = ['path', 'max_depth', 'avoid_terms', 'avoid_prefixes', 'avoid_suffixes', 'folders']
+        
+        cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}.json')
         tree = self.get(cache_key, None, update=update)
         if tree == None:
             print(f'Getting tree for path: {path}')

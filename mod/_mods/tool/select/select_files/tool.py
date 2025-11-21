@@ -20,7 +20,8 @@ class SelectFiles:
 
     def forward(self,  
               query: str = 'most relevant', 
-              path: Union[List[str], Dict[Any, str]] = './',  
+              path: Union[List[str], Dict[Any, str]] = './', 
+              files = None, 
               n: int = 10, 
               trials = 3,
               mod=None,
@@ -29,10 +30,11 @@ class SelectFiles:
               avoid_paths: List[str] = ['.git', '__pycache__', 'node_modules', '.venv', 'venv', '.env', '/private', '/tmp'],
               depth=8,
                **kwargs) -> List[str]:
-        if mod:
-            path = c.dirpath(mod)
-        files = c.files(path, depth=depth)
-        print('getting files', files,path, color="yellow")
+
+        if files == None:
+            if mod:
+                path = c.dirpath(mod)
+            files = c.files(path, depth=depth)
         if len(files) > 1:
             for trial in range(trials):
                 try:
@@ -51,7 +53,11 @@ class SelectFiles:
         if content:
             results = {}
             for f in files:
-                results[f] = self.get_text(f)
+                try:
+                    results[f] = self.get_text(f)
+                except Exception as e:
+                    print(f"Failed to read file {f}: {e}", color="red")
+                    continue
         else: 
             results = files
         print(f"Selected files >>> ",files, color="cyan")
