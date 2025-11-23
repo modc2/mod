@@ -4,6 +4,22 @@ import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
 const networks = [
     { id: 'test', label: 'Modchain Devnet', url: 'wss://dev.api.modchain.ai' },
   ]
+
+interface RegParams {
+    name: string
+    data: string
+    url: string
+    take: number
+    owner: string
+}
+
+interface UpdateParams  {
+    id: number
+    name: string
+    data: string
+    url: string
+    take: number
+}
 const network = 'test'
 const UNIT = 1e12
 const FEE_BUFFER = BigInt(100_000_000)
@@ -114,12 +130,13 @@ export class Network
       await this.disconnect()
       return result;
     }
-
-    async update(walletAddress: string, name: string, data: string, url: string, take: number) : Promise<any> {
+    async update(walletAddress: string, name: string, data: string, url: string, take: number, id: number) : Promise<any> {
       await this.connect()
+      console.log('Network id:', id)
       if (!this.api) throw new Error('API not connected')
       const api = this.api
-
+      console.log('Updating module with id:', id)
+      
       const extensions = await web3Enable('MOD')
       if (extensions.length === 0)
         throw new Error('SubWallet not found. Please install it.')
@@ -127,13 +144,19 @@ export class Network
       const injector = await web3FromAddress(walletAddress)
       if (!injector?.signer)
         throw new Error('No signer available from SubWallet')
+      
+      console.log(name, data, url, take, id)
 
-      const tx = api.tx.modules.updateModule(name, data, url, take)
+      // FIX: Ensure ID is a whole number format (string keys prevent scientific notation issues)
+      const cleanId = BigInt(Math.floor(id)).toString();
+
+      // FIX: Reordered arguments to match the metadata: (id, name, data, url, take)
+      const tx = api.tx.modules.updateModule(cleanId, name, data, url, take)
+      
       const result = await this.submitTx(tx, walletAddress, injector)
       await this.disconnect()
       return result;
     }
-
     async submitTx(tx: any, walletAddress: string, injector: any) : Promise<any> {
 
         if (!this.api) throw new Error('API not connected')

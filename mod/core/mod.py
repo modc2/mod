@@ -844,6 +844,7 @@ class Mod:
                     self.print(f'mod2schemaError({e})', color='red', verbose=verbose)
             # self.put('mod2schema', mod2schema)
         return mod2schema 
+        
     def mod2fns(self, mod=None, max_age=30, update=False, core=True, verbose=False) -> List[str]:
         mod2fns = self.get('mod2fns', default=None, max_age=max_age, update=update)
         if mod2fns == None:

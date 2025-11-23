@@ -58,11 +58,11 @@ class ModChain(Substrate):
         return params
 
     def modid(self, name='api', key=None, update=False):
-        key = m.key(key)
+        key = self.key_address(key)
         mods = self.mymods(key=key, update=update)
         module_id = None
         for mod in mods:
-            if mod['name'] == f'{key.address}/{name}' or mod['name'] == f'{name}/{key.address}':
+            if mod['name'] == f'{key}/{name}' or mod['name'] == f'{name}/{key}':
                 module_id = mod['id']
                 break
         assert module_id is not None, f"Module {name} not found for key {key}"
@@ -70,16 +70,15 @@ class ModChain(Substrate):
 
     def update(self, name='api', take=0, key=None, update=False):
         modstruct = self.modstruct(name=name, key=key, update=update)
-        mods = self.mymods(key=key, update=update)
-        module_id = self.modid(name=name, key=key, update=update)
+        modstruct['id'] = self.modid(name=name, key=key, update=update)
         return self.call( module="Modules", fn="update_module", params=modstruct, key=key)
 
     def key2mods(self, key=None, update=False):
-        key = m.key(key)
+        key_address = self.key_address(key)
         mods = self.mods(update=update)
         key2mods = {}
         for mod in mods:
-            mod_name = mod['name'].replace(f'{key.address}/', '').replace(f'/{key.address}', '')
+            mod_name = mod['name'].replace(f'{key_address}/', '').replace(f'/{key_address}', '')
             key_address = mod['owner']
             key2mods[key_address] = key2mods.get(key_address, []) + [mod]
         return key2mods
@@ -89,10 +88,10 @@ class ModChain(Substrate):
         """
         whether the module exists
         """
-        key = m.key(key)
-        mods = self.mymods(key=key, update=update)
+        key_address = self.key_address(key)
+        mods = self.mymods(key=key_address, update=update)
         for mod in mods:
-            if mod['name'] in [f'{key.address}/{name}' , f'{name}/{key.address}' ] :
+            if mod['name'] in [f'{key_address}/{name}' , f'{name}/{key_address}' ] :
                 return True
         return False
 
@@ -145,9 +144,9 @@ class ModChain(Substrate):
         mod['chainid'] = f'{self.net()}/{mod["id"]}'
         return mod['chainid']
     def mymods(self, key=None, update=False):
-        key = m.key(key)
+        key = self.key_address(key)
         mods = self.mods(key=key, update=update)
-        return list(filter(is_my_mod, mods))
+        return mods
 
     def mod(self, name='api', key=None, update=False):
         mod_id = self.modid(name=name, key=key, update=update)

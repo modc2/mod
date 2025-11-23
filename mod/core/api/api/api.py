@@ -382,6 +382,7 @@ class  Api:
         chain_registry = self.chain.registry(key=mod['key'])
         if mod['name'] in chain_registry:
             mod['net'] = self.chain.net()
+            mod['id'] = int(chain_registry[mod['name']].split('/')[-1])
         else:
             mod['net'] = 'local'
         return mod

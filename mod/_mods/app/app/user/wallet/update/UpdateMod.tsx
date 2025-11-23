@@ -10,12 +10,13 @@ import {
 import { useUserContext } from '@/app/context/UserContext'
 import { ModuleType } from '@/app/types'
 
-export const UpdateMod: React.FC = () => {
+export const UpdateMod: React.FC = (defaultMod : string = '') => {
   const { network, user, client } = useUserContext()
   const [onchainMods, setOnchainMods] = useState<ModuleType[]>([])
   const [allMods, setAllMods] = useState<ModuleType[]>([])
-  const [selectedMod, setSelectedMod] = useState<string>('')
+  const [selectedMod, setSelectedMod] = useState<string>(defaultMod)
   const [modName, setModName] = useState('')
+  const [modId, setModId] = useState<string | null>(null)
   const [modData, setModData] = useState('')
   const [modUrl, setModUrl] = useState('')
   const [take, setTake] = useState('0')
@@ -24,7 +25,7 @@ export const UpdateMod: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [walletAddress, setWalletAddress] = useState('')
   const [balance, setBalance] = useState<string>('0')
-  const [updateType, setUpdateType] = useState<'local' | 'onchain'>('local')
+  const [updateType, setUpdateType] = useState<'local' | 'onchain'>('onchain')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -42,7 +43,7 @@ export const UpdateMod: React.FC = () => {
       try {
         const response = await client.call('mods', {})
         setAllMods(response)
-        const onchain = response.filter((mod: ModuleType) => mod.net === 'onchain')
+        const onchain = response.filter((mod: ModuleType) => mod.net != 'local')
         setOnchainMods(onchain)
       } catch (err) {
         console.error('Failed to fetch modules:', err)
@@ -55,12 +56,15 @@ export const UpdateMod: React.FC = () => {
     setModName(mod.name || '')
     setModData(mod.cid || '')
     setModUrl(mod.url || '')
+    setModId(String(mod.id || 0))
     setTake(String(mod.take || 0))
   }
 
   const handleModSelect = (modName: string) => {
     setSelectedMod(modName)
-    const mod = allMods.find(m => m.name === modName)
+    
+    const targetMods = updateType === 'onchain' ? onchainMods : allMods
+    const mod = targetMods.find(m => m.name === modName)
     if (mod) populateFields(mod)
   }
 
@@ -113,7 +117,9 @@ export const UpdateMod: React.FC = () => {
         modName,
         modData,
         modUrl,
-        parseInt(take)
+        parseInt(take),
+        parseInt(modId || '0')
+
       )
 
       setResponse({
@@ -150,32 +156,34 @@ export const UpdateMod: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div
-        className={`p-4 rounded-xl border-2 ${
-          walletAddress
-            ? 'bg-gradient-to-br from-emerald-500/10 border-emerald-500/40'
-            : 'bg-gradient-to-br from-red-500/10 border-red-500/40'
-        }`}
-      >
-        {walletAddress ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-emerald-400 text-sm font-mono font-bold">
-                <CheckCircle size={18} />
-                <span>WALLET CONNECTED</span>
-              </div>
-              <div className="text-emerald-300 text-base font-mono font-bold">
-                {balance} <span className="text-emerald-500">MOD</span>
+      {updateType === 'onchain' && (
+        <div
+          className={`p-4 rounded-xl border-2 ${
+            walletAddress
+              ? 'bg-gradient-to-br from-emerald-500/10 border-emerald-500/40'
+              : 'bg-gradient-to-br from-red-500/10 border-red-500/40'
+          }`}
+        >
+          {walletAddress ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-emerald-400 text-sm font-mono font-bold">
+                  <CheckCircle size={18} />
+                  <span>WALLET CONNECTED</span>
+                </div>
+                <div className="text-emerald-300 text-base font-mono font-bold">
+                  {balance} <span className="text-emerald-500">MOD</span>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 text-red-400 text-sm font-mono font-bold">
-            <AlertCircle size={18} />
-            <span>NO WALLET CONNECTED</span>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="flex items-center gap-2 text-red-400 text-sm font-mono font-bold">
+              <AlertCircle size={18} />
+              <span>NO WALLET CONNECTED</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-5 p-6 rounded-xl bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 border-2 border-blue-500/30 shadow-2xl">
         <div className="flex items-center gap-3 pb-4 border-b-2 border-blue-500/30">
@@ -185,7 +193,14 @@ export const UpdateMod: React.FC = () => {
 
         <div className="flex gap-3 mb-4">
           <button
-            onClick={() => setUpdateType('local')}
+            onClick={() => {
+              setUpdateType('local')
+              setSelectedMod('')
+              setModName('')
+              setModData('')
+              setModUrl('')
+              setTake('0')
+            }}
             className={`flex-1 px-6 py-3 rounded-xl font-bold text-sm uppercase tracking-wider transition-all border-2 ${
               updateType === 'local'
                 ? 'bg-blue-500/30 text-blue-300 border-blue-500'
@@ -195,7 +210,14 @@ export const UpdateMod: React.FC = () => {
             LOCAL (API)
           </button>
           <button
-            onClick={() => setUpdateType('onchain')}
+            onClick={() => {
+              setUpdateType('onchain')
+              setSelectedMod('')
+              setModName('')
+              setModData('')
+              setModUrl('')
+              setTake('0')
+            }}
             className={`flex-1 px-6 py-3 rounded-xl font-bold text-sm uppercase tracking-wider transition-all border-2 ${
               updateType === 'onchain'
                 ? 'bg-blue-500/30 text-blue-300 border-blue-500'
@@ -215,10 +237,9 @@ export const UpdateMod: React.FC = () => {
             onChange={(e) => handleModSelect(e.target.value)}
             className="w-full bg-black/60 border-2 border-blue-500/40 rounded-lg px-4 py-3 text-blue-300 font-mono text-base focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all"
           >
-            <option value="">-- Select a module --</option>
             {availableMods.map((mod) => (
               <option key={mod.name} value={mod.name}>
-                {mod.name} ({mod.net})
+                {mod.name}
               </option>
             ))}
           </select>
