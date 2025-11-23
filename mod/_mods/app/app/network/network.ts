@@ -5,25 +5,6 @@ const networks = [
     { id: 'test', label: 'Modchain Devnet', url: 'wss://dev.api.modchain.ai' },
   ]
 
-interface RegParams {
-    name: string
-    data: string
-    url: string
-    take: number
-    owner: string
-}
-
-interface UpdateParams  {
-    id: number
-    name: string
-    data: string
-    url: string
-    take: number
-}
-const network = 'test'
-const UNIT = 1e12
-const FEE_BUFFER = BigInt(100_000_000)
-
 export class Network 
     {
     public api: ApiPromise | null = null
@@ -49,10 +30,8 @@ export class Network
 
     async connect() {
         const provider = new WsProvider(this.url)
-        const api = await ApiPromise.create({ provider: provider })
-        this.provider = provider
-        this.api = api
-        await this.api.isReady
+        this.api = await ApiPromise.create({ provider: provider })
+        await this.api
 
     }
 
@@ -60,7 +39,6 @@ export class Network
         if (this.api) {
             await this.api.disconnect()
             this.api = null
-            this.provider = null
             console.log('Disconnected from network.')
         }
     }
@@ -79,7 +57,6 @@ export class Network
 
     async transfer(walletAddress: string, toAddress: string, amount: number) : Promise<any> {
       await this.connect()
-      if (!this.api) throw new Error('API not connected')
       const api = this.api
       if (!api) throw new Error('API not connected')
       const recipientAddress = api.registry.createType(
@@ -97,68 +74,67 @@ export class Network
       if (senderBalance < transferAmount + feeBuffer)
         throw new Error('Insufficient balance')
 
-      const extensions = await web3Enable('MOD')
-      if (extensions.length === 0)
-        throw new Error('SubWallet not found. Please install it.')
-      
-    const injector = await web3FromAddress(walletAddress)
-    console.log('injector', injector)
-    if (!injector?.signer)
-        throw new Error('No signer available from SubWallet')
+      const tx = api.tx.balances.transferKeepAlive(recipientAddress,transferAmount)
+      const result = await this.submitTx(tx, walletAddress)
+      await this.disconnect()
+      return result;
 
-    const tx = api.tx.balances.transferKeepAlive(recipientAddress,transferAmount)
-    const result = await this.submitTx(tx, walletAddress, injector)
-    await this.disconnect()
-    return result;
 }
 
     async register(walletAddress: string, name: string, data: string, url: string, take: number) : Promise<any> {
       await this.connect()
       if (!this.api) throw new Error('API not connected')
-      const api = this.api
-
-      const extensions = await web3Enable('MOD')
-      if (extensions.length === 0)
-        throw new Error('SubWallet not found. Please install it.')
-      
-      const injector = await web3FromAddress(walletAddress)
-      if (!injector?.signer)
-        throw new Error('No signer available from SubWallet')
-
-      const tx = api.tx.modules.registerModule(name, data, url, take)
-      const result = await this.submitTx(tx, walletAddress, injector)
+      const tx = this.api.tx.modules.registerModule(name, data, url, take)
+      const result = await this.submitTx(tx, walletAddress)
       await this.disconnect()
       return result;
     }
-    async update(walletAddress: string, name: string, data: string, url: string, take: number, id: number) : Promise<any> {
+
+  
+    async deregister(walletAddress: string, modId:number) : Promise<any> {
       await this.connect()
-      console.log('Network id:', id)
       if (!this.api) throw new Error('API not connected')
-      const api = this.api
-      console.log('Updating module with id:', id)
-      
-      const extensions = await web3Enable('MOD')
-      if (extensions.length === 0)
-        throw new Error('SubWallet not found. Please install it.')
-      
-      const injector = await web3FromAddress(walletAddress)
-      if (!injector?.signer)
-        throw new Error('No signer available from SubWallet')
-      
-      console.log(name, data, url, take, id)
-
-      // FIX: Ensure ID is a whole number format (string keys prevent scientific notation issues)
-      const cleanId = BigInt(Math.floor(id)).toString();
-
-      // FIX: Reordered arguments to match the metadata: (id, name, data, url, take)
-      const tx = api.tx.modules.updateModule(cleanId, name, data, url, take)
-      
-      const result = await this.submitTx(tx, walletAddress, injector)
+      const tx = this.api.tx.modules.registerModule(name, data, url, take)
+      const result = await this.submitTx(tx, walletAddress)
       await this.disconnect()
       return result;
     }
-    async submitTx(tx: any, walletAddress: string, injector: any) : Promise<any> {
 
+    async claim(walletAddress: string) : Promise<any> {
+      await this.connect()
+      if (!this.api) throw new Error('API not connected')
+      const tx = this.api.tx.ComClaim.Claim()
+      const result = await this.submitTx(tx, walletAddress)
+      await this.disconnect()
+      return result;
+    }
+
+    getApi() : ApiPromise | null {
+        this.connect().then(() => {
+            console.log(`Connected to network at ${this.url}`)
+        }).catch((err) => {
+            console.error(`Failed to connect to network at ${this.url}:`, err)
+        })
+        if (this.api === null) {
+            throw new Error('API not connected')
+        }
+        return this.api;
+    }
+
+    async update(walletAddress: string, name: string, data: string, url: string, take: number, id: number) : Promise<any> {
+     
+      await this.connect()
+      if (!this.api) throw new Error('API not connected')
+      const cleanId = BigInt(Math.floor(id)).toString();
+      console.log('Updating module with ID:', cleanId);
+      const tx = this.api.tx.modules.updateModule(cleanId, name, data, url, take)
+      const result = await this.submitTx(tx, walletAddress)
+      await this.disconnect()
+      return result;
+    }
+    async submitTx(tx: any, walletAddress: string) : Promise<any> {
+
+        const injector = await this.getInjector(walletAddress)
         if (!this.api) throw new Error('API not connected')
         const api = this.api;
         const result = await new Promise<any>((resolve, reject) => {

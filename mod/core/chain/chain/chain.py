@@ -83,7 +83,6 @@ class ModChain(Substrate):
             key2mods[key_address] = key2mods.get(key_address, []) + [mod]
         return key2mods
         
-
     def exists(self, name='api', key=None, update=False):
         """
         whether the module exists

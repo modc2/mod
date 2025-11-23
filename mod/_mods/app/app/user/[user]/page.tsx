@@ -11,10 +11,11 @@ import { UserCard } from '@/app/user/explore/UserCard'
 import  Transfer  from '@/app/user/wallet/transfer'
 import RegMod from '@/app/user/wallet/reg'
 import UpdateMod from '@/app/user/wallet/update'
+import ClaimMod from '@/app/user/wallet/claim'
 import {UserModules} from '@/app/user/wallet/usermods/UserModules'
 
 
-type TabType = 'mods' | 'sign' | 'transfer' | 'register' | 'update'
+type TabType = 'mods' | 'sign' | 'transfer' | 'register' | 'update' | 'claim'
 
 export default function UserPage() {
   const params = useParams()
@@ -69,6 +70,7 @@ export default function UserPage() {
     { id: 'mods', label: 'mods' },
     { id: 'register', label: 'register' },
     { id: 'update', label: 'update' },
+    { id: 'claim', label: 'claim' },
     // { id: 'sign', label: 'sign & verify' }
   ]
 
@@ -105,6 +107,7 @@ export default function UserPage() {
             {activeTab === 'transfer' && client?.key && user && <Transfer />}
             {activeTab === 'register' && client?.key && user && <RegMod />}
             {activeTab === 'update' && client?.key && user && <UpdateMod />}
+            {activeTab === 'claim' && client?.key && user && <ClaimMod />}
 
           </div>
         </div>
