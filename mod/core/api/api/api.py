@@ -373,7 +373,7 @@ class  Api:
                     mods.append(self.mod(mod, key=user_key))  
         mods =  list(map(self._add_net, mods))
         if onchain:
-            mods = [m for m in mods if m.get('net', None) != 'local' ]
+            mods = [m for m in mods if m.get('net', None) == 'chain']
         if search != None:
             mods = [m for m in mods if search in m['name']]
         return mods
@@ -381,7 +381,7 @@ class  Api:
     def _add_net(self, mod:dict):
         chain_registry = self.chain.registry(key=mod['key'])
         if mod['name'] in chain_registry:
-            mod['net'] = self.chain.net()
+            mod['net'] = 'global'
             mod['id'] = int(chain_registry[mod['name']].split('/')[-1])
         else:
             mod['net'] = 'local'

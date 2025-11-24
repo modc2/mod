@@ -240,10 +240,6 @@ export const RegMod = ( ) => {
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="space-y-5 p-6 rounded-xl bg-gradient-to-br from-purple-500/10 via-pink-500/10 to-cyan-500/10 border-2 border-purple-500/30 shadow-2xl">
-        <div className="flex items-center gap-3 pb-4 border-b-2 border-purple-500/30">
-          <Upload size={24} className="text-purple-400" />
-          <h3 className="text-2xl font-black text-purple-400 font-mono uppercase tracking-wide">Register Module</h3>
-        </div>
 
         <div className="space-y-4">
           <div className="flex gap-3 mb-4">

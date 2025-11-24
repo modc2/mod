@@ -65,17 +65,42 @@ export default function UserPage() {
     )
   }
 
-  let tabs: { id: TabType; label: string }[] = [
-    { id: 'transfer', label: 'transfer' },
-    { id: 'mods', label: 'mods' },
-    { id: 'register', label: 'register' },
-    { id: 'update', label: 'update' },
-    { id: 'claim', label: 'claim' },
-    // { id: 'sign', label: 'sign & verify' }
+  let tabs: { id: TabType; label: string; color: string }[] = [
+    { id: 'transfer', label: 'transfer', color: 'blue' },
+    { id: 'mods', label: 'mods', color: 'purple' },
+    { id: 'register', label: 'register', color: 'green' },
+    { id: 'update', label: 'update', color: 'orange' },
+    { id: 'claim', label: 'claim', color: 'pink' },
   ]
 
   if (!myMod) {
     tabs = tabs.filter(tab => tab.id === 'mods' )
+  }
+
+  const getButtonColors = (tabColor: string, isActive: boolean) => {
+    const colorMap: Record<string, { active: string; inactive: string }> = {
+      blue: {
+        active: 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white border-2 border-blue-300 shadow-2xl shadow-blue-500/50',
+        inactive: 'bg-blue-500/20 text-blue-300 border-2 border-blue-500/40 hover:bg-blue-500/30 hover:border-blue-400/60'
+      },
+      purple: {
+        active: 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-2 border-purple-300 shadow-2xl shadow-purple-500/50',
+        inactive: 'bg-purple-500/20 text-purple-300 border-2 border-purple-500/40 hover:bg-purple-500/30 hover:border-purple-400/60'
+      },
+      green: {
+        active: 'bg-gradient-to-r from-green-500 to-emerald-500 text-white border-2 border-green-300 shadow-2xl shadow-green-500/50',
+        inactive: 'bg-green-500/20 text-green-300 border-2 border-green-500/40 hover:bg-green-500/30 hover:border-green-400/60'
+      },
+      orange: {
+        active: 'bg-gradient-to-r from-orange-500 to-yellow-500 text-white border-2 border-orange-300 shadow-2xl shadow-orange-500/50',
+        inactive: 'bg-orange-500/20 text-orange-300 border-2 border-orange-500/40 hover:bg-orange-500/30 hover:border-orange-400/60'
+      },
+      pink: {
+        active: 'bg-gradient-to-r from-pink-500 to-rose-500 text-white border-2 border-pink-300 shadow-2xl shadow-pink-500/50',
+        inactive: 'bg-pink-500/20 text-pink-300 border-2 border-pink-500/40 hover:bg-pink-500/30 hover:border-pink-400/60'
+      }
+    }
+    return isActive ? colorMap[tabColor].active : colorMap[tabColor].inactive
   }
 
   return (
@@ -92,10 +117,8 @@ export default function UserPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-6 py-3 rounded-xl font-black text-base uppercase transition-all duration-300 ${
-                  activeTab === tab.id
-                    ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-2 border-purple-300 shadow-2xl shadow-purple-500/50 scale-105'
-                    : 'bg-purple-500/20 text-purple-300 border-2 border-purple-500/40 hover:bg-purple-500/30 hover:scale-105 hover:border-purple-400/60'
-                }`}
+                  getButtonColors(tab.color, activeTab === tab.id)
+                } ${activeTab === tab.id ? 'scale-105' : 'hover:scale-105'}`}
               >
                 {tab.label}
               </button>

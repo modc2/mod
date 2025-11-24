@@ -46,17 +46,30 @@ export function UserHeader() {
     ? localStorage.getItem('wallet_address') || user.key 
     : user.key
 
+  const hexToRgb = (hex: string) => {
+    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex)
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 139, g: 92, b: 246 }
+  }
+  
+  const userRgb = hexToRgb(userColor)
+  const borderColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
+  const glowColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.2)`
+
   return (
     <div 
       className="relative flex-shrink-0"
     >
       <div
         onClick={handleUserClick}
-        className={`flex items-center gap-3 transition-all duration-300 backdrop-blur-xl rounded-2xl border-2 overflow-hidden cursor-pointer hover:shadow-2xl`}
+        className={`flex items-center gap-3 transition-all duration-300 backdrop-blur-xl rounded-xl border-2 overflow-hidden cursor-pointer hover:shadow-2xl`}
         style={{
-          borderColor:`${userColor}80`,
-          backgroundColor: `${userColor}15`,
-          boxShadow: `0 0 30px ${userColor}40`,
+          borderColor: borderColor,
+          backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`,
+          boxShadow: `0 0 12px ${glowColor}`,
           height: '60px',
           minWidth: '60px',
           width:  'auto' ,
@@ -64,18 +77,20 @@ export function UserHeader() {
         }}
       >
         <div 
-          className="p-4 transition-all hover:scale-110 active:scale-95 flex-shrink-0"
+          className="px-3 py-2 rounded-md border transition-all hover:scale-110 active:scale-95 flex-shrink-0"
           style={{
             height: '60px',
             width: '60px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`,
+            borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
           }}
           onClick={(e) => {
           }}
         >
-          <KeyIcon className="w-9 h-9" style={{ color:  userColor }} />
+          <KeyIcon className="w-10 h-10" style={{ color:  userColor }} />
         </div>
 
         <div 

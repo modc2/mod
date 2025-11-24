@@ -58,40 +58,8 @@ export const Claim: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      {/* Wallet Status */}
-      <div
-        className={`p-4 rounded-xl border-2 ${
-          walletAddress && network
-            ? 'bg-gradient-to-br from-purple-500/10 border-purple-500/30'
-            : 'bg-gradient-to-br from-red-500/10 border-red-500/30'
-        }`}
-      >
-        {walletAddress && network ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-green-400 text-sm font-mono">
-              <CheckCircle size={16} />
-              <span>CONNECTED TO {network.url}</span>
-            </div>
-            <div className="text-xs text-purple-400 font-mono">
-              ADDRESS: {walletAddress.slice(0, 12)}...{walletAddress.slice(-12)}
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 text-red-400 text-sm font-mono">
-            <AlertCircle size={16} />
-            <span>NO WALLET CONNECTED - SUBWALLET REQUIRED</span>
-          </div>
-        )}
-      </div>
-
       {/* Claim Section */}
       <div className="space-y-4 p-6 rounded-xl bg-gradient-to-br from-purple-500/10 via-pink-500/10 to-cyan-500/10 border-2 border-purple-500/30 shadow-2xl">
-        <div className="flex items-center gap-3 pb-4 border-b-2 border-purple-500/30">
-          <Gift size={24} className="text-purple-400" />
-          <h3 className="text-2xl font-black text-purple-400 font-mono uppercase tracking-wide">
-            Claim MOD Tokens
-          </h3>
-        </div>
 
         <div className="space-y-4">
           <div className="p-4 bg-black/60 rounded-lg border-2 border-purple-500/30">

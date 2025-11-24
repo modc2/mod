@@ -88,6 +88,12 @@ export default function ModulePage() {
 
   const availableTabs = myMod ? ['api', 'app', 'update'] : ['api', 'app']
 
+  const tabColors = {
+    api: { r: 59, g: 130, b: 246 },
+    app: { r: 34, g: 197, b: 94 },
+    update: { r: 251, g: 191, b: 36 }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white flex flex-col">
       <main className="flex-1 px-6 py-8">
@@ -99,6 +105,7 @@ export default function ModulePage() {
           <div className="flex flex-wrap gap-3 mb-6">
             {(availableTabs as const).map((tab) => {
               const isActive = activeTab === tab
+              const color = tabColors[tab as keyof typeof tabColors]
               return (
                 <button
                   key={tab}
@@ -109,9 +116,9 @@ export default function ModulePage() {
                       : 'text-gray-400 border-2 border-gray-600/40 hover:scale-105 hover:border-gray-500/60'
                   }`}
                   style={{
-                    backgroundColor: isActive ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)` : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`,
-                    borderColor: isActive ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)` : undefined,
-                    boxShadow: isActive ? `0 0 24px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)` : undefined
+                    backgroundColor: isActive ? `rgba(${color.r}, ${color.g}, ${color.b}, 0.3)` : `rgba(${color.r}, ${color.g}, ${color.b}, 0.1)`,
+                    borderColor: isActive ? `rgba(${color.r}, ${color.g}, ${color.b}, 0.8)` : undefined,
+                    boxShadow: isActive ? `0 0 24px rgba(${color.r}, ${color.g}, ${color.b}, 0.5)` : undefined
                   }}
                 >
                   {tab}

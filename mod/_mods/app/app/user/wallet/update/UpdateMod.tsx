@@ -156,40 +156,9 @@ export const UpdateMod: React.FC = (defaultMod : string = '') => {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      {updateType === 'onchain' && (
-        <div
-          className={`p-4 rounded-xl border-2 ${
-            walletAddress
-              ? 'bg-gradient-to-br from-emerald-500/10 border-emerald-500/40'
-              : 'bg-gradient-to-br from-red-500/10 border-red-500/40'
-          }`}
-        >
-          {walletAddress ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-emerald-400 text-sm font-mono font-bold">
-                  <CheckCircle size={18} />
-                  <span>WALLET CONNECTED</span>
-                </div>
-                <div className="text-emerald-300 text-base font-mono font-bold">
-                  {balance} <span className="text-emerald-500">MOD</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-red-400 text-sm font-mono font-bold">
-              <AlertCircle size={18} />
-              <span>NO WALLET CONNECTED</span>
-            </div>
-          )}
-        </div>
-      )}
+
 
       <div className="space-y-5 p-6 rounded-xl bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 border-2 border-blue-500/30 shadow-2xl">
-        <div className="flex items-center gap-3 pb-4 border-b-2 border-blue-500/30">
-          <RefreshCw size={24} className="text-blue-400" />
-          <h3 className="text-2xl font-black text-blue-400 font-mono uppercase tracking-wide">Update Module</h3>
-        </div>
 
         <div className="flex gap-3 mb-4">
           <button

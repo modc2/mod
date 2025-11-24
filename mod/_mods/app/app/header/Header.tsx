@@ -81,15 +81,20 @@ export function Header() {
               {searchCollapsed ? (
                 <button
                   onClick={() => setSearchCollapsed(false)}
-                  className="p-3 rounded-lg border-2 border-white/40 bg-white/15 hover:bg-white/20 transition-all active:scale-95"
-                  style={{height: '64px', width: '64px'}}
+                  className="p-3 rounded-lg border-2 transition-all active:scale-95"
+                  style={{
+                    height: '64px',
+                    width: '64px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                    borderColor: 'rgba(239, 220, 11, 0.6)'
+                  }}
                   title="Search"
                 >
-                  <MagnifyingGlassIcon className="w-8 h-8 text-gray-400" />
+                  <MagnifyingGlassIcon className="w-8 h-8" style={{ color: '#d8cc1bff' }} />
                 </button>
               ) : (
                 <div className="relative">
-                  <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-7 h-7 text-gray-400" />
+                  <MagnifyingGlassIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 w-7 h-7" style={{ color: '#d3d30bff' }} />
                   <input
                     type="text"
                     value={inputValue}
@@ -97,7 +102,12 @@ export function Header() {
                     onKeyDown={handleKeyDown}
                     onBlur={() => !inputValue && setSearchCollapsed(window.innerWidth < 1200)}
                     placeholder="Search mods..."
-                    className="bg-white/5 border border-white/10 text-white pl-14 pr-5 py-3.5 rounded-lg text-xl hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50 transition-all w-80"
+                    className="border-2 text-white pl-14 pr-5 py-3.5 rounded-lg text-xl hover:shadow-lg focus:outline-none focus:ring-2 transition-all w-80"
+                    style={{
+                      backgroundColor: 'rgba(15, 15, 15, 0.2)',
+                      borderColor: 'rgba(239, 220, 11, 0.6)',
+                      fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace"
+                    }}
                     autoFocus={!searchCollapsed}
                   />
                 </div>
@@ -107,30 +117,6 @@ export function Header() {
         </div>
         
         <div className="flex items-center justify-end gap-3">
-          {/* <button
-            onClick={handleLeftSplit}
-            className={`p-3 rounded-lg border-2 transition-all active:scale-95 ${
-              isSplitScreen && orientation === 'vertical'
-                ? 'border-blue-500 bg-blue-500/20 text-blue-400' 
-                : 'border-white/40 bg-white/15 hover:bg-white/20 text-gray-400'
-            }`}
-            style={{height: '64px', width: '64px'}}
-            title="Left Split"
-          >
-            <ArrowsRightLeftIcon className="w-8 h-8" />
-          </button>
-          <button
-            onClick={handleTopSplit}
-            className={`p-3 rounded-lg border-2 transition-all active:scale-95 ${
-              isSplitScreen && orientation === 'horizontal'
-                ? 'border-purple-500 bg-purple-500/20 text-purple-400' 
-                : 'border-white/40 bg-white/15 hover:bg-white/20 text-gray-400'
-            }`}
-            style={{height: '64px', width: '64px'}}
-            title="Top Split"
-          >
-            <ArrowsUpDownIcon className="w-8 h-8" />
-          </button> */}
           <UserHeader />
         </div>
       </div>

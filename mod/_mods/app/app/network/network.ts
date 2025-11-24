@@ -103,7 +103,8 @@ export class Network
     async claim(walletAddress: string) : Promise<any> {
       await this.connect()
       if (!this.api) throw new Error('API not connected')
-      const tx = this.api.tx.ComClaim.Claim()
+      console.log('ModFam',this.api.tx.ComClaim)
+      const tx = this.api.tx.comClaim.claim()
       const result = await this.submitTx(tx, walletAddress)
       await this.disconnect()
       return result;
