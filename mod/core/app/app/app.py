@@ -17,7 +17,6 @@ class App:
             print("Starting in PROD mode")
         else:
             print("Starting in DEV mode")
-        m.serve('ipfs', port=ipfs_port) if not m.server_exists('ipfs') else None
         m.serve('api', port=api_port) if not m.server_exists('api') else None
         image = f'{mod}:latest'
         cwd = m.dirpath(mod) 

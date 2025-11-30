@@ -36,9 +36,10 @@ class  Api:
 
     def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload', 'balances', 'balance']):
         self.chain = m.mod(chain)()
+        self.chain.name = chain
         for fn_name in sync_fns:
             setattr(self, fn_name, getattr(self.chain, fn_name))
-
+            
     def is_valid_ipfs_cid(self, cid: str) -> bool:
         """Check if a given string is a valid IPFS CID.
         
@@ -75,10 +76,11 @@ class  Api:
             mod['schema'] = self.get(mod['schema'])
         if fns is not None:
             mod['fns'] =fns
+        mod['name'] = mod['name'].split('/')[0]
         mod['content'] = self.content(mod) if content else mod['content']
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
-        self._add_net(mod)
+        self.check_modchain(mod)
         return mod
 
     def call(self , mod: m.Mod, fn: str, params: Dict[str, Any], time:int, cost:int, signature, **kwargs) -> Any:
@@ -312,21 +314,12 @@ class  Api:
         key = m.key(key)
         if prev_cid == None:
             info = self.info(mod=mod, key=key, protocal=protocal)
-            info['signature'] = signature or  key.sign(info, mode='str')
-            info['cid'] = self.update_registry(info)
+            self.update_registry(info)
         else:
             prev_info = self.mod(prev_cid, key=key)
-            assert key.address == prev_info['key'], f'Key mismatch {key.address} != {prev_info["key"]}'
             info = self.info(mod=mod, key=key, comment=comment, protocal=protocal)
-            if 'cid' not in info:
-                info['cid'] = prev_cid
-            if info['content'] == prev_info['content'] and info['schema'] == prev_info['schema']:
-                return info  # No changes, return existing info
-            else:
-                info = {**prev_info, **info}
-                info.pop('cid', None)
-                info['signature'] = key.sign(info, mode='str')
-                info['cid'] = self.update_registry(info)
+            info['prev'] = prev_cid
+            info['cid'] = self.update_registry(info) 
         return info 
  
     sync_info = {}
@@ -347,58 +340,59 @@ class  Api:
         while True:
             try:
                 self.sync()
-                print("Sync completed", color="green")
+                m.print("Sync completed", color="green")
             except Exception as e:
                 m.print(f"Error during sync: {e}", color="red")
             m.print(f"Waiting for {self.sync_interval} seconds before next sync...", color="yellow")
             time.sleep(self.sync_interval)
 
-    def mods(self, search=None, key=None, onchain=False, update=False, **kwargs) -> List[str]:
+    def path(self, path:str) -> str:
+        """Get content from a specific path in IPFS.
+        
+        Args:
+        """
+        return self.folder_path + '/' + path
+
+    def mods(self, network=None, search=None, key=None, update=False,  **kwargs) -> List[str]:
         """List all registered mods in IPFS.
         
         Returns:
             List of mod names
         """
+        path = self.path('mods')
+        mods = m.get(path, None, update=update)
   
-        if update: 
+        if mods == None: 
             self.chain.mods(update=update, **kwargs)
-        registry = self.registry()
-        key = self.key_address(key)
-        if key != 'all':
-            mods =  [self.mod(k, key=key) for k in registry.get(key, {}).keys()]
-        else:
-            mods = []
-            for user_key, user_mods in registry.items():
-                for mod in user_mods.keys():
-                    mods.append(self.mod(mod, key=user_key))  
-        mods =  list(map(self._add_net, mods))
-        if onchain:
-            mods = [m for m in mods if m.get('net', None) == 'chain']
+            registry = self.registry()
+            key = self.key_address(key)
+            if key != 'all':
+                mods =  [self.mod(k, key=key) for k in registry.get(key, {}).keys()]
+            else:
+                mods = []
+                for user_key, user_mods in registry.items():
+                    for mod in user_mods.keys():
+                        mods.append(self.mod(mod, key=user_key))  
+            mods =  list(map(self.check_modchain, mods))
+            m.put(path, mods)
+            
         if search != None:
             mods = [m for m in mods if search in m['name']]
+        if network != None:
+            mods = [m for m in mods if m.get('network', 'local') == network]
         return mods
 
-    def _add_net(self, mod:dict):
+    def check_modchain(self, mod:dict):
+        """
+        Check and update mod Mod chain information.
+        """
         chain_registry = self.chain.registry(key=mod['key'])
         if mod['name'] in chain_registry:
-            mod['net'] = 'global'
-            mod['id'] = int(chain_registry[mod['name']].split('/')[-1])
+            mod['network'] = self.chain.name
+            mod['id'] = int(chain_registry[mod['name']])
         else:
-            mod['net'] = 'local'
+            mod['network'] = 'local'
         return mod
-    def is_valid_cid(self, cid: str) -> bool:
-        """Check if a given string is a valid IPFS CID.
-        
-        Args:
-            cid: IPFS CID string
-        Returns:
-            True if valid, False otherwise
-        """
-        try:
-            self.get(cid)
-            return True
-        except:
-            return False
 
     def history(self, mod='store' , key=None, df=False) -> List[Dict[str, Any]]:
         modid = self.modcid(key=key, mod=mod)
@@ -631,3 +625,10 @@ class  Api:
     def __delete__(self):
         self._sync_loop_thread.kill()
         del self._sync_loop_thread
+
+    def stats(self):
+        return m.df(self.mods())[['name', 'key', 'created', 'updated', 'collateral', 'network', 'cid']]
+
+    def ensure_env(self):
+        m.serve('ipfs.node') if not m.server_exists('ipfs.node') else None
+        m.print("IPFS node is running", color="green")

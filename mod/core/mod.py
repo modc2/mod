@@ -100,6 +100,7 @@ class Mod:
                 cache=True, 
                 verbose=False, 
                 update=True,
+                unique_feature  = '__modname__',
                 **kwargs) -> str:
 
         """
@@ -111,18 +112,18 @@ class Mod:
             return Mod
         if not isinstance(mod, str):
             return mod
-        mod = self.get_name(mod)
+        name = self.get_name(mod)
 
         if not hasattr(self, '_mod_cache'):
             self._mod_cache = {}
 
-        if mod in self._mod_cache:
-            return self._mod_cache[mod]
-        
-        obj =  self.anchor_object(mod)
-        self._mod_cache[mod] = obj
+        if name in self._mod_cache:
+            return self._mod_cache[name]
+        obj =  self.anchor_object(name)
+        if not hasattr(obj, unique_feature):
+            setattr(obj, unique_feature, name)
+        self._mod_cache[name] = obj
         return obj
-
 
     mod = mod
 
@@ -1213,7 +1214,6 @@ class Mod:
             class_obj_path = classes[-1]
             return self.obj(class_obj_path)
         else: 
-            print(self.tree(search=path), anchor_file)
             raise Exception(f'No anchor file found in {path}, ')
 
     af = anchor_file
@@ -1257,14 +1257,14 @@ class Mod:
                 folders:bool = True, 
                 update=False,  
                 **kwargs): 
-                
+        """
+        get the tree of the mods in the path
+        """
         path = path or self.core_path
         cache_kwarg_keys = ['path', 'max_depth', 'avoid_terms', 'avoid_prefixes', 'avoid_suffixes', 'folders']
-        
         cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}.json')
         tree = self.get(cache_key, None, update=update)
         if tree == None:
-            print(f'Getting tree for path: {path}')
             path = path or self.core_path
             if folders:
                 paths = list(self.folders(path, depth=max_depth))
@@ -1373,7 +1373,6 @@ class Mod:
         return  dirpath
 
     dp = dirpath
-
 
     def addpath(self, path, name=None, update=True):
         assert os.path.exists(path), f'Path {path} does not exist'
@@ -1488,14 +1487,6 @@ class Mod:
         msg = ' '.join(list(map(str, args)))
         return self.mod("openrouter")().forward(msg, stream=stream, **kwargs) 
 
-    def readmes(self,  path='./', search=None, avoid_terms=['mods']):
-        files =  self.files(path)
-        files = [f for f in files if f.endswith('.md')]
-        files = [f for f in files if all([avoid not in f for avoid in avoid_terms])]
-        if search != None:
-            files = [f for f in files if search in f]
-        return files
-
     def context(self, path=None):
         path = path or self.core_path
         return self.code()
@@ -1576,13 +1567,6 @@ class Mod:
             self.confirm(f'Are you sure you want to push to {path} with comment: {comment}?')
         os.system(cmd)
         return {'msg': f'Pushed to {path} with comment: {comment}'}
-        
-    def git_info(self, path:str = None, name:str = None, n=10):
-        return self.fn('git/get_info', {'path': path, 'name': name, 'n': n})
-    
-    def isrepo(self, mod:str = None):
-        path = self.dirpath(mod)
-        return os.path.exists(path + '/.git')
 
     def cpmod(self, from_mod:str = 'dev', to_mod:str = 'dev2', force=True):
         """
@@ -1698,6 +1682,14 @@ class Mod:
         return self.fn('server/txs')( *args, **kwargs)
 
     # imported from different modules
+
+    def subs(self, mod=None):
+        mod = self.mod(mod or 'mod')()
+        for feature in dir(mod):
+            if feature.startswith('sub_'):
+                sub_fn = getattr(mod, feature)
+                sub_fn()
+
 
     def edit(self, *args, **kwargs):
         return self.fn('api/edit')( *args, **kwargs)

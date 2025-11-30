@@ -5,6 +5,7 @@ from typing import Any
 import inspect
 import mod as m
 import json
+from datetime import datetime
 from copy import deepcopy
 import time
 
@@ -69,7 +70,7 @@ class Tx:
             'client': auths['client'], # the client auth (dict)
             'server': auths['server'], # the server auth (dict)
         }
-        tx_path = f'{tx["client"]["key"]}/{tx["server"]["key"]}/{fn}_{auths["client"]["time"]}'
+        tx_path = f'{mod}/{tx["client"]["key"]}/{fn}_{auths["client"]["time"]}'
         self.store.put(tx_path, tx)
         return tx
 
@@ -102,21 +103,24 @@ class Tx:
             return False
         return True
 
+    def shorten(self, name:str = '12334555', start_len:int = 4, end_len:int = 4, filler:str = '...'):
+        if len(name) <= start_len + end_len + len(filler):
+            return name
+        return name[:start_len] + filler + name[-end_len:]
+
     def txs(self, 
-            search=None,
-            client= None,
             server= None,
+            client= None,
             n = None,
             max_age:float = 3600, 
-            features:list = ['mod', 'fn', 'params', 'cost', 'client'],
-            shorten_features = ['client', 'server'],
+            features:list = ['mod', 'fn', 'params', 'cost', 'client', 'server' ],
             records = False
             ):
         path = None
         if client is not None:
-            path = f'{client}/'
+            path = f'*/{client}'
         if server is not None:
-            path = f'*/{server}' if path is not None else f'/{server}/'
+            path = f'{server}/*' 
         txs = [x for x in self.store.values(path, max_age=max_age) if self.is_tx(x)]  
 
         result = txs[:n]
@@ -125,7 +129,15 @@ class Tx:
             if len(result) == 0:
                 return result
             result = result[features]
+            # configure the time columns
             result['time'] = result['client'].apply(lambda x: float(x['time']))
+            result['time_end'] = result['server'].apply(lambda x: float(x['time']))
+            result['delta'] = result['time_end'] - result['time'] ; 
+            result['age'] = time.time() - result['time']
+            del result['time_end']
+            # now shorten the client and server keys
+            result['server'] = result['server'].apply(lambda x: self.shorten(x['key']))
+            result['client'] = result['client'].apply(lambda x: self.shorten(x['key']))
             result = result.sort_values(by='time', ascending=False)
         return result
 

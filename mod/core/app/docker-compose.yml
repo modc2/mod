@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
     shm_size: 100g
     volumes:
-    - ~/mod/mod/_mods/app:/app
+    - ~/mod/mod/core/app:/app
     - /app/node_modules
     - ~/.mod:/root/.mod
     - ~/mod:/root/mod

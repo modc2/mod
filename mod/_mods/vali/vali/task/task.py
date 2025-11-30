@@ -1,21 +1,9 @@
 class Task:
-
-    def __init__(self, fn='info', params={}):
-        self.fn = fn
-        self.params = params
-        
-    def forward(self,mod, fn=None, params=None):
-        fn = fn or self.fn
-        params = params or self.params or {}
-        mod = self.mod(mod)
+    def forward(self, mod,  fn='info', params={}) -> float:
+        mod = c.connect(mod) if isinstance( mod, str) else mod
         result =  getattr(mod, fn)(**params)
-        return {'fn': fn, 'params': params, 'result': result, 'score': self.score(result)}
-
-    def score(self, x): 
-        if 'url' in x and isinstance(x, dict) :
-            return 1
+        if 'url' in result and isinstance(result, dict) :
+            score =  1
         else:
-            return 0
-
-    def mod(self, mod):
-        return c.connect(mod) if isinstance( mod, str) else mod
+            score =  0
+        return float(score)

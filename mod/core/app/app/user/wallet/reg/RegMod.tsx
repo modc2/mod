@@ -40,7 +40,7 @@ export const RegMod = ( ) => {
       if (!client) return
       try {
         const response = await client.call('mods', {})
-        const localMods = response.filter((mod: ModuleType) => mod.net === 'local')
+        const localMods = response.filter((mod: ModuleType) => mod.network === 'local')
         setLocalModules(localMods)
         if (localMods.length > 0 && !selectedLocalMod) {
           setSelectedLocalMod(localMods[0].name)
@@ -150,7 +150,7 @@ export const RegMod = ( ) => {
       setCollateral(0.0)
       
       const updatedResponse = await client.call('mods', {})
-      const updatedLocalMods = updatedResponse.filter((mod: ModuleType) => mod.net === 'local')
+      const updatedLocalMods = updatedResponse.filter((mod: ModuleType) => mod.network === 'local')
       setLocalModules(updatedLocalMods)
     } catch (err: any) {
       console.error('Module creation error:', err)
@@ -214,7 +214,7 @@ export const RegMod = ( ) => {
         created: timestamp,
         updated: timestamp,
         collateral: collateral,
-        net: 'onchain'
+        network: 'local'
       }
 
       setCreatedMod(newMod)

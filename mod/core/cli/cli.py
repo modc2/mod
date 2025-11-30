@@ -10,41 +10,35 @@ import json
 print = m.print
 class Cli:
     def __init__(self, 
-                key=None, 
+                mod='mod', 
+                fn='forward',
                 default_fn='go',
                 ):
+        self.argv = self.get_argv()
+        self.fn = fn
+        self.mod = mod
+        self.time = m.time()
         self.default_fn = default_fn
 
-    def forward(self, module='mod', fn='forward', argv=None, **kwargs):
+    def get_args(self, argv=None):
         """
-        Forward the function to the module and function
-        
+        Get the arguments passed to the script
         """
+        argv = argv or sys.argv[1:] # remove the first argument (the script name)
+        self.argv =  argv
+        return self.argv
 
-        time_start = time.time()
-
-        # ---- MODULE/FN ----\
-        time_string = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time_start))
-        argv = self.get_argv(argv)
-        module_fn_info = self.get_module_fn(module, fn, argv)
-        if  isinstance(module_fn_info, dict) and 'error' in module_fn_info:
-            self.print(module_fn_info, color='red')
-            return module_fn_info
-        else:
-            argv, module, fn = module_fn_info
-        argv, init_params = self.get_init_params(argv)
-        argv, params = self.get_fn_params(argv)
-        fn_obj = getattr(m.mod(module)(**init_params), fn)
-        print(f'\n--- Executing {module}/{fn} ---', color='blue')
-        # schema = self.get_schema(module, fn)
-        print(f'[{time_string}] Calling({module}/{fn}, params:{params["kwargs"]})', color='blue')
-        result = fn_obj(*params["args"], **params["kwargs"]) if callable(fn_obj) else fn_obj
-        duration = round(time.time() - time_start, 3)
-        self.print(result)
-        print(f'\n--- Completed in {duration}s ---', color='blue')
-
-    def print(self, result:Any, color='green'):
+    def forward(self, argv=None, **kwargs):
+        """
+        Forward the function to the mod and function
+        """
+        self.args =self.get_args(argv)
+        fn = self.get_fn()
+        params = self.get_params()
+        result = fn(*params['args'], **params['kwargs']) if callable(fn) else fn
+        self.duration = m.time() - self.time
         is_generator = self.is_generator(result)
+        print(f'delta({self.duration:.4f}s)', color='green')
         if is_generator:
             for item in result:
                 if isinstance(item, dict):
@@ -52,59 +46,59 @@ class Cli:
                 else:
                     print(item, end='')
         else:
-            print(result, color=color)
+            print(result, color='green')
+        self.result = result
 
-    def get_schema(self, module, fn, verbose=False):
-        try:
-            schema = m.schema(module + '/' + fn)
-        except Exception as e:
-            if verbose:
-                print(f'Error getting schema for {module}/{fn}: {e}', color='red')
-            schema = {}
-        return  schema
-
-    def get_params(self, params:dict, schema:dict):
-        if 'args' and 'kwargs' in params:
-            args = params['args']
-            kwargs = params['kwargs']
-        params = {}
-        input_schema = schema.get('input', {})
-        input_schema_keys = list(input_schema.keys())
-        for i, arg in enumerate(args):
-            if i < len(input_schema):
-                params[input_schema_keys[i]] = arg
-        params = {**params, **kwargs}  # merge args and kwargs
-        return params
-
-    def shorten(self, x:str, n=12):
-        if len(x) > n:
-            return x[:n] +  '...' + x[-n:]
-        return x
-
-    def get_argv(self, argv=None):
+    def get_fn(self) -> tuple:
         """
-        Get the arguments passed to the script
+        Get the function object from the mod and function name
         """
-        argv = argv or sys.argv[1:] # remove the first argument (the script name)
-        return argv
+        argv = self.argv
+        fn = self.fn
+        mod = m.mod(self.mod)()
 
-    def is_generator(self, obj):
-        """
-        Is this shiz a generator dawg?
-        """
-        if isinstance(obj, str):
-            if not hasattr(self, obj):
-                return False
-            obj = getattr(self, obj)
-        if not callable(obj):
-            result = inspect.isgenerator(obj)
+        if len(argv) == 0:
+            # scenario 1: no arguments, use the default function
+            fn = self.default_fn
+        elif len(argv) > 0 :
+            if hasattr(mod, argv[0]):
+                print(f'Found function {argv[0]} in mod {self.mod}', color='green')
+                fn = argv.pop(0)
+            elif argv[0].endswith('/'):
+                print(f'Function name {argv[0]} ends with /, assuming mod name', color='green')
+                # scenario 4: the fn name is of another mod so we will look it up in the fn2mod
+                mod = argv.pop(0)[:-1]
+            elif argv[0].startswith('/'):
+                print(f'Function name {argv[0]} starts with /, assuming fn name', color='green')
+                # scenario 5: the fn name is of another mod so we will look it up in the fn2mod
+                fn = argv.pop(0)[1:]
+            elif len(argv[0].split('/')) == 2:
+                print(f'First argument {argv[0]} looks like a mod/fn path', color='green')
+                # scenario 6: first argument is a path to a function m mod/fn *args **kwargs
+                # first mod/submodule/.../fn
+                mod , fn = argv.pop(0).split('/')
+                mod = m.mod(mod)()
+            elif len(argv[0].split('/')) >= 2:
+                print(f'First argument {argv[0]} looks like a mod/submodule.../fn path', color='green')
+                # scenario 7: first argument is a path to a function m.mod.submodule...fn
+                parts = argv.pop(0).split('/')
+                fn = parts.pop(-1)
+                mod = m.mod(parts.pop(0))()
+                for part in parts:
+                    mod = getattr(mod, part)
+
         else:
-            result =  inspect.isgeneratorfunction(obj)
-        return result
+            # scenario 2: no arguments, use the default function
+            fn = self.default_fn
+        fn_obj = getattr(mod, fn, None)
+        return fn_obj
 
+    def get_params(self) -> tuple:
+        """
+        Get the parameters passed to the function
+        """
 
-    def get_fn_params(self, argv) -> tuple:
-
+        argv = self.argv
         # ---- PARAMS ----
         params = {'args': [], 'kwargs': {}} 
         parsing_kwargs = False
@@ -136,71 +130,40 @@ class Cli:
                                 value = json.loads(value)
                             except:
                                 pass
-                        
                     params['kwargs'][key] = self.str2python(value)
-                
                 else:
-                    
                     assert parsing_kwargs is False, f'Cannot mix positional and keyword arguments {argv}'
                     params['args'].append(self.str2python(arg))        
-        return argv, params
+        return  params
 
-    def get_module_fn(self, module:str, fn:str, argv):
-        
-        module_obj = m.mod(module)()
+    _object_cache = {}
 
-        if len(argv) == 0:
-            # scenario 1: no arguments, use the default function
-            fn = self.default_fn
-        elif len(argv) > 0 :
-            
-            if hasattr(module_obj, argv[0]):
-                fn = argv.pop(0)
-            elif argv[0].endswith('/'):
-                # scenario 4: the fn name is of another module so we will look it up in the fn2mod
-                module = argv.pop(0)[:-1]
-            elif argv[0].startswith('/'):
-                # scenario 5: the fn name is of another module so we will look it up in the fn2mod
-                fn = argv.pop(0)[1:]
-            elif len(argv[0].split('/')) > 1:
-                # scenario 6: first argument is a path to a function m module/fn *args **kwargs
-                module = '/'.join((argv[0].split('/')[:-1]))
-                fn = argv.pop(0).split('/')[-1]
-            elif len(argv) >= 2 and m.mod_exists(argv[0]):
-                # scenario 7: first argument is the module name m module fn *args **kwargs
-                module = argv.pop(0)
-                fn = argv.pop(0)
 
-            else:
-                fn2mod = m.fn2mod(local=False, core=True)
-                if argv[0] in fn2mod:
-                    # scenario 3: first argument is the function name so we will look it up in the fn2mod
-                    print(f'Found function {argv[0]} in module {fn2mod[argv[0]]}')
-                    fn = argv.pop(0)
-                    module = fn2mod[fn]
-                else:
-                    return {'error': f'Function {fn} not found in module {module}'}
+    def shorten(self, x:str, n=12):
+        if len(x) > n:
+            return x[:n] +  '...' + x[-n:]
+        return x
+
+    def get_argv(self, argv=None):
+        """
+        Get the arguments passed to the script
+        """
+        argv = argv or sys.argv[1:] # remove the first argument (the script name)
+        return argv
+
+    def is_generator(self, obj):
+        """
+        Is this shiz a generator dawg?
+        """
+        if isinstance(obj, str):
+            if not hasattr(self, obj):
+                return False
+            obj = getattr(self, obj)
+        if not callable(obj):
+            result = inspect.isgenerator(obj)
         else:
-            # scenario 2: no arguments, use the default function
-            fn = self.default_fn
-        return argv, module, fn
-
-    def get_params_from_args(self, args:List[str],kwargs:List[str], schema:dict):
-        """
-        Get the parameters from the args and kwargs
-        """
-        params = {}
-        for i, arg in enumerate(args):
-            if i < len(schema):
-                params[schema[i]] = self.str2python(arg)
-            else:
-                params[f'arg{i}'] = self.str2python(arg)
-        for key, value in kwargs.items():
-            if key in schema:
-                params[key] = self.str2python(value)
-            else:
-                params[key] = self.str2python(value)
-        return params
+            result =  inspect.isgeneratorfunction(obj)
+        return result
 
     def str2python(self, x):
         x = str(x)
@@ -245,23 +208,3 @@ class Cli:
                 except ValueError:
                     pass
         return x
-
-    def get_init_params(self, argv) -> tuple:
-        """
-        Get the initial parameters from the arguments
-        """
-        new_argv = []
-        init_params = {}
-        for i, arg in enumerate(argv):
-            if arg.startswith('--'):
-                arg = arg[2:]
-                if '=' in arg:
-                    key, value = arg.split('=')
-                    init_params[key] = self.str2python(value)
-                else:
-                    init_params[arg] = True
-            else:
-                new_argv.append(arg)
-        return new_argv, init_params
-
-

@@ -44,7 +44,12 @@ class Client:
             "Accept": "application/json",
             "Content-Type": "application/json",
         })
-        response = requests.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
+        try:
+            response = requests.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
+        except requests.exceptions.ConnectionError as e:
+            mod_name = self.get_mod_from_url(url)
+            url = url.replace('0.0.0.0', mod_name)
+            response = requests.post( url, json=params,  headers=headers, timeout=timeout, stream=stream)
         # step 5: handle the response
         if response.status_code != 200:
             raise Exception(response.text)
@@ -67,9 +72,6 @@ class Client:
         with requests.Session() as conn: 
             response = conn.post( url)
         return response
-
-    
-
 
     def get_key(self,key=None):
         key = key or  self.key
@@ -100,6 +102,7 @@ class Client:
         """
         gets the mod name from the url
         """
+        url = url.split('://')[-1].split('/')[0]
         for mod_name, mod_url in self.namespace.items():
             if mod_url.startswith(url):
                 return mod_name 
@@ -116,7 +119,6 @@ class Client:
             if event_data.startswith('{') and event_data.endswith('}') and 'data' in event_data:
                 event_data = json.loads(event_data)['data']
         return event_data
-
         
     def stream_generator(self, response):
         try:
@@ -153,8 +155,8 @@ class Client:
                         continue
                     if callable(getattr(client, key)):
                         setattr(self, key, getattr(client, key))
-            def _remote_call(self, *args, remote_fn, timeout:int=10, key=None, **kwargs):
-                return self._client.forward(fn=remote_fn, args=args, kwargs=kwargs, key=key, timeout=timeout)
+            def _remote_call(self, remote_fn, timeout:int=10, key=None, **params):
+                return self._client.forward(fn=remote_fn, params=params, key=key, timeout=timeout)
             def __getattr__(self, key):
                 if key in [ '_client', '_remote_call'] :
                     return getattr(self, key)

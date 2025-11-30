@@ -23,9 +23,9 @@ export default function UsersPage() {
   })
   const [columns, setColumns] = useState<number>(() => {
     if (typeof window !== 'undefined') {
-      return parseInt(localStorage.getItem('user_explorer_columns') || '2')
+      return parseInt(localStorage.getItem('user_explorer_columns') || '1')
     }
-    return 2
+    return 1
   })
 
   useEffect(() => {

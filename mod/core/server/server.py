@@ -172,7 +172,7 @@ class Server:
         return request
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
-        return  self.tx.txs( *args, **kwargs)
+        return self.tx.txs( *args, **kwargs)
         
     def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
         if port == None: 
@@ -351,7 +351,6 @@ class Server:
                 return _mod().serve(**extra_params)
         self.prepare_server(mod)
         port = self.get_port(port, mod=mod)
-        print(f'Serving {mod} on port {port}', color='green', verbose=self.verbose)
         params = {**(params or {}), **extra_params}
         if remote:
             return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)

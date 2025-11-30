@@ -4,9 +4,10 @@ import pandas as pd
 from typing import *
 import inspect
 from copy import deepcopy
-
 import mod as c
 print = c.print
+
+
 class Vali:
     endpoints = ['score', 'scoreboard']
     def __init__(self,
@@ -121,17 +122,24 @@ class Vali:
     def forward(self, module:Union[str, dict], **params):
         module = self.get_module(module)
         t0 = c.time()
-        result = self.task.forward( c.client(url=module['url'], key=self.key), **params)
+        try:
+            score = self.task.forward( c.client(url=module['url'], key=self.key), **params)
+            msg = f'SUCCESS({module["name"]} url={module["url"]} score={score})'
+            color = 'green'
+        except Exception as e:
+            msg = f'ERROR({module["name"]} url={module["url"]} error={c.detailed_error(e)})'
+            color = 'red'
+            score = 0
+        if self.verbose:
+            c.print(msg, color=color)
         module['params'] = params
-        module['result'] = result
-        module['score'] =  result.get('score', 0) if isinstance(result, dict) else result
+        module['score'] = score
         module['time'] = c.time()
         module['duration'] = c.time() - t0
         proof_data = c.copy(module)
         module['proof'] = self.auth.headers(proof_data, key=self.key)
         proof = module.get('proof', None)
         assert self.auth.verify(proof, data=proof_data), f'Invalid Proof {proof}'
-
         path = self.get_module_path(module['key'])
         c.put_json(path, module)
         return module
@@ -169,7 +177,6 @@ class Vali:
         self.vote(results)
         if len(results) > 0:
             df = c.df(results)
-            print(results)
             return df[result_features]
         else:
             epoch_info = {

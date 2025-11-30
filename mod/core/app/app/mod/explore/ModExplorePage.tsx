@@ -133,12 +133,12 @@ export default function Modules() {
 
   const filterLocalMods = (list: ModuleType[]) => {
     if (!showLocalOnly) return list
-    return list.filter(mod => mod.net === 'local' || !mod.net)
+    return list.filter(mod => mod.network === 'local' || !mod.network)
   }
 
   const filterOnchainMods = (list: ModuleType[]) => {
     if (!showOnchainOnly) return list
-    return list.filter(mod => mod.net && mod.net !== 'local')
+    return list.filter(mod => mod.network && mod.network !== 'local')
   }
 
   const fetchAll = async () => {

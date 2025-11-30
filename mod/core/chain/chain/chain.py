@@ -37,6 +37,7 @@ class ModChain(Substrate):
             mods = [mod for mod in mods if mod.get('owner') == key_address]
         if search:
             mods = [mod for mod in mods if search in mod['name']]
+    
         return mods
         
     def claim(self, key=None):
@@ -56,6 +57,9 @@ class ModChain(Substrate):
                 'take': take
                 }
         return params
+
+    def name(self):
+        return self.network
 
     def modid(self, name='api', key=None, update=False):
         key = self.key_address(key)
@@ -109,6 +113,19 @@ class ModChain(Substrate):
         return my_balances
     
     _registry = None
+
+    def name2id(self, name:str, key=None, update=False) -> Optional[str]:
+        """
+        Get the module ID for a given module name.
+        Args:
+            name: The name of the module.
+            key: Optional; Key to filter modules by owner.
+            update: If True, forces an update of the registry.
+        Returns:
+            The module ID if found, otherwise None.
+        """
+        registry = self.registry(key=key, update=update).get(key, {})
+        return registry
     def registry(self, key=None, update=False, **kwargs) -> Dict[str, Dict[str, str]]:
         """
         Get the chain registry mapping keys and module names to chain IDs.
@@ -130,8 +147,7 @@ class ModChain(Substrate):
                 key, name = mod['name'].split('/')
                 if not self.valid_ss58_address(key):
                     name, key = mod['name'].split('/')
-                if key not in result:
-                    result[key] = {}
+                result[key] = result.get(key, {})
                 result[key][name] = self.get_chainid(mod)
             self._registry = result
         result = self._registry
@@ -140,7 +156,7 @@ class ModChain(Substrate):
         return result
 
     def get_chainid(self, mod:dict) -> str:
-        mod['chainid'] = f'{self.net()}/{mod["id"]}'
+        mod['chainid'] = mod["id"]
         return mod['chainid']
     def mymods(self, key=None, update=False):
         key = self.key_address(key)

@@ -12,9 +12,10 @@ class Agent:
 
 
     def __init__(self, 
-                #  tools = ["create_file", "rm_file", 'select_files', 'edit_files'],
+                 tools = ["create_file", "rm_file", 'select_files', 'edit_files'],
                  model: str = 'model.openrouter', 
                  memory = 'agent.memory',
+                tools = ['websearch'],
                  **kwargs):
 
         self.tools_prefix = 'tool'
@@ -30,7 +31,7 @@ class Agent:
                 stream: bool = True,
                 verbose: bool = True,
                 steps = 3,
-                tools = ['websearch'],
+                tools = None,
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 safety=False,
@@ -39,6 +40,8 @@ class Agent:
         """
         use this to run the agent with a specific text and parameters
         """
+        tools = tools if tools is not None else self.tools()
+        print("Tools available:", self.tools())
         query = self.preprocess(text, *extra_text)
         for step in range(steps):
             prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       

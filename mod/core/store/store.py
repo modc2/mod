@@ -148,14 +148,13 @@ class Store:
 
     def values(self, path=None, search=None, avoid=None, max_age=None, verbose=False):
         values = []
-        for p in self.paths(path=None, search=search, avoid=avoid, max_age=max_age):
+        for p in self.paths(path=path, search=search, avoid=avoid, max_age=max_age):
             try:
                 values.append( self.get(p))
             except Exception as e:
                 if verbose:
                     print(f'Failed to get {p} error={e}')
         return values
-        return [self.get(p) for p in self.paths(path=None, search=search, avoid=avoid, max_age=max_age)]
     
     def keys(self, search=None, avoid=None, max_age=None):
         """

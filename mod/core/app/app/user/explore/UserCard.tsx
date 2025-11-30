@@ -60,11 +60,11 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
   }
 
   const CardContent = () => (
-    <div className="group relative border rounded-lg overflow-hidden hover:shadow-lg transition-all duration-200 backdrop-blur-sm bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 8px ${glowColor}` }}>
+    <div className="group relative border rounded-lg overflow-hidden hover:shadow-lg transition-all duration-200 backdrop-blur-sm" style={{ borderColor: borderColor, boxShadow: `0 0 8px ${glowColor}`, backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.05)` }}>
       <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur transition-all duration-300 rounded-lg" style={{ background: `linear-gradient(45deg, ${userColor}, transparent, ${userColor})` }} />
       
       <div className="relative z-10 px-4 py-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
             <Link href={`/user/${user.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
               <KeyIcon className="w-10 h-10" style={{ color: userColor }} />
@@ -77,7 +77,7 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
             <CopyButton text={user.key} size="sm" />
           </div>
           
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="flex items-center gap-2 ml-auto">
             {balance !== undefined && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
                 <Coins className="w-5 h-5" style={{ color: userColor }} />
