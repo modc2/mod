@@ -12,18 +12,15 @@ import { useState, useEffect } from 'react' // Added useEffect
 import { createPortal } from 'react-dom' // Added createPortal
 import { useUserContext } from '@/app/context'
 import { GlobeAltIcon } from '@heroicons/react/24/outline'
+// i need a local network icon maybe a home icon or something
+
+// Define the props interface for ModCard
+import { HomeIcon } from '@heroicons/react/24/outline'
+// do a chain icon for the network
 
 interface ModCardProps {
   mod: ModuleType
   card_enabled?: boolean
-}
-
-const buttonColors = {
-  module: { bg: 'rgba(139, 92, 246, 0.2)', border: 'rgba(139, 92, 246, 0.6)' },
-  network: { bg: 'rgba(13, 44, 24, 0.2)', border: 'rgba(1, 80, 30, 0.6)' },
-  cid: { bg: 'rgba(251, 191, 36, 0.2)', border: 'rgba(251, 191, 36, 0.6)' },
-  updated: { bg: 'rgba(59, 130, 246, 0.2)', border: 'rgba(59, 130, 246, 0.6)' },
-  author: { bg: 'rgba(236, 72, 153, 0.2)', border: 'rgba(236, 72, 153, 0.6)' }
 }
 
 export default function ModCard({ mod}: ModCardProps) {
@@ -37,12 +34,31 @@ export default function ModCard({ mod}: ModCardProps) {
     setMounted(true)
   }, [])
 
+
+
+
+
   const modColor = text2color(mod.name || mod.key)
   const userColor = text2color(mod.key)
   const updatedTimeStr = mod.updated ? time2str(mod.updated) : time2str(Date.now())
   
   const { user } = useUserContext()
   const networkColor = mod.network === 'local' ? '#7b740dff' : '#0eafb2ff'
+
+  const network2logocomponent = {
+    'local': <HomeIcon className="h-4 w-4" style={{ color: networkColor }} />,
+    'mainnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />,
+    'testnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />,
+    'devnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />
+  }
+  const networkLogo = network2logocomponent[mod.network] || <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />
+  const buttonColors = {
+    module: { bg: 'rgba(139, 92, 246, 0.2)', border: 'rgba(139, 92, 246, 0.6)' },
+    network: mod.network === 'local' ? { bg: '#978e097d', border:  '#7b740dff'} : { bg: 'rgba(0, 128, 128, 0.2)', border: 'rgba(0, 128, 128, 0.6)' },
+    cid: { bg: 'rgba(251, 191, 36, 0.2)', border: 'rgba(251, 191, 36, 0.6)' } ,
+    updated: { bg: 'rgba(59, 130, 246, 0.2)', border: 'rgba(59, 130, 246, 0.6)' },
+    author: { bg: 'rgba(236, 72, 153, 0.2)', border: 'rgba(236, 72, 153, 0.6)' }
+  }
   const myMod :boolean = user && user.key === mod.key
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -54,11 +70,9 @@ export default function ModCard({ mod}: ModCardProps) {
   }
   
   const rgb = hexToRgb(modColor)
-  const userRgb = hexToRgb(userColor)
   const borderColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`
   const glowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`
 
-  const collateral = mod.collateral ?? 0
   const hasDescription = mod.desc && mod.desc.trim().length > 0
 
   const handleFieldHover = (field: string, value: string, e: React.MouseEvent) => {
@@ -76,7 +90,7 @@ export default function ModCard({ mod}: ModCardProps) {
 
   const getFieldValue = (field: string): string => {
     switch(field) {
-      case 'Module Name': return mod.name
+      case 'Name': return mod.name
       case 'Network': return mod.network
       case 'CID': return mod.cid || ''
       case 'Updated': return updatedTimeStr
@@ -97,22 +111,21 @@ export default function ModCard({ mod}: ModCardProps) {
           <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${modColor}, transparent, ${modColor})` }} />
           
           <div className="relative z-10">
-            <div className="flex items-center gap-3 justify-between">
+            <div className="flex items-center gap-1 justify-between">
               <div 
                 className="flex items-center gap-2 min-w-0 flex-shrink transition-all duration-200 rounded-lg px-2 py-1"
-                onMouseEnter={(e) => handleFieldHover('Module Name', mod.name, e)}
+                onMouseEnter={(e) => handleFieldHover('Name', mod.name, e)}
                 onMouseLeave={handleFieldLeave}
                 onMouseMove={handleFieldMove}
-                style={{ backgroundColor: hoveredField === 'Module Name' ? buttonColors.module.bg : 'transparent' }}
+                style={{ backgroundColor: hoveredField === 'Name' ? buttonColors.module.bg : 'transparent' }}
               >
-                <CubeIcon className="h-10 w-10 flex-shrink-0" style={{ color: '#8b5cf6' }} />
-                <code className="text-2xl font-mono font-bold truncate text-white" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.name}>
+                <code className="text-l font-mono font-bold truncate text-white" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={mod.name}>
                   {mod.name}
                 </code>
                 <CopyButton text={mod.name} size="sm" />
               </div>
 
-              {hasDescription && (
+              {/* {hasDescription && (
                 <div className="relative flex-1 min-w-0 overflow-hidden mx-3" style={{ maxHeight: isHovered ? '120px' : '24px' }}>
                   <div 
                     className="text-sm text-white/60 transition-all duration-300"
@@ -127,7 +140,7 @@ export default function ModCard({ mod}: ModCardProps) {
                     {mod.desc}
                   </div>
                 </div>
-              )}
+              )} */}
 
               <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
                 <div 
@@ -137,10 +150,7 @@ export default function ModCard({ mod}: ModCardProps) {
                   onMouseLeave={handleFieldLeave}
                   onMouseMove={handleFieldMove}
                 >
-                  <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />
-                  <code className="text-lg font-mono font-bold" style={{ color: networkColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }} title={`Network: ${mod.network}`}>
-                    {mod.network}
-                  </code>
+                  {networkLogo}
                   <CopyButton text={String(mod.network)} size="sm" />
                 </div>
 
@@ -176,7 +186,7 @@ export default function ModCard({ mod}: ModCardProps) {
                   onMouseMove={handleFieldMove}
                 >
                   <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
-                    <KeyIcon className="w-10 h-10" style={{ color: '#ec4899' }} />
+                    <KeyIcon className="w-5 h-5" style={{ color: '#ec4899' }} />
                   </Link>
                   <CopyButton text={mod.key} size="sm" />
                   {myMod && (

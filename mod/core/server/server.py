@@ -335,6 +335,7 @@ class Server:
               host = '0.0.0.0',
               volumes = None, 
               public=False,
+              docker_in_docker = False,
               env = None,
               server_mode = 'http',
               daemon = True, 
@@ -353,7 +354,7 @@ class Server:
         port = self.get_port(port, mod=mod)
         params = {**(params or {}), **extra_params}
         if remote:
-            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env)
+            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env, docker_in_docker=docker_in_docker)
         self.serve_api(mod=mod, params=params, key=key, public=public, fns=fns, port=port)
 
     def get_fns(self, 

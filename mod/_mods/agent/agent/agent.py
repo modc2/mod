@@ -12,7 +12,6 @@ class Agent:
 
 
     def __init__(self, 
-                 tools = ["create_file", "rm_file", 'select_files', 'edit_files'],
                  model: str = 'model.openrouter', 
                  memory = 'agent.memory',
                 tools = ['websearch'],
@@ -41,7 +40,6 @@ class Agent:
         use this to run the agent with a specific text and parameters
         """
         tools = tools if tools is not None else self.tools()
-        print("Tools available:", self.tools())
         query = self.preprocess(text, *extra_text)
         for step in range(steps):
             prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       
@@ -76,7 +74,6 @@ class Agent:
         """
         memory = self.memory.get_memory()
         tool_schema = self.get_tool_schema(tools)
-        print("TOOL SCHEMA:", tool_schema, color='cyan')
 
         prompt =  f"""
                 --INPUTS--
@@ -113,7 +110,6 @@ class Agent:
                 if fn_tool is not None:
                     args = [word]
                     result = fn_tool(*args)
-                    m.print(f"Function {fn_tool.__name__} detected with args {args}")
                     query += f"\n# Function {fn_tool.__name__} executed with args {args} -> result: {result}\n"
                     fn_tool = None
 

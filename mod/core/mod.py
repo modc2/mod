@@ -94,6 +94,9 @@ class Mod:
         shortcuts = {k: v for k, v in shortcuts.items() if isinstance(v, str)}
         return shortcuts
 
+    def app(self):
+        return self.serve('app')
+
     def mod(self, 
                 mod: str = 'mod', 
                 params: dict = None,  
@@ -815,6 +818,7 @@ class Mod:
             fns = [f for f in fns if search in f]
         if not include_hidden: 
             fns = [f for f in fns if not f.startswith('__') and not f.startswith('_')]
+        
         return fns
 
     def mods(self, search=None,  startswith=None, endswith=None, **kwargs)-> List[str]:  
@@ -1269,9 +1273,7 @@ class Mod:
             if folders:
                 paths = list(self.folders(path, depth=max_depth))
             else:
-                paths = list(self.files(path, depth=max_depth))
-                print(f'Found {len(paths)} files in {path}')
-                print(f'Found {len(paths)} files in {path}')
+                paths = [p for p in list(self.files(path, depth=max_depth))]
             def process_path(x):
                 for k in ignore_suffixes: 
                     if x.endswith(k):
@@ -1335,12 +1337,10 @@ class Mod:
         if a mod exists in core and mods, the core version will be used
         
         """
-        local_tree = self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {}
-        ext_tree = self.ext_tree(search=search, depth=1, **kwargs)
         return {
-            **ext_tree,
+            **self.ext_tree(search=search, depth=1, **kwargs),
             **self.mods_tree(search=search, depth=depth,  **kwargs),
-            **local_tree,
+            **(self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {}),
             **self.core_tree(search=search, depth=depth, **kwargs),
                 }
 
@@ -1398,6 +1398,21 @@ class Mod:
         files = self.files(dirpath)
         self.tree(update=True)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': self.cid(name)}
+
+    def frompath(self, path  , name=None, base='base', update=True):
+        if path.endswith('/'):
+            path = path[:-1]
+        name = (name or path.split('/')[-1])
+        new_path = self.mods_path + '/' + name.replace('.', '/')
+        files = self.files(path)
+        fromto_map = {}
+        for f in files:
+            new_f = new_path + '/' + f[len(path)+1:]
+            fromto_map[f] = new_f
+            self.put_text(new_f, self.get_text(f))
+        self.tree(update=True)
+        assert self.mod_exists , f'Mod {name} not found after creation from path {path}'
+        return {'name': name, 'path': new_path, 'msg': 'Mod Created from path', 'files': fromto_map}
 
     add_mod = addmod
 
@@ -1477,15 +1492,8 @@ class Mod:
         context = self.context(path=self.core_path)
         return self.mod('agent')().ask(f'given the code {self.code(mod)} and CONTEXT OF COMMUNE {context} anster wht following question: {query}', preprocess=False)
     
-    def ask(self, *args, mod=None, path='./' , stream=1, context=False, **kwargs):
-        # commune_readmes = self.readmes(path=path)
-        if mod != None:
-            args = [self.code(mod)] + list(args)
-        if context:
-            context = self.context(path=path)
-            args = [f'CONTEXT OF COMMUNE {context}'] + list(args)
-        msg = ' '.join(list(map(str, args)))
-        return self.mod("openrouter")().forward(msg, stream=stream, **kwargs) 
+    def ask(self, *args, **kwargs):
+        return self.fn("agent/")(*args, **kwargs) 
 
     def context(self, path=None):
         path = path or self.core_path

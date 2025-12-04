@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  agent:
+    container_name: agent
+    deploy: {}
+    entrypoint: bash -c "m serve port=50130 key=agent remote=0 mod=agent"
+    image: agent
+    ports:
+    - 50130:50130
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/agent:/root/mod/mod/_mods/agent
+    working_dir: /root/mod/mod/_mods/agent
+version: '3.8'

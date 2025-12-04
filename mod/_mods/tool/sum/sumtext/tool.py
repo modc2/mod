@@ -42,22 +42,13 @@ class SumText:
         RESULT_FORMAT={self.result_format}
         '''
         result = self.model.forward( prompt, model=model,  stream=True, temperature=temperature )
-        return self.process_result(result, path=path)
-
-    def process_result(self, response: Union[str, List[str]], path=None ) -> Any:
-        """
-        Process the response from the model, extracting the relevant JSON data.
-        """
         output = ''
-        for ch in response: 
+        for ch in result: 
             print(ch, end='')
             output += ch
         output = self.anchors[0].join(output.split(self.anchors[0])[1:])
         output = self.anchors[1].join(output.split(self.anchors[1])[:-1])
         result =   json.loads(output)
-        if path:
-            c.put(path, result)
-
         return result
 
 

@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  eth:
+    container_name: eth
+    deploy: {}
+    entrypoint: bash -c "m serve port=50148 key=eth remote=0 mod=eth"
+    image: eth
+    ports:
+    - 50148:50148
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/eth:/root/mod/mod/_mods/eth
+    working_dir: /root/mod/mod/_mods/eth
+version: '3.8'

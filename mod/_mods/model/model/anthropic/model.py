@@ -1,7 +1,7 @@
 import mod as c
 import anthropic
             
-class Anthropic(c.Module):
+class Anthropic:
     """
     Anthropic module for managing Claude API interactions within the mod framework
     """

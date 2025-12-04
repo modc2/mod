@@ -5,7 +5,7 @@ import streamlit as st
 from typing import *
 import paramiko
 
-class SSH(c.Module):
+class SSH:
     def __init__(self):
         pass
     def forward(self, *cmd_args, 

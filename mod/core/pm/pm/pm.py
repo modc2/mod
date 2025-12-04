@@ -43,24 +43,18 @@ class PM:
         params = params or {}
         port = port or m.free_port()
         params.update({'port': port, 'key': key or mod, 'remote': False, 'mod': mod})
-        cmd  = f"m serve {self.params2cmd(params)}" 
         dirpath = m.dirpath(mod)
-        if volumes is None:
-            paths =  [m.lib_path, m.storage_path, dirpath]
-            volumes = [f'{p}:{self.convert_docker_path(p)}' for p in paths]
-        cwd = cwd or dirpath
-        working_dir = self.convert_docker_path(dirpath)
-        # run the container
+        volumes = volumes or [f'{p}:{self.convert_docker_path(p)}' for p in  [m.lib_path, m.storage_path, dirpath]]
         result = self.run(name=mod, 
                           image=image, 
                           port=port, 
-                          cmd=cmd, 
+                          cmd=f"m serve {self.params2cmd(params)}" , 
                           daemon=daemon, 
                           env=env, 
                           volumes=volumes, 
-                          cwd=cwd, 
+                          cwd=cwd or dirpath, 
                           docker_in_docker=docker_in_docker,
-                          working_dir=working_dir)
+                          working_dir=self.convert_docker_path(dirpath))
         self.namespace(update=True)
         return result
 
@@ -405,26 +399,25 @@ class PM:
         List all Docker images.
         """
         text = m.cmd('docker images')
-        rows = []
+        results = []
+        cols = []
+        forbidden_terms = ['IMAGE', 'WARNING', '<none>']
         for i, line in enumerate(text.split('\n')):
+            if 'warning:_this_output_is_designed' in line:
+                continue
             if not line.strip():
                 continue
-            if i == 0:
-                cols = [col.strip().lower().replace(' ', '_') for col in line.split('  ') if col]
-            else:
-                rows.append([v.strip() for v in line.split('  ') if v])
-
-        results = pd.DataFrame(rows, columns=cols)
-        if not df:
-            return results['repository'].tolist()
-        else:
-            return results
+            if any([ ft in line for ft in forbidden_terms]):
+                continue
+            image = line.split(' ')[0]
+            results.append(image.split(':')[0])
+        return results
 
     def image_names(self) -> List[str]:
         """
         Get a list of Docker image names.
         """
-        images = self.images(df=False)
+        images = self.images()
         return [img.split(':')[0] for img in images]
 
     def image_exists(self, name: str=None) -> bool:

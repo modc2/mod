@@ -77,7 +77,7 @@ class  Api:
         if fns is not None:
             mod['fns'] =fns
         mod['name'] = mod['name'].split('/')[0]
-        mod['content'] = self.content(mod) if content else self.get(mod['content'])
+        mod['content'] = self.content(mod) if content else mod['content']
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
         self.check_modchain(mod)
@@ -144,7 +144,6 @@ class  Api:
                 content[file] = self.get(cid)
         return content
 
-
     def content_commit(self, mod='app', key=None) -> Dict[str, str]:
         return self.get(self.mod(mod, key=key)['content'])
 
@@ -180,10 +179,6 @@ class  Api:
         registry[key][mod] = cid
         print(f"Updated registry for mod: {mod}, cid: {cid}")
         m.put(self.registry_path, registry)
-        path = self.path('mods')
-        mods = m.get(path, [])
-        mods.append(mod)
-        m.put(path, mods)
         return cid
 
     def add(self, data):
@@ -247,7 +242,7 @@ class  Api:
         else:
             raise ValueError(f'Unsupported URL for reg_from_url: {url}')
         m.ext_tree(update=1)
-        info = self.get_info(mod=mod, key=key, comment=comment, collateral=collateral)
+        info = self.info(mod=mod, key=key, comment=comment, collateral=collateral)
         if payload:
             return info
         if signature == None:
@@ -262,7 +257,7 @@ class  Api:
         return info
 
 
-    def get_info(self, mod='store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
+    def info(self, mod='store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
         """
         Register mod Mod data in IPFS.
         """
@@ -318,12 +313,13 @@ class  Api:
         current_time = m.time()
         key = m.key(key)
         if prev_cid == None:
-            info = self.get_info(mod=mod, key=key, protocal=protocal, comment=comment)
+            info = self.info(mod=mod, key=key, protocal=protocal)
+            self.update_registry(info)
         else:
             prev_info = self.mod(prev_cid, key=key)
-            info = self.get_info(mod=mod, key=key, comment=comment, protocal=protocal)
+            info = self.info(mod=mod, key=key, comment=comment, protocal=protocal)
             info['prev'] = prev_cid
-        info['cid'] = self.update_registry(info) 
+            info['cid'] = self.update_registry(info) 
         return info 
  
     sync_info = {}
@@ -356,9 +352,6 @@ class  Api:
         Args:
         """
         return self.folder_path + '/' + path
-
-
-        
 
     def mods(self, network=None, search=None, key=None, update=False,  **kwargs) -> List[str]:
         """List all registered mods in IPFS.
@@ -614,9 +607,9 @@ class  Api:
         
     user = user
 
-    def edit(self, *query,  mod: str='app',  key=None, **kwargs) -> Dict[str, Any]:
+    def edit(self, *query,  mod: str='app',  key=None) -> Dict[str, Any]:
         text = ' '.join(list(map(str, query)))
-        m.fn('dev/')(mod=mod, text=text, safety=False, **kwargs)
+        m.fn('dev/')(mod=mod, text=text, safety=False)
         return self.reg(mod=mod, key=key, comment=text)
 
     def chat(self, text, *extra_texts, mod: str='model.openrouter',**kwargs) -> Dict[str, Any]:

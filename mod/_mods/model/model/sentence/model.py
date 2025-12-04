@@ -2,7 +2,7 @@
 import mod as c
 from sentence_transformers import SentenceTransformer
 
-class Sentence(c.Module):
+class Sentence:
     def __init__(self, 
                 model = 'sentence-transformers/all-MiniLM-L6-v2',
                 device =  'cuda',
