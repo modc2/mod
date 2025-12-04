@@ -23,20 +23,24 @@ class Server:
         verbose:bool = True, # whether to print the output
         pm = 'pm', # the process manager to use
         serializer = 'serializer', # the serializer to use
+        executor = 'executor', # the executor to use,
         tx = 'tx', # the tx to use
         auth = 'auth', # the auth to use
         sudo_roles = [ 'owner'], # the roles that can access all functions
         run_mode = 'hypercorn',
+        max_timeout = 300,
         **_kwargs):
 
         self.store = m.mod('store')(path)
         self.verbose = verbose
         self.set_pm(pm)
         self.serializer = m.mod(serializer)() # sets the serializer
+        self.executor = m.mod('executor')()
         self.tx = m.mod(tx)()
         self.auth = m.mod(auth)()
         self.sudo_roles = sudo_roles
         self.run_mode = run_mode
+        self.max_timeout = max_timeout
 
     def set_pm(self, pm: Union[str, 'Module', Any], sync_fns = ['logs', 'namespace', 'kill', 'kill_all']):
         self.pm = m.mod(pm)()
@@ -99,12 +103,10 @@ class Server:
             fn_obj = getattr(self.mod, fn) # get the function object from the mod
         return fn_obj
 
-    def forward(self, fn:str, request: Request):
+    def forward(self, **request: dict):
         """
         runt the function
         """
-        print('Server: Forwarding request for function', fn)
-        request = self.gate(fn=fn, request=request) # get the request
         fn = request['fn']
         params = request['params']
         info = self.mod.info()
@@ -127,7 +129,7 @@ class Server:
                     params=request['params'], # params of the inputes
                     client=request['client'],
                     cost=request['cost'],
-                    result=gen_result,
+                    result=server_auth['result'],
                     server= self.auth.generate(data=server_auth, cost=request['cost']), 
                     key=self.key)
             # if the result is a generator, return a stream
@@ -145,7 +147,7 @@ class Server:
             key=self.key)
         return result
 
-    def gate(self, fn:str, request) -> float:
+    def get_request(self, fn:str, request) -> float:
         """
         process the request
         """
@@ -397,11 +399,9 @@ class Server:
             return Response(status_code=204)
         self.app.add_middleware(CORSMiddleware,allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
         def server_fn(fn: str, request: Request):
-            try:
-                result =  self.forward(fn, request)
-            except Exception as e:
-                result = m.detailed_error(e)
-            return result
+            request = self.get_request(fn=fn, request=request) # get the request
+            future = self.executor.submit(self.forward, request, timeout=self.max_timeout)
+            return future.result()
         self.app.post("/{fn}")(server_fn)
         self.show_info()
         self.run_api(self.app, port=port)

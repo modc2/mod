@@ -39,13 +39,17 @@ class Agent:
         """
         use this to run the agent with a specific text and parameters
         """
-        tools = tools if tools is not None else self.tools()
+        if tools == 0:
+            tools = []
+        else:
+            tools = tools if tools  else self.tools()
         query = self.preprocess(text, *extra_text)
         for step in range(steps):
             prompt = self.prepare_prompt(query=query, steps=steps, step=step, tools=tools)       
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
             plan =  self.get_plan(output, safety=safety) 
-            if bool(plan[-1]['tool'].lower() == 'finish'):
+
+            if len(plan) == 0 or  bool(plan[-1]['tool'].lower() == 'finish'):
                 m.print("Agent has finished its plan.", color='green')
                 prompt = 'given the prompt and the completed plan, provide a final concise answer to the user:\n' + prompt + f"\n completed plan: {plan}"
                 return self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
@@ -56,12 +60,15 @@ class Agent:
     def prepare_prompt(self, query: str = 'SAMPLE QUERY', steps: int = 3, step: int = 0, tools=None) -> str: 
         output_format=  """
                 make sure the params is a legit json string within the STEP ANCHORS
-                YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN
+                YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN IF YOU DONT WANT TO USE ANY TOOL JUST RESPOND WITH A <SKIP> 
                 <PLAN>
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 1 
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 2
                 <STEP>JSON(tool:finish, params:dict)</STEP> # FINAL STEP
                 </PLAN>
+
+                or if you dont want to use any tool just respond with <SKIP>
+                <SKIP></SKIP>
         """
 
         goal = """
@@ -141,6 +148,10 @@ class Agent:
         plan = []
         for ch in output:
             text += ch
+            if '<SKIP>' in text:
+                m.print("SKIPPING STEP", color='yellow')
+                text = text.split('<SKIP>')[-1]
+                return []
             m.print(ch, end='')
             if self.is_text_plan_step(text):
                 plan.append(self.load_step(text))

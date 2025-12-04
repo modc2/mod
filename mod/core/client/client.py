@@ -124,6 +124,8 @@ class Client:
         try:
             for chunk in response.iter_lines():
                 yield self.process_stream_line(chunk)
+        except ChunkedEncodingError as e:
+            yield None
         except Exception as e:
             yield m.detailed_error(e)
 
