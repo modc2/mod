@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  ipfs.node:
+    container_name: ipfs.node
+    image: ipfs/go-ipfs:latest
+    networks:
+    - default
+    ports:
+    - 5001:5001
+    - 4001:4001
+    - 8080:8080
+    restart: unless-stopped
+    volumes:
+    - ~/.ipfs/archive:/data/ipfs
+    - ~/.ipfs/data:/data/ipfs
+version: '3.8'

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, x64, modnet-runner]
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/modsdk-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show flake
+        run: nix flake show || true
+
+      - name: Run CI tasks via dev shell
+        run: nix develop -c make ci

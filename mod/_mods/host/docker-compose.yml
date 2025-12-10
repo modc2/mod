@@ -1,0 +1,21 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  host:
+    container_name: host
+    deploy: {}
+    entrypoint: bash -c "m serve port=8000 key=host remote=0 mod=host"
+    image: host
+    ports:
+    - 8000:8000
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/host:/root/mod/mod/_mods/host
+    - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /root/mod/mod/_mods/host
+version: '3.8'

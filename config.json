@@ -1,0 +1,14 @@
+{
+        "name": "mod",
+        "version": "0.1.0",
+        "desc": "A Python package for mod utilities",
+        "shortcuts": {"local": "server"},
+        "routes": {},
+        "expose" : ["forward", "info"],
+        "port_range": [50050, 50150],
+        "port": 50420,
+        "links" :  [
+            "~/commune"
+        ]
+                
+    }

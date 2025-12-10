@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  chat-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: chat-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chat.api:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  chat-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: chat-app
+    ports:
+      - "3000:80"
+    depends_on:
+      - chat-api
+    restart: unless-stopped
+
+networks:
+  default:
+    name: chat-network

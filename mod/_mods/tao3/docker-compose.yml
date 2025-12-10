@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  tao3:
+    container_name: tao3
+    deploy: {}
+    entrypoint: bash -c "m serve port=50124 key=tao3 remote=0 mod=tao3"
+    image: mod:latest
+    ports:
+    - 50124:50124
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/modules/tao3:/root/mod/mod/modules/tao3
+    working_dir: /root/mod/mod/modules/tao3
+version: '3.8'

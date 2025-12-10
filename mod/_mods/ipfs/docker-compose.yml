@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  ipfs:
+    container_name: ipfs
+    deploy: {}
+    entrypoint: bash -c "m serve port=50090 key=ipfs remote=0 mod=ipfs"
+    image: ipfs
+    ports:
+    - 50090:50090
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/ipfs:/root/mod/mod/_mods/ipfs
+    working_dir: /root/mod/mod/_mods/ipfs
+version: '3.8'
