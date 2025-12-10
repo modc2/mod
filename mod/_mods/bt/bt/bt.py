@@ -14,6 +14,7 @@ class Bt:
         """
         self.network = network
         self.subtensor = bt.subtensor(network=network)
+        print(f'Connected to bittensor network: {network}', color='green')
         if archive:
             self.subtensor = bt.subtensor(network=network, archive=True)
 
@@ -26,7 +27,7 @@ class Bt:
         """
         mod =  mod.__dict__
         mod['axon_info'] = mod['axon_info'].__dict__ 
-        mod['prometheus_info'] = mod['prometheus_info'].__dict__ 
+        mod['prometheus_info'] = mod['promzetheus_info'].__dict__ 
         mod['url'] = mod['axon_info']['ip'] + ':' + str(mod['axon_info']['port'])
         return mod
 

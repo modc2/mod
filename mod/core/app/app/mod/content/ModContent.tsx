@@ -1,0 +1,386 @@
+'use client';
+
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { CopyButton } from '@/app/block/ui/CopyButton';
+import {
+  ChevronDownIcon, ChevronRightIcon, DocumentIcon, FolderIcon, FolderOpenIcon,
+  MagnifyingGlassIcon, ClipboardDocumentIcon
+} from '@heroicons/react/24/outline';
+import { ModuleType } from '@/app/types';
+import { useUserContext } from '@/app/context';
+import {
+  FileNode, ui, getFileIcon, getLanguageFromPath, languageColors,
+  formatFileSize, buildFileTree, highlightSearchTerm, FileTreeItem
+} from './utils';
+
+export default function ModContent({ mod }: { mod: ModuleType }) {
+  const files = typeof mod.content === 'object' && mod.content !== null ? mod.content : {};
+  const { client } = useUserContext();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fileSearchTerm, setFileSearchTerm] = useState('');
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileTree, setFileTree] = useState<FileNode[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [searchResults, setSearchResults] = useState<{ path: string; lineNumbers: number[] }[]>([]);
+  const codeRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const tree = buildFileTree(files);
+    setFileTree(tree);
+    const all = new Set<string>();
+    const collect = (nodes: FileNode[]) => nodes.forEach((n) => { if (n.type === 'folder') { all.add(n.path); n.children && collect(n.children); }});
+    collect(tree);
+    setExpandedFolders(all);
+    if (tree.length > 0 && tree[0].type === 'file') setSelectedFile(tree[0].path);
+  }, [files]);
+
+  useEffect(() => {
+    if (!fileSearchTerm) return;
+    const folders = new Set<string>();
+    const check = (n: FileNode, parent = '') => {
+      const cp = parent ? `${parent}/${n.name}` : n.name;
+      if (n.name.toLowerCase().includes(fileSearchTerm.toLowerCase()) || n.path.toLowerCase().includes(fileSearchTerm.toLowerCase())) {
+        const parts = cp.split('/').filter(Boolean);
+        for (let i = 0; i < parts.length - 1; i++) folders.add(parts.slice(0, i + 1).join('/'));
+      }
+      n.children?.forEach((c) => check(c, cp));
+    };
+    fileTree.forEach((n) => check(n));
+    setExpandedFolders((prev) => { const newSet = new Set(prev); folders.forEach(folder => newSet.add(folder)); return newSet; });
+  }, [fileSearchTerm, fileTree]);
+
+  useEffect(() => {
+    if (!searchTerm) { setSearchResults([]); return; }
+    const results: { path: string; lineNumbers: number[] }[] = [];
+    Object.entries(files).forEach(([path, content]) => {
+      if (typeof content !== 'string') return;
+      const lines = content.split('\n');
+      const matchLines: number[] = [];
+      const q = searchTerm.toLowerCase();
+      lines.forEach((line, idx) => { if (line.toLowerCase().includes(q)) matchLines.push(idx + 1); });
+      if (matchLines.length) results.push({ path, lineNumbers: matchLines });
+    });
+    setSearchResults(results);
+    setCollapsedFiles(new Set());
+  }, [searchTerm, files]);
+
+  const fileSections = useMemo(() =>
+    Object.entries(files)
+      .map(([path, content]) => {
+        if (typeof content !== 'string') return null;
+        return {
+          path,
+          name: path.split('/').pop() || path,
+          content,
+          language: getLanguageFromPath(path),
+          cid: content,
+          lineCount: content.split('\n').length,
+          size: formatFileSize(content.length),
+        };
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null),
+    [files]
+  );
+
+  const filteredSections = useMemo(() => {
+    if (!searchTerm) return fileSections;
+    const q = searchTerm.toLowerCase();
+    return fileSections.filter((s) => s && (s.path.toLowerCase().includes(q) || s.content.toLowerCase().includes(q)));
+  }, [fileSections, searchTerm]);
+
+  const stats = useMemo(() => {
+    const totalLines = filteredSections.reduce((sum, s) => sum + s.lineCount, 0);
+    const totalSize = filteredSections.reduce((sum, s) => sum + s.content.length, 0);
+    return { fileCount: filteredSections.length, totalLines, totalSize: formatFileSize(totalSize) };
+  }, [filteredSections]);
+
+  const toggleFile = (path: string) => setCollapsedFiles((prev) => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; });
+  const toggleFolder = (path: string) => setExpandedFolders((prev) => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; });
+
+  const handleFileSelect = async (node: FileNode) => {
+    if (node.type !== 'file') return;
+    setSelectedFile(node.path);
+    if (node.cid && client && !fileContents[node.path]) {
+      try {
+        const res = await client.call('get', { cid: node.cid });
+        setFileContents(prev => ({ ...prev, [node.path]: res }));
+      } catch (err) {
+        console.error('Failed to fetch content for', node.path, err);
+      }
+    }
+    const el = codeRefs.current[node.path];
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const copyFileContent = (node: FileNode) => {
+    if (node.type === 'file' && node.content) {
+      navigator.clipboard.writeText(node.content);
+      return;
+    }
+    if (node.type === 'folder') {
+      const buffer: string[] = [];
+      const walk = (n: FileNode) => {
+        if (n.type === 'file' && n.content) buffer.push(`// ${n.path}\n${n.content}`);
+        n.children?.forEach(walk);
+      };
+      walk(node);
+      navigator.clipboard.writeText(buffer.join('\n\n'));
+    }
+  };
+
+  const renderLineNumbers = (content: string, startLine: number, path: string) => {
+    const lines = content.split('\n');
+    const matches = searchResults.find((r) => r.path === path)?.lineNumbers || [];
+    return (
+      <div className="select-none pr-2 font-mono text-xs text-gray-500">
+        {lines.map((_, i) => {
+          const ln = startLine + i;
+          const isMatch = matches.includes(ln);
+          return (
+            <div key={i} className={`text-right ${isMatch ? 'bg-yellow-400/20 text-yellow-400' : ''}`}>
+              {ln}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderCode = (content: string, language: string, path: string) => {
+    const langColor = languageColors[language] || 'text-gray-300';
+    const lines = content.split('\n');
+    const matches = searchResults.find((r) => r.path === path)?.lineNumbers || [];
+    return (
+      <pre className="micro-scroll micro-edge-x flex-1 overflow-x-auto">
+        <code className={`font-mono text-xs leading-relaxed ${langColor}`}>
+          {lines.map((line, i) => {
+            const ln = i + 1;
+            const isMatch = matches.includes(ln);
+            return (
+              <div key={i} className={isMatch ? 'bg-yellow-400/20' : ''}>
+                {searchTerm ? highlightSearchTerm(line, searchTerm) : line}
+              </div>
+            );
+          })}
+        </code>
+      </pre>
+    );
+  };
+
+  const topFile = fileSections[0];
+
+  return (
+    <div className="overflow-hidden rounded-lg" style={{ backgroundColor: ui.panelAlt }}>
+      <div className="px-4 py-3" style={{ backgroundColor: ui.panel, borderBottom: `1px solid ${ui.border}` }}>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-4 text-xs" style={{ color: ui.textDim }}>
+            <span>{stats.fileCount} files</span>
+            <span>{stats.totalLines} lines</span>
+            <span>{stats.totalSize}</span>
+          </div>
+        </div>
+        <div className="relative">
+          <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search in code content…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-md border bg-transparent pl-10 pr-16 py-2 text-sm outline-none"
+            style={{ borderColor: ui.border, color: ui.text }}
+          />
+          {searchTerm && (
+            <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: ui.textDim }}>
+              {searchResults.length} files, {searchResults.reduce((s, r) => s + r.lineNumbers.length, 0)} matches
+            </div>
+          )}
+        </div>
+      </div>
+
+      {topFile && (
+        <div className="border-b p-4" style={{ borderColor: ui.border, backgroundColor: ui.panelAlt2 }}>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold" style={{ color: ui.text }}>{topFile.path}</span>
+              <span className={`text-xs font-mono ${languageColors[topFile.language]}`}>.{topFile.language}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigator.clipboard.writeText(topFile.cid || '')}
+                className="flex items-center gap-1.5 rounded-md bg-emerald-900/20 px-3 py-1.5 text-xs font-mono text-emerald-400 hover:bg-emerald-900/30 transition-colors"
+                title="Copy file hash"
+              >
+                <ClipboardDocumentIcon className="h-3.5 w-3.5" />
+                Hash
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(topFile.content)}
+                className="flex items-center gap-1.5 rounded-md bg-blue-900/20 px-3 py-1.5 text-xs font-mono text-blue-400 hover:bg-blue-900/30 transition-colors"
+                title="Copy file content"
+              >
+                <ClipboardDocumentIcon className="h-3.5 w-3.5" />
+                Content
+              </button>
+            </div>
+          </div>
+          <div className="rounded-md border p-3 font-mono text-xs" style={{ borderColor: ui.border, backgroundColor: ui.panel, color: ui.textDim }}>
+            <div className="mb-2 break-all">{topFile.cid}</div>
+            <div className="flex gap-4 text-xs opacity-70">
+              <span>{topFile.size}</span>
+              <span>{topFile.lineCount} lines</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex">
+        <div className="micro-scroll-y w-64 max-h-[600px] overflow-y-auto border-r p-3" style={{ borderColor: ui.border, backgroundColor: ui.panelAlt2 }}>
+          <div className="mb-2">
+            <h3 className="mb-2 text-sm font-medium" style={{ color: ui.text }}>File Explorer</h3>
+            <div className="relative">
+              <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Filter files…"
+                value={fileSearchTerm}
+                onChange={(e) => setFileSearchTerm(e.target.value)}
+                className="w-full rounded border bg-transparent pl-6 pr-2 py-1 text-xs outline-none"
+                style={{ borderColor: ui.border, color: ui.text }}
+              />
+            </div>
+            <div className="mt-2 flex gap-1">
+              <button
+                onClick={() => {
+                  const all = new Set<string>();
+                  const collect = (nodes: FileNode[]) => nodes.forEach((n) => { if (n.type === 'folder') { all.add(n.path); n.children && collect(n.children); }});
+                  collect(fileTree);
+                  setExpandedFolders(all);
+                }}
+                className="text-xs text-emerald-400 hover:opacity-80"
+                title="Expand all"
+              >
+                <ChevronDownIcon className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setExpandedFolders(new Set())}
+                className="text-xs text-emerald-400 hover:opacity-80"
+                title="Collapse all"
+              >
+                <ChevronRightIcon className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          <div className="space-y-0">
+            {fileTree.map((node) => (
+              <FileTreeItem
+                key={node.path}
+                node={node}
+                level={0}
+                onSelect={handleFileSelect}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
+                selectedPath={selectedFile || undefined}
+                onCopy={copyFileContent}
+                searchTerm={fileSearchTerm}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="micro-scroll-y max-h-[600px] flex-1 overflow-y-auto">
+          {filteredSections.map((section) => {
+            const isCollapsed = collapsedFiles.has(section.path);
+            const isSelected = selectedFile === section.path;
+            const FileIcon = getFileIcon(section.name);
+            const matches = searchResults.find((r) => r.path === section.path)?.lineNumbers.length || 0;
+            if (selectedFile && !isSelected) return null;
+            if (!client) return null;
+            const content = fileContents[section.path] || section.content;
+
+            return (
+              <div
+                key={section.path}
+                ref={(el) => { codeRefs.current[section.path] = el; }}
+                className={`${isSelected ? 'bg-emerald-900/10' : ''} ${matches ? 'ring-1 ring-yellow-400/30' : ''}`}
+              >
+                <div
+                  className="flex cursor-pointer items-center justify-between bg-black/30 p-3 hover:bg-black/45"
+                  onClick={() => toggleFile(section.path)}
+                >
+                  <div className="micro-row flex items-center gap-2">
+                    {isCollapsed ? <ChevronRightIcon className="h-4 w-4 text-gray-400" /> : <ChevronDownIcon className="h-4 w-4 text-gray-400" />}
+                    <FileIcon className="h-4 w-4 text-gray-400" />
+                    <span className="font-mono text-sm text-emerald-400">
+                      {searchTerm && section.path.toLowerCase().includes(searchTerm.toLowerCase())
+                        ? highlightSearchTerm(section.path, searchTerm)
+                        : section.path}
+                    </span>
+                    <span className={`text-xs ${languageColors[section.language]}`}>{section.language.toUpperCase()}</span>
+                    {!!matches && <span className="text-xs text-yellow-400">{matches} matches</span>}
+                  </div>
+                  <div className="flex items-center gap-3 text-xs" style={{ color: ui.textDim }}>
+                    <span>{section.size}</span>
+                    <span>{section.lineCount} lines</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(section.cid || ''); }}
+                      className="flex items-center gap-1 rounded bg-emerald-900/20 px-2 py-1 text-emerald-400 hover:bg-emerald-900/30"
+                      title="Copy hash"
+                    >
+                      <span className="font-mono">Hash</span>
+                      <ClipboardDocumentIcon className="h-3 w-3" />
+                    </button>
+                    <CopyButton content={content} />
+                  </div>
+                </div>
+
+                {!isCollapsed && (
+                  <div className="flex" style={{ backgroundColor: '#0a0a0a' }}>
+                    {renderLineNumbers(content, 1, section.path)}
+                    <div className="micro-scroll micro-edge-x flex-1 overflow-x-auto p-3">
+                      {renderCode(content, section.language, section.path)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between px-4 py-3" style={{ backgroundColor: ui.panel, borderTop: `1px solid ${ui.border}` }}>
+        <div className="text-xs" style={{ color: ui.textDim }}>
+          {searchTerm && searchResults.length > 0 && (
+            <span>Found "{searchTerm}" in {searchResults.length} files</span>
+          )}
+        </div>
+        <button
+          onClick={() => {
+            const all = filteredSections.map((s) => `// ${s.path}\n${s.content}`).join('\n\n');
+            navigator.clipboard.writeText(all);
+          }}
+          className="flex items-center gap-2 text-xs text-emerald-400 hover:opacity-80"
+        >
+          <DocumentIcon className="h-3 w-3" />
+          Copy All Code
+        </button>
+      </div>
+
+      <style jsx>{`
+        .micro-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+        .micro-scroll:hover { scrollbar-color: rgba(255,255,255,0.14) transparent; }
+        .micro-scroll::-webkit-scrollbar { height: 6px; background: transparent; }
+        .micro-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
+        .micro-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+        .micro-scroll::-webkit-scrollbar-track { background: transparent; }
+        .micro-scroll-y { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+        .micro-scroll-y::-webkit-scrollbar { width: 8px; background: transparent; }
+        .micro-scroll-y::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 9999px; }
+        .micro-scroll-y::-webkit-scrollbar-track { background: transparent; }
+        .micro-edge-x { -webkit-mask-image: linear-gradient(to right, transparent, black 12px, black calc(100% - 12px), transparent); mask-image: linear-gradient(to right, transparent, black 12px, black calc(100% - 12px), transparent); }
+        .micro-row { min-height: 28px; }
+      `}</style>
+    </div>
+  );
+}

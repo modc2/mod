@@ -62,18 +62,14 @@ class Cli:
             fn = self.default_fn
         elif len(argv) > 0 :
             if hasattr(mod, argv[0]):
-                print(f'Found function {argv[0]} in mod {self.mod}', color='green')
                 fn = argv.pop(0)
             elif argv[0].endswith('/'):
-                print(f'Function name {argv[0]} ends with /, assuming mod name', color='green')
                 # scenario 4: the fn name is of another mod so we will look it up in the fn2mod
                 mod = argv.pop(0)[:-1]
             elif argv[0].startswith('/'):
-                print(f'Function name {argv[0]} starts with /, assuming fn name', color='green')
                 # scenario 5: the fn name is of another mod so we will look it up in the fn2mod
                 fn = argv.pop(0)[1:]
             elif len(argv[0].split('/')) == 2:
-                print(f'First argument {argv[0]} looks like a mod/fn path', color='green')
                 # scenario 6: first argument is a path to a function m mod/fn *args **kwargs
                 # first mod/submodule/.../fn
                 mod , fn = argv.pop(0).split('/')
@@ -90,6 +86,7 @@ class Cli:
         else:
             # scenario 2: no arguments, use the default function
             fn = self.default_fn
+        print(f'Function: {mod.__class__.__name__}.{fn}', color='cyan')
         fn_obj = getattr(mod, fn, None)
         return fn_obj
 
@@ -133,7 +130,8 @@ class Cli:
                     params['kwargs'][key] = self.str2python(value)
                 else:
                     assert parsing_kwargs is False, f'Cannot mix positional and keyword arguments {argv}'
-                    params['args'].append(self.str2python(arg))        
+                    params['args'].append(self.str2python(arg))     
+        print('Params:', params, color='yellow')   
         return  params
 
     _object_cache = {}

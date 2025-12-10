@@ -16,6 +16,7 @@ class  Api:
                  'names', 
                  'reg', 
                  'mod',
+                 'get',
                  'users', 
                  'user', 
                  'n', 
@@ -62,7 +63,7 @@ class  Api:
         """
         return bool(self.modcid(mod=mod, key=key))
 
-    def mod(self, mod: m.Mod='store', key=None, schema=False, content=False,  fns=None,**kwargs) -> Dict[str, Any]:
+    def mod(self, mod: m.Mod='store', key=None, schema=False, content=False,  expand = False, fns=None,**kwargs) -> Dict[str, Any]:
         """
         get the mod Mod from IPFS.
         """
@@ -77,7 +78,8 @@ class  Api:
         if fns is not None:
             mod['fns'] =fns
         mod['name'] = mod['name'].split('/')[0]
-        mod['content'] = self.content(mod) if content else self.get(mod['content'])
+        
+        mod['content'] = self.content(mod, expand=expand) if content else mod['content']
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
         self.check_modchain(mod)
@@ -330,6 +332,7 @@ class  Api:
     def sync(self, timeout=300,  fns = ['mods', 'balances']) -> Dict[str, Any]:
         t0 = m.time()
         results =  m.wait([ m.future(getattr(self.chain, fn), dict(update=True), timeout=timeout) for fn in fns ], timeout=timeout)
+        self.users(update=1)
         t1 = m.time()
         self.sync_info = {'time': t1, 'delta': t1 - t0}
         return self.sync_info

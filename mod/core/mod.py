@@ -325,32 +325,16 @@ class Mod:
             recursive:bool=True, 
             search=None, 
             include_hidden=False):
-        dirpath = self.abspath(path)
-        listdir_paths = self.ls(dirpath, include_hidden=include_hidden, depth=depth)
-        dirs = list(filter(lambda f: os.path.isdir(f), listdir_paths))
-        if not include_hidden:
-            dirs = [ d for d in dirs if '/.' not in d ]
-        dirs = self.avoid_folders_filter(dirs)
-        if depth > 1:
-            sub_dirs = []
-            for d in dirs:
-                sub_dirs += self.dirs(d, depth=depth-1, recursive=recursive, include_hidden=include_hidden)
-            dirs += sub_dirs
-            dirs = sorted(list(set(dirs)))
-        else:
-            dirs =  sorted(list(set(dirs)))
-
-        if search :
-            dirs = [d for d in dirs if search in d]
-        return dirs
+        files = self.files(path=path, depth=depth, recursive=recursive, include_hidden=include_hidden, search=search)
+        return sorted(set([os.path.dirname(f) for f in files]))
             
     dirs = folders
-
 
     def avoid_folders_filter(self, paths:List[str]) -> List[str]:
         if len(self.avoid_folders) == 0:
             return paths
         return [f for f in paths if not any(['/'+at in f for at in self.avoid_folders])]
+
 
     def files(self, 
               path='./', 
@@ -378,9 +362,6 @@ class Mod:
         if len(files) == 0 and self.mod_exists(path):
             return self.files(self.dirpath(path), search=search, endswith=endswith, include_hidden=include_hidden, relative=relative, startswith=startswith, depth=depth, **kwargs)
         return files
-
-    def files_size(self):
-        return len(str(self.files()))
 
     def envs(self, key:str = None, **kwargs) -> None:
         return self.get_key(key, **kwargs).envs()
@@ -1405,9 +1386,11 @@ class Mod:
         mod_name = dirpath.split('/')[-1]
         self.cmd(f'git clone {repo} {dirpath}')
         files = self.files(dirpath)
-        self.tree(update=True)
-        assert self.mod_exists , f'Mod {name} not found after creation from git repo {repo}'
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from git repo', 'base': base, 'cid': self.cid(name)}
+        has_python_files = any([f.endswith('.py') for f in files])
+        if not has_python_files:
+            self.put_text( dirpath + '/'+ mod_name +'.py', self.code('base'))
+        self.ext_tree(update=True)
+        return self.files(dirpath)
 
     def addmod(self,  path  , name=None, base='base', update=True):
         """

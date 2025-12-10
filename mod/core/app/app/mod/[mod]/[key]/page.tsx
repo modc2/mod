@@ -5,24 +5,23 @@ import { useParams } from 'next/navigation'
 import { Loading } from '@/app/block/ui/Loading'
 import { ModuleType } from '@/app/types'
 import { useUserContext } from '@/app/context'
-import { ModContent, ModApi, ModApp } from './tabs'
+import { ModContent, ModApi, ModApp } from '@/app/mod'
 import ModCard from '@/app/mod/explore/ModCard'
 import { AlertCircle } from 'lucide-react'
 import { text2color } from '@/app/utils'
 import UpdateMod from '@/app/user/wallet/update/UpdateMod'
 
+const defaultTab = 'content'
+const availableTabs = ['content','api', 'app']
 export default function ModulePage() {
   const params = useParams()
   const { client, user } = useUserContext()
   const modName = params.mod as string
   const modKey = params.key as string
-
-
-
   const [mod, setMod] = useState<ModuleType | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'content' | 'api' | 'app' | 'update'>('api')
+  const [activeTab, setActiveTab] = useState<string>(defaultTab)
   const [myMod, setMyMod] = useState(false)
 
   const moduleColor = mod ? text2color(mod.name || mod.key) : '#ffffff'
@@ -37,7 +36,7 @@ export default function ModulePage() {
           setError('Client not initialized')
           return
         }
-        const data = await client.call('mod', { mod: modName, key: modKey, content: false, schema: true })
+        const data = await client.call('mod', { mod: modName, key: modKey, content: true, schema: true })
         if (user?.key && data.key === user.key) {
           setMyMod(true)
         } else {
@@ -86,12 +85,13 @@ export default function ModulePage() {
 
   const rgb = hexToRgb(moduleColor)
 
-  const availableTabs = myMod ? ['api', 'app', 'update'] : ['api', 'app']
 
+  
   const tabColors = {
     api: { r: 59, g: 130, b: 246 },
     app: { r: 34, g: 197, b: 94 },
-    update: { r: 251, g: 191, b: 36 }
+    update: { r: 251, g: 191, b: 36 },
+    content: { r: 168, g: 85, b: 247 }
   }
 
   return (

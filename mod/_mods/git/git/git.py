@@ -14,6 +14,7 @@ class Git:
 
     def __init__(self, path:str = './'):
         self.path = os.path.abspath(os.path.expanduser(path))
+        
     def is_repo(self, path:str ):
         # has the .git folder
         return c.cmd(f'ls -a {path}').count('.git') > 0

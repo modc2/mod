@@ -11,7 +11,7 @@ interface ModAppProps {
   moduleColor?: string
 }
 
-export function ModApp({ mod, moduleColor= 'white' }: ModAppProps) {
+export default function ModApp({ mod, moduleColor= 'white' }: ModAppProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
