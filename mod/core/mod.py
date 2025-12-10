@@ -1268,7 +1268,7 @@ class Mod:
                 avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
                 ignore_suffixes = ['/src', '/core'],
-                file_types = ['py'],
+                file_types = ['py', 'yaml', 'json', 'yml'],
                 folders:bool = True, 
                 update=False,  
                 **kwargs): 
@@ -1276,7 +1276,6 @@ class Mod:
         get the tree of the mods in the path
         """
         path = path or self.core_path
-        cache_kwarg_keys = ['path', 'max_depth', 'avoid_terms', 'avoid_prefixes', 'avoid_suffixes', 'folders']
         cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}.json')
         tree = self.get(cache_key, None, update=update)
         if tree == None:
@@ -1293,8 +1292,8 @@ class Mod:
                 x_list =  x.split('/')
                 if len(x_list) >=2 :
                     if x_list[-1] == x_list[-2]: 
-                        x = '/'.join(x_list[:-1])
-                # remove avoid terms
+                        x_list = x_list[:-1]
+                x = '/'.join(x_list)
                 return x    
             new_tree = {}
             for p in paths:
@@ -1394,6 +1393,21 @@ class Mod:
         self.cmd(f'cp -r {path} {dirpath}')
         files = self.files(dirpath, relative=True)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
+
+
+    def addgit(self,  repo , name=None, update=True):
+        """
+        make a new mod from a git repo
+        """
+        name = name or repo.split('/')[-1].replace('.git', '')
+        mods_path = self.ext_path
+        dirpath = mods_path + '/' + name.replace('.', '/')
+        mod_name = dirpath.split('/')[-1]
+        self.cmd(f'git clone {repo} {dirpath}')
+        files = self.files(dirpath)
+        self.tree(update=True)
+        assert self.mod_exists , f'Mod {name} not found after creation from git repo {repo}'
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from git repo', 'base': base, 'cid': self.cid(name)}
 
     def addmod(self,  path  , name=None, base='base', update=True):
         """
@@ -1682,7 +1696,8 @@ class Mod:
         """
         Main function to run the mod
         """
-        self.mod('cli')().forward()
+        from .cli.cli import Cli
+        return Cli().forward()
 
 
     def hasattr(self, mod, k):

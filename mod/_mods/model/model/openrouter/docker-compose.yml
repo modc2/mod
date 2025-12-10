@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  openrouter:
+    container_name: openrouter
+    deploy: {}
+    entrypoint: bash -c "m serve port=50099 key=openrouter remote=0 mod=openrouter"
+    image: mod:latest
+    ports:
+    - 50099:50099
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/model/model/openrouter:/root/mod/mod/_mods/model/model/openrouter
+    working_dir: /root/mod/mod/_mods/model/model/openrouter
+version: '3.8'
