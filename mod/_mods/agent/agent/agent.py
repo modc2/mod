@@ -14,7 +14,7 @@ class Agent:
     def __init__(self, 
                  model: str = 'model.openrouter', 
                  memory = 'agent.memory',
-                tools = ['websearch'],
+                tools = [] ,# ['websearch'],
                  **kwargs):
 
         self.tools_prefix = 'tool'
@@ -60,15 +60,12 @@ class Agent:
     def prepare_prompt(self, query: str = 'SAMPLE QUERY', steps: int = 3, step: int = 0, tools=None) -> str: 
         output_format=  """
                 make sure the params is a legit json string within the STEP ANCHORS
-                YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN IF YOU DONT WANT TO USE ANY TOOL JUST RESPOND WITH A <SKIP> 
                 <PLAN>
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 1 
                 <STEP>JSON(tool:str, params:dict)</STEP> # STEP 2
                 <STEP>JSON(tool:finish, params:dict)</STEP> # FINAL STEP
                 </PLAN>
 
-                or if you dont want to use any tool just respond with <SKIP>
-                <SKIP></SKIP>
         """
 
         goal = """
@@ -81,7 +78,8 @@ class Agent:
         """
         memory = self.memory.get_memory()
         tool_schema = self.get_tool_schema(tools)
-
+        if len(tool_schema) == 0:
+            return query
         prompt =  f"""
                 --INPUTS--
                 query={query} # THE QUERY YOU ARE TRYING TO ANSWER

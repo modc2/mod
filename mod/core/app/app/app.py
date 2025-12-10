@@ -36,5 +36,3 @@ class App:
     def edit(self, text='make the chat interface  ', *extra_text, **kwargs):
         text = text + 'given '  + m.code('api') + ' as the model in it has ' + m.code('model.openrouter') + ' mod. '
         return m.edit(mod='app', *text, **kwargs)
-    
-    

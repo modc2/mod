@@ -733,6 +733,12 @@ class Mod:
 
     fnschema = fnschema
 
+    def args(self, fn:str = '__init__', public=True, avoid_arguments = ['self', 'cls'],**kwargs)->dict:
+        '''
+        Get function schema of function in self
+        '''   
+        return self.fnschema(fn, public=public, avoid_arguments=avoid_arguments, **kwargs)['input']
+
     def schema(self, obj = None , fns=None, public=False,  verbose=False, **kwargs)->dict:
         '''
         Get function schema of function in self
@@ -1152,7 +1158,11 @@ class Mod:
         '''
         try:
             mod = self.get_name(mod)
-            mod_exists = mod in self.tree()
+            tree = self.tree()
+            mods = list(tree.keys())
+            mod_exists = mod in mods
+            if not mod_exists:
+                mod_exists = len([m for m in mods if mod in m]) == 1
         except Exception as e:
             mod_exists =  False
         if not mod_exists:

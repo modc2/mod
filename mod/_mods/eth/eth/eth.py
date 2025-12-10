@@ -163,7 +163,7 @@ class Eth:
                                   kwargs=kwargs)
         import os
         import subprocess
-        from .key import Key
+        # from .key import Key
 
         if c.port_used(port):
             c.kill_port(port)
@@ -179,7 +179,7 @@ class Eth:
         # Get all keys from storage
         
         # Prepare account strings for Ganache
-        key2privatekey = Key().key2privatekey()
+        # key2privatekey = Key().key2privatekey()
         balance = balance * 10**18
         # Join account strings
         accounts_param = ' '.join([f'--account=0x{acc},{balance}' for acc in key2privatekey.values()])

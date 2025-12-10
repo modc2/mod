@@ -358,8 +358,6 @@ class  Api:
         return self.folder_path + '/' + path
 
 
-        
-
     def mods(self, network=None, search=None, key=None, update=False,  **kwargs) -> List[str]:
         """List all registered mods in IPFS.
         
@@ -387,6 +385,8 @@ class  Api:
             mods = [m for m in mods if search in m['name']]
         if network != None:
             mods = [m for m in mods if m.get('network', 'local') == network]
+
+        mods = [m for m in mods if isinstance(m, dict)]
         return mods
 
     def check_modchain(self, mod:dict):
