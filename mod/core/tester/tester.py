@@ -62,8 +62,6 @@ class Test:
         for fn in dir(obj):
             if fn.startswith('test_') or fn == 'test':
                 fn_obj = getattr(obj, fn)
-
-
                 test_fns.append(fn_obj)
         return test_fns
 

@@ -32,7 +32,6 @@ class Key(Account):
             self.private_key = private_key
 
     def resolve_message(self, message) :
-        message = c.python2str(message)
         if isinstance(message, str):
             message = encode_defunct(text=message)
         assert isinstance(message, SignableMessage)
@@ -75,12 +74,12 @@ class Key(Account):
     def sign(self, message: Union[SignableMessage,str, dict], key=None) -> Dict:
         key = self.resolve_key(key)
         signable_message = self.resolve_message(message)
-        signed_msg =  Account.sign_message(signable_message, self.private_key)
+        signed_msg =  Account.sign_message(signable_message, key.private_key)
         return {
             'message': signed_msg.message_hash.hex(),
             'signature': signed_msg.signature.hex(),
             'vrs': [signed_msg.v, signed_msg.r, signed_msg.s],
-            'address': self.address
+            'address': key.address
         }
 
 
@@ -124,6 +123,7 @@ class Key(Account):
         verify message from the signature or vrs based on the address
         '''
         recovered_address = Account.recover_message(message, vrs=vrs, signature=signature)
+        print(recovered_address, address)
         return bool(recovered_address == address)
     
     
@@ -284,7 +284,8 @@ class Key(Account):
         return  c.get_json(path)
     
     
-    def get_key(self, name, password=None, create_if_not_found=True):
+    def get_key(self, name = None, password=None, create_if_not_found=True):
+        name = name or 'mod'
         path = self.get_key_path(name)
         if not os.path.exists(path):
             if create_if_not_found:
@@ -295,10 +296,10 @@ class Key(Account):
         if password != None:
             # assert data['encrypted']
             data['private_key'] = c.decrypt(data['private_key'], password=password)
-            
         key =  self.from_dict(data)
         key.name = name
         return key
+    key = get_key
     
     def add_key(self, name, key=None, refresh=False, password=None):
         data = Key(key).to_dict()

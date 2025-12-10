@@ -1268,6 +1268,7 @@ class Mod:
                 avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
                 ignore_suffixes = ['/src', '/core'],
+                file_types = ['py'],
                 folders:bool = True, 
                 update=False,  
                 **kwargs): 
@@ -1281,7 +1282,8 @@ class Mod:
         if tree == None:
             path = path or self.core_path
             if folders:
-                paths = list(self.folders(path, depth=max_depth))
+                is_in_file_types = lambda f: any([f.endswith('.' + ft) for ft in file_types])
+                paths = [os.path.dirname(f) for f in list(self.files(path, depth=max_depth)) if is_in_file_types(f)]
             else:
                 paths = [p for p in list(self.files(path, depth=max_depth))]
             def process_path(x):
