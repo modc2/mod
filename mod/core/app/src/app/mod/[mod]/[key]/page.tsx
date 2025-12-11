@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { Loading } from '@/block/ui/Loading'
-import { ModuleType } from '@/block/types'
-import { useUserContext } from '@/block/context'
-import { ModContent, ModApi, ModApp } from '@/block/mod'
-import ModCard from '@/block/mod/explore/ModCard'
+import { Loading } from '@/bloc/ui/Loading'
+import { ModuleType } from '@/bloc/types'
+import { useUserContext } from '@/bloc/context'
+import { ModContent, ModApi, ModApp } from '@/bloc/mod'
+import ModCard from '@/bloc/mod/ModCard'
 import { AlertCircle } from 'lucide-react'
-import { text2color } from '@/block/utils'
-import UpdateMod from '@/block/user/wallet/update/UpdateMod'
+import { text2color } from '@/bloc/utils'
+import UpdateMod from '@/bloc/user/wallet/update/UpdateMod'
 
 const defaultTab = 'content'
 const availableTabs = ['content','api', 'app']

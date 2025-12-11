@@ -1,0 +1,19 @@
+{
+  "name": "churn-staking",
+  "version": "1.0.0",
+  "description": "Churn mechanism with multiplier curve and stake-time rewards",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:ganache": "hardhat run scripts/deploy.js --network ganache",
+    "deploy:base": "hardhat run scripts/deploy.js --network base"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.19.0",
+    "dotenv": "^16.3.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}

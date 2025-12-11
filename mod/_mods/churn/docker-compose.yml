@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports:
+      - "8545:8545"
+    command: >
+      --mnemonic "test test test test test test test test test test test junk"
+      --networkId 1337
+      --chainId 1337
+      --accounts 10
+      --defaultBalanceEther 1000
+      --gasLimit 12000000
+      --gasPrice 20000000000
+    networks:
+      - churn-network
+
+  hardhat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    working_dir: /app
+    depends_on:
+      - ganache
+    environment:
+      - GANACHE_URL=http://ganache:8545
+      - NETWORK=${NETWORK:-ganache}
+    networks:
+      - churn-network
+    command: tail -f /dev/null
+
+networks:
+  churn-network:
+    driver: bridge

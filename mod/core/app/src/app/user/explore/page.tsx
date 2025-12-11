@@ -1,11 +1,11 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Loading } from '@/block/ui/Loading'
-import { UserCard } from './UserCard'
-import { UserCardSettings } from './UserCardSettings'
-import { UserType } from '@/block/types'
-import { useUserContext } from '@/block/context'
+import { Loading } from '@/bloc/ui/Loading'
+import { UserCard } from '@/bloc/user/UserCard'
+import { UserCardSettings } from '@/bloc/user/UserCardSettings'
+import { UserType } from '@/bloc/types'
+import { useUserContext } from '@/bloc/context'
 import { X, RotateCcw, Users } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'balance' | 'modules'
@@ -120,7 +120,7 @@ export default function UsersPage() {
 
         {!loading && users.length === 0 && !error && (
           <div className="mx-auto max-w-4xl text-center py-12">
-            <div className="mb-6 inline-block p-6 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-2xl border-2 border-purple-500/40 shadow-xl backdrop-blur-xl">
+            <div className="mb-6 inline-bloc p-6 bg-gradient-to-br from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-2xl border-2 border-purple-500/40 shadow-xl backdrop-blur-xl">
               <Users className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">

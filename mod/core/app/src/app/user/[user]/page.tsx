@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { useUserContext } from '@/block/context'
-import { UserType } from '@/block/types'
-import { Loading } from '@/block/ui/Loading'
-import { UserCard } from '@/block/user/explore/UserCard'
+import { useUserContext } from '@/bloc/context'
+import { UserType } from '@/bloc/types'
+import { Loading } from '@/bloc/ui/Loading'
+import { UserCard } from '@/bloc/user/UserCard'
 
 // 
-import  Transfer  from '@/block/user/wallet/transfer'
-import RegMod from '@/block/user/wallet/reg'
-import UpdateMod from '@/block/user/wallet/update'
-import ClaimMod from '@/block/user/wallet/claim'
-import {UserModules} from '@/block/user/wallet/usermods/UserModules'
+import  Transfer  from '@/bloc/user/wallet/transfer'
+import RegMod from '@/bloc/user/wallet/reg'
+import UpdateMod from '@/bloc/user/wallet/update'
+import ClaimMod from '@/bloc/user/wallet/claim'
+import {UserModules} from '@/bloc/user/wallet/usermods/UserModules'
 
 
 type TabType = 'mods' | 'sign' | 'transfer' | 'register' | 'update' | 'claim'
@@ -108,7 +108,7 @@ export default function UserPage() {
       <main className="flex-1 px-6 py-8">
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="mb-8">
-            <UserCard user={userData} mode="page" />
+            <UserCard user={userData}/>
           </div>
 
           <div className="flex flex-wrap gap-3 mb-6">

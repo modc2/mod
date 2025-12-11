@@ -113,7 +113,7 @@ class Tx:
             client= None,
             n = None,
             max_age:float = 3600, 
-            features:list = ['mod', 'fn', 'params', 'cost', 'client', 'server' ],
+            features:list = ['mod', 'fn',  'cost', 'client', 'age', 'delta', 'params'],
             records = False
             ):
         path = None
@@ -128,7 +128,6 @@ class Tx:
             result = m.df(txs)
             if len(result) == 0:
                 return result
-            result = result[features]
             # configure the time columns
             result['time'] = result['client'].apply(lambda x: float(x['time']))
             result['time_end'] = result['server'].apply(lambda x: float(x['time']))
@@ -138,7 +137,10 @@ class Tx:
             # now shorten the client and server keys
             result['server'] = result['server'].apply(lambda x: self.shorten(x['key']))
             result['client'] = result['client'].apply(lambda x: self.shorten(x['key']))
+            result['age'] = result['age'].apply(lambda x: str(int(x)) + 's')
+            result['delta'] = result['delta'].apply(lambda x: str(round(x, 2)) + 's')
             result = result.sort_values(by='time', ascending=False)
+            result = result[features]
         return result
 
     def n(self):

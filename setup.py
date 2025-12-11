@@ -27,32 +27,39 @@ if os.path.exists(mod_path):
 
 # Core dependencies
 install_requires = [
-    'rich>=13.6.0',
+    # network
     'fastapi>=0.115.13',
     'sse-starlette>=2.1,<2.3.7',
     'paramiko>=3.5.1',
     'nest_asyncio>=1.6.0',
     'uvicorn>=0.22.0',  # updated to avoid Python 3.12 loop_factory issues
     'hypercorn>=0.14.0',
-    'scalecodec>=1.2.10,<1.3',
-    'aiofiles>=24.1.0',
     'aiohttp>=3.12.13',
-    'openai>=1.91.0',
-    'torch>=2.7.1',
-    'safetensors>=0.5.3',
     'msgpack_numpy>=0.4.8',
-    'munch>=4.0.0',
     'netaddr>=1.3.0',
-    'loguru>=0.7.3',
     'pyyaml>=6.0.2',
-    'pandas>=2.3.0',
-    'python-dotenv',
     'websocket-client>=0.57.0',
-    'base58>=1.0.3',
     'certifi>=2019.3.9',
     'idna>=2.1.0',
     'requests>=2.21.0',
+
+    # misc
+    'aiofiles>=24.1.0',
+    'loguru>=0.7.3',
     'xxhash>=1.3.0',
+    'python-dotenv',
+    'pandas>=2.3.0',
+    'rich>=13.6.0',
+    'munch>=4.0.0',
+
+    # ai
+    'safetensors>=0.5.3',
+    'openai>=1.91.0',
+    'torch>=2.7.1',
+
+    # crypot
+    'scalecodec>=1.2.10,<1.3',
+    'base58>=1.0.3',
     'ecdsa>=0.17.0',
     'eth-keys>=0.2.1',
     'eth_utils>=1.3.0',
@@ -85,7 +92,7 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='developers',
-    author_email='copyleftlabs@proton.me',
+    author_email='bloc@proton.me',
     url='https://modchain.org/',
     project_urls={
         'Homepage': 'https://modchain.ai/',

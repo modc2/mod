@@ -97,46 +97,32 @@ class Mod:
     def app(self):
         return self.serve('app')
 
+    _mod_cache = {}
     def mod(self, 
                 mod: str = 'mod', 
                 params: dict = None,  
                 cache=True, 
                 verbose=False, 
                 update=True,
-                unique_feature  = '__modname__',
                 **kwargs) -> str:
 
         """
         imports the mod core
         """
         # Load the mod
-        mod = mod or 'mod'
-        if mod in [self.name, 'mod', 'mod']:
+        mod = mod or self.name
+        if mod in [self.name]:
             return Mod
         if not isinstance(mod, str):
             return mod
         name = self.get_name(mod)
-
-        if not hasattr(self, '_mod_cache'):
-            self._mod_cache = {}
-
         if name in self._mod_cache:
             return self._mod_cache[name]
         obj =  self.anchor_object(name)
-        if not hasattr(obj, unique_feature):
-            setattr(obj, unique_feature, name)
         self._mod_cache[name] = obj
         return obj
 
     mod = mod
-
-    def text2color(self, text:str='info') -> str:
-        # i want to convert he text into a color through maping the string to a real value and mapping that to a color
-
-        real_value = sum([ord(c) for c in text])
-
-        color_value = real_value % 256
-        return f'\033[38;5;{color_value}m{text}\033[0m'
 
     def forward(self, fn:str='info', params:dict=None, auth=None) -> Any:
         params = params or {}
@@ -158,7 +144,7 @@ class Mod:
     def path(self, obj=None) -> str:
         return inspect.getfile(self.mod(obj))
 
-    def about(self, mod, query='what is this?', *extra_query):
+    def about(self, mod = 'store', query='what is this?', *extra_query):
         """
         Ask a question about the mod
         """
@@ -359,8 +345,6 @@ class Mod:
             files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
         if search != None:
             files = [f for f in files if search in f]
-        if len(files) == 0 and self.mod_exists(path):
-            return self.files(self.dirpath(path), search=search, endswith=endswith, include_hidden=include_hidden, relative=relative, startswith=startswith, depth=depth, **kwargs)
         return files
 
     def envs(self, key:str = None, **kwargs) -> None:
@@ -1243,8 +1227,7 @@ class Mod:
     def get_tree(self, 
                 path:Optional[str]=None, 
                 search:Optional[str]=None, 
-                depth=2, 
-                max_depth=7,
+                depth=8, 
                 avoid_terms = ['src', 'mods', '_mods', 'core', 'core'],
                 avoid_prefixes = ['__',],
                 avoid_suffixes = ['__', '/utils'],
@@ -1257,15 +1240,16 @@ class Mod:
         get the tree of the mods in the path
         """
         path = path or self.core_path
-        cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}.json')
+        cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}/depth_{depth}.json')
         tree = self.get(cache_key, None, update=update)
         if tree == None:
+            
             path = path or self.core_path
+            paths = [p for p in list(self.files(path, depth=depth))]
             if folders:
                 is_in_file_types = lambda f: any([f.endswith('.' + ft) for ft in file_types])
-                paths = [os.path.dirname(f) for f in list(self.files(path, depth=max_depth)) if is_in_file_types(f)]
-            else:
-                paths = [p for p in list(self.files(path, depth=max_depth))]
+                paths = [os.path.dirname(f) for f in list(self.files(path, depth=depth)) if is_in_file_types(f)]
+                
             def process_path(x):
                 for k in ignore_suffixes: 
                     if x.endswith(k):
@@ -1274,6 +1258,8 @@ class Mod:
                 if len(x_list) >=2 :
                     if x_list[-1] == x_list[-2]: 
                         x_list = x_list[:-1]
+                    if x_list[-1] in x_list[-3]:
+                        x_list = x_list[:-2]
                 x = '/'.join(x_list)
                 return x    
             new_tree = {}
@@ -1295,10 +1281,8 @@ class Mod:
             self.put(cache_key, tree)
 
         tree = dict(sorted(tree.items()))
-        if depth < max_depth: 
-            tree = {k:v for k,v in tree.items() if k.count('.') < depth}
         if search:
-            tree = {k:v for k,v in tree.items() if search in k}
+            self.search_tree(search=search, tree=tree, **kwargs)
         return tree
 
     def core_tree(self, search=None, depth=1,  **kwargs): 
@@ -1316,7 +1300,27 @@ class Mod:
     def local_tree(self, search=None, depth=1, **kwargs):
         return self.get_tree(os.getcwd(), depth=depth,  search=search, **kwargs )
 
-    def tree(self, search=None, depth=8, **kwargs):
+    def search_tree(self, search=None, tree=None, **kwargs) -> Dict[str, str]:
+        """
+        search the tree for a mod
+        """
+        
+        tree = tree or self.tree(**kwargs)
+        if search == None:
+            return tree
+        search = self.shortcuts.get(search, search)
+        search = search.lower().replace('/', '.')
+        tree_options = [k for k in tree.keys() if all([part in k for part in search.split('.')])]
+        tree_options = sorted(tree_options, key=lambda x: len(x))
+        result =  {k: tree[k] for k in tree_options}
+        return result
+
+
+    def tree(self, 
+            search=None, 
+            depth=5, 
+            ext=True, 
+            **kwargs):
         """
         get the full tree of the mods, local and core
         ORDER OF PRIORITY:
@@ -1329,36 +1333,25 @@ class Mod:
         if a mod exists in core and mods, the core version will be used
         
         """
-        return {
-            **self.ext_tree(search=search, depth=1, **kwargs),
-            **self.mods_tree(search=search, depth=depth,  **kwargs),
-            **(self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {}),
-            **self.core_tree(search=search, depth=depth, **kwargs),
-                }
+        tree = {}
+        if ext: 
+            tree =  self.ext_tree(search=search, depth=1, **kwargs)
+        tree.update(self.mods_tree(search=search, depth=depth,  **kwargs))
+        tree.update(self.local_tree(search=search, depth=depth, **kwargs) if os.getcwd() != self.lib_path else {})
+        tree.update(self.core_tree(search=search, depth=depth, **kwargs))
+        return tree
 
-    def dirpath(self, mod=None, depth=6, relative=False) -> str:
+    def dirpath(self, mod=None, relative=False) -> str:
         """
         get the directory path of the mod
         """
-        if mod == None or mod == 'mod':
+        if mod == None or mod == self.name:
             return self.lib_path
-        mod = self.shortcuts.get(mod, mod)
-        mod = mod.lower().replace('/', '.')
-        def get_dirpath_from_tree( update=False):
-            tree = self.tree(folders=True, depth=depth, update=update)
-            tree_options = [k for k in tree.keys() if all([part in k for part in mod.split('.')])]
-            tree_options = sorted(tree_options, key=lambda x: len(x))
-            if len(tree_options) > 0:
-                dirpath = tree[tree_options[0]]  
-            else:
-                dirpath = None
-            return dirpath
-
-        dirpath = get_dirpath_from_tree(update=False)
-        if dirpath == None:
-            dirpath = get_dirpath_from_tree(update=True)
-            if dirpath == None:
-                raise Exception(f'Module {mod} not found')
+        tree = self.tree()
+        tree_options = list(self.search_tree(search=mod, tree=tree).values())
+        if len(tree_options) == 0:
+            assert False, f'Mod {mod} not found in tree {list(tree.keys())}'
+        dirpath = tree_options[0]
         # remove any trailing repeats of the mod name in the dirpath
         if relative:
             dirpath = os.path.relpath(dirpath, self.lib_path)
@@ -1733,3 +1726,7 @@ class Mod:
         """
         t = t or time.time()
         return time.strftime(fmt, time.localtime(t))
+
+    def tool(self, tool_name: str='cmd', *args, **kwargs) -> Any:
+        return self.mod(tool_name)(*args, **kwargs).forward
+

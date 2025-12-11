@@ -1,0 +1,24 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  app:
+    container_name: app
+    deploy: {}
+    entrypoint: bash -c "npm run dev"
+    environment:
+    - NEXT_PUBLIC_API_URL=http://0.0.0.0:8000
+    image: app:latest
+    ports:
+    - 3000:3000
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod/mod/core/app/src/app:/app
+    - /app/node_modules
+    - ~/.mod:/root/.mod
+    - ~/mod:/root/mod
+    - /app/.next
+    working_dir: /app
+version: '3.8'

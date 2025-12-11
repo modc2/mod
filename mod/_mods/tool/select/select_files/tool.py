@@ -24,6 +24,7 @@ class SelectFiles:
               files = None, 
               n: int = 10, 
               trials = 3,
+              number_lines = True,
               mod=None,
               content: bool = True,
               model='anthropic/claude-sonnet-4.5',
@@ -61,6 +62,11 @@ class SelectFiles:
         else: 
             results = files
         print(f"Selected files >>> ",files, color="cyan")
+        if number_lines and isinstance(results, dict):
+            for f in results:
+                lines = results[f].split('\n')
+                numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
+                results[f] = '\n'.join(numbered_lines)  
         return results
 
     def get_text(self, path: str) -> str:

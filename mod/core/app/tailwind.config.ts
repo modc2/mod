@@ -5,7 +5,7 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/block/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/bloc/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
@@ -21,7 +21,7 @@ const config: Config = {
       },
       animation: {
         'spin-reverse': 'spin-reverse 1s linear infinite',
-        'spin-slow': 'spin-slow 1s linear infinite',
+        'spin-slow': 'spin-slow 3s linear infinite',
       },
       keyframes: {
         'spin-reverse': {

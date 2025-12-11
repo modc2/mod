@@ -2,15 +2,15 @@
 
 import './globals.css'
 import { Inter } from 'next/font/google'
-import { Sidebar } from '@/block/sidebar/Sidebar'
-import { Header } from '@/block/header/Header'
-import { UserProvider } from '@/block/context'
-import { SearchProvider } from '@/block/context/SearchContext'
-import { SidebarProvider } from '@/block/context/SidebarContext'
-import { SplitScreenProvider, useSplitScreenContext } from '@/block/context/SplitScreenContext'
+import { Sidebar } from '@/bloc/sidebar/Sidebar'
+import { Header } from '@/bloc/header/Header'
+import { UserProvider } from '@/bloc/context'
+import { SearchProvider } from '@/bloc/context/SearchContext'
+import { SidebarProvider } from '@/bloc/context/SidebarContext'
+import { SplitScreenProvider, useSplitScreenContext } from '@/bloc/context/SplitScreenContext'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
-import { SplitScreenControls } from '@/block/components/SplitScreenControls'
+import { SplitScreenControls } from '@/bloc/components/SplitScreenControls'
 
 const inter = Inter({ subsets: ['latin'] })
 

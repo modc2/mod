@@ -35,10 +35,17 @@ class Cli:
         self.args =self.get_args(argv)
         fn = self.get_fn()
         params = self.get_params()
+        self.run_fn(fn, params)
+
+
+    def run_fn(self, fn:Any, params:dict):
+        """
+        Run
+        """
+
         result = fn(*params['args'], **params['kwargs']) if callable(fn) else fn
         self.duration = m.time() - self.time
         is_generator = self.is_generator(result)
-        print(f'delta({self.duration:.4f}s)', color='green')
         if is_generator:
             for item in result:
                 if isinstance(item, dict):
@@ -48,6 +55,7 @@ class Cli:
         else:
             print(result, color='green')
         self.result = result
+        return result
 
     def get_fn(self) -> tuple:
         """
@@ -130,8 +138,8 @@ class Cli:
                     params['kwargs'][key] = self.str2python(value)
                 else:
                     assert parsing_kwargs is False, f'Cannot mix positional and keyword arguments {argv}'
-                    params['args'].append(self.str2python(arg))     
-        print('Params:', params, color='yellow')   
+                    params['args'].append(self.str2python(arg))    
+ 
         return  params
 
     _object_cache = {}

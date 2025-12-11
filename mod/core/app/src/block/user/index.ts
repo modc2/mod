@@ -1,1 +1,0 @@
-export type { UserType } from '@/block/types'
