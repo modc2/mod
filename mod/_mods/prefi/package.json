@@ -1,0 +1,28 @@
+{
+  "name": "prediction-market-contract",
+  "version": "1.0.0",
+  "description": "24-Hour Prediction Market Smart Contract for Ethereum and Base",
+  "main": "index.js",
+  "scripts": {
+    "test:ganache": "node test/test_ganache.js",
+    "test:base": "node test/test_base.js",
+    "ganache": "ganache --deterministic --accounts 10 --defaultBalanceEther 100"
+  },
+  "keywords": [
+    "ethereum",
+    "smart-contract",
+    "prediction-market",
+    "defi",
+    "base",
+    "ganache"
+  ],
+  "author": "DeFi Team",
+  "license": "MIT",
+  "dependencies": {
+    "web3": "^4.0.0",
+    "solc": "^0.8.0"
+  },
+  "devDependencies": {
+    "ganache": "^7.9.0"
+  }
+}
