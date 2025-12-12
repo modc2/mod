@@ -1282,7 +1282,7 @@ class Mod:
 
         tree = dict(sorted(tree.items()))
         if search:
-            self.search_tree(search=search, tree=tree, **kwargs)
+            return self.search_tree(search=search, tree=tree, **kwargs)
         return tree
 
     def core_tree(self, search=None, depth=1,  **kwargs): 
@@ -1367,6 +1367,19 @@ class Mod:
         self.cmd(f'cp -r {path} {dirpath}')
         files = self.files(dirpath, relative=True)
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
+
+    def addcid(self, name='churn',  cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4'):
+        api = c.mod('api')()
+        file2text =  api.content(cid, expand=True)
+        path = self.mods_path + '/' + name.replace('.', '/')
+        for k,v in file2text.items():
+            new_path = path + '/' + k
+            print(f'Creating {new_path} for mod {name}')
+            self.put_text(new_path, v)
+        self.tree(update=True)
+        assert self.mod_exists , f'Mod {name} not found after creation from cid {cid}'
+        return {'name': name, 'path': path, 'msg': 'Mod Created from cid', 'cid': cid}
+
 
 
     def addgit(self,  repo , name=None, update=True):
