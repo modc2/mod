@@ -1,1 +1,0 @@
-export type { UserType } from '@/app/types'

@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  hardhat-node:
+    build: .
+    container_name: zcon-hardhat-node
+    ports:
+      - "8545:8545"
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+      - ./artifacts:/app/artifacts
+      - ./cache:/app/cache
+    networks:
+      - zcon-network
+    command: npm run node
+
+  deployer:
+    build: .
+    container_name: zcon-deployer
+    depends_on:
+      - hardhat-node
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+      - ./artifacts:/app/artifacts
+    networks:
+      - zcon-network
+    command: sh -c "sleep 10 && npm run deploy"
+
+networks:
+  zcon-network:
+    driver: bridge

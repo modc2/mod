@@ -6,10 +6,10 @@ services:
   dev:
     container_name: dev
     deploy: {}
-    entrypoint: bash -c "m serve port=50114 key=dev remote=0 mod=dev"
+    entrypoint: bash -c "m serve port=50147 key=dev remote=0 mod=dev"
     image: mod:latest
     ports:
-    - 50114:50114
+    - 50147:50147
     restart: unless-stopped
     shm_size: 100g
     volumes:

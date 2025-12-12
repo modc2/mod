@@ -1,0 +1,23 @@
+{
+  "name": "zcon-privacy-coin",
+  "version": "2.0.0",
+  "description": "ZCon Privacy Coin V2 with Merkle Trees and Relayer Network",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:v2": "hardhat test test/ZconPrivacyTokenV2.test.js",
+    "deploy": "hardhat run scripts/deploy.js --network localhost",
+    "deploy:v2": "hardhat run scripts/deploy-v2.js --network localhost",
+    "node": "hardhat node"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.3",
+    "ethers": "^6.7.1",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.17.2",
+    "chai": "^4.3.7"
+  }
+}

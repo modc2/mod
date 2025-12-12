@@ -1,108 +1,129 @@
 import mod as c
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 print = c.print
 
 class Tool:
-    """Simple file editor with anchor-based content replacement."""
-    
+    """Advanced file editor with line-based content replacement and robust error handling."""
     
     def forward(
         self,
         path: str,
-        content: str = "",
-        start_anchor: str = "",
-        end_anchor: str = "",
-        enforce_non_duplicate: bool = True,
+        content: str,
+        start_line: int,
+        end_line: int,
+        backup: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Edit file by replacing content between anchors.
+        Edit file by replacing content between line numbers with enhanced safety.
         
-        WARNING: This will overwrite file content between anchors.
         Args:
-            path: File path to edit
+            path: File path to edit (absolute or relative)
             content: New content to insert
-            start_anchor: Start marker
-            end_anchor: End marker
+            start_line: Start line number (1-indexed)
+            end_line: End line number (1-indexed, inclusive)
+            backup: Create backup before editing
             
         Returns:
-            Dict with success status and content
+            Dict with success status, message, and updated content
         """
-        path = os.path.abspath(path)
-        
-        if not os.path.exists(path):
-            return {"success": False, "message": f"File not found: {path}"}
-        
-        if not start_anchor or not end_anchor:
-            return {"success": False, "message": "Both anchors required"}
-        
-        text = self.get_text(path)
-
-        if enforce_non_duplicate:
-            assert text.count(start_anchor) == 1, "Duplicate start anchors found"
-            assert text.count(end_anchor) == 1, "Duplicate end anchors found" 
-
-        start_idx = text.find(start_anchor)
-
-        if start_idx == -1:
-            return {"success": False, "message": "Start anchor not found"}
-        
-        end_idx = text.find(end_anchor)
-        if end_idx == -1:
-            return {"success": False, "message": "End anchor not found"}
-        
-        start_pos = start_idx + len(start_anchor)
-        new_text = text[:start_pos] + content + text[end_idx:]
-        
-        self.put_text(path, new_text)
-        
-        return {
-            "success": True,
-            "message": "File edited",
-            "content": new_text
-        }
-
-
+        try:
+            path = os.path.abspath(path)
+            
+            if not os.path.exists(path):
+                return {"success": False, "message": f"File not found: {path}", "content": None}
+            
+            if start_line is None or end_line is None:
+                return {"success": False, "message": "Both start_line and end_line are required", "content": None}
+            
+            # Create backup if requested
+            if backup:
+                backup_path = f"{path}.backup"
+                with open(path, 'r', encoding='utf-8') as src:
+                    with open(backup_path, 'w', encoding='utf-8') as dst:
+                        dst.write(src.read())
+            
+            text = self.get_text(path)
+            lines = text.splitlines(keepends=True)
+            
+            # Validate line ranges
+            if not (1 <= start_line <= len(lines)):
+                return {"success": False, "message": f"start_line {start_line} out of range (1-{len(lines)})", "content": None}
+            if not (1 <= end_line <= len(lines)):
+                return {"success": False, "message": f"end_line {end_line} out of range (1-{len(lines)})", "content": None}
+            if start_line > end_line:
+                return {"success": False, "message": "start_line must be <= end_line", "content": None}
+            
+            # Convert to 0-indexed
+            start_idx = start_line - 1
+            end_idx = end_line
+            
+            # Replace lines with proper newline handling
+            inserted_content = content if content.endswith('\n') else content + '\n'
+            new_lines = lines[:start_idx] + [inserted_content] + lines[end_idx:]
+            new_text = ''.join(new_lines)
+            
+            self.put_text(path, new_text)
+            
+            return {
+                "success": True,
+                "message": f"Successfully edited {path}: replaced lines {start_line}-{end_line}",
+                "content": new_text,
+                "lines_replaced": end_line - start_line + 1
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Error editing file: {str(e)}", "content": None}
+    
     def put_text(self, path: str, content: str) -> None:
-        """Write content to file."""
-        if not os.path.exists(os.path.dirname(path)):
-            os.makedirs(os.path.dirname(path))
+        """Write content to file with directory creation."""
         path = os.path.abspath(path)
+        dir_path = os.path.dirname(path)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
+    
     def get_text(self, path: str) -> str:
-        """Read file content."""
+        """Read file content with error handling."""
         path = os.path.abspath(path)
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
-
-    def test(self, test_file='~/.mod/edit_file/test.py') -> None:
-        """Test the Tool functionality."""
+    
+    def test(self, test_file: str = '~/.mod/edit_file/test.py') -> Dict[str, Any]:
+        """Comprehensive test suite for Tool functionality."""
         test_file = os.path.expanduser(test_file)
-        sample_content = """# Sample File
-        # START ANCHOR
-        Old Content
-        # END ANCHOR
-        """
-
-        self.put_text(test_file, sample_content)
-        result = self.forward(
-            path=test_file,
-            content="New Content",
-            start_anchor="# START ANCHOR",
-            end_anchor="# END ANCHOR"
-        )
-
-        assert result["success"], f"Test failed: {result['message']}"
-        updated_text = self.get_text(test_file)
-        assert "New Content" in updated_text, "Content not updated correctly"
-        print("Test passed. File content updated successfully.")
-        os.remove(test_file)
-        assert not os.path.exists(test_file), "Test file not deleted"
-        return {"success": True, "message": "All tests passed."}
-
+        sample_content = "# Sample File\nLine 2\nLine 3\nLine 4\nLine 5\n"
         
-
-
+        try:
+            # Test 1: Basic edit
+            self.put_text(test_file, sample_content)
+            result = self.forward(
+                path=test_file,
+                content="New Content\n",
+                start_line=2,
+                end_line=4
+            )
+            
+            assert result["success"], f"Test failed: {result['message']}"
+            updated_text = self.get_text(test_file)
+            assert "New Content" in updated_text, "Content not updated correctly"
+            
+            # Test 2: Single line edit
+            result2 = self.forward(
+                path=test_file,
+                content="Single Line Edit",
+                start_line=1,
+                end_line=1
+            )
+            assert result2["success"], "Single line edit failed"
+            
+            # Cleanup
+            if os.path.exists(test_file):
+                os.remove(test_file)
+            
+            print("✓ All tests passed successfully!")
+            return {"success": True, "message": "All tests passed."}
+        except Exception as e:
+            return {"success": False, "message": f"Test failed: {str(e)}"}
