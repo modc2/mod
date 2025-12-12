@@ -1,0 +1,502 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{PreFi Prediction Market}
+\lhead{Technical Documentation}
+\cfoot{\thepage}
+
+\title{\textbf{PreFi: Decentralized Prediction Market Platform}\\\large Complete Technical Documentation}
+\author{PreFi Development Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+
+PreFi is a comprehensive decentralized prediction market platform built on Ethereum-compatible blockchains. The system enables users to lock liquidity and predict asset price movements over 24-hour periods, with automatic settlement and proportional reward distribution to profitable traders.
+
+\subsection{Key Features}
+\begin{itemize}
+    \item \textbf{24-Hour Lock Period}: Positions automatically settle after exactly one day
+    \item \textbf{Binary Predictions}: Users predict UP or DOWN for any asset
+    \item \textbf{Uniswap V3 Integration}: Real-time price feeds from decentralized exchanges
+    \item \textbf{USD Profit Calculation}: All profits calculated in USD value
+    \item \textbf{Treasury Management}: Configurable percentage locked for protocol use
+    \item \textbf{Token Minting/Burning}: Dynamic tokenomics based on trade performance
+    \item \textbf{Modular Architecture}: Super extensible and configurable design
+\end{itemize}
+
+\section{System Architecture}
+
+\subsection{Core Components}
+
+The PreFi platform consists of four main implementations, each building upon the previous:
+
+\begin{enumerate}
+    \item \textbf{Base Prediction Market}: Core prediction logic with manual price feeds
+    \item \textbf{Uniswap V3 Integration}: Automated price feeds from Uniswap V3 pools
+    \item \textbf{Treasury System}: USD profit calculation with treasury allocation
+    \item \textbf{Ultimate System}: Complete tokenomics with minting/burning mechanisms
+\end{enumerate}
+
+\subsection{Smart Contract Architecture}
+
+\begin{lstlisting}[language=Solidity, caption=Position Structure]
+enum Direction { UP, DOWN }
+
+struct Position {
+    address user;
+    uint256 amount;
+    Direction direction;
+    uint256 entryPrice;
+    uint256 startTime;
+    uint256 exitTime;
+    uint256 exitPrice;
+    bool settled;
+    address token0;
+    address token1;
+    uint24 poolFee;
+    uint256 usdValueAtEntry;
+}
+\end{lstlisting}
+
+\section{Mathematical Models}
+
+\subsection{Profit Calculation}
+
+For a position with direction $d \in \{UP, DOWN\}$, entry price $P_e$, exit price $P_x$, and amount $A$:
+
+\[
+\text{Price Change} = \begin{cases}
+P_x - P_e & \text{if } d = UP \\
+P_e - P_x & \text{if } d = DOWN
+\end{cases}
+\]
+
+\[
+\text{Profit} = \frac{A \times \text{Price Change}}{P_e}
+\]
+
+\subsection{Reward Distribution}
+
+Given total winning amount $W$, total losing amount $L$, and reward pool percentage $r$:
+
+\[
+\text{Reward Pool} = L \times r
+\]
+
+For each winner with amount $w_i$:
+
+\[
+\text{Reward Share}_i = \frac{w_i}{W} \times \text{Reward Pool}
+\]
+
+\[
+\text{Total Return}_i = w_i + \text{Reward Share}_i
+\]
+
+\subsection{Treasury Allocation}
+
+With treasury percentage $t$:
+
+\[
+\text{Treasury Amount} = L \times t
+\]
+
+\[
+\text{Winner Pool} = L \times (1 - t)
+\]
+
+\subsection{Tokenomics}
+
+\textbf{Minting Formula:}
+\[
+\text{Tokens Minted} = \text{USD Profit} \times \text{Mint Ratio}
+\]
+
+\textbf{Burning Formula:}
+\[
+\text{Tokens Burned} = \min(\text{USD Loss} \times \text{Burn Ratio}, \text{User Balance})
+\]
+
+\section{Implementation Details}
+
+\subsection{Base Prediction Market}
+
+\begin{lstlisting}[language=Python, caption=Opening a Position]
+from prefi.prediction_mod import PredictionMarketMod
+
+market = PredictionMarketMod(config={'reward_pool_percentage': 0.95})
+
+# Deposit funds
+market.execute(
+    action='deposit',
+    user_address='0x123...',
+    amount=1000.0
+)
+
+# Open position
+result = market.execute(
+    action='open_position',
+    user_address='0x123...',
+    amount=100.0,
+    direction='up',
+    current_price=50000.0,
+    asset='BTC'
+)
+\end{lstlisting}
+
+\subsection{Uniswap V3 Integration}
+
+The Uniswap V3 module provides real-time price feeds from decentralized liquidity pools:
+
+\begin{lstlisting}[language=Solidity, caption=Price Feed Function]
+function getUniswapV3Price(
+    address token0,
+    address token1,
+    uint24 fee
+) public view returns (uint256) {
+    address poolAddress = uniswapFactory.getPool(token0, token1, fee);
+    require(poolAddress != address(0), "Pool does not exist");
+    
+    IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
+    (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+    
+    uint256 price = uint256(sqrtPriceX96) * uint256(sqrtPriceX96) 
+                    * 1e18 >> (96 * 2);
+    return price;
+}
+\end{lstlisting}
+
+\subsection{Treasury System}
+
+The treasury system calculates profits in USD and allocates a configurable percentage to the protocol treasury:
+
+\begin{lstlisting}[language=Python, caption=Treasury Configuration]
+mod = TreasuryPredictionMod({
+    'treasury_percentage': 15,  # 15% to treasury
+    'reward_pool_percentage': 85,  # 85% to winners
+    'usd_token': '0xUSDC...',
+    'token_mint_ratio': 1000,
+    'token_burn_ratio': 1000
+})
+\end{lstlisting}
+
+\subsection{Ultimate System}
+
+The ultimate system combines all features with dynamic tokenomics:
+
+\begin{lstlisting}[language=Python, caption=Complete Trading Flow]
+# Initialize
+mod = UltimatePredictionMod({
+    'treasury_percentage': 10,
+    'token_mint_ratio': 100
+})
+
+# Open position
+result = mod.execute(
+    action='open_position',
+    user_address='0xAlice',
+    amount=500.0,
+    direction='up',
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+# Settle position (after 24 hours)
+result = mod.execute(
+    action='settle_position',
+    position_id=position_id,
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+if result['profitable']:
+    print(f"Tokens Minted: {result['tokens_minted']}")
+else:
+    print(f"Tokens Burned: {result['tokens_burned']}")
+\end{lstlisting}
+
+\section{Deployment Guide}
+
+\subsection{Network Addresses}
+
+\textbf{Ethereum Mainnet:}
+\begin{itemize}
+    \item Factory: \texttt{0x1F98431c8aD98523631AE4a59f267346ea31F984}
+    \item Router: \texttt{0xE592427A0AEce92De3Edee1F18E0157C05861564}
+    \item Quoter: \texttt{0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6}
+\end{itemize}
+
+\textbf{Base Mainnet:}
+\begin{itemize}
+    \item Factory: \texttt{0x33128a8fC17869897dcE68Ed026d694621f6FDfD}
+    \item Router: \texttt{0x2626664c2603336E57B271c5C0b26F421741e481}
+    \item Quoter: \texttt{0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a}
+\end{itemize}
+
+\subsection{Deployment Steps}
+
+\begin{enumerate}
+    \item Install dependencies: \texttt{npm install @uniswap/v3-core @openzeppelin/contracts}
+    \item Configure network in \texttt{hardhat.config.js}
+    \item Deploy contract: \texttt{npx hardhat run scripts/deploy.js --network base}
+    \item Verify on block explorer
+    \item Configure treasury and tokenomics parameters
+\end{enumerate}
+
+\section{Security Considerations}
+
+\subsection{Smart Contract Security}
+
+\begin{itemize}
+    \item \textbf{Reentrancy Protection}: All state changes before external calls
+    \item \textbf{Access Controls}: Owner-only configuration functions
+    \item \textbf{Input Validation}: Comprehensive parameter checking
+    \item \textbf{Treasury Cap}: Maximum 50\% allocation to prevent abuse
+    \item \textbf{Token Burning Limit}: Cannot burn more than user balance
+\end{itemize}
+
+\subsection{Price Feed Security}
+
+\begin{itemize}
+    \item Prices sourced from trusted Uniswap V3 pools
+    \item Pool existence verification before position opening
+    \item No reliance on external oracles for core functionality
+\end{itemize}
+
+\subsection{Audit Recommendations}
+
+Before production deployment:
+\begin{enumerate}
+    \item Comprehensive smart contract audit by reputable firm
+    \item Formal verification of critical functions
+    \item Extensive testing on testnets
+    \item Bug bounty program
+    \item Gradual rollout with position size limits
+\end{enumerate}
+
+\section{Gas Optimization}
+
+\subsection{Estimated Gas Costs}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|}
+\hline
+\textbf{Operation} & \textbf{Gas Cost} \\
+\hline
+Deposit & 50,000 \\
+Open Position & 180,000 \\
+Settle Position & 150,000 \\
+Distribute Rewards & 250,000 \\
+Withdraw & 45,000 \\
+\hline
+\end{tabular}
+\caption{Estimated gas costs for main operations}
+\end{table}
+
+\subsection{Optimization Techniques}
+
+\begin{itemize}
+    \item Batch operations where possible
+    \item Efficient storage patterns
+    \item Minimal external calls
+    \item Optimized loop structures
+\end{itemize}
+
+\section{Configuration Parameters}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|l|}
+\hline
+\textbf{Parameter} & \textbf{Default} & \textbf{Range} \\
+\hline
+treasury\_percentage & 10 & 0-50 \\
+reward\_pool\_percentage & 90 & 50-100 \\
+token\_mint\_ratio & 1000 & 1-10000 \\
+token\_burn\_ratio & 1000 & 1-10000 \\
+prediction\_duration\_hours & 24 & 1-168 \\
+\hline
+\end{tabular}
+\caption{Configurable system parameters}
+\end{table}
+
+\section{Testing}
+
+\subsection{Local Testing with Ganache}
+
+\begin{lstlisting}[language=bash, caption=Running Tests]
+# Start Ganache
+ganache --deterministic --accounts 10 --defaultBalanceEther 100
+
+# Run tests
+cd test
+node test_ganache.js
+\end{lstlisting}
+
+\subsection{Test Coverage}
+
+\begin{itemize}
+    \item Position opening and closing
+    \item Profit/loss calculation
+    \item Reward distribution
+    \item Treasury allocation
+    \item Token minting and burning
+    \item Edge cases and error handling
+\end{itemize}
+
+\section{API Reference}
+
+\subsection{Core Actions}
+
+\textbf{deposit}: Add funds to user balance
+
+\textbf{open\_position}: Create new 24-hour prediction
+
+\textbf{settle\_position}: Settle position after duration
+
+\textbf{distribute\_rewards}: Distribute to profitable traders
+
+\textbf{get\_balance}: Check user's available balance
+
+\textbf{get\_positions}: View active positions
+
+\textbf{get\_token\_balance}: Check user's token balance
+
+\textbf{get\_treasury\_balance}: View treasury balance
+
+\section{Future Enhancements}
+
+\begin{itemize}
+    \item Multi-timeframe predictions (1h, 12h, 48h, 1w)
+    \item Advanced order types (limit, stop-loss)
+    \item Liquidity mining incentives
+    \item Governance token integration
+    \item Cross-chain deployment
+    \item Mobile application
+    \item Advanced analytics dashboard
+\end{itemize}
+
+\section{Conclusion}
+
+PreFi represents a comprehensive, modular prediction market platform that combines the security of smart contracts with the efficiency of Uniswap V3 price feeds. The system's treasury management and tokenomics create sustainable incentives for long-term protocol growth while rewarding skilled traders.
+
+\subsection{Key Advantages}
+
+\begin{itemize}
+    \item Fully decentralized and trustless
+    \item Real-time price feeds from Uniswap V3
+    \item Sustainable treasury model
+    \item Dynamic tokenomics
+    \item Super modular and extensible
+    \item Battle-tested on multiple networks
+\end{itemize}
+
+\appendix
+
+\section{Code Examples}
+
+\subsection{Complete Multi-User Scenario}
+
+\begin{lstlisting}[language=Python]
+from prefi.ultimate_prediction_mod import UltimatePredictionMod
+
+# Initialize
+mod = UltimatePredictionMod({'treasury_percentage': 10})
+
+# Alice predicts UP
+mod.execute(action='deposit', user_address='0xAlice', amount=1000)
+alice_pos = mod.execute(
+    action='open_position',
+    user_address='0xAlice',
+    amount=500,
+    direction='up',
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+# Bob predicts DOWN
+mod.execute(action='deposit', user_address='0xBob', amount=1000)
+bob_pos = mod.execute(
+    action='open_position',
+    user_address='0xBob',
+    amount=500,
+    direction='down',
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+# After 24 hours, settle and distribute
+alice_result = mod.execute(
+    action='settle_position',
+    position_id=alice_pos['position_id'],
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+bob_result = mod.execute(
+    action='settle_position',
+    position_id=bob_pos['position_id'],
+    token0='0xWETH',
+    token1='0xUSDC',
+    fee=3000
+)
+
+dist = mod.execute(
+    action='distribute_rewards',
+    asset='WETH/USDC',
+    settlement_time='2024-01-01T00:00:00'
+)
+\end{lstlisting}
+
+\section{License}
+
+MIT License - See contract headers for details.
+
+\end{document}

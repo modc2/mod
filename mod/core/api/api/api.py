@@ -67,8 +67,6 @@ class  Api:
         """
         get the mod Mod from IPFS.
         """
-        # if not self.exists(mod=mod, key=key):
-        #     self.reg(mod=mod, key=key)
         cid = self.modcid(mod=mod, key=key, default=mod)
         mod =  self.get(cid) if cid else None
         if mod == None:
@@ -78,7 +76,6 @@ class  Api:
         if fns is not None:
             mod['fns'] =fns
         mod['name'] = mod['name'].split('/')[0]
-        
         mod['content'] = self.content(mod, expand=expand) if content else mod['content']
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
@@ -371,7 +368,7 @@ class  Api:
         mods = m.get(path, None, update=update)
   
         if mods == None: 
-            self.chain.mods(update=update, **kwargs)
+            self.chain.mods( **kwargs)
             registry = self.registry()
             key = self.key_address(key)
             if key != 'all':
