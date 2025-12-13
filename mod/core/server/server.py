@@ -30,7 +30,7 @@ class Server:
         run_mode = 'hypercorn',
         max_timeout = 300,
         **_kwargs):
-
+        self.loop = asyncio.get_event_loop()
         self.store = m.mod('store')(path)
         self.verbose = verbose
         self.set_pm(pm)
@@ -122,7 +122,7 @@ class Server:
                     print(item, end='')
                     server_auth['result'].append(item)
                     yield item
-                # save the transaction between the headers and server for future auditing
+                # save the transaction between the h and server for future auditing
                 self.tx.forward(
                     mod=info["name"],
                     fn=request['fn'], # 
@@ -135,7 +135,7 @@ class Server:
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-            # save the transaction between the headers and server for future auditing
+            # save the transaction between the h and server for future auditing
             server_auth['result'] = result
         tx = self.tx.forward(
             mod=info["name"],
@@ -147,31 +147,36 @@ class Server:
             key=self.key)
         return result
 
-    def get_request(self, fn:str, request) -> float:
+    def preprocess(self, fn:str, request) -> dict:
         """
         process the request
         """
+
+        # step 1 : verify the ehaders
         if fn == '':
             fn = 'info'
-        headers = dict(request.headers) 
+        h = dict(request.headers) 
         info = self.mod.info()   
-        cost = float(info['schema'].get(fn, {}).get('cost', 0))
-        client_cost = float(headers.get('cost', 0))
-        assert client_cost >= cost, f'Insufficient cost {client_cost} for fn {fn} with cost {cost}'
-        loop = asyncio.get_event_loop()
-        params = loop.run_until_complete(request.json())
-        params = json.loads(params) if isinstance(params, str) else params
-        assert self.auth.verify(headers, data={'fn': fn, 'params': params}) # verify the headers
-        if not self.is_owner(headers['key']):
+        assert self.is_user(info['name'], h['key']), f"User {h['key']} is not a user"
+        is_owner = self.is_owner(h['key'])
+        if not is_owner:
             assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
-        request =  {
+        cost = float(info['schema'].get(fn, {}).get('cost', 0))
+        cost_client = float(h.get('cost', 0))
+        assert cost_client >= cost, f'Insufficient cost {cost_client} for fn {fn} with cost {cost}'
+
+        # step 2 : get the params which is the serialized json body
+        # self.auth.verify(h)
+        params = self.loop.run_until_complete(request.json())
+        if isinstance(params, str):
+            params = json.loads(params)
+        assert self.auth.verify(h, data={'fn': fn, 'params': params}) # verify the h
+        return  {
                     'fn': fn, 
                     'params': params, 
-                    'client': {k:v for k,v in headers.items() if k in self.auth.auth_features}, 
+                    'client': {k:v for k,v in h.items() if k in self.auth.auth_features}, 
                     'cost': cost
                     }
-        # self.print_request(request)
-        return request
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
         return self.tx.txs( *args, **kwargs)
@@ -200,7 +205,7 @@ class Server:
                 **kwargs):
 
         def module_filter(m: dict) -> bool:
-            """Filter function to check if a mod contains the required features."""
+            """Filter function to preprocess if a mod contains the required features."""
             return isinstance(m, dict) and all(feature in m for feature in features )    
         mods = self.store.get(path, None, max_age=max_age, update=update)
         if mods == None :
@@ -221,70 +226,74 @@ class Server:
         return len(self.mods(search=search, **kwargs))
 
     def exists(self, name:str, **kwargs) -> bool:
-        """check if the server exists"""
+        """preprocess if the server exists"""
         return bool(name in self.servers(**kwargs))
 
     def call(self, fn , params=None, **kwargs): 
         return self.fn('client/forward')(fn, params, **kwargs)
 
-    def whitelist_user(self, user:str, update:bool = False):
+    def add_user_max(self, mod:str, max_users:int):
         """
-        check if the address is whitelisted
+        preprocess if the address is usersed
         """
-        whitelist = self.store.get(f'whitelist', [], max_age=max_age, update=update)
-        whitelist.append(user)
-        whitelist = list(set(whitelist))
-        self.store.put(f'whitelist', whitelist)
-        return {'whitelist': whitelist, 'user': user }
+        return self.store.put('user_max/' + mod , max_users)
 
-    def unwhitelist_user(self, user:str, update:bool = False):
+    def user_max(self, mod:str, default:bool = 10) -> int:
         """
-        check if the address is whitelisted
+        preprocess if the address is usersed
         """
-        whitelist = self.store.get(f'whitelist', [], update=update)
-        whitelist.remove(user)
-        whitelist = list(set(whitelist))
-        self.store.put(f'whitelist', whitelist)
-        return {'whitelist': whitelist, 'user': user }
+        return self.store.get('user_max/' + mod , default)
+
+
+    def add_user(self, mod:str , user:str, update:bool = False, ):
+        """
+        preprocess if the address is usersed
+        """
+        path = self.users_path(mod)
+        user_max = self.user_max(mod)
+        users = self.store.get(path, [], update=update)
+        assert len(users) < user_max, f'User limit reached for mod {mod}: {len(users)}/{user_max}'
+        users.append(user)
+        users = list(set(users))
+        self.store.put(path, users)
+        return {'users': users, 'user': user }
+
+    def owner_key(self) -> str:
+        if not hasattr(self, 'owner_address'):
+            self.owner_address = m.key().ss58_address
+        return self.owner_address
+
+    def users(self, mod:str, update:bool = False):
+        """
+        preprocess if the address is usersed
+        """
+        path = self.users_path(mod)
+        users =  self.store.get(path, [], update=update)
+        owner_key = self.owner_key()
+        if owner_key not in users:
+            users.append(owner_key)
+            self.store.put(path, users)
+        return users
+
+    def users_path(self, mod:str) -> str:
+        return f'users/{mod}'
+
+    def rm_user(self, mod:str,  user:str, update:bool = False):
+        """
+        preprocess if the address is usersed
+        """
+        path = self.users_path(mod)
+        users =self.store.get(path, [], update=update)
+        users.remove(user)
+        self.store.put(path , users)
+        return {'users': users, 'user': user }
+
+    def is_user(self, mod:str,  user:str) -> bool:
+        """
+        preprocess if the address is usersed
+        """
+        return user in self.users(mod)
     
-    def whitelist(self,  update:bool = False):
-        """
-        check if the address is whitelisted
-        """
-        return self.store.get(f'whitelist', [], update=update)
-
-    def blacklist_user(self, user:str, update:bool = False):
-        """
-        check if the address is blacklisted
-        """
-        blacklist = self.store.get(f'blacklist', [],  update=update)
-        blacklist.append(user)
-        blacklist = list(set(blacklist))
-        self.store.put(f'blacklist', blacklist)
-        return {'blacklist': blacklist, 'user': user }
-
-    def unblacklist_user(self, user:str,  update:bool = False):
-        """
-        check if the address is blacklisted
-        """
-        blacklist = self.store.get(f'blacklist', [],  update=update)
-        blacklist.remove(user)
-        blacklist = list(set(blacklist))
-        self.store.put(f'blacklist', blacklist)
-        return {'blacklist': blacklist, 'user': user }
-
-    def blacklist(self,  max_age:int = 60, update:bool = False):
-        """
-        check if the address is blacklisted
-        """
-        return self.store.get(f'blacklist', [], update=update)
-
-    def is_blacklisted(self, user:str,  update:bool = False):
-        """
-        check if the address is blacklisted
-        """
-        blacklist = self.blacklist( update=update)
-        return user in blacklist
 
     def wait_for_server(self, name:str, max_time:int=10, trial_backoff:int=0.5, network:str='local', verbose=True, max_age:int=20):
         # wait for the server to start
@@ -399,9 +408,12 @@ class Server:
             return Response(status_code=204)
         self.app.add_middleware(CORSMiddleware,allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
         def server_fn(fn: str, request: Request):
-            request = self.get_request(fn=fn, request=request) # get the request
-            future = self.executor.submit(self.forward, request, timeout=self.max_timeout)
-            return future.result()
+            try:
+                request = self.preprocess(fn=fn, request=request) # get the request
+                future = self.executor.submit(self.forward, request, timeout=self.max_timeout)
+                return future.result()
+            except Exception as e:
+                return {'success': False, 'msg': str(e), 'details': m.detailed_error(e)}
         self.app.post("/{fn}")(server_fn)
         self.show_info()
         self.run_api(self.app, port=port)

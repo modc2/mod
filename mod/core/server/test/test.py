@@ -34,14 +34,13 @@ class ServerTestMixin(m.mod('server')):
             m.mod(auth)().test()
         return {'success': True, 'msg': 'server test passed', 'auths': auths}
 
-
-    def test_blacklist(self,   update:bool = False):  
+    def test_user(self,  mod='api', user='test', update:bool = False):  
         """
         check if the address is blacklisted
         """
-        key = m.get_key('test').ss58_address
-        self.blacklist_user(key)
-        assert key in self.blacklist(), f"Failed to add {key} to blacklist"
-        self.unblacklist_user(key, update=update)
-        assert key not in self.blacklist(), f"Failed to remove {key} from blacklist"
-        return {'blacklist': True, 'user': key , 'blacklist': self.blacklist()}
+        user  = m.key(user).address
+        self.add_user(mod, user)
+        assert user in self.users(mod), f"Failed to add {user} to blacklist"
+        self.rm_user(mod, user, update=update)
+        assert user not in self.users(mod) and not self.is_user(mod, user), f"Failed to remove {user}"
+        return {'user': user , 'users': self.users(mod)}
