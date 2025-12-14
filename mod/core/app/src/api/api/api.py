@@ -4,6 +4,7 @@ import json
 from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 import time
+import datetime
 import mod as m
 
 class  Api:
@@ -25,6 +26,7 @@ class  Api:
                  'reg_from_info',
                  'hardware',
                  'reg_payload']
+    public = True
 
     def __init__(self, store = 'ipfs', chain='chain', key=None):
         self.store = m.mod(store)()
@@ -61,15 +63,13 @@ class  Api:
         """
         Check if a mod Mod exists in IPFS.
         """
-        return bool(self.modcid(mod=mod, key=key))
+        return bool(self.cid(mod=mod, key=key))
 
     def mod(self, mod: m.Mod='store', key=None, schema=False, content=False,  expand = False, fns=None,**kwargs) -> Dict[str, Any]:
         """
         get the mod Mod from IPFS.
         """
-        # if not self.exists(mod=mod, key=key):
-        #     self.reg(mod=mod, key=key)
-        cid = self.modcid(mod=mod, key=key, default=mod)
+        cid = self.cid(mod=mod, key=key, default=mod)
         mod =  self.get(cid) if cid else None
         if mod == None:
             raise Exception(f'Mod {mod} not found for key {key}')
@@ -78,7 +78,6 @@ class  Api:
         if fns is not None:
             mod['fns'] =fns
         mod['name'] = mod['name'].split('/')[0]
-        
         mod['content'] = self.content(mod, expand=expand) if content else mod['content']
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
@@ -165,11 +164,10 @@ class  Api:
         else:
             return (key or m.key()).address
 
-    def modcid(self, mod, key=None, default=None) -> str:
-        key = self.key_address(key)
-        return  self.registry().get(key, {}).get(mod, default)
+    def cid(self, mod, key=None, default=None) -> str:
+        return  self.registry().get(self.key_address(key), {}).get(mod, default)
     
-    def update_registry(self, info:dict):
+    def update_local_registry(self, info:dict):
         if 'cid' in info:
             cid = info['cid']
         else:
@@ -260,7 +258,7 @@ class  Api:
 
     def reg_from_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
         # assert self.verify_mod(info)
-        self.update_registry(info)
+        self.update_local_registry(info)
         return info
 
 
@@ -270,7 +268,7 @@ class  Api:
         """
         current_time = m.time()
         key = self.key_address(key)
-        prev_cid = self.modcid(mod=mod, key=key)
+        prev_cid = self.cid(mod=mod, key=key)
         prev_info = self.mod(prev_cid, key=key) if prev_cid else {}
         content_cid = self.add_content(mod=mod, comment=comment)
         prev_content_cid = prev_info.get('content', None)
@@ -316,7 +314,7 @@ class  Api:
         if isinstance(mod, dict):
             return self.reg_from_info(mod)
         # het =wefeererwfwefhuwoefhiuhuihewds wfweferfgr frff frrefeh fff
-        prev_cid = self.modcid(mod=mod, key=key)
+        prev_cid = self.cid(mod=mod, key=key)
         current_time = m.time()
         key = m.key(key)
         if prev_cid == None:
@@ -325,7 +323,7 @@ class  Api:
             prev_info = self.mod(prev_cid, key=key)
             info = self.get_info(mod=mod, key=key, comment=comment, protocal=protocal)
             info['prev'] = prev_cid
-        info['cid'] = self.update_registry(info) 
+        info['cid'] = self.update_local_registry(info) 
         return info 
  
     sync_info = {}
@@ -371,7 +369,7 @@ class  Api:
         mods = m.get(path, None, update=update)
   
         if mods == None: 
-            self.chain.mods(update=update, **kwargs)
+            self.chain.mods( **kwargs)
             registry = self.registry()
             key = self.key_address(key)
             if key != 'all':
@@ -404,17 +402,33 @@ class  Api:
             mod['network'] = 'local'
         return mod
 
+    def timestamp2utc(self, timestamp:int) -> str:
+        import datetime
+        return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
     def history(self, mod='store' , key=None, df=False) -> List[Dict[str, Any]]:
-        modid = self.modcid(key=key, mod=mod)
-        history = []       
-        if modid != None:
-            info = self.mod(modid)
+        cid = self.cid(key=key, mod=mod)
+        result = []       
+        if cid != None:
+            
             while True:
-                history.append(info)
-                if info['prev'] == None:
+                info = self.mod(cid, key=key)
+                content =  self.get(info['content'])
+                comment = content.get('comment', '')
+                cid = info['cid']
+                prev_cid = info.get('prev', None)
+                info = {'cid': cid, 'comment':  comment, 'updated': info['updated']}
+                # convert timestamp to readable date
+                info['updated'] = self.timestamp2utc(info['updated'])
+                result.append(info)
+                print(f"History entry: {info}")
+                if prev_cid == None:
                     break
-                info = self.mod(info['prev'])
-        return history
+                else:
+                    cid = prev_cid
+        if df and len(result) > 0:
+            return m.df(result)
+        return result
 
     h = history
     def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
@@ -514,7 +528,7 @@ class  Api:
                 if len(os.listdir(filepath_dir)) == 0:
                     os.rmdir(filepath_dir)
                 m.print(f"[✓] Deleted file: {filepath}", color="yellow")
-        modinfo = self.update_registry(modinfo)
+        modinfo = self.update_local_registry(modinfo)
         history = self.history(mod, key=key)
         assert cid == history[0]['cid'], "Setback failed: content CID mismatch"
         return {
@@ -611,7 +625,7 @@ class  Api:
         user = {
             'key': address,
             'mods': mods,
-            'balance': self.balance(address, update=update)
+            'balance': self.balance(address)
         }
         return user
         
@@ -642,3 +656,6 @@ class  Api:
     def ensure_env(self):
         m.serve('ipfs.node') if not m.server_exists('ipfs.node') else None
         m.print("IPFS node is running", color="green")
+
+        
+

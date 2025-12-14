@@ -42,7 +42,7 @@ class Cli:
         """
         Run
         """
-
+        
         result = fn(*params['args'], **params['kwargs']) if callable(fn) else fn
         self.duration = m.time() - self.time
         is_generator = self.is_generator(result)
@@ -55,6 +55,7 @@ class Cli:
         else:
             print(result, color='green')
         self.result = result
+        print(f'⏱️  Duration: {self.duration:.4f} seconds', color='cyan')
         return result
 
     def get_fn(self) -> tuple:

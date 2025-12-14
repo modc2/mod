@@ -8,15 +8,53 @@ import itertools
 import threading
 import asyncio
 from loguru import logger
-from typing import Callable
+from typing import *
 from concurrent.futures._base import Future
 import time
 from tqdm import tqdm
-from .task import Task, NULL_TASK
 from .utils import new_event_loop, detailed_error, wait
+from scalecodec.utils.ss58 import  is_valid_ss58_address
+import mod as m
+class Task:
+    def __init__(self, 
+                fn:Union[str, callable],
+                params:dict, 
+                timeout:int=10, 
+                path = None, 
+                value:int=1,
+                **extra_kwargs):
+        
+        self.fn = fn if callable(fn) else lambda *args, **kwargs: fn
+        self.params = params or {}
+        self.start_time = time.time() # the time the task was created
+        self.timeout = timeout # the timeout of the task
+        self.path = os.path.abspath(path) if path != None else None
+        self.status = 'pending' # pending, running, done
+        self.future = Future()
+        self.value = value
+        add_future_attributes = ['_condition', '_state', '_waiters', 'cancel', 'running', 'done', 'result']
+        for attr in add_future_attributes:
+            setattr(self, attr, getattr(self.future, attr)) 
+
+    def run(self):
+        """Run the given work item"""
+        if (not self.future.set_running_or_notify_cancel()) or (time.time() - self.start_time) > self.timeout:
+            self.future.set_exception(TimeoutError('Task timed out'))
+        try:
+            result = self.fn(**self.params)
+            self.status = 'complete'
+        except Exception as e:
+            result = detailed_error(e)
+            self.status = 'failed'
+        self.future.set_result(result)
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+NULL_TASK = (sys.maxsize, Task(None, {}))
 
 class Executor:
-    """Base threadpool executor with a priority queue"""
+    """Base threadpool executor with a value queue"""
 
     # Used to assign unique thread names when thread_name_prefix is not supplied.
     _counter = itertools.count().__next__
@@ -52,16 +90,25 @@ class Executor:
         self.shutdown_lock = threading.Lock()
         self.thread_name_prefix = thread_name_prefix or ("Executor-%d" % self._counter() )
 
+    def key_address(self, key:Optional[str]=None):
+        if isinstance(key, str ) and is_valid_ss58_address(key):
+            return key
+        else:
+            return m.key(key).address
+        return key
+
     def forward(self, 
                 fn: Callable,
                 params = None,
-                priority:int=1,
+                value:int=1,
                 timeout=200, 
+                key = None,
                 return_future:bool=True,
                 wait = True, 
                 path:str=None) -> Future:
         
         params = params or {}
+        key = self.key_address(key)
         # check if the queue is full and if so, raise an exception
         if self.task_queue.full():
             if wait:
@@ -75,9 +122,8 @@ class Executor:
             if self.shutdown:
                 raise RuntimeError("cannot schedule new futures after shutdown")
             task = Task(fn=fn, params=params, timeout=timeout, path=path)
-            self.task_queue.put((priority, task), block=False)
+            self.task_queue.put((value, task), block=False)
             self.adjust_thread_count()
-
         if return_future:
             return task.future
         return task.result()
@@ -136,9 +182,9 @@ class Executor:
         try:
             while True:
                 work_item = task_queue.get(block=True)
-                priority = work_item[0]
+                value = work_item[0]
 
-                if priority == sys.maxsize:
+                if value == sys.maxsize:
                     # Wake up queue management thread.
                     task_queue.put(NULL_TASK)
                     break
@@ -152,10 +198,7 @@ class Executor:
                     continue
 
                 executor = executor_reference()
-                # Exit if:
-                #   - The interpreter is shutting down OR
-                #   - The executor that owns the worker has been collected OR
-                #   - The executor that owns the worker has been shutdown.
+                
                 if executor is None or executor.shutdown:
                     # Flag the executor as shutting down as early as possible if it
                     # is not gc-ed yet.
@@ -204,6 +247,5 @@ class Executor:
         
         while self.num_tasks > 0:
             print(self.num_tasks, 'tasks remaining')
-
 
         return {'success': True, 'msg': 'thread pool test passed'}

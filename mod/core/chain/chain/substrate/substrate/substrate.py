@@ -922,7 +922,7 @@ class Substrate:
         path = self.get_path(f'{self.network}/balance/{addr}')
         balance = m.get(path, None, update=update)
         if balance == None:
-            print(f'Fetching balance for {addr} from network...')
+            print(f'r {addr} from network...')
             balance = self.query("Account", module="System", params=[addr])['data']['free']
             m.put(path, balance)
         return self.format_amount(balance, fmt=fmt)

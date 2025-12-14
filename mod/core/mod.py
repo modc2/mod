@@ -837,7 +837,6 @@ class Mod:
     def info(self, 
             mod:str='mod',  # the mod to get the info of
             schema = True, # whether to include the schema of the mod
-            config=False,
             url = True, # whether to include the url of the mod
             desc = False, # whether to include the description of the mod
             key = None, # the key to sign the info with
@@ -1169,7 +1168,6 @@ class Mod:
         path = path.replace('/', '.')
         # IF FOR SOME REASON WE ARE SPECIFYING A PATH THAT IS A FILE (NOT IN THE TREE AS THE TREE ONLY HAS FOLDERS)
         path = self.dirpath(path)
-
         # this is rather nuanced, but it basically says that the anchor names are the anchor names plus the path chunks
         # removing the home_path prefix
         anchor_names =  self.anchor_names.copy() + path[len(self.home_path+'/'):].split('/')
@@ -1187,6 +1185,7 @@ class Mod:
     def anchor_object(self, path):
         path = self.get_name(path)
         anchor_file = self.anchor_file(path)
+        
         if anchor_file:
             classes =  self.classes(anchor_file)
             assert len(classes) > 0, f'No classes found in {anchor_file}'
@@ -1224,71 +1223,69 @@ class Mod:
         path = '_'.join(path_chunks)
         return path
 
+
+
+
+    file_types = ['py', 'yaml', 'json', 'yml']
+    ignore_suffixes = ['/src', '/core']
+    def process_path(self, x,  ) -> str:
+        for k in self.ignore_suffixes: 
+            if x.endswith(k):
+                x = x[:-len(k)]
+        x_list =  x.split('/')
+        if len(x_list) >=2 :
+            if x_list[-1] == x_list[-2]: 
+                x_list = x_list[:-1]
+            if x_list[-1] in x_list[-3]:
+                x_list = x_list[:-2]
+        x = '/'.join(x_list)
+        return x   
+    def is_in_file_types(self, f:str) -> bool:
+        return any([f.endswith('.' + ft) for ft in self.file_types])
     def get_tree(self, 
                 path:Optional[str]=None, 
                 search:Optional[str]=None, 
                 depth=8, 
-                avoid_terms = ['src', 'mods', '_mods', 'core', 'core'],
-                avoid_prefixes = ['__',],
-                avoid_suffixes = ['__', '/utils'],
-                ignore_suffixes = ['/src', '/core'],
-                file_types = ['py', 'yaml', 'json', 'yml'],
                 folders:bool = True, 
                 update=False,  
-                **kwargs): 
+                **kwargs) -> Dict[str, str]: 
         """
         get the tree of the mods in the path
+        params: 
+            
         """
         path = path or self.core_path
-        cache_key = self.abspath(f'~/.mod/tree/{path.replace("/", "_")}/depth_{depth}.json')
-        tree = self.get(cache_key, None, update=update)
-        if tree == None:
-            
-            path = path or self.core_path
-            paths = [p for p in list(self.files(path, depth=depth))]
+        cache_key = self.abspath(f'~/.mod/tree/{path.split("/")[-1]}/depth_{depth}.json')
+        tree = self.get(cache_key, {}, update=update)
+        if len(tree) == 0:
+            paths = self.files(path, depth=depth)
+            paths = list(filter(self.is_in_file_types, paths))
             if folders:
-                is_in_file_types = lambda f: any([f.endswith('.' + ft) for ft in file_types])
-                paths = [os.path.dirname(f) for f in list(self.files(path, depth=depth)) if is_in_file_types(f)]
-                
-            def process_path(x):
-                for k in ignore_suffixes: 
-                    if x.endswith(k):
-                        x = x[:-len(k)]
-                x_list =  x.split('/')
-                if len(x_list) >=2 :
-                    if x_list[-1] == x_list[-2]: 
-                        x_list = x_list[:-1]
-                    if x_list[-1] in x_list[-3]:
-                        x_list = x_list[:-2]
-                x = '/'.join(x_list)
-                return x    
-            new_tree = {}
+                paths = list(map(lambda x: os.path.dirname(x), paths))
             for p in paths:
                 name = self.get_name(p)
-                p = process_path(p)
-                if name in new_tree:
-                    # if the path is shorter, replace it
-                    if len(p) < len(new_tree[name]):
-                        new_tree[name] = p
-                        continue
+                p = self.process_path(p)
+                if name in tree:
+                    if len(p) < len(tree[name]):
+                        tree[name] = p
                 else:
-                    new_tree[name] = process_path(p)
-            tree = new_tree
-            tree = dict(sorted(tree.items(), key=lambda x: len(x[0])))
+                    tree[name] = p
+            tree = dict(sorted(tree.items()))
             for k,v in self.shortcuts.items():
                 if v in tree:
                     tree[k] = tree[v]
+            # make all the trees relative to the home_path
+            tree = {k: self.relpath(v) for k,v in tree.items()}
             self.put(cache_key, tree)
-
-        tree = dict(sorted(tree.items()))
+        tree = {k: self.abspath(v) for k,v in tree.items()}
         if search:
             return self.search_tree(search=search, tree=tree, **kwargs)
         return tree
 
-    def core_tree(self, search=None, depth=1,  **kwargs): 
+    def core_tree(self, search=None, depth=8,  **kwargs): 
         return self.get_tree(self.core_path, search=search, depth=depth, **kwargs) 
 
-    def mods_tree(self, search=None,  depth=1,**kwargs): 
+    def mods_tree(self, search=None,  depth=8,**kwargs): 
         return self.get_tree(self.mods_path, search=search, depth=depth, **kwargs)
 
     def ext_tree(self, search=None, depth=1, **kwargs):
@@ -1341,7 +1338,7 @@ class Mod:
         tree.update(self.core_tree(search=search, depth=depth, **kwargs))
         return tree
 
-    def dirpath(self, mod=None, relative=False) -> str:
+    def dirpath(self, mod=None, relative=False, trials=2) -> str:
         """
         get the directory path of the mod
         """
@@ -1350,7 +1347,11 @@ class Mod:
         tree = self.tree()
         tree_options = list(self.search_tree(search=mod, tree=tree).values())
         if len(tree_options) == 0:
-            assert False, f'Mod {mod} not found in tree {list(tree.keys())}'
+            if trials > 0:
+                self.tree(update=True)
+                return self.dirpath(mod=mod, relative=relative, trials=trials-1)
+            else:
+                assert False, f'Mod {mod} not found in tree {list(tree.keys())}'
         dirpath = tree_options[0]
         # remove any trailing repeats of the mod name in the dirpath
         if relative:

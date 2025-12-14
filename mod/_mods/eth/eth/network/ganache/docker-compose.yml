@@ -1,0 +1,32 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  ganache:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ganache
+    deploy: {}
+    entrypoint: bash -c "m serve port=50116 key=ganache remote=0 mod=ganache"
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8545
+      timeout: 5s
+    image: ganache
+    ports:
+    - 50116:50116
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/eth/eth/network/ganache:/root/mod/mod/_mods/eth/eth/network/ganache
+    working_dir: /root/mod/mod/_mods/eth/eth/network/ganache
+version: '3.8'

@@ -65,8 +65,8 @@ class SelectFiles:
         if number_lines and isinstance(results, dict):
             for f in results:
                 lines = results[f].split('\n')
-                numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
-                results[f] = '\n'.join(numbered_lines)  
+                numbered_lines = [f"{i+1}   {line}" for i, line in enumerate(lines)]
+                results[f] = numbered_lines
         return results
 
     def get_text(self, path: str) -> str:

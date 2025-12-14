@@ -1,38 +1,28 @@
-version: '3.8'
-
+networks:
+  default:
+    external: true
+    name: modnet
 services:
+  bloctime:
+    container_name: bloctime
+    deploy: {}
+    entrypoint: bash -c "m serve port=50104 key=bloctime remote=0 mod=bloctime"
+    image: bloctime
+    ports:
+    - 50104:50104
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/bloctime:/root/mod/mod/_mods/bloctime
+    working_dir: /root/mod/mod/_mods/bloctime
   ganache:
+    command: '--mnemonic "test test test test test test test test test test test junk"
+      --networkId 1337 --chainId 1337 --accounts 10 --defaultBalanceEther 1000 --gasLimit
+      12000000 --gasPrice 20000000000
     image: trufflesuite/ganache:latest
     ports:
-      - "8545:8545"
-    command: >
-      --mnemonic "test test test test test test test test test test test junk"
-      --networkId 1337
-      --chainId 1337
-      --accounts 10
-      --defaultBalanceEther 1000
-      --gasLimit 12000000
-      --gasPrice 20000000000
-    networks:
-      - churn-network
-
-  hardhat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./:/app
-      - /app/node_modules
-    working_dir: /app
-    depends_on:
-      - ganache
-    environment:
-      - GANACHE_URL=http://ganache:8545
-      - NETWORK=${NETWORK:-ganache}
-    networks:
-      - churn-network
-    command: tail -f /dev/null
-
-networks:
-  churn-network:
-    driver: bridge
+    - 8545:8545
+    volumes: []
+version: '3.8'

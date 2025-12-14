@@ -47,6 +47,7 @@ class Tool:
             
             text = self.get_text(path)
             lines = text.splitlines(keepends=True)
+            end_line = min(end_line, len(lines))
             
             # Validate line ranges
             if not (1 <= start_line <= len(lines)):
@@ -64,6 +65,8 @@ class Tool:
             inserted_content = content if content.endswith('\n') else content + '\n'
             new_lines = lines[:start_idx] + [inserted_content] + lines[end_idx:]
             new_text = ''.join(new_lines)
+
+            print(f"Editing file: {path}, replacing lines {start_line}-{end_line}")
             
             self.put_text(path, new_text)
             

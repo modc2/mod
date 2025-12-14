@@ -379,7 +379,7 @@ class PM:
             print(f'Killed container --> {name}')
             # remove from namespace cache
             self.namespace(update=True)
-            return result
+            return {'status': 'killed', 'name': name}
         except Exception as e:
             return {'status': 'error', 'name': name, 'error': str(e)}
 

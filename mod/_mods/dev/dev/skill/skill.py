@@ -67,9 +67,7 @@ class Skill:
                 --INPUTS--
                 query={query} # THE QUERY YOU ARE TRYING TO ANSWER
                 goal={goal} # THE GOAL YOU ARE TRYING TO ACHIEVE
-                path={path} # THE SOURCE FILES YOU ARE TRYING TO MODIFY, ONLY USE FILES FROM THIS DIRECTORY AND WRITE FILES TO THIS DIRECTORY AND DO NOT TRY TO READ ANYTHING OUTSIDE THIS DIRECTORY
                 step={step} # THE CURRENT STEP YOU ARE ON
-                files={files} # THE FILES
                 steps={steps} # THE MAX STEPS YOU ARE ALLOWED TO TAKE IF IT IS 1 YOU MUST DO IT IN ONE SHOT OR ELSE YOU WILL NOT BE ABLE TO REALIZE IT
                 tools={tools} # THE TOOLS YOU ARE ALLOWED TO USE AND THEIR SCHEMAS
                 memory={memory} # THE MEMORY OF THE AGENT

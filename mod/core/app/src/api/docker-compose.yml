@@ -15,6 +15,6 @@ services:
     volumes:
     - ~/mod:/root/mod
     - ~/.mod:/root/.mod
-    - ~/mod/mod/core/api:/root/mod/mod/core/api
-    working_dir: /root/mod/mod/core/api
+    - ~/mod/mod/core/app/src/api:/root/mod/mod/core/app/src/api
+    working_dir: /root/mod/mod/core/app/src/api
 version: '3.8'

@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM mod:latest
 
 WORKDIR /app
 
@@ -6,5 +6,3 @@ COPY package.json ./
 RUN npm install
 
 COPY . .
-
-CMD ["tail", "-f", "/dev/null"]

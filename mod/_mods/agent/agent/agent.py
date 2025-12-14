@@ -26,11 +26,11 @@ class Agent:
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
-                tools  = [],
+                tools  = ['websearch'],
                 model: Optional[str] = 'anthropic/claude-sonnet-4.5',
                 steps = 1,
                 path='./',
-                safety=True,
+                safety=False,
                 base = None,
                 remote=False,
                 **kwargs) -> Dict[str, str]:
@@ -45,14 +45,12 @@ class Agent:
         if len(tools) == 0:
             return self.model.forward(query, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
         else:
-            self.memory.add(m.tool('select_files')(path=path, query=query))
-            self.memory.add(m.content(base)) if base else None
             for step in range(steps):   
-                params = dict(query=query, path=path, step=step, steps=steps, files=m.files(path), memory=self.memory.get(), tools=tools, base=base)
+                params = dict(query=query, path=path, step=step, steps=steps, files=m.files(path), memory=self.memory.get(), tools=tools)
                 prompt = self.skill.prepare(**params)
                 output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
                 plan = self.skill.plan(output, safety=safety)
+                self.memory.add(plan)
                 if plan[-1]['tool'].lower() == 'finish':
                     break
-                self.memory.add(plan)
-            return plan
+        return self.model.forward('given the above, finish the task: ' + query + str(self.memory.get()), stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )

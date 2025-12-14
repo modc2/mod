@@ -1,5 +1,5 @@
 {
-  "name": "churn-staking",
+  "name": "bittime",
   "version": "1.0.0",
   "description": "Churn mechanism with multiplier curve and stake-time rewards",
   "scripts": {

@@ -22,7 +22,7 @@ class Dev:
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
-                tools  = ['create_file', 'rm_file'],
+                tools  = ['create_file', 'rm_file', 'edit_file'],
                 model: Optional[str] = 'anthropic/claude-sonnet-4.5',
                 steps = 1,
                 path=None,
@@ -39,15 +39,17 @@ class Dev:
         text = ' '.join(list(map(str, [text] + list(extra_text))))
         query = text 
         if path != None:
-            self.memory.add(m.tool('select_files')(path=path, query=query))
+            self.memory.add('content', m.tool('select_files')(path=path, query=query))
         if base != None:
-            self.memory.add(m.content(base))
+            self.memory.add('base', m.content(base))
+        
         for step in range(steps):   
-            params = dict(query=query, path=path, step=step, steps=steps, files=m.files(path), memory=self.memory.get(), tools=tools, base=base)
+            self.memory.add('files', m.files(path))
+            params = dict(query=query, path=path, step=step, steps=steps, memory=self.memory.get(), tools=tools, base=base)
             prompt = self.skill.prepare(**params)
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
             plan = self.skill.plan(output, safety=safety)
-            self.memory.add(plan)
+            self.memory.add('plan', plan)
             if plan[-1]['tool'].lower() == 'finish':
                 break
             
