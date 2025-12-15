@@ -2,6 +2,11 @@
 
 > **A robust, battle-tested staking and marketplace ecosystem where bloctime stakers earn from ALL marketplace revenue**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.20-blue)](https://soliditylang.org/)
+[![Hardhat](https://img.shields.io/badge/Hardhat-2.19-orange)](https://hardhat.org/)
+[![Tests](https://img.shields.io/badge/Tests-Passing-green)](./test)
+
 ## 🚀 Overview
 
 BlocTime Protocol is a comprehensive DeFi system combining:
@@ -9,10 +14,23 @@ BlocTime Protocol is a comprehensive DeFi system combining:
 1. **BlocTimeStaking**: Lock tokens → Earn BlocTime tokens (multiplier-based) → Claim treasury rewards
 2. **BlocTimeMarketplace**: Rent compute/AI/assets → Automatic treasury funding → Secondary market
 3. **BlocTimeRegistry**: Modular module management → Ownership tracking → Availability control
+4. **PaymentTokenWhitelist**: Multi-token support → Flexible payment options
+5. **BidSystem**: Competitive bidding → Price discovery → Market efficiency
 
 ### 💎 Key Innovation
 
 **Every marketplace transaction automatically funds staker rewards** - no manual intervention, no inflation, pure revenue sharing.
+
+## 📚 Documentation
+
+- **[README.md](./README.md)**: This file - comprehensive overview
+- **[API Reference](./docs/API_REFERENCE.md)**: Complete API documentation with examples
+- **[Integration Guide](./docs/INTEGRATION_GUIDE.md)**: Frontend/backend integration examples
+- **[Deployment Guide](./DEPLOYMENT.md)**: Step-by-step deployment instructions
+- **[Contributing Guide](./CONTRIBUTING.md)**: Contribution guidelines
+- **[Technical Whitepaper](./docs/bloctime_documentation.tex)**: LaTeX technical documentation
+- **[Whitepaper](./docs/BLOCTIME_WHITEPAPER.tex)**: Complete whitepaper
+- **[One-Pager](./docs/BLOCTIME_ONEPAGER.tex)**: Quick overview
 
 ## 🏗️ Architecture
 
@@ -29,6 +47,13 @@ BlocTime Protocol is a comprehensive DeFi system combining:
 │  │ - Modules    │      │ - Rentals    │               │
 │  │ - Ownership  │      │ - Listings   │               │
 │  │ - Metadata   │      │ - Fees ──────┼──┐            │
+│  └──────────────┘      └──────────────┘  │            │
+│                                           │            │
+│  ┌──────────────┐      ┌──────────────┐  │            │
+│  │  Whitelist   │◄─────┤  BidSystem   │  │            │
+│  │              │      │              │  │            │
+│  │ - Tokens     │      │ - Bids       │  │            │
+│  │ - Validation │      │ - Escrow     │  │            │
 │  └──────────────┘      └──────────────┘  │            │
 │                                           │            │
 │                        ┌──────────────┐   │            │
@@ -57,6 +82,7 @@ Marketplace Revenue (100%)
     └─> Owner/Seller (97.5%)  │         └──> Distributed to Stakers
                                │              (Proportional to BlocTime)
     Secondary Market ──────────┘
+    Bid Acceptance ────────────┘
 ```
 
 ## 📐 Mathematical Framework
@@ -89,6 +115,10 @@ Primary Rental:
 Secondary Sale:
   Treasury_Fee = Sale_Price × 0.025
   Seller_Receives = Sale_Price - Treasury_Fee
+
+Bid Acceptance:
+  Treasury_Fee = Bid_Amount × 0.025
+  Slot_Owner_Receives = Bid_Amount - Treasury_Fee
 ```
 
 ## 🛠️ Setup & Deployment
@@ -121,14 +151,14 @@ docker-compose exec hardhat npm run compile
 docker-compose exec hardhat npm test
 
 # Deploy to Ganache (local)
-docker-compose exec hardhat npx hardhat run scripts/deploy-bloctime-staking.js --network ganache
-docker-compose exec hardhat npx hardhat run scripts/deploy-marketplace-v2.js --network ganache
+docker-compose exec hardhat npx hardhat run scripts/deploy.js --network ganache
 
 # Deploy to Base Mainnet
 echo "PRIVATE_KEY=your_key" >> .env
-docker-compose exec hardhat npx hardhat run scripts/deploy-bloctime-staking.js --network base
-docker-compose exec hardhat npx hardhat run scripts/deploy-marketplace-v2.js --network base
+docker-compose exec hardhat npx hardhat run scripts/deploy.js --network base
 ```
+
+For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## 💻 Usage Examples
 
@@ -158,12 +188,12 @@ await registry.registerModule(pricePerBlock, maxUsers, ipfsHash);
 
 // Renter: Rent bloctime
 await paymentToken.approve(marketplaceAddress, cost);
-await marketplace.rent(moduleId, blocks);
+await marketplace.rent(moduleId, blocks, paymentToken);
 // → Treasury automatically receives fee
 // → Owner receives payment
 
 // Renter: List unused time
-await marketplace.listFractionalForSale(rentalId, fromBlock, toBlock, price);
+await marketplace.listFractionalForSale(rentalId, fromBlock, toBlock, price, paymentToken);
 
 // Buyer: Purchase from secondary market
 await paymentToken.approve(marketplaceAddress, price);
@@ -172,25 +202,26 @@ await marketplace.buy(listingId);
 // → Seller receives payment
 ```
 
-### View Functions
+### Bidding Flow
 
 ```javascript
-// Check stake info
-const info = await staking.getStakeInfo(userAddress);
-console.log({
-  amount: info.amount,
-  lockBlocks: info.lockBlocks,
-  blocTimeBalance: info.blocTimeBalance,
-  blocksRemaining: info.blocksRemaining,
-  pendingRewards: info.rewards
-});
+// Bidder: Create bid
+await paymentToken.approve(bidSystemAddress, bidAmount);
+await bidSystem.createBid(rentalId, fromBlock, toBlock, bidAmount, paymentToken);
+// → Bid amount locked in escrow
 
-// Check multiplier
-const multiplier = await staking.getMultiplier(50000); // 20000 = 2x
+// Slot Owner: Accept bid
+await marketplace.acceptBid(bidId);
+// → Bidder gets rental slot
+// → Owner receives payment
+// → Treasury receives fee
 
-// Check pending rewards
-const rewards = await staking.pendingRewards(userAddress);
+// OR Reject bid
+await marketplace.rejectBid(bidId);
+// → Bidder gets refund
 ```
+
+For complete API documentation, see [API_REFERENCE.md](./docs/API_REFERENCE.md).
 
 ## ⚙️ Configuration
 
@@ -218,6 +249,9 @@ await staking.setMaxLockBlocks(100000);
 ```javascript
 // Treasury fee set at deployment (2.5%)
 const treasuryFeeBps = 250;
+
+// Whitelist payment tokens
+await whitelist.whitelistToken(tokenAddress);
 ```
 
 ## 🧪 Testing
@@ -254,6 +288,7 @@ npx hardhat coverage
 ✅ **Transparent Calculations**: All formulas on-chain
 ✅ **No Inflation**: Rewards from real revenue only
 ✅ **Lock Enforcement**: Cannot unstake before period ends
+✅ **Escrow Protection**: Bid amounts locked until resolution
 
 ## 🌐 Network Configuration
 
@@ -271,7 +306,7 @@ npx hardhat coverage
 
 ### Revenue Flow Guarantee
 
-✅ **ALL marketplace revenue** contributes to treasury (primary + secondary)
+✅ **ALL marketplace revenue** contributes to treasury (primary + secondary + bids)
 ✅ **Automatic execution** via smart contract logic (no manual intervention)
 ✅ **Transparent fees** visible in all events
 ✅ **Proportional distribution** to all BlocTime stakers
@@ -284,13 +319,6 @@ npx hardhat coverage
 ✅ No lock-in after initial period
 ✅ Transparent, on-chain calculations
 
-## 📚 Documentation
-
-- **README.md**: This file - comprehensive guide
-- **bloctime_documentation.tex**: LaTeX technical documentation (Einstein-style)
-- **CONTRIBUTING.md**: Contribution guidelines
-- **IMPROVEMENTS.md**: Future enhancements roadmap
-
 ## 🎯 Production Readiness
 
 ### ✅ Complete Implementation
@@ -300,6 +328,8 @@ npx hardhat coverage
 - [x] Point-wise monotonic multiplier curves with linear interpolation
 - [x] Treasury reward distribution proportional to BlocTime holdings
 - [x] Marketplace with automatic treasury funding from ALL revenue
+- [x] Multi-token payment support via whitelist
+- [x] Bidding system with escrow protection
 - [x] Primary and secondary market fee consistency
 - [x] Fractional rental listings (from/to block ranges)
 - [x] Comprehensive test suite (100% coverage)
@@ -307,7 +337,7 @@ npx hardhat coverage
 - [x] Hardhat configuration for multiple networks
 - [x] Deployment scripts for all contracts
 - [x] Integration contract for system validation
-- [x] Complete documentation (README + LaTeX)
+- [x] Complete documentation (README + API + Integration + LaTeX)
 
 ### 🚀 Ready to Deploy
 
@@ -322,13 +352,15 @@ MIT License - See LICENSE file for details
 
 ## 🤝 Contributing
 
-See CONTRIBUTING.md for guidelines
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines
 
 ## 🔗 Links
 
-- **Documentation**: See `bloctime_documentation.tex` for detailed technical specs
-- **Tests**: See `test/` directory for comprehensive test coverage
-- **Contracts**: See `contracts/bloctime/` for all smart contracts
+- **API Documentation**: [API_REFERENCE.md](./docs/API_REFERENCE.md)
+- **Integration Guide**: [INTEGRATION_GUIDE.md](./docs/INTEGRATION_GUIDE.md)
+- **Technical Docs**: [bloctime_documentation.tex](./docs/bloctime_documentation.tex)
+- **Tests**: [test/](./test/) directory
+- **Contracts**: [contracts/](./contracts/) directory
 
 ---
 

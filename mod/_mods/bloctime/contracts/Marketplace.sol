@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "./PaymentTokenWhitelist.sol";
+import "./BidSystem.sol";
 
 interface IBlocTimeStaking {
     function fundTreasury(uint256 amount) external;
@@ -24,11 +26,11 @@ interface IBlocTimeRegistry {
 }
 
 /**
- * @title BlocTimeMarketplaceV3
- * @dev Enhanced marketplace with fractional rental listings
- * Allows users to list specific block ranges (from/to) instead of entire rentals
+ * @title BlocTimeMarketplaceMultiToken
+ * @dev Enhanced marketplace with multi-token support via whitelist and bid system
+ * Allows rentals and listings in any whitelisted ERC20 token with bidding
  */
-contract BlocTimeMarketplaceV3 is ReentrancyGuard {
+contract BlocTimeMarketplaceMultiToken is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Rental {
@@ -36,21 +38,25 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         uint256 moduleId;
         uint256 startBlock;
         uint256 paidBlocks;
+        address paymentToken;
         bool active;
     }
 
     struct Listing {
         address seller;
         uint256 rentalId;
-        uint256 fromBlock;  // Start of listed period (relative to rental start)
-        uint256 toBlock;    // End of listed period (relative to rental start)
+        uint256 fromBlock;
+        uint256 toBlock;
         uint256 price;
+        address paymentToken;
         bool active;
     }
 
-    IERC20 public paymentToken;
+    PaymentTokenWhitelist public whitelist;
+    BlocTimeBidSystem public bidSystem;
     IBlocTimeStaking public staking;
     IBlocTimeRegistry public registry;
+    IERC20 public nativeToken; // For treasury funding
     uint256 public treasuryFeeBps;
     uint256 public constant MAX_FEE_BPS = 1000;
     
@@ -60,30 +66,80 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
     mapping(uint256 => Rental) public rentals;
     mapping(uint256 => Listing) public listings;
     mapping(address => uint256[]) public userRentals;
-    mapping(uint256 => uint256[]) public rentalListings; // rentalId => listingIds
+    mapping(uint256 => uint256[]) public rentalListings;
 
-    event Rented(uint256 indexed rentalId, uint256 indexed moduleId, address indexed renter, uint256 blocks, uint256 cost);
-    event ListedFractional(uint256 indexed listingId, uint256 indexed rentalId, uint256 fromBlock, uint256 toBlock, uint256 price);
-    event Sold(uint256 indexed listingId, address indexed buyer, uint256 price);
+    event Rented(uint256 indexed rentalId, uint256 indexed moduleId, address indexed renter, uint256 blocks, uint256 cost, address paymentToken);
+    event ListedFractional(uint256 indexed listingId, uint256 indexed rentalId, uint256 fromBlock, uint256 toBlock, uint256 price, address paymentToken);
+    event Sold(uint256 indexed listingId, address indexed buyer, uint256 price, address paymentToken);
     event RentalEnded(uint256 indexed rentalId);
 
     constructor(
-        address _token,
+        address _whitelist,
+        address _nativeToken,
         address _staking,
         address _registry,
         uint256 _feeBps
     ) {
+        require(_whitelist != address(0), "Invalid whitelist");
+        require(_nativeToken != address(0), "Invalid native token");
         require(_staking != address(0), "Invalid staking");
         require(_registry != address(0), "Invalid registry");
         require(_feeBps <= MAX_FEE_BPS, "Fee too high");
         
-        paymentToken = IERC20(_token);
+        whitelist = PaymentTokenWhitelist(_whitelist);
+        nativeToken = IERC20(_nativeToken);
         staking = IBlocTimeStaking(_staking);
         registry = IBlocTimeRegistry(_registry);
         treasuryFeeBps = _feeBps;
+        
+        // Deploy bid system
+        bidSystem = new BlocTimeBidSystem(_whitelist, address(this));
     }
 
-    function rent(uint256 moduleId, uint256 blocks) external nonReentrant returns (uint256) {
+    /**
+     * @dev Accept a bid on a rental slot
+     */
+    function acceptBid(uint256 bidId) external nonReentrant {
+        (address bidder, uint256 rentalId, uint256 fromBlock, uint256 toBlock, uint256 bidAmount, address paymentToken, bool active,) = bidSystem.getBid(bidId);
+        
+        require(active, "Bid not active");
+        Rental storage r = rentals[rentalId];
+        require(r.renter == msg.sender, "Not slot owner");
+        require(r.active, "Rental not active");
+        
+        // Accept bid in bid system
+        bidSystem.acceptBid(bidId, msg.sender);
+        
+        // Create new rental for bidder
+        uint256 newRentalId = nextRentalId++;
+        uint256 blockCount = toBlock - fromBlock;
+        rentals[newRentalId] = Rental({
+            renter: bidder,
+            moduleId: r.moduleId,
+            startBlock: r.startBlock + fromBlock,
+            paidBlocks: blockCount,
+            paymentToken: paymentToken,
+            active: true
+        });
+        
+        userRentals[bidder].push(newRentalId);
+        emit Rented(newRentalId, r.moduleId, bidder, blockCount, bidAmount, paymentToken);
+    }
+
+    /**
+     * @dev Reject a bid on a rental slot
+     */
+    function rejectBid(uint256 bidId) external nonReentrant {
+        (,uint256 rentalId,,,,, bool active,) = bidSystem.getBid(bidId);
+        
+        require(active, "Bid not active");
+        Rental storage r = rentals[rentalId];
+        require(r.renter == msg.sender, "Not slot owner");
+        
+        bidSystem.rejectBid(bidId, msg.sender);
+    }
+    function rent(uint256 moduleId, uint256 blocks, address paymentToken) external nonReentrant returns (uint256) {
+        require(whitelist.isTokenWhitelisted(paymentToken), "Token not whitelisted");
         require(registry.isModuleAvailable(moduleId), "Module unavailable");
         require(blocks > 0, "Invalid blocks");
 
@@ -93,11 +149,12 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         uint256 fee = (cost * treasuryFeeBps) / 10000;
         uint256 ownerAmount = cost - fee;
 
-        paymentToken.safeTransferFrom(msg.sender, address(this), cost);
-        paymentToken.safeTransfer(owner, ownerAmount);
+        IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), cost);
+        IERC20(paymentToken).safeTransfer(owner, ownerAmount);
         
-        if (fee > 0) {
-            paymentToken.approve(address(staking), fee);
+        // Convert fee to native token if needed, or handle multi-token treasury
+        if (fee > 0 && paymentToken == address(nativeToken)) {
+            nativeToken.approve(address(staking), fee);
             staking.fundTreasury(fee);
         }
 
@@ -109,35 +166,29 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
             moduleId: moduleId,
             startBlock: block.number,
             paidBlocks: blocks,
+            paymentToken: paymentToken,
             active: true
         });
         
         userRentals[msg.sender].push(id);
-        emit Rented(id, moduleId, msg.sender, blocks, cost);
+        emit Rented(id, moduleId, msg.sender, blocks, cost, paymentToken);
         return id;
     }
 
-    /**
-     * @dev List a fractional portion of rental for sale
-     * @param rentalId The rental to list from
-     * @param fromBlock Start block of the period to list (relative to rental start)
-     * @param toBlock End block of the period to list (relative to rental start)
-     * @param price Price for this fractional period
-     */
     function listFractionalForSale(
         uint256 rentalId,
         uint256 fromBlock,
         uint256 toBlock,
-        uint256 price
+        uint256 price,
+        address paymentToken
     ) external returns (uint256) {
+        require(whitelist.isTokenWhitelisted(paymentToken), "Token not whitelisted");
         Rental storage r = rentals[rentalId];
         require(r.renter == msg.sender, "Not renter");
         require(r.active, "Rental not active");
         require(fromBlock < toBlock, "Invalid block range");
         require(toBlock <= r.paidBlocks, "Range exceeds paid blocks");
         require(fromBlock >= (block.number - r.startBlock), "Cannot list past blocks");
-        
-        // Check for overlapping listings
         require(!hasOverlappingListing(rentalId, fromBlock, toBlock), "Overlapping listing exists");
 
         uint256 id = nextListingId++;
@@ -147,17 +198,15 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
             fromBlock: fromBlock,
             toBlock: toBlock,
             price: price,
+            paymentToken: paymentToken,
             active: true
         });
         
         rentalListings[rentalId].push(id);
-        emit ListedFractional(id, rentalId, fromBlock, toBlock, price);
+        emit ListedFractional(id, rentalId, fromBlock, toBlock, price, paymentToken);
         return id;
     }
 
-    /**
-     * @dev Check if a block range overlaps with existing active listings
-     */
     function hasOverlappingListing(
         uint256 rentalId,
         uint256 fromBlock,
@@ -168,7 +217,6 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         for (uint256 i = 0; i < listingIds.length; i++) {
             Listing storage l = listings[listingIds[i]];
             if (l.active) {
-                // Check for overlap: [from1, to1) overlaps [from2, to2) if from1 < to2 && from2 < to1
                 if (fromBlock < l.toBlock && l.fromBlock < toBlock) {
                     return true;
                 }
@@ -188,15 +236,14 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         uint256 fee = (l.price * treasuryFeeBps) / 10000;
         uint256 sellerAmount = l.price - fee;
 
-        paymentToken.safeTransferFrom(msg.sender, address(this), l.price);
-        paymentToken.safeTransfer(l.seller, sellerAmount);
+        IERC20(l.paymentToken).safeTransferFrom(msg.sender, address(this), l.price);
+        IERC20(l.paymentToken).safeTransfer(l.seller, sellerAmount);
 
-        if (fee > 0) {
-            paymentToken.approve(address(staking), fee);
+        if (fee > 0 && l.paymentToken == address(nativeToken)) {
+            nativeToken.approve(address(staking), fee);
             staking.fundTreasury(fee);
         }
 
-        // Create new rental for buyer with the fractional period
         uint256 newRentalId = nextRentalId++;
         uint256 blockCount = l.toBlock - l.fromBlock;
         rentals[newRentalId] = Rental({
@@ -204,21 +251,21 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
             moduleId: r.moduleId,
             startBlock: r.startBlock + l.fromBlock,
             paidBlocks: blockCount,
+            paymentToken: l.paymentToken,
             active: true
         });
         
         userRentals[msg.sender].push(newRentalId);
         l.active = false;
 
-        emit Sold(listingId, msg.sender, l.price);
-        emit Rented(newRentalId, r.moduleId, msg.sender, blockCount, l.price);
+        emit Sold(listingId, msg.sender, l.price, l.paymentToken);
+        emit Rented(newRentalId, r.moduleId, msg.sender, blockCount, l.price, l.paymentToken);
     }
 
     function cancelListing(uint256 listingId) external {
         Listing storage l = listings[listingId];
         require(l.seller == msg.sender, "Not seller");
         require(l.active, "Listing not active");
-        
         l.active = false;
     }
 
@@ -230,7 +277,6 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         r.active = false;
         registry.decrementUsers(r.moduleId);
         
-        // Deactivate all active listings for this rental
         uint256[] memory listingIds = rentalListings[rentalId];
         for (uint256 i = 0; i < listingIds.length; i++) {
             if (listings[listingIds[i]].active) {
@@ -254,10 +300,11 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         uint256 moduleId,
         uint256 startBlock,
         uint256 paidBlocks,
+        address paymentToken,
         bool active
     ) {
         Rental storage r = rentals[id];
-        return (r.renter, r.moduleId, r.startBlock, r.paidBlocks, r.active);
+        return (r.renter, r.moduleId, r.startBlock, r.paidBlocks, r.paymentToken, r.active);
     }
 
     function getListing(uint256 id) external view returns (
@@ -266,10 +313,11 @@ contract BlocTimeMarketplaceV3 is ReentrancyGuard {
         uint256 fromBlock,
         uint256 toBlock,
         uint256 price,
+        address paymentToken,
         bool active
     ) {
         Listing storage l = listings[id];
-        return (l.seller, l.rentalId, l.fromBlock, l.toBlock, l.price, l.active);
+        return (l.seller, l.rentalId, l.fromBlock, l.toBlock, l.price, l.paymentToken, l.active);
     }
 
     function getUserRentals(address user) external view returns (uint256[] memory) {

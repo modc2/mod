@@ -218,6 +218,7 @@ class Server:
               remote = False, # whether to run the server remotely
               daemon = True, 
               run_mode = 'hypercorn', # the mode to run the api server
+              dind = False, # whether to run the server in docker in docker
               **extra_params 
 
               ):
@@ -234,7 +235,7 @@ class Server:
         port = self.get_port(port, mod=mod)
         params = {**(params or {}), **extra_params}
         if remote:
-            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key,  daemon=daemon)
+            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key,  daemon=daemon, docker_in_docker=dind)
 
         self.mod = m.mod(mod)(**(params or {}))
         self.key = m.key(key)

@@ -33,19 +33,13 @@ class App:
                     **kwargs
                     )
 
-    def edit(self, text='in the edit module version have on the right hand side a sidebar of of previous versions which will be  ', *extra_text, **kwargs):
-        text += str(m.fn('api/history')()[:2]) + m.code('api/history')  + ' '.join(extra_text) + 'and fix ersions.map is not a functio'
+    def edit(self, text='now for the edit tab please have a pending transaction until it is finalized as a new version and show the update ', *extra_text, **kwargs):
+        text += ' '.join(extra_text) 
+        content =  str(m.fn('api/history')()[:2]) + m.code('api/history') + m.code('api/edit') 
+        text += content
         return m.edit(mod='app', *text, **kwargs)
 
 
     def fix(self):
         # i want to know which files have cid as content ids
-        api = m.mod('api')()
-        def is_cid(file):
-            content = m.get_text(file)
-            return len(content) == 46 and content.startswith('Q')
-        cid_files = [f for f in m.files(m.dp('app'), depth=10) if is_cid(f)]
-        for f in cid_files:
-            print(f'Fixing file with CID: {f}')
-            m.put_text(f, api.get(m.get_text(f)))
-        return cid_files
+        return m.edit(m.logs('app') + '\n\n' + 'fix it given the logs')

@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useUserContext } from '@/bloc/context'
 import { ModuleType } from '@/bloc/types'
-import { Send, Loader2, MessageSquare } from 'lucide-react'
+import { Send, Loader2, MessageSquare, Clock, GitBranch, AlertCircle, CheckCircle } from 'lucide-react'
+import ModVersions from '@/bloc/mod/versions/ModVersions'
 
 interface ModEditProps {
   mod: ModuleType
@@ -17,6 +18,7 @@ const ui = {
   text: '#e7e7e7',
   textDim: '#a8a8a8',
   purple: '#a855f7',
+  yellow: '#fbbf24',
 }
 
 export default function ModEdit({ mod }: ModEditProps) {
@@ -24,14 +26,16 @@ export default function ModEdit({ mod }: ModEditProps) {
   const [message, setMessage] = useState('')
   const [chat, setChat] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([])
   const [loading, setLoading] = useState(false)
+  const [pendingTx, setPendingTx] = useState<{ message: string, cid?: string } | null>(null)
+  const [pendingVersion, setPendingVersion] = useState<{ cid: string, comment: string | null, updated: string } | null>(null)
 
   const handleSend = async () => {
     if (!message.trim() || !client) return
-    
     const userMessage = message
     setMessage('')
     setChat(prev => [...prev, { role: 'user', content: userMessage }])
     setLoading(true)
+    setPendingTx({ message: 'Processing your edit request...' })
 
     try {
       const response = await client.call('edit', {
@@ -42,15 +46,27 @@ export default function ModEdit({ mod }: ModEditProps) {
       })
       
       setChat(prev => [...prev, { role: 'assistant', content: response.content || response }])
+      
+      if (response.cid) {
+        setPendingVersion({
+          cid: response.cid,
+          comment: userMessage,
+          updated: new Date().toISOString().replace('T', ' ').slice(0, 19)
+        })
+        setPendingTx({ message: 'Transaction pending - new version will be finalized shortly', cid: response.cid })
+      } else {
+        setPendingTx(null)
+      }
     } catch (err: any) {
       console.error('Edit failed:', err)
       setChat(prev => [...prev, { role: 'assistant', content: `Error: ${err?.message || 'Failed to process edit'}` }])
+      setPendingTx(null)
     } finally {
       setLoading(false)
+      }
     }
-  }
-
-  return (
+  
+    return (
       <div className="flex flex-col h-[600px]" style={{ backgroundColor: ui.bg }}>
         <div className="p-4 border-b" style={{ backgroundColor: ui.panel, borderColor: ui.border }}>
           <div className="flex items-center gap-2">
@@ -75,20 +91,61 @@ export default function ModEdit({ mod }: ModEditProps) {
                   borderLeft: msg.role === 'assistant' ? `3px solid ${ui.purple}` : 'none'
                 }}
               >
-                <div className="text-xs font-bold mb-1" style={{ color: ui.textDim }}>
-                  {msg.role === 'user' ? 'You' : 'AI Assistant'}
+                  <div className="text-xs font-bold mb-1" style={{ color: ui.textDim }}>
+                    {msg.role === 'user' ? 'You' : 'AI Assistant'}
+                  </div>
+                  <div style={{ color: ui.text }}>{msg.content}</div>
                 </div>
-                <div className="whitespace-pre-wrap" style={{ color: ui.text }}>{msg.content}</div>
+              ))
+            )}
+          </div>
+
+          {(pendingTx || error) && (
+            <div
+              className={`p-4 rounded-lg border-2 ${
+                  error ? 'bg-gradient-to-br from-red-500/10 border-red-500/40'
+                  : loading
+                  ? 'bg-gradient-to-br from-yellow-500/10 border-yellow-500/40'
+                  : 'bg-gradient-to-br from-green-500/10 border-green-500/40'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                {error ? (
+                  <>
+                    <AlertCircle className="w-4 h-4" style={{ color: '#ef4444' }} />
+                    <span className="font-bold text-sm" style={{ color: '#ef4444' }}>ERROR</span>
+                  </>
+                ) : loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" style={{ color: ui.yellow }} />
+                    <span className="font-bold text-sm" style={{ color: ui.yellow }}>PENDING</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" style={{ color: '#22c55e' }} />
+                    <span className="font-bold text-sm" style={{ color: '#22c55e' }}>SUCCESS</span>
+                  </>
+                )}
               </div>
-            ))
-          )}
-          {loading && (
-            <div className="flex items-center gap-2 p-4" style={{ color: ui.textDim }}>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>AI is thinking...</span>
+              <p className="text-sm" style={{ color: ui.textDim }}>
+                {error || pendingTx?.message || 'Processing...'}
+              </p>
             </div>
           )}
-        </div>
+
+          {pendingVersion && (
+            <div className="p-4 rounded-lg border-2" style={{ backgroundColor: ui.panel, borderColor: ui.purple }}>
+              <div className="flex items-center gap-2 mb-2">
+                <GitBranch className="w-4 h-4" style={{ color: ui.purple }} />
+                <span className="font-bold text-sm" style={{ color: ui.purple }}>PENDING VERSION</span>
+              </div>
+              <div className="space-y-1 text-xs" style={{ color: ui.textDim }}>
+                <div>CID: {pendingVersion.cid}</div>
+                <div>Comment: {pendingVersion.comment || 'No comment'}</div>
+                <div>Updated: {pendingVersion.updated}</div>
+              </div>
+            </div>
+          )}
 
         <div className="p-4 border-t" style={{ backgroundColor: ui.panel, borderColor: ui.border }}>
           <div className="flex gap-2">
@@ -120,6 +177,10 @@ export default function ModEdit({ mod }: ModEditProps) {
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
           </div>
+        </div>
+
+        <div className="p-4 border-t" style={{ backgroundColor: ui.panel, borderColor: ui.border }}>
+          <ModVersions mod={mod} />
         </div>
       </div>
   )
