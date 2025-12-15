@@ -31,21 +31,14 @@ class Server:
         self.timeout = timeout
         self.set_gate(gate)
 
+    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user']):
+        self.gate = m.mod(gate)()
+        m.mergemods(from_mod=self.gate, to_mod=self, fns=fns)
 
-    def set_gate(self, gate: Union[str, 'Module', Any], 
-                 path = '~/.mod/server', 
-                 sync_features = ['add_user', 'rm_user', 'users', 'is_user']):
-        self.gate = m.mod(gate)(path=path)
-        for fn in sync_features:
-            setattr(self, fn, getattr(self.gate, fn))
-        return {'status': 'gate set', 'gate': gate}
 
-    def set_pm(self, pm: Union[str, 'Module', Any], sync_fns = ['logs', 'namespace', 'kill', 'kill_all','namespace']):
+    def set_pm(self,  pm: Union[str, 'Module', Any],  fns = ['logs', 'namespace', 'kill', 'kill_all','namespace', 'killall']):
         self.pm = m.mod(pm)()
-        for fn in sync_fns:
-            setattr(self, fn, getattr(self.pm, fn))
-        self.pm.killall = self.pm.kill_all
-
+        m.mergemods(from_mod=self.pm, to_mod=self, fns=fns)
     def is_generator(self, obj):
         """
         Is this shiz a generator dawg?
@@ -222,16 +215,9 @@ class Server:
               port :Optional[int] = None, # name of the server if None, it will be the mod name
               fns = None, # list of fns to serve, if none, it will be the endpoints of the mod
               key = None, # the key for the server
-              cwd = None, # the cwd to run the server in
               remote = False, # whether to run the server remotely
-              host = '0.0.0.0',
-              volumes = None, 
-              public=False,
-              docker_in_docker = False,
-              env = None,
-              server_mode = 'http',
               daemon = True, 
-              run_mode = 'hypercorn',
+              run_mode = 'hypercorn', # the mode to run the api server
               **extra_params 
 
               ):
@@ -248,7 +234,7 @@ class Server:
         port = self.get_port(port, mod=mod)
         params = {**(params or {}), **extra_params}
         if remote:
-            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key, cwd=cwd, daemon=daemon, volumes=volumes, env=env, docker_in_docker=docker_in_docker)
+            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key,  daemon=daemon)
 
         self.mod = m.mod(mod)(**(params or {}))
         self.key = m.key(key)
@@ -286,7 +272,7 @@ class Server:
             config.bind = [f"0.0.0.0:{port}"]
             asyncio.run(serve(self.app, config))
         else:
-            raise Exception(f'Unknown mode {mode} for run_api')
+            raise Exception(f'Unknown mode {run_mode} for run_api')
 
     def show_info(self):
         print('--- Server Info ---', color='green')
@@ -297,8 +283,7 @@ class Server:
         print('-------------------', color='green')
         return show_info
 
-    def get_fns(self, 
-                        fns  = None, 
+    def get_fns(self, fns  = None, 
                         helper_fns = ['info', 'forward'],
                         fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
                         ) -> List[str]: 

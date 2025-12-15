@@ -10,7 +10,7 @@ class Skill:
         }
 
 
-    output_format=  """
+    output_format=  f"""
             make sure the params is a legit json string within the STEP ANCHORS
             YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN
             <PLAN>
@@ -67,8 +67,6 @@ class Skill:
                 --INPUTS--
                 query={query} # THE QUERY YOU ARE TRYING TO ANSWER
                 goal={goal} # THE GOAL YOU ARE TRYING TO ACHIEVE
-                step={step} # THE CURRENT STEP YOU ARE ON
-                steps={steps} # THE MAX STEPS YOU ARE ALLOWED TO TAKE IF IT IS 1 YOU MUST DO IT IN ONE SHOT OR ELSE YOU WILL NOT BE ABLE TO REALIZE IT
                 tools={tools} # THE TOOLS YOU ARE ALLOWED TO USE AND THEIR SCHEMAS
                 memory={memory} # THE MEMORY OF THE AGENT
                 output_format={output_format} YOUR OUTPUT MUST STRICTLY ADHERE TO THE OUTPUT FORMAT ABOVE

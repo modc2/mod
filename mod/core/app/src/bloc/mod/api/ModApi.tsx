@@ -120,8 +120,13 @@ export const ModApi = ({ mod }: { mod: any }) => {
         setLoading(false);
         return;
       }
-      const res = await client.call(selectedFunction, params );
-      setResponse(res);
+        const res = await client.call(selectedFunction, params);
+        setResponse(res);
+        setAuthHeaders({
+          'X-Function': selectedFunction,
+          'X-Params': JSON.stringify(params),
+          'X-Timestamp': new Date().toISOString()
+        });
     } catch (err: any) {
       setError(err?.message || 'Failed to execute function');
     } finally {

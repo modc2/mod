@@ -53,7 +53,7 @@ class PyPM:
         Resolve Python environment path.
         
         Args:
-            python_env: Path to Python interpreter, virtualenv, or conda env name
+            python_env: Path to Python interpreter or virtualenv
             
         Returns:
             Full path to Python interpreter
@@ -65,7 +65,7 @@ class PyPM:
         if os.path.isfile(python_env) and os.access(python_env, os.X_OK):
             return python_env
         
-        # Check if it's a virtualenv directory
+        # Check if it's a virtualenv directory (raw venv)
         venv_python = os.path.join(python_env, 'bin', 'python')
         if os.path.isfile(venv_python):
             return venv_python
@@ -74,27 +74,6 @@ class PyPM:
         venv_python_win = os.path.join(python_env, 'Scripts', 'python.exe')
         if os.path.isfile(venv_python_win):
             return venv_python_win
-        
-        # Try conda environment
-        try:
-            result = subprocess.run(
-                ['conda', 'env', 'list', '--json'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                envs = json.loads(result.stdout)
-                for env_path in envs.get('envs', []):
-                    if python_env in env_path or env_path.endswith(python_env):
-                        conda_python = os.path.join(env_path, 'bin', 'python')
-                        if os.path.isfile(conda_python):
-                            return conda_python
-                        conda_python_win = os.path.join(env_path, 'python.exe')
-                        if os.path.isfile(conda_python_win):
-                            return conda_python_win
-        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
-            pass
         
         # Default to system python3 or python
         return python_env if '/' in python_env or '\\' in python_env else 'python3'
@@ -458,6 +437,25 @@ def main():
         result = pm.resurrect()
         print(json.dumps(result, indent=2))
 
+    @classmethod
+    def test(cls) -> Dict[str, Any]:
+        """Test function for PyPM class."""
+        try:
+            # Create a test instance
+            pm = cls(storage_path="~/.pypm_test")
+            
+            # Test basic functionality
+            test_results = {
+                "instance_created": True,
+                "storage_path": str(pm.storage_path),
+                "processes_loaded": isinstance(pm.processes, dict),
+                "success": True
+            }
+            
+            return test_results
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
-if __name__ == '__main__':
-    main()

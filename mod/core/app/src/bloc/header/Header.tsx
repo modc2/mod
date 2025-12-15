@@ -22,7 +22,7 @@ export function Header() {
   const { isSplitScreen, toggleSplitScreen, orientation, setOrientation } = useSplitScreenContext()
   const router = useRouter()
   const [inputValue, setInputValue] = useState('')
-  
+
   const modsColor = '#3b82f6'
   const usersColor = '#10b981'
 
@@ -73,7 +73,7 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-black" style={{ borderColor: '#00ff0040' }}>
+    <header className="sticky top-0 z-50 w-full bg-black border-b-2" style={{ borderColor: 'rgba(0, 255, 0, 0.25)' }}>
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center gap-4">
           <div className="relative flex items-center">
@@ -81,12 +81,13 @@ export function Header() {
               {searchCollapsed ? (
                 <button
                   onClick={() => setSearchCollapsed(false)}
-                  className="p-3 rounded-lg border-2 transition-all active:scale-95"
+                  className="p-3 rounded-xl border-2 transition-all active:scale-95 backdrop-blur-xl"
                   style={{
-                    height: '64px',
-                    width: '64px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                    borderColor: 'rgba(239, 220, 11, 0.6)'
+                    height: '60px',
+                    width: '60px',
+                    backgroundColor: 'rgba(239, 220, 11, 0.1)',
+                    borderColor: 'rgba(239, 220, 11, 0.4)',
+                    boxShadow: '0 0 12px rgba(239, 220, 11, 0.2)'
                   }}
                   title="Search"
                 >
@@ -102,11 +103,12 @@ export function Header() {
                     onKeyDown={handleKeyDown}
                     onBlur={() => !inputValue && setSearchCollapsed(window.innerWidth < 1200)}
                     placeholder="Search mods..."
-                    className="border-2 text-white pl-14 pr-5 py-3.5 rounded-lg text-xl hover:shadow-lg focus:outline-none focus:ring-2 transition-all w-80"
+                    className="border-2 text-white pl-14 pr-5 py-3.5 rounded-xl text-xl hover:shadow-lg focus:outline-none focus:ring-2 transition-all w-80 backdrop-blur-xl"
                     style={{
-                      backgroundColor: 'rgba(15, 15, 15, 0.2)',
-                      borderColor: 'rgba(239, 220, 11, 0.6)',
-                      fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace"
+                      backgroundColor: 'rgba(239, 220, 11, 0.1)',
+                      borderColor: 'rgba(239, 220, 11, 0.4)',
+                      fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace",
+                      boxShadow: '0 0 12px rgba(239, 220, 11, 0.2)'
                     }}
                     autoFocus={!searchCollapsed}
                   />

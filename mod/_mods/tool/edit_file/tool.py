@@ -48,6 +48,7 @@ class Tool:
             text = self.get_text(path)
             lines = text.splitlines(keepends=True)
             end_line = min(end_line, len(lines))
+            start_line = min(max(1, start_line), end_line)
             
             # Validate line ranges
             if not (1 <= start_line <= len(lines)):

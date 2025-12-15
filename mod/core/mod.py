@@ -316,12 +316,6 @@ class Mod:
             
     dirs = folders
 
-    def avoid_folders_filter(self, paths:List[str]) -> List[str]:
-        if len(self.avoid_folders) == 0:
-            return paths
-        return [f for f in paths if not any(['/'+at in f for at in self.avoid_folders])]
-
-
     def files(self, 
               path='./', 
               search:str = None, 
@@ -336,13 +330,19 @@ class Mod:
         """
         # if self.mod_exists(path):
         #     path = self.dirpath(path)
-        files =self.glob(path, depth=depth,**kwargs)
+
+        path = self.abspath(path)
+        files = []
+        if depth == 0:
+            return []
+        else:
+            for path in self.ls(path):
+                files.extend(self.files(path, depth=depth-1) if os.path.isdir(path) else [path])
+        files =  list(filter(lambda f:os.path.isfile(f), files))
         if not include_hidden:
-            files = [f for f in files if not '/.' in f ]
-        files = self.avoid_folders_filter(files)
-        if relative: 
-            cwd = os.getcwd()
-            files = [f.replace(path + '/', '') if f.startswith(cwd) else f for f in files]
+            files =  [f for f in files if not '/.' in f ]
+        if len(self.avoid_folders) > 0:
+            files =  [f for f in files if not any(['/'+at in f for at in self.avoid_folders])]
         if search != None:
             files = [f for f in files if search in f]
         return files
@@ -1297,18 +1297,17 @@ class Mod:
     def local_tree(self, search=None, depth=1, **kwargs):
         return self.get_tree(os.getcwd(), depth=depth,  search=search, **kwargs )
 
-    def search_tree(self, search=None, tree=None, **kwargs) -> Dict[str, str]:
+    def search_tree(self, search=None, tree=None, depth=1, max_depth=8 ,**kwargs) -> Dict[str, str]:
         """
         search the tree for a mod
         """
-        
+
+        search = self.shortcuts.get(search, search)
+        search = search.lower().replace('/', '.')  
         tree = tree or self.tree(**kwargs)
         if search == None:
             return tree
-        search = self.shortcuts.get(search, search)
-        search = search.lower().replace('/', '.')
-        tree_options = [k for k in tree.keys() if all([part in k for part in search.split('.')])]
-        tree_options = sorted(tree_options, key=lambda x: len(x))
+        tree_options = sorted([k for k in tree.keys() if all([part in k for part in search.split('.')])], key=lambda x: len(x))
         result =  {k: tree[k] for k in tree_options}
         return result
 
@@ -1366,8 +1365,7 @@ class Mod:
         name = name or path.split('/')[-1]
         dirpath = self.mods_path + '/' + name.replace('.', '/')
         self.cmd(f'cp -r {path} {dirpath}')
-        files = self.files(dirpath, relative=True)
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path', 'files': files}
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path'}
 
     def addcid(self, name='churn',  cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4'):
         api = c.mod('api')()
@@ -1714,6 +1712,17 @@ class Mod:
             if feature.startswith('sub_'):
                 sub_fn = getattr(mod, feature)
                 sub_fn()
+
+
+    def mergemods(self, from_mod:Any, to_mod:Any, fns:list):
+        """
+        Share functions from one mod to another
+        1. from_mod: the mod to share from
+        """
+        for fn in fns:
+            fn_obj = getattr(from_mod, fn)
+            setattr(to_mod, fn, fn_obj)
+        return to_mod
 
 
     def edit(self, *args, **kwargs):

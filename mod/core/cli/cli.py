@@ -9,44 +9,29 @@ from copy import deepcopy
 import json
 print = m.print
 class Cli:
-    def __init__(self, 
-                mod='mod', 
-                fn='forward',
-                default_fn='go',
-                ):
-        self.argv = self.get_argv()
-        self.fn = fn
-        self.mod = mod
-        self.time = m.time()
-        self.default_fn = default_fn
+    def __init__(self,  mod='mod',  fn='forward' ):
 
-    def get_args(self, argv=None):
-        """
-        Get the arguments passed to the script
-        """
-        argv = argv or sys.argv[1:] # remove the first argument (the script name)
-        self.argv =  argv
-        return self.argv
+        self.argv = sys.argv[1:] # remove the first argument (the script name)
+        self.fn = fn
+        self.mod = m.mod(mod)()
 
     def forward(self, argv=None, **kwargs):
         """
         Forward the function to the mod and function
         """
-        self.args =self.get_args(argv)
+        t0 = m.time()
         fn = self.get_fn()
         params = self.get_params()
-        self.run_fn(fn, params)
-
-
-    def run_fn(self, fn:Any, params:dict):
-        """
-        Run
-        """
-        
         result = fn(*params['args'], **params['kwargs']) if callable(fn) else fn
-        self.duration = m.time() - self.time
-        is_generator = self.is_generator(result)
-        if is_generator:
+        duration = m.time() - t0
+        self.print_result(result)
+        # return result
+        print(f'∆t = {duration:.4f}s ', color='cyan')
+
+
+
+    def print_result(self, result):
+        if  self.is_generator(result):
             for item in result:
                 if isinstance(item, dict):
                     print(item)
@@ -54,54 +39,68 @@ class Cli:
                     print(item, end='')
         else:
             print(result, color='green')
-        self.result = result
-        print(f'⏱️  Duration: {self.duration:.4f} seconds', color='cyan')
-        return result
-
     def get_fn(self) -> tuple:
         """
         Get the function object from the mod and function name
+        the rule goes like this
+        {mod}/{fn} *args **kwargs
+        in this case the mod is dot seperated to represent the folders 
+        e.g mod.submod.subsubmod/fn
+        if you have more than one slash it means the first part is the mod and the last part is the fn
+        e.g mod/submod/fn
+        1. if no function name is provided, use default 'go'
+        2. if the fn name is in the mod
+        3. if the fn name is of another mod so we will look it up in the fn2mod
+        4. if first argument is a path to a function m mod/fn *args
+        5. if first argument is a path to a function m.mod.submodule...fn
+        6. else raise exception
+        
         """
         argv = self.argv
-        fn = self.fn
-        mod = m.mod(self.mod)()
+        mod = self.mod
 
         if len(argv) == 0:
-            # scenario 1: no arguments, use the default function
-            fn = self.default_fn
-        elif len(argv) > 0 :
-            if hasattr(mod, argv[0]):
-                fn = argv.pop(0)
-            elif argv[0].endswith('/'):
-                # scenario 4: the fn name is of another mod so we will look it up in the fn2mod
-                mod = argv.pop(0)[:-1]
-            elif argv[0].startswith('/'):
-                # scenario 5: the fn name is of another mod so we will look it up in the fn2mod
-                fn = argv.pop(0)[1:]
-            elif len(argv[0].split('/')) == 2:
-                # scenario 6: first argument is a path to a function m mod/fn *args **kwargs
-                # first mod/submodule/.../fn
-                mod , fn = argv.pop(0).split('/')
-                mod = m.mod(mod)()
-            elif len(argv[0].split('/')) >= 2:
-                print(f'First argument {argv[0]} looks like a mod/submodule.../fn path', color='green')
-                # scenario 7: first argument is a path to a function m.mod.submodule...fn
-                parts = argv.pop(0).split('/')
-                fn = parts.pop(-1)
-                mod = m.mod(parts.pop(0))()
-                for part in parts:
-                    mod = getattr(mod, part)
-
-        else:
-            # scenario 2: no arguments, use the default function
-            fn = self.default_fn
-        print(f'Function: {mod.__class__.__name__}.{fn}', color='cyan')
-        fn_obj = getattr(mod, fn, None)
-        return fn_obj
+            # scenario 1: no function name provided, use default 'go'
+            fn = 'go'
+        elif hasattr(mod, argv[0]):
+            # scenario 2: the fn name is in the mod
+            fn = argv.pop(0)
+        elif argv[0].endswith('/'):
+            # scenario 4: the fn name is of another mod so we will look it up in the fn2mod
+            mod = m.mod(argv.pop(0)[:-1])()
+            fn = self.fn
+        elif argv[0].startswith('/'):
+            # scenario 5: the fn name is of another mod so we will look it up in the fn2mod
+            fn = argv.pop(0)[1:]
+        elif len(argv[0].split('/')) == 2:
+            # scenario 6: first argument is a path to a function m mod/fn *args **kwargs
+            # first mod/submodule/.../fn
+            mod , fn = argv.pop(0).split('/')
+            mod = m.mod(mod)()
+        elif len(argv[0].split('/')) >= 2:
+            # scenario 7: first argument is a path to a function m.mod.submodule...fn
+            parts = argv.pop(0).split('/')
+            fn = parts.pop(-1)
+            mod = m.mod(parts.pop(0))()
+            for part in parts:
+                mod = getattr(mod, part)
+        else: 
+            raise Exception(f'Function was not extracted from {argv} ')
+        return getattr(mod, fn, None)
 
     def get_params(self) -> tuple:
         """
         Get the parameters passed to the function
+        The parameters can be passed as positional arguments or keyword arguments
+        e.g mod/fn arg1 arg2 key1=value1 key2=value2
+        or mod/fn key1=value1 key2=value2
+        1. if an argument contains '=' it is a keyword argument
+        2. else it is a positional argument
+        3. if mixing positional and keyword arguments raise exception
+        4. if the value is a json object, parse it as a json object
+        5. if the value is a list, parse it as a list
+        6. if the value is a dict, parse it as a dict
+        7. else parse it as a string, int, float, bool or None
         """
 
         argv = self.argv
@@ -150,13 +149,6 @@ class Cli:
         if len(x) > n:
             return x[:n] +  '...' + x[-n:]
         return x
-
-    def get_argv(self, argv=None):
-        """
-        Get the arguments passed to the script
-        """
-        argv = argv or sys.argv[1:] # remove the first argument (the script name)
-        return argv
 
     def is_generator(self, obj):
         """

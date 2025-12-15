@@ -7,20 +7,12 @@ from typing import List, Dict, Union, Optional, Any
 print = c.print
 class SelectFiles:
 
-    def __init__(self,  provider='model.openrouter'):
-        """
-        Initialize the Find module.
-        
-        Args:
-            model: Pre-initialized model instance (optional)
-            default_provider: Provider to use if no model is provided
-            default_model: Default model to use for ranking
-        """
-        self.model = c.mod(provider)()
+    def __init__(self,  model='model.openrouter'):
+        self.model = c.mod(model)()
 
     def forward(self,  
-              query: str = 'most relevant', 
               path: Union[List[str], Dict[Any, str]] = './', 
+              query: str = 'most relevant', 
               files = None, 
               n: int = 10, 
               trials = 3,
@@ -36,7 +28,10 @@ class SelectFiles:
             if mod:
                 path = c.dirpath(mod)
             files = c.files(path, depth=depth)
+
         if len(files) > 1:
+
+            # make the files relative to the path
             for trial in range(trials):
                 try:
                     files = c.fn('tool.select_options/')(
@@ -50,7 +45,6 @@ class SelectFiles:
                 except Exception as e: 
                     print(f"Trial {trial+1} failed with error: {e}", color="red")
                     continue
-        files =  [os.path.expanduser(file).replace(os.path.expanduser('~'), '~') for file in files]
         if content:
             results = {}
             for f in files:
@@ -62,11 +56,9 @@ class SelectFiles:
         else: 
             results = files
         print(f"Selected files >>> ",files, color="cyan")
-        if number_lines and isinstance(results, dict):
+        if number_lines:
             for f in results:
-                lines = results[f].split('\n')
-                numbered_lines = [f"{i+1}   {line}" for i, line in enumerate(lines)]
-                results[f] = numbered_lines
+                results[f] =  [f"{i+1}   {line}" for i, line in enumerate(results[f].split('\n'))]
         return results
 
     def get_text(self, path: str) -> str:

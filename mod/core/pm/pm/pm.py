@@ -393,6 +393,7 @@ class PM:
             return {'status': 'all_containers_killed'}
         except Exception as e:
             return {'status': 'error', 'error': str(e), 'servers': self.servers()}
+    killall = kill_all
 
     def images(self, df: bool = True) -> Union[pd.DataFrame, Any]:
         """

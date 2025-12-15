@@ -9,32 +9,29 @@ from datetime import datetime
 from copy import deepcopy
 import time
 
+class TxType:
+    mod: str
+    fn: str
+    params: dict
+    result: dict
+    client: dict  # client auth
+    server: dict  # server auth
+
+
 class Tx:
 
-    def __init__(self, 
-                tx_path = '~/.mod/server/tx' , 
-                serializer='serializer',
-                auth = 'auth',
-                roles = ['client', 'server'], # the roles that need to sign the transaction
-                tx_schema = {
+
+    tx_schema = {
                     'mod': str,
                     'fn': str,
                     'params': dict,
                     'result': dict,
                     'client': dict,  # client auth
                     'server': dict,  # server auth
-                }, # the schema of the transaction
-                key:str = None, 
-                 version='v0'):
+                }
 
-        self.key = m.key(key)
-        self.version = version
-        self.store = m.mod('store')(f'{tx_path}/{self.version}')
-        self.tx_schema = tx_schema
-        self.tx_features = list(self.tx_schema.keys())
-        self.serializer = m.mod(serializer)()
-        self.auth = m.mod(auth)()
-        self.roles = roles
+    def __init__(self,  path = '~/.mod/server/tx'):
+        self.store = m.mod('store')(path)
 
     def forward(self, 
                  mod:str = 'mod', 
@@ -57,10 +54,8 @@ class Tx:
         else: 
             if client is not None:
                 auths['client'] = client
-            
             if server is not None:
                 auths['server'] = server
-            
         tx = {
             'mod': mod, # the mod name (str)
             'fn': fn, # the function name (str)
@@ -70,10 +65,8 @@ class Tx:
             'client': auths['client'], # the client auth (dict)
             'server': auths['server'], # the server auth (dict)
         }
-        tx_path = f'{mod}/{tx["client"]["key"]}/{fn}_{auths["client"]["time"]}'
-        self.store.put(tx_path, tx)
-        return tx
-
+        path =  f'{tx["mod"]}/{tx["client"]["key"]}/{tx["fn"]}_{tx["client"]["time"]}'
+        return self.store.put(path, tx)
     create_tx = create = tx = forward
 
     def paths(self, path=None):
@@ -99,14 +92,9 @@ class Tx:
             tx = self.store.get(tx)
         if not isinstance(tx, dict):
             return False
-        if not all([key in tx for key in self.tx_features]):
+        if not all([key in tx for key in self.tx_schema]):
             return False
         return True
-
-    def shorten(self, name:str = '12334555', start_len:int = 4, end_len:int = 4, filler:str = '...'):
-        if len(name) <= start_len + end_len + len(filler):
-            return name
-        return name[:start_len] + filler + name[-end_len:]
 
     def txs(self, 
             server= None,
@@ -116,13 +104,17 @@ class Tx:
             features:list = ['mod', 'fn',  'cost', 'client', 'age', 'delta', 'params'],
             records = False
             ):
+
+        def shorten(name:str = '12334555', start_len:int = 4, end_len:int = 4, filler:str = '...'):
+            if len(name) <= start_len + end_len + len(filler):
+                return name
+            return name[:start_len] + filler + name[-end_len:]
         path = None
         if client is not None:
             path = f'*/{client}'
         if server is not None:
             path = f'{server}/*' 
         txs = [x for x in self.store.values(path, max_age=max_age) if self.is_tx(x)]  
-
         result = txs[:n]
         if not records:
             result = m.df(txs)
@@ -131,14 +123,11 @@ class Tx:
             # configure the time columns
             result['time'] = result['client'].apply(lambda x: float(x['time']))
             result['time_end'] = result['server'].apply(lambda x: float(x['time']))
-            result['delta'] = result['time_end'] - result['time'] ; 
-            result['age'] = time.time() - result['time']
+            result['delta'] = (result['time_end'] - result['time']).apply(lambda x: round(x, 2))
             del result['time_end']
-            # now shorten the client and server keys
-            result['server'] = result['server'].apply(lambda x: self.shorten(x['key']))
-            result['client'] = result['client'].apply(lambda x: self.shorten(x['key']))
-            result['age'] = result['age'].apply(lambda x: str(int(x)) + 's')
-            result['delta'] = result['delta'].apply(lambda x: str(round(x, 2)) + 's')
+            result['age'] = (time.time() - result['time']).apply(lambda x: str(int(x)) + 's')
+            result['server'] = result['server'].apply(lambda x: shorten(x['key']))
+            result['client'] = result['client'].apply(lambda x: shorten(x['key']))
             result = result.sort_values(by='time', ascending=False)
             result = result[features]
         return result

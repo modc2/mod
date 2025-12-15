@@ -26,7 +26,7 @@ class Agent:
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
-                tools  = ['websearch'],
+                tools  = [],
                 model: Optional[str] = 'anthropic/claude-sonnet-4.5',
                 steps = 1,
                 path='./',

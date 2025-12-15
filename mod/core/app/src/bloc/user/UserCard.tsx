@@ -5,7 +5,7 @@ import { KeyIcon, CubeIcon } from '@heroicons/react/24/outline'
 import { UserType } from '@/bloc/types'
 import Link from 'next/link'
 import { useState } from 'react'
-import { RotateCcw, Coins } from 'lucide-react'
+import { Coins } from 'lucide-react'
 import { useUserContext } from '@/bloc/context'
 
 interface UserCardProps {
@@ -16,7 +16,6 @@ interface UserCardProps {
 export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
   const { client, network } = useUserContext()
   const [balance, setBalance] = useState(user.balance)
-  const [refreshing, setRefreshing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const userColor = text2color(user.key)
   const { user: currentUser } = useUserContext()
@@ -40,44 +39,25 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
     return () => clearTimeout(timer)
   })
 
-  const handleRefreshBalance = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setRefreshing(true)
-    try {
-      if (!network) throw new Error('Client not initialized')
-      if (!client) throw new Error('Client not initialized')
-      const userData = await client.call('user', { address: user.key , update: true})
-      console.log(userData, 'REFRESHED USER DATA')
-      setBalance(userData.balance)
-      setIsLoading(false)
-    
-    } catch (error) {
-      console.error('Failed to refresh balance:', error)
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
   const CardContent = () => (
-    <div className="group relative border-2 rounded-xl px-4 py-3 hover:shadow-xl transition-all duration-300 backdrop-blur-sm hover:scale-[1.01] bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}` }}>
+    <div className="group relative border-2 rounded-xl px-4 hover:shadow-xl transition-all duration-300 backdrop-blur-sm hover:scale-[1.01] bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}`, paddingTop: '12px', paddingBottom: '12px', minHeight: '120px' }}>
       <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${userColor}, transparent, ${userColor})` }} />
       
       <div className="relative z-10">
-        <div className="flex items-center gap-2 justify-between">
+        <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
             <Link href={`/user/${user.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
               <KeyIcon className="w-10 h-10" style={{ color: userColor }} />
             </Link>
             <Link href={`/user/${user.key}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
-              <code className="text-lg font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '120px', display: 'inline-block' }} title={user.key}>
-                {shorten(user.key)}
-              </code>
+                <code className="text-lg font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '200px', display: 'inline-block' }} title={user.key}>
+                  {user.key.substring(0, 6)}...{user.key.substring(user.key.length - 6)}
+                </code>
             </Link>
             <CopyButton text={user.key} size="sm" />
           </div>
           
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex flex-wrap items-center gap-2">
             {balance !== undefined && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
                 <Coins className="w-5 h-5" style={{ color: userColor }} />
@@ -96,21 +76,6 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
                 </code>
                 <CopyButton text={String(user.mods.length)} size="sm" />
               </div>
-            )}
-
-            {!isLoading && (
-              <button
-                onClick={handleRefreshBalance}
-                disabled={refreshing}
-                className="p-2 rounded-md border hover:bg-white/10 transition-all disabled:opacity-50"
-                style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}
-                title="Refresh balance"
-              >
-                <RotateCcw 
-                  className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`}
-                  style={{ color: userColor }}
-                />
-              </button>
             )}
           </div>
         </div>

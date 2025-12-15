@@ -14,6 +14,11 @@ A lightweight process manager similar to PM2, built with pure Python. No Docker 
 ## Installation
 
 ```bash
+# Create a Python virtual environment (venv)
+python3 -m venv myenv
+source myenv/bin/activate  # On Windows: myenv\Scripts\activate
+
+# Install dependencies
 pip install psutil
 ```
 
@@ -48,7 +53,37 @@ pm.restart('myapp')
 # Delete a process
 pm.delete('myapp')
 
-# Get detailed info
+### Using with Python Virtual Environments (venv)
+
+```python
+from pypm import PyPM
+
+pm = PyPM()
+
+# Start a process using a specific venv
+pm.start(
+    name='myapp',
+    script='app.py',
+    python_env='/path/to/myenv'  # Path to venv directory
+)
+
+# Or use venv's python directly
+pm.start(
+    name='myapp',
+    script='app.py',
+    python_env='/path/to/myenv/bin/python'
+)
+```
+
+### Command Line with venv
+
+```bash
+# Start with venv path
+python pypm.py start --name myapp --script app.py --python-env /path/to/myenv
+
+# Start with venv python executable
+python pypm.py start --name myapp --script app.py --python-env /path/to/myenv/bin/python
+```
 info = pm.describe('myapp')
 print(info)
 ```

@@ -33,8 +33,8 @@ class App:
                     **kwargs
                     )
 
-    def edit(self, text='make the chat interface  ', *extra_text, **kwargs):
-        text = text + 'given '  + m.code('api') + ' as the model in it has ' + m.code('model.openrouter') + ' mod. '
+    def edit(self, text='in the edit module version have on the right hand side a sidebar of of previous versions which will be  ', *extra_text, **kwargs):
+        text += str(m.fn('api/history')()[:2]) + m.code('api/history')  + ' '.join(extra_text) + 'and fix ersions.map is not a functio'
         return m.edit(mod='app', *text, **kwargs)
 
 

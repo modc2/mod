@@ -10,9 +10,11 @@ import ModCard from '@/bloc/mod/ModCard'
 import { AlertCircle } from 'lucide-react'
 import { text2color } from '@/bloc/utils'
 import UpdateMod from '@/bloc/user/wallet/update/UpdateMod'
+import ModEdit from '@/bloc/mod/edit/ModEdit'
+import ModVersions from '@/bloc/mod/versions/ModVersions'
 
 const defaultTab = 'content'
-const availableTabs = ['content','api', 'app']
+const availableTabs = ['content','api', 'app', 'versions', 'edit']
 export default function ModulePage() {
   const params = useParams()
   const { client, user } = useUserContext()
@@ -25,6 +27,22 @@ export default function ModulePage() {
   const [myMod, setMyMod] = useState(false)
 
   const moduleColor = mod ? text2color(mod.name || mod.key) : '#ffffff'
+
+
+  // if mod has no app, remove app from availableTabs
+  if (mod && !mod.app) {
+    const index = availableTabs.indexOf('app')
+    if (index > -1) {
+      availableTabs.splice(index, 1)
+      if (activeTab === 'app') {
+        setActiveTab(defaultTab)
+      }
+    } 
+  } else {
+    if (!availableTabs.includes('app')) {
+      availableTabs.push('app')
+    }
+  }
 
   useEffect(() => {
     const fetchMod = async () => {
@@ -87,12 +105,14 @@ export default function ModulePage() {
 
 
   
-  const tabColors = {
-    api: { r: 59, g: 130, b: 246 },
-    app: { r: 34, g: 197, b: 94 },
-    update: { r: 251, g: 191, b: 36 },
-    content: { r: 168, g: 85, b: 247 }
-  }
+    const tabColors = {
+      api: { r: 59, g: 130, b: 246 },
+      app: { r: 34, g: 197, b: 94 },
+      update: { r: 251, g: 191, b: 36 },
+      content: { r: 168, g: 85, b: 247 },
+      versions: { r: 245, g: 158, b: 11 },
+      edit: { r: 236, g: 72, b: 153 }
+    }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-black text-white flex flex-col">
@@ -126,15 +146,16 @@ export default function ModulePage() {
               )
             })}
           </div>
-
-          <div>
-            {activeTab === 'content' && <ModContent mod={mod} />}
-            {activeTab === 'api' && <ModApi mod={mod} />}
-            {activeTab === 'app' && <ModApp mod={mod} moduleColor={moduleColor} />}
-            {activeTab === 'update' && myMod && <UpdateMod mod={mod} />}
-          </div>
-        </div>
-      </main>
-    </div>
-  )
+            <div>
+              {activeTab === 'content' && <ModContent mod={mod} />}
+              {activeTab === 'api' && <ModApi mod={mod} />}
+              {activeTab === 'app' && mod.app&& <ModApp mod={mod} moduleColor={moduleColor} />}
+              {activeTab === 'versions' && <ModVersions mod={mod} />}
+              {activeTab === 'update' && myMod && <UpdateMod mod={mod} />}
+              {activeTab === 'edit' && myMod && <ModEdit mod={mod} />}
+            </div>
+      </div>
+    </main>
+  </div>
+)
 }

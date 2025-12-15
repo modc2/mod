@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  secretshare:
+    container_name: secretshare
+    deploy: {}
+    entrypoint: bash -c "m serve port=50067 key=secretshare remote=0 mod=secretshare"
+    image: mod:latest
+    ports:
+    - 50067:50067
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/_mods/secretshare:/root/mod/mod/_mods/secretshare
+    working_dir: /root/mod/mod/_mods/secretshare
+version: '3.8'

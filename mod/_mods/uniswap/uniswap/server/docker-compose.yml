@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  uniswap-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: uniswap-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      - BASE_RPC_URL=${BASE_RPC_URL}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge

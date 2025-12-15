@@ -61,6 +61,10 @@ export default function ModApp({ mod, moduleColor= 'white' }: ModAppProps) {
     )
   }
 
+  if (!mod.url_app) {
+    return null
+  }
+
   return (
     <div className='relative w-full h-full min-h-[600px]'>
       {loading && (

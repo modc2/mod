@@ -22,7 +22,7 @@ export const UserCardSettings = ({
 
   return (
     <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-pink-500/20 border border-purple-500/40 rounded-lg backdrop-blur-xl shadow-lg">
+        <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-xl backdrop-blur-xl shadow-lg hover:shadow-purple-500/40 transition-all duration-300">
         <input
           type="text"
           placeholder="Search users..."

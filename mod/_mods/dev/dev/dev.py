@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Dict, List, Union, Optional, Any, Tuple
 from .utils import *
 import mod as m
+import regex
 print=m.print
 class Dev:
 
-    def __init__(self, model: str = 'model.openrouter',  skill = 'dev.skill', memory = 'dev.memory', **kwargs):
+    tools  = ['create_file', 'rm_file', 'edit_file']
 
+    def __init__(self, model: str = 'model.openrouter',  skill = 'dev.skill', memory = 'dev.memory', **kwargs):
         self.memory = m.mod(memory)()
         self.skill = m.mod(skill)()
         self.model = m.mod(model)()
@@ -22,35 +24,38 @@ class Dev:
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
-                tools  = ['create_file', 'rm_file', 'edit_file'],
                 model: Optional[str] = 'anthropic/claude-sonnet-4.5',
                 steps = 1,
+                tools = None,
                 path=None,
                 safety=True,
-                base = None,
                 remote=False,
                 **kwargs) -> Dict[str, str]:
         
         """
         use this to run the agent with a specific text and parameters
         """
-        if mod != None:
-            path = m.dirpath(mod)
-        text = ' '.join(list(map(str, [text] + list(extra_text))))
-        query = text 
-        if path != None:
-            self.memory.add('content', m.tool('select_files')(path=path, query=query))
-        if base != None:
-            self.memory.add('base', m.content(base))
+        tools = tools or self.tools
+        query = ' '.join(list(map(str, [text] + list(extra_text))))
+        path = m.dirpath(mod) if path == None else path
+        self.memory.add('content', m.tool('select_files')(path=path, query=query)) if path != None else None
+        # starts with b followed by a number
+        def is_b_param(k):
+            return regex.match(r'^b\d+', k) is not None
+        for k,v in kwargs.items():
+            if is_b_param(k):
+                print(f'Adding to memory: {v}')
+                self.memory.add(v, m.code(v))
+        self.memory.add('path', path)
+        self.memory.add('steps', steps)
         
         for step in range(steps):   
             self.memory.add('files', m.files(path))
-            params = dict(query=query, path=path, step=step, steps=steps, memory=self.memory.get(), tools=tools, base=base)
-            prompt = self.skill.prepare(**params)
+            self.memory.add('step', step)
+            prompt = self.skill.prepare(query=query, memory=self.memory.get(), tools=tools)
             output = self.model.forward(prompt, stream=stream, model=model, max_tokens=max_tokens, temperature=temperature )
             plan = self.skill.plan(output, safety=safety)
             self.memory.add('plan', plan)
             if plan[-1]['tool'].lower() == 'finish':
                 break
-            
         return plan

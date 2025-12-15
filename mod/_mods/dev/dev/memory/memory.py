@@ -1,7 +1,12 @@
+from typing import Any, Optional
+
 class Memory:
     memory = {}
-    def add(self, k, v):
-        self.memory[k] = v
+    def add(self, k:str, v : Any = None):
+        if isinstance(k, dict):
+            self.memory.update(k)
+        else:
+            self.memory[k] = v
         return self.memory
 
     def clear(self):
@@ -18,7 +23,6 @@ class Memory:
         if key in self.memory:
             del self.memory[key]
         return self.memory
-
 
     def test(self):
         self.add('test1', 'This is a test memory item one.')

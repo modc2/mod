@@ -22,6 +22,7 @@ class  Api:
                  'user', 
                  'n', 
                  'balance',
+                 'history',
                  'reg_url',
                  'reg_from_info',
                  'hardware',
@@ -84,7 +85,8 @@ class  Api:
         self.check_modchain(mod)
         return mod
 
-    def call(self , mod: m.Mod, fn: str, params: Dict[str, Any], time:int, cost:int, signature, **kwargs) -> Any:
+
+    def call(self ,fn: str, params: Dict[str, Any] = {}, time:int = None, cost:int = 0, signature=None, **kwargs) -> Any:
         """
         Call a function from a mod Mod in IPFS.
         Args:
@@ -95,9 +97,9 @@ class  Api:
         Returns:
             Result of the function call
         """
-        modinfo = self.mod(mod, schema=True, **kwargs)
-        assert fn in modinfo['schema'], f"Function {fn} not found in mod {modinfo['name']}"
-        return m.fn(f"{modinfo['name']}/{fn}")(**params)
+        whitelist_fns = ['openrouter/models']
+        assert fn in whitelist_fns, f"Function {fn} is not whitelisted for mod {whitelist_fns}"
+        return m.fn(fn)(**params)
 
     def call_payload(self, mod: m.Mod = 'openrouter', fn: str = 'models', params: Dict[str, Any] = {}, time = None, cost = 0, **kwargs) -> Dict[str, Any]:
 
@@ -324,7 +326,22 @@ class  Api:
             info = self.get_info(mod=mod, key=key, comment=comment, protocal=protocal)
             info['prev'] = prev_cid
         info['cid'] = self.update_local_registry(info) 
-        return info 
+    def reg_payload(self, mod: str = 'store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
+        """
+        Generate registration payload without executing registration.
+        
+        Args:
+            mod: Mod str
+            key: Key object or address string
+            comment: Optional comment about the registration
+            collateral: Collateral amount
+            protocal: Protocol type
+            
+        Returns:
+            Dictionary with registration payload ready to be signed
+        """
+        info = self.get_info(mod=mod, key=key, comment=comment, collateral=collateral, protocal=protocal)
+        return info
  
     sync_info = {}
     def sync(self, timeout=300,  fns = ['mods', 'balances']) -> Dict[str, Any]:
@@ -421,7 +438,6 @@ class  Api:
                 # convert timestamp to readable date
                 info['updated'] = self.timestamp2utc(info['updated'])
                 result.append(info)
-                print(f"History entry: {info}")
                 if prev_cid == None:
                     break
                 else:
@@ -636,7 +652,7 @@ class  Api:
         m.fn('dev/')(mod=mod, text=text, safety=False, **kwargs)
         return self.reg(mod=mod, key=key, comment=text)
 
-    def chat(self, text, *extra_texts, mod: str='model.openrouter',**kwargs) -> Dict[str, Any]:
+    def chat(self, text, *extra_texts, mod: str='model.openrouter', stream=False, **kwargs) -> Dict[str, Any]:
         return self.model.forward(' '.join([text] + list(extra_texts)), stream=stream, **kwargs)
     
     def models(self, search=None, mod: str='model.openrouter', **kwargs) -> List[Dict[str, Any]]:
