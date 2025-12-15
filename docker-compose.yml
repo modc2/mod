@@ -1,16 +1,33 @@
-version: '3.8'
-
+networks:
+  default:
+    external: true
+    name: modnet
 services:
   app:
     build: .
-    ports:
-      - "3000:3000"
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/.next
-    environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_CHAIN_ID=8453
-      - NEXT_PUBLIC_RPC_URL=https://mainnet.base.org
     command: npm run dev
+    environment:
+    - NODE_ENV=development
+    - NEXT_PUBLIC_CHAIN_ID=8453
+    - NEXT_PUBLIC_RPC_URL=https://mainnet.base.org
+    ports:
+    - 3000:3000
+    volumes:
+    - ~/mod:/app
+    - /app/node_modules
+    - /app/.next
+  mod:
+    container_name: mod
+    deploy: {}
+    entrypoint: bash -c "m serve port=50420 key=server remote=0 mod=mod"
+    image: mod
+    ports:
+    - 50420:50420
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod:/root/mod
+    working_dir: /root/mod
+version: '3.8'

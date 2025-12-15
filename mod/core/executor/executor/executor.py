@@ -15,6 +15,9 @@ from tqdm import tqdm
 from .utils import new_event_loop, detailed_error, wait
 from scalecodec.utils.ss58 import  is_valid_ss58_address
 import mod as m
+
+
+
 class Task:
     def __init__(self, 
                 fn:Union[str, callable],
@@ -102,13 +105,11 @@ class Executor:
                 params = None,
                 value:int=1,
                 timeout=200, 
-                key = None,
                 return_future:bool=True,
                 wait = True, 
                 path:str=None) -> Future:
         
         params = params or {}
-        key = self.key_address(key)
         # check if the queue is full and if so, raise an exception
         if self.task_queue.full():
             if wait:
@@ -137,7 +138,6 @@ class Executor:
     @property
     def is_full(self):
         return self.task_queue.full()
-
 
     def adjust_thread_count(self):
         # if idle threads are available, don't spin new threads

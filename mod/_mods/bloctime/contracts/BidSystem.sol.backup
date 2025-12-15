@@ -134,9 +134,6 @@ contract BlocTimeBidSystem is ReentrancyGuard {
         IERC20(bid.paymentToken).safeTransfer(msg.sender, bid.bidAmount);
 
         emit BidCancelled(bidId, msg.sender);
-        
-        // Delete storage to save space
-        delete bids[bidId];
     }
 
     /**

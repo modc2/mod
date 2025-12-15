@@ -1,16 +1,16 @@
-# API Module 🚀
+# API Module
 
 ## Overview
 
-A **decentralized API system** built on IPFS for registering, versioning, and managing Python modules with cryptographic signatures. Built with the precision of Mr. Robot and the vision of Leonardo da Vinci.
+A decentralized API system built on IPFS for registering, versioning, and managing Python modules with cryptographic signatures.
 
 ## Features
 
-- 🌐 **IPFS Storage**: Decentralized content-addressed storage for modules
-- 🔐 **Cryptographic Signatures**: Verify module authenticity with key-based signatures
-- 📜 **Version History**: Track changes and rollback to previous versions
-- 📚 **Registry System**: User-based module registration and discovery
-- 📋 **Schema Management**: Store and retrieve module schemas
+- **IPFS Storage**: Decentralized content-addressed storage for modules
+- **Cryptographic Signatures**: Verify module authenticity with key-based signatures
+- **Version History**: Track changes and rollback to previous versions
+- **Registry System**: User-based module registration and discovery
+- **Schema Management**: Store and retrieve module schemas
 
 ## Core Components
 
@@ -46,7 +46,7 @@ Main interface for interacting with the decentralized module registry.
 - `schema(mod)` - Get module schema
 - `verify(mod_info)` - Verify cryptographic signature
 
-## Quick Start
+## Usage Examples
 
 ```python
 import mod as m
@@ -60,10 +60,10 @@ info = api.reg('mymodule', key='mykey', comment='Initial release')
 # List all modules
 mods = api.mods()
 
-# Get module info with schema and content
+# Get module info
 mod_info = api.mod('mymodule', schema=True, content=True)
 
-# View history as DataFrame
+# View history
 history = api.history('mymodule', df=True)
 
 # Get diff between versions
@@ -120,10 +120,10 @@ Registry stored at `~/.mod/api/registry.json`:
 
 ## Security
 
-- ✅ All modules are cryptographically signed
-- ✅ Signatures verified using `m.verify()`
-- ✅ Key-based authentication for registration
-- ✅ Content-addressed storage prevents tampering
+- All modules are cryptographically signed
+- Signatures verified using `m.verify()`
+- Key-based authentication for registration
+- Content-addressed storage prevents tampering
 
 ## API Endpoints
 
@@ -137,15 +137,6 @@ Available endpoints: `mods`, `names`, `reg`, `mod`, `users`, `user_info`, `n`
 - `save_json(file_path, data)` - Save JSON files
 - `logs(name)` - Access logs
 
-## Philosophy
-
-**Simplicity is the ultimate sophistication.**
-
-- Every function serves a purpose
-- Decentralization ensures freedom
-- Cryptography ensures trust
-- Excellence is the standard
-
 ## License
 
 Open source - Free world, free code.
@@ -153,4 +144,3 @@ Open source - Free world, free code.
 ---
 
 *Built with the spirit of Leonardo da Vinci, the precision of Mr. Robot, and the excellence of Cristiano Ronaldo.*
-*One shot, one opportunity. Make it legendary.* 🌟

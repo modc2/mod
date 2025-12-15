@@ -16,6 +16,5 @@ services:
     - ~/mod:/root/mod
     - ~/.mod:/root/.mod
     - ~/mod/mod/core/app/src/api:/root/mod/mod/core/app/src/api
-    - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /root/mod/mod/core/app/src/api
 version: '3.8'

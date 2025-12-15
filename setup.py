@@ -32,18 +32,18 @@ install_requires = [
     'sse-starlette>=2.1,<2.3.7',
     'paramiko>=3.5.1',
     'nest_asyncio>=1.6.0',
-    'uvicorn>=0.22.0',  # updated to avoid Python 3.12 loop_factory issues
+    'uvicorn>=0.22.0',
     'hypercorn>=0.14.0',
     'aiohttp>=3.12.13',
     'msgpack_numpy>=0.4.8',
     'netaddr>=1.3.0',
     'pyyaml>=6.0.2',
     'websocket-client>=0.57.0',
-    'certifi>=2019.3.9',
-    'idna>=2.1.0',
     'requests>=2.21.0',
 
     # misc
+    'certifi>=2019.3.9',
+    'idna>=2.1.0',
     'aiofiles>=24.1.0',
     'loguru>=0.7.3',
     'xxhash>=1.3.0',
@@ -51,6 +51,7 @@ install_requires = [
     'pandas>=2.3.0',
     'rich>=13.6.0',
     'munch>=4.0.0',
+    'regex>=2023.3.23',
 
     # ai
     'safetensors>=0.5.3',

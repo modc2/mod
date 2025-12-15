@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, List, Union, Optional, Any, Tuple
 from .utils import *
 import mod as m
-import regex
 print=m.print
 class Dev:
 
@@ -41,7 +40,7 @@ class Dev:
         self.memory.add('content', m.tool('select_files')(path=path, query=query)) if path != None else None
         # starts with b followed by a number
         def is_b_param(k):
-            return regex.match(r'^b\d+', k) is not None
+            return k.startswith('b') and k[1:].isdigit()
         for k,v in kwargs.items():
             if is_b_param(k):
                 print(f'Adding to memory: {v}')

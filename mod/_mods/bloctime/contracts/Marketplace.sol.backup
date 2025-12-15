@@ -244,12 +244,12 @@ contract BlocTimeMarketplaceMultiToken is ReentrancyGuard {
             staking.fundTreasury(fee);
         }
 
-        // Simple market: always split into 3 rentals when subrental is within larger space
+        // Check if subrental is within larger rental space
         uint256 blockCount = l.toBlock - l.fromBlock;
         bool isSubrental = (l.fromBlock > 0 && l.toBlock < r.paidBlocks);
         
         if (isSubrental) {
-            // Split into 3 equal rental objects
+            // Split into 3 new rental objects
             uint256 blocksPer = blockCount / 3;
             
             for (uint256 i = 0; i < 3; i++) {
@@ -270,7 +270,7 @@ contract BlocTimeMarketplaceMultiToken is ReentrancyGuard {
                 emit Rented(newRentalId, r.moduleId, msg.sender, subBlocks, l.price / 3, l.paymentToken);
             }
         } else {
-            // Not a subrental - single rental object
+            // Simple transfer - single rental object
             uint256 newRentalId = nextRentalId++;
             rentals[newRentalId] = Rental({
                 renter: msg.sender,

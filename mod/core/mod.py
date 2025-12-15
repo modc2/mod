@@ -109,6 +109,7 @@ class Mod:
         """
         imports the mod core
         """
+        t0 = self.time()
         # Load the mod
         mod = mod or self.name
         if mod in [self.name]:
@@ -120,6 +121,9 @@ class Mod:
             return self._mod_cache[name]
         obj =  self.anchor_object(name)
         self._mod_cache[name] = obj
+        delta = self.time() - t0
+        if verbose:
+            self.print(f'mod({name} delta={delta:.2f}s)')
         return obj
 
     mod = mod
@@ -1234,10 +1238,12 @@ class Mod:
                 x = x[:-len(k)]
         x_list =  x.split('/')
         if len(x_list) >=2 :
-            if x_list[-1] == x_list[-2]: 
-                x_list = x_list[:-1]
-            if x_list[-1] in x_list[-3]:
-                x_list = x_list[:-2]
+            if len(x_list)>2:
+                if x_list[-1] == x_list[-2]: 
+                    x_list = x_list[:-1]
+            if len(x_list) >=3 :
+                if x_list[-1] in x_list[-3]:
+                    x_list = x_list[:-2]
         x = '/'.join(x_list)
         return x   
     def is_in_file_types(self, f:str) -> bool:
@@ -1725,7 +1731,11 @@ class Mod:
         return to_mod
 
 
-    def edit(self, *args, **kwargs):
+    def edit(self, *args, url='api', **kwargs):
+        if url is not None:
+            if not url in self.servers():
+                self.serve(url)
+            kwargs['url'] = url
         return self.fn('api/edit')( *args, **kwargs)
     e = edit
 

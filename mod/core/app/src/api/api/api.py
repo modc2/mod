@@ -4,8 +4,11 @@ import json
 from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
 import time
+import glob
 import datetime
+import inspect
 import mod as m
+
 
 class  Api:
 
@@ -22,7 +25,7 @@ class  Api:
                  'user', 
                  'n', 
                  'balance',
-                 'history',
+                 'versions',
                  'reg_url',
                  'reg_from_info',
                  'hardware',
@@ -35,8 +38,10 @@ class  Api:
         self.set_chain(chain)
         self.model = m.mod('model.openrouter')()
         self.registry_path = self.path('registry.json')
-        self.balances()
+        self.executor = m.mod('executor')()
+        self.calls_path = self.path('calls')
         self._sync_loop_thread = m.thread(self.sync_loop)
+
 
     def set_chain(self, chain='chain', key=None, sync_fns = ['call_with_signature', 'get_signature_payload', 'balances', 'balance']):
         self.chain = m.mod(chain)()
@@ -86,7 +91,34 @@ class  Api:
         return mod
 
 
-    def call(self ,fn: str, params: Dict[str, Any] = {}, time:int = None, cost:int = 0, signature=None, **kwargs) -> Any:
+    devmode = True
+
+
+    def call_data(self , fn: str = 'model.openrouter/forward',  params: Dict[str, Any] = {},) -> Dict[str, Any]:
+        mod , fn = fn.split('/')
+        data = {
+            'mod': mod,
+            'fn': fn,
+            'params': params,          
+            'time': m.time(),
+            'status': 'pending'
+        }
+        return data
+
+    def future_paths(self):
+        return list(self.path2future.keys())
+
+    path2future = {}
+    sync_call_loop_thread = None
+    def call(self , 
+                fn: str = 'api/edit',  
+                params: Dict[str, Any] = {"query": "max a better readme", 
+                                          "mod": "api"}, 
+                key='mod', 
+                signature=None, 
+                url=None,
+                sync=False,
+                timeout=1000, **extra_params) -> Any:
         """
         Call a function from a mod Mod in IPFS.
         Args:
@@ -97,9 +129,130 @@ class  Api:
         Returns:
             Result of the function call
         """
-        whitelist_fns = ['openrouter/models']
-        assert fn in whitelist_fns, f"Function {fn} is not whitelisted for mod {whitelist_fns}"
-        return m.fn(fn)(**params)
+        params = {**params, **extra_params}
+        if url != None:
+            print(f'Calling {fn} at {url} with params {params}')
+            return m.call('api/call', params={'fn': fn, 'params': params, 'key': key, 'signature': signature}, timeout=timeout)
+        if self.sync_call_loop_thread is None:
+            self.sync_call_loop_thread = m.thread(self.sync_call_loop)
+    
+        # step 1 get the call data
+        data = self.call_data( fn=fn, params=params)
+
+        if self.devmode:
+            key = m.key(key)
+            data['key'] =  key.address
+            data['signature'] = key.sign(data, mode='str')
+        else: 
+            assert isinstance(key, str), "Key must be a Key object or address string for non-devmode calls"
+            assert isinstance(key, str), "Key must be a string address for non-devmode calls"
+            assert self.key.verify(data, signature=signature, address=key), "Signature verification failed"
+            data['key'] = key
+            data['signature'] = signature
+
+        # save pending call and save
+        data['path'] = path = self.call_path(data)
+        m.put(path, data)
+        future =  m.submit(self.send_requeest, {'data': data},  timeout=timeout)
+        self.path2future[data['path']] = future
+        if sync:
+            result = future.result()
+        return data
+
+    def call_path(self, data): 
+        
+        path = f'{self.calls_path}/{data["key"]}/{data["mod"]}/{data["time"]}.json'
+        return m.relpath(path)
+
+    def call_paths(self):
+        return glob.glob(self.calls_path+'/**/*.json', recursive=True)
+
+    def h(self, key=None, mod=None, df=1, features=['mod', 'fn', 'params', 'result', 'status', 'time', 'delta'], n=10) -> List[Dict[str, Any]]:
+        paths = self.call_paths()
+        calls = []
+        for path in paths:
+            if key is not None and key not in path:
+                continue
+            if mod is not None and mod not in path:
+                continue
+            call = m.get(path)
+            if call != None:
+                calls.append(call)
+    
+        calls = sorted(calls, key=lambda x: x['time'], reverse=True)
+        calls = m.df(calls)
+        calls.sort_values('time', ascending=False, inplace=True)
+        calls['time'] = calls['time'].apply(lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S'))
+        calls = calls[features][:n]
+        if df:
+            return calls
+        else:
+            return calls.to_dict(orient='records')
+
+        return calls
+
+    def reset_calls(self):
+        for path in self.call_paths():
+            print(f'Removing call path: {path}')
+            m.rm(path)
+        for future in self.path2future.values():
+            print(f'Cancelling future -> {future}')
+            future.cancel()
+        self.path2future = {}
+        assert len(self.call_paths()) == 0, "Failed to reset all call paths"
+        return True
+
+    def clear_call_paths(self):
+        for path in self.path2future.keys():
+            print(f'Removing call path: {path}')
+            m.rm(path)
+            future = self.path2future[path]
+            future.cancel()
+        self.path2future = {}
+
+    def is_generator(self, obj):
+        """
+        Is this shiz a generator dawg?
+        """
+        if not callable(obj):
+            result = inspect.isgenerator(obj)
+        else:
+            result =  inspect.isgeneratorfunction(obj)
+        return result
+
+    def send_requeest(self, data:dict) -> Any:
+        """
+        Send the function call request to the appropriate mod Mod and function.
+        """
+        path = self.call_path(data)
+        data['status'] = 'running'
+        m.put(path, data)
+        mod = data['mod']
+        fn = data['fn']
+        params = data['params']
+        try:
+            result = getattr(m.mod(mod)(), fn)(**params)
+            data['status'] = 'success'
+        except Exception as e:
+            result = m.detailed_error(e)
+            data['status'] = 'error'
+        # is generator
+        if self.is_generator(result):
+            print('Result is a generator, streaming output:')
+            data['result'] = []
+            for item in result:
+                data['result'].append(item)
+                print(item, end='')
+                m.put(path, data)
+        else:
+            data['result'] = result
+        data['delta'] = m.time() - data['time']
+        data['creator'] = self.key.address
+        data['creator_signature'] = self.key.sign(data, mode='str')
+        m.put(path, data)
+        return data['result']
+        
+        
 
     def call_payload(self, mod: m.Mod = 'openrouter', fn: str = 'models', params: Dict[str, Any] = {}, time = None, cost = 0, **kwargs) -> Dict[str, Any]:
 
@@ -326,6 +479,7 @@ class  Api:
             info = self.get_info(mod=mod, key=key, comment=comment, protocal=protocal)
             info['prev'] = prev_cid
         info['cid'] = self.update_local_registry(info) 
+        return info
     def reg_payload(self, mod: str = 'store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
         """
         Generate registration payload without executing registration.
@@ -351,6 +505,25 @@ class  Api:
         t1 = m.time()
         self.sync_info = {'time': t1, 'delta': t1 - t0}
         return self.sync_info
+
+    def sync_call_loop(self, sync_interval=0.2):
+        while True:
+            time.sleep(sync_interval)
+            n_tasks = len(list(self.path2future.values()))
+            print("Call sync loop checking futures, n_tasks:", n_tasks)
+            if n_tasks == 0:
+                continue
+            future2path = {future: path for path, future in self.path2future.items()}
+            # check completed futures
+            for future in m.as_completed(future2path.keys(), timeout=10):
+                path = future2path[future]
+                try:
+                    result = future.result()
+                    print(f"Call completed for path: {path}, result: {result}")
+                except Exception as e:
+                    print(f"Call failed for path: {path}, error: {e}")
+                # remove from path2future
+                self.path2future.pop(path, None)
 
     def time_since_last_sync(self) -> int:
         return m.time() - self.last_sync
@@ -423,7 +596,7 @@ class  Api:
         import datetime
         return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
-    def history(self, mod='store' , key=None, df=False) -> List[Dict[str, Any]]:
+    def versions(self, mod='store' , key=None, df=False) -> List[Dict[str, Any]]:
         cid = self.cid(key=key, mod=mod)
         result = []       
         if cid != None:
@@ -446,7 +619,7 @@ class  Api:
             return m.df(result)
         return result
 
-    h = history
+    v = versions
     def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
         return m.txs(mod=mod, limit=limit, update=update)
 
@@ -525,8 +698,8 @@ class  Api:
             key: Key object or address string
         """
         modinfo = self.mod(cid, key=key)
-        history = self.history(mod, key=key)
-        assert cid in [h['cid'] for h in history], "Specified CID not found in mod history"
+        versions = self.versions(mod, key=key)
+        assert cid in [h['cid'] for h in versions], "Specified CID not found in mod versions"
         content = self.content(modinfo)
         dirpath = m.dp(mod)
         write_files= []
@@ -545,8 +718,8 @@ class  Api:
                     os.rmdir(filepath_dir)
                 m.print(f"[✓] Deleted file: {filepath}", color="yellow")
         modinfo = self.update_local_registry(modinfo)
-        history = self.history(mod, key=key)
-        assert cid == history[0]['cid'], "Setback failed: content CID mismatch"
+        versions = self.versions(mod, key=key)
+        assert cid == versions[0]['cid'], "Setback failed: content CID mismatch"
         return {
             'mod': mod,
             'write':write_files,
@@ -563,8 +736,8 @@ class  Api:
         """
         registry = self.registry()
         key = self.key_address(key)
-        history = self.history(mod, key=key)
-        for info in history:
+        versions = self.versions(mod, key=key)
+        for info in versions:
             cid = info['cid']
             content_info_cid = info['content']
             content_cid = self.get(content_info_cid)['data']
@@ -647,10 +820,12 @@ class  Api:
         
     user = user
 
-    def edit(self, *query,  mod: str='app',  key=None, **kwargs) -> Dict[str, Any]:
-        text = ' '.join(list(map(str, query)))
-        m.fn('dev/')(mod=mod, text=text, safety=False, **kwargs)
-        return self.reg(mod=mod, key=key, comment=text)
+    def edit(self, mod,  query, *extra_query,  key=None,  url=None, **kwargs) -> Dict[str, Any]:
+        query = ' '.join(list(map(str,  [query] + list(extra_query))))
+        if url != None:
+            return self.call('api/edit', params={'mod': mod, 'query': query}, url=url, key=key)
+        m.fn('dev/forward')(mod=mod, text=query, safety=False, **kwargs)
+        return self.reg(mod=mod, key=key, comment=query)
 
     def chat(self, text, *extra_texts, mod: str='model.openrouter', stream=False, **kwargs) -> Dict[str, Any]:
         return self.model.forward(' '.join([text] + list(extra_texts)), stream=stream, **kwargs)
