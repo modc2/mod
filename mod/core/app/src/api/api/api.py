@@ -29,7 +29,10 @@ class  Api:
                  'reg_url',
                  'reg_from_info',
                  'hardware',
+                 'servers', 
+                 'server_exists',
                  'reg_payload']
+
     public = True
 
     def __init__(self, store = 'ipfs', chain='chain', key=None):
@@ -94,14 +97,15 @@ class  Api:
     devmode = True
 
 
-    def call_data(self , fn: str = 'model.openrouter/forward',  params: Dict[str, Any] = {},) -> Dict[str, Any]:
+    def call_data(self , fn: str = 'model.openrouter/forward',  params: Dict[str, Any] = {}, timeout=1000) -> Dict[str, Any]:
         mod , fn = fn.split('/')
         data = {
             'mod': mod,
             'fn': fn,
-            'params': params,          
-            'time': m.time(),
-            'status': 'pending'
+            'params': params,       
+            'timeout': timeout,  
+            'status': 'pending',
+            'time': m.time()
         }
         return data
 
@@ -112,8 +116,7 @@ class  Api:
     sync_call_loop_thread = None
     def call(self , 
                 fn: str = 'api/edit',  
-                params: Dict[str, Any] = {"query": "max a better readme", 
-                                          "mod": "api"}, 
+                params: Dict[str, Any] = {}, 
                 key='mod', 
                 signature=None, 
                 url=None,
@@ -137,20 +140,18 @@ class  Api:
             self.sync_call_loop_thread = m.thread(self.sync_call_loop)
     
         # step 1 get the call data
-        data = self.call_data( fn=fn, params=params)
+        data = self.call_data( fn=fn, params=params, timeout=timeout)
 
         if self.devmode:
             key = m.key(key)
-            data['key'] =  key.address
-            data['signature'] = key.sign(data, mode='str')
-        else: 
-            assert isinstance(key, str), "Key must be a Key object or address string for non-devmode calls"
-            assert isinstance(key, str), "Key must be a string address for non-devmode calls"
-            assert self.key.verify(data, signature=signature, address=key), "Signature verification failed"
-            data['key'] = key
-            data['signature'] = signature
+            key_address =  key.address
+            signature = key.sign(data, mode='str')
+        else:
+            key_address = key
 
-        # save pending call and save
+        assert self.key.verify(data, signature=signature, address=key_address), "Signature verification failed"
+        data['key'] = key_address
+        data['signature'] = signature
         data['path'] = path = self.call_path(data)
         m.put(path, data)
         future =  m.submit(self.send_requeest, {'data': data},  timeout=timeout)
@@ -230,15 +231,19 @@ class  Api:
         mod = data['mod']
         fn = data['fn']
         params = data['params']
+        server_exists = self.server_exists(mod)
+        print(f"Sending request to mod: {mod}, fn: {fn}, server_exists: {server_exists}")
         try:
-            result = getattr(m.mod(mod)(), fn)(**params)
+            if server_exists:
+                result = m.call(f'{mod}/{fn}', params=params, timeout=data['timeout'])
+            else:
+                result = getattr(m.mod(mod)(), fn)(**params)
             data['status'] = 'success'
         except Exception as e:
             result = m.detailed_error(e)
             data['status'] = 'error'
         # is generator
         if self.is_generator(result):
-            print('Result is a generator, streaming output:')
             data['result'] = []
             for item in result:
                 data['result'].append(item)
@@ -247,8 +252,8 @@ class  Api:
         else:
             data['result'] = result
         data['delta'] = m.time() - data['time']
-        data['creator'] = self.key.address
-        data['creator_signature'] = self.key.sign(data, mode='str')
+        data['owner'] = self.key.address
+        data['owner_signature'] = self.key.sign(data, mode='str')
         m.put(path, data)
         return data['result']
         
@@ -847,6 +852,14 @@ class  Api:
     def ensure_env(self):
         m.serve('ipfs.node') if not m.server_exists('ipfs.node') else None
         m.print("IPFS node is running", color="green")
+
+
+    def servers(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        return m.servers(*args, **kwargs)
+
+    def server_exists(self, name: str) -> bool:
+        return name in self.servers()
+
 
         
 

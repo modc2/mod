@@ -3,7 +3,7 @@ import bittensor as bt
 from typing import List, Dict, Any, Optional
 from bittensor.utils.balance import Balance
 # import btwallet
-
+print = m.print
 class Bt:
     """Interface module for Subtensor network operations and wallet management"""
     
@@ -13,10 +13,10 @@ class Bt:
             network (str): Network to connect to (e.g. finney, test)
         """
         self.network = network
-        self.subtensor = bt.subtensor(network=network)
+        self.subtensor = bt.Subtensor(network=network)
         print(f'Connected to bittensor network: {network}', color='green')
         if archive:
-            self.subtensor = bt.subtensor(network=network, archive=True)
+            self.subtensor = bt.Subtensor(network=network, archive=True)
 
     def mod2json(self, mod: Any) -> Dict:
         """Convert a neuron object to JSON dictionary
