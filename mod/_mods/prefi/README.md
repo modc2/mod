@@ -1,207 +1,414 @@
-# Prediction Market Smart Contract
+# Mod Framework
 
-## Overview
+A powerful Python framework for building, deploying, and managing modular applications with built-in support for Docker, cryptography, and AI integration.
 
-A decentralized 24-hour prediction market smart contract that rewards users for making profitable trades. Users lock liquidity to predict whether an asset will go up or down in the next 24 hours.
+## Requirements
 
-## Features
+- **Python 3.11+**
+- **Docker and docker-compose**
 
-- **24-Hour Lock Period**: Positions are automatically settled after exactly one day
-- **Binary Predictions**: Predict UP or DOWN for any asset
-- **Automatic Settlement**: Smart contract handles trade execution and exit
-- **Reward Distribution**: Profitable traders share the losing pool proportionally
-- **Multi-Asset Support**: Works with any asset (BTC, ETH, stocks, etc.)
-- **Future Date Support**: Can create positions for any future date
-- **User Balances**: Individual balance tracking for each user
+### Optional
+- VSCode
+- Git
 
 ## Installation
 
-```python
-from prefi.prediction_mod import PredictionMarketMod
-
-# Initialize the prediction market
-market = PredictionMarketMod(config={'reward_pool_percentage': 0.95})
+```bash
+git clone <repository-url>
+cd ~/mod
+pip install -e ./
 ```
 
-## Usage
+## Quick Start - CLI Commands
 
-### 1. Deposit Funds
+The framework provides a CLI tool `m` or `c` for common operations:
 
-```python
-result = market.execute(
-    action='deposit',
-    user_address='0x123...',
-    amount=1000.0
-)
+```bash
+# Server Management
+m serve api              # Serve API on port 8000
+m kill api              # Stop server
+m killall               # Stop all servers
+m servers               # List running servers
+m namespace             # Show module → URL mapping
+
+# Module Information
+m dp api                # Get directory path
+m code api              # Get class code
+m code api/function     # Get function code
+m schema api/function   # Get function schema
+m content api           # Get full module content
+m info api              # Get complete module info
+m mods                  # List all modules
+
+# Module Operations
+m addmod <path>         # Add module from path/GitHub
+m rmmod <name>          # Remove module
+m cpmod from to         # Copy module
+m clone <url>           # Clone from GitHub
+
+# Development
+m app                   # Deploy application
+m test <mod>            # Run tests
+m push "message"        # Git commit and push
+
+# AI Integration
+m ask "question"        # Ask AI (OpenRouter)
+m help mod "question"   # Get help about module
+m about mod "query"     # Ask about module
 ```
 
-### 2. Open a Position
+## Core Features
+
+### 1. Module Management
 
 ```python
-result = market.execute(
-    action='open_position',
-    user_address='0x123...',
-    amount=100.0,
-    direction='up',  # or 'down'
-    current_price=50000.0,
-    asset='BTC',
-    start_time='2024-01-15T10:00:00'  # Optional, defaults to now
-)
+import mod as m
 
-# Returns position_id for tracking
-position_id = result['position_id']
+# List and discover modules
+modules = m.mods()                    # All modules
+core_mods = m.core_mods()            # Core modules only
+local_mods = m.local_mods()          # Local modules only
+
+# Module info
+info = m.info('module_name')         # Complete module info
+schema = m.schema('module_name')     # Function signatures
+code = m.code('module_name')         # Source code
+content = m.content('module_name')   # All files (file2content) where the files are relative to the module dirpath
+cid = m.cid('module_name')          # Content hash
+
+# Check existence
+exists = m.mod_exists('module_name')
+is_file = m.is_mod_file('module_name')
 ```
 
-### 3. Settle Position (After 24 Hours)
+### 2. Function Execution
 
 ```python
-result = market.execute(
-    action='settle_position',
-    position_id=position_id,
-    exit_price=51000.0,
-    current_time='2024-01-16T10:00:00'  # Optional, defaults to now
-)
+# Get and call functions
+fn = m.fn('module/function')
+result = fn(param='value')
 
-# Returns profit/loss information
-print(f"Profitable: {result['profitable']}")
-print(f"Profit: {result['profit']}")
+# Alternative syntax
+result = m.fn('module/').forward()   # Calls module.forward()
+result = m.fn('/function')           # Calls mod.function()
+
+# Check if function exists
+if m.isfn('module/function'):
+    result = m.fn('module/function')()
+
+# Get function schema
+schema = m.fnschema('module/function')
+# Returns: {'input': {...}, 'output': {...}, 'docs': '...', ...}
 ```
 
-### 4. Distribute Rewards
+### 3. Server Management
 
 ```python
-result = market.execute(
-    action='distribute_rewards',
-    asset='BTC',
-    settlement_time='2024-01-16T10:00:00'
-)
+# Serve modules
+m.serve('api', port=8000)
+m.serve('model.openrouter', remote=True)
 
-# Returns reward distribution details
-print(f"Winners: {result['winners']}")
-print(f"Total Distributed: {result['total_distributed']}")
+# Server info
+servers = m.servers()                 # List active servers
+namespace = m.namespace()             # Module → URL mapping
+exists = m.server_exists('api')
+
+# Control servers
+m.kill('api')                        # Stop specific server
+m.kill_all()                         # Stop all servers
 ```
 
-### 5. Check Balance
+### 4. File Operations
 
 ```python
-result = market.execute(
-    action='get_balance',
-    user_address='0x123...'
-)
+# Read/write files
+content = m.text('/path/to/file')
+m.put_text('/path/to/file', 'content')
 
-print(f"Balance: {result['balance']}")
+# JSON operations
+m.put_json('config', {'key': 'value'})
+data = m.get_json('config', default={})
+
+# File listing
+files = m.files('./path', search='*.py', depth=4)
+dirs = m.ls('./path')
+all_files = m.glob('./path/**/*.py')
+
+# Path operations
+abs_path = m.abspath('~/relative/path')
+rel_path = m.relpath('/absolute/path')
+dirpath = m.dirpath('module_name')
 ```
 
-### 6. View Active Positions
+### 5. Cryptography & Keys
 
 ```python
-result = market.execute(
-    action='get_positions',
-    user_address='0x123...'  # Optional, omit for all positions
+# Key management
+key = m.get_key('my_key')
+address = key.address
+keys = m.keys()
+
+# Sign and verify
+signature = m.sign({'data': 'value'}, key='my_key')
+is_valid = m.verify(
+    data={'data': 'value'}, 
+    signature=signature, 
+    address=address
 )
 
-for position in result['positions']:
-    print(f"Position: {position['position_id']}")
-    print(f"Direction: {position['direction']}")
-    print(f"Exit Time: {position['exit_time']}")
+# Encrypt/decrypt
+encrypted = m.encrypt('secret', key='my_key', password='pwd')
+decrypted = m.decrypt(encrypted, key='my_key', password='pwd')
+
+# Generate mnemonic
+mnemonic = m.mnemonic(words=24)
 ```
 
-## How It Works
-
-1. **Lock Liquidity**: Users deposit funds and open positions predicting price movement
-2. **24-Hour Period**: Positions are locked for exactly 24 hours from creation
-3. **Automatic Settlement**: After 24 hours, positions can be settled with the exit price
-4. **Reward Calculation**: 
-   - Winners get their original amount back
-   - Winners share 95% of the losing pool proportionally
-   - 5% remains as protocol fee
-5. **Distribution**: Rewards are automatically credited to user balances
-
-## Example Scenario
+### 6. Storage & Caching
 
 ```python
-# User A predicts BTC will go UP
-market.execute(
-    action='deposit',
-    user_address='0xAAA',
-    amount=1000.0
-)
+# Store with optional encryption
+m.put('key', {'data': 'value'}, encrypt=True, password='pwd')
 
-market.execute(
-    action='open_position',
-    user_address='0xAAA',
-    amount=100.0,
-    direction='up',
-    current_price=50000.0,
-    asset='BTC'
-)
+# Retrieve with max age (seconds)
+data = m.get('key', default={}, max_age=3600)
 
-# User B predicts BTC will go DOWN
-market.execute(
-    action='deposit',
-    user_address='0xBBB',
-    amount=1000.0
-)
-
-market.execute(
-    action='open_position',
-    user_address='0xBBB',
-    amount=100.0,
-    direction='down',
-    current_price=50000.0,
-    asset='BTC'
-)
-
-# 24 hours later, BTC is at 51000 (went UP)
-# User A wins, User B loses
-
-# Settle positions
-market.execute(
-    action='settle_position',
-    position_id=position_a_id,
-    exit_price=51000.0
-)
-
-market.execute(
-    action='settle_position',
-    position_id=position_b_id,
-    exit_price=51000.0
-)
-
-# Distribute rewards
-market.execute(
-    action='distribute_rewards',
-    asset='BTC',
-    settlement_time='2024-01-16T10:00:00'
-)
-
-# User A receives: 100 (original) + 95 (95% of User B's 100) = 195
-# User B receives: 0
-# Protocol keeps: 5 (5% fee)
+# Storage paths
+storage_dir = m.storage_dir('module_name')  # ~/.mod/module_name
+path = m.get_path('my_data')               # Auto-resolve to storage
 ```
+
+### 7. AI Integration
+
+```python
+# Ask questions
+answer = m.ask("How does this work?", stream=True)
+answer = m.ask("Explain", mod='api', context=True)
+
+# Module-specific help
+help_text = m.help('module', 'what does this do?')
+about = m.about('module', 'explain this feature')
+
+# Code analysis
+how = m.how('module', 'how does function X work?')
+```
+
+### 8. Git Operations
+
+```python
+# Push changes
+m.push("commit message", mod='module_name')
+m.push("fix bug", "and update docs", safety=True)
+
+# Repository info
+is_repo = m.isrepo('module_name')
+git_info = m.git_info(path='./repo')
+repos = m.repos(search='commune')
+
+# Clone repositories
+m.clone('https://github.com/user/repo')
+m.clone('user/repo')  # Auto-adds github.com
+```
+
+## Module Structure
+
+Modules follow an "anchor file" pattern:
+
+```
+mods/
+├── my_module/
+│   ├── mod.py          # Anchor file (main class)
+│   ├── config.json     # Configuration
+│   ├── README.md       # Documentation
+│   └── utils.py        # Helpers
+```
+
+**Anchor files** can be named: `mod.py`, `agent.py`, `block.py`, or match the module name.
 
 ## Configuration
 
-- `reward_pool_percentage`: Percentage of losing pool distributed to winners (default: 0.95 = 95%)
+### config.json
+```json
+{
+  "name": "mod",
+  "port_range": [8000, 9000],
+  "expose": ["ask", "serve", "info"],
+  "shortcuts": {
+    "m": "mod",
+    "api": "api.server"
+  },
+  "links": {
+    "ipfs": "https://github.com/user/ipfs-service.git"
+  }
+}
+```
 
-## API Reference
+## Advanced Features
 
-### Actions
+### Module Linking
 
-- `deposit`: Add funds to user balance
-- `open_position`: Create a new 24-hour prediction
-- `settle_position`: Settle a position after 24 hours
-- `distribute_rewards`: Distribute rewards to profitable traders
-- `get_balance`: Check user's available balance
-- `get_positions`: View active positions
+```python
+# Link external modules
+m.link('ipfs-service')          # From config.links
+m.unlink('ipfs-service')
+is_linked = m.islink('ipfs-service')
+```
 
-## Security Considerations
+### Async Execution
 
-- Positions can only be settled after 24 hours
-- Users can only spend their available balance
-- All calculations are deterministic and transparent
-- Position IDs are cryptographically generated
+```python
+# Submit async tasks
+future = m.submit('module/function', params={'key': 'val'})
+result = future.result()
+
+# Custom executor
+executor = m.executor(mode='thread', max_workers=10)
+# modes: 'thread', 'process', 'async'
+```
+
+### Testing
+
+```python
+# Run tests
+results = m.test('module_name')
+m.test()  # Test all modules
+```
+
+### Context & Documentation
+
+```python
+# Get README context
+context = m.context(path='./modules')
+readmes = m.readmes(path='./modules')
+size = m.context_size()
+```
+
+### Utilities
+
+```python
+# Hash objects
+hash_val = m.hash({'data': 'value'}, mode='sha256')
+
+# Time operations
+timestamp = m.time()
+m.sleep(2)
+
+# Environment variables
+all_env = m.env()
+api_key = m.env('API_KEY')
+
+# Port management
+ports = m.get_ports(n=3)
+port_range = m.get_port_range()
+```
+
+## Python API Examples
+
+### Basic Module Usage
+```python
+import mod as m
+
+# Load and use a module
+api = m.mod('api')()
+result = api.some_function()
+
+# Or directly call function
+result = m.fn('api/some_function')(param='value')
+```
+
+### Server Deployment
+```python
+# Serve with auto port assignment
+m.serve('api')
+
+# Serve on specific port
+m.serve('model.openrouter', port=8080, remote=True)
+
+# Check and manage
+if m.server_exists('api'):
+    m.kill('api')
+```
+
+### Data Operations
+```python
+# Store encrypted data
+m.put('secrets', {'api_key': 'xxx'}, encrypt=True)
+
+# Retrieve with expiration
+data = m.get('cache', max_age=3600, default={})
+
+# File operations
+files = m.files('./', search='.py', depth=3)
+for file in files:
+    content = m.text(file)
+```
+
+### Module Development
+```python
+# Create from template
+m.fork(base='base_module', name='my_module')
+
+# Copy module
+m.cpmod('source_mod', 'dest_mod')
+
+# Add from path
+m.addpath('/path/to/module', name='my_mod')
+
+# Remove
+m.rmmod('old_module')
+```
+
+## Best Practices
+
+1. **Module Naming**: Use dot notation (e.g., `model.openrouter`)
+2. **Anchor Files**: Name main file `mod.py` or match module name
+3. **Configuration**: Always include `config.json` with module metadata
+4. **Documentation**: Add README.md to each module
+5. **Security**: Use encryption for sensitive data
+6. **Testing**: Write tests for critical functionality
+
+## CLI Workflow Example
+
+```bash
+# 1. Create new module
+m clone https://github.com/user/template
+m cpmod template my_module
+
+# 2. Develop
+m code my_module          # View code
+m serve my_module         # Test server
+m test my_module          # Run tests
+
+# 3. Deploy
+m app my_module           # Deploy app
+m servers                 # Check status
+
+# 4. Update
+m push "Added feature X" my_module
+```
+
+## Docker Integration
+
+```bash
+# Build and deploy
+m up                      # Start containers
+m enter mod               # Enter container
+m logs api               # View logs
+m build my_module        # Build module
+```
+
+## Security Features
+
+- **Encryption**: AES encryption for sensitive data
+- **Key Management**: Secure key generation and storage  
+- **Signatures**: Cryptographic signing and verification
+- **Access Control**: Module-level permissions
+- **Password Protection**: Optional password-based encryption
 
 ## License
 
-MIT License
+COPYLEFT
+
+## Support
+
+For issues and questions, please refer to the documentation or open an issue in the repository.
