@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./Marketplace.sol";
-import "./Registry.sol";
-import "./Staking.sol";
+import "./market/Marketplace.sol";
+import "./registry/Registry.sol";
+import "./token/BlocktimeToken.sol";
 
 /**
  * @title BlocTimeIntegration

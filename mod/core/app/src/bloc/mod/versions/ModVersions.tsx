@@ -40,7 +40,7 @@ export default function ModVersions({ mod }: ModVersionsProps) {
       setLoading(true)
       setError(null)
       try {
-        const vers = await client.call('history', { key: mod.key, mod: mod.name })
+        const vers = await client.call('versions', { key: mod.key, mod: mod.name })
         setVersions(Array.isArray(vers) ? vers : [])
       } catch (err: any) {
         setError(err?.message || 'Failed to load versions')

@@ -20,6 +20,9 @@ class  Api:
                  'names', 
                  'reg', 
                  'mod',
+                 'versions',
+                 'history',
+                 'call',
                  'get',
                  'users', 
                  'user', 
@@ -168,7 +171,7 @@ class  Api:
     def call_paths(self):
         return glob.glob(self.calls_path+'/**/*.json', recursive=True)
 
-    def h(self, key=None, mod=None, df=1, features=['mod', 'fn', 'params', 'result', 'status', 'time', 'delta'], n=10) -> List[Dict[str, Any]]:
+    def history(self, key=None, mod=None, df=1, features=['mod', 'fn', 'params', 'result', 'status', 'time', 'delta'], n=10) -> List[Dict[str, Any]]:
         paths = self.call_paths()
         calls = []
         for path in paths:
@@ -191,6 +194,8 @@ class  Api:
             return calls.to_dict(orient='records')
 
         return calls
+    
+    h = history
 
     def reset_calls(self):
         for path in self.call_paths():
@@ -236,9 +241,13 @@ class  Api:
         try:
             if server_exists:
                 result = m.call(f'{mod}/{fn}', params=params, timeout=data['timeout'])
+                if 'error' in result:
+                    data['status'] = 'error'
+                else: 
+                    data['status'] = 'success'
             else:
                 result = getattr(m.mod(mod)(), fn)(**params)
-            data['status'] = 'success'
+                data['status'] = 'success'
         except Exception as e:
             result = m.detailed_error(e)
             data['status'] = 'error'

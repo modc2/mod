@@ -56,7 +56,24 @@ export default function Modules() {
   })
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  const searchTerm = searchFilters.searchTerm?.trim() || ''
+  const [searchTerm, setSearchTerm] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mod_explorer_search') || ''
+    }
+    return ''
+  })
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mod_explorer_search', searchTerm)
+    }
+  }, [searchTerm])
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value)
+  }
+
+  const searchTermToUse = searchTerm || searchFilters.searchTerm?.trim() || ''
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -151,7 +168,7 @@ export default function Modules() {
       }
       const raw = (await client.call('mods', {})) as ModuleType[]
       const allMods = Array.isArray(raw) ? raw : []
-      let filtered = filterModsBySearch(allMods, searchTerm)
+      let filtered = filterModsBySearch(allMods, searchTermToUse)
       filtered = filterModsByUser(filtered, userFilter)
       filtered = filterMyMods(filtered)
       filtered = filterLocalMods(filtered)
@@ -168,7 +185,7 @@ export default function Modules() {
 
   useEffect(() => {
     fetchAll()
-  }, [client, searchTerm, sort, userFilter, showMyModsOnly, showLocalOnly, showOnchainOnly])
+  }, [client, searchTermToUse, sort, userFilter, showMyModsOnly, showLocalOnly, showOnchainOnly])
 
   const gridColsClass = {
     1: 'grid-cols-1',
@@ -186,6 +203,15 @@ export default function Modules() {
       <main className="flex-1 px-2 pt-0 pb-0" role="main">
         <div className="mx-auto max-w-7xl mb-4">
           <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search mods by name, author, or description..."
+                className="w-full px-4 py-2 bg-gradient-to-r from-gray-900/80 via-black/80 to-gray-900/80 border border-blue-500/40 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 backdrop-blur-xl shadow-lg"
+              />
+            </div>
             <ModCardSettings
               sort={sort}
               onSortChange={setSort}
@@ -252,7 +278,7 @@ export default function Modules() {
               <Sparkles className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">
-              {searchTerm || userFilter || showMyModsOnly || showLocalOnly || showOnchainOnly ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
+              {searchTermToUse || userFilter || showMyModsOnly || showLocalOnly || showOnchainOnly ? 'NO MODULES MATCH YOUR FILTERS' : 'NO MODULES YET'}
             </div>
           </div>
         )}
@@ -274,7 +300,6 @@ export default function Modules() {
           ))}
         </div>
       </main>
-
     </div>
   )
 }

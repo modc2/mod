@@ -6,6 +6,7 @@ import { useUserContext } from '@/bloc/context'
 import { HomeIcon, GlobeAltIcon } from '@heroicons/react/24/outline'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
+type NetworkFilter = 'all' | 'local' | 'global'
 
 interface ModCardSettingsProps {
   sort: SortKey
@@ -38,6 +39,17 @@ export const ModCardSettings = ({
 }: ModCardSettingsProps) => {
   const [showFilters, setShowFilters] = useState(false)
   const { user } = useUserContext()
+
+  const getNetworkFilter = (): NetworkFilter => {
+    if (showLocalOnly) return 'local'
+    if (showOnchainOnly) return 'global'
+    return 'all'
+  }
+
+  const handleNetworkChange = (network: NetworkFilter) => {
+    onShowLocalOnlyChange(network === 'local')
+    onShowOnchainOnlyChange(network === 'global')
+  }
 
   return (
     <div className="flex items-center gap-3">
@@ -74,39 +86,15 @@ export const ModCardSettings = ({
             <option value={4}>🚀 4 Columns</option>
           </select>
 
-          {user && (
-            <label className="flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-emerald-500/50 rounded-xl backdrop-blur-xl cursor-pointer hover:border-emerald-400/70 hover:shadow-emerald-500/40 transition-all duration-300 shadow-lg shadow-emerald-500/20 group">
-              <input
-                type="checkbox"
-                checked={showMyModsOnly}
-                onChange={(e) => onShowMyModsOnlyChange(e.target.checked)}
-                className="w-4 h-4 accent-emerald-500 cursor-pointer"
-              />
-              <span className="text-sm font-black text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200 transition-colors">My Mods</span>
-            </label>
-          )}
-
-          <label className="flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-yellow-600/50 rounded-xl backdrop-blur-xl cursor-pointer hover:border-yellow-500/70 hover:shadow-yellow-600/40 transition-all duration-300 shadow-lg shadow-yellow-600/20 group">
-            <input
-              type="checkbox"
-              checked={showLocalOnly}
-              onChange={(e) => onShowLocalOnlyChange(e.target.checked)}
-              className="w-4 h-4 accent-yellow-600 cursor-pointer"
-            />
-            <HomeIcon className="w-5 h-5 text-yellow-600 group-hover:text-yellow-500 transition-colors" strokeWidth={2.5} />
-            <span className="text-sm font-black text-yellow-600 uppercase tracking-wider group-hover:text-yellow-500 transition-colors">Offchain</span>
-          </label>
-
-          <label className="flex items-center gap-2 px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-cyan-500/50 rounded-xl backdrop-blur-xl cursor-pointer hover:border-cyan-400/70 hover:shadow-cyan-500/40 transition-all duration-300 shadow-lg shadow-cyan-500/20 group">
-            <input
-              type="checkbox"
-              checked={showOnchainOnly}
-              onChange={(e) => onShowOnchainOnlyChange(e.target.checked)}
-              className="w-4 h-4 accent-cyan-500 cursor-pointer"
-            />
-            <GlobeAltIcon className="w-5 h-5 text-cyan-400 group-hover:text-cyan-300 transition-colors" strokeWidth={2.5} />
-            <span className="text-sm font-black text-cyan-400 uppercase tracking-wider group-hover:text-cyan-300 transition-colors">Onchain</span>
-          </label>
+          <select
+            value={getNetworkFilter()}
+            onChange={(e) => handleNetworkChange(e.target.value as NetworkFilter)}
+            className="px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-cyan-500/50 rounded-xl text-white font-mono font-bold text-sm backdrop-blur-xl focus:border-cyan-400/70 outline-none hover:border-cyan-400/60 transition-all duration-300 shadow-lg shadow-cyan-500/20 cursor-pointer"
+          >
+            <option value="all">🌐 All Networks</option>
+            <option value="local">🏠 Offchain</option>
+            <option value="global">🌍 Onchain</option>
+          </select>
         </div>
       )}
     </div>
