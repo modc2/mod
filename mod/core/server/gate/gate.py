@@ -27,6 +27,9 @@ class Gate:
         self.auth = m.mod(auth)()
         self.tx = m.mod(tx)()
         self.auth = m.mod(auth)()
+        self.generate = self.auth.forward
+        self.verify = self.auth.verify
+        self.save_tx = self.tx.forward
 
     def forward(self, fn:str, request, info:dict) -> dict:
         """
@@ -34,8 +37,8 @@ class Gate:
         """
         # step 1 : verify the ehaders
         h = dict(request.headers) 
-        assert info['public'] or self.is_user(info['name'], h['key']), f"User {h['key']} is not a user"
-        is_owner = self.is_owner(h['key'])
+        assert self.is_user(info['name'], h['key']), f"User {h['key']} for Mod {info['name']} is not a user"
+        is_owner = bool(h['key'] == info['key'])
         if not is_owner:
             assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
@@ -48,15 +51,9 @@ class Gate:
         return  {
                     'fn': fn, 
                     'params': params, 
-                    'client': {k:v for k,v in h.items() if k in self.auth.auth_features}, 
+                    'client': {k:v for k,v in h.items() if k in self.auth.features}, 
                     'cost': cost
                     }
-
-    def is_owner(self, key:str) -> bool:
-        if not hasattr(self, 'owner_address'):
-            self.owner_address = m.key().address
-        return self.owner_address == key
-
 
     def add_user_max(self, mod:str, max_users:int):
         """
@@ -119,3 +116,7 @@ class Gate:
         """
         return user in self.users(mod)
     
+
+    def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
+        return self.tx.txs( *args, **kwargs)
+        

@@ -8,6 +8,8 @@ import os
 import pandas as pd
 import json
 import inspect
+# import partial
+from functools import partial
 import asyncio
 import time
 import mod as m
@@ -31,14 +33,14 @@ class Server:
         self.timeout = timeout
         self.set_gate(gate)
 
-    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user']):
+    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user', 'txs']):
         self.gate = m.mod(gate)()
         m.mergemods(from_mod=self.gate, to_mod=self, fns=fns)
-
 
     def set_pm(self,  pm: Union[str, 'Module', Any],  fns = ['logs', 'namespace', 'kill', 'kill_all','namespace', 'killall']):
         self.pm = m.mod(pm)()
         m.mergemods(from_mod=self.pm, to_mod=self, fns=fns)
+
     def is_generator(self, obj):
         """
         Is this shiz a generator dawg?
@@ -109,14 +111,14 @@ class Server:
                     server_auth['result'].append(item)
                     yield item
                 # save the transaction between the h and server for future auditing
-                self.gate.tx.forward(
+                self.gate.save_tx(
                     mod=info["name"],
                     fn=request['fn'], # 
                     params=request['params'], # params of the inputes
                     client=request['client'],
                     cost=request['cost'],
                     result=server_auth['result'],
-                    server= self.gate.auth.generate(data=server_auth, cost=request['cost']), 
+                    server= self.gate.generate(data=server_auth, cost=request['cost']), 
                     key=self.key)
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
@@ -133,9 +135,6 @@ class Server:
             key=self.key)
         return result
 
-    def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
-        return self.gate.tx.txs( *args, **kwargs)
-        
     def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
         if port == None: 
             config = m.config(mod)
@@ -241,12 +240,11 @@ class Server:
         self.key = m.key(key)
         self.url =  '0.0.0.0:' + str(port)
         fns = self.get_fns(fns)
-        self._info = m.info(mod, key=self.key, schema=True, url=self.url, fns=fns)
-        def get_info( schema:bool = True, fns=True):
-            info_ = m.copy(self._info)
-            info_['public'] = self.mod.public if hasattr(self.mod, 'public') else False
-            return info_ 
-        self.mod.info = get_info
+        def get_info(mod, **kwargs):
+            info =  m.info(mod, **kwargs)
+            info['fns'] = fns
+            return info
+        self.mod.info = partial(get_info, mod=mod, key=self.key)
         self.app = FastAPI()
         @self.app.options("/{fn}")
         async def options_handler(fn: str):

@@ -2,6 +2,10 @@
 
 The Agent module is an advanced code generation and editing toolkit powered by LLMs. It provides a powerful interface for generating, editing, and managing code through natural language prompts.
 
+## Documentation
+
+- **[How It Works (LaTeX)](docs/how_it_works.tex)**: Comprehensive technical documentation explaining the architecture, workflow, and internals of the Agent Module.
+
 ## Features
 
 - **Code Generation**: Create code from scratch based on natural language descriptions

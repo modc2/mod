@@ -386,8 +386,6 @@ class Mod:
         obj = obj or self
         routes = {}
         config = self.config()
-        if hasattr(config, 'routes'):
-            routes.update(conifg.routes)
         for util in self.get_utils():
             k = '.'.join(util.split('.')[:-1])
             v = util.split('.')[-1]
@@ -812,31 +810,6 @@ class Mod:
         return list(self.local_tree().keys())
     lm = lmods = local_mods = local_mods
 
-    def mod2schema(self, mod=None, max_age=30, update=False, core=True, verbose=False) -> List[str]:
-        mod2schema = self.get('mod2schema', default=None, max_age=max_age, update=update)
-        if mod2schema == None:
-            mods = self.core_mods () if core else self.mods()
-            mod2schema = {}
-            for mod in mods:
-                try:
-                    mod2schema[mod] = self.schema(mod)
-                except Exception as e:
-                    self.print(f'mod2schemaError({e})', color='red', verbose=verbose)
-            # self.put('mod2schema', mod2schema)
-        return mod2schema 
-        
-    def mod2fns(self, mod=None, max_age=30, update=False, core=True, verbose=False) -> List[str]:
-        mod2fns = self.get('mod2fns', default=None, max_age=max_age, update=update)
-        if mod2fns == None:
-            mods = self.core_mods() if core else self.mods()
-            mod2fns = {}
-            for mod in mods:
-                try:
-                    mod2fns[mod] = self.fns(mod)
-                except Exception as e:
-                    self.print(f'mod2fnsError({e})', color='red', verbose=verbose)
-            # self.put('mod2fns', mod2fns)
-        return mod2fns
 
     def info(self, 
             mod:str='mod',  # the mod to get the info of
@@ -852,7 +825,7 @@ class Mod:
         api = self.mod('api')()
         if not api.exists(mod, key=key):
             api.reg(mod=mod, key=key)
-        return  api.mod(mod=mod, schema=schema, url=url, desc=desc, key=key, fns=fns,  **kwargs)
+        return api.mod(mod=mod, schema=schema, url=url, desc=desc, key=key, fns=fns,  **kwargs)
 
     card = info 
 
@@ -934,8 +907,17 @@ class Mod:
             args = []
         return args
 
+
+
+    # def a
+    #     def addfn(*args, fn:str,  **kwargs):
+    #         return self.fn(fn)(*args, **kwargs)
+
     def hosts(self):
         return self.fn('remote/hosts')()
+
+    def h(self, *args, **kwargs):
+        return self.fn('api/h')(*args, **kwargs)
 
 
     def host(self):
@@ -1294,7 +1276,7 @@ class Mod:
     def mods_tree(self, search=None,  depth=8,**kwargs): 
         return self.get_tree(self.mods_path, search=search, depth=depth, **kwargs)
 
-    def ext_tree(self, search=None, depth=1, **kwargs):
+    def ext_tree(self, search=None, depth=2, **kwargs):
         return self.get_tree(self.ext_path, depth=depth,  search=search, **kwargs )
 
     def ext_mods(self, search=None, **kwargs):
@@ -1307,13 +1289,32 @@ class Mod:
         """
         search the tree for a mod
         """
-
         search = self.shortcuts.get(search, search)
         search = search.lower().replace('/', '.')  
         tree = tree or self.tree(**kwargs)
         if search == None:
             return tree
-        tree_options = sorted([k for k in tree.keys() if all([part in k for part in search.split('.')])], key=lambda x: len(x))
+        # 1 exact match
+        filter_fn = lambda k: k == search
+        
+        tree_options = list(filter(filter_fn, tree.keys()))
+        if len(tree_options) == 1:
+            return {k: tree[k] for k in tree_options}
+        # 2 endswith match
+        filter_fn = lambda k: k.endswith('.' + search) 
+        tree_options = list(filter(filter_fn, tree.keys()))
+        if len(tree_options) == 1:
+            return {k: tree[k] for k in tree_options}
+        
+        # 3 startswith match
+        filter_fn = lambda k: k.startswith(search + '.') or k == search
+        tree_options = [k for k in tree.keys() if filter_fn(k)]
+        if len(tree_options) == 1:
+            return {tree_options[0]: tree[tree_options[0]]}
+
+        # 4 contains match
+        filter_fn = lambda k:  all([part in k for part in search.split('.')])
+        tree_options = sorted([k for k in tree.keys() if filter_fn(k)], key=lambda x: len(x))
         result =  {k: tree[k] for k in tree_options}
         return result
 

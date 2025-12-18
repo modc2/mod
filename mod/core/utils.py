@@ -24,6 +24,11 @@ import threading
 from contextlib import contextmanager
 asyncio.BaseEventLoop.__del__ = lambda self: None
 
+def length(data: Union[str, bytes]) -> int:
+    """
+    Returns the length of the given data in bytes.
+    """
+    return len(data)
 def path_exists(path:str):
     return os.path.exists(path)
 

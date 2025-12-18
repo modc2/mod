@@ -11,8 +11,8 @@ class Agent:
     def __init__(self, 
 
                  model: str = 'model.openrouter', 
-                 skill = 'dev.skill',
-                 memory = 'dev.memory',
+                 skill = 'agent.skill',
+                 memory = 'agent.memory',
                  **kwargs):
 
         self.memory = m.mod(memory)()

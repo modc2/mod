@@ -359,103 +359,103 @@ class PyPM:
         return proc_info
 
 
-def main():
-    """CLI interface for PyPM."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='PyPM - Native Python Process Manager')
-    parser.add_argument('command', choices=['start', 'stop', 'restart', 'delete', 'list', 'logs', 'describe', 'kill-all', 'save', 'resurrect'])
-    parser.add_argument('--name', help='Process name')
-    parser.add_argument('--script', help='Script to run')
-    parser.add_argument('--cwd', help='Working directory')
-    parser.add_argument('--interpreter', help='Interpreter to use')
-    parser.add_argument('--python-env', help='Python environment (virtualenv path, conda env, or python executable)')
-    parser.add_argument('--lines', type=int, default=100, help='Number of log lines')
-    parser.add_argument('--follow', '-f', action='store_true', help='Follow logs')
-    
-    args = parser.parse_args()
-    
-    pm = PyPM()
-    
-    if args.command == 'start':
-        if not args.name or not args.script:
-            print("Error: --name and --script required for start")
-            sys.exit(1)
-        result = pm.start(args.name, args.script, cwd=args.cwd, interpreter=args.interpreter, python_env=args.python_env)
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'stop':
-        if not args.name:
-            print("Error: --name required")
-            sys.exit(1)
-        result = pm.stop(args.name)
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'restart':
-        if not args.name:
-            print("Error: --name required")
-            sys.exit(1)
-        result = pm.restart(args.name)
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'delete':
-        if not args.name:
-            print("Error: --name required")
-            sys.exit(1)
-        result = pm.delete(args.name)
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'list':
-        processes = pm.list()
-        for proc in processes:
-            env_info = f" [{proc.get('python_env', 'system')}]" if proc.get('python_env') else ""
-            print(f"{proc['name']:20} {proc['status']:10} PID: {proc['pid']:6} CPU: {proc['cpu']:.1f}% MEM: {proc['memory']:.1f}MB{env_info}")
-    
-    elif args.command == 'logs':
-        if not args.name:
-            print("Error: --name required")
-            sys.exit(1)
-        logs = pm.logs(args.name, lines=args.lines, follow=args.follow)
-        print(logs)
-    
-    elif args.command == 'describe':
-        if not args.name:
-            print("Error: --name required")
-            sys.exit(1)
-        info = pm.describe(args.name)
-        print(json.dumps(info, indent=2))
-    
-    elif args.command == 'kill-all':
-        result = pm.kill_all()
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'save':
-        result = pm.save()
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == 'resurrect':
-        result = pm.resurrect()
-        print(json.dumps(result, indent=2))
+    def main(self):
+        """CLI interface for PyPM."""
+        import argparse
+        
+        parser = argparse.ArgumentParser(description='PyPM - Native Python Process Manager')
+        parser.add_argument('command', choices=['start', 'stop', 'restart', 'delete', 'list', 'logs', 'describe', 'kill-all', 'save', 'resurrect'])
+        parser.add_argument('--name', help='Process name')
+        parser.add_argument('--script', help='Script to run')
+        parser.add_argument('--cwd', help='Working directory')
+        parser.add_argument('--interpreter', help='Interpreter to use')
+        parser.add_argument('--python-env', help='Python environment (virtualenv path, conda env, or python executable)')
+        parser.add_argument('--lines', type=int, default=100, help='Number of log lines')
+        parser.add_argument('--follow', '-f', action='store_true', help='Follow logs')
+        
+        args = parser.parse_args()
+        
+        pm = PyPM()
+        
+        if args.command == 'start':
+            if not args.name or not args.script:
+                print("Error: --name and --script required for start")
+                sys.exit(1)
+            result = pm.start(args.name, args.script, cwd=args.cwd, interpreter=args.interpreter, python_env=args.python_env)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'stop':
+            if not args.name:
+                print("Error: --name required")
+                sys.exit(1)
+            result = pm.stop(args.name)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'restart':
+            if not args.name:
+                print("Error: --name required")
+                sys.exit(1)
+            result = pm.restart(args.name)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'delete':
+            if not args.name:
+                print("Error: --name required")
+                sys.exit(1)
+            result = pm.delete(args.name)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'list':
+            processes = pm.list()
+            for proc in processes:
+                env_info = f" [{proc.get('python_env', 'system')}]" if proc.get('python_env') else ""
+                print(f"{proc['name']:20} {proc['status']:10} PID: {proc['pid']:6} CPU: {proc['cpu']:.1f}% MEM: {proc['memory']:.1f}MB{env_info}")
+        
+        elif args.command == 'logs':
+            if not args.name:
+                print("Error: --name required")
+                sys.exit(1)
+            logs = pm.logs(args.name, lines=args.lines, follow=args.follow)
+            print(logs)
+        
+        elif args.command == 'describe':
+            if not args.name:
+                print("Error: --name required")
+                sys.exit(1)
+            info = pm.describe(args.name)
+            print(json.dumps(info, indent=2))
+        
+        elif args.command == 'kill-all':
+            result = pm.kill_all()
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'save':
+            result = pm.save()
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == 'resurrect':
+            result = pm.resurrect()
+            print(json.dumps(result, indent=2))
 
-    @classmethod
-    def test(cls) -> Dict[str, Any]:
-        """Test function for PyPM class."""
-        try:
-            # Create a test instance
-            pm = cls(storage_path="~/.pypm_test")
-            
-            # Test basic functionality
-            test_results = {
-                "instance_created": True,
-                "storage_path": str(pm.storage_path),
-                "processes_loaded": isinstance(pm.processes, dict),
-                "success": True
-            }
-            
-            return test_results
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        @classmethod
+        def test(cls) -> Dict[str, Any]:
+            """Test function for PyPM class."""
+            try:
+                # Create a test instance
+                pm = cls(storage_path="~/.pypm_test")
+                
+                # Test basic functionality
+                test_results = {
+                    "instance_created": True,
+                    "storage_path": str(pm.storage_path),
+                    "processes_loaded": isinstance(pm.processes, dict),
+                    "success": True
+                }
+                
+                return test_results
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
 

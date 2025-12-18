@@ -64,7 +64,7 @@ class Tool:
             
             # Replace lines with proper newline handling
             inserted_content = content if content.endswith('\n') else content + '\n'
-        new_lines = lines[:start_idx] + [inserted_content] + lines[end_idx:]
+            new_lines = lines[:start_idx] + [inserted_content] + lines[end_idx:]
             new_text = ''.join(new_lines)
 
             print(f"Editing file: {path}, replacing lines {start_line}-{end_line}")

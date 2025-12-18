@@ -1,0 +1,331 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% Code listing settings
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    stepnumber=1,
+    numbersep=10pt,
+    backgroundcolor=\color{white},
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    frame=single,
+    tabsize=2,
+    captionpos=b,
+    breaklines=true
+}
+
+\title{\textbf{OpenHouse: Decentralized Collective Asset Ownership}\\\large Technical Documentation}
+\author{OpenHouse Development Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+\subsection{Overview}
+OpenHouse is a blockchain-based platform that revolutionizes real estate ownership by enabling fractional, collective ownership through smart contracts. The system leverages Ethereum's decentralized infrastructure to provide transparent, secure, and automated management of shared assets.
+
+\subsection{Problem Statement}
+Traditional real estate investment presents significant barriers:
+\begin{itemize}
+    \item High capital requirements
+    \item Limited liquidity
+    \item Opaque management practices
+    \item Complex legal structures
+    \item Geographic restrictions
+\end{itemize}
+
+\subsection{Solution}
+OpenHouse addresses these challenges through:
+\begin{itemize}
+    \item Fractional ownership via tokenized shares
+    \item Transparent on-chain governance
+    \item Automated dividend distribution
+    \item Legal entity oversight with fiduciary responsibility
+    \item Global accessibility
+\end{itemize}
+
+\section{System Architecture}
+
+\subsection{Smart Contract Design}
+
+The OpenHouse smart contract implements the following core components:
+
+\subsubsection{State Variables}
+\begin{lstlisting}[language=Solidity]
+address public authority;           // Legal entity
+string public propertyDetails;      // Property info
+uint256 public totalShares;         // Total shares
+uint256 public sharePrice;          // Price per share
+bool public isActive;               // Contract status
+mapping(address => uint256) public shares;
+mapping(address => uint256) public contributions;
+address[] public shareholders;
+\end{lstlisting}
+
+\subsubsection{Access Control}
+The contract implements role-based access control:
+\begin{itemize}
+    \item \textbf{Authority}: Legal entity with management privileges
+    \item \textbf{Shareholders}: Token holders with proportional ownership
+    \item \textbf{Public}: Read-only access to contract state
+\end{itemize}
+
+\subsection{Mathematical Model}
+
+\subsubsection{Share Allocation}
+Available shares at time $t$:
+\begin{equation}
+S_{available}(t) = S_{total} - \sum_{i=1}^{n} S_{holder_i}(t)
+\end{equation}
+
+where $S_{total}$ is total shares and $n$ is the number of shareholders.
+
+\subsubsection{Dividend Distribution}
+Dividend for shareholder $i$:
+\begin{equation}
+D_i = \frac{S_i}{S_{allocated}} \times D_{total}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $D_i$ = dividend for shareholder $i$
+    \item $S_i$ = shares held by shareholder $i$
+    \item $S_{allocated}$ = total allocated shares
+    \item $D_{total}$ = total dividend pool
+\end{itemize}
+
+\subsubsection{Ownership Percentage}
+\begin{equation}
+O_i = \frac{S_i}{S_{allocated}} \times 100\%
+\end{equation}
+
+\section{Core Functionality}
+
+\subsection{Share Purchase Mechanism}
+
+The \texttt{purchaseShares()} function implements the following logic:
+
+\begin{enumerate}
+    \item Validate share count $> 0$
+    \item Calculate cost: $C = S_{count} \times P_{share}$
+    \item Verify payment: $V_{msg} \geq C$
+    \item Check availability: $S_{available} \geq S_{count}$
+    \item Update shareholder registry
+    \item Allocate shares
+    \item Refund excess: $R = V_{msg} - C$ (if $V_{msg} > C$)
+\end{enumerate}
+
+\subsection{Dividend Distribution}
+
+The authority can distribute profits proportionally:
+
+\begin{lstlisting}[language=Solidity]
+function distributeDividends() external payable onlyAuthority {
+    require(msg.value > 0, "No dividends to distribute");
+    uint256 totalAllocated = totalShares - getAvailableShares();
+    
+    for (uint256 i = 0; i < shareholders.length; i++) {
+        address shareholder = shareholders[i];
+        uint256 shareholderShares = shares[shareholder];
+        if (shareholderShares > 0) {
+            uint256 dividend = (msg.value * shareholderShares) 
+                             / totalAllocated;
+            payable(shareholder).transfer(dividend);
+        }
+    }
+}
+\end{lstlisting}
+
+\subsection{Governance and Management}
+
+\subsubsection{Authority Transfer}
+Legal entity control can be transferred:
+\begin{itemize}
+    \item Validates new authority address
+    \item Updates authority state variable
+    \item Emits \texttt{AuthorityTransferred} event
+    \item Maintains audit trail
+\end{itemize}
+
+\subsubsection{Management Actions}
+All property management activities are recorded on-chain via \texttt{recordManagementAction()}, ensuring transparency and accountability.
+
+\section{Security Analysis}
+
+\subsection{Access Control}
+\begin{itemize}
+    \item \texttt{onlyAuthority} modifier restricts privileged functions
+    \item \texttt{whenActive} modifier prevents operations when paused
+    \item Address validation prevents zero-address attacks
+\end{itemize}
+
+\subsection{Financial Safety}
+\begin{itemize}
+    \item Automatic refund of excess payments
+    \item Integer overflow protection (Solidity 0.8+)
+    \item Reentrancy protection through checks-effects-interactions pattern
+\end{itemize}
+
+\subsection{Audit Considerations}
+\begin{enumerate}
+    \item All state changes emit events
+    \item No external calls before state updates
+    \item Comprehensive input validation
+    \item Emergency pause functionality
+\end{enumerate}
+
+\section{Legal Framework}
+
+\subsection{Regulatory Compliance}
+The OpenHouse system operates within established legal frameworks:
+
+\begin{itemize}
+    \item Authority must be a registered legal entity (trust/LLC/company)
+    \item Compliance with local securities regulations
+    \item Property ownership held by legal entity on behalf of shareholders
+    \item Fiduciary duty to act in shareholders' best interests
+\end{itemize}
+
+\subsection{Shareholder Rights}
+Token holders receive:
+\begin{itemize}
+    \item Proportional ownership rights
+    \item Dividend distribution rights
+    \item Transparent access to contract state
+    \item Protection under applicable securities laws
+\end{itemize}
+
+\section{Use Cases}
+
+\subsection{Residential Real Estate}
+\begin{itemize}
+    \item Multi-family properties
+    \item Vacation rentals
+    \item Student housing
+\end{itemize}
+
+\subsection{Commercial Properties}
+\begin{itemize}
+    \item Office buildings
+    \item Retail spaces
+    \item Industrial facilities
+\end{itemize}
+
+\subsection{Alternative Assets}
+\begin{itemize}
+    \item Agricultural land
+    \item Renewable energy installations
+    \item Infrastructure projects
+\end{itemize}
+
+\section{Deployment Guide}
+
+\subsection{Prerequisites}
+\begin{lstlisting}[language=bash]
+# Install Node.js and npm
+# Install Hardhat
+npm install --save-dev hardhat
+
+# Install dependencies
+npm install @openzeppelin/contracts
+\end{lstlisting}
+
+\subsection{Configuration}
+\begin{lstlisting}[language=JavaScript]
+module.exports = {
+  solidity: "0.8.0",
+  networks: {
+    mainnet: {
+      url: process.env.MAINNET_RPC_URL,
+      accounts: [process.env.PRIVATE_KEY]
+    }
+  }
+};
+\end{lstlisting}
+
+\subsection{Deployment Script}
+\begin{lstlisting}[language=JavaScript]
+async function main() {
+  const OpenHouse = await ethers.getContractFactory("OpenHouse");
+  const openhouse = await OpenHouse.deploy(
+    authorityAddress,
+    "Property Details",
+    1000,  // totalShares
+    ethers.utils.parseEther("0.1")  // sharePrice
+  );
+  await openhouse.deployed();
+  console.log("OpenHouse deployed to:", openhouse.address);
+}
+\end{lstlisting}
+
+\section{Future Enhancements}
+
+\subsection{Planned Features}
+\begin{enumerate}
+    \item \textbf{Secondary Market}: Enable peer-to-peer share trading
+    \item \textbf{Governance Voting}: Shareholder voting on major decisions
+    \item \textbf{Multi-Property Portfolios}: Single contract managing multiple assets
+    \item \textbf{Yield Optimization}: Automated reinvestment strategies
+    \item \textbf{Oracle Integration}: Real-time property valuation
+\end{enumerate}
+
+\subsection{Scalability Improvements}
+\begin{itemize}
+    \item Layer 2 deployment for reduced gas costs
+    \item Batch dividend distribution
+    \item Optimized storage patterns
+\end{itemize}
+
+\section{Conclusion}
+
+OpenHouse represents a paradigm shift in asset ownership, combining blockchain technology with traditional legal frameworks to create accessible, transparent, and efficient collective ownership structures. By lowering barriers to entry and automating management processes, the platform democratizes access to real estate investment while maintaining regulatory compliance and investor protection.
+
+\subsection{Key Advantages}
+\begin{itemize}
+    \item \textbf{Accessibility}: Fractional ownership reduces capital requirements
+    \item \textbf{Transparency}: All transactions visible on-chain
+    \item \textbf{Automation}: Smart contracts eliminate intermediaries
+    \item \textbf{Security}: Immutable blockchain records
+    \item \textbf{Compliance}: Legal entity oversight ensures regulatory adherence
+\end{itemize}
+
+\appendix
+
+\section{Contract ABI}
+The complete Application Binary Interface is available in the compiled artifacts directory.
+
+\section{Gas Optimization}
+Estimated gas costs for common operations:
+\begin{itemize}
+    \item Contract deployment: ~2,500,000 gas
+    \item Purchase shares: ~100,000 gas
+    \item Distribute dividends: ~50,000 + (30,000 × shareholders)
+\end{itemize}
+
+\section{References}
+\begin{enumerate}
+    \item Ethereum Foundation. (2023). Solidity Documentation.
+    \item OpenZeppelin. (2023). Smart Contract Security Best Practices.
+    \item SEC. (2023). Framework for Investment Contract Analysis of Digital Assets.
+\end{enumerate}
+
+\end{document}

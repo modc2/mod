@@ -191,20 +191,6 @@ class Key:
         key_path = self.get_key_path(key, crypto_type=crypto_type)
         return '/'.join(key_path.split('/')[:-1])
 
-    def check_duplicate_addresses(self, name='mod', crypto_type=None):
-        dirpath = self.get_key_dirpath(name, crypto_type=crypto_type)
-        paths =  list(map(lambda p: dirpath + '/' + p, os.listdir(dirpath) ))
-        return paths
-
-    def key2duplicates(self, search=None, crypto_type=None):
-        keys = self.keys(search=search, crypto_type=crypto_type)
-        duplicates = {}
-        for key in keys:
-            paths = self.check_duplicate_addresses(key, crypto_type=crypto_type)
-            if len(paths) > 1:
-                duplicates[key] = len(paths)
-        return duplicates
-
     def get_key(self, 
                 path:str,
                 password:Optional[str]=None, 

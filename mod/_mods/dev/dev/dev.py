@@ -36,6 +36,9 @@ class Dev:
         """
         tools = tools or self.tools
         query = ' '.join(list(map(str, [text] + list(extra_text))))
+        for _base_mod,_ in kwargs.items():
+            if _base_mod.startswith('base'):
+                self.memory.add('base', m.code(_base_mod))
         path = m.dirpath(mod) if path == None else path
         self.memory.add('content', m.tool('select_files')(path=path, query=query)) if path != None else None
         # starts with b followed by a number

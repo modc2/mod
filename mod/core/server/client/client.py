@@ -19,7 +19,7 @@ class Client:
         self.url = url
         self.mode = mode
         self.auth = m.mod(auth)()
-        self.key  = m.get_key(key)
+        self.key  = m.key(key)
         self.store = m.mod('store')(storage_path)
         self.timeout = timeout
         self.fn = fn
@@ -39,7 +39,13 @@ class Client:
         key = self.get_key(key)
         fn = url.split('/')[-1]
         params = {**(params or {}), **extra_kwargs}
-        headers = self.auth.forward({'fn': fn, 'params': params}, key=key, cost=cost)
+        headers = self.auth.headers({'fn': fn, 'params': params}, key=key, cost=cost)
+        return self.send_request(url, params, headers, timeout=timeout, stream=stream)
+       
+    def send_request(self, url:str, params:dict, headers:dict, timeout:int=10, stream:bool=True):
+        """
+        send the request to the server
+        """
         headers.update({
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -94,8 +100,7 @@ class Client:
             else:
                 url = self.url
         url = self.namespace.get(url, url)
-        if not url.startswith(self.mode):
-            url = f'{self.mode}://{url}'
+        url = f'{self.mode}://{url}' if not url.startswith(self.mode) else url
         return url + '/' + fn 
 
     def get_mod_from_url(self, url:str):

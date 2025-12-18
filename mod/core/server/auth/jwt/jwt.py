@@ -15,14 +15,11 @@ class AuthJWT:
     def crypto_type(self) -> str:
         return self.key.crypto_type_name
         
-    def generate(self, data: Any, key:str=None, mode='headers') -> dict:
+    def headers(self, data: Any, key:str=None) -> dict:
         """
         Generate the headers with the JWT token
         """
-        headers =  self.token(m.hash(data), key=key, mode=mode)
-        return headers
-
-    headers = forward = generate
+        return self.token(data, key=key, mode='headers')
 
     def hash(self, data: Any) -> str:
         """
@@ -73,10 +70,7 @@ class AuthJWT:
             return {
                 'token': token,
                 'time': token_data['iat'],
-                'exp': token_data['exp'],
                 'key': key.key_address,
-                'alg': header['alg'],
-                'typ': header['typ'],
             }
         elif mode == 'bytes':
             return f"{message}.{signature}"
@@ -84,19 +78,14 @@ class AuthJWT:
             raise ValueError(f"Invalid mode: {mode}. Use 'bytes' or 'dict'.")
 
 
-    def is_headers(self, token: str) -> bool:
-        """
-        Check if the token is in headers format (dict with 'token' key)
-        """
-        return isinstance(token, dict) and 'token' in token
-
             
     def verify(self, token: str) -> Dict:
         """
         Verify and decode a JWT token
         """
-        if self.is_headers(token):
+        if isinstance(token, dict) and 'token' in token:
             token = token['token']
+        
         # Split the token into parts
         header_encoded, data_encoded, signature_encoded = token.split('.')
         # Decode the data
@@ -155,7 +144,7 @@ class AuthJWT:
 
     def test_headers(self, key='test.jwt'):
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
-        headers = self.generate(data, key=key)
+        headers = self.headers(data, key=key)
         verified = self.verify(headers)
         verified = self.verify(headers)
         return {'headers': headers, 'verified': verified}

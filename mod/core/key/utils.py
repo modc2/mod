@@ -171,6 +171,8 @@ SCRYPT_N = 1 << 15
 SCRYPT_P = 1
 SCRYPT_R = 8
 
+
+
 def decode_pair_from_encrypted_json(json_data: Union[str, dict], passphrase: str) -> tuple:
     """
     Decodes encrypted PKCS#8 message from PolkadotJS JSON format
