@@ -1,69 +1,93 @@
-# Base Module 🚀
+# OpenLoan - Decentralized Lending Protocol 🚀
 
-A foundational module providing core functionality and utilities for building elegant, modular systems.
+A revolutionary DeFi lending protocol built on blockchain technology, enabling trustless peer-to-peer lending with cryptocurrency collateral.
 
 ## ✨ Features
 
-- **Clean Architecture** - Modular design following SOLID principles
-- **Extensible Patterns** - Built for customization and growth
-- **Comprehensive Tooling** - Full suite of development utilities
-- **Production Ready** - Battle-tested and optimized
+- **Trustless Lending** - Smart contract-based loan management
+- **Crypto Collateral** - Secure over-collateralized loans
+- **Real-time Pricing** - Live cryptocurrency price feeds
+- **Automated Liquidation** - Protect lenders with automatic collateral liquidation
+- **Multi-Asset Support** - Support for various cryptocurrencies
+- **Transparent Rates** - Algorithm-driven interest rates
 
 ## 🚀 Quick Start
 
 ```python
-from base import mod
+from openloan.mod import OpenLoan
 
-# Initialize and use the base module
-result = mod.execute()
+# Initialize the lending protocol
+loan = OpenLoan()
+
+# Get current collateral price
+price = loan.get_bittenso_price()
+print(f"Current BTS price: {price}")
+
+# Calculate loan terms
+loan_amount = loan.calculate_loan(collateral=1000, ltv_ratio=0.7)
+print(f"Max loan: ${loan_amount}")
 ```
 
 ## 📦 Installation
 
 ```bash
+# Install dependencies
+pip install requests web3
+
 # Install in development mode
 pip install -e .
-
-# Or install from source
-git clone <repository>
-cd base
-pip install -r requirements.txt
 ```
 
 ## 📁 Project Structure
 
 ```
-base/
-├── base/
-│   └── mod.py          # Core module implementation
+openloan/
+├── openloan/
+│   └── mod.py          # Core lending protocol
 ├── README.md           # This file
+├── TUTORIAL.md         # Comprehensive guide
 └── tests/              # Test suite
 ```
 
-## 🛠️ Development
+## 🛠️ Core Functionality
 
-Built with simplicity and elegance in mind, following Leonardo da Vinci's principle:
-
-> *"Simplicity is the ultimate sophistication."*
-
-### Running Tests
-
-```bash
-pytest tests/
+### Loan Calculation
+```python
+loan = OpenLoan()
+amount = loan.multiply(collateral_value, ltv_ratio)
 ```
 
-### Contributing
+### Price Oracle
+```python
+loan = OpenLoan()
+current_price = loan.get_bittenso_price()
+```
 
-Contributions are welcome! Please:
-- Keep it simple, keep it clean
-- Follow existing code style
-- Add tests for new features
-- Update documentation
+## 🔐 Security Features
+
+- Over-collateralization requirements
+- Real-time price monitoring
+- Automated liquidation mechanisms
+- Audited smart contracts
+
+## 📊 Use Cases
+
+1. **Crypto-backed Loans** - Borrow stablecoins against crypto holdings
+2. **Liquidity Mining** - Earn interest by providing liquidity
+3. **Leverage Trading** - Access leverage without centralized exchanges
+4. **Emergency Liquidity** - Quick access to funds without selling assets
+
+## 🌐 Supported Assets
+
+- Bittenso (BTS)
+- Bitcoin (BTC)
+- Ethereum (ETH)
+- And more coming soon...
 
 ## 📄 License
 
-MIT License - feel free to use in your projects.
+MIT License - Democratizing access to financial services.
 
 ---
 
-*Crafted with precision, purpose, and passion.* ⚡
+*Built by visionaries, for the decentralized future.* ⚡🌍

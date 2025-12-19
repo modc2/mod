@@ -31,7 +31,7 @@ class ServerTestMixin(m.mod('server')):
     def test_auth(self, auths=['auth.jwt', 'auth']):
         for auth in auths:
             print(f'testing {auth}')
-            m.mod(auth)().test()
+            m.test(auth)
         return {'success': True, 'msg': 'server test passed', 'auths': auths}
 
     def test_user(self,  mod='api', user='test', update:bool = False):  

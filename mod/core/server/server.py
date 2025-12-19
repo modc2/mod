@@ -8,7 +8,6 @@ import os
 import pandas as pd
 import json
 import inspect
-# import partial
 from functools import partial
 import asyncio
 import time
@@ -18,6 +17,10 @@ print = m.print
 
 class Server:
 
+
+    helper_fns = ['info', 'forward']
+    fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
+    
     def __init__(
         self, 
         path = '~/.mod/server', # the path to store the server data
@@ -282,10 +285,7 @@ class Server:
         print('-------------------', color='green')
         return show_info
 
-    def get_fns(self, fns  = None, 
-                        helper_fns = ['info', 'forward'],
-                        fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
-                        ) -> List[str]: 
+    def get_fns(self, fns  = None) -> List[str]: 
 
         """
         get the public functions
@@ -293,8 +293,8 @@ class Server:
         fns =  fns or []
         # if no fns are provided, get them from the mod attributes
         if len(fns) == 0:
-            for fa in fn_attributes:
+            for fa in self.fn_attributes:
                 if hasattr(self.mod, fa) and isinstance(getattr(self.mod, fa), list):
                     fns = getattr(self.mod, fa) 
                     break
-        return list(set(fns + helper_fns))
+        return list(set(fns + self.helper_fns))

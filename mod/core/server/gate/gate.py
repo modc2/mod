@@ -8,7 +8,6 @@ import os
 import pandas as pd
 import json
 import inspect
-import asyncio
 import time
 import mod as m
 
@@ -19,14 +18,12 @@ class Gate:
     def __init__(
         self, 
         path = '~/.mod/server', # the path to store the server data
-        tx = 'tx', # the tx to use
-        auth = 'auth', # the auth to use
         **_kwargs):
-        self.loop = asyncio.get_event_loop()
+        self.loop = m.loop()
         self.store = m.mod('store')(path)
-        self.auth = m.mod(auth)()
-        self.tx = m.mod(tx)()
-        self.auth = m.mod(auth)()
+        self.auth = m.mod('auth')()
+        self.tx = m.mod('tx')()
+        self.auth = m.mod('auth')()
         self.generate = self.auth.forward
         self.verify = self.auth.verify
         self.save_tx = self.tx.forward
@@ -35,23 +32,22 @@ class Gate:
         """
         process the request
         """
-        # step 1 : verify the ehaders
-        h = dict(request.headers) 
-        assert self.is_user(info['name'], h['key']), f"User {h['key']} for Mod {info['name']} is not a user"
-        is_owner = bool(h['key'] == info['key'])
-        if not is_owner:
-            assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
+        # step 1 : verify the headers
+        headers = self.verify(dict(request.headers) )
+        assert self.is_user(info['name'], headers['key']), f"User {headers['key']} for Mod {info['name']} is not a user"
+        # step 2 : check function access
+        assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
+        # step 2 : check cost
         cost = float(info['schema'].get(fn, {}).get('cost', 0))
-        cost_client = float(h.get('cost', 0))
-        assert cost_client >= cost, f'Insufficient cost {cost_client} for fn {fn} with cost {cost}'
+        cost_client = float(headers.get('cost', 0))
+        assert cost_client >= cost, f'Insufficient cost'
         params = self.loop.run_until_complete(request.json())
         if isinstance(params, str):
             params = json.loads(params)
-        assert self.auth.verify(h, data={'fn': fn, 'params': params}) # verify the h
         return  {
                     'fn': fn, 
                     'params': params, 
-                    'client': {k:v for k,v in h.items() if k in self.auth.features}, 
+                    'client': {k:v for k,v in headers.items() if k in self.auth.features}, 
                     'cost': cost
                     }
 

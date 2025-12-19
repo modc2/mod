@@ -55,7 +55,8 @@ class PM:
                           cwd=cwd or dirpath, 
                           docker_in_docker=docker_in_docker,
                           working_dir=self.convert_docker_path(dirpath))
-        self.namespace(update=True)
+       
+       
         return result
 
     def up(self, mod='chain', daemon:bool=True):
@@ -182,7 +183,7 @@ class PM:
         m.put_yaml(compose_path, compose_config)
 
         # now we need to make the 
-
+        self.sync()
         return {'path': compose_path, 'compose' : compose_config}
 
 
@@ -367,22 +368,32 @@ class PM:
         """
         return name in self.servers()
         
-    def kill(self, name: str) -> Dict[str, str]:
+    def kill(self, name: str, update=True) -> Dict[str, str]:
         """
         Kill and remove a container.
         """
-        if not self.exists(name):
+        if not self.server_exists(name):
             return {'status': 'not_found', 'name': name}
+        servers = self.servers(search=name)
+        if name in servers:
+            result =  {'status': 'not_found', 'name': name}
         try:
             os.system(f'docker kill {name}' )
             os.system(f'docker rm {name}')
-            print(f'Killed container --> {name}')
-            # remove from namespace cache
-            self.namespace(update=True)
-            return {'status': 'killed', 'name': name}
+            print(f'Kill({name})')
+            if update:
+                self.sync()
+            result =  {'status': 'killed', 'name': name}
         except Exception as e:
-            return {'status': 'error', 'name': name, 'error': str(e)}
+            result =  {'status': 'error', 'name': name, 'error': str(e)}
+        servers = self.servers(search=name)
+        assert name not in servers, f'Failed to kill container {name}'
+        children = self.servers(search=name + '.')
+        for child in children:
+            print(f'Killing child container {child}')
+            self.kill(child, update=update)
 
+        return result
     def kill_all(self) -> Dict[str, str]:
         """
         Kill all running containers.
@@ -650,6 +661,7 @@ class PM:
         """
         Sync container statistics.
         """
+        self.namespace(update=True)
         self.stats(update=1)
 
     # PM2-like methods for container management

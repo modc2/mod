@@ -35,13 +35,13 @@ from eth_keys.datatypes import Signature, PrivateKey
 from .utils import (extract_derive_path, 
                     python2str, 
                     ss58_encode, 
-                    ss58_decode, get_ss58_format, 
+                    ss58_decode, 
                     is_valid_ss58_address,
-                     b64encode, 
                      mnemonic_to_ecdsa_private_key, 
                      ecdsa_sign, 
                      str2bytes,
-                     ecdsa_verify, is_int)
+                     ecdsa_verify,
+                    is_int)
 
 # imoport 
 class Key:
@@ -57,10 +57,6 @@ class Key:
     time = m.time
 
     crypto_type_map = {'ed25519': 0, 'sr25519': 1, 'ecdsa': 2}
-    crypto_type2networks = {
-        'sr25519': ['dot', 'comai', 'com', 'bt'],
-        'ecdsa': ['eth', 'btc']
-    }
     crypto_types = list(crypto_type_map.keys())
     reverse_crypto_type_map = {v:k for k,v in crypto_type_map.items()}
     default_key= 'mod'
@@ -128,7 +124,6 @@ class Key:
         self.private_key = private_key
         self.public_key = public_key
         self.address = self.key_address = self.ss58_address =  address
-        self.multiaddress = self.multi()
         return {'address':address, 'crypto_type':crypto_type}
 
 
@@ -136,9 +131,6 @@ class Key:
         if crypto_type == None:
             crypto_type = self.crypto_type
         shortcuts = {}
-        for k, net_list in self.crypto_type2networks.items():
-            for net in net_list:
-                shortcuts[net] = k
         if crypto_type in shortcuts:
             crypto_type = shortcuts[crypto_type]
         
@@ -192,13 +184,16 @@ class Key:
         return '/'.join(key_path.split('/')[:-1])
 
     def get_key(self, 
-                path:str,
+                key:str,
                 password:Optional[str]=None, 
                 create_if_not_exists:bool = True, 
                 prompt_password:bool = False,
                 crypto_type=None, 
                 **kwargs):
+        if hasattr(key, 'address'):
+            return key
         
+        path = key
         crypto_type = self.get_crypto_type(crypto_type)
 
         if hasattr(path, 'address'):
@@ -508,7 +503,7 @@ class Key:
             data = bytes(data.data)
         return data
 
-    def resolve_signature(self, signature: Union[bytes, str]):
+    def get_sig(self, signature: Union[bytes, str]):
         if isinstance(signature,str) and signature[0:2] == '0x':
             signature = bytes.fromhex(signature[2:])
         if type(signature) is str:
@@ -517,7 +512,7 @@ class Key:
             raise TypeError(f"Signature should be of type bytes or a hex-string {signature}")
         return signature
 
-    def resolve_public_key(self, address=None, public_key=None):
+    def get_public_key(self, address=None, public_key=None):
         if address != None:
             if is_valid_ss58_address(address):
                 public_key = ss58_decode(address)
@@ -530,21 +525,6 @@ class Key:
                 public_key = public_key[2:]
             public_key = bytes.fromhex(public_key)
         return public_key
-
-
-    def get_sign_function(self, crypto_type=None):
-        """
-        Returns the sign function for the given crypto type
-        """
-        crypto_type = self.get_crypto_type(crypto_type)
-        if crypto_type == "sr25519":
-            return sr25519.sign
-        elif crypto_type == "ed25519":
-            return ed25519_zebra.ed_sign
-        elif crypto_type == "ecdsa":
-            return ecdsa_sign
-        else:
-            raise ValueError(f"Invalid crypto type: {crypto_type}")
 
     def sign(self, data: Union[ScaleBytes, bytes, str], mode='bytes') -> bytes:
         """
@@ -604,8 +584,8 @@ class Key:
         if isinstance(data, dict) and  all(k in data for k in ['data','signature', 'address']):
             data, signature, address = data['data'], data['signature'], data['address']
         data = self.encode_signature_data(data)
-        signature = self.resolve_signature(signature)
-        public_key = self.resolve_public_key(address=address, public_key=public_key)
+        signature = self.get_sig(signature)
+        public_key = self.get_public_key(address=address, public_key=public_key)
         crypto_type = self.get_crypto_type(crypto_type)
 
         if crypto_type == "sr25519":
@@ -747,58 +727,6 @@ class Key:
                 data = self.get_data(data)
         return isinstance(data, dict) and bool(data.get('encrypted', False))
 
-    def from_uri(
-            self, 
-            suri: str, 
-            crypto_type=None, 
-            DEV_PHRASE = 'bottom drive obey lake curtain smoke basket hold race lonely fit walk'
-
-    ) -> 'Key':
-        """
-        Creates Key for specified suri in following format: `[mnemonic]/[soft-path]//[hard-path]`
-
-        Parameters
-        ----------
-        suri:
-        crypto_type: Use "sr25519" or "ed25519"cryptography for generating the Key
-
-        Returns
-        -------
-        Key
-        """
-        crypto_type = self.get_crypto_type(crypto_type)
-        # GET THE MNEMONIC (PHRASE) AND DERIVATION PATHS
-        suri = str(suri)
-        if not suri.startswith('//'):
-            suri = '//' + suri
-        if suri and suri.startswith('/'):
-            suri = DEV_PHRASE + suri
-        suri_parts = re.match(r'^(?P<phrase>.[^/]+( .[^/]+)*)(?P<path>(//?[^/]+)*)(///(?P<password>.*))?$', suri).groupdict()
-        mnemonic = suri_parts['phrase']
-        crypto_type = self.get_crypto_type(crypto_type)
-        if crypto_type == "ecdsa":
-            private_key = mnemonic_to_ecdsa_private_key(
-                mnemonic=mnemonic,
-                str_derivation_path=suri_parts['path'],
-                passphrase=suri_parts['password']
-            )
-            derived_keypair = self.from_private_key(private_key, crypto_type=crypto_type)
-        elif crypto_type in ["sr25519", "ed25519"]:
-            if suri_parts['password']:
-                raise NotImplementedError(f"Passwords in suri not supported for crypto_type '{crypto_type}'")
-            derived_keypair = self.from_mnemonic(mnemonic, crypto_type=crypto_type)
-        else:
-            raise ValueError('crypto_type "{}" not supported'.format(crypto_type))
-        return derived_keypair
-
-    str2key = from_password = from_uri
-
-    def multi(self,key=None, crypto_type=None):
-        key = self.get_key(key, crypto_type=crypto_type ) if key != None else self
-        return key.crypto_type_name + '/' + key.address
-
-    def child(self, partner_key_address : str = 'fam', key= None,  seed=None):
-        seed = seed or str(self.time() )
-        key = self.get_key(key) if key != None else self
-        child_key = self.from_uri(self.hashhash(key.sign(seed), crypto_type=key.crypto_type_name))
-        return child_key
+    @property
+    def multiaddress(self):
+        return self.crypto_type_name + '//' + self.address

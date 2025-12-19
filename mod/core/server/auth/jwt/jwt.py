@@ -7,9 +7,8 @@ import mod as m
 
 class AuthJWT:
     description = 'auth'
-
     def __init__(self, key=None, crypto_type: str = 'sr25519'):
-        self.key = m.get_key(key, crypto_type=crypto_type)
+        self.key = m.key(key, crypto_type=crypto_type)
 
     @property
     def crypto_type(self) -> str:
@@ -19,7 +18,7 @@ class AuthJWT:
         """
         Generate the headers with the JWT token
         """
-        return self.token(data, key=key, mode='headers')
+        return self.token(data, key=key)
 
     def hash(self, data: Any) -> str:
         """
@@ -39,7 +38,7 @@ class AuthJWT:
         assert key.crypto_type_name == self.crypto_type, f"Key crypto type {key.crypto_type} does not match expected {self.crypto_type}"
         return key
         
-    def token(self, data: Dict='hey',  key:Optional[str]=None, expiration: int = 3600, mode='bytes') -> str:
+    def token(self, data: Dict='hey',  key:Optional[str]=None, expiration: int = 3600, mode='str') -> str:
         """
         Generate a JWT token with the given data
         Args:
@@ -66,19 +65,27 @@ class AuthJWT:
         signature = self._base64url_encode(key.sign(message, mode='bytes'))
         # Combine to create the token
         token = f"{message}.{signature}"
-        if mode in ['dict', 'headers']:
+        if mode in ['dict']:
             return {
                 'token': token,
-                'time': token_data['iat'],
-                'key': key.key_address,
             }
-        elif mode == 'bytes':
+        elif mode == 'str':
             return f"{message}.{signature}"
         else:
             raise ValueError(f"Invalid mode: {mode}. Use 'bytes' or 'dict'.")
 
+    def token2data(self, token: str) -> Dict:
+        """
+        Decode a JWT token to extract the data
+        """
+        if isinstance(token, dict) and 'token' in token:
+            token = token['token']
+        # Split the token into parts
+        header_encoded, data_encoded, signature_encoded = token.split('.')
+        # Decode the data
+        data = json.loads(self._base64url_decode(data_encoded))
+        return data
 
-            
     def verify(self, token: str) -> Dict:
         """
         Verify and decode a JWT token
@@ -97,7 +104,10 @@ class AuthJWT:
         message = f"{header_encoded}.{data_encoded}"
         signature = self._base64url_decode(signature_encoded)
         assert self.key.verify(data=message, signature=signature, address=data['iss'], crypto_type=headers['alg']), "Invalid token signature"
-        return True
+        return {
+            'key': data['iss'],
+            'signature': signature
+        }
 
     def _base64url_encode(self, data):
         """Encode data in base64url format"""
@@ -142,22 +152,24 @@ class AuthJWT:
             "expired_token_caught": expired_token_caught
             }
 
+    def test_token2data(self):
+        """
+        Test the token to data functionality
+        """
+        # Generate a token
+        test_data = {'fam': 'fam', 'admin': 1}
+        token = self.token(test_data)
+        # Decode the token
+        decoded_data = self.token2data(token)
+        assert decoded_data['data'] == test_data, "Decoded data does not match original"
+        return {
+            "token": token,
+            "decoded_data": decoded_data,
+            }
+            
     def test_headers(self, key='test.jwt'):
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
         headers = self.headers(data, key=key)
         verified = self.verify(headers)
         verified = self.verify(headers)
         return {'headers': headers, 'verified': verified}
-
-    def test(self):
-        crypto_types = ['sr25519', 'ed25519']
-        result = {}
-        for crypto_type in crypto_types:
-            self.key = m.get_key('test.jwt', crypto_type=self.crypto_type)
-            result[crypto_type] = {
-                'token': self.test_token(),
-                'headers': self.test_headers()
-            }
-            print(f"Tested JWT with crypto_type {crypto_type}: {result}")
-        
-        return result

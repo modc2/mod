@@ -1,0 +1,270 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\title{Agent Module: How It Works}
+\author{Technical Documentation}
+\date{\today}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+The Agent Module is an advanced code generation and editing toolkit powered by Large Language Models (LLMs). It provides a powerful interface for generating, editing, and managing code through natural language prompts.
+
+\section{Architecture Overview}
+
+\subsection{Core Components}
+
+The Agent Module consists of several interconnected components:
+
+\begin{itemize}
+    \item \textbf{Agent}: Main orchestrator for code generation and editing
+    \item \textbf{Edit}: Specialized module for modifying existing code
+    \item \textbf{Select}: Semantic file selection tool
+    \item \textbf{Memory}: Context management system (short-term and long-term)
+    \item \textbf{Toolbox}: Helper and guide system
+\end{itemize}
+
+\subsection{Workflow}
+
+The Agent Module operates through the following workflow:
+
+\begin{enumerate}
+    \item \textbf{Input Processing}: User provides natural language query
+    \item \textbf{Context Building}: Memory and relevant files are loaded
+    \item \textbf{Tool Selection}: Agent determines which tools to use
+    \item \textbf{Execution}: Tools are executed in sequence
+    \item \textbf{Output Generation}: Results are formatted and returned
+\end{enumerate}
+
+\section{How It Works}
+
+\subsection{Code Generation}
+
+When generating code, the Agent:
+
+\begin{lstlisting}[language=Python]
+import mod as c
+
+# Initialize the dev module
+dev = c.mod('dev')()
+
+# Generate code from a prompt
+dev.forward("Create a Python function that calculates Fibonacci numbers")
+\end{lstlisting}
+
+\textbf{Process:}
+\begin{enumerate}
+    \item Parse the natural language prompt
+    \item Query the LLM with context and requirements
+    \item Generate code based on best practices
+    \item Return formatted code output
+\end{enumerate}
+
+\subsection{Code Editing}
+
+For editing existing code:
+
+\begin{lstlisting}[language=Python]
+dev.forward("Add error handling to the function", to="./path/to/file.py")
+\end{lstlisting}
+
+\textbf{Process:}
+\begin{enumerate}
+    \item Load the target file content
+    \item Analyze the existing code structure
+    \item Apply modifications based on the prompt
+    \item Preview changes for user confirmation
+    \item Write updated content to file
+\end{enumerate}
+
+\subsection{File Selection}
+
+Semantic file selection uses embeddings:
+
+\begin{lstlisting}[language=Python]
+select = c.mod('tool.select')()
+files = c.files("./project")
+auth_files = select.forward(
+    options=files,
+    query="files related to authentication"
+)
+\end{lstlisting}
+
+\textbf{Process:}
+\begin{enumerate}
+    \item Generate embeddings for all files
+    \item Generate embedding for the query
+    \item Calculate semantic similarity
+    \item Return ranked list of relevant files
+\end{enumerate}
+
+\subsection{Memory Management}
+
+The memory system maintains context:
+
+\begin{lstlisting}[language=Python]
+memory = c.mod('tool.memory')()
+
+# Short-term memory (session-based)
+memory.add_short_term("user_preference", {"theme": "dark"})
+
+# Long-term memory (persistent)
+memory.add_long_term("project_requirements", {
+    "name": "AI Assistant",
+    "features": ["code generation", "memory management"]
+})
+\end{lstlisting}
+
+\textbf{Memory Types:}
+\begin{itemize}
+    \item \textbf{Short-term}: Session-specific context, cleared after session
+    \item \textbf{Long-term}: Persistent storage across sessions
+\end{itemize}
+
+\subsection{Function Calling}
+
+Dynamic function integration:
+
+\begin{lstlisting}[language=Python]
+dev.forward("Document these functions: @/get_text ./utils/helpers.py")
+\end{lstlisting}
+
+\textbf{Process:}
+\begin{enumerate}
+    \item Parse function call syntax (@/function\_name)
+    \item Execute the referenced function
+    \item Inject results into the prompt context
+    \item Process the enriched prompt
+\end{enumerate}
+
+\section{Tool System}
+
+\subsection{Available Tools}
+
+The Agent has access to multiple tools:
+
+\begin{itemize}
+    \item \texttt{create\_file}: Create new files with content
+    \item \texttt{edit\_file}: Modify existing files
+    \item \texttt{rm\_file}: Remove files
+    \item \texttt{cmd}: Execute shell commands
+    \item \texttt{select\_files}: Find relevant files
+    \item \texttt{summarize}: Generate content summaries
+    \item \texttt{web\_scraper}: Search and scrape web content
+\end{itemize}
+
+\subsection{Tool Execution}
+
+Tools are executed through a standardized interface:
+
+\begin{enumerate}
+    \item Agent receives user query
+    \item Determines required tools and parameters
+    \item Executes tools in sequence
+    \item Aggregates results
+    \item Returns formatted output
+\end{enumerate}
+
+\section{LLM Integration}
+
+\subsection{Model Configuration}
+
+The Agent supports multiple LLM providers:
+
+\begin{itemize}
+    \item Default: \texttt{anthropic/claude-3.7-sonnet}
+    \item Configurable parameters: temperature, max\_tokens, model selection
+\end{itemize}
+
+\subsection{Prompt Engineering}
+
+The Agent uses sophisticated prompt engineering:
+
+\begin{itemize}
+    \item Context injection from memory
+    \item Tool schema descriptions
+    \item Few-shot examples
+    \item Chain-of-thought reasoning
+\end{itemize}
+
+\section{Advanced Features}
+
+\subsection{Interactive Workflow}
+
+Changes can be previewed before application:
+
+\begin{enumerate}
+    \item Generate proposed changes
+    \item Display diff to user
+    \item Request confirmation
+    \item Apply or reject changes
+\end{enumerate}
+
+\subsection{Error Handling}
+
+Robust error handling throughout:
+
+\begin{itemize}
+    \item File operation errors
+    \item LLM API failures
+    \item Invalid tool parameters
+    \item Graceful degradation
+\end{itemize}
+
+\section{Use Cases}
+
+\subsection{Rapid Prototyping}
+
+Quickly generate boilerplate code and project structures.
+
+\subsection{Code Refactoring}
+
+Modernize and improve existing codebases with natural language instructions.
+
+\subsection{Documentation}
+
+Automatically generate documentation from code.
+
+\subsection{Learning Assistant}
+
+Help developers understand and work with unfamiliar codebases.
+
+\section{Conclusion}
+
+The Agent Module provides a powerful, flexible interface for AI-assisted software development. By combining LLM capabilities with a robust tool system and memory management, it enables developers to work more efficiently and effectively.
+
+\end{document}

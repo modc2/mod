@@ -1,69 +1,30 @@
-# Base Module 🚀
 
-A foundational module providing core functionality and utilities for building elegant, modular systems.
+model 
+    - openrouter (p)
+    - anthropic
+    - openai
+    - chutes
 
-## ✨ Features
+compute
+    - primeintellect (p)
+    - akash
+    - lium (bittensor)
 
-- **Clean Architecture** - Modular design following SOLID principles
-- **Extensible Patterns** - Built for customization and growth
-- **Comprehensive Tooling** - Full suite of development utilities
-- **Production Ready** - Battle-tested and optimized
 
-## 🚀 Quick Start
+defi
+    price:
+        - uniswap (p)
+        - raydium (p)
+        - coingecko (p)
+        - coinmarketcap (p)
+        - binance
+    oracle
+        - chainlink
+        - pyth
+    lending
+        - aave
+        - gnosis 
+    lowfi (1-10% ROI for stables)
+        - aave
 
-```python
-from base import mod
-
-# Initialize and use the base module
-result = mod.execute()
-```
-
-## 📦 Installation
-
-```bash
-# Install in development mode
-pip install -e .
-
-# Or install from source
-git clone <repository>
-cd base
-pip install -r requirements.txt
-```
-
-## 📁 Project Structure
-
-```
-base/
-├── base/
-│   └── mod.py          # Core module implementation
-├── README.md           # This file
-└── tests/              # Test suite
-```
-
-## 🛠️ Development
-
-Built with simplicity and elegance in mind, following Leonardo da Vinci's principle:
-
-> *"Simplicity is the ultimate sophistication."*
-
-### Running Tests
-
-```bash
-pytest tests/
-```
-
-### Contributing
-
-Contributions are welcome! Please:
-- Keep it simple, keep it clean
-- Follow existing code style
-- Add tests for new features
-- Update documentation
-
-## 📄 License
-
-MIT License - feel free to use in your projects.
-
----
-
-*Crafted with precision, purpose, and passion.* ⚡
+    

@@ -51,21 +51,16 @@ class Auth:
 
     generate = forward = headers
 
-    def verify(self, headers: str, data:dict, max_age=10) -> bool:
+    def verify(self, headers: str) -> dict:
         """
         Verify and decode a JWT token
         provide the data if you want to verify the data hash
         """
-        # check age 
         age = abs(time.time() - float(headers['time']))
-        max_age = max_age or self.max_age
-        assert age < max_age, f'Token is stale {age} > {max_age}'
-        sig_data = self.sig_data(headers)
-        verified = self.key.verify(sig_data, signature=headers['signature'], address=headers['key'])
-        assert verified, f'Invalid signature {sig_data}'
-        # if data != None:
-        #     assert headers['data'] == self.hash(data), f'Invalid data {data}'
-        return verified
+        assert age < self.max_age, f'Token is stale {age} > {self.max_age}'
+        verified = self.key.verify(self.sig_data(headers), signature=headers['signature'], address=headers['key'])
+        assert verified
+        return headers
 
     def get_key(self, key=None):
         """
@@ -77,7 +72,6 @@ class Auth:
             key = m.get_key(key, crypto_type=self.crypto_type)
         assert hasattr(key, 'address'), f'Invalid key {key}'
         return key
-
 
     def hash(self, data: Any) -> str:
         """
@@ -96,6 +90,6 @@ class Auth:
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
         auth = Auth(key=key, crypto_type=crypto_type)
         headers = auth.generate(data, key=key)
-        assert auth.verify(headers, data), 'Auth test failed'
+        assert auth.verify(headers), 'Auth test failed'
         return {'test_passed': True, 'headers': headers}
 

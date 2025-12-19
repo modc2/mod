@@ -6,10 +6,10 @@ services:
   ipfs:
     container_name: ipfs
     deploy: {}
-    entrypoint: bash -c "m serve port=50119 key=ipfs remote=0 mod=ipfs"
+    entrypoint: bash -c "m serve port=50086 key=ipfs remote=0 mod=ipfs"
     image: ipfs
     ports:
-    - 50119:50119
+    - 50086:50086
     restart: unless-stopped
     shm_size: 100g
     volumes:
@@ -17,4 +17,17 @@ services:
     - ~/.mod:/root/.mod
     - ~/mod/mod/_mods/ipfs:/root/mod/mod/_mods/ipfs
     working_dir: /root/mod/mod/_mods/ipfs
+  ipfs.node:
+    container_name: ipfs.node
+    image: ipfs/go-ipfs:latest
+    networks:
+    - default
+    ports:
+    - 5001:5001
+    - 4001:4001
+    - 8080:8080
+    restart: unless-stopped
+    volumes:
+    - ~/.ipfs/archive:/data/ipfs
+    - ~/.ipfs/data:/data/ipfs
 version: '3.8'

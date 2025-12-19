@@ -1,414 +1,206 @@
-# Mod Framework
+# Prefi - Decentralized Prediction Market 🎯
 
-A powerful Python framework for building, deploying, and managing modular applications with built-in support for Docker, cryptography, and AI integration.
+A zero-sum prediction market protocol where users bet on future asset prices with locked collateral. Built on Base, Ethereum, and Ganache with modular price oracles.
 
-## Requirements
+## 🌟 Features
 
-- **Python 3.11+**
-- **Docker and docker-compose**
+- **Price Predictions**: Bet on future prices of any whitelisted asset
+- **Collateral Locking**: Lock approved ERC20 tokens for up to 1 month
+- **Weekly Settlements**: Every Friday, winners receive points based on USD performance
+- **Zero-Sum Game**: All locked tokens distributed based on prediction accuracy
+- **Modular Oracles**: Aggregated pricing from CoinGecko and CoinMarketCap
+- **Multi-Chain**: Deploy on Base, Ethereum mainnet, or Ganache for testing
 
-### Optional
-- VSCode
-- Git
+## 🎮 How It Works
 
-## Installation
+1. **Place Prediction**: Choose an asset, predict its future price, lock collateral
+2. **Wait Period**: Tokens locked for your chosen duration (1 day - 1 month)
+3. **Settlement**: After unlock time, oracle determines actual price
+4. **Points Award**: Earn points based on prediction accuracy (USD won/lost)
+5. **Weekly Distribution**: Every Friday, pool distributed to top performers
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
-git clone <repository-url>
-cd ~/mod
-pip install -e ./
+# Clone and install
+cd prefi
+npm install
+
+# Setup environment
+cp .env.example .env
+# Edit .env with your keys
 ```
 
-## Quick Start - CLI Commands
-
-The framework provides a CLI tool `m` or `c` for common operations:
+### Deploy to Ganache (Local)
 
 ```bash
-# Server Management
-m serve api              # Serve API on port 8000
-m kill api              # Stop server
-m killall               # Stop all servers
-m servers               # List running servers
-m namespace             # Show module → URL mapping
+# Start Ganache
+npm run ganache
 
-# Module Information
-m dp api                # Get directory path
-m code api              # Get class code
-m code api/function     # Get function code
-m schema api/function   # Get function schema
-m content api           # Get full module content
-m info api              # Get complete module info
-m mods                  # List all modules
-
-# Module Operations
-m addmod <path>         # Add module from path/GitHub
-m rmmod <name>          # Remove module
-m cpmod from to         # Copy module
-m clone <url>           # Clone from GitHub
-
-# Development
-m app                   # Deploy application
-m test <mod>            # Run tests
-m push "message"        # Git commit and push
-
-# AI Integration
-m ask "question"        # Ask AI (OpenRouter)
-m help mod "question"   # Get help about module
-m about mod "query"     # Ask about module
+# Deploy contracts
+npm run deploy:ganache
 ```
 
-## Core Features
+### Deploy to Base
 
-### 1. Module Management
+```bash
+# Base Goerli Testnet
+npm run deploy:baseGoerli
 
-```python
-import mod as m
-
-# List and discover modules
-modules = m.mods()                    # All modules
-core_mods = m.core_mods()            # Core modules only
-local_mods = m.local_mods()          # Local modules only
-
-# Module info
-info = m.info('module_name')         # Complete module info
-schema = m.schema('module_name')     # Function signatures
-code = m.code('module_name')         # Source code
-content = m.content('module_name')   # All files (file2content) where the files are relative to the module dirpath
-cid = m.cid('module_name')          # Content hash
-
-# Check existence
-exists = m.mod_exists('module_name')
-is_file = m.is_mod_file('module_name')
+# Base Mainnet
+npm run deploy:base
 ```
 
-### 2. Function Execution
+### Deploy to Ethereum
 
-```python
-# Get and call functions
-fn = m.fn('module/function')
-result = fn(param='value')
+```bash
+# Goerli Testnet
+npm run deploy:goerli
 
-# Alternative syntax
-result = m.fn('module/').forward()   # Calls module.forward()
-result = m.fn('/function')           # Calls mod.function()
-
-# Check if function exists
-if m.isfn('module/function'):
-    result = m.fn('module/function')()
-
-# Get function schema
-schema = m.fnschema('module/function')
-# Returns: {'input': {...}, 'output': {...}, 'docs': '...', ...}
+# Mainnet
+npm run deploy:mainnet
 ```
 
-### 3. Server Management
-
-```python
-# Serve modules
-m.serve('api', port=8000)
-m.serve('model.openrouter', remote=True)
-
-# Server info
-servers = m.servers()                 # List active servers
-namespace = m.namespace()             # Module → URL mapping
-exists = m.server_exists('api')
-
-# Control servers
-m.kill('api')                        # Stop specific server
-m.kill_all()                         # Stop all servers
-```
-
-### 4. File Operations
-
-```python
-# Read/write files
-content = m.text('/path/to/file')
-m.put_text('/path/to/file', 'content')
-
-# JSON operations
-m.put_json('config', {'key': 'value'})
-data = m.get_json('config', default={})
-
-# File listing
-files = m.files('./path', search='*.py', depth=4)
-dirs = m.ls('./path')
-all_files = m.glob('./path/**/*.py')
-
-# Path operations
-abs_path = m.abspath('~/relative/path')
-rel_path = m.relpath('/absolute/path')
-dirpath = m.dirpath('module_name')
-```
-
-### 5. Cryptography & Keys
-
-```python
-# Key management
-key = m.get_key('my_key')
-address = key.address
-keys = m.keys()
-
-# Sign and verify
-signature = m.sign({'data': 'value'}, key='my_key')
-is_valid = m.verify(
-    data={'data': 'value'}, 
-    signature=signature, 
-    address=address
-)
-
-# Encrypt/decrypt
-encrypted = m.encrypt('secret', key='my_key', password='pwd')
-decrypted = m.decrypt(encrypted, key='my_key', password='pwd')
-
-# Generate mnemonic
-mnemonic = m.mnemonic(words=24)
-```
-
-### 6. Storage & Caching
-
-```python
-# Store with optional encryption
-m.put('key', {'data': 'value'}, encrypt=True, password='pwd')
-
-# Retrieve with max age (seconds)
-data = m.get('key', default={}, max_age=3600)
-
-# Storage paths
-storage_dir = m.storage_dir('module_name')  # ~/.mod/module_name
-path = m.get_path('my_data')               # Auto-resolve to storage
-```
-
-### 7. AI Integration
-
-```python
-# Ask questions
-answer = m.ask("How does this work?", stream=True)
-answer = m.ask("Explain", mod='api', context=True)
-
-# Module-specific help
-help_text = m.help('module', 'what does this do?')
-about = m.about('module', 'explain this feature')
-
-# Code analysis
-how = m.how('module', 'how does function X work?')
-```
-
-### 8. Git Operations
-
-```python
-# Push changes
-m.push("commit message", mod='module_name')
-m.push("fix bug", "and update docs", safety=True)
-
-# Repository info
-is_repo = m.isrepo('module_name')
-git_info = m.git_info(path='./repo')
-repos = m.repos(search='commune')
-
-# Clone repositories
-m.clone('https://github.com/user/repo')
-m.clone('user/repo')  # Auto-adds github.com
-```
-
-## Module Structure
-
-Modules follow an "anchor file" pattern:
+## 📁 Project Structure
 
 ```
-mods/
-├── my_module/
-│   ├── mod.py          # Anchor file (main class)
-│   ├── config.json     # Configuration
-│   ├── README.md       # Documentation
-│   └── utils.py        # Helpers
+prefi/
+├── contracts/
+│   ├── PredictionMarket.sol    # Main prediction market logic
+│   ├── PriceOracle.sol         # Modular price oracle
+│   └── migrations/             # Truffle migrations
+├── scripts/
+│   └── deploy.js               # Hardhat deployment script
+├── hardhat.config.js           # Hardhat configuration
+├── truffle-config.js           # Truffle configuration
+├── package.json                # Dependencies
+└── README.md                   # This file
 ```
 
-**Anchor files** can be named: `mod.py`, `agent.py`, `block.py`, or match the module name.
+## 🔧 Smart Contracts
 
-## Configuration
+### PredictionMarket.sol
 
-### config.json
-```json
-{
-  "name": "mod",
-  "port_range": [8000, 9000],
-  "expose": ["ask", "serve", "info"],
-  "shortcuts": {
-    "m": "mod",
-    "api": "api.server"
-  },
-  "links": {
-    "ipfs": "https://github.com/user/ipfs-service.git"
-  }
+Core contract managing predictions, collateral, and settlements.
+
+**Key Functions:**
+- `placePrediction()` - Create new price prediction
+- `settlePrediction()` - Settle after unlock time
+- `weeklySettlement()` - Distribute weekly pool
+- `approveCollateral()` - Whitelist collateral tokens
+- `enableAsset()` - Enable assets for predictions
+
+### PriceOracle.sol
+
+Modular oracle aggregating multiple price sources.
+
+**Key Functions:**
+- `getPrice()` - Get averaged price from sources
+- `updatePrice()` - Update price from adapters
+- `updateAdapter()` - Replace oracle adapters
+- `getSourcePrices()` - View individual source prices
+
+## 🌐 Supported Networks
+
+| Network | Chain ID | RPC URL |
+|---------|----------|----------|
+| Ganache | 1337 | http://127.0.0.1:7545 |
+| Base Mainnet | 8453 | https://mainnet.base.org |
+| Base Goerli | 84531 | https://goerli.base.org |
+| Ethereum Mainnet | 1 | https://mainnet.infura.io |
+| Ethereum Goerli | 5 | https://goerli.infura.io |
+| Ethereum Sepolia | 11155111 | https://sepolia.infura.io |
+
+## 🎯 Usage Example
+
+```javascript
+const { ethers } = require("hardhat");
+
+async function main() {
+  // Get contract instances
+  const market = await ethers.getContractAt("PredictionMarket", MARKET_ADDRESS);
+  const token = await ethers.getContractAt("IERC20", COLLATERAL_TOKEN);
+  
+  // Approve collateral
+  await token.approve(market.address, ethers.utils.parseEther("100"));
+  
+  // Place prediction
+  await market.placePrediction(
+    ASSET_ADDRESS,              // Asset to predict
+    ethers.utils.parseEther("50000"),  // Predicted price
+    ethers.utils.parseEther("100"),    // Collateral amount
+    COLLATERAL_TOKEN,           // Collateral token
+    7 * 24 * 60 * 60           // 1 week lock
+  );
+  
+  console.log("Prediction placed!");
 }
 ```
 
-## Advanced Features
+## 🧪 Testing
 
-### Module Linking
-
-```python
-# Link external modules
-m.link('ipfs-service')          # From config.links
-m.unlink('ipfs-service')
-is_linked = m.islink('ipfs-service')
-```
-
-### Async Execution
-
-```python
-# Submit async tasks
-future = m.submit('module/function', params={'key': 'val'})
-result = future.result()
-
-# Custom executor
-executor = m.executor(mode='thread', max_workers=10)
-# modes: 'thread', 'process', 'async'
-```
-
-### Testing
-
-```python
+```bash
 # Run tests
-results = m.test('module_name')
-m.test()  # Test all modules
+npm test
+
+# With coverage
+npm run coverage
+
+# Gas report
+npm run gas-report
 ```
 
-### Context & Documentation
+## 🔐 Security
 
-```python
-# Get README context
-context = m.context(path='./modules')
-readmes = m.readmes(path='./modules')
-size = m.context_size()
-```
+- ReentrancyGuard on all state-changing functions
+- Owner-only admin functions
+- Collateral approval whitelist
+- Price staleness checks
+- Over-collateralization enforcement
 
-### Utilities
+## 📊 Oracle Design
 
-```python
-# Hash objects
-hash_val = m.hash({'data': 'value'}, mode='sha256')
+The modular oracle system:
+1. Fetches prices from CoinGecko adapter
+2. Fetches prices from CoinMarketCap adapter
+3. Averages both sources for final price
+4. Adapters are replaceable by owner
+5. Prices expire after 1 hour
 
-# Time operations
-timestamp = m.time()
-m.sleep(2)
-
-# Environment variables
-all_env = m.env()
-api_key = m.env('API_KEY')
-
-# Port management
-ports = m.get_ports(n=3)
-port_range = m.get_port_range()
-```
-
-## Python API Examples
-
-### Basic Module Usage
-```python
-import mod as m
-
-# Load and use a module
-api = m.mod('api')()
-result = api.some_function()
-
-# Or directly call function
-result = m.fn('api/some_function')(param='value')
-```
-
-### Server Deployment
-```python
-# Serve with auto port assignment
-m.serve('api')
-
-# Serve on specific port
-m.serve('model.openrouter', port=8080, remote=True)
-
-# Check and manage
-if m.server_exists('api'):
-    m.kill('api')
-```
-
-### Data Operations
-```python
-# Store encrypted data
-m.put('secrets', {'api_key': 'xxx'}, encrypt=True)
-
-# Retrieve with expiration
-data = m.get('cache', max_age=3600, default={})
-
-# File operations
-files = m.files('./', search='.py', depth=3)
-for file in files:
-    content = m.text(file)
-```
-
-### Module Development
-```python
-# Create from template
-m.fork(base='base_module', name='my_module')
-
-# Copy module
-m.cpmod('source_mod', 'dest_mod')
-
-# Add from path
-m.addpath('/path/to/module', name='my_mod')
-
-# Remove
-m.rmmod('old_module')
-```
-
-## Best Practices
-
-1. **Module Naming**: Use dot notation (e.g., `model.openrouter`)
-2. **Anchor Files**: Name main file `mod.py` or match module name
-3. **Configuration**: Always include `config.json` with module metadata
-4. **Documentation**: Add README.md to each module
-5. **Security**: Use encryption for sensitive data
-6. **Testing**: Write tests for critical functionality
-
-## CLI Workflow Example
+## 🛠️ Development
 
 ```bash
-# 1. Create new module
-m clone https://github.com/user/template
-m cpmod template my_module
+# Compile contracts
+npm run compile
 
-# 2. Develop
-m code my_module          # View code
-m serve my_module         # Test server
-m test my_module          # Run tests
+# Run local node
+npm run node
 
-# 3. Deploy
-m app my_module           # Deploy app
-m servers                 # Check status
+# Deploy to local
+npm run deploy:ganache
 
-# 4. Update
-m push "Added feature X" my_module
+# Verify on Etherscan
+npm run verify:mainnet -- DEPLOYED_ADDRESS CONSTRUCTOR_ARGS
 ```
 
-## Docker Integration
+## 📝 Environment Variables
 
-```bash
-# Build and deploy
-m up                      # Start containers
-m enter mod               # Enter container
-m logs api               # View logs
-m build my_module        # Build module
-```
+Required in `.env`:
+- `PRIVATE_KEY` - Deployment wallet private key
+- `INFURA_KEY` - Infura project ID
+- `ETHERSCAN_API_KEY` - For contract verification
+- `BASESCAN_API_KEY` - For Base contract verification
 
-## Security Features
+## 🤝 Contributing
 
-- **Encryption**: AES encryption for sensitive data
-- **Key Management**: Secure key generation and storage  
-- **Signatures**: Cryptographic signing and verification
-- **Access Control**: Module-level permissions
-- **Password Protection**: Optional password-based encryption
+Built with passion for decentralized prediction markets. Contributions welcome!
 
-## License
+## 📄 License
 
-COPYLEFT
+MIT License - Building the future of decentralized finance.
 
-## Support
+---
 
-For issues and questions, please refer to the documentation or open an issue in the repository.
+**Built by Mr. Robot** 🤖 | **Powered by Base & Ethereum** ⚡
