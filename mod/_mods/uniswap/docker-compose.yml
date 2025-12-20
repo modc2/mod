@@ -1,19 +1,49 @@
 version: '3.8'
 
 services:
+  # Ganache Local Blockchain for Development
+  ganache:
+    image: trufflesuite/ganache:latest
+    container_name: ganache-local
+    ports:
+      - "8545:8545"
+    command:
+      - --chain.chainId=1337
+      - --wallet.totalAccounts=10
+      - --wallet.defaultBalance=1000
+      - --miner.blockGasLimit=30000000
+      - --chain.hardfork=london
+      - --database.dbPath=/data
+    volumes:
+      - ganache_data:/data
+    networks:
+      - uniswap-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Next.js Frontend Application
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: uniswap/app/Dockerfile
+    container_name: uniswap-frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_MCP_SERVER=http://mcp-server:8000
       - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
+      - NEXT_PUBLIC_CHAIN_ID=8453
+      - NEXT_PUBLIC_RPC_URL=http://ganache:8545
     depends_on:
-      - mcp-server
+      ganache:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
     networks:
       - uniswap-network
     restart: unless-stopped
@@ -27,18 +57,26 @@ services:
   mcp-server:
     build:
       context: .
-      dockerfile: Dockerfile.server
+      dockerfile: uniswap/server/Dockerfile
+    container_name: uniswap-mcp-server
     ports:
       - "8000:8000"
     environment:
       - BASE_RPC_URL=${BASE_RPC_URL:-https://mainnet.base.org}
+      - LOCAL_RPC_URL=http://ganache:8545
       - PRIVATE_KEY=${PRIVATE_KEY}
       - PYTHONUNBUFFERED=1
+      - USE_LOCAL=${USE_LOCAL:-false}
+    depends_on:
+      ganache:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
     networks:
       - uniswap-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -46,7 +84,12 @@ services:
 networks:
   uniswap-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
+  ganache_data:
+    driver: local
   node_modules:
   next_cache:

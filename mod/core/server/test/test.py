@@ -1,7 +1,8 @@
  
 import mod as m
 
-class ServerTestMixin(m.mod('server')):
+Server = m.mod('server')
+class ServerTestMixin(Server):
     def test_server(self, 
                         server = 'mod', 
                         key="server", 

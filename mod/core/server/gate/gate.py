@@ -32,23 +32,16 @@ class Gate:
         """
         process the request
         """
-        # step 1 : verify the headers
         headers = self.verify(dict(request.headers) )
         assert self.is_user(info['name'], headers['key']), f"User {headers['key']} for Mod {info['name']} is not a user"
-        # step 2 : check function access
         assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
-        # step 2 : check cost
-        cost = float(info['schema'].get(fn, {}).get('cost', 0))
-        cost_client = float(headers.get('cost', 0))
-        assert cost_client >= cost, f'Insufficient cost'
         params = self.loop.run_until_complete(request.json())
         if isinstance(params, str):
             params = json.loads(params)
         return  {
                     'fn': fn, 
                     'params': params, 
-                    'client': {k:v for k,v in headers.items() if k in self.auth.features}, 
-                    'cost': cost
+                    'client': headers, 
                     }
 
     def add_user_max(self, mod:str, max_users:int):

@@ -19,7 +19,7 @@ class SelectFiles:
               number_lines = True,
               mod=None,
               content: bool = True,
-              model='anthropic/claude-sonnet-4.5',
+              model='anthropic/claude-opus-4.5',
               avoid_paths: List[str] = ['.git', '__pycache__', 'node_modules', '.venv', 'venv', '.env', '/private', '/tmp'],
               depth=8,
                **kwargs) -> List[str]:

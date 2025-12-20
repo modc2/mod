@@ -16,9 +16,7 @@ import mod as m
 print = m.print
 
 class Server:
-
-
-
+    
     # possible attributes in the mod that list the functions to expose
     fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
 
@@ -65,13 +63,12 @@ class Server:
         fn = request.get('fn', '')
         params = request['params'] if 'params' in request else {}
         client = request['client']['key'] if 'client' in request and 'key' in request['client'] else ''
-        cost = request['cost'] if 'cost' in request else 0
         right_buffer = '>'*64
         left_buffer = '<'*64
         print(right_buffer, color='blue')
         print(f"""Request\t""" , color='blue')
         print(left_buffer)
-        print_params = {'fn': fn, 'params': params, 'client': client, 'cost': cost, 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+        print_params = {'fn': fn, 'params': params, 'client': client,'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
         # side ways dataframe where each param is a row
         df = pd.DataFrame(print_params.items(), columns=['param', 'value'])
         print(df.to_string(index=False), color='blue')
@@ -105,7 +102,6 @@ class Server:
         fn = request['fn']
         params = request['params']
         info = self.mod.info()
-        request['cost'] = float(info['schema'].get(fn, {}).get('cost', 0))
         self.print_request(request)
         fn_obj = self.get_fn_obj(fn)
         result = fn_obj(**params) if callable(fn_obj) else fn_obj
@@ -123,9 +119,8 @@ class Server:
                     fn=request['fn'], # 
                     params=request['params'], # params of the inputes
                     client=request['client'],
-                    cost=request['cost'],
                     result=server_auth['result'],
-                    server= self.gate.generate(data=server_auth, cost=request['cost']), 
+                    server= self.gate.generate(server_auth), 
                     key=self.key)
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
@@ -138,7 +133,7 @@ class Server:
             params=request['params'], # params of the inputes
             client=request['client'], # client auth
             result=result,
-            server=self.gate.auth.generate(data={**server_auth, "result": result }, cost=request['cost']), 
+            server=self.gate.generate(server_auth), 
             key=self.key)
         return result
 

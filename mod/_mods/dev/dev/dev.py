@@ -23,7 +23,7 @@ class Dev:
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
-                model: Optional[str] = 'anthropic/claude-sonnet-4.5',
+                model: Optional[str] = 'anthropic/claude-opus-4.5',
                 steps = 1,
                 tools = None,
                 external = False,

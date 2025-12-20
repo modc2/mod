@@ -175,8 +175,7 @@ class PM:
         compose_cmd =  f'cd {cwd} && docker-compose -f {compose_path} up'
         if daemon:
             compose_cmd += ' -d'   
-
-
+            
         # before running we need to make the volumes absolute
         self.make_volumes_absolute(compose_config)
         m.put_yaml(compose_path, compose_config)
@@ -186,7 +185,7 @@ class PM:
         self.make_volumes_relative(compose_config)
         m.put_yaml(compose_path, compose_config)
 
-        # now we need to make the 
+        # sync once you run 
         self.sync()
         return {'path': compose_path, 'compose' : compose_config}
 

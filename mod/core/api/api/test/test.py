@@ -15,5 +15,5 @@ class TestApi(Api):
             signature = key.sign(call_data, mode='str')
             assert m.verify(call_data, signature, address), "Invalid signature"
             response = api.call(fn=fn, params=params, sync=1)
-            assert isinstance(response, list), f"Response is not a dictionary {response}"
+            assert isinstance(self.get(response), list), f"Response is not a dictionary {response}"
             return True

@@ -27,7 +27,7 @@ class Agent:
                 max_tokens: int = 1000000, 
                 stream: bool = True,
                 tools  = [],
-                model: Optional[str] = 'anthropic/claude-sonnet-4.5',
+                model: Optional[str] = 'anthropic/claude-opus-4.5',
                 steps = 1,
                 path='./',
                 safety=False,

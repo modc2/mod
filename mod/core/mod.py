@@ -842,7 +842,7 @@ class Mod:
 
     def info(self, 
             mod:str='mod',  # the mod to get the info of
-            schema = True, # whether to include the schema of the mod
+            schema = False, # whether to include the schema of the mod
             url = True, # whether to include the url of the mod
             desc = False, # whether to include the description of the mod
             key = None, # the key to sign the info with
@@ -1346,7 +1346,6 @@ class Mod:
         tree_options = sorted([k for k in tree.keys() if filter_fn(k)], key=lambda x: len(x))
         result =  {k: tree[k] for k in tree_options}
         return result
-
 
     def tree(self, 
             search=None, 

@@ -3,19 +3,6 @@ networks:
     external: true
     name: modnet
 services:
-  app:
-    build: .
-    command: npm run dev
-    environment:
-    - NODE_ENV=development
-    - NEXT_PUBLIC_CHAIN_ID=8453
-    - NEXT_PUBLIC_RPC_URL=https://mainnet.base.org
-    ports:
-    - 3000:3000
-    volumes:
-    - ~/mod:/app
-    - /app/node_modules
-    - /app/.next
   mod:
     container_name: mod
     deploy: {}

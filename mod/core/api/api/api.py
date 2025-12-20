@@ -9,7 +9,6 @@ import datetime
 import inspect
 import mod as m
 
-
 class  Api:
 
     port = 8000
@@ -17,27 +16,27 @@ class  Api:
     sync_delay = 3
     protocal = 'mod'
     folder_path = m.abspath('~/.mod/api')
-    endpoints = ['mods',
-                 'names', 
-                 'reg', 
-                 'mod',
+    endpoints = [
+                'mods',
+                'names', 
+                'reg', 
+                'mod',
                 'versions',
-                 'history',
-                 'call',
-                 'get',
-                 'users', 
-                 'user', 
-                 'n', 
-                 'balance',
-                 'versions',
-                 'reg_url',
-                 'reg_from_info',
-                 'hardware',
-                 'servers', 
-                 'server_exists',
-                 'reg_payload']
-
-    public = True
+                'history',
+                'call',
+                'get',
+                'users', 
+                'user', 
+                'n', 
+                'balance',
+                'versions',
+                'reg_url',
+                'reg_from_info',
+                'hardware',
+                'servers', 
+                'server_exists',
+                'reg_payload'
+                 ]
 
     def __init__(self, store = 'ipfs', chain='chain', key=None, auth='auth.jwt'):
         self.set_store(store)
@@ -187,19 +186,10 @@ class  Api:
         m.put(path, task)
         server_exists = bool('api' != mod and self.server_exists(mod))
         try:
-            if server_exists:
-                result = m.call(task['fn'], params=params, timeout=task['timeout'])
-                if 'error' in result:
-                    task['status'] = 'error'
-                else: 
-                    task['status'] = 'success'
-            else:
-                result = m.fn(task['fn'])(**params)
-                task['status'] = 'success'
+            result = m.call(task['fn'], params=params, timeout=task['timeout']) if server_exists else m.fn(task['fn'])(**params)
         except Exception as e:
             result = m.detailed_error(e)
-            task['status'] = 'error'
-        # is generator
+        task['status'] = 'error' if isinstance(result, dict) and 'error' in result else 'success'
         if self.is_generator(result):
             task['result'] = []
             for item in result:
@@ -209,8 +199,9 @@ class  Api:
         else:
             task['result'] = result
         task['delta'] = m.time() - task['time']
-        task['server'] = m.fn('auth.jwt/headers')(task, key=self.key)
+        task['server'] = self.auth.headers(task, key=self.key)
         task['result'] = self.put(task['result'])
+        task['cid'] = self.put(task)
         m.put(path, task)
         return task['result']
         
@@ -222,7 +213,7 @@ class  Api:
     def call_paths(self):
         return glob.glob(self.calls_path+'/**/*.json', recursive=True)
 
-    def history(self, key=None, mod=None, df=1, features=['fn', 'status', 'params', 'result'], n=10) -> List[Dict[str, Any]]:
+    def history(self, key=None, mod=None, df=1, features=['fn', 'status', 'cid' ], n=10) -> List[Dict[str, Any]]:
         paths = self.call_paths()
         calls = []
         for path in paths:
@@ -286,7 +277,8 @@ class  Api:
             'fn': fn,
             'params': params,
             'time': time,
-            'cost': cost
+            'cost': cost, 
+            'key': self.key.address,
         }
 
         return payload
@@ -390,14 +382,9 @@ class  Api:
         d[key] = self.dict_put(k_list[1:], v, d[key])
         return d
 
-
-    def content_commit(self, mod='app', key=None) -> Dict[str, str]:
-        return self.get(self.mod(mod, key=key)['content'])
-
     def verify_mod(self, mod: str, key=None) -> bool:
         return self.mod(mod=mod, key=key)
 
-    
     # Register or update a mod in IPFS
     def key_address(self, key=None):
         key = key or 'mod'
@@ -502,7 +489,6 @@ class  Api:
         return self.reg_from_info(info)
 
     def reg_from_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
-        # assert self.verify_mod(info)
         self.update_registgry(info)
         return info
 
@@ -711,24 +697,6 @@ class  Api:
     v = versions
     def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
         return m.txs(mod=mod, limit=limit, update=update)
-
-    def diff(self, mod = 'store', update=False) -> Dict[str, Any]:
-        mod = self.mod(mod)
-        prev = mod.get('prev', None)
-        print(f"Getting diff for mod: {mod}, prev: {prev}")
-        content_cid = self.mod(prev)['content']['data']
-        prev_content = self.get(content_cid)
-        current_content = self.get(mod['content'])
-        diffs = {}
-        for file in set(list(prev_content.keys()) + list(current_content.keys())):
-            prev_file_content = prev_content.get(file, None)
-            current_file_content = current_content.get(file, None)
-            if prev_file_content != current_file_content:
-                diffs[file] = {
-                    'previous': prev_file_content,
-                    'current': current_file_content
-                }
-        return diffs
         
     def registry(self,  key='all', update=False) -> Dict[str, str]:
         """
@@ -743,26 +711,6 @@ class  Api:
         m.put(self.registry_path, {})
         self.store._rm_all_pins()
         return {'status': 'registry cleared'}
-
-    def regall(self, mods: List[m.Mod]=None, key=None, comment=None, update=False) -> List[str]:
-        mods = mods or m.mods()
-        mod2info = {}
-        future2mod = {}
-        for mod in mods:
-            print(f"Registering mod: {mod}")
-            params = dict(comment=comment, key=key, mod=mod)
-            future = m.future(self.reg, params)
-            future2mod[future] = mod
-        try:
-            for future in m.as_completed(future2mod):
-                mod = future2mod[future]
-                info = future.result()
-                mod2info[mod] = info
-                print(f"Registered mod: {mod}, cid: {info['cid']}")
-        except TimeoutError as e:
-            print(f"Failed to register mod: {mod}, error: {e}")
-
-        return mod2info
 
     def schema(self, mod: m.Mod='store', key=None) -> Dict[str, Any]:
         """Get the schema of a mod Mod from IPFS.
@@ -927,7 +875,6 @@ class  Api:
         if not self.server_exists('ipfs'):
             m.serve('ipfs')
             m.print("IPFS node is running", color="green")
-
 
     def servers(self, *args, **kwargs) -> List[Dict[str, Any]]:
         return m.servers(*args, **kwargs)
