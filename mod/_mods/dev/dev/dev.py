@@ -19,14 +19,14 @@ class Dev:
     def forward(self, 
                 text: str = 'make this like the base ', 
                 *extra_text, 
-                mod=None,
+                mod='uniswap',
                 temperature: float = 0.0, 
                 max_tokens: int = 1000000, 
                 stream: bool = True,
                 model: Optional[str] = 'anthropic/claude-sonnet-4.5',
                 steps = 1,
                 tools = None,
-                path=None,
+                external = False,
                 safety=True,
                 remote=False,
                 **kwargs) -> Dict[str, str]:
@@ -39,7 +39,11 @@ class Dev:
         for _base_mod,_ in kwargs.items():
             if _base_mod.startswith('base'):
                 self.memory.add('base', m.code(_base_mod))
-        path = m.dirpath(mod) if path == None else path
+
+        if external:
+            path = m.ext_path + '/' + mod
+        else:
+            path = m.dirpath(mod)
         self.memory.add('content', m.tool('select_files')(path=path, query=query)) if path != None else None
         # starts with b followed by a number
         def is_b_param(k):

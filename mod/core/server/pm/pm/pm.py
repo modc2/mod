@@ -32,7 +32,7 @@ class PM:
                 key : Optional[str] = None,
                 image:str=None, 
                 daemon:bool=True,
-                cwd : Optional[str] = None,
+                cwd : Optional[str] = None, # the working directory to run docker-compose in
                 volumes : Optional[dict] = None,
                 docker_in_docker:bool = False,
                 env:Optional[dict]=None,
@@ -176,9 +176,12 @@ class PM:
         if daemon:
             compose_cmd += ' -d'   
 
+
+        # before running we need to make the volumes absolute
         self.make_volumes_absolute(compose_config)
         m.put_yaml(compose_path, compose_config)
         os.system(compose_cmd)
+
         # # now we want to make them relative again in case we push to git
         self.make_volumes_relative(compose_config)
         m.put_yaml(compose_path, compose_config)

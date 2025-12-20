@@ -748,6 +748,24 @@ class Mod:
         
     def call(self, *args, **kwargs): 
         return self.fn('client/call')(*args, **kwargs)
+
+    def cache(self, path:str, max_age: int = 60, default=None, directory: str = '~/.mod/cache'):
+        '''
+        Cache the result of the function for a certain time
+        '''
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                # fn id string 
+                fn_id = func.__module__ + '.' + func.__name__
+                cache_path = self.abspath(f'{directory}/{fn_id}/{args}_{kwargs}')
+                result = self.get(cache_path, default, max_age=max_age)
+                if result is not None:
+                    return result
+                result = func(*args, **kwargs)
+                self.put(cache_path, result)
+                return result
+            return wrapper
+        return decorator
     
     def content(self, mod = None , search=None, ignore_folders = ['mods', 'mods', 'private', 'data'], relative=False,  **kwargs) ->  Dict[str, str]:
         """
@@ -770,7 +788,7 @@ class Mod:
         """
         return self.fn('api/put')(self.content(mod, **kwargs))
 
-    def dir(self, obj=None, search=None, *args, **kwargs):
+    def dir(self, obj=None, sdearch=None, *args, **kwargs):
         obj = self.obj(obj)
         if search != None:
             return [f for f in dir(obj) if search in f]
@@ -796,7 +814,14 @@ class Mod:
         if not include_hidden: 
             fns = [f for f in fns if not f.startswith('__') and not f.startswith('_')]
         
-        return fns
+        return sorted(fns)
+
+
+    def cid(self, mod=None , **kwargs) -> Union[str, Dict[str, str]]:
+        """
+        get the cid of the mod
+        """
+        return self.fn('api/put')(self.content(mod, **kwargs))
 
     def mods(self, search=None,  startswith=None, endswith=None, **kwargs)-> List[str]:  
         return list(self.tree(search=search, endswith=endswith, startswith=startswith , **kwargs).keys())
@@ -1247,8 +1272,8 @@ class Mod:
             
         """
         path = path or self.core_path
-        cache_key = self.abspath(f'~/.mod/tree/{path.split("/")[-1]}/depth_{depth}.json')
-        tree = self.get(cache_key, {}, update=update)
+        cache_path = self.abspath(f'~/.mod/tree/{path.split("/")[-1]}/depth_{depth}.json')
+        tree = self.get(cache_path, {}, update=update)
         if len(tree) == 0:
             paths = self.files(path, depth=depth)
             paths = list(filter(self.is_in_file_types, paths))
@@ -1268,7 +1293,7 @@ class Mod:
                     tree[k] = tree[v]
             # make all the trees relative to the home_path
             tree = {k: self.relpath(v) for k,v in tree.items()}
-            self.put(cache_key, tree)
+            self.put(cache_path, tree)
         tree = {k: self.abspath(v) for k,v in tree.items()}
         if search:
             return self.search_tree(search=search, tree=tree, **kwargs)

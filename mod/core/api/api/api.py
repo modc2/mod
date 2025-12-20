@@ -12,6 +12,7 @@ import mod as m
 
 class  Api:
 
+    port = 8000
     sync_interval = 0.1
     sync_delay = 3
     protocal = 'mod'
@@ -38,7 +39,7 @@ class  Api:
 
     public = True
 
-    def __init__(self, store = 'ipfs', chain='chain', key=None):
+    def __init__(self, store = 'ipfs', chain='chain', key=None, auth='auth.jwt'):
         self.set_store(store)
         self.key = m.key(key)
         self.model = m.mod('model.openrouter')()
@@ -46,6 +47,7 @@ class  Api:
         self.executor = m.mod('executor')()
         self.calls_path = self.path('calls')
         self._sync_loop_thread = None
+        self.auth = m.mod(auth)()
 
     @property
     def store(self):
@@ -170,7 +172,7 @@ class  Api:
         future =  m.submit(self.run_task, task ,  timeout=timeout)
         self.path2future[task['path']] = future
         if sync:
-            result = future.result()
+            return future.result()
         return task
 
     def run_task(self, **task:dict) -> Any:
@@ -181,18 +183,18 @@ class  Api:
         assert '/' in task['fn'], "Function name must be in the format 'mod/fn'"
         mod, fn =  task['fn'].split('/', 1)
         path = task['path']
+        params = params = self.get(task['params']) if isinstance(task['params'], str) else task['params']
         m.put(path, task)
         server_exists = bool('api' != mod and self.server_exists(mod))
-        print(f"Sending request to mod: {mod}, fn: {fn}, server_exists: {server_exists}")
         try:
             if server_exists:
-                result = m.call(task['fn'], params=task['params'], timeout=task['timeout'])
+                result = m.call(task['fn'], params=params, timeout=task['timeout'])
                 if 'error' in result:
                     task['status'] = 'error'
                 else: 
                     task['status'] = 'success'
             else:
-                result = m.fn(task['fn'])(**task['params'])
+                result = m.fn(task['fn'])(**params)
                 task['status'] = 'success'
         except Exception as e:
             result = m.detailed_error(e)
@@ -207,8 +209,8 @@ class  Api:
         else:
             task['result'] = result
         task['delta'] = m.time() - task['time']
-        task['owner'] = self.key.address
-        task['owner_signature'] = self.key.sign(task, mode='str')
+        task['server'] = m.fn('auth.jwt/headers')(task, key=self.key)
+        task['result'] = self.put(task['result'])
         m.put(path, task)
         return task['result']
         
@@ -220,7 +222,7 @@ class  Api:
     def call_paths(self):
         return glob.glob(self.calls_path+'/**/*.json', recursive=True)
 
-    def history(self, key=None, mod=None, df=1, features=['fn', 'status', 'params'], n=10) -> List[Dict[str, Any]]:
+    def history(self, key=None, mod=None, df=1, features=['fn', 'status', 'params', 'result'], n=10) -> List[Dict[str, Any]]:
         paths = self.call_paths()
         calls = []
         for path in paths:
@@ -278,8 +280,7 @@ class  Api:
             result =  inspect.isgeneratorfunction(obj)
         return result
 
-
-    def call_payload(self, fn: str = 'models', params: Dict[str, Any] = {}, time = None, cost = 0, **kwargs) -> Dict[str, Any]:
+    def call_data(self, fn: str = 'models', params: Dict[str, Any] = {}, time = None, cost = 0, **kwargs) -> Dict[str, Any]:
 
         payload = {
             'fn': fn,
@@ -290,20 +291,17 @@ class  Api:
 
         return payload
 
-    def verify_call_payload(self, payload: Dict[str, Any], signature: str, key=None) -> bool:
-        key = m.key(key)
-        return key.verify(payload, signature, mode='str')
+    def verify_call_data(self, payload: Dict[str, Any], signature: str, address=None) -> bool:
+        return m.verify(payload, signature, address,  mode='str')
 
     def test_call(self, mod: m.Mod='openrouter', fn: str='models', params: Dict[str, Any]={}, key=None, **kwargs) -> Any:
         key = m.key(key)
         time = m.time()
         cost = 0
-        payload = self.call_payload(mod=mod, fn=fn, params=params, time=time, cost=cost, **kwargs)
+        payload = self.call_data(mod=mod, fn=fn, params=params, time=time, cost=cost, **kwargs)
         signature = key.sign(payload, mode='str')
-        assert self.verify_call_payload(payload, signature, key=key), "Payload verification failed"
+        assert self.verify_call_data(payload, signature, key.address), "Payload verification failed"
         return self.call(fn= mod + '/' + fn, params=params, time=time, cost=cost, signature=signature, **kwargs)
-
-
 
     def content(self, mod, key=None, expand=False,  depth=None, h=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
@@ -343,7 +341,7 @@ class  Api:
         for file, cid in content.items():
             subfiles = file.split('/')
             self.dict_put(subfiles, cid, new_dict)
-        return get_folder_cid(new_dict)
+        return self.get_folder_cid(new_dict)
 
     def sort_recursive_dict(self, d:Dict[str, Any]) -> Dict[str, Any]:
         """Recursively sort a nested dictionary by keys.
@@ -377,19 +375,19 @@ class  Api:
                 if is_single_depth_dict(content):
                     new_folder_content[file+'/'] = self.put(content)
                 else:
-                    new_folder_content[file+'/'] = self.put(get_folder_cid(content))
+                    new_folder_content[file+'/'] = self.put(self.get_folder_cid(content))
             else:
                 new_folder_content[file] = content
         return new_folder_content
 
-    def dict_put( k_list, v, d:Dict[str, Any]):
+    def dict_put(self,  k_list, v, d:Dict[str, Any]):
         """Put a value into a nested dictionary using a list of keys."""
         if len(k_list) == 0:
             return v
         key = k_list[0]
         if key not in d:
             d[key] = {}
-        d[key] = dict_put(k_list[1:], v, d[key])
+        d[key] = self.dict_put(k_list[1:], v, d[key])
         return d
 
 
@@ -625,10 +623,9 @@ class  Api:
         """
         return self.folder_path + '/' + path
 
-
     def mods(self, network=None, search=None, key=None, update=False,  **kwargs) -> List[str]:
-        """List all registered mods in IPFS.
-        
+        """
+        List all registered mods in IPFS.
         Returns:
             List of mod names
         """
@@ -662,7 +659,7 @@ class  Api:
         if not hasattr(self, '_chain'):
             self._chain = m.mod('chain')()
             self._chain.name = 'chain'
-            sync_fns = ['call_with_signature', 'get_signature_payload', 'balances', 'balance']
+            sync_fns = ['balances', 'balance']
             for fn_name in sync_fns:
                 setattr(self, fn_name, getattr(self._chain, fn_name))
         return self._chain
@@ -683,25 +680,32 @@ class  Api:
         import datetime
         return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
-    def versions(self, mod='store' , key=None, df=False, n=None) -> List[Dict[str, Any]]:
-        cid = self.cid(key=key, mod=mod)
-        result = []       
-        if cid != None:
-            while True:
-                info = self.mod(cid, key=key)
-                content =  self.get(info['content'])
-                prev_cid = info.get('prev', None)
-                result.append({'cid': info['cid'], 'comment':  content.get('comment', ''), 'updated': self.timestamp2utc(info['updated']) })
-                if prev_cid == None:
-                    break
-                else:
-                    cid = prev_cid
-        if len(result) > 0:
-            result =  m.df(result)
-            result.sort_values('updated', ascending=False, inplace=True)
-            result = result[:n]
-            if not df:
-                result = result.to_dict(orient='records')
+    def versions(self, mod='store' , key=None, df=False, n=None, update=False, max_age=100) -> List[Dict[str, Any]]:
+
+        key_address = self.key_address(key)
+        cache_path = self.path(f'versions/{key_address}/{mod}.json')
+        result = m.get(cache_path, None, update=update, max_age=max_age)
+        if result is None:
+            cid = self.cid(key=key, mod=mod)
+            result = []   
+
+            if cid != None:
+                while True:
+                    info = self.mod(cid, key=key)
+                    content =  self.get(info['content'])
+                    prev_cid = info.get('prev', None)
+                    result.append({'cid': info['cid'], 'comment':  content.get('comment', ''), 'updated': self.timestamp2utc(info['updated']) })
+                    if prev_cid == None:
+                        break
+                    else:
+                        cid = prev_cid
+            if len(result) > 0:
+                result =  m.df(result)
+                result.sort_values('updated', ascending=False, inplace=True)
+                result = result[:n]
+                if not df:
+                    result = result.to_dict(orient='records')
+            m.put(cache_path, result)
         return result
 
     v = versions
@@ -919,9 +923,10 @@ class  Api:
     def stats(self):
         return m.df(self.mods())[['name', 'key', 'created', 'updated', 'collateral', 'network', 'cid']]
 
-    # def ensure_env(self):
-    #     m.serve('ipfs.node') if not m.server_exists('ipfs.node') else None
-    #     m.print("IPFS node is running", color="green")
+    def ensure_env(self):
+        if not self.server_exists('ipfs'):
+            m.serve('ipfs')
+            m.print("IPFS node is running", color="green")
 
 
     def servers(self, *args, **kwargs) -> List[Dict[str, Any]]:

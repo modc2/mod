@@ -18,8 +18,12 @@ print = m.print
 class Server:
 
 
-    helper_fns = ['info', 'forward']
+
+    # possible attributes in the mod that list the functions to expose
     fn_attributes = ['endpoints',  'fns', 'expose',  'exposed', 'functions', 'fns', 'expose_fns']
+
+    # helper functions that are always exposed are always exposed [WARNING: HELPER FNS SHOULD BE CAREFULLY CHOSEN TO AVOID SECURITY RISKS]
+    HELPER_FNS = ['info', 'forward']
     
     def __init__(
         self, 
@@ -211,6 +215,7 @@ class Server:
                 print(f'Preparing server: running {fn}()', color='green')
                 getattr(mod_obj, fn)()
                 break
+                
         return True
 
     def serve(self, 
@@ -240,7 +245,6 @@ class Server:
         params = {**(params or {}), **extra_params}
         if remote:
             return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key,  daemon=daemon, docker_in_docker=dind)
-
         self.mod = m.mod(mod)(**(params or {}))
         self.key = m.key(key)
         self.url =  '0.0.0.0:' + str(port)
@@ -293,4 +297,4 @@ class Server:
                 if hasattr(self.mod, fa) and isinstance(getattr(self.mod, fa), list):
                     fns = getattr(self.mod, fa) 
                     break
-        return list(set(fns + self.helper_fns))
+        return list(set(fns + self.HELPER_FNS))
