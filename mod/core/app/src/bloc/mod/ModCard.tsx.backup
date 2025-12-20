@@ -206,3 +206,32 @@ export default function ModCard({ mod}: ModCardProps) {
       </>
     )
 }
+            left: `${tooltipPosition.x + 15}px`, 
+            top: `${tooltipPosition.y + 15}px`,
+            borderColor: hoveredField === 'network' ? `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.6)` :
+                        hoveredField === 'cid' ? 'rgba(251, 191, 36, 0.6)' :
+                        hoveredField === 'updated' ? 'rgba(59, 130, 246, 0.6)' :
+                        hoveredField === 'author' ? 'rgba(236, 72, 153, 0.6)' : 'rgba(139, 92, 246, 0.6)',
+            maxWidth: '400px',
+            wordBreak: 'break-all'
+          }}
+        >
+          <div className="font-bold mb-1 uppercase text-xs" style={{
+            color: hoveredField === 'network' ? userColor :
+                   hoveredField === 'cid' ? '#fbbf24' :
+                   hoveredField === 'updated' ? '#3b82f6' :
+                   hoveredField === 'author' ? '#ec4899' : modColor
+          }}>
+            {hoveredField}
+          </div>
+          <div>{getFieldValue(hoveredField)}</div>
+        </div>,
+        document.body
+      )}
+
+      {showAdminPanel && myMod && (
+        <ModAdminPanel mod={mod} onClose={() => setShowAdminPanel(false)} />
+      )}
+    </>
+  )
+}

@@ -58,7 +58,7 @@ class  Api:
         self._store_path = store
         return {'store': self._store_path}
             
-    def is_valid_ipfs_cid(self, cid: str) -> bool:
+    def is_valid_cid(self, cid: str) -> bool:
         """Check if a given string is a valid IPFS CID.
         
         Args:
@@ -80,6 +80,7 @@ class  Api:
         """
         return bool(self.cid(mod=mod, key=key))
 
+
     def mod(self, mod: m.Mod='store', key=None, schema=False, content=False,  expand = False, fns=None,**kwargs) -> Dict[str, Any]:
         """
         get the mod Mod from IPFS.
@@ -93,9 +94,14 @@ class  Api:
         if fns is not None:
             mod['fns'] =fns
         mod['name'] = mod['name'].split('/')[0]
-        mod['content'] = self.content(mod, expand=expand) if content else mod['content']
+        if content:
+            mod['content'] = self.content(cid, expand=expand)
         mod['cid'] = cid
         mod['protocal'] = mod.get('protocal', self.protocal)
+        if 'version' not in mod:
+            # get the history and set the version to the length of the history
+            history = self.history(mod=mod['name'], key=mod['key'], df=0)
+            mod['version'] = len(history) if history is not None else 0
         self.check_modchain(mod)
         return mod
 
@@ -106,7 +112,7 @@ class  Api:
     def task_data(self , fn: str = 'model.openrouter/forward',  params: Dict[str, Any] = {}, timeout=1000) -> Dict[str, Any]:
         return  {
             'fn': fn,
-            'params': params,       
+            'params': self.put(params),       
             'timeout': timeout,  
             'status': 'pending',
             'time': m.time()
@@ -143,8 +149,8 @@ class  Api:
         fn = self.resolve_fn(fn)
         params = {**params, **extra_params}
         if api != None:
-            remote_params = {'fn': fn, 'params': params, 'key': key, 'signature': signature}
-            return m.call('api/call', params=remote_params, timeout=timeout)
+            remote_params = {'fn': fn, 'params': params, 'key': key, 'signature': signature, 'api': None}
+            return m.fn('client/call')('api/call', params=remote_params, timeout=timeout)
         if self._sync_loop_thread is None :
             self._sync_loop_thread = m.thread(self.sync_loop)
         task = self.task_data( fn=fn, params=params, timeout=timeout)
@@ -228,9 +234,12 @@ class  Api:
     
         calls = sorted(calls, key=lambda x: x['time'], reverse=True)
         calls = m.df(calls)
-        calls.sort_values('time', ascending=False, inplace=True)
-        calls['time'] = calls['time'].apply(lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S'))
-        calls = calls[:n]
+        if len(calls) == 0:
+            return calls
+        else:
+            calls.sort_values('time', ascending=False, inplace=True)
+            calls['time'] = calls['time'].apply(lambda x: datetime.datetime.fromtimestamp(x).strftime('%Y-%m-%d %H:%M:%S'))
+            calls = calls[:n]
         if df:
             calls = calls[features]
             return calls
@@ -296,7 +305,7 @@ class  Api:
 
 
 
-    def content(self, mod, key=None, expand=False) -> Dict[str, Any]:
+    def content(self, mod, key=None, expand=False,  depth=None, h=False) -> Dict[str, Any]:
         """Get the content of a mod Mod from IPFS.
         
         Args:
@@ -305,15 +314,83 @@ class  Api:
         Returns:
             Content dictionary
         """
-        if not isinstance(mod, dict):
-            mod = self.mod(mod, key=key)
+
+        if self.is_valid_cid(mod):
+            content_cid = mod
+        elif not isinstance(mod, dict):
+            content_cid = self.mod(mod, key=key)['content']
         else: 
             assert 'content' in mod, "Mod dictionary must contain 'content' key"
-        content = self.get(self.get(mod['content'])['data'])
+        content = self.get(self.get(content_cid)['data'])
         if expand: 
             for file, cid in content.items():
                 content[file] = self.get(cid)
+        if h: 
+            return self.hc(content)
         return content
+
+
+    def hc(self, content:Dict[str, Any], flatten=False) -> Dict[str, Any]:
+        """Get a human-readable version of the content dictionary.
+        
+        Args:
+            content: Content dictionary
+        Returns:
+            Human-readable content dictionary
+        """
+
+        new_dict = {}
+        for file, cid in content.items():
+            subfiles = file.split('/')
+            self.dict_put(subfiles, cid, new_dict)
+        return get_folder_cid(new_dict)
+
+    def sort_recursive_dict(self, d:Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively sort a nested dictionary by keys.
+        
+        Args:
+            d: Dictionary to sort
+        Returns:
+            Sorted dictionary
+        """
+        sorted_dict = {}
+        for key in sorted(d.keys()):
+            if isinstance(d[key], dict):
+                sorted_dict[key] = self.sort_recursive_dict(d[key])
+            else:
+                sorted_dict[key] = d[key]
+        return sorted_dict
+
+
+    def get_folder_cid(self, folder_content: dict) -> str:
+        """Get the CID of a folder in IPFS.
+        
+        Args:
+            folder_path: Path to the folder
+        Returns:
+            CID of the folder
+        """
+        is_single_depth_dict = lambda v: all(isinstance(v, str) for v in folder_content.values())
+        new_folder_content = {}
+        for file, content in folder_content.items():
+            if isinstance(content, dict)  and len(content) > 0:
+                if is_single_depth_dict(content):
+                    new_folder_content[file+'/'] = self.put(content)
+                else:
+                    new_folder_content[file+'/'] = self.put(get_folder_cid(content))
+            else:
+                new_folder_content[file] = content
+        return new_folder_content
+
+    def dict_put( k_list, v, d:Dict[str, Any]):
+        """Put a value into a nested dictionary using a list of keys."""
+        if len(k_list) == 0:
+            return v
+        key = k_list[0]
+        if key not in d:
+            d[key] = {}
+        d[key] = dict_put(k_list[1:], v, d[key])
+        return d
 
 
     def content_commit(self, mod='app', key=None) -> Dict[str, str]:
@@ -356,10 +433,10 @@ class  Api:
         m.put(path, mods)
         return cid
 
-    def add(self, data):
+    def put(self, data):
         return self.store.add(data)
-    put = add
-
+    add = put
+    
     def get(self, cid: str) -> Any:
         return self.store.get(cid)
 
@@ -518,23 +595,25 @@ class  Api:
             time.sleep(self.sync_interval)
             self.sync()
 
-
     def sync(self):
-            n_tasks = len(list(self.path2future.values()))
-            if n_tasks == 0:
-                return
+        n_tasks = len(list(self.path2future.values()))
+        if n_tasks == 0:
+            print("No tasks to sync.")
+            return
+        else:
+            print(f"Syncing {n_tasks} tasks...")
             future2path = {future: path for path, future in self.path2future.items()}
-            # check completed futures
-            for future in m.as_completed(future2path.keys(), timeout=10):
-                path = future2path.pop(future)
-                try:
-                    print(f"Future completed for path: {path}")
-                    result = future.result()
-                except Exception as e:
-                    print(f"Error in future for path {path}: {e}")
-                    pass
-                # remove from path2future
-                self.path2future.pop(path, None)
+        # check completed futures
+        for future in m.as_completed(future2path.keys(), timeout=10):
+            path = future2path.pop(future)
+            try:
+                print(f"Result({path})")
+                result = future.result()
+            except Exception as e:
+                print(f"Error in future for path {path}: {e}")
+                pass
+            # remove from path2future
+            self.path2future.pop(path, None)
 
     def time_since_last_sync(self) -> int:
         return m.time() - self.last_sync
@@ -816,10 +895,10 @@ class  Api:
         
     user = user
 
-    def edit(self, mod,  query, *extra_query,  key=None,  url=None, **kwargs) -> Dict[str, Any]:
+    def edit(self, mod,  query, *extra_query,  key=None,  api=None, **kwargs) -> Dict[str, Any]:
         query = ' '.join(list(map(str,  [query] + list(extra_query))))
-        if url != None:
-            return self.call('api/edit', params={'mod': mod, 'query': query}, url=url, key=key)
+        if api != None:
+            return self.call('api/edit', params={'mod': mod, 'query': query}, api=api, key=key)
         m.fn('dev/forward')(mod=mod, text=query, safety=False, **kwargs)
         return self.reg(mod=mod, key=key, comment=query)
 

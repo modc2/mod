@@ -13,8 +13,8 @@ import UpdateMod from '@/bloc/user/wallet/update/UpdateMod'
 import ModEdit from '@/bloc/mod/edit/ModEdit'
 import ModVersions from '@/bloc/mod/versions/ModVersions'
 
-const defaultTab = 'content'
-const availableTabs = ['content','api', 'app', 'versions', 'edit']
+const defaultTab = 'api'
+const availableTabs = ['api', 'app', 'versions', 'content', 'edit']
 export default function ModulePage() {
   const params = useParams()
   const { client, user } = useUserContext()

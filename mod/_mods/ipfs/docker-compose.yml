@@ -6,10 +6,10 @@ services:
   ipfs:
     container_name: ipfs
     deploy: {}
-    entrypoint: bash -c "m serve port=50086 key=ipfs remote=0 mod=ipfs"
+    entrypoint: bash -c "m serve port=50061 key=ipfs remote=0 mod=ipfs"
     image: ipfs
     ports:
-    - 50086:50086
+    - 50061:50061
     restart: unless-stopped
     shm_size: 100g
     volumes:

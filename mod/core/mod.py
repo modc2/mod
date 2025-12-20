@@ -292,6 +292,10 @@ class Mod:
     
     is_file_mod = is_mod_file
 
+    def loop(self):
+        import asyncio
+        return asyncio.get_event_loop()
+
     def is_mod_folder(self,  mod = None) -> bool:
         return not self.is_mod_file(mod)
     
@@ -742,8 +746,8 @@ class Mod:
             raise Exception(f'Object {obj} not found')
         return  inspect.getsource(obj)
         
-    def call(self, fn , params=None, **kwargs): 
-        return self.fn('client/forward')(fn, params, **kwargs)
+    def call(self, *args, **kwargs): 
+        return self.fn('client/call')(*args, **kwargs)
     
     def content(self, mod = None , search=None, ignore_folders = ['mods', 'mods', 'private', 'data'], relative=False,  **kwargs) ->  Dict[str, str]:
         """
@@ -756,7 +760,7 @@ class Mod:
         content = {k[len(dirpath+'/'): ]:v for k,v in content.items()}
         # ignore if .mods . is in the path
         content = {k:v for k,v in content.items() if not any(['/'+f+'/' in k for f in ignore_folders])}
-        return dict(sorted(content.items()))
+        return dict(sorted(content.items(), key=lambda item: item[0]))
 
     cont = codemap =  cm =  content
 
@@ -1731,13 +1735,8 @@ class Mod:
             setattr(to_mod, fn, fn_obj)
         return to_mod
 
-
-    def edit(self, *args, url='api', **kwargs):
-        if url is not None:
-            if not url in self.servers():
-                self.serve(url)
-            kwargs['url'] = url
-        return self.fn('api/edit')( *args, **kwargs)
+    def edit(self, *args,  **kwargs):
+        return self.fn('api/edit')( *args, api='api', **kwargs)
     e = edit
 
     def reg(self, *args, **kwargs):

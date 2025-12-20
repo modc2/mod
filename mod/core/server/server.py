@@ -143,6 +143,8 @@ class Server:
             config = m.config(mod)
             if config != None and 'port' in config:
                 port = config['port']
+            else:
+                port  = mod.port if hasattr(mod, 'port') else None
         port = port or m.free_port()
         return port
 
@@ -263,7 +265,10 @@ class Server:
                 result =  m.detailed_error(e)
             return result
         self.app.post("/{fn}")(server_fn)
-        self.show_info()
+        print('--- Server Info ---', color='green')
+        shorten_v = lambda fn: fn[:6] + '...' + fn[-4:] if len(fn) > 12 else fn
+        print(self.mod.info().copy(), color='green')
+        print('-------------------', color='green')
         if run_mode == 'uvicorn':
             import uvicorn
             uvicorn.run(self.app, host='0.0.0.0', port=port)
@@ -275,15 +280,6 @@ class Server:
             asyncio.run(serve(self.app, config))
         else:
             raise Exception(f'Unknown mode {run_mode} for run_api')
-
-    def show_info(self):
-        print('--- Server Info ---', color='green')
-        shorten_v = lambda fn: fn[:6] + '...' + fn[-4:] if len(fn) > 12 else fn
-        shorten_keys = ['key', 'cid', 'signature']
-        show_info = self.mod.info().copy()
-        print(show_info, color='green')
-        print('-------------------', color='green')
-        return show_info
 
     def get_fns(self, fns  = None) -> List[str]: 
 

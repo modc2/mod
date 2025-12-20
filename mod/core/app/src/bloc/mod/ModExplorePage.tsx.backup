@@ -110,31 +110,19 @@ export default function Modules() {
   }, [showOnchainOnly])
 
   const sortModules = (list: ModuleType[]) => {
-    const sortOrder = typeof window !== 'undefined' 
-      ? (localStorage.getItem('mod_explorer_sort_order') || 'desc')
-      : 'desc'
-    
-    const sorted = [...list]
-    
     switch (sort) {
       case 'name':
-        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-        break
+        return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       case 'author':
-        sorted.sort((a, b) => (a.key || '').localeCompare(b.key || ''))
-        break
+        return [...list].sort((a, b) => (a.key || '').localeCompare(b.key || ''))
       case 'updated':
-        sorted.sort((a, b) => (b.updated || 0) - (a.updated || 0))
-        break
+        return [...list].sort((a, b) => (b.updated || 0) - (a.updated || 0))
       case 'created':
-        sorted.sort((a, b) => (b.created || 0) - (a.created || 0))
-        break
+        return [...list].sort((a, b) => (b.created || 0) - (a.created || 0))
       case 'recent':
       default:
-        sorted.sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
+        return [...list].sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0))
     }
-    
-    return sortOrder === 'asc' ? sorted.reverse() : sorted
   }
 
   const filterModsBySearch = (list: ModuleType[], term: string) => {

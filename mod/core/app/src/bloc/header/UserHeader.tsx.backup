@@ -55,7 +55,7 @@ export function UserHeader() {
       const userRgb = hexToRgb(userColor)
       const borderColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
       const glowColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.2)`
-      const bgColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`
+      const bgColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`
 
       return (
 

@@ -11,7 +11,7 @@ import { X, RotateCcw, Users } from 'lucide-react'
 type SortKey = 'recent' | 'name' | 'balance' | 'modules'
 
 export default function UsersPage() {
-  const { client, user } = useUserContext()
+  const { client } = useUserContext()
   const [users, setUsers] = useState<UserType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -27,18 +27,6 @@ export default function UsersPage() {
     }
     return 1
   })
-  const [userFilter, setUserFilter] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('user_explorer_user_filter') || ''
-    }
-    return ''
-  })
-  const [showMyUsersOnly, setShowMyUsersOnly] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('user_explorer_my_users_only') === 'true'
-    }
-    return false
-  })
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -52,18 +40,6 @@ export default function UsersPage() {
     }
   }, [columns])
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user_explorer_user_filter', userFilter)
-    }
-  }, [userFilter])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user_explorer_my_users_only', showMyUsersOnly.toString())
-    }
-  }, [showMyUsersOnly])
-
   const sortUsers = (list: UserType[]) => {
     switch (sort) {
       case 'balance':
@@ -75,17 +51,6 @@ export default function UsersPage() {
     }
   }
 
-  const filterUsersByKey = (list: UserType[], filterKey: string) => {
-    if (!filterKey) return list
-    const lowerKey = filterKey.toLowerCase()
-    return list.filter(u => u.key?.toLowerCase().includes(lowerKey))
-  }
-
-  const filterMyUsers = (list: UserType[]) => {
-    if (!showMyUsersOnly || !user) return list
-    return list.filter(u => u.key === user.key)
-  }
-
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
@@ -93,9 +58,7 @@ export default function UsersPage() {
       if (!client) throw new Error('Client not initialized')
       const raw = (await client.call('users', {})) as UserType[]
       const allUsers = Array.isArray(raw) ? raw : []
-      let filtered = filterUsersByKey(allUsers, userFilter)
-      filtered = filterMyUsers(filtered)
-      const sorted = sortUsers(filtered)
+      const sorted = sortUsers(allUsers)
       setUsers(sorted)
     } catch (err: any) {
       console.error('Error fetching users:', err)
@@ -107,7 +70,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchAll()
-  }, [client, sort, userFilter, showMyUsersOnly])
+  }, [client, sort])
 
   const gridColsClass = {
     1: 'grid-cols-1',
@@ -125,10 +88,6 @@ export default function UsersPage() {
             onSortChange={setSort}
             columns={columns}
             onColumnsChange={setColumns}
-            userFilter={userFilter}
-            onUserFilterChange={setUserFilter}
-            showMyUsersOnly={showMyUsersOnly}
-            onShowMyUsersOnlyChange={setShowMyUsersOnly}
           />
         </div>
 
@@ -164,7 +123,7 @@ export default function UsersPage() {
               <Users className="w-16 h-16 text-purple-300" strokeWidth={2} />
             </div>
             <div className="text-purple-300 text-3xl mb-6 font-black uppercase tracking-wide">
-              {userFilter || showMyUsersOnly ? 'NO USERS MATCH YOUR FILTERS' : 'NO USERS YET'}
+              NO USERS YET
             </div>
           </div>
         )}

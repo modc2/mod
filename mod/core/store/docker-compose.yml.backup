@@ -1,0 +1,20 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  store:
+    container_name: store
+    deploy: {}
+    entrypoint: bash -c "m serve port=50067 key=store remote=0 mod=store"
+    image: mod:latest
+    ports:
+    - 50067:50067
+    restart: unless-stopped
+    shm_size: 100g
+    volumes:
+    - ~/mod:/root/mod
+    - ~/.mod:/root/.mod
+    - ~/mod/mod/core/store:/root/mod/mod/core/store
+    working_dir: /root/mod/mod/core/store
+version: '3.8'

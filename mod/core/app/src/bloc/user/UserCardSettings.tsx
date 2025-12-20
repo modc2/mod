@@ -1,7 +1,7 @@
 'use client'
 
-import { Filter } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 type SortKey = 'recent' | 'name' | 'balance' | 'modules'
 
@@ -10,59 +10,128 @@ interface UserCardSettingsProps {
   onSortChange: (sort: SortKey) => void
   columns: number
   onColumnsChange: (columns: number) => void
+  userFilter?: string
+  onUserFilterChange?: (filter: string) => void
+  showMyUsersOnly?: boolean
+  onShowMyUsersOnlyChange?: (show: boolean) => void
 }
 
 export const UserCardSettings = ({
   sort,
   onSortChange,
   columns,
-  onColumnsChange
+  onColumnsChange,
+  userFilter = '',
+  onUserFilterChange,
+  showMyUsersOnly = false,
+  onShowMyUsersOnlyChange
 }: UserCardSettingsProps) => {
-  const [showFilters, setShowFilters] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('user_filters_expanded')
+      setIsExpanded(saved === 'true')
+    }
+  }, [])
+
+  const toggleExpanded = () => {
+    const newState = !isExpanded
+    setIsExpanded(newState)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('user_filters_expanded', String(newState))
+    }
+  }
 
   return (
-    <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 via-blue-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-xl backdrop-blur-xl shadow-lg hover:shadow-purple-500/40 transition-all duration-300">
-        <input
-          type="text"
-          placeholder="Search users..."
-          className="bg-transparent border-none outline-none text-white placeholder-white/50 font-mono text-sm w-64"
-          disabled
-        />
+    <div className="relative z-50">
+      <div className="bg-black border-2 border-white/20 rounded-xl overflow-hidden">
+        <button
+          onClick={toggleExpanded}
+          className="px-4 py-3 flex items-center gap-2 bg-black hover:bg-white/5 transition-colors whitespace-nowrap"
+        >
+          <span className="text-white font-bold uppercase tracking-wider" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}>
+            Filters
+          </span>
+          {isExpanded ? (
+            <ChevronUp className="w-5 h-5 text-white" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-white" />
+          )}
+        </button>
+
+        {isExpanded && (
+          <div className="absolute top-full left-0 mt-2 p-4 bg-black border-2 border-white/20 rounded-xl shadow-2xl backdrop-blur-xl min-w-[400px]">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-white text-sm font-bold uppercase whitespace-nowrap" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}>
+                    Sort:
+                  </label>
+                  <select
+                    value={sort}
+                    onChange={(e) => onSortChange(e.target.value as SortKey)}
+                    className="px-3 py-2 bg-black border border-white/20 rounded-lg text-white focus:outline-none focus:border-white/40 transition-colors"
+                    style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}
+                  >
+                    <option value="recent">Recent</option>
+                    <option value="balance">Balance</option>
+                    <option value="modules">Modules</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-white text-sm font-bold uppercase whitespace-nowrap" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}>
+                    Columns:
+                  </label>
+                  <select
+                    value={columns}
+                    onChange={(e) => onColumnsChange(Number(e.target.value))}
+                    className="px-3 py-2 bg-black border border-white/20 rounded-lg text-white focus:outline-none focus:border-white/40 transition-colors"
+                    style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}
+                  >
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
+                    <option value={4}>4</option>
+                  </select>
+                </div>
+              </div>
+
+              {onUserFilterChange && (
+                <div className="flex items-center gap-2">
+                  <label className="text-white text-sm font-bold uppercase whitespace-nowrap" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}>
+                    User:
+                  </label>
+                  <input
+                    type="text"
+                    value={userFilter}
+                    onChange={(e) => onUserFilterChange(e.target.value)}
+                    placeholder="Filter by user key..."
+                    className="flex-1 px-3 py-2 bg-black border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-white/40 transition-colors"
+                    style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}
+                  />
+                </div>
+              )}
+
+              {onShowMyUsersOnlyChange && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="myUsersOnly"
+                    checked={showMyUsersOnly}
+                    onChange={(e) => onShowMyUsersOnlyChange(e.target.checked)}
+                    className="w-4 h-4 bg-black border border-white/20 rounded focus:ring-2 focus:ring-white/40"
+                  />
+                  <label htmlFor="myUsersOnly" className="text-white text-sm font-bold uppercase cursor-pointer" style={{ fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace" }}>
+                    My Users Only
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
-      
-      <button
-        onClick={() => setShowFilters(!showFilters)}
-        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-pink-500/20 border border-blue-500/40 rounded-lg backdrop-blur-xl hover:from-blue-500/30 hover:via-purple-500/30 hover:to-pink-500/30 transition-all shadow-lg shadow-blue-500/20"
-      >
-        <Filter className="w-5 h-5 text-blue-300" />
-        <span className="text-sm font-bold text-blue-300 uppercase">Filters</span>
-      </button>
-
-      {showFilters && (
-        <div className="flex items-center gap-3">
-          <select
-            value={sort}
-            onChange={(e) => onSortChange(e.target.value as SortKey)}
-            className="px-4 py-2 bg-black/60 border border-purple-500/40 rounded-lg text-white font-mono text-sm backdrop-blur-xl focus:border-purple-500/60 outline-none"
-          >
-            <option value="recent">Recent</option>
-            <option value="balance">Balance</option>
-            <option value="modules">Modules</option>
-          </select>
-
-          <select
-            value={columns}
-            onChange={(e) => onColumnsChange(Number(e.target.value))}
-            className="px-4 py-2 bg-black/60 border border-purple-500/40 rounded-lg text-white font-mono text-sm backdrop-blur-xl focus:border-purple-500/60 outline-none"
-          >
-            <option value={1}>1 Column</option>
-            <option value={2}>2 Columns</option>
-            <option value={3}>3 Columns</option>
-            <option value={4}>4 Columns</option>
-          </select>
-        </div>
-      )}
     </div>
   )
 }

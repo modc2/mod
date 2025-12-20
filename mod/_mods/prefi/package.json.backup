@@ -1,21 +1,20 @@
 {
   "name": "prefi-prediction-market",
   "version": "1.0.0",
-  "description": "Production-ready zero-sum prediction market with modular price oracles on Base and Ganache",
+  "description": "Zero-sum prediction market with modular price oracles on Base, Ethereum, and Ganache",
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "clean": "hardhat clean && rm -rf cache artifacts",
     "deploy:ganache": "hardhat run scripts/deploy.js --network ganache",
     "deploy:base": "hardhat run scripts/deploy.js --network base",
-    "deploy:baseSepolia": "hardhat run scripts/deploy.js --network baseSepolia",
+    "deploy:baseGoerli": "hardhat run scripts/deploy.js --network baseGoerli",
+    "deploy:mainnet": "hardhat run scripts/deploy.js --network mainnet",
+    "deploy:goerli": "hardhat run scripts/deploy.js --network goerli",
     "verify:base": "hardhat verify --network base",
-    "verify:baseSepolia": "hardhat verify --network baseSepolia",
-    "ganache": "ganache-cli -p 7545 -i 1337 -m \"test test test test test test test test test test test junk\"",
-    "node": "hardhat node",
-    "coverage": "hardhat coverage",
-    "gas-report": "REPORT_GAS=true hardhat test"
+    "verify:mainnet": "hardhat verify --network mainnet",
+    "ganache": "ganache-cli -p 7545 -i 5777",
+    "node": "hardhat node"
   },
   "keywords": [
     "defi",
@@ -23,9 +22,7 @@
     "base",
     "ethereum",
     "smart-contracts",
-    "solidity",
-    "ganache",
-    "production"
+    "solidity"
   ],
   "author": "Mr. Robot",
   "license": "MIT",
@@ -45,10 +42,8 @@
     "ganache-cli": "^6.12.2",
     "hardhat": "^2.17.2",
     "hardhat-gas-reporter": "^1.0.9",
-    "solidity-coverage": "^0.8.4"
-  },
-  "engines": {
-    "node": ">=16.0.0",
-    "npm": ">=8.0.0"
+    "solidity-coverage": "^0.8.4",
+    "truffle": "^5.11.5",
+    "truffle-plugin-verify": "^0.6.7"
   }
 }

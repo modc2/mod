@@ -8,70 +8,66 @@ module.exports = {
       optimizer: {
         enabled: true,
         runs: 200
-      }
+      },
+      evmVersion: "paris"
     }
   },
   
   networks: {
     // Ganache local
     ganache: {
-      url: "http://127.0.0.1:7545",
+      url: process.env.GANACHE_URL || "http://127.0.0.1:7545",
       accounts: {
         mnemonic: process.env.MNEMONIC || "test test test test test test test test test test test junk"
       },
-      chainId: 1337
+      chainId: 1337,
+      timeout: 60000,
+      gas: 6721975,
+      gasPrice: 20000000000
     },
     
     // Hardhat local
     hardhat: {
-      chainId: 31337
+      chainId: 31337,
+      mining: {
+        auto: true,
+        interval: 0
+      }
     },
     
     // Base Mainnet
     base: {
-      url: "https://mainnet.base.org",
+      url: process.env.BASE_RPC_URL || "https://mainnet.base.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 8453,
-      gasPrice: 1000000000
+      gasPrice: "auto",
+      verify: {
+        etherscan: {
+          apiUrl: "https://api.basescan.org",
+          apiKey: process.env.BASESCAN_API_KEY
+        }
+      }
     },
     
-    // Base Goerli
-    baseGoerli: {
-      url: "https://goerli.base.org",
+    // Base Sepolia (updated from deprecated Goerli)
+    baseSepolia: {
+      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 84531,
-      gasPrice: 1000000000
-    },
-    
-    // Ethereum Mainnet
-    mainnet: {
-      url: `https://mainnet.infura.io/v3/${process.env.INFURA_KEY}`,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 1
-    },
-    
-    // Ethereum Goerli
-    goerli: {
-      url: `https://goerli.infura.io/v3/${process.env.INFURA_KEY}`,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 5
-    },
-    
-    // Ethereum Sepolia
-    sepolia: {
-      url: `https://sepolia.infura.io/v3/${process.env.INFURA_KEY}`,
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
-      chainId: 11155111
+      chainId: 84532,
+      gasPrice: "auto",
+      verify: {
+        etherscan: {
+          apiUrl: "https://api-sepolia.basescan.org",
+          apiKey: process.env.BASESCAN_API_KEY
+        }
+      }
     }
   },
   
   etherscan: {
     apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY,
-      goerli: process.env.ETHERSCAN_API_KEY,
-      sepolia: process.env.ETHERSCAN_API_KEY,
-      base: process.env.BASESCAN_API_KEY,
-      baseGoerli: process.env.BASESCAN_API_KEY
+      base: process.env.BASESCAN_API_KEY || "",
+      baseSepolia: process.env.BASESCAN_API_KEY || ""
     },
     customChains: [
       {
@@ -83,11 +79,11 @@ module.exports = {
         }
       },
       {
-        network: "baseGoerli",
-        chainId: 84531,
+        network: "baseSepolia",
+        chainId: 84532,
         urls: {
-          apiURL: "https://api-goerli.basescan.org/api",
-          browserURL: "https://goerli.basescan.org"
+          apiURL: "https://api-sepolia.basescan.org/api",
+          browserURL: "https://sepolia.basescan.org"
         }
       }
     ]
@@ -98,5 +94,15 @@ module.exports = {
     tests: "./test",
     cache: "./cache",
     artifacts: "./artifacts"
+  },
+  
+  mocha: {
+    timeout: 60000
+  },
+  
+  gasReporter: {
+    enabled: process.env.REPORT_GAS === "true",
+    currency: "USD",
+    coinmarketcap: process.env.COINMARKETCAP_API_KEY
   }
 };

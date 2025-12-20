@@ -1,156 +1,194 @@
-# API Module 🚀
+# 🔐 OATH - Enhanced Authentication System
 
-## Overview
+> **A robust, JWT-inspired authentication framework with advanced security features for Python applications**
 
-A **decentralized API system** built on IPFS for registering, versioning, and managing Python modules with cryptographic signatures. Built with the precision of Mr. Robot and the vision of Leonardo da Vinci.
+[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Security](https://img.shields.io/badge/security-enhanced-brightgreen.svg)]()
 
-## Features
+## 🚀 Overview
 
-- 🌐 **IPFS Storage**: Decentralized content-addressed storage for modules
-- 🔐 **Cryptographic Signatures**: Verify module authenticity with key-based signatures
-- 📜 **Version History**: Track changes and rollback to previous versions
-- 📚 **Registry System**: User-based module registration and discovery
-- 📋 **Schema Management**: Store and retrieve module schemas
+OATH is a production-ready authentication system that combines cryptographic signing, hash-based verification, and replay attack prevention. Built with security-first principles, it provides a flexible foundation for securing API requests, data transmission, and inter-service communication.
 
-## Core Components
+## ✨ Key Features
 
-### Api Class
+- **🔑 Multi-Crypto Support**: SR25519, ED25519, and other cryptographic algorithms
+- **🛡️ Replay Attack Prevention**: Built-in nonce tracking and validation
+- **⏰ Time-Based Expiry**: Configurable TTL with automatic expiration checks
+- **🔒 Flexible Hashing**: SHA256, SHA512, or identity hash modes
+- **📝 JWT-Like Tokens**: Structured authentication headers with signature verification
+- **🎯 Customizable Signing**: Define which fields participate in signature generation
+- **💾 Nonce Management**: Automatic cleanup with configurable limits
 
-Main interface for interacting with the decentralized module registry.
+## 📦 Installation
 
-#### Key Methods
+```bash
+pip install mod  # Assuming 'mod' is the parent package
+```
 
-**Registration & Management**
-- `reg(mod, key, comment, update)` - Register or update a module
-- `dereg(mod, key)` - Deregister a module
-- `regall(mods, key, comment, update)` - Batch register modules
-
-**Query & Discovery**
-- `mod(mod, key, schema, content)` - Get module information
-- `mods(search, key)` - List all registered modules
-- `names(search)` - Get module names
-- `registry(key, search, update)` - Access the registry
-
-**Version Control**
-- `history(mod, features, key, df)` - View module history
-- `diff(mod, update)` - Compare versions
-- `setback(mod, content, key)` - Rollback to previous version
-
-**User Management**
-- `users(search)` - List all users
-- `user_info(key)` - Get user information
-- `user_mods(key)` - List user's modules
-
-**Content & Schema**
-- `content(mod, expand)` - Get module content
-- `schema(mod)` - Get module schema
-- `verify(mod_info)` - Verify cryptographic signature
-
-## Quick Start
+## 🔧 Quick Start
 
 ```python
 import mod as m
+from oath import Auth
 
-# Initialize API
-api = m.mod('api.api')()
+# Initialize authentication
+auth = Auth(
+    key='my-secret-key',
+    crypto_type='sr25519',
+    hash_type='sha256',
+    max_age=60,
+    enable_nonce=True,
+    enable_expiry=True
+)
 
-# Register a module
-info = api.reg('mymodule', key='mykey', comment='Initial release')
+# Generate authentication headers
+data = {'action': 'transfer', 'amount': 100}
+headers = auth.forward(data, cost=10, ttl=120)
 
-# List all modules
-mods = api.mods()
-
-# Get module info with schema and content
-mod_info = api.mod('mymodule', schema=True, content=True)
-
-# View history as DataFrame
-history = api.history('mymodule', df=True)
-
-# Get diff between versions
-diff = api.diff('mymodule')
-
-# Rollback to previous version
-api.setback('mymodule', content=3)
+# Verify headers
+is_valid = auth.verify(headers, data=data)
+print(f"Authentication valid: {is_valid}")
 ```
 
-## Configuration
+## 📖 API Reference
 
-Configuration stored in `api/config.json`:
+### `Auth` Class
 
-```json
-{
-    "port": 8000
-}
+#### Initialization Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `key` | str/None | None | Signing key (auto-generated if None) |
+| `crypto_type` | str | 'sr25519' | Cryptographic algorithm |
+| `hash_type` | str | 'sha256' | Hash algorithm (sha256/sha512/identity) |
+| `max_age` | int | 60 | Maximum token age in seconds |
+| `signature_keys` | list | ['data', 'time', 'cost'] | Fields included in signature |
+| `enable_nonce` | bool | True | Enable replay attack prevention |
+| `enable_expiry` | bool | True | Enable explicit expiry timestamps |
+
+#### Methods
+
+##### `forward(data, key=None, cost=0, ttl=None)`
+Generate authentication headers for given data.
+
+**Returns**: Dictionary with signature, timestamp, nonce, and expiry
+
+##### `verify(headers, data=None, max_age=None, check_nonce=True)`
+Verify authentication headers with comprehensive security checks.
+
+**Returns**: Boolean indicating validity
+
+##### `hash(data)`
+Hash data using configured algorithm.
+
+**Returns**: Hex-encoded hash string
+
+## 🔐 Security Features
+
+### Replay Attack Prevention
+
+```python
+auth = Auth(enable_nonce=True)
+headers = auth.forward(data)
+
+# First verification succeeds
+auth.verify(headers, data=data)  # ✓ Valid
+
+# Replay attempt fails
+auth.verify(headers, data=data)  # ✗ Nonce already used
 ```
 
-## Registry Structure
+### Time-Based Expiry
 
-Registry stored at `~/.mod/api/registry.json`:
+```python
+# Short-lived token (30 seconds)
+headers = auth.forward(data, ttl=30)
 
-```json
-{
-    "user_address": {
-        "module_name": "ipfs_cid"
-    }
-}
+# Verify within TTL
+auth.verify(headers, data=data)  # ✓ Valid
+
+# After expiry
+time.sleep(31)
+auth.verify(headers, data=data)  # ✗ Token expired
 ```
 
-## Module Info Structure
+### Custom Signature Fields
 
-```json
-{
-    "content": "content_cid",
-    "schema": "schema_cid",
-    "prev": "previous_version_cid",
-    "name": "module_name",
-    "created": 1234567890,
-    "updated": 1234567890,
-    "key": "user_address",
-    "url": "module_url",
-    "signature": "cryptographic_signature",
-    "cid": "module_info_cid"
-}
+```python
+auth = Auth(
+    signature_keys=['data', 'time', 'user_id', 'action']
+)
+
+headers = auth.forward(data)
+headers['user_id'] = 'user123'
+headers['action'] = 'write'
 ```
 
-## Dependencies
+## 🧪 Testing
 
-- `mod` - Core module framework
-- `requests` - HTTP requests
-- IPFS storage backend
+```python
+# Run built-in test suite
+auth = Auth()
+results = auth.test(key='test.auth', crypto_type='sr25519')
+print(results)
+# Output: {'test_passed': True, 'headers': {...}, 'features': [...]}
+```
 
-## Security
+## 🎯 Use Cases
 
-- ✅ All modules are cryptographically signed
-- ✅ Signatures verified using `m.verify()`
-- ✅ Key-based authentication for registration
-- ✅ Content-addressed storage prevents tampering
+- **API Authentication**: Secure REST/GraphQL endpoints
+- **Microservices**: Inter-service communication verification
+- **Data Integrity**: Ensure payload hasn't been tampered with
+- **Blockchain Integration**: Sign transactions with SR25519/ED25519
+- **IoT Security**: Lightweight authentication for resource-constrained devices
 
-## API Endpoints
+## ⚙️ Advanced Configuration
 
-Available endpoints: `mods`, `names`, `reg`, `mod`, `users`, `user_info`, `n`
+### Custom Hash Function
 
-## Utilities
+```python
+auth = Auth(hash_type='sha512')  # Stronger hashing
+```
 
-`api/utils.py` provides helper functions:
-- `expanduser(path)` - Expand user paths
-- `load_json(file_path)` - Load JSON files
-- `save_json(file_path, data)` - Save JSON files
-- `logs(name)` - Access logs
+### Disable Security Features (Not Recommended)
 
-## Philosophy
+```python
+auth = Auth(
+    enable_nonce=False,  # Disable replay protection
+    enable_expiry=False  # Disable expiry checks
+)
+```
 
-**Simplicity is the ultimate sophistication.**
+### Manual Nonce Management
 
-- Every function serves a purpose
-- Decentralization ensures freedom
-- Cryptography ensures trust
-- Excellence is the standard
+```python
+# Revoke specific nonce
+auth.revoke_nonce('abc123def456')
 
-## License
+# Clear all nonces
+auth.clear_nonces()
+```
 
-Open source - Free world, free code.
+## 🤝 Contributing
+
+Contributions are welcome! Please ensure:
+
+1. All tests pass
+2. Security features remain intact
+3. Code follows existing style conventions
+4. Documentation is updated
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Inspired by JWT (JSON Web Tokens)
+- Built on the `mod` cryptographic framework
+- Designed for the free world 🌍
 
 ---
 
-*Built with the spirit of Leonardo da Vinci, the precision of Mr. Robot, and the excellence of Cristiano Ronaldo.*
-*One shot, one opportunity. Make it legendary.* 🌟
+**Made with ⚡ by developers who care about security**

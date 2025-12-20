@@ -1,12 +1,9 @@
 'use client'
 
-import { Filter } from 'lucide-react'
-import { useState } from 'react'
-import { useUserContext } from '@/bloc/context'
-import { HomeIcon, GlobeAltIcon } from '@heroicons/react/24/outline'
+import React, { useState } from 'react'
+import { Settings, ChevronDown, ChevronUp } from 'lucide-react'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
-type NetworkFilter = 'all' | 'local' | 'global'
 
 interface ModCardSettingsProps {
   sort: SortKey
@@ -23,7 +20,7 @@ interface ModCardSettingsProps {
   onShowOnchainOnlyChange: (show: boolean) => void
 }
 
-export const ModCardSettings = ({
+export function ModCardSettings({
   sort,
   onSortChange,
   columns,
@@ -35,66 +32,98 @@ export const ModCardSettings = ({
   showLocalOnly,
   onShowLocalOnlyChange,
   showOnchainOnly,
-  onShowOnchainOnlyChange
-}: ModCardSettingsProps) => {
-  const [showFilters, setShowFilters] = useState(false)
-  const { user } = useUserContext()
-
-  const getNetworkFilter = (): NetworkFilter => {
-    if (showLocalOnly) return 'local'
-    if (showOnchainOnly) return 'global'
-    return 'all'
-  }
-
-  const handleNetworkChange = (network: NetworkFilter) => {
-    onShowLocalOnlyChange(network === 'local')
-    onShowOnchainOnlyChange(network === 'global')
-  }
+  onShowOnchainOnlyChange,
+}: ModCardSettingsProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="w-full">
       <button
-        onClick={() => setShowFilters(!showFilters)}
-        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-pink-500/20 border-2 border-blue-500/50 rounded-xl backdrop-blur-xl hover:from-blue-500/30 hover:via-purple-500/30 hover:to-pink-500/30 hover:border-blue-400/70 transition-all duration-300 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/40 rounded-lg hover:border-purple-400/60 transition-all backdrop-blur-xl shadow-lg"
       >
-        <Filter className="w-5 h-5 text-blue-300" strokeWidth={2.5} />
-        <span className="text-sm font-black text-blue-300 uppercase tracking-wider">Filters</span>
+        <Settings size={18} className="text-purple-300" strokeWidth={2.5} />
+        <span className="text-purple-200 font-bold text-sm uppercase tracking-wide">Filters</span>
+        {isExpanded ? <ChevronUp size={16} className="text-purple-300" /> : <ChevronDown size={16} className="text-purple-300" />}
       </button>
 
-      {showFilters && (
-        <div className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2 duration-300">
-          <select
-            value={sort}
-            onChange={(e) => onSortChange(e.target.value as SortKey)}
-            className="px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-purple-500/50 rounded-xl text-white font-mono font-bold text-sm backdrop-blur-xl focus:border-purple-400/70 outline-none hover:border-purple-400/60 transition-all duration-300 shadow-lg shadow-purple-500/20 cursor-pointer"
-          >
-            <option value="recent">⚡ Recent</option>
-            <option value="name">📝 Name</option>
-            <option value="author">👤 Author</option>
-            <option value="updated">🔄 Updated</option>
-            <option value="created">✨ Created</option>
-          </select>
+      {isExpanded && (
+        <div className="flex flex-wrap items-center gap-3 mt-3 p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-2 border-purple-500/30 rounded-lg backdrop-blur-xl">
+          {/* Sort */}
+          <div className="flex items-center gap-2">
+            <label className="text-purple-200 text-xs font-bold uppercase">Sort:</label>
+            <select
+              value={sort}
+              onChange={(e) => onSortChange(e.target.value as SortKey)}
+              className="px-3 py-1.5 bg-black/40 border border-purple-500/40 rounded-lg text-purple-200 text-sm font-medium focus:outline-none focus:border-purple-400/60 transition-all"
+            >
+              <option value="recent">Recent</option>
+              <option value="name">Name</option>
+              <option value="author">Author</option>
+              <option value="updated">Updated</option>
+              <option value="created">Created</option>
+            </select>
+          </div>
 
-          <select
-            value={columns}
-            onChange={(e) => onColumnsChange(Number(e.target.value))}
-            className="px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-purple-500/50 rounded-xl text-white font-mono font-bold text-sm backdrop-blur-xl focus:border-purple-400/70 outline-none hover:border-purple-400/60 transition-all duration-300 shadow-lg shadow-purple-500/20 cursor-pointer"
-          >
-            <option value={1}>📱 1 Column</option>
-            <option value={2}>📊 2 Columns</option>
-            <option value={3}>🎯 3 Columns</option>
-            <option value={4}>🚀 4 Columns</option>
-          </select>
+          {/* Columns */}
+          <div className="flex items-center gap-2">
+            <label className="text-purple-200 text-xs font-bold uppercase">Columns:</label>
+            <select
+              value={columns}
+              onChange={(e) => onColumnsChange(parseInt(e.target.value))}
+              className="px-3 py-1.5 bg-black/40 border border-purple-500/40 rounded-lg text-purple-200 text-sm font-medium focus:outline-none focus:border-purple-400/60 transition-all"
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
 
-          <select
-            value={getNetworkFilter()}
-            onChange={(e) => handleNetworkChange(e.target.value as NetworkFilter)}
-            className="px-4 py-2 bg-gradient-to-br from-black/80 to-gray-900/80 border-2 border-cyan-500/50 rounded-xl text-white font-mono font-bold text-sm backdrop-blur-xl focus:border-cyan-400/70 outline-none hover:border-cyan-400/60 transition-all duration-300 shadow-lg shadow-cyan-500/20 cursor-pointer"
-          >
-            <option value="all">🌐 All Networks</option>
-            <option value="local">🏠 Offchain</option>
-            <option value="global">🌍 Onchain</option>
-          </select>
+          {/* User Filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-purple-200 text-xs font-bold uppercase">User:</label>
+            <input
+              type="text"
+              value={userFilter}
+              onChange={(e) => onUserFilterChange(e.target.value)}
+              placeholder="Filter by user..."
+              className="px-3 py-1.5 bg-black/40 border border-purple-500/40 rounded-lg text-purple-200 text-sm placeholder-purple-400/50 focus:outline-none focus:border-purple-400/60 transition-all w-40"
+            />
+          </div>
+
+          {/* My Mods Only */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMyModsOnly}
+              onChange={(e) => onShowMyModsOnlyChange(e.target.checked)}
+              className="w-4 h-4 rounded border-purple-500/40 bg-black/40 text-purple-500 focus:ring-purple-500/40"
+            />
+            <span className="text-purple-200 text-xs font-bold uppercase">My Mods</span>
+          </label>
+
+          {/* Local Only */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showLocalOnly}
+              onChange={(e) => onShowLocalOnlyChange(e.target.checked)}
+              className="w-4 h-4 rounded border-purple-500/40 bg-black/40 text-purple-500 focus:ring-purple-500/40"
+            />
+            <span className="text-purple-200 text-xs font-bold uppercase">Local</span>
+          </label>
+
+          {/* Onchain Only */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showOnchainOnly}
+              onChange={(e) => onShowOnchainOnlyChange(e.target.checked)}
+              className="w-4 h-4 rounded border-purple-500/40 bg-black/40 text-purple-500 focus:ring-purple-500/40"
+            />
+            <span className="text-purple-200 text-xs font-bold uppercase">Onchain</span>
+          </label>
         </div>
       )}
     </div>

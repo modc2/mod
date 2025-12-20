@@ -1,53 +1,264 @@
-\documentclass{article}
+\documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{hyperref}
 
-\title{Project Roadmap}
-\author{}
-\date{}
+% Custom colors
+\definecolor{sectioncolor}{RGB}{0,102,204}
+\definecolor{subsectioncolor}{RGB}{51,51,51}
+
+% Section formatting
+\titleformat{\section}
+  {\Large\bfseries\color{sectioncolor}}
+  {}{0em}{}
+\titleformat{\subsection}
+  {\large\bfseries\color{subsectioncolor}}
+  {}{0em}{}
+
+\title{\Huge\bfseries Project Roadmap}
+\author{ModChain Platform}
+\date{\today}
 
 \begin{document}
 
 \maketitle
+\tableofcontents
+\newpage
 
-\section*{Foundation}
+\section{Executive Summary}
 
-This roadmap outlines what we want to build and include in our project.
+This roadmap outlines the comprehensive development plan for the ModChain platform - a revolutionary modular registry system that enables seamless integration of AI models, compute resources, DeFi components, and agentic frameworks. Our vision is to create a unified ecosystem where developers can build, deploy, and monetize intelligent applications with unprecedented flexibility.
 
-\subsection*{What We Want to Include}
+\section{Foundation Architecture}
+
+\subsection{Registry System}
+
+The foundation of our project is the registry system that allows modular integration of various components through a content-addressable storage mechanism.
+
+\textbf{Key Features:}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Module Registration}: Use a unique key and content dictionary to register modules
+    \item \textbf{Hierarchical Structure}: Folders represented by keys with '/' enable nested organization
+    \item \textbf{Content Addressing}: Automatic compression of folders into Content Identifiers (CIDs) recursively
+    \item \textbf{Version Control}: Commit-based updates create a chain of content versions (ModChain)
+    \item \textbf{Immutable History}: Complete audit trail of all module changes and updates
+\end{itemize}
+
+\subsection{ModChain Technology}
+
+The ModChain creates an immutable, versioned history of module content:
+\begin{itemize}
+    \item Each commit generates a new CID linked to previous versions
+    \item Users can reference and retrieve any historical version
+    \item Enables rollback, comparison, and collaborative development
+    \item Provides transparency and accountability for all changes
+\end{itemize}
+
+\section{Revenue Model}
+
+\subsection{Subscription Tiers}
+
+Our revenue model is based on a flexible subscription system with usage-based pricing:
 
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Model Integration}
+    \item \textbf{Basic Tier}: Access to core features and limited API calls
+    \item \textbf{Professional Tier}: Enhanced limits and priority support
+    \item \textbf{Enterprise Tier}: Unlimited access and dedicated infrastructure
+\end{itemize}
+
+\subsection{Provider Marketplace}
+
+Providers of services (compute, models, data) participate in an open marketplace:
+\begin{itemize}
+    \item Each provider sets their own pricing for services
+    \item Costs are calculated transparently and debited from user accounts
+    \item Usage-based billing ensures fair pricing
+    \item Overage fees apply when subscription limits are exceeded
+\end{itemize}
+
+\subsection{Savings Lottery System}
+
+An innovative incentive mechanism to encourage efficient resource usage:
+
+\begin{enumerate}
+    \item Users who spend less than their subscription limit can:
     \begin{itemize}
-        \item OpenRouter (priority)
-        \item Anthropic
-        \item OpenAI
-        \item Chutes
+        \item Roll unused credits to the following month, OR
+        \item Lock unused credits into a monthly lottery pool
+    \end{itemize}
+    \item At month-end, a random draw selects one winner from the pool
+    \item Winner receives the entire pool amount as a reward
+    \item Encourages cost-conscious usage and provides potential windfalls
+\end{enumerate}
+
+\section{Module Integrations}
+
+\subsection{AI Model Integration}
+
+Provide access to cutting-edge AI models through unified APIs:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{OpenRouter} (\textcolor{red}{PRIORITY}) - Multi-model routing and optimization
+    \item \textbf{Anthropic} - Claude models for advanced reasoning
+    \item \textbf{OpenAI} - GPT series for general-purpose AI
+    \item \textbf{Chutes} - Specialized model deployment
+\end{itemize}
+
+\subsection{Compute Resources}
+
+Distributed computing infrastructure for scalable processing:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{PrimeIntellect} (\textcolor{red}{PRIORITY}) - Decentralized GPU clusters
+    \item \textbf{Akash} - Decentralized cloud computing marketplace
+    \item \textbf{Lium (Bittensor)} - Incentivized machine learning network
+\end{itemize}
+
+\subsection{DeFi Components}
+
+Financial primitives and data feeds for blockchain integration:
+
+\textbf{Price Feeds:}
+\begin{itemize}
+    \item Uniswap - DEX pricing data
+    \item Raydium - Solana ecosystem pricing
+    \item CoinGecko \& CoinMarketCap - Aggregated market data
+    \item Binance - Centralized exchange data
+\end{itemize}
+
+\textbf{Oracle Networks:}
+\begin{itemize}
+    \item Chainlink - Decentralized oracle infrastructure
+    \item Pyth - High-frequency price feeds
+\end{itemize}
+
+\textbf{Lending Protocols:}
+\begin{itemize}
+    \item Aave - Decentralized lending and borrowing
+    \item Gnosis - Multi-signature and DAO treasury management
+\end{itemize}
+
+\textbf{Yield Generation:}
+\begin{itemize}
+    \item Low-risk stablecoin strategies (1-10\% APY) via Aave
+    \item Automated yield optimization
+\end{itemize}
+
+\subsection{Agentic Platform Integrations}
+
+Frameworks for building autonomous AI agents:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Crew AI} - Multi-agent collaboration framework
+    \item \textbf{LangChain} - LLM application development toolkit
+    \item \textbf{Swarms} - Distributed agent orchestration
+    \item \textbf{BabyAGI} - Task-driven autonomous agents
+    \item \textbf{AutoGPT} - Self-improving AI agents
+    \item \textbf{MetaGPT} - Multi-agent software development
+\end{itemize}
+
+\section{Implementation Roadmap}
+
+\subsection{Phase 1: Foundation (Months 1-3)}
+
+\begin{enumerate}
+    \item \textbf{Core Registry System}
+    \begin{itemize}
+        \item Implement content-addressable storage
+        \item Build module registration and versioning
+        \item Create CID generation and compression
     \end{itemize}
     
-    \item \textbf{Compute Resources}
+    \item \textbf{Priority Integrations}
     \begin{itemize}
-        \item PrimeIntellect (priority)
-        \item Akash
-        \item Lium (Bittensor)
+        \item OpenRouter API integration
+        \item PrimeIntellect compute connection
+        \item Basic authentication and billing
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Phase 2: Expansion (Months 4-6)}
+
+\begin{enumerate}
+    \item \textbf{Additional Model Providers}
+    \begin{itemize}
+        \item Anthropic and OpenAI integrations
+        \item Model routing and load balancing
     \end{itemize}
     
-    \item \textbf{DeFi Components}
+    \item \textbf{DeFi Integration}
     \begin{itemize}
-        \item Price feeds: Uniswap, Raydium, CoinGecko, CoinMarketCap, Binance
-        \item Oracles: Chainlink, Pyth
-        \item Lending: Aave, Gnosis
-        \item Low-risk stables (1-10\% ROI): Aave
+        \item Price feed aggregation
+        \item Oracle network connections
+        \item Basic lending protocol integration
+    \end{itemize}
+    
+    \item \textbf{Revenue System}
+    \begin{itemize}
+        \item Subscription tier implementation
+        \item Usage tracking and billing
+        \item Lottery pool mechanism
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Phase 3: Ecosystem (Months 7-12)}
+
+\begin{enumerate}
+    \item \textbf{Agentic Frameworks}
+    \begin{itemize}
+        \item Integrate all agentic platforms
+        \item Build unified agent orchestration layer
+    \end{itemize}
+    
+    \item \textbf{Marketplace Launch}
+    \begin{itemize}
+        \item Provider onboarding system
+        \item Reputation and rating mechanisms
+        \item Advanced analytics dashboard
+    \end{itemize}
+    
+    \item \textbf{Community Features}
+    \begin{itemize}
+        \item Module sharing and discovery
+        \item Collaborative development tools
+        \item Documentation and tutorials
+    \end{itemize}
+\end{enumerate}
+
+\section{Success Metrics}
+
+\begin{itemize}
+    \item \textbf{Technical Metrics}
+    \begin{itemize}
+        \item API uptime \textgreater 99.9\%
+        \item Average response time \textless 200ms
+        \item Module deployment success rate \textgreater 95\%
+    \end{itemize}
+    
+    \item \textbf{Business Metrics}
+    \begin{itemize}
+        \item 1,000+ active developers by end of Year 1
+        \item 50+ service providers in marketplace
+        \item \$1M+ in monthly transaction volume
+    \end{itemize}
+    
+    \item \textbf{Community Metrics}
+    \begin{itemize}
+        \item 10,000+ registered modules
+        \item 80\% user retention rate
+        \item 4.5+ average satisfaction rating
     \end{itemize}
 \end{itemize}
 
-\subsection*{Next Steps}
+\section{Conclusion}
 
-\begin{enumerate}
-    \item Start with priority integrations
-    \item Build modular architecture
-    \item Test each component independently
-    \item Integrate and deploy
-\end{enumerate}
+The ModChain platform represents a paradigm shift in how developers build and deploy AI-powered applications. By combining modular architecture, transparent pricing, and innovative incentive mechanisms, we create an ecosystem that benefits all participants - developers, service providers, and end users alike.
+
+Our phased approach ensures steady progress while maintaining flexibility to adapt to market demands. With priority integrations in place and a clear path forward, we are positioned to become the leading platform for modular AI application development.
+
+\vspace{1em}
+\noindent\textit{"Building the future, one module at a time."}
 
 \end{document}

@@ -2,12 +2,12 @@ import base64
 import hmac
 import json
 import time
-from typing import Dict, Optional, Any, Set
+from typing import Dict, Optional, Any
 import mod as m
 import hashlib
 
 class Auth:
-    """Enterprise-grade authentication system with military-grade security"""
+    """Enhanced authentication system with improved security and flexibility"""
 
     separators=(',', ':')
 
@@ -18,20 +18,15 @@ class Auth:
                 max_age=60, 
                 signature_keys=['data', 'time', 'cost'],
                 enable_nonce=True,
-                enable_expiry=True,
-                nonce_cache_size=10000):
+                enable_expiry=True):
         """
-        Initialize Auth with enhanced security features
-        
-        Args:
-            key: Cryptographic key for signing
-            crypto_type: Cryptographic algorithm (sr25519, ed25519, etc.)
-            hash_type: Hash algorithm (sha256, sha512)
-            max_age: Maximum token age in seconds
-            signature_keys: Keys included in signature payload
-            enable_nonce: Enable replay attack prevention
-            enable_expiry: Enable explicit token expiration
-            nonce_cache_size: Maximum nonces to track before cleanup
+        Initialize the Auth class with enhanced security features
+        :param key: the key to use for signing
+        :param crypto_type: the crypto type to use for signing
+        :param hash_type: the hash type to use for signing
+        :param signature_keys: the keys to use for signing
+        :param enable_nonce: enable nonce for replay attack prevention
+        :param enable_expiry: enable explicit expiry timestamps
         """
         self.signature_keys = signature_keys
         self.crypto_type = crypto_type
@@ -41,21 +36,15 @@ class Auth:
         self.max_age = max_age
         self.enable_nonce = enable_nonce
         self.enable_expiry = enable_expiry
-        self.nonce_cache_size = nonce_cache_size
-        self._used_nonces: Set[str] = set()
+        self._used_nonces = set()  # Track used nonces for replay protection
 
     def forward(self, data: Any, key=None, cost=0, ttl=None) -> dict:
         """
-        Generate cryptographically signed authentication headers
-        
-        Args:
-            data: Payload to authenticate
-            key: Optional key override
-            cost: Computational cost metric
-            ttl: Time-to-live override (seconds)
-            
-        Returns:
-            Authentication headers with signature
+        Generate authentication headers with JWT-like token
+        :param data: data to authenticate
+        :param key: optional key override
+        :param cost: computational cost
+        :param ttl: time-to-live in seconds (overrides max_age)
         """
         key = self.get_key(key)
         current_time = time.time()
@@ -67,16 +56,14 @@ class Auth:
             'key': key.address,
         }
         
-        # Replay attack prevention via nonce
+        # Add nonce for replay attack prevention
         if self.enable_nonce:
-            nonce = hashlib.sha256(
-                f"{current_time}{key.address}{data}".encode()
-            ).hexdigest()[:16]
+            nonce = hashlib.sha256(f"{current_time}{key.address}{data}".encode()).hexdigest()[:16]
             result['nonce'] = nonce
             if 'nonce' not in self.signature_keys:
                 self.signature_keys.append('nonce')
         
-        # Explicit expiration timestamp
+        # Add explicit expiry
         if self.enable_expiry:
             expiry = current_time + (ttl if ttl else self.max_age)
             result['expiry'] = str(expiry)
@@ -90,59 +77,48 @@ class Auth:
 
     def verify(self, headers: dict, data: Optional[Any]=None, max_age=None, check_nonce=True) -> bool:
         """
-        Verify authentication headers with comprehensive security checks
-        
-        Args:
-            headers: Authentication headers to verify
-            data: Optional data to verify hash against
-            max_age: Maximum age override
-            check_nonce: Enable nonce replay protection
-            
-        Returns:
-            True if verification succeeds
-            
-        Raises:
-            AssertionError: If any security check fails
+        Verify and decode authentication headers with enhanced security
+        :param headers: authentication headers to verify
+        :param data: optional data to verify hash against
+        :param max_age: maximum age override
+        :param check_nonce: whether to check nonce for replay attacks
         """
         crypto_type = headers.get('crypto_type', self.crypto_type)
         current_time = time.time()
         
-        # Expiry validation
+        # Check expiry if present
         if 'expiry' in headers:
             expiry = float(headers['expiry'])
             assert current_time < expiry, f'Token expired at {expiry}, current time {current_time}'
         
-        # Age validation
+        # Check age
         age = abs(current_time - float(headers['time']))
         max_age = max_age if max_age is not None else self.max_age
         assert age < max_age, f'Token is stale {age} > {max_age}'
         
-        # Replay attack prevention
+        # Check nonce for replay attacks
         if check_nonce and self.enable_nonce and 'nonce' in headers:
             nonce = headers['nonce']
             assert nonce not in self._used_nonces, 'Nonce already used - possible replay attack'
             self._used_nonces.add(nonce)
-            
-            # Automatic cache cleanup
-            if len(self._used_nonces) > self.nonce_cache_size:
+            # Clean old nonces periodically
+            if len(self._used_nonces) > 10000:
                 self._used_nonces.clear()
         
-        # Cryptographic signature verification
-        verified = self.key.verify(
-            self.get(headers), 
-            signature=headers['signature'], 
-            address=headers['key']
-        )
+        # Verify signature
+        verified = self.key.verify(self.get(headers), signature=headers['signature'], address=headers['key'])
         assert verified, f'Invalid signature {headers}'
         
-        # Data integrity check
+        # Verify data hash if provided
         if data is not None:
             assert headers['data'] == self.hash(data), f'Invalid data hash'
         
         return verified
 
     def get_key(self, key=None):
-        """Retrieve or validate cryptographic key"""
+        """
+        Get the key to use for signing
+        """
         if key is None:
             key = self.key
         else:
@@ -153,20 +129,13 @@ class Auth:
     verify_headers = verify
 
     def _is_identity_hash_type(self):
-        """Check if using identity hash (no hashing)"""
         return self.hash_type in ['identity', None, 'none']
 
     def hash(self, data: Any) -> str:
         """
-        Cryptographic hash with deterministic serialization
-        
-        Args:
-            data: Data to hash
-            
-        Returns:
-            Hexadecimal hash string
+        Hash the data using specified hash algorithm
         """
-        data = json.dumps(data, separators=self.separators, sort_keys=True)
+        data = json.dumps(data, separators=self.separators, sort_keys=True)  # sort_keys for consistency
         if self.hash_type == 'sha256':
             return hashlib.sha256(data.encode()).hexdigest()
         elif self.hash_type == 'sha512':
@@ -177,37 +146,29 @@ class Auth:
             raise ValueError(f'Invalid hash type {self.hash_type}')
 
     def get(self, headers: Dict[str, str]) -> str:
-        """Extract and serialize signature payload"""
+        """Extract signature payload from headers"""
         assert all(k in headers for k in self.signature_keys), f'Missing keys in headers {headers}'
-        return json.dumps(
-            {k: headers[k] for k in self.signature_keys}, 
-            separators=self.separators, 
-            sort_keys=True
-        )
+        return json.dumps({k: headers[k] for k in self.signature_keys}, separators=self.separators, sort_keys=True)
 
     def revoke_nonce(self, nonce: str):
-        """Manually revoke a nonce to prevent reuse"""
+        """Manually revoke a nonce"""
         self._used_nonces.add(nonce)
 
     def clear_nonces(self):
-        """Clear all tracked nonces (use with caution)"""
+        """Clear all tracked nonces"""
         self._used_nonces.clear()
 
     def test(self, key='test.auth', crypto_type='sr25519'):
-        """Comprehensive test suite for Auth functionality"""
+        """Comprehensive test suite"""
         data = {'fn': 'test', 'params': {'a': 1, 'b': 2}}
         auth = Auth(key=key, crypto_type=crypto_type)
         
-        # Basic authentication flow
+        # Test basic auth
         headers = auth.forward(data, key=key)
         assert auth.verify(headers, data=data)
         
-        # TTL validation
+        # Test with TTL
         headers_ttl = auth.forward(data, key=key, ttl=120)
         assert auth.verify(headers_ttl, data=data)
         
-        return {
-            'test_passed': True, 
-            'headers': headers, 
-            'features': ['nonce', 'expiry', 'enhanced_hashing', 'replay_protection']
-        }
+        return {'test_passed': True, 'headers': headers, 'features': ['nonce', 'expiry', 'enhanced_hashing']}

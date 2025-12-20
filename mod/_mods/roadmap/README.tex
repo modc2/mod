@@ -1,0 +1,86 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+
+\title{Project Roadmap}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section*{Foundation}
+
+The foundation of our project is the registry system that allows modular integration of various components.
+To register a module you need to use a key and a content dictionary.
+The content dictionary can contain files and folders, where folders are represented by keys with '/' in them.
+The system should be able to compress these folders into single content identifiers (CIDs) recursively.
+Users can update their modules by committing new content, which will replace the existing content for that module.
+This creates a chain of content versions that can be referenced and retrieved, which is what we call a modchain.
+
+\section*{Revenue}
+
+Our revenue will involve a subscription model where users pay for access to premium features and integrations.
+Providers of the service include anyone that is willing to provide a service. Each provider is responsible for calculating the cost of running each of their services which will be debited from the user's account based on usage. If the usage of the services exceeds the subscription limit, the user will be charged overage fees.
+If the user spends less than their subscription limit, they have the choice to roll it into the following month, or enter a lottery by locking their unused subscription into a pool.
+The pool is only accessible by users who have locked their unused subscription amounts. At the end of each month, a random draw will select a winner from the pool, who will receive the total amount in the pool as a reward.
+This encourages users to underspend and avoid overspending their subscription limits, while also providing an incentive to save their unused amounts for a chance to win a larger reward.
+
+\section*{Module Overview}
+
+This roadmap outlines what we want to build and include in our project.
+
+\subsection*{What We Want to Include}
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Model Integration}
+    
+    Models provide the intelligence layer to our platform and include the following integrations:
+    \begin{itemize}
+        \item OpenRouter (priority)
+        \item Anthropic
+        \item OpenAI
+        \item Chutes
+    \end{itemize}
+    
+    \item \textbf{Compute Resources}
+    
+    Compute resources provide the processing power for our platform and include the following integrations:
+    \begin{itemize}
+        \item PrimeIntellect (priority)
+        \item Akash
+        \item Lium (Bittensor)
+    \end{itemize}
+    
+    \item \textbf{DeFi Components}
+    
+    DeFi components provide financial services and data for our platform and include the following integrations:
+    \begin{itemize}
+        \item Price feeds: Uniswap, Raydium, CoinGecko, CoinMarketCap, Binance
+        \item Oracles: Chainlink, Pyth
+        \item Lending: Aave, Gnosis
+        \item Low-risk stables (1-10\% ROI): Aave
+    \end{itemize}
+
+    \item \textbf{Agentic Platform Integrations}
+    \begin{itemize}
+        \item Crew AI
+        \item LangChain
+        \item Swarms
+        \item BabyAGI
+        \item AutoGPT
+        \item MetaGPT
+    \end{itemize}
+\end{itemize}
+
+\subsection*{Next Steps}
+
+\begin{enumerate}
+    \item Start with priority integrations
+    \item Build modular architecture
+    \item Test each component independently
+    \item Integrate and deploy
+\end{enumerate}
+
+\end{document}
