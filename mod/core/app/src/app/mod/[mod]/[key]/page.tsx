@@ -54,7 +54,9 @@ export default function ModulePage() {
           setError('Client not initialized')
           return
         }
+        console.log('Fetching mod:', modName, modKey)
         const data = await client.call('mod', { mod: modName, key: modKey, content: true, schema: true })
+        console.log('Fetched mod data:', data)
         if (user?.key && data.key === user.key) {
           setMyMod(true)
         } else {

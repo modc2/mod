@@ -120,21 +120,19 @@ class Server:
                     params=request['params'], # params of the inputes
                     client=request['client'],
                     result=server_auth['result'],
-                    server= self.gate.generate(server_auth), 
-                    key=self.key)
+                    server= self.gate.generate(server_auth))
             # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
             # save the transaction between the h and server for future auditing
             server_auth['result'] = result
-        tx = self.gate.tx.forward(
+        tx = self.gate.save_tx(
             mod=info["name"],
             fn=request['fn'], # 
             params=request['params'], # params of the inputes
             client=request['client'], # client auth
             result=result,
-            server=self.gate.generate(server_auth), 
-            key=self.key)
+            server=self.gate.generate(server_auth))
         return result
 
     def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
@@ -210,7 +208,6 @@ class Server:
                 print(f'Preparing server: running {fn}()', color='green')
                 getattr(mod_obj, fn)()
                 break
-                
         return True
 
     def serve(self, 
@@ -220,12 +217,14 @@ class Server:
               fns = None, # list of fns to serve, if none, it will be the endpoints of the mod
               key = None, # the key for the server
               remote = False, # whether to run the server remotely
-              daemon = True, 
+              d = True, 
               run_mode = 'hypercorn', # the mode to run the api server
-              dind = False, # whether to run the server in docker in docker
+              pm = 'pm',
               **extra_params 
 
               ):
+
+        
         mod = mod or m.name
         if mod not in [m.name]:
             try:
@@ -239,21 +238,21 @@ class Server:
         port = self.get_port(port, mod=mod)
         params = {**(params or {}), **extra_params}
         if remote:
-            return m.fn('pm/forward')(mod=mod, params=params, port=port, key=key,  daemon=daemon, docker_in_docker=dind)
-        self.mod = m.mod(mod)(**(params or {}))
-        self.key = m.key(key)
-        self.url =  '0.0.0.0:' + str(port)
-        fns = self.get_fns(fns)
-        def get_info(mod, **kwargs):
-            info =  m.info(mod, **kwargs)
-            info['fns'] = fns
-            return info
-        self.mod.info = partial(get_info, mod=mod, key=self.key)
+            return m.fn(f'{pm}/forward')(mod=mod, params=params, port=port, key=key,  daemon=d)
+        self.set_mod(mod=mod, key=key, params=params ,fns = fns)
+
+        # setup the api server
         self.app = FastAPI()
         @self.app.options("/{fn}")
         async def options_handler(fn: str):
             return Response(status_code=204)
-        self.app.add_middleware(CORSMiddleware,allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+        cors_params = {
+            "allow_origins": ["*"],
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
+        self.app.add_middleware(CORSMiddleware, **cors_params)
         def server_fn(fn: str, request: Request):
             fn = fn or 'info'
             try:
@@ -264,10 +263,8 @@ class Server:
                 result =  m.detailed_error(e)
             return result
         self.app.post("/{fn}")(server_fn)
-        print('--- Server Info ---', color='green')
-        shorten_v = lambda fn: fn[:6] + '...' + fn[-4:] if len(fn) > 12 else fn
-        print(self.mod.info().copy(), color='green')
-        print('-------------------', color='green')
+
+        # run the api server
         if run_mode == 'uvicorn':
             import uvicorn
             uvicorn.run(self.app, host='0.0.0.0', port=port)
@@ -280,16 +277,36 @@ class Server:
         else:
             raise Exception(f'Unknown mode {run_mode} for run_api')
 
-    def get_fns(self, fns  = None) -> List[str]: 
-
+    def set_mod(self, mod, key=None, params=None ,fns = None) -> List[str]: 
         """
         get the public functions
         """
+
+        self.config = m.config(mod) or {}
+        self.mod = m.mod(mod)(**(params or {}))
+        self.key = m.key(key)
         fns =  fns or []
         # if no fns are provided, get them from the mod attributes
         if len(fns) == 0:
             for fa in self.fn_attributes:
+                if fa in self.config: 
+                    fns = self.config[fa]
                 if hasattr(self.mod, fa) and isinstance(getattr(self.mod, fa), list):
                     fns = getattr(self.mod, fa) 
+                if len(fns) > 0:
                     break
-        return list(set(fns + self.HELPER_FNS))
+        fns =  list(set(fns + self.HELPER_FNS))
+        print(f'Exposing functions: {fns}', color='green')
+
+        def get_info(mod, **kwargs):
+                info =  m.info(mod, **kwargs)
+                info['fns'] = fns
+                return info
+        self.mod.info = partial(get_info, mod=mod, key=self.key)
+
+        print('--- Server Ixnfo ---', color='green')
+        shorten_v = lambda fn: fn[:6] + '...' + fn[-4:] if len(fn) > 12 else fn
+        print(self.mod.info().copy(), color='green')
+        print('-------------------', color='green')
+
+        return fns

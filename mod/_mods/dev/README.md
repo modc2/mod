@@ -1,167 +1,114 @@
-# Agent Module
+# Dev Module 🚀
 
-The Agent module is an advanced code generation and editing toolkit powered by LLMs. It provides a powerful interface for generating, editing, and managing code through natural language prompts.
+A powerful AI-powered code generation and editing toolkit. Write code with natural language.
 
-## Features
+## Installation
 
-- **Code Generation**: Create code from scratch based on natural language descriptions
-- **Code Editing**: Modify existing codebases with natural language instructions
-- **File Selection**: Find relevant files based on semantic understanding
-- **Function Calling**: Dynamically incorporate function results into prompts
-- **Interactive Workflow**: Preview and confirm changes before applying them
-- **Memory Management**: Maintain context across interactions using short-term and long-term memory
+```bash
+pip install mod
+```
 
 ## Quick Start
 
 ```python
 import mod as c
 
-# Initialize the dev module
+# Initialize
 dev = c.mod('dev')()
 
-# Generate code from a prompt
-dev.forward("Create a Python function that calculates Fibonacci numbers")
+# Generate code from natural language
+dev.forward("Create a REST API with FastAPI")
 
 # Edit existing code
-dev.forward("Add error handling to the function", to="./path/to/file.py")
-
-# Use the toolbox for more guidance
-toolbox = c.mod('tool.toolbox')()
-toolbox.help()
+dev.forward("Add error handling", to="./app.py")
 ```
 
-## Core Components
+## Features
 
-1. **Agent**: Main module for code generation and editing
-2. **Edit**: Specialized module for editing existing code
-3. **Select**: Tool for finding relevant files based on queries
-4. **Toolbox**: Guide and helper for using all dev tools effectively
-5. **Memory**: Tool for maintaining context across interactions
+| Feature | Description |
+|---------|-------------|
+| 🎯 **Code Generation** | Create code from natural language descriptions |
+| ✏️ **Code Editing** | Modify existing files with simple instructions |
+| 🔍 **Smart File Selection** | Find relevant files semantically |
+| 🧠 **Memory Management** | Maintain context across sessions |
+| 🔧 **Function Calling** | Dynamically incorporate function results |
 
-## Usage Examples
+## Core Commands
 
-### Generate a New Module
+### Generate New Code
+```python
+dev.forward("Create a Python class for user authentication")
+```
 
+### Edit Existing Files
+```python
+dev.forward("Add input validation", to="./utils.py")
+```
+
+### Find Relevant Files
+```python
+select = c.mod('tool.select')()
+files = select.forward(options=c.files("./"), query="auth related")
+```
+
+### Use Memory
+```python
+memory = c.mod('tool.memory')()
+memory.add_short_term("context", {"project": "api"})
+dev.set_memory(memory)
+```
+
+## Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model` | `anthropic/claude-3.7-sonnet` | LLM model |
+| `temperature` | `0.7` | Creativity (0-1) |
+| `max_tokens` | `4096` | Response limit |
+| `verbose` | `True` | Detailed output |
+
+## Available Tools
+
+- `cmd` - Execute shell commands
+- `create_file` - Create new files
+- `delete_file` - Remove files
+- `insert_text` - Insert content at anchors
+- `select_files` - Find files by query
+- `summarize` - Generate summaries
+- `web_scraper` - Search the web
+
+## Examples
+
+### Create a REST API
 ```python
 dev.forward(
-    "Create a REST API with endpoints for user management (create, read, update, delete)",
+    "Create a REST API with user CRUD endpoints",
     to="./api"
 )
 ```
 
-### Edit Existing Code
-
+### Add Tests
 ```python
 dev.forward(
-    "Add input validation and error handling to this function",
-    to="./utils/helpers.py"
+    "Write unit tests for this module",
+    to="./utils.py"
 )
 ```
 
-### Find Relevant Files
-
+### Document Code
 ```python
-select = c.mod('tool.select')()
-files = c.files("./project")
-auth_files = select.forward(
-    options=files,
-    query="files related to authentication"
-)
+dev.forward("Add docstrings to all functions: @/get_text ./helpers.py")
 ```
 
-### Function Calling
-
-```python
-dev.forward("Document these functions: @/get_text ./utils/helpers.py")
-```
-
-### Using Memory
-
-```python
-# Initialize the memory tool
-memory = c.mod('tool.memory')()
-
-# Store information in short-term memory
-memory.add_short_term("user_preference", {"theme": "dark", "language": "python"})
-
-# Store information in long-term memory
-memory.add_long_term("project_requirements", {
-    "name": "AI Assistant",
-    "features": ["code generation", "memory management", "file editing"]
-})
-
-# Integrate memory with Agent module
-dev = c.mod('dev')()
-dev.set_memory(memory)
-```
-
-## Advanced Configuration
-
-The Agent module can be configured with various parameters:
-
-- `model`: Choose which LLM to use (default: "anthropic/claude-3.7-sonnet")
-- `temperature`: Control creativity (0.0-1.0)
-- `max_tokens`: Limit the response size
-- `verbose`: Enable/disable detailed output
-
-## Available Tools
-
-The Agent module includes several specialized tools:
-
-- **cmd**: Execute shell commands
-- **create_file**: Create new files with specified content
-- **delete_file/delete_folder**: Remove files or directories
-- **insert_text**: Insert content between anchors in a file
-- **select_files**: Find relevant files based on queries
-- **summarize/summarize_file**: Generate summaries of content
-- **web_scraper**: Search the web for information
-
-## Getting Help
-
-For more detailed guidance, use the Toolbox:
+## Help & Guides
 
 ```python
 toolbox = c.mod('tool.toolbox')()
-
-# General help
-toolbox.help()
-
-# Tool-specific examples
-toolbox.example("dev")
-toolbox.example("edit")
-toolbox.example("select")
-
-# Detailed guides
-toolbox.dev_guide()
-toolbox.edit_guide()
-toolbox.select_guide()
-
-# Quick start guide
-toolbox.quick_start()
-
-# Function calling guide
-toolbox.function_calling_guide()
+toolbox.help()           # General help
+toolbox.quick_start()    # Quick start guide
+toolbox.example("dev")   # Examples
 ```
-
-## Integration with Other Modules
-
-The Agent module is designed to work seamlessly with other modules in the ecosystem:
-
-```python
-# Web scraping integration
-web_scraper = c.mod('web_scraper')()
-results = web_scraper.forward("latest AI developments")
-dev.forward(f"Create a summary of these developments: {results['context']}")
-
-# Memory integration
-memory = c.mod('tool.memory')()
-dev.set_memory(memory)
-```
-
-## Contributing
-
-Contributions to the Agent module are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License

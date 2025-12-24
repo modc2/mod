@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  contracts:
+    build:
+      context: ./contracts
+      dockerfile: Dockerfile
+    container_name: newma-contracts
+    environment:
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - BASE_RPC_URL=${BASE_RPC_URL}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+    volumes:
+      - ./contracts:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: newma-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+    depends_on:
+      - contracts
+
+volumes:
+  contracts_modules:
+  frontend_modules:

@@ -15,10 +15,7 @@ print = m.print
 
 class Gate:
 
-    def __init__(
-        self, 
-        path = '~/.mod/server', # the path to store the server data
-        **_kwargs):
+    def __init__(self, path = '~/.mod/server',  **_kwargs):
         self.loop = m.loop()
         self.store = m.mod('store')(path)
         self.auth = m.mod('auth')()
@@ -27,17 +24,30 @@ class Gate:
         self.generate = self.auth.forward
         self.verify = self.auth.verify
         self.save_tx = self.tx.forward
+        self.ensure_role_map()
+
+
+    def ensure_role_map(self):
+        role2data = self.role2data()
+        if 'owner' not in role2data:
+            self.add_role('owner', {'fns': ['*']})
+
+    def verify(self, headers):
+        headers = self.auth.verify(headers)
+
 
     def forward(self, fn:str, request, info:dict) -> dict:
         """
         process the request
         """
-        headers = self.verify(dict(request.headers) )
+        headers = dict(request.headers)
+        print('Gate.forward headers=', headers)
+        headers = self.verify(headers)
+        
         assert self.is_user(info['name'], headers['key']), f"User {headers['key']} for Mod {info['name']} is not a user"
         assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
         params = self.loop.run_until_complete(request.json())
-        if isinstance(params, str):
-            params = json.loads(params)
+        params = json.loads(params) if isinstance(params, str) else params
         return  {
                     'fn': fn, 
                     'params': params, 
@@ -108,4 +118,29 @@ class Gate:
 
     def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
         return self.tx.txs( *args, **kwargs)
+
+
+    role2data_path = 'role2data'
+
+    def role2data(self):
+        return self.store.get(self.role2data_path, {})
+
+    def add_role(self, role:str = 'owner', data:dict = {'fns': ['*']}):
+        role2data = self.role2data()
+        role2data[role] = data
+        self.store.put(self.role2data_path, role2data)
+        return role2data
+    
+    def reset_roles(self):
+        self.store.put(self.role2data_path, {})
+
+    role_registry_path = 'role_registry'
+
+    def set_user_role(self, role:str, user:str):
+        registry = self.store.get(self.role_registry_path, {})
+
+    def role_registry(self):
+        path = 'role_registry'
+        return  self.store.get(path, {})
+
         

@@ -15,46 +15,7 @@ from tqdm import tqdm
 from .utils import new_event_loop, detailed_error, wait
 from scalecodec.utils.ss58 import  is_valid_ss58_address
 import mod as m
-
-
-
-class Task:
-    def __init__(self, 
-                fn:Union[str, callable],
-                params:dict, 
-                timeout:int=10, 
-                path = None, 
-                value:int=1,
-                **extra_kwargs):
-        
-        self.fn = fn if callable(fn) else lambda *args, **kwargs: fn
-        self.params = params or {}
-        self.start_time = time.time() # the time the task was created
-        self.timeout = timeout # the timeout of the task
-        self.path = os.path.abspath(path) if path != None else None
-        self.status = 'pending' # pending, running, done
-        self.future = Future()
-        self.value = value
-        add_future_attributes = ['_condition', '_state', '_waiters', 'cancel', 'running', 'done', 'result']
-        for attr in add_future_attributes:
-            setattr(self, attr, getattr(self.future, attr)) 
-
-    def run(self):
-        """Run the given work item"""
-        if (not self.future.set_running_or_notify_cancel()) or (time.time() - self.start_time) > self.timeout:
-            self.future.set_exception(TimeoutError('Task timed out'))
-        try:
-            result = self.fn(**self.params)
-            self.status = 'complete'
-        except Exception as e:
-            result = detailed_error(e)
-            self.status = 'failed'
-        self.future.set_result(result)
-
-    def __lt__(self, other):
-        return self.value < other.value
-
-NULL_TASK = (sys.maxsize, Task(None, {}))
+from .task import Task
 
 class Executor:
     """Base threadpool executor with a value queue"""
@@ -147,7 +108,7 @@ class Executor:
         # When the executor gets lost, the weakref callback will wake up
         # the worker threads.
         def weakref_cb(_, q=self.task_queue):
-            q.put(NULL_TASK)
+            q.put(Task.null())
 
         num_threads = len(self.threads)
         if num_threads < self.max_workers:
@@ -168,7 +129,7 @@ class Executor:
     def shutdown(self, wait=True):
         with self.shutdown_lock:
             self.shutdown = True
-            self.task_queue.put(NULL_TASK)
+            self.task_queue.put(Task.null())
         if wait:
             for t in self.threads:
                 try:
@@ -186,7 +147,7 @@ class Executor:
 
                 if value == sys.maxsize:
                     # Wake up queue management thread.
-                    task_queue.put(NULL_TASK)
+                    task_queue.put(Task.null())
                     break
 
                 item = work_item[1]
@@ -205,7 +166,7 @@ class Executor:
                     if executor is not None:
                         executor.shutdown = True
                     # Notice other workers
-                    task_queue.put(NULL_TASK)
+                    task_queue.put(Task.null())
                     return
                 del executor
         except Exception as e:

@@ -7,16 +7,15 @@ from copy import deepcopy
 import mod as c
 print = c.print
 
-
 class Vali:
     endpoints = ['score', 'scoreboard']
     def __init__(self,
                     network= 'local', # for local chain:test or test # for testnet chain:main or main # for mainnet
                     search : Optional[str] =  None, # (OPTIONAL) the search string for the network 
                     batch_size : int = 12, # the batch size of the most parallel tasks
-                    task : str= 'vali.task', # score function
+                    task : str= None,
                     params = None, # the parameters for the task
-                    key : str = 'vali', # the key for the module
+                    key : str = None, # the key for the module
                     tempo : int = 60, # the time between epochs
                     timeout : int = 32, # timeout per evaluation of the module
                     update : bool =False, # update during the first epoch
@@ -34,7 +33,7 @@ class Vali:
         self.verbose = verbose
         self.search = search
         self.set_key(key)
-        self.set_task(task)
+        self.task = task or self.task
         self.auth = c.mod('auth')()
         self.set_network(network=network, subnet=subnet, tempo=tempo,  search=search,  path=path, update=update)
         if loop:
@@ -67,20 +66,11 @@ class Vali:
         self.storage_path = self.get_path(self.network + '/' + self.network)
         self.search = search or self.search
         self.net = c.mod(self.network)() 
-        # create some extra helper mappings
-        self.mods = self.net.mods(search=search,  update=update)
-        print(f'NETWORK({self.network}) FOUND {len(self.mods)} MODULES', color='green')
-        self.namespace = {m['name']: m['url'] for m in self.mods if 'name' in m and 'url' in m}
+        self.mods = [m for m in c.wait([ c.submit(c.call, {'fn': url}, timeout=10) for url in self.net.urls()]) if 'error' not in m]
         self.key2module = {m['key']: m for m in self.mods if 'key' in m}
         self.name2module = {m['name']: m for m in self.mods if 'name' in m}
         self.url2module = {m['url']: m for m in self.mods if 'url' in m}
         return self.network
-    
-    def set_task(self, task: Union[str, 'callable', int]):
-        self.task = c.mod(task)()
-        assert hasattr(self.task, 'forward'), f'Task {task} does not have a forward method'
-        self.task.info = {'name': self.task.__class__.__name__}
-        return self.task.info
 
     def get_path(self, path):
         return os.path.expanduser(f'~/.commune/vali/{path}')
@@ -105,41 +95,16 @@ class Vali:
             except Exception as e:
                 c.print('XXXXXXXXXX EPOCH ERROR ----> XXXXXXXXXX ',c.detailed_error(e), color='red')
 
-    def get_module(self, module:Union[str, dict]):
-        if isinstance(module, str):
-            if module in self.url2module:
-                module = self.url2module[module]
-            elif module in self.name2module:
-                module = self.name2module[module]
-            elif module in self.key2module:
-                module = self.key2module[module]
-            else:
-                raise ValueError(f'Module {module} not found in url2module, name2module or key2module')
-        if isinstance(module, dict):
-            assert all(k in module for k in ['url', 'key']), f'Module {module} does not have url and key'
-        return module
-
     def forward(self, module:Union[str, dict], **params):
-        module = self.get_module(module)
         t0 = c.time()
-        try:
-            score = self.task.forward( c.client(url=module['url'], key=self.key), **params)
-            msg = f'SUCCESS({module["name"]} url={module["url"]} score={score})'
-            color = 'green'
-        except Exception as e:
-            msg = f'ERROR({module["name"]} url={module["url"]} error={c.detailed_error(e)})'
-            color = 'red'
-            score = 0
-        if self.verbose:
-            c.print(msg, color=color)
         module['params'] = params
-        module['score'] = score
+        module['score'] = self.task(c.client(url=module['url'], key=self.key), **params)
         module['time'] = c.time()
         module['duration'] = c.time() - t0
         proof_data = c.copy(module)
         module['proof'] = self.auth.headers(proof_data, key=self.key)
         proof = module.get('proof', None)
-        assert self.auth.verify(proof, data=proof_data), f'Invalid Proof {proof}'
+        assert self.auth.verify(proof), f'Invalid Proof {proof}'
         path = self.get_module_path(module['key'])
         c.put_json(path, module)
         return module
@@ -147,46 +112,32 @@ class Vali:
     def get_module_path(self, module:str):
         return self.storage_path + '/' + module + '.json'
 
-    def module_results(self, module: Union[str, dict]):
-        path = self.get_module_path(module)
-        return c.get_json(path)
-
-    def epoch(self, search=None, result_features=['score',  'name'], key=None, **kwargs):
+    def epoch(self, search=None, result_features=['score',  'name', 'cid'], key=None, debug=False, df=True, **kwargs):
         self.set_network(search=search, **kwargs)
         n = len(self.mods)
         if key:
             self.set_key(key)
         batches = [self.mods[i:i+self.batch_size] for i in range(0, n, self.batch_size)]
-        print(f'Running epoch {self.epochs} with {n} modules in {len(batches)} batches of size {self.batch_size}')
         num_batches = len(batches)
         results = []
-        filter_result = lambda x: isinstance(x, dict) and 'score' in x and x['score'] > 0
         for i, batch in enumerate(batches):
             futures = []
+            print(f'Starting batch {i+1}/{num_batches} with {len(batch)} modules...')
+            names = []
             for m in batch:
-                print(f'Batch {i}/{num_batches} {m["name"]} {m["url"]}')
                 future = c.submit(self.forward, {"module": m} , timeout=self.timeout)
                 futures.append(future)
-            try:
-                batch_results = c.wait(futures, timeout=self.timeout)
-                results.extend(batch_results)
-            except TimeoutError as e:
-                print(f'Timeout in batch {i} for module {future2module[future]}')
+            results.extend(c.wait(futures, timeout=self.timeout))
         self.epochs += 1
         self.epoch_time = c.time()
         self.vote(results)
-        if len(results) > 0:
-            df = c.df(results)
-            return df[result_features]
-        else:
-            epoch_info = {
-                'epochs' : self.epochs,
-                'task': self.task.info['name'],
-                'key': self.key.key_address,
-                'batch_size': self.batch_size,
-            }
-
-            return c.df([{'success': False, 'msg': 'No results to vote on', 'epoch_info': epoch_info}])
+        if debug: 
+            results =  [r for r in results if 'error' in r]
+        else: 
+            results =  [r for r in results if 'error' not in r]
+        if df:
+            return c.df(results)[result_features]
+        return results
 
     @property
     def vote_staleness(self):
@@ -253,5 +204,12 @@ class Vali:
         c.rm(path)
         return {'success': True, 'msg': 'Leaderboard removed', 'path': path}
 
-    def tasks(self):
-        return c.mods(search='task.')
+
+    def task(self,  mod,  fn='info', params={}) -> float:
+        mod = c.connect(mod) if isinstance( mod, str) else mod
+        result =  getattr(mod, fn)(**params)
+        if 'cid' in result and isinstance(result, dict) :
+            score =  1
+        else:
+            score =  0
+        return float(score)

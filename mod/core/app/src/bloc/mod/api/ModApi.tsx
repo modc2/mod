@@ -120,7 +120,11 @@ export const ModApi = ({ mod }: { mod: any }) => {
         setLoading(false);
         return;
       }
-        const res = await client.call(selectedFunction, params);
+        let call_params = {
+          'fn': mod.name + '/' + selectedFunction,
+          'params': params
+        }
+        const res = await client.call('call', call_params);
         setResponse(res);
         setAuthHeaders({
           'X-Function': selectedFunction,

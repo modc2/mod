@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  x402-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "50149:50149"
+    environment:
+      - RECEIVER_ADDRESS=${RECEIVER_ADDRESS:-YourSolanaAddressHere}
+      - NETWORK=${NETWORK:-solana}
+      - PRICE=${PRICE:-1}
+      - CURRENCY=${CURRENCY:-USDC}
+      - WHITELIST_MODE=${WHITELIST_MODE:-offchain}
+      - WHITELIST_CONTRACT=${WHITELIST_CONTRACT:-}
+      - WHITELIST_RPC=${WHITELIST_RPC:-https://mainnet.base.org}
+      - OFFCHAIN_WHITELIST_URL=${OFFCHAIN_WHITELIST_URL:-}
+      - FACILITATOR_URL=${FACILITATOR_URL:-https://x402.org/facilitator}
+    volumes:
+      - ./whitelist.json:/app/whitelist.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:50149/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports:
+      - "8545:8545"
+    command: --deterministic --accounts 10 --host 0.0.0.0
+    profiles:
+      - dev
+
+networks:
+  default:
+    name: x402-network

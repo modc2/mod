@@ -523,21 +523,25 @@ class PM:
             stats = []
             for k, v in data.iterrows():
                 row = {header: v[header] for header in headers}
-                if 'MEM USAGE / LIMIT' in row:
-                    mem_usage, mem_limit = row.pop('MEM USAGE / LIMIT').split('/')
-                    row['MEM_USAGE'] = mem_usage
-                    row['MEM_LIMIT'] = mem_limit
-                row['ID'] = row.pop('CONTAINER ID')
+                try:
 
-                for prefix in ['NET', 'BLOCK']:
-                    if f'{prefix} I/O' in row:
-                        net_in, net_out = row.pop(f'{prefix} I/O').split('/')
-                        row[f'{prefix}_IN'] = net_in
-                        row[f'{prefix}_OUT'] = net_out
-                
-                row = {_k.lower(): _v for _k, _v in row.items()}
-                stats.append(row)
-                self.store.put(path, stats)
+                    if 'MEM USAGE / LIMIT' in row:
+                        mem_usage, mem_limit = row.pop('MEM USAGE / LIMIT').split('/')
+                        row['MEM_USAGE'] = mem_usage
+                        row['MEM_LIMIT'] = mem_limit
+                    row['ID'] = row.pop('CONTAINER ID')
+
+                    for prefix in ['NET', 'BLOCK']:
+                        if f'{prefix} I/O' in row:
+                            net_in, net_out = row.pop(f'{prefix} I/O').split('/')
+                            row[f'{prefix}_IN'] = net_in
+                            row[f'{prefix}_OUT'] = net_out
+                    
+                    row = {_k.lower(): _v for _k, _v in row.items()}
+                    stats.append(row)
+                    self.store.put(path, stats)
+                except Exception as e :
+                    continue
         if not df:
             return stats
         return m.df(stats)
@@ -810,7 +814,7 @@ class PM:
             namespace = {k:v for k,v in namespace.items() if search in k}
         return namespace
 
-    def urls(self, search=None, mode='http') -> List[str]:
+    def urls(self, search=None) -> List[str]:
         return list(self.namespace(search=search).values())
 
     def start_docker_daemon(self, wait_time=5):

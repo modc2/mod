@@ -62,7 +62,7 @@ class Mod:
         self.core_path = '/'.join(__file__.split('/')[:-1])
         module_path_options = ['mods', 'modules', '_mods', '_modules', 'locals']
         self.mods_path = list(filter(lambda x: os.path.exists(x), [f'{self.mod_path}/{option}' for option in module_path_options]))[0] # the path to the mods
-        self.ext_path = f'{self.mod_path}/_ext' # the path to the external mods
+        self.ext_path = f'{self.mods_path}/_ext' # the path to the external mods
         self.home_path  = os.path.expanduser('~')
         config =self.config()
         self.name  = config['name']
@@ -609,6 +609,13 @@ class Mod:
             v = self.encrypt(v, password=password)
         data = {'data': v, 'encrypted': encrypt, 'timestamp': time.time()}    
         return self.put_json(k, data)
+
+
+    def isipfs(self, text: str) -> bool:
+        '''
+        Check if the text is an ipfs hash
+        '''
+        return isinstance(text, str) and (text.startswith('Qm') and len(text) == 46)
     
     def get(self,
             k:str, 
@@ -622,7 +629,12 @@ class Mod:
         '''
         Puts a value in sthe config, with the option to encrypt it
         Return the value
+        
         '''
+        
+        if self.isipfs(k):
+            return self.fn('ipfs/get')(k)
+
         k = self.get_path(k)
         data = self.get_json(k, default=default, **kwargs)
         if password != None:
@@ -1135,13 +1147,12 @@ class Mod:
         '''
         Returns true if the mod exists
         '''
+        mod_exists = False
         try:
             mod = self.get_name(mod)
-            tree = self.tree()
-            mods = list(tree.keys())
-            mod_exists = mod in mods
-            if not mod_exists:
-                mod_exists = len([m for m in mods if mod in m]) == 1
+            search_tree = self.search_tree(mod)
+            if len(search_tree) > 0:
+                mod_exists =  True
         except Exception as e:
             mod_exists =  False
         if not mod_exists:
@@ -1305,7 +1316,7 @@ class Mod:
     def mods_tree(self, search=None,  depth=8,**kwargs): 
         return self.get_tree(self.mods_path, search=search, depth=depth, **kwargs)
 
-    def ext_tree(self, search=None, depth=2, **kwargs):
+    def ext_tree(self, search=None, depth=3, **kwargs):
         return self.get_tree(self.ext_path, depth=depth,  search=search, **kwargs )
 
     def ext_mods(self, search=None, **kwargs):
@@ -1432,12 +1443,12 @@ class Mod:
         self.ext_tree(update=True)
         return self.files(dirpath)
 
-    def addmod(self,  path  , name=None, base='base', update=True):
+    def addmod(self,  path  , name=None, base='base', update=True, external=True):
         """
         make a new mod
         """
         name = name or path.split('/')[-1]
-        mods_path = self.mods_path
+        mods_path = self.ext_path if external else self.mods_path
         dirpath = mods_path + '/' + name.replace('.', '/')
         mod_name = dirpath.split('/')[-1]
         for k,v in self.content(base).items():
@@ -1786,4 +1797,10 @@ class Mod:
 
     def tool(self, tool_name: str='cmd', *args, **kwargs) -> Any:
         return self.mod(tool_name)(*args, **kwargs).forward
+
+    def sand(self):
+        params={'mod': 'agent', 'key': 
+'5DLNRttvU9w1pGphUb9w1pqFTBdAa2uAhb8PG5ruGR6raTbG', 'content': True, 'schema': 
+True}
+        return self.call('api/mod', params=params)
 

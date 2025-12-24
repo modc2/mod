@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {  UsersIcon, CubeIcon, ComputerDesktopIcon, HomeIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
+import {  UsersIcon, CubeIcon,  HomeIcon, Cog6ToothIcon, TableCellsIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useRef, useEffect } from 'react'
 import { useSidebarContext } from '@/bloc/context/SidebarContext'
@@ -13,7 +13,7 @@ const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
   { name: 'Mods', href: '/mod/explore', icon: CubeIcon },
   { name: 'Users', href: '/user/explore', icon: UsersIcon },
-  { name: 'Hosts', href: '/host', icon: ComputerDesktopIcon },
+  { name: 'Transactions', href: '/host', icon: TableCellsIcon },
 ]
 
 const FIXED_WIDTH = 80

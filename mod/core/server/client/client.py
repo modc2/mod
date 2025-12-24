@@ -35,9 +35,21 @@ class Client:
                 stream: bool = True,
                 **extra_kwargs 
     ):
-        url = self.get_url(fn)
+    
+        if '/' in str(fn):
+            url, fn = '/'.join(fn.split('/')[:-1]), fn.split('/')[-1]
+            if len(fn) == 0:
+                fn = self.fn
+        else :
+            if self.url is None:
+                url = fn
+                fn= self.fn
+            else:
+                url = self.url
+        url = self.namespace.get(url, url)
+        url = f'{self.mode}://{url}' if not url.startswith(self.mode) else url
+        url =  url + '/' + fn 
         key = self.get_key(key)
-        fn = url.split('/')[-1]
         params = {**(params or {}), **extra_kwargs}
         headers = self.auth.headers({'fn': fn, 'params': params}, key=key, cost=cost)
         return self.send_request(url, params, headers, timeout=timeout, stream=stream)
@@ -85,23 +97,6 @@ class Client:
             key = m.get_key(key)
         return key
 
-    def get_url(self, fn='info'):
-        """
-        gets the url and makes sure its legit
-        """
-        if '/' in str(fn):
-            url, fn = '/'.join(fn.split('/')[:-1]), fn.split('/')[-1]
-            if len(fn) == 0:
-                fn = self.fn
-        else :
-            if self.url is None:
-                url = fn
-                fn= self.fn
-            else:
-                url = self.url
-        url = self.namespace.get(url, url)
-        url = f'{self.mode}://{url}' if not url.startswith(self.mode) else url
-        return url + '/' + fn 
 
     def get_mod_from_url(self, url:str):
         """

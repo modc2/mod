@@ -9,18 +9,7 @@ from datetime import datetime
 from copy import deepcopy
 import time
 
-class TxType:
-    mod: str
-    fn: str
-    params: dict
-    result: dict
-    client: dict  # client auth
-    server: dict  # server auth
-
-
 class Tx:
-
-
     tx_schema = {
                     'mod': str,
                     'fn': str,
@@ -34,36 +23,25 @@ class Tx:
         self.store = m.mod('store')(path)
 
     def forward(self, 
-                 mod:str = 'mod', 
-                 fn:str = 'forward', 
-                 cost = 0,
-                 params:dict = {}, 
-                 result:Any = {}, 
-                 auths = {},
-                 key = None,
-                 client= None,
-                 server= None
+                 mod:str, 
+                 fn:str , 
+                 params:dict , 
+                 result:Any, 
+                 client : dict,
+                 server : dict,
+                 cost : float= 0,
                  ):
-
         """ 
         create a transaction
         """
-
-        if client is None or server is None: 
-            auths = self.get_auths(mod, fn, params, result, key=key)
-        else: 
-            if client is not None:
-                auths['client'] = client
-            if server is not None:
-                auths['server'] = server
         tx = {
             'mod': mod, # the mod name (str)
             'fn': fn, # the function name (str)
             'params': params, # the params is the input to the function  (dict)
             'cost': cost, # the cost of the function (float)
             'result': result, # the result of the function (dict)
-            'client': auths['client'], # the client auth (dict)
-            'server': auths['server'], # the server auth (dict)
+            'client': client, # the client auth (dict)
+            'server': server, # the server auth (dict)
         }
         path =  f'{tx["mod"]}/{tx["client"]["key"]}/{tx["fn"]}_{tx["client"]["time"]}'
         return self.store.put(path, tx)
@@ -77,11 +55,8 @@ class Tx:
         DANGER: This will permanently remove all transactions from the store.
         remove the transactions
         """
-        paths = self.store.paths()
-        for p in self.store.paths():
-            self.store.rm(p)
-        new_paths = self.store.paths()
-        assert len(new_paths) == 0, f'Failed to remove all transactions. Remaining paths: {new_paths}'
+        [self.store.rm(p) for p in self.store.paths()]
+        assert len( self.store.paths()) == 0, f'Failed to remove all transactions'
         return {'status': 'success', 'message': 'All transactions removed successfully', 'removed_paths': paths}
 
     def is_tx(self, tx):
@@ -92,8 +67,10 @@ class Tx:
             tx = self.store.get(tx)
         if not isinstance(tx, dict):
             return False
+        
         if not all([key in tx for key in self.tx_schema]):
             return False
+
         return True
 
     def txs(self, 
@@ -131,9 +108,3 @@ class Tx:
             result = result.sort_values(by='time', ascending=False)
             result = result[features]
         return result
-
-    def n(self):
-        """
-        Get the number of transactions
-        """
-        return len(self.store.items())

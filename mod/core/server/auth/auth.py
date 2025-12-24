@@ -47,7 +47,8 @@ class Auth:
             'key': key.address,
         }
         result['signature'] = key.sign(self.sig_data(result), mode='str')
-        return result
+        token = self._base64url_encode(result)
+        return {'token': token}
 
     generate = forward = headers
 
@@ -56,6 +57,8 @@ class Auth:
         Verify and decode a JWT token
         provide the data if you want to verify the data hash
         """
+        if 'token' in headers:
+            headers = json.loads(self._base64url_decode(headers['token']))
         age = abs(time.time() - float(headers['time']))
         assert age < self.max_age, f'Token is stale {age} > {self.max_age}'
         verified = self.key.verify(self.sig_data(headers), signature=headers['signature'], address=headers['key'])
@@ -93,3 +96,17 @@ class Auth:
         assert auth.verify(headers), 'Auth test failed'
         return {'test_passed': True, 'headers': headers}
 
+
+    def _base64url_encode(self, data):
+        """Encode data in base64url format"""
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        elif isinstance(data, dict):
+            data = json.dumps(data, separators=(',', ':')).encode('utf-8')
+        encoded = base64.urlsafe_b64encode(data).rstrip(b'=')
+        return encoded.decode('utf-8')
+    
+    def _base64url_decode(self, data):
+        """Decode base64url data"""
+        padding = b'=' * (4 - (len(data) % 4))
+        return base64.urlsafe_b64decode(data.encode('utf-8') + padding)

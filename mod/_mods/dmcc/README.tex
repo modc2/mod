@@ -6,58 +6,75 @@
 \usepackage{enumitem}
 \usepackage{graphicx}
 \usepackage{xcolor}
-\usepackage{tcolorbox}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
 
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue,
-    urlcolor=blue,
-    citecolor=blue
-}
+% Color definitions
+\definecolor{modblue}{RGB}{41, 98, 255}
+\definecolor{modgray}{RGB}{100, 100, 100}
 
-\title{\textbf{\LARGE DMCC Business Model Clarification}\\[0.5em]\large Mod Protocol FZE}
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{modgray}{\small Mod Protocol FZE}}
+\fancyhead[R]{\textcolor{modgray}{\small Business Model Clarification}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Section formatting
+\titleformat{\section}{\Large\bfseries\color{modblue}}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{}{0em}{}
+
+\title{\textbf{\textcolor{modblue}{DMCC Business Model Clarification}}\\[0.5em]\large Mod Protocol FZE}
 \author{}
 \date{5 December 2025}
 
 \begin{document}
 
 \maketitle
+\thispagestyle{fancy}
 
-\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=Subject]
-Clarification of Business Model – Mod Protocol FZE (Application Ref: [Pending])
-\end{tcolorbox}
+\section*{Subject}
+Clarification of Business Model --- Mod Protocol FZE (Application Ref: [Pending])
 
-\section{Business Model}
+\section{Business Model Overview}
 
-\textbf{Mod Protocol FZE} is a software development and licensing company building \textbf{Mod}, a Layer-0 interoperability and orchestration protocol enabling developers and AI agents to discover, verify, and compose modular components (``modules'') across blockchains, cloud providers, and AI systems.
+\textbf{Mod Protocol FZE} is a software development and licensing company building \textbf{Mod}, a Layer-0 interoperability and orchestration protocol. The protocol enables developers and AI agents to discover, verify, and compose modular components (``modules'') across blockchains, cloud providers, and AI systems.
 
 All interactions on the protocol occur \textbf{on-chain} and are fully \textbf{non-custodial}. Users interact directly with smart contracts from their own wallets. Mod Protocol FZE does \textbf{not} custody, manage, or control user assets.
 
-\subsection{L1 Network Operations}
+\subsection*{L1 Network Operations}
 
 Mod Protocol FZE operates and maintains core components of the Mod Layer-1 blockchain infrastructure, including validator nodes, indexing software, and orchestration services. These operations are \textbf{purely technical} and do not involve handling client funds or providing any regulated virtual asset service.
 
-\paragraph{Key characteristics:}
+\textbf{Key Characteristics:}
 \begin{itemize}[noitemsep]
-    \item The L1 processes module execution and metering through transparent on-chain logic.
-    \item Mod Protocol FZE operates infrastructure nodes but does \textbf{not} intermediate, route, or control user transfers.
-    \item All token movements occur directly between users and smart contracts; the company cannot access or move user assets.
-    \item The company provides software reliability, uptime, and protocol maintenance similar to running blockchain validator or indexing services.
+    \item The L1 processes module execution and metering through transparent on-chain logic
+    \item Mod Protocol FZE operates infrastructure nodes but does \textbf{not} intermediate, route, or control user transfers
+    \item All token movements occur directly between users and smart contracts; the company cannot access or move user assets
+    \item The company provides software reliability, uptime, and protocol maintenance similar to running blockchain validator or indexing services
 \end{itemize}
 
-\subsection{Revenue Model}
+\subsection*{Revenue Model}
 
-\subsubsection{User Subscription}
+\subsubsection*{User Subscription (Credit-Based System)}
 
-Users pay the protocol a subscription fee that expires in 1 month. This fee is credited to the protocol to debit when the user uses tools that require resources and costs to run. These tools are run by the company or by third-party providers. 
+Users pay the protocol a subscription fee that expires after one month. This fee serves as credit that the protocol debits when the user utilizes tools requiring resources and operational costs. These tools are operated by the company or third-party providers.
 
-\textbf{Example:} Alice wants to use a model on our platform. She buys a \$10 subscription for the month and uses the model which costs us \$1 to run. Once Alice runs the model, she will be debited \$1 from her subscription balance and will have \$9 remaining.
+\textbf{Example:} Alice purchases a \$10 monthly subscription. She uses a model that costs \$1 to run. Upon execution, \$1 is debited from her subscription balance, leaving \$9. When her balance is depleted, she may purchase a new subscription.
 
-\subsubsection{Business Licensing}
+This credit-based subscription model ensures sustainable resource allocation while preventing platform overuse.
 
-We will be approaching businesses and governments that want to build AI systems that are transparent and privacy-focused to optimize costs and transparency for public-facing purposes. This will involve installing and supporting chain and infrastructure for mining services, AI services, and businesses that want to use our technology to manage digital services efficiently.
+\subsubsection*{Business Licensing}
 
-\subsection{What We Are NOT}
+We engage with businesses and governments seeking to build transparent, privacy-focused AI systems. Our services include:
+\begin{itemize}[noitemsep]
+    \item Installation and support of blockchain infrastructure
+    \item Mining and AI services deployment
+    \item Enterprise solutions for efficient digital service management
+\end{itemize}
+
+\subsection*{What We Are NOT}
 \begin{itemize}[noitemsep]
     \item Exchange
     \item Custodian
@@ -67,26 +84,26 @@ We will be approaching businesses and governments that want to build AI systems 
     \item Public token issuer
 \end{itemize}
 
-\subsection{What We ARE}
+\subsection*{What We ARE}
 A \textbf{software development, infrastructure, and licensing company} that:
 \begin{itemize}[noitemsep]
-    \item develops and operates blockchain infrastructure,
-    \item maintains the Mod Layer-1 network and module marketplace,
-    \item licenses enterprise versions of the software,
-    \item earns non-custodial software fees,
-    \item does not perform any VARA-regulated VASP activities.
+    \item Develops and operates blockchain infrastructure
+    \item Maintains the Mod Layer-1 network and module marketplace
+    \item Licenses enterprise versions of the software
+    \item Earns non-custodial software fees
+    \item Does not perform any VARA-regulated VASP activities
 \end{itemize}
 
 \section{Target Customers \& Partners}
 
-\subsection{Primary Customers}
+\subsection*{Primary Customers}
 \begin{itemize}[noitemsep]
     \item Independent developers (AI agents, dApps, automation systems)
     \item Web3 teams requiring modular infrastructure
     \item Enterprises seeking private/hybrid deployments (Q1 2026)
 \end{itemize}
 
-\subsection{Key Partners}
+\subsection*{Key Partners}
 \begin{itemize}[noitemsep]
     \item LLM providers (Universal LLM Router)
     \item Solana, Base, and Ethereum Layer-2 ecosystems
@@ -99,40 +116,43 @@ A \textbf{software development, infrastructure, and licensing company} that:
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{@{}p{3.5cm}p{5cm}p{2.5cm}p{2.5cm}@{}}
+\begin{tabular}{@{}p{3.2cm}p{5.2cm}p{2.3cm}p{2.3cm}@{}}
 \toprule
 \textbf{Entity} & \textbf{Role} & \textbf{Jurisdiction} & \textbf{Ownership} \\
 \midrule
 Mod Protocol FZE & Operates L1 infrastructure, develops software, licenses enterprise deployments, receives revenue & Dubai, UAE & 100\% founder \\
-Mod Protocol (on-chain) & Blockchain network powering module execution; FZE operates nodes but users interact directly with smart contracts & Multi-chain & N/A (blockchain network) \\
-MOD Token & Utility/governance token for protocol fees and staking & Multi-chain & No pre-mine; vesting 2--4 years \\
+\addlinespace
+Mod Protocol (on-chain) & Blockchain network powering module execution; FZE operates nodes but users interact directly with smart contracts & Multi-chain & N/A \\
+\addlinespace
+MOD Token & Utility/governance token for protocol fees and staking & Multi-chain & No pre-mine; 2--4 year vesting \\
 \bottomrule
 \end{tabular}
-\caption{Commercial Structure Overview}
 \end{table}
 
 \section{Important Notes}
 
 \begin{itemize}[noitemsep]
-    \item Mod Protocol FZE does \textbf{not} custody or manage user funds.
-    \item No exchange, brokerage, payment processing, or lending functions are performed.
-    \item MOD token is a utility/governance token; not sold or issued by the DMCC entity.
-    \item Any future token events will be conducted through \textbf{VARA-licensed entities}.
+    \item Mod Protocol FZE does \textbf{not} custody or manage user funds
+    \item No exchange, brokerage, payment processing, or lending functions are performed
+    \item MOD token is a utility/governance token; not sold or issued by the DMCC entity
+    \item Any future token events will be conducted through \textbf{VARA-licensed entities}
 \end{itemize}
 
 \section*{Key Points for DMCC}
 
 \begin{itemize}[noitemsep]
-    \item[✓] Mod Protocol FZE is a software and infrastructure operator.
-    \item[✓] Operating the L1 is a technical activity, not a regulated financial service.
-    \item[✓] No custody, no exchange, no transfer intermediation.
-    \item[✓] All protocol fees are non-custodial and executed on-chain.
-    \item[✓] MOD token is utility-only and handled outside the DMCC entity.
+    \item[$\checkmark$] Mod Protocol FZE is a software and infrastructure operator
+    \item[$\checkmark$] Operating the L1 is a technical activity, not a regulated financial service
+    \item[$\checkmark$] No custody, no exchange, no transfer intermediation
+    \item[$\checkmark$] All protocol fees are non-custodial and executed on-chain
+    \item[$\checkmark$] MOD token is utility-only and handled outside the DMCC entity
 \end{itemize}
 
-\vspace{1cm}
+\vspace{1.5cm}
 \begin{center}
-\textit{\large Mod Protocol FZE — Building universal interoperability for the decentralized web.}
+\textcolor{modblue}{\rule{0.6\textwidth}{0.5pt}}
+\\[0.5em]
+\textit{Mod Protocol FZE --- Building universal interoperability for the decentralized web.}
 \end{center}
 
 \end{document}

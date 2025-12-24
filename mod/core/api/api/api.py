@@ -16,27 +16,6 @@ class  Api:
     sync_delay = 3
     protocal = 'mod'
     folder_path = m.abspath('~/.mod/api')
-    endpoints = [
-                'mods',
-                'names', 
-                'reg', 
-                'mod',
-                'versions',
-                'history',
-                'call',
-                'get',
-                'users', 
-                'user', 
-                'n', 
-                'balance',
-                'versions',
-                'reg_url',
-                'reg_from_info',
-                'hardware',
-                'servers', 
-                'server_exists',
-                'reg_payload'
-                 ]
 
     def __init__(self, store = 'ipfs', chain='chain', key=None, auth='auth.jwt'):
         self.set_store(store)
@@ -103,7 +82,6 @@ class  Api:
             # get the history and set the version to the length of the history
             history = self.history(mod=mod['name'], key=mod['key'], df=0)
             mod['version'] = len(history) if history is not None else 0
-        self.check_modchain(mod)
         return mod
 
 
@@ -113,7 +91,7 @@ class  Api:
     def task_data(self , fn: str = 'model.openrouter/forward',  params: Dict[str, Any] = {}, timeout=1000) -> Dict[str, Any]:
         return  {
             'fn': fn,
-            'params': self.put(params),       
+            'params': params,       
             'timeout': timeout,  
             'status': 'pending',
             'time': m.time()
@@ -167,6 +145,7 @@ class  Api:
         task['key'] = key_address
         task['signature'] = signature
         task['path'] = self.task_path(task)
+        task['cid'] = self.put(task)
         m.put(task['path'], task)
         future =  m.submit(self.run_task, task ,  timeout=timeout)
         self.path2future[task['path']] = future
@@ -200,7 +179,6 @@ class  Api:
             task['result'] = result
         task['delta'] = m.time() - task['time']
         task['server'] = self.auth.headers(task, key=self.key)
-        task['result'] = self.put(task['result'])
         task['cid'] = self.put(task)
         m.put(path, task)
         return task['result']
@@ -304,14 +282,9 @@ class  Api:
         Returns:
             Content dictionary
         """
-
-        if self.is_valid_cid(mod):
-            content_cid = mod
-        elif not isinstance(mod, dict):
-            content_cid = self.mod(mod, key=key)['content']
-        else: 
-            assert 'content' in mod, "Mod dictionary must contain 'content' key"
-        content = self.get(self.get(content_cid)['data'])
+        content_cid = self.mod(mod, key=key)['content']
+        content = self.get(content_cid)['data']
+        return content
         if expand: 
             for file, cid in content.items():
                 content[file] = self.get(cid)
@@ -399,7 +372,7 @@ class  Api:
     def cid(self, mod, key=None, default=None) -> str:
         return  self.registry().get(self.key_address(key), {}).get(mod, default)
     
-    def update_registgry(self, info:dict):
+    def update_registry(self, info:dict):
         if 'cid' in info:
             cid = info['cid']
         else:
@@ -452,7 +425,7 @@ class  Api:
                     collateral=0.0,
                     comment=None, 
                     payload = False,
-                    external = False) -> Dict[str, Any]:
+                    external = True) -> Dict[str, Any]:
 
         """
         Register a mod Mod from a URL in IPFS.
@@ -489,7 +462,7 @@ class  Api:
         return self.reg_from_info(info)
 
     def reg_from_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
-        self.update_registgry(info)
+        self.update_registry(info)
         return info
 
 
@@ -554,7 +527,7 @@ class  Api:
             prev_info = self.mod(prev_cid, key=key)
             info = self.get_info(mod=mod, key=key, comment=comment, protocal=protocal)
             info['prev'] = prev_cid
-        info['cid'] = self.update_registgry(info) 
+        info['cid'] = self.update_registry(info) 
         return info
     def reg_payload(self, mod: str = 'store', key=None, comment=None, collateral=0.0, protocal='mod') -> Dict[str, Any]:
         """
@@ -619,7 +592,6 @@ class  Api:
         mods = m.get(path, None, update=update)
   
         if mods == None: 
-            self.chain.mods( **kwargs)
             registry = self.registry()
             key = self.key_address(key)
             if key != 'all':
@@ -629,7 +601,6 @@ class  Api:
                 for user_key, user_mods in registry.items():
                     for mod in user_mods.keys():
                         mods.append(self.mod(mod, key=user_key))  
-            mods =  list(map(self.check_modchain, mods))
             m.put(path, mods)
             
         if search != None:
@@ -650,17 +621,6 @@ class  Api:
                 setattr(self, fn_name, getattr(self._chain, fn_name))
         return self._chain
 
-    def check_modchain(self, mod:dict):
-        """
-        Check and update mod Mod chain information.
-        """
-        chain_registry = self.chain.registry(key=mod['key'])
-        if mod['name'] in chain_registry:
-            mod['network'] = self.chain.name
-            mod['id'] = int(chain_registry[mod['name']])
-        else:
-            mod['network'] = 'local'
-        return mod
 
     def timestamp2utc(self, timestamp:int) -> str:
         import datetime
@@ -695,8 +655,6 @@ class  Api:
         return result
 
     v = versions
-    def txs(self, mod='store', limit=10,  update=False) -> List[Dict[str, Any]]:
-        return m.txs(mod=mod, limit=limit, update=update)
         
     def registry(self,  key='all', update=False) -> Dict[str, str]:
         """
@@ -745,7 +703,7 @@ class  Api:
             filepath = os.path.join(dirpath, file)
             write_files.append(filepath)
             m.put_text(filepath, self.get(file_content))     
-        modinfo = self.update_registgry(modinfo)
+        modinfo = self.update_registry(modinfo)
         versions = self.versions(mod, key=key)
         assert cid == versions[0]['cid'], "Setback failed: content CID mismatch"
         return {
@@ -841,7 +799,7 @@ class  Api:
         user = {
             'key': address,
             'mods': mods,
-            'balance': self.balance(address)
+            'balance': 0,
         }
         return user
         

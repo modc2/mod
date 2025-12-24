@@ -9,7 +9,6 @@ class Skill:
             'tool': ['<STEP>', '</STEP>'],
         }
 
-
     output_format=  f"""
             make sure the params is a legit json string within the STEP ANCHORS
             YOU CANNOT RESPOND WITH MULTIPLE PLANS BRO JUST ONE PLAN

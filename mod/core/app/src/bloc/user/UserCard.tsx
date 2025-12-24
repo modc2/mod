@@ -58,16 +58,7 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            {balance !== undefined && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
-                <Coins className="w-5 h-5" style={{ color: userColor }} />
-                <code className="text-xl font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '90px', display: 'inline-block', textAlign: 'right' }}>
-                  {Number(balance) === 0 ? '0' : Number(balance).toFixed(2).replace(/^0+(?=\d)/, '')}
-                </code>
-                <CopyButton text={String(balance)} size="sm" />
-              </div>
-            )}
-            
+
             {user.mods && user.mods.length > 0 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
                 <CubeIcon className="w-5 h-5" style={{ color: userColor }} />

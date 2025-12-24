@@ -1,4 +1,4 @@
-import {Auth, AuthHeaders} from './auth';
+import {Auth} from './auth';
 import {Key} from '@/bloc/key';
 
 
