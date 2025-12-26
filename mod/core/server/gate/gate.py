@@ -19,22 +19,7 @@ class Gate:
         self.loop = m.loop()
         self.store = m.mod('store')(path)
         self.auth = m.mod('auth')()
-        self.tx = m.mod('tx')()
-        self.auth = m.mod('auth')()
-        self.generate = self.auth.forward
-        self.verify = self.auth.verify
-        self.save_tx = self.tx.forward
         self.ensure_role_map()
-
-
-    def ensure_role_map(self):
-        role2data = self.role2data()
-        if 'owner' not in role2data:
-            self.add_role('owner', {'fns': ['*']})
-
-    def verify(self, headers):
-        headers = self.auth.verify(headers)
-
 
     def forward(self, fn:str, request, info:dict) -> dict:
         """
@@ -42,7 +27,7 @@ class Gate:
         """
         headers = dict(request.headers)
         print('Gate.forward headers=', headers)
-        headers = self.verify(headers)
+        headers = self.auth.verify(headers)
         
         assert self.is_user(info['name'], headers['key']), f"User {headers['key']} for Mod {info['name']} is not a user"
         assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
@@ -97,6 +82,9 @@ class Gate:
         return users
 
     def users_path(self, mod:str) -> str:
+        """
+        preprocess if the address is usersed
+        """
         return f'users/{mod}'
 
     def rm_user(self, mod:str,  user:str, update:bool = False):
@@ -114,33 +102,50 @@ class Gate:
         preprocess if the address is usersed
         """
         return user in self.users(mod)
-    
-
-    def txs(self, *args, **kwargs) -> Union[pd.DataFrame, List[Dict]]:
-        return self.tx.txs( *args, **kwargs)
-
 
     role2data_path = 'role2data'
 
     def role2data(self):
+        """
+        get the role to data mapping
+        """
         return self.store.get(self.role2data_path, {})
 
     def add_role(self, role:str = 'owner', data:dict = {'fns': ['*']}):
+        """
+        add a role
+        """
         role2data = self.role2data()
         role2data[role] = data
         self.store.put(self.role2data_path, role2data)
         return role2data
     
     def reset_roles(self):
+        """
+        reset the roles
+        """
         self.store.put(self.role2data_path, {})
 
     role_registry_path = 'role_registry'
 
     def set_user_role(self, role:str, user:str):
+        """
+        set the user role
+        """
         registry = self.store.get(self.role_registry_path, {})
 
     def role_registry(self):
+        """
+        get the role registry
+        """
         path = 'role_registry'
         return  self.store.get(path, {})
 
+    def ensure_role_map(self):
+        """
+        ensure that the owner role exists
+        """
+        role2data = self.role2data()
+        if 'owner' not in role2data:
+            self.add_role('owner', {'fns': ['*']})
         

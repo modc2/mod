@@ -7,11 +7,13 @@ import 'react-responsive-modal/styles.css'
 import {text2color, shorten} from "@/bloc/utils";
 import { useRouter } from 'next/navigation'
 import WalletAuthButton from './WalletAuthButton'
+import { useState } from 'react'
 
 
 export function UserHeader() {
   const {  user, authLoading, signOut} = useUserContext()
   const router = useRouter()
+  const [isHovered, setIsHovered] = useState(false)
 
   const handleSignOut = () => {
     signOut()
@@ -53,19 +55,21 @@ export function UserHeader() {
     }
     
       const userRgb = hexToRgb(userColor)
-      const borderColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
-      const glowColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.2)`
-      const bgColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`
+      const borderColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.8)`
+      const glowColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
+      const bgColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.15)`
 
       return (
 
             <div
               onClick={handleUserClick}
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
               className={`flex items-center gap-3 transition-all duration-300 backdrop-blur-xl rounded-xl border-2 overflow-hidden hover:shadow-2xl cursor-pointer`}
                 style={{
                   borderColor: borderColor,
                   backgroundColor: bgColor,
-                  boxShadow: `0 0 12px ${glowColor}`,
+                  boxShadow: `0 0 20px ${glowColor}`,
                 height: '60px',
                 minWidth: '60px',
                 width:  'auto' ,
@@ -76,7 +80,7 @@ export function UserHeader() {
             >
           
                 <div 
-                  className="px-3 py-2 rounded-md border transition-all hover:scale-110 active:scale-95 flex-shrink-0 group relative"
+                  className="px-3 py-2 rounded-md border-2 transition-all hover:scale-110 active:scale-95 flex-shrink-0 group relative"
                   style={{
                     height: '60px',
                     width: '60px',
@@ -85,7 +89,7 @@ export function UserHeader() {
                     justifyContent: 'center',
                     backgroundColor: bgColor,
                     borderColor: borderColor,
-                    boxShadow: `0 0 12px rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.25)`
+                    boxShadow: `0 0 15px rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
                   }}
                   title={user.key}
                 >
@@ -94,11 +98,15 @@ export function UserHeader() {
                 <CopyButton text={user.key} size="md" style={{ color: userColor }} />
                     <button
                       onClick={(e) => { e.stopPropagation(); handleSignOut(); }}
-                      className="px-4 py-2 rounded-md border transition-all hover:scale-110 active:scale-95 flex items-center gap-2"
+                      className="px-4 py-2 rounded-md border-2 transition-all hover:scale-110 active:scale-95 flex items-center gap-2"
                       style={{
                         backgroundColor: bgColor,
                         borderColor: borderColor,
-                        color: userColor
+                        color: userColor,
+                        opacity: isHovered ? 1 : 0,
+                        transform: isHovered ? 'translateX(0)' : 'translateX(-10px)',
+                        pointerEvents: isHovered ? 'auto' : 'none',
+                        transition: 'opacity 0.3s ease, transform 0.3s ease'
                       }}
                       title="Sign Out"
                     >

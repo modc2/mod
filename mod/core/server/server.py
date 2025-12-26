@@ -38,7 +38,7 @@ class Server:
         self.timeout = timeout
         self.set_gate(gate)
 
-    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user', 'txs']):
+    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user']):
         self.gate = m.mod(gate)()
         m.mergemods(from_mod=self.gate, to_mod=self, fns=fns)
 
@@ -101,39 +101,16 @@ class Server:
         """
         fn = request['fn']
         params = request['params']
-        info = self.mod.info()
         self.print_request(request)
         fn_obj = self.get_fn_obj(fn)
         result = fn_obj(**params) if callable(fn_obj) else fn_obj
-        server_auth = {k:v for k,v in request.items() if k in ['fn', 'params', 'client']}
         if self.is_generator(result):
             def generator_wrapper(generator):
-                server_auth['result'] =  []
                 for item in generator:
-                    print(item, end='')
-                    server_auth['result'].append(item)
                     yield item
-                # save the transaction between the h and server for future auditing
-                self.gate.save_tx(
-                    mod=info["name"],
-                    fn=request['fn'], # 
-                    params=request['params'], # params of the inputes
-                    client=request['client'],
-                    result=server_auth['result'],
-                    server= self.gate.generate(server_auth))
-            # if the result is a generator, return a stream
             return  EventSourceResponse(generator_wrapper(result))
         else:
-            # save the transaction between the h and server for future auditing
-            server_auth['result'] = result
-        tx = self.gate.save_tx(
-            mod=info["name"],
-            fn=request['fn'], # 
-            params=request['params'], # params of the inputes
-            client=request['client'], # client auth
-            result=result,
-            server=self.gate.generate(server_auth))
-        return result
+            return result
 
     def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
         if port == None: 

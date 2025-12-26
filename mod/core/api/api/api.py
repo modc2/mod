@@ -843,3 +843,6 @@ class  Api:
 
         
 
+
+    def n(self, *args, **kwargs):
+        return len(self.mods(*args, **kwargs))

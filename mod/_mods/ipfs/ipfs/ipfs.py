@@ -223,6 +223,14 @@ class  IpfsClient:
             except Exception as e:
                 print(f"Error unpinning {cid}: {e}")
     
+
+
+    def iscid(self, text: str = 'fsd') -> bool:
+        '''
+        Check if the text is an ipfs hash
+        '''
+        return isinstance(text, str) and (text.startswith('Qm') and len(text) == 46)
+
     def id(self) -> Dict[str, Any]:
         """Get IPFS node identity information.
         

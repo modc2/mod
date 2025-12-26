@@ -12,7 +12,14 @@ from typing import *
 from concurrent.futures._base import Future
 import time
 from tqdm import tqdm
-from .utils import  detailed_error
+import traceback
+
+def detailed_error(e:Exception) -> str:
+    tb_lines = traceback.format_exception(type(e), e, e.__traceback__)
+    return {
+        'error': str(e),
+        'traceback': ''.join(tb_lines)
+    }
 
 class Task:
     def __init__(self, 
@@ -53,3 +60,5 @@ class Task:
     @classmethod
     def null(cls):
         return (sys.maxsize, Task(None, {}))
+
+
