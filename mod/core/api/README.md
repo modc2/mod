@@ -19,6 +19,8 @@ OATH is a production-ready authentication system that combines cryptographic sig
 - **📝 JWT-Like Tokens**: Structured authentication headers with signature verification
 - **🎯 Customizable Signing**: Define which fields participate in signature generation
 - **💾 Nonce Management**: Automatic cleanup with configurable limits
+- **⚡ High Performance**: Optimized for speed and efficiency
+- **🌐 Production Ready**: Battle-tested in real-world applications
 
 ## 📦 Installation
 
@@ -192,3 +194,5 @@ MIT License - see LICENSE file for details
 ---
 
 **Made with ⚡ by developers who care about security**
+
+*Updated: 2024 - Enhanced with performance optimizations and production-ready features*
