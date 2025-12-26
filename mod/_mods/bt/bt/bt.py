@@ -6,7 +6,7 @@ from bittensor.utils.balance import Balance
 print = m.print
 class Bt:
     """Interface module for Subtensor network operations and wallet management"""
-    
+    fns = ['subnets', 'neurons']
     def __init__(self, network: str = "finney", archive=False):
         """Initialize the Subtensor module
         Args:
@@ -99,7 +99,7 @@ class Bt:
         """
         return self.subtensor.get_all_subnets_info(block=block)
 
-    def subnets(self, search=None, block: Optional = None, neurons=False, max_age=6000, update=False) -> List[Dict]:
+    def subnets(self, search=None, block: Optional = None, neurons=False, max_age=6000, update=False, n=10) -> List[Dict]:
         """List all subnets
         Args:
             block (Optional): Block number

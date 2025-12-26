@@ -15,11 +15,8 @@ export class Client {
   }
 
   public async call(fn: string = 'info', params: Record<string, any> | FormData = {}, cost = 0, headers: any = {}): Promise<any> {
-    let body: string | FormData;
-    let start_time = Date.now();
-    
-    headers = this.auth.generate({'fn': fn, 'params': params}, cost);
-    
+    let body: string | FormData;    
+    headers = this.auth.generate('');
     body = JSON.stringify(params);
     headers['Content-Type'] = 'application/json';
     headers['Accept'] = 'application/json';

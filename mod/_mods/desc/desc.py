@@ -1,4 +1,4 @@
-import commune as c
+import mod as c
 import os
 import json
 
@@ -18,9 +18,10 @@ class Desc:
                 update=False,
                  **kwargs):
                  
-        context  = str(c.content(module))
+        # context  = c.content(module)
         dirpath = c.dirpath(module)
-        cid = c.hash(context)
+        # cid = c.hash(context)
+        return dirpath
         path  = c.abspath(f'{self.path}/{module}/{model}.json')
         result = c.get(path, max_age=max_age, update=update)
         if result is not None and cache:

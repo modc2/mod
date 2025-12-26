@@ -15,29 +15,103 @@ print = m.print
 
 class Gate:
 
-    def __init__(self, path = '~/.mod/server',  **_kwargs):
+    def __init__(self, path = '~/.mod/server', auth='auth.v0',mod='api', **_kwargs):
+        """
+        Initialize the Gate class
+        params:
+            path: the path to store the gate data
+            auth: the auth module to use
+        """
         self.loop = m.loop()
         self.store = m.mod('store')(path)
-        self.auth = m.mod('auth')()
-        self.ensure_role_map()
+        self.auth = m.mod(auth)()
+        self.set_mod(mod=mod)
 
-    def forward(self, fn:str, request, info:dict) -> dict:
+    def is_generator(self, obj):
+        """
+        Is this shiz a generator dawg?
+        """
+        if not callable(obj):
+            result = inspect.isgenerator(obj)
+        else:
+            result =  inspect.isgeneratorfunction(obj)
+        return result
+
+    def set_mod(self, mod:Any=None):
+        if isinstance(mod, str):
+            mod = m.mod(mod)()
+        elif mod is None:
+            mod = m.mod('mod')()
+        elif not hasattr(mod, 'info'):
+            mod = m.mod('mod')(mod)
+        self.mod = mod 
+        return self.mod
+
+    def forward(self, fn:str, request, mod:Any=None) -> dict:
         """
         process the request
         """
+        mod = mod or self.mod
+        assert not isinstance(fn, str) or fn != '', "Function name cannot be empty"
+        info = mod.info()
         headers = dict(request.headers)
-        print('Gate.forward headers=', headers)
         headers = self.auth.verify(headers)
-        
         assert self.is_user(info['name'], headers['key']), f"User {headers['key']} for Mod {info['name']} is not a user"
         assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
         params = self.loop.run_until_complete(request.json())
         params = json.loads(params) if isinstance(params, str) else params
-        return  {
-                    'fn': fn, 
-                    'params': params, 
-                    'client': headers, 
-                    }
+        self.print_request(request)
+        fn_obj = self.get_fn_obj(fn, mod=mod)
+        result = fn_obj(**params) if callable(fn_obj) else fn_obj
+        if self.is_generator(result):
+            def generator_wrapper(generator):
+                for item in generator:
+                    yield item
+            return  EventSourceResponse(generator_wrapper(result))
+        else:
+            return result
+
+
+    def print_request(self, request: dict):
+        """
+        print the request nicely
+        """
+        fn = request.get('fn', '')
+        params = request['params'] if 'params' in request else {}
+        client = request['client']['key'] if 'client' in request and 'key' in request['client'] else ''
+        right_buffer = '>'*64
+        left_buffer = '<'*64
+        print(right_buffer, color='blue')
+        print(f"""Request\t""" , color='blue')
+        print(left_buffer)
+        print_params = {'fn': fn, 'params': params, 'client': client,'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+        # side ways dataframe where each param is a row
+        df = pd.DataFrame(print_params.items(), columns=['param', 'value'])
+        print(df.to_string(index=False), color='blue')
+        print(right_buffer, color='blue')
+
+    def get_fn_obj(self, fn:str, mod:Any) -> Any:
+        if not hasattr(self, '_obj_cache'):
+            self._obj_cache = {}
+        if '/' in fn:
+            if fn in self._obj_cache:
+                fn_obj = self._obj_cache[fn]
+                print(f'Using cached function object for {fn}', color='green')
+            else:
+                temp_mod = fn.split('/')[0]
+                fn = '/'.join(fn.split('/')[1:])
+                if hasattr(self.mod, temp_mod):
+                    mod_obj = getattr(mod, temp_mod)
+                    fn_obj = getattr(mod_obj, fn)
+                else: 
+                    if m.mod_exists(temp_mod):
+                        mod_obj = m.mod(temp_mod)()
+                        fn_obj = getattr(mod_obj, fn)
+                self._obj_cache[fn] = fn_obj
+        else:
+            fn_obj = getattr(self.mod, fn) # get the function object from the mod
+        return fn_obj
+
 
     def add_user_max(self, mod:str, max_users:int):
         """

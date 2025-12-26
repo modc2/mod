@@ -49,9 +49,9 @@ export class Auth {
   public base64decode(data: string): string {
     return Buffer.from(data, 'base64url').toString('utf-8');
   }
-  public generate(data: any, cost: number = 10): AuthHeaders {
+  public generate(data: any): AuthHeaders {
     const authData: AuthData = {
-      data: this.hash(data),
+      data: '',
       time: String(this.time()), // Unix timestamp in seconds
       key: this.key.address,
       signature: '',

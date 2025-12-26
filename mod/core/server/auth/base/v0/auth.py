@@ -8,13 +8,13 @@ import hashlib
 
 class Auth:
 
-    features = ['data', 'time', 'cost', 'key', 'signature']
-    sig_features = ['data', 'time', 'cost']
+    features = ['data', 'time', 'key', 'signature']
+    sig_features = ['data', 'time']
 
     def __init__(self, 
                 key=None, 
                 crypto_type='sr25519', 
-                max_age=60 ):
+                max_age=3600 ):
         
         """
 
@@ -33,23 +33,22 @@ class Auth:
         self.key = m.key(key=key, crypto_type=crypto_type)
         self.crypto_type = crypto_type or self.key.crypto_type_name
 
-    def token(self,  data: dict,  key=None, cost=0) -> dict:
+    def token(self,  data: dict,  key=None) -> dict:
         """
         Generate the headers with the JWT token
         """
         key = self.get_key(key)
         result = {
-            'data': self.hash(data),
+            'data': data,
             'time': str(time.time()),
-            'cost': str(cost),
             'key': key.address,
         }
         result['signature'] = key.sign(self.sig_data(result), mode='str')
         token = self._base64url_encode(result)
         return token
 
-    def headers(self, data: dict, key=None, cost=0) -> dict:
-        return {'token': self.token(data=data, key=key, cost=cost)}
+    def headers(self, data: dict, key=None) -> dict:
+        return {'token': self.token(data=data, key=key)}
 
     generate = forward = headers
 
@@ -64,7 +63,7 @@ class Auth:
         age = abs(time.time() - float(headers['time']))
         assert age < self.max_age, f'Token is stale {age} > {self.max_age}'
         verified = self.key.verify(self.sig_data(headers), signature=headers['signature'], address=headers['key'])
-        assert verified
+        assert verified, f'Invalid signature {headers}'
         return headers
 
     def get_key(self, key=None):

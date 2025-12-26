@@ -14,7 +14,7 @@ class ServerTestMixin(Server):
             for i in range(trials): 
                 print(f'testing server {server}, trial {i+1}/{trials}...')
                 try:
-                    info = m.call(server+'/info')
+                    info = m.fn('client/call')(server+'/info')
                 except Exception as e:
                     m.print(f'warning: failed to connect to server {server}, trial {i}/{trials}, error: {e}')
                     m.sleep(sleep_interval)
@@ -39,9 +39,10 @@ class ServerTestMixin(Server):
         """
         check if the address is blacklisted
         """
+        gate = m.mod('gate')()
         user  = m.key(user).address
-        self.add_user(mod, user)
-        assert user in self.users(mod), f"Failed to add {user} to blacklist"
-        self.rm_user(mod, user, update=update)
-        assert user not in self.users(mod) and not self.is_user(mod, user), f"Failed to remove {user}"
-        return {'user': user , 'users': self.users(mod)}
+        gate.add_user(mod, user)
+        assert user in gate.users(mod), f"Failed to add {user} to blacklist"
+        gate.rm_user(mod, user, update=update)
+        assert user not in gate.users(mod) and not gate.is_user(mod, user), f"Failed to remove {user}"
+        return {'user': user , 'users': gate.users(mod)}

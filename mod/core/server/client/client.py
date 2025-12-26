@@ -26,38 +26,38 @@ class Client:
         self.namespace = m.namespace()
         # ensure info from the server is fetched
 
-    def forward(self, 
+    def call(self, 
                 fn  = 'info', 
                 params: Optional[Union[list, dict]] = {}, # if you want to pass params as a list or dict
                 timeout:int=10,  # the timeout for the request
                 key : str = None,  # the key to use for the request
-                cost=0,
                 stream: bool = True,
+                server = None,
+                url = None,
                 **extra_kwargs 
     ):
-    
+
+        url = url or self.url
         if '/' in str(fn):
             url, fn = '/'.join(fn.split('/')[:-1]), fn.split('/')[-1]
-            if len(fn) == 0:
-                fn = self.fn
-        else :
-            if self.url is None:
-                url = fn
-                fn= self.fn
-            else:
-                url = self.url
-        url = self.namespace.get(url, url)
-        url = f'{self.mode}://{url}' if not url.startswith(self.mode) else url
+            url = self.namespace.get(url, url)
+        else:
+            if fn in self.namespace:
+                url = self.namespace[fn]
+                fn = 'info'
         url =  url + '/' + fn 
         key = self.get_key(key)
         params = {**(params or {}), **extra_kwargs}
-        headers = self.auth.headers({'fn': fn, 'params': params}, key=key, cost=cost)
+        headers = self.auth.headers('', key=key)
         return self.send_request(url, params, headers, timeout=timeout, stream=stream)
        
+    forward = call
     def send_request(self, url:str, params:dict, headers:dict, timeout:int=10, stream:bool=True):
         """
         send the request to the server
         """
+
+        url = f'{self.mode}://{url}' if not url.startswith(self.mode) else url
         headers.update({
             "Accept": "application/json",
             "Content-Type": "application/json",

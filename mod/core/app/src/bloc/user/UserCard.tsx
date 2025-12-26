@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Coins } from 'lucide-react'
 import { useUserContext } from '@/bloc/context'
+import { useEffect } from 'react'
 
 interface UserCardProps {
   user: UserType
@@ -34,17 +35,17 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
   const borderColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)`
   const glowColor = `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.2)`
 
-  useState(() => {
+  useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 800)
     return () => clearTimeout(timer)
-  })
+  }, [])
 
   const CardContent = () => (
-    <div className="group relative border-2 rounded-xl px-4 hover:shadow-xl transition-all duration-300 backdrop-blur-sm hover:scale-[1.01] bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}`, paddingTop: '12px', paddingBottom: '12px', minHeight: '120px' }}>
+    <div className="group relative border-2 rounded-xl px-4 hover:shadow-xl transition-all duration-300 backdrop-blur-sm hover:scale-[1.01] bg-black" style={{ borderColor: borderColor, boxShadow: `0 0 12px ${glowColor}`, paddingTop: '12px', paddingBottom: '12px' }}>
       <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${userColor}, transparent, ${userColor})` }} />
       
       <div className="relative z-10">
-        <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.1)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}>
             <Link href={`/user/${user.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
               <KeyIcon className="w-10 h-10" style={{ color: userColor }} />
@@ -57,22 +58,20 @@ export const UserCard = ({ user, mode  = 'explore' }: UserCardProps) => {
             <CopyButton text={user.key} size="sm" />
           </div>
           
-          <div className="flex flex-wrap items-center gap-2">
-
-            {user.mods && user.mods.length > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
-                <CubeIcon className="w-5 h-5" style={{ color: userColor }} />
-                <code className="text-xl font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '90px', display: 'inline-block', textAlign: 'right' }}>
-                  {user.mods.length}
-                </code>
-                <CopyButton text={String(user.mods.length)} size="sm" />
-              </div>
-            )}
-          </div>
+          {user.mods && user.mods.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-md border" style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}>
+              <CubeIcon className="w-5 h-5" style={{ color: userColor }} />
+              <code className="text-xl font-mono font-bold" style={{ color: userColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '90px', display: 'inline-block', textAlign: 'right' }}>
+                {user.mods.length}
+              </code>
+              <CopyButton text={String(user.mods.length)} size="sm" />
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
+  
 
   if (mode === 'explore') {
     return (

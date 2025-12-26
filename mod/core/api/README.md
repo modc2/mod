@@ -1,198 +1,168 @@
-# 🔐 OATH - Enhanced Authentication System
+# Rent Sharing Smart Contract 🏠
 
-> **A robust, JWT-inspired authentication framework with advanced security features for Python applications**
+A decentralized rent-sharing mechanism that tracks USD contributions from members using whitelisted stablecoins (USDT, USDC) on Base network.
 
-[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Security](https://img.shields.io/badge/security-enhanced-brightgreen.svg)]()
+## Features ✨
 
-## 🚀 Overview
+- **Multi-Token Support**: Accept USDT and USDC on Base network
+- **Member Tracking**: Track individual contributions in USD value
+- **Whitelisting**: Owner can add/remove supported tokens
+- **Dual Deployment**: Support for both Ganache (local) and Base network
+- **Docker Integration**: Easy deployment with docker-compose
 
-OATH is a production-ready authentication system that combines cryptographic signing, hash-based verification, and replay attack prevention. Built with security-first principles, it provides a flexible foundation for securing API requests, data transmission, and inter-service communication.
+## Smart Contract Architecture 🏗️
 
-## ✨ Key Features
+### RentSharing.sol
+- Tracks member contributions in USD
+- Supports whitelisted ERC20 tokens (USDT, USDC)
+- Owner-controlled member management
+- Reentrancy protection
+- Event emission for all key actions
 
-- **🔑 Multi-Crypto Support**: SR25519, ED25519, and other cryptographic algorithms
-- **🛡️ Replay Attack Prevention**: Built-in nonce tracking and validation
-- **⏰ Time-Based Expiry**: Configurable TTL with automatic expiration checks
-- **🔒 Flexible Hashing**: SHA256, SHA512, or identity hash modes
-- **📝 JWT-Like Tokens**: Structured authentication headers with signature verification
-- **🎯 Customizable Signing**: Define which fields participate in signature generation
-- **💾 Nonce Management**: Automatic cleanup with configurable limits
-- **⚡ High Performance**: Optimized for speed and efficiency
-- **🌐 Production Ready**: Battle-tested in real-world applications
+## Quick Start 🚀
 
-## 📦 Installation
+### Prerequisites
+- Docker & Docker Compose
+- Node.js 18+
+- npm or yarn
+
+### Installation
 
 ```bash
-pip install mod  # Assuming 'mod' is the parent package
+# Clone the repository
+git clone <repo-url>
+cd rent-sharing-contract
+
+# Install dependencies
+npm install
+
+# Copy environment file
+cp .env.example .env
+# Edit .env with your configuration
 ```
 
-## 🔧 Quick Start
+### Deployment
 
-```python
-import mod as m
-from oath import Auth
+#### Deploy to Ganache (Local)
 
-# Initialize authentication
-auth = Auth(
-    key='my-secret-key',
-    crypto_type='sr25519',
-    hash_type='sha256',
-    max_age=60,
-    enable_nonce=True,
-    enable_expiry=True
-)
+```bash
+# Start Ganache and deploy
+npm run deploy:ganache
 
-# Generate authentication headers
-data = {'action': 'transfer', 'amount': 100}
-headers = auth.forward(data, cost=10, ttl=120)
-
-# Verify headers
-is_valid = auth.verify(headers, data=data)
-print(f"Authentication valid: {is_valid}")
+# Or run Ganache separately
+npm run ganache
+# Then in another terminal
+npx hardhat run scripts/deploy.js --network ganache
 ```
 
-## 📖 API Reference
+#### Deploy to Base Network
 
-### `Auth` Class
+```bash
+# Make sure .env has BASE_RPC_URL and PRIVATE_KEY set
+npm run deploy:base
 
-#### Initialization Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `key` | str/None | None | Signing key (auto-generated if None) |
-| `crypto_type` | str | 'sr25519' | Cryptographic algorithm |
-| `hash_type` | str | 'sha256' | Hash algorithm (sha256/sha512/identity) |
-| `max_age` | int | 60 | Maximum token age in seconds |
-| `signature_keys` | list | ['data', 'time', 'cost'] | Fields included in signature |
-| `enable_nonce` | bool | True | Enable replay attack prevention |
-| `enable_expiry` | bool | True | Enable explicit expiry timestamps |
-
-#### Methods
-
-##### `forward(data, key=None, cost=0, ttl=None)`
-Generate authentication headers for given data.
-
-**Returns**: Dictionary with signature, timestamp, nonce, and expiry
-
-##### `verify(headers, data=None, max_age=None, check_nonce=True)`
-Verify authentication headers with comprehensive security checks.
-
-**Returns**: Boolean indicating validity
-
-##### `hash(data)`
-Hash data using configured algorithm.
-
-**Returns**: Hex-encoded hash string
-
-## 🔐 Security Features
-
-### Replay Attack Prevention
-
-```python
-auth = Auth(enable_nonce=True)
-headers = auth.forward(data)
-
-# First verification succeeds
-auth.verify(headers, data=data)  # ✓ Valid
-
-# Replay attempt fails
-auth.verify(headers, data=data)  # ✗ Nonce already used
+# Or manually
+npx hardhat run scripts/deploy.js --network base
 ```
 
-### Time-Based Expiry
+## Docker Compose Services 🐳
 
-```python
-# Short-lived token (30 seconds)
-headers = auth.forward(data, ttl=30)
+### Ganache Service
+- Runs local Ethereum blockchain
+- Port: 8545
+- Pre-funded accounts with 1000 ETH each
 
-# Verify within TTL
-auth.verify(headers, data=data)  # ✓ Valid
+### Hardhat-Ganache Service
+- Deploys contracts to Ganache
+- Creates mock USDT/USDC tokens
 
-# After expiry
-time.sleep(31)
-auth.verify(headers, data=data)  # ✗ Token expired
+### Hardhat-Base Service
+- Deploys contracts to Base network
+- Uses real USDT/USDC addresses
+
+## Contract Interaction 💻
+
+### Add Member
+```javascript
+await rentSharing.addMember(memberAddress);
 ```
 
-### Custom Signature Fields
-
-```python
-auth = Auth(
-    signature_keys=['data', 'time', 'user_id', 'action']
-)
-
-headers = auth.forward(data)
-headers['user_id'] = 'user123'
-headers['action'] = 'write'
+### Contribute Rent
+```javascript
+// Approve token first
+await usdt.approve(rentSharingAddress, amount);
+// Make contribution
+await rentSharing.contribute(usdtAddress, amount, usdValue);
 ```
 
-## 🧪 Testing
-
-```python
-# Run built-in test suite
-auth = Auth()
-results = auth.test(key='test.auth', crypto_type='sr25519')
-print(results)
-# Output: {'test_passed': True, 'headers': {...}, 'features': [...]}
+### Check Contribution
+```javascript
+const contribution = await rentSharing.getMemberContribution(memberAddress);
+console.log('Total USD contributed:', contribution.toString());
 ```
 
-## 🎯 Use Cases
+## Network Configuration 🌐
 
-- **API Authentication**: Secure REST/GraphQL endpoints
-- **Microservices**: Inter-service communication verification
-- **Data Integrity**: Ensure payload hasn't been tampered with
-- **Blockchain Integration**: Sign transactions with SR25519/ED25519
-- **IoT Security**: Lightweight authentication for resource-constrained devices
+### Base Mainnet
+- Chain ID: 8453
+- RPC: https://mainnet.base.org
+- USDT: 0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2
+- USDC: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 
-## ⚙️ Advanced Configuration
+### Ganache (Local)
+- Chain ID: 1337
+- RPC: http://localhost:8545
+- Mock tokens deployed automatically
 
-### Custom Hash Function
+## Project Structure 📁
 
-```python
-auth = Auth(hash_type='sha512')  # Stronger hashing
+```
+.
+├── contracts/
+│   ├── RentSharing.sol      # Main contract
+│   └── MockERC20.sol        # Mock tokens for testing
+├── scripts/
+│   └── deploy.js            # Deployment script
+├── deployments/             # Deployment artifacts
+├── docker-compose.yml       # Docker services
+├── Dockerfile.ganache       # Ganache deployment
+├── Dockerfile.base          # Base deployment
+├── hardhat.config.js        # Hardhat configuration
+└── package.json
 ```
 
-### Disable Security Features (Not Recommended)
+## Security Features 🔒
 
-```python
-auth = Auth(
-    enable_nonce=False,  # Disable replay protection
-    enable_expiry=False  # Disable expiry checks
-)
+- ReentrancyGuard protection
+- Ownable access control
+- Token whitelist validation
+- Member validation
+- SafeERC20 transfers
+
+## Events 📡
+
+- `MemberAdded(address indexed member)`
+- `ContributionMade(address indexed member, address indexed token, uint256 amount, uint256 usdValue)`
+- `TokenWhitelisted(address indexed token)`
+- `TokenRemoved(address indexed token)`
+
+## Development 🛠️
+
+```bash
+# Compile contracts
+npm run compile
+
+# Run tests
+npm run test
+
+# Clean artifacts
+npx hardhat clean
 ```
 
-### Manual Nonce Management
+## License 📄
 
-```python
-# Revoke specific nonce
-auth.revoke_nonce('abc123def456')
-
-# Clear all nonces
-auth.clear_nonces()
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please ensure:
-
-1. All tests pass
-2. Security features remain intact
-3. Code follows existing style conventions
-4. Documentation is updated
-
-## 📄 License
-
-MIT License - see LICENSE file for details
-
-## 🙏 Acknowledgments
-
-- Inspired by JWT (JSON Web Tokens)
-- Built on the `mod` cryptographic framework
-- Designed for the free world 🌍
+MIT License
 
 ---
 
-**Made with ⚡ by developers who care about security**
-
-*Updated: 2024 - Enhanced with performance optimizations and production-ready features*
+*Built with precision for decentralized rent sharing* 🚀

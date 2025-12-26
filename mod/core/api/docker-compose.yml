@@ -1,20 +1,53 @@
-networks:
-  default:
-    external: true
-    name: modnet
-services:
-  api:
-    container_name: api
-    deploy: {}
-    entrypoint: bash -c "m serve port=8000 key=api remote=0 mod=api"
-    image: api
-    ports:
-    - 8000:8000
-    restart: unless-stopped
-    shm_size: 100g
-    volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
-    - ~/mod/mod/core/api:/root/mod/mod/core/api
-    working_dir: /root/mod/mod/core/api
 version: '3.8'
+
+services:
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports:
+      - "8545:8545"
+    command: >
+      --deterministic
+      --accounts=10
+      --defaultBalanceEther=1000
+      --networkId=1337
+      --chainId=1337
+      --mnemonic="test test test test test test test test test test test junk"
+    networks:
+      - blockchain-net
+
+  hardhat-ganache:
+    build:
+      context: .
+      dockerfile: Dockerfile.ganache
+    depends_on:
+      - ganache
+    environment:
+      - GANACHE_URL=http://ganache:8545
+      - NETWORK=ganache
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+      - ./deployments:/app/deployments
+    networks:
+      - blockchain-net
+    command: npx hardhat run scripts/deploy.js --network ganache
+
+  hardhat-base:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+    environment:
+      - BASE_RPC_URL=${BASE_RPC_URL}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - NETWORK=base
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+      - ./deployments:/app/deployments
+    networks:
+      - blockchain-net
+    command: npx hardhat run scripts/deploy.js --network base
+
+networks:
+  blockchain-net:
+    driver: bridge

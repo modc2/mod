@@ -35,12 +35,12 @@ export default function ModCard({ mod}: ModCardProps) {
   const networkColor = mod.network === 'local' ? '#7b740dff' : '#0eafb2ff'
 
   const network2logocomponent = {
-    'local': <HomeIcon className="h-4 w-4" style={{ color: networkColor }} />,
-    'mainnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />,
-    'testnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />,
-    'devnet': <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />
+    'local': <HomeIcon className="h-6 w-6" style={{ color: networkColor }} />,
+    'mainnet': <GlobeAltIcon className="h-6 w-6" style={{ color: networkColor }} />,
+    'testnet': <GlobeAltIcon className="h-6 w-6" style={{ color: networkColor }} />,
+    'devnet': <GlobeAltIcon className="h-6 w-6" style={{ color: networkColor }} />
   }
-  const networkLogo = network2logocomponent[mod.network] || <GlobeAltIcon className="h-4 w-4" style={{ color: networkColor }} />
+  const networkLogo = network2logocomponent[mod.network] || <GlobeAltIcon className="h-6 w-6" style={{ color: networkColor }} />
   const buttonColors = {
     module: { bg: 'rgba(139, 92, 246, 0.2)', border: 'rgba(139, 92, 246, 0.6)' },
     network: mod.network === 'local' ? { bg: '#978e097d', border:  '#7b740dff'} : { bg: 'rgba(0, 128, 128, 0.2)', border: 'rgba(0, 128, 128, 0.6)' },
@@ -100,76 +100,76 @@ export default function ModCard({ mod}: ModCardProps) {
             >
             <div className="absolute -inset-1 bg-gradient-to-r opacity-5 group-hover:opacity-10 blur-lg transition-all duration-500 rounded-xl" style={{ background: `linear-gradient(45deg, ${modColor}, transparent, ${modColor})` }} />
             
-              <div className="relative z-10">
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <CubeIcon className="w-10 h-10" style={{ color: modColor }} />
-                    <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '120px', display: 'inline-block' }} title={mod.name}>
-                      {mod.name}
-                    </code>
-                    {myMod && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          setShowAdminPanel(true)
-                        }}
-                        className="ml-auto p-2 hover:bg-purple-500/20 rounded-lg transition-colors"
-                        title="Admin Settings"
-                      >
-                        <Settings className="w-5 h-5 text-purple-400" />
-                      </button>
-                    )}
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center gap-2">
-                  <div 
-                    className="flex items-center gap-2 px-3 py-2 rounded-md border" 
-                    style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.08)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.3)` }}
-                    onMouseEnter={(e) => handleFieldHover('network', mod.network, e)}
-                    onMouseMove={handleFieldMove}
-                    onMouseLeave={handleFieldLeave}
-                  >
-                    {networkLogo}
-                  </div>
-
-                  { mod.cid && (
-                    <div 
-                      className="flex items-center gap-2 px-3 py-2 rounded-md border" 
-                      style={{ backgroundColor: 'rgba(251, 191, 36, 0.08)', borderColor: 'rgba(251, 191, 36, 0.3)' }}
-                      onMouseEnter={(e) => handleFieldHover('cid', mod.cid, e)}
-                      onMouseMove={handleFieldMove}
-                      onMouseLeave={handleFieldLeave}
-                    >
-                      <Hash size={16} style={{ color: '#fbbf24' }} />
+                <div className="relative z-10">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <CubeIcon className="w-10 h-10" style={{ color: modColor }} />
+                      <code className="text-lg font-mono font-bold" style={{ color: modColor, fontFamily: "'Courier New', 'Consolas', 'Monaco', monospace", minWidth: '120px', display: 'inline-block' }} title={mod.name}>
+                        {mod.name}
+                      </code>
+                      {myMod && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setShowAdminPanel(true)
+                          }}
+                          className="ml-auto p-2 hover:bg-purple-500/20 rounded-lg transition-colors"
+                          title="Admin Settings"
+                        >
+                          <Settings className="w-5 h-5 text-purple-400" />
+                        </button>
+                      )}
                     </div>
-                  )}
-
-                  <div 
-                    className="flex items-center gap-2 px-3 py-2 rounded-md border" 
-                    style={{ backgroundColor: 'rgba(59, 130, 246, 0.08)', borderColor: 'rgba(59, 130, 246, 0.3)' }}
-                    onMouseEnter={(e) => handleFieldHover('updated', updatedTimeStr, e)}
-                    onMouseMove={handleFieldMove}
-                    onMouseLeave={handleFieldLeave}
-                  >
-                    <Clock size={16} style={{ color: '#3b82f6' }} />
-                  </div>
-
-                  <div 
-                    className="flex items-center gap-2 px-3 py-2 rounded-md border" 
-                    style={{ backgroundColor: 'rgba(236, 72, 153, 0.08)', borderColor: 'rgba(236, 72, 153, 0.3)' }}
-                       onMouseEnter={(e) => handleFieldHover('author', mod.key, e)}
+                    
+                    <div className="flex flex-wrap items-center gap-3">
+                    <div 
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-md border" 
+                      style={{ backgroundColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.12)`, borderColor: `rgba(${userRgb.r}, ${userRgb.g}, ${userRgb.b}, 0.4)` }}
+                      onMouseEnter={(e) => handleFieldHover('network', mod.network, e)}
                       onMouseMove={handleFieldMove}
                       onMouseLeave={handleFieldLeave}
-                      title={mod.key}
                     >
-                      <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
-                        <KeyIcon className="w-5 h-5" style={{ color: '#ec4899' }} />
-                      </Link>
-                  </div>
+                      {networkLogo}
+                    </div>
+
+                    { mod.cid && (
+                      <div 
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-md border" 
+                        style={{ backgroundColor: 'rgba(251, 191, 36, 0.12)', borderColor: 'rgba(251, 191, 36, 0.4)' }}
+                        onMouseEnter={(e) => handleFieldHover('cid', mod.cid, e)}
+                        onMouseMove={handleFieldMove}
+                        onMouseLeave={handleFieldLeave}
+                      >
+                        <Hash size={20} style={{ color: '#fbbf24' }} />
+                      </div>
+                    )}
+
+                    <div 
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-md border" 
+                      style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', borderColor: 'rgba(59, 130, 246, 0.4)' }}
+                      onMouseEnter={(e) => handleFieldHover('updated', updatedTimeStr, e)}
+                      onMouseMove={handleFieldMove}
+                      onMouseLeave={handleFieldLeave}
+                    >
+                      <Clock size={20} style={{ color: '#3b82f6' }} />
+                    </div>
+
+                    <div 
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-md border" 
+                      style={{ backgroundColor: 'rgba(236, 72, 153, 0.12)', borderColor: 'rgba(236, 72, 153, 0.4)' }}
+                         onMouseEnter={(e) => handleFieldHover('author', mod.key, e)}
+                        onMouseMove={handleFieldMove}
+                        onMouseLeave={handleFieldLeave}
+                        title={mod.key}
+                      >
+                        <Link href={`/user/${mod.key}`} onClick={(e) => e.stopPropagation()} className="hover:scale-110 transition-transform">
+                          <KeyIcon className="w-6 h-6" style={{ color: '#ec4899' }} />
+                        </Link>
+                    </div>
+                    </div>
                   </div>
                 </div>
-              </div>
           </div>
         </Link>
         

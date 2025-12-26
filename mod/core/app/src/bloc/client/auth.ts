@@ -75,32 +75,39 @@ public base64urlDecode(data: string): Uint8Array {
 
   return new Uint8Array(Buffer.from(base64, "base64"));
 }
+  public signatureData(data: any): string {
+    let signatureData: Record<string, string> = {};
+    this.signatureKeys.forEach(k => {
+      if (k in data) {
+        signatureData[k] = data[k as keyof typeof data] as string;
+      }
+    })
+    return JSON.stringify(signatureData); // Ensure it's a plain object
 
-  public generate(data: any): AuthHeaders {
+  }
+
+
+  public token(data: any): string {
     const authData: AuthData = {
-      data: this.hash(data),
+      data: '',
       time: String(this.time()), // Unix timestamp in seconds
       key: this.key.address,
-      cost: 0,
       signature: '',
     };
 
     // Create signature data object with only the specified keys
-    let signatureData: Record<string, string> = {};
-    this.signatureKeys.forEach(k => {
-      if (k in authData) {
-        signatureData[k] = authData[k as keyof AuthData] as string;
-      }
-    });
-    // Sign the data
-    let signatureDataString = JSON.stringify(signatureData); // Ensure it's a plain object
-    authData.signature = this.key.sign(signatureDataString)
-    const verified = this.key.verify( signatureDataString, authData.signature, authData.key);
+    let signatureData: string = this.signatureData(authData);
+    authData.signature = this.key.sign(signatureData)
+    const verified = this.key.verify( signatureData, authData.signature, authData.key);
     if (!verified) {
       throw new Error('Signature verification failed');
     }
-    const headers : AuthHeaders = {token: this.base64urlEncode(JSON.stringify( authData))};
-    return headers;
+    let token = this.base64urlEncode(JSON.stringify( authData));
+    return token;
+  }
+
+  public generate(data: any): AuthHeaders {
+    return {token: this.token(data)};
   }
 
   /**

@@ -36,81 +36,16 @@ class Server:
         self.set_pm(pm)
         self.executor = m.mod(executor)()
         self.timeout = timeout
-        self.set_gate(gate)
-
-    def set_gate(self, gate,  fns = ['add_user', 'rm_user', 'users', 'is_user']):
-        self.gate = m.mod(gate)()
-        m.mergemods(from_mod=self.gate, to_mod=self, fns=fns)
-
+        
     def set_pm(self,  pm: Union[str, 'Module', Any],  fns = ['logs', 'namespace', 'kill', 'kill_all','namespace', 'killall']):
         self.pm = m.mod(pm)()
         m.mergemods(from_mod=self.pm, to_mod=self, fns=fns)
-
-    def is_generator(self, obj):
-        """
-        Is this shiz a generator dawg?
-        """
-        if not callable(obj):
-            result = inspect.isgenerator(obj)
-        else:
-            result =  inspect.isgeneratorfunction(obj)
-        return result
-
-    def print_request(self, request: dict):
-        """
-        print the request nicely
-        """
-        fn = request.get('fn', '')
-        params = request['params'] if 'params' in request else {}
-        client = request['client']['key'] if 'client' in request and 'key' in request['client'] else ''
-        right_buffer = '>'*64
-        left_buffer = '<'*64
-        print(right_buffer, color='blue')
-        print(f"""Request\t""" , color='blue')
-        print(left_buffer)
-        print_params = {'fn': fn, 'params': params, 'client': client,'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
-        # side ways dataframe where each param is a row
-        df = pd.DataFrame(print_params.items(), columns=['param', 'value'])
-        print(df.to_string(index=False), color='blue')
-        print(right_buffer, color='blue')
-
-    _obj_cache = {}
-    def get_fn_obj(self, fn:str) -> Any:
-        if '/' in fn:
-            if fn in self._obj_cache:
-                fn_obj = self._obj_cache[fn]
-                print(f'Using cached function object for {fn}', color='green')
-            else:
-                temp_mod = fn.split('/')[0]
-                fn = '/'.join(fn.split('/')[1:])
-                if hasattr(self.mod, temp_mod):
-                    mod_obj = getattr(self.mod, temp_mod)
-                    fn_obj = getattr(mod_obj, fn)
-                else: 
-                    if m.mod_exists(temp_mod):
-                        mod_obj = m.mod(temp_mod)()
-                        fn_obj = getattr(mod_obj, fn)
-                self._obj_cache[fn] = fn_obj
-        else:
-            fn_obj = getattr(self.mod, fn) # get the function object from the mod
-        return fn_obj
 
     def forward(self, **request: dict):
         """
         runt the function
         """
-        fn = request['fn']
-        params = request['params']
-        self.print_request(request)
-        fn_obj = self.get_fn_obj(fn)
-        result = fn_obj(**params) if callable(fn_obj) else fn_obj
-        if self.is_generator(result):
-            def generator_wrapper(generator):
-                for item in generator:
-                    yield item
-            return  EventSourceResponse(generator_wrapper(result))
-        else:
-            return result
+        return self.gate.forwrd(**request)
 
     def get_port(self, port:Optional[int]=None, mod:Union[str, 'Module', Any]=None) -> int:
         if port == None: 
@@ -172,7 +107,7 @@ class Server:
             namespace = self.namespace(network=network)
             if name in namespace:
                 try:
-                    return  m.call(namespace[name]+'/info')
+                    return  m.fn('client/call')(namespace[name]+'/info')
                 except Exception as e:
                     print(f'Error calling server {name} at {namespace[name]}: {m.detailed_error(e)}', color='red')
             m.sleep(trial_backoff)
@@ -217,7 +152,7 @@ class Server:
         if remote:
             return m.fn(f'{pm}/forward')(mod=mod, params=params, port=port, key=key,  daemon=d)
         self.set_mod(mod=mod, key=key, params=params ,fns = fns)
-
+        self.gate = m.mod('gate')(mod=self.mod)
         # setup the api server
         self.app = FastAPI()
         @self.app.options("/{fn}")
@@ -231,11 +166,8 @@ class Server:
         }
         self.app.add_middleware(CORSMiddleware, **cors_params)
         def server_fn(fn: str, request: Request):
-            fn = fn or 'info'
             try:
-                request = self.gate.forward(fn=fn, request=request, info=self.mod.info()) # get the request
-                future = self.executor.submit(self.forward, request, timeout=self.timeout)
-                result =  future.result()
+                result = self.gate.forward(fn=fn, request=request, mod=self.mod) # get the request
             except Exception as e:
                 result =  m.detailed_error(e)
             return result

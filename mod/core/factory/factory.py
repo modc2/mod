@@ -2,8 +2,6 @@ import mod as m
 import os
 
 class Factory:
-    def __init__(self):
-        pass
         
     def cpmod(self, from_mod:str = 'dev', to_mod:str = 'dev2', force=True):
         """
@@ -54,63 +52,64 @@ class Factory:
         """
         Remove the mod from the git repository
         """
-        path = self.dirpath(mod)
+        path = m.dirpath(mod)
         assert os.path.exists(path), f'Mod {mod} does not exist'
-        self.rm(path)
-        self.tree(update=1)
+        m.rm(path)
+        m.tree(update=1)
         return {'success': True, 'msg': 'removed mod'}
-
-
 
     def addpath(self, path, name=None, update=True):
         assert os.path.exists(path), f'Path {path} does not exist'
-        path = self.abspath(path)
+        path = m.abspath(path)
         name = name or path.split('/')[-1]
-        dirpath = self.mods_path + '/' + name.replace('.', '/')
-        self.cmd(f'cp -r {path} {dirpath}')
+        dirpath = m.mods_path + '/' + name.replace('.', '/')
+        m.cmd(f'cp -r {path} {dirpath}')
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path'}
 
-    def addcid(self, name='churn',  cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4'):
+    def addcid(self, name='churn',  cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4', exp=True):
         api = c.mod('api')()
         file2text =  api.content(cid, expand=True)
-        path = self.mods_path + '/' + name.replace('.', '/')
+        path = self.mods_path(exp) + '/' + name.replace('.', '/')
         for k,v in file2text.items():
             new_path = path + '/' + k
             print(f'Creating {new_path} for mod {name}')
-            self.put_text(new_path, v)
-        self.tree(update=True)
-        assert self.mod_exists , f'Mod {name} not found after creation from cid {cid}'
+            m.put_text(new_path, v)
+        m.tree(update=True)
+        assert m.mod_exists , f'Mod {name} not found after creation from cid {cid}'
         return {'name': name, 'path': path, 'msg': 'Mod Created from cid', 'cid': cid}
 
     exp_mode = True
-    def addgit(self,  repo , name=None, update=True):
+    def addgit(self,  repo , name=None, update=True, exp=True):
         """
         make a new mod from a git repo
         """
         name = name or repo.split('/')[-1].replace('.git', '')
-        mods_path = self.exp_path if self.exp_mode else self.mods_path
+        mods_path = self.mods_path(exp)
         dirpath = mods_path + '/' + name.replace('.', '/')
         mod_name = dirpath.split('/')[-1]
-        self.cmd(f'git clone {repo} {dirpath}')
-        files = self.files(dirpath)
+        m.cmd(f'git clone {repo} {dirpath}')
+        files = m.files(dirpath)
         has_python_files = any([f.endswith('.py') for f in files])
         if not has_python_files:
-            self.put_text( dirpath + '/'+ mod_name +'.py', self.code('base'))
-        self.exp_tree(update=True)
-        return self.files(dirpath)
+            m.put_text( dirpath + '/'+ mod_name +'.py', m.code('base'))
+        m.exp_tree(update=True)
+        return m.files(dirpath)
 
-    def addmod(self,  path  , name=None, base='base', update=True, external=True):
+    def addmod(self,  path  , name=None, base='base', update=True, exp=True):
         """
         make a new mod
         """
         name = name or path.split('/')[-1]
-        mods_path = self.exp_path if external else self.mods_path
+        mods_path = self.mods_path(exp)
         dirpath = mods_path + '/' + name.replace('.', '/')
         mod_name = dirpath.split('/')[-1]
-        for k,v in self.content(base).items():
+        for k,v in m.content(base).items():
             new_path = dirpath + '/' +  k.replace(base, mod_name)
             print(f'Creating {new_path} for mod {name}')
-            self.put_text( new_path, v)
-        files = self.files(dirpath)
-        self.tree(update=True)
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': self.cid(name)}
+            m.put_text( new_path, v)
+        files = m.files(dirpath)
+        m.tree(update=True)
+        return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': m.cid(name)}
+
+    def mods_path(self, exp=True):
+        return self.mods_path(exp)

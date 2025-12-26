@@ -106,6 +106,8 @@ class Mod:
             return Mod
         if not isinstance(mod, str):
             return mod
+        # if self.obj_exists(mod):
+        #     return self.obj(mod)
         name = self.get_name(mod)
         if name in self._mod_cache:
             return self._mod_cache[name]
@@ -407,18 +409,25 @@ class Mod:
         return env
 
     def rm(self, path:str, possible_extensions = ['json'], avoid_paths = ['~', '/']):
-        avoid_paths = list(set((avoid_paths)))
+        """
+        Remove a file or directory
+        """
+
+        # step 1 : find the paht first
         path = self.abspath(path)
-        avoid_paths = [self.abspath(p) for p in avoid_paths] 
+        avoid_paths = list(map(self.abspath, avoid_paths))
         assert path not in avoid_paths, f'Cannot remove {path}'
         path_exists = lambda p: os.path.exists(p)
         if not path_exists(path): 
             for pe in possible_extensions:
-                if os.path.exists(path + f'.{pe}'):
-                    path = path + f'.{pe}'
+                possible_path = f'{path}.{pe}'
+                if os.path.exists(possible_path):
+                    path = possible_path
                     break
             if not path_exists(path):
                 return {'success':False, 'message':f'{path} does not exist'}
+        assert os.path.exists(path), f'Path {path} does not exist'
+        # step 2: now remove the path
         if os.path.isdir(path):
             shutil.rmtree(path)
         if os.path.isfile(path):
@@ -670,7 +679,7 @@ class Mod:
             try:
                 schema[fn] = self.fnschema(getattr(obj, fn), public=public,  **kwargs)
             except Exception as e:
-                self.print(self.detailed_error(e), color='red', verbose=verbose)
+                self.print(self.detailed_error(e),verbose=verbose)
         return schema
 
     def code(self, obj = None, search=None, *args, **kwargs) -> Union[str, Dict[str, str]]:
@@ -685,8 +694,21 @@ class Mod:
             raise Exception(f'Object {obj} not found')
         return  inspect.getsource(obj)
         
-    def call(self, *args, **kwargs): 
-        return self.fn('client/call')(*args, **kwargs)
+    def call(self,fn: str = 'api/edit',  params: Dict[str, Any] = {}, wait=True, wait_frequency=0.2,  api='api', **kwargs): 
+
+        if not self.server_exists(api):
+            return self.serve(api)
+        params = {**params , **kwargs}
+        task =  self.fn('api/call')(fn=fn, params=params, api=api, **kwargs)
+        task_path = task['path']
+        print(task)
+        while task.get('status', '') != 'success' and wait:
+            time.sleep(wait_frequency)
+            task = self.get(task_path, default={})
+            print(f'Waiting for task {task_path} status={task.get("status","pending")}')
+            if task.get('status', '') == 'error':
+                raise Exception(f'Task {task_path} failed with error: {task.get("result","unknown error")}   ')
+        return task['result']
 
     def cache(self, path:str, max_age: int = 60, default=None, directory: str = '~/.mod/cache'):
         '''
@@ -1040,20 +1062,27 @@ class Mod:
                     sys.path.append(path)
         return {'paths': sys.path, 'success': True}      
     obj_cache = {}
-    def obj(self, key:str, **kwargs)-> Any:
+    def obj(self, key:str)-> Any:
         # add pwd to the sys.path if it is not already there
         self.ensure_syspath()
         if key in self.obj_cache:
             return self.obj_cache[key]
         else:
             from .utils import import_object
-            obj = self.obj_cache[key] = import_object(key, **kwargs)
+            try:
+                obj  = import_object(key)
+            except ValueError as e:
+                obj = self.import_module(key)
+            except AttributeError as e:
+                obj = self.import_module(key)
+
+        self.obj_cache[key] = obj
         return obj
 
-    def obj_exists(self, path:str, verbose=False)-> Any:
+    def obj_exists(self, path:str)-> Any:
         # better way to check if an object exists?
         try:
-            self.obj(path, verbose=verbose)
+            self.obj(path)
             return True
         except Exception as e:
             return False
@@ -1114,13 +1143,23 @@ class Mod:
         files = list(sorted( self.files(path, depth=file_depth), key=lambda x: len(x)))
         # filter files that are in the file types
         files = [f for f in files if any([f.endswith('.' + ft) for ft in self.file_types])]
+
+        result = None
         if len(files) == 1:
             return files[0]
-        for f in files:
-            if any([f.endswith('/' + an + '.' + ft) for an in anchor_names for ft in self.file_types]):
-                return f
+
+        filegate = lambda f: any([f.endswith('/' + an + '.' + ft) for an in anchor_names for ft in self.file_types])
         
-        return None
+        for f in files:
+            if filegate(f):
+                result = f
+                break
+        if not result:
+            score_fn = lambda f : 1 if path in f.split('/')[-1] or f.split('/')[-1].split('.')[0]  in path else 0
+            f2score = {f: score_fn(f) for f in files}
+            files = list(sorted(f2score.keys(), key=lambda x: f2score[x], reverse=True))
+            result =  files[0]
+        return result
 
     def anchor_object(self, path):
         path = self.get_name(path)
@@ -1162,9 +1201,6 @@ class Mod:
             path_chunks.append(f'{k}={v}')
         path = '_'.join(path_chunks)
         return path
-
-
-
 
     file_types = ['py', 'yaml', 'json', 'yml']
     ignore_suffixes = ['/src', '/core']
@@ -1223,6 +1259,7 @@ class Mod:
         tree = {k: self.abspath(v) for k,v in tree.items()}
         if search:
             return self.search(search=search, tree=tree, **kwargs)
+        
         return tree
 
     def core_tree(self, search=None, depth=8,  **kwargs): 
@@ -1519,33 +1556,11 @@ class Mod:
         os.system(cmd)
         return {'msg': f'Pushed to {path} with comment: {comment}'}
 
+    def get_mods_path(self, exp=True):
+        return self.mods_path if not exp else self.exp_path
+
     def cpmod(self, from_mod:str = 'dev', to_mod:str = 'dev2', force=True):
-        """
-        Copy the mod to the git repository
-        """
-        from_path = self.dirpath(from_mod)
-        if not os.path.exists(from_path):
-            raise Exception(f'Mod {from_path} does not exist')
-        to_mod=to_mod.replace('.', '/')
-        to_path = to_mod
-        if to_path.startswith('./') or to_path.startswith('~/') or to_path.startswith('/'):
-            to_path = self.abspath(to_mod)
-        else:
-            to_path = self.mods_path + '/' + to_mod.replace('.', '/')
-        if os.path.exists(to_path):
-            if force or input(f'Path {to_path} already exists. Do you want to remove it? (y/n)') == 'y':
-                for f in self.files(to_path):
-                    print(f'Removing {f}')
-                    self.rm(f)
-        from_files = self.files(from_path)
-        for f in from_files:
-            self.cp(f, to_path + '/' + f[len(from_path)+1:])
-        # assert os.path.exists(to_path), f'Failed to copy {from_path} to {to_path}'
-        self.tree(update=1)
-        return { 
-                'from': {'mod': from_mod, 'path': from_path, 'cid': self.cid(from_mod)}, 
-                'to': {'path': to_path, 'mod': to_mod, 'cid': self.cid(to_mod)},
-                } 
+        return self.fn('factory/cpmod')(from_mod=from_mod, to_mod=to_mod, force=force)
 
     def mvmod(self, from_mod:str = 'dev', to_mod:str = 'dev2'):
         """
@@ -1571,7 +1586,7 @@ class Mod:
         assert os.path.exists(path), f'Mod {mod} does not exist'
         self.rm(path)
         self.tree(update=1)
-        return {'success': True, 'msg': 'removed mod'}
+        return {'success': True, 'msg': f'removed {mod}', 'path': path}
 
     def address2key(self, *args, **kwargs):
         return self.fn('key/address2key')(*args, **kwargs)

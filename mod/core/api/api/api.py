@@ -17,7 +17,7 @@ class  Api:
     protocal = 'mod'
     folder_path = m.abspath('~/.mod/api')
 
-    def __init__(self, store = 'ipfs', chain='chain', key=None, auth='auth.jwt'):
+    def __init__(self, store = 'ipfs', chain='chain', key=None, auth='auth.v0'):
         self.set_store(store)
         self.key = m.key(key)
         self.model = m.mod('model.openrouter')()
@@ -125,6 +125,8 @@ class  Api:
         Returns:
             Result of the function call
         """
+        if not '/' in fn:
+            fn = fn +'/info'
         fn = self.resolve_fn(fn)
         params = {**params, **extra_params}
         if api != None:
@@ -165,7 +167,10 @@ class  Api:
         m.put(path, task)
         server_exists = bool('api' != mod and self.server_exists(mod))
         try:
-            result = m.call(task['fn'], params=params, timeout=task['timeout']) if server_exists else m.fn(task['fn'])(**params)
+            if server_exists:
+                result = m.fn('client/call')(task['fn'], params=params, timeout=task['timeout'])
+            else:
+                result = m.fn(task['fn'])(**params)
         except Exception as e:
             result = m.detailed_error(e)
         task['status'] = 'error' if isinstance(result, dict) and 'error' in result else 'success'

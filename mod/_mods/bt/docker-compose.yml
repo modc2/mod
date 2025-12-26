@@ -6,10 +6,10 @@ services:
   bt:
     container_name: bt
     deploy: {}
-    entrypoint: bash -c "m serve port=50085 key=bt remote=0 mod=bt"
+    entrypoint: bash -c "m serve port=50110 key=bt remote=0 mod=bt"
     image: bt
     ports:
-    - 50085:50085
+    - 50110:50110
     restart: unless-stopped
     shm_size: 100g
     volumes:
