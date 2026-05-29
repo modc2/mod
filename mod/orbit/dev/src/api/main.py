@@ -289,9 +289,12 @@ ORBIT_DIR = Path("/Users/broski/mod/mod/orbit")
 
 def _detect_runtime(name: str):
     """Return (lang, dispatcher_fn) for an agent — looks for contract files
-    in three languages and picks the first match: Rust binary > JS > Python."""
+    in three languages and picks the first match: Rust binary > JS > Python.
+    For Rust contracts where the source exists but the binary hasn't been
+    built yet, returns a "synthetic" dispatcher that serves manifest only."""
     base = ORBIT_DIR / name
     rust_bin = base / "target" / "release" / f"{name}-contract"
+    rust_src = base / "src" / "main.rs"
     if rust_bin.exists() and os.access(rust_bin, os.X_OK):
         return ("rust", lambda cmd, *args: _shell_dispatch([str(rust_bin), cmd, *args]))
     for js_file in (base / "contract.js", base / "src" / "contract.js"):
@@ -300,7 +303,37 @@ def _detect_runtime(name: str):
     py_file = next((p for p in (base / "contract.py", base / "src" / "mod.py") if p.exists()), None)
     if py_file is not None:
         return ("python", lambda cmd, *args: _python_dispatch(name, py_file, cmd, args))
+    # Rust source without binary — synthetic manifest, no call dispatch.
+    if rust_src.exists():
+        return ("rust", lambda cmd, *args: _rust_synthetic_dispatch(name, rust_src, cmd, args))
     return (None, None)
+
+
+def _rust_synthetic_dispatch(name: str, rust_src: Path, cmd: str, args: tuple) -> dict:
+    """Serve manifest for a Rust contract whose binary hasn't been built yet.
+    Returns a hint about how to build."""
+    import hashlib as _h
+    src = rust_src.read_bytes()
+    code_hash = "0x" + _h.sha3_256(src).hexdigest()
+    cfg_path = ORBIT_DIR / name / "config.json"
+    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    if cmd == "manifest":
+        return {
+            "name": name,
+            "lang": "rust",
+            "binary": cfg.get("binary", ""),
+            "default_model": cfg.get("default_model", ""),
+            "env_key": cfg.get("env_key", ""),
+            "description": cfg.get("description", ""),
+            "icon": cfg.get("icon", ""),
+            "color": cfg.get("color", ""),
+            "code_hash": code_hash,
+            "abi": [],
+            "status": "binary not built — run `cd " + str(ORBIT_DIR / name) + " && cargo build --release`",
+        }
+    if cmd == "abi":
+        return []
+    return {"error": "binary not built — run cargo build --release in " + str(ORBIT_DIR / name)}
 
 
 def _shell_dispatch(argv: list) -> dict:

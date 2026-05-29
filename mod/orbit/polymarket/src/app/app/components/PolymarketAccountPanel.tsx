@@ -434,181 +434,91 @@ export default function PolymarketAccountPanel() {
 
   return (
     <div className="pixel-panel border-2 border-pixel-border">
-      {/* Header — dropped the "smart-contract proxy on Polygon" tagline
-          (info already conveyed by the panel title and address format). */}
-      <div className="px-3 py-1.5 border-b border-pixel-border/60 flex items-center gap-2 bg-pixel-black/40">
+      {/* Single compact line: PROXY [address] BAL $X | deposit | withdraw */}
+      <div className="px-3 py-1.5 flex items-center gap-2 flex-wrap">
         <div className="w-1.5 h-1.5 bg-purple-400 shrink-0" />
-        <span className="text-[13px] text-pixel-white tracking-[0.18em]">PROXY</span>
+        <span className="text-[13px] text-pixel-white tracking-[0.18em] shrink-0">PROXY</span>
+        {proxy ? (
+          <>
+            <span className="text-[13px] text-pixel-white font-mono truncate max-w-[120px]" title={proxy}>{shortProxy}</span>
+            <button onClick={handleCopyProxy} className="text-[12px] text-pixel-gray hover:text-green-400" title="Copy proxy address">
+              {copied ? "✓" : "⧉"}
+            </button>
+            <a href={`https://polygonscan.com/address/${proxy}`} target="_blank" rel="noreferrer" className="text-[12px] text-pixel-gray hover:text-green-400" title="Polygonscan">↗</a>
+          </>
+        ) : proxyError ? (
+          <>
+            <span className="text-[11px] text-red-400 font-mono truncate max-w-[100px]" title={proxyError}>{proxyError.slice(0, 30)}</span>
+            <button onClick={() => { void resolveProxy(); }} className="text-[11px] text-amber-400 font-mono px-1.5 border border-amber-400/40">RETRY</button>
+          </>
+        ) : proxyResolving ? (
+          <span className="text-[12px] text-pixel-gray font-mono animate-pulse">resolving…</span>
+        ) : (
+          <button onClick={() => { void resolveProxy(); }} className="text-[11px] text-green-400 font-mono px-1.5 border border-green-400">LOAD</button>
+        )}
+        <span className="text-[11px] text-pixel-gray shrink-0">BAL</span>
+        <span className="text-[14px] font-mono text-purple-400 shrink-0">
+          {bal.proxy === null ? "…" : `$${bal.proxy.toFixed(2)}`}
+        </span>
+        <span className="text-pixel-border/40 shrink-0">·</span>
+        {/* Deposit inline */}
+        <div className="flex items-center gap-1 shrink-0">
+          <input
+            type="text" inputMode="decimal" placeholder="0"
+            value={depositAmount}
+            onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            className="pixel-input-sm w-14 font-mono text-[12px] h-[20px] px-1"
+          />
+          <button
+            onClick={() => { void handleDeposit(); }}
+            disabled={busy || !proxy || !depositAmount || (bal.eoa !== null && bal.eoa <= 0)}
+            className="text-[11px] px-1.5 h-[20px] border border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 disabled:cursor-not-allowed font-mono"
+          >
+            DEP
+          </button>
+        </div>
+        {/* Withdraw inline */}
+        <div className="flex items-center gap-1 shrink-0">
+          <input
+            type="text" inputMode="decimal" placeholder="0"
+            value={withdrawAmount}
+            onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            className="pixel-input-sm w-14 font-mono text-[12px] h-[20px] px-1"
+          />
+          <button
+            onClick={() => { void handleWithdraw(); }}
+            disabled={busy || !proxy || !withdrawAmount || (bal.proxy !== null && bal.proxy <= 0)}
+            className="text-[11px] px-1.5 h-[20px] border border-amber-400 text-amber-400 hover:bg-amber-400/10 disabled:opacity-30 disabled:cursor-not-allowed font-mono"
+          >
+            WDR
+          </button>
+        </div>
         <button
           onClick={() => { void resolveProxy(); void refresh(); }}
           disabled={proxyResolving}
-          className="text-[14px] text-pixel-gray hover:text-green-400 px-1 disabled:opacity-40 ml-auto"
-          title="Re-resolve proxy + balances"
+          className="text-[13px] text-pixel-gray hover:text-green-400 shrink-0 disabled:opacity-40"
+          title="Refresh balances"
         >
           {proxyResolving ? "…" : "↻"}
         </button>
       </div>
-
-      {/* Address row */}
-      <div className="px-3 py-1.5 border-b border-pixel-border/30 flex items-center gap-2">
-        <span className="text-[12px] text-pixel-gray tracking-[0.15em] w-12 shrink-0">PROXY</span>
-        {proxy ? (
-          <>
-            <span className="text-[13px] text-pixel-white font-mono flex-1 truncate" title={proxy}>
-              {proxy}
-            </span>
-            <button
-              onClick={handleCopyProxy}
-              className="text-[13px] text-pixel-gray hover:text-green-400 px-1"
-              title="Copy proxy address"
-            >
-              {copied ? "✓" : "⧉"}
-            </button>
-            <a
-              href={`https://polygonscan.com/address/${proxy}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[12px] text-pixel-gray hover:text-green-400 px-1"
-              title="View on Polygonscan"
-            >
-              ↗
-            </a>
-          </>
-        ) : proxyError ? (
-          <>
-            <span className="text-[12px] text-red-400 font-mono flex-1 truncate" title={proxyError}>
-              {proxyError.slice(0, 60)}
-            </span>
-            <button
-              onClick={() => { void resolveProxy(); }}
-              className="text-[12px] text-amber-400 hover:text-green-400 font-mono px-2 py-0.5 border border-amber-400/40"
-            >
-              RETRY
-            </button>
-          </>
-        ) : proxyResolving ? (
-          <span className="text-[13px] text-pixel-gray font-mono flex-1 animate-pulse">resolving from on-chain factory…</span>
-        ) : (
-          <>
-            <span className="text-[13px] text-pixel-gray font-mono flex-1">not loaded</span>
-            <button
-              onClick={() => { void resolveProxy(); }}
-              className="text-[12px] text-green-400 hover:bg-green-400/10 font-mono px-2 py-0.5 border border-green-400"
-            >
-              LOAD PROXY
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Balance row — PROXY only. Dropped the "YOUR WALLET $X" pair because
-          the same number is already rendered big-and-green in the WALLET ·
-          POLYGON row above. The proxy balance is the meaningful one here. */}
-      <div className="px-3 py-1.5 border-b border-pixel-border/30 flex items-baseline justify-between">
-        <span className="text-[12px] text-purple-400 tracking-[0.15em]">BALANCE</span>
-        <span className="text-[20px] font-mono text-purple-400">
-          {bal.proxy === null ? "..." : `$${bal.proxy.toFixed(2)}`}
-        </span>
-      </div>
-
-      {/* Deposit + Withdraw rows */}
-      <div className="px-3 py-1.5 space-y-1.5 bg-pixel-black/20">
-        {/* DEPLOY PROXY — surfaces only when the proxy is funded but not
-            yet deployed on-chain. Skipping it forces a throwaway trade. */}
-        {proxyDeployed === false && (
-          <div className="flex items-center gap-2 border border-purple-400/40 bg-purple-400/5 px-2 py-1">
-            <span className="text-[12px] text-purple-400 tracking-[0.15em] shrink-0">DEPLOY</span>
-            <span className="text-[12px] text-pixel-gray flex-1 leading-snug">
-              Proxy not on-chain yet. Deploy the Safe (gas-only) to enable WITHDRAW before any trade.
-            </span>
+      {/* Status / error / deploy — only when needed */}
+      {(busy || status || error || proxyDeployed === false) && (
+        <div className="px-3 py-1 border-t border-pixel-border/30 flex items-center gap-2 flex-wrap">
+          {proxyDeployed === false && !busy && (
             <button
               onClick={() => { void handleDeployProxy(); }}
               disabled={busy || !proxy}
-              className="pixel-btn text-[13px] px-2.5 py-0.5 border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="text-[11px] px-2 py-0.5 border border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 font-mono"
             >
               DEPLOY PROXY
             </button>
-          </div>
-        )}
-
-        {/* DEPOSIT row: EOA → proxy via plain ERC-20 transfer */}
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-pixel-gray tracking-[0.15em] w-16 shrink-0">DEPOSIT</span>
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-              className="pixel-input-sm w-full font-mono text-[14px] pr-14 h-[24px]"
-            />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-pixel-gray font-mono pointer-events-none">
-              USDC.e
-            </span>
-          </div>
-          {bal.eoa !== null && bal.eoa > 0 && (
-            <button
-              onClick={() => setDepositAmount(bal.eoa!.toFixed(2))}
-              className="text-[12px] px-2 h-[24px] border border-pixel-border bg-pixel-black text-pixel-gray hover:text-green-400 hover:border-green-400 font-mono"
-              title={`Use entire $${bal.eoa.toFixed(2)} wallet balance`}
-            >
-              MAX
-            </button>
           )}
-          <button
-            onClick={() => { void handleDeposit(); }}
-            disabled={busy || !proxy || !depositAmount || (bal.eoa !== null && bal.eoa <= 0)}
-            className="pixel-btn text-[13px] px-2.5 py-0.5 border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            DEPOSIT
-          </button>
+          {busy && <span className="text-[11px] text-pixel-gray font-mono animate-pulse">working…</span>}
+          {status && <span className="text-[11px] text-amber-400 font-mono truncate" title={status}>{status}</span>}
+          {error && <span className="text-[11px] text-red-400 font-mono truncate" title={error}>{error.slice(0, 100)}</span>}
         </div>
-
-        {/* WITHDRAW row: proxy → EOA via Safe.execTransaction */}
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] text-pixel-gray tracking-[0.15em] w-16 shrink-0">WITHDRAW</span>
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={withdrawAmount}
-              onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-              className="pixel-input-sm w-full font-mono text-[14px] pr-14 h-[24px]"
-            />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-pixel-gray font-mono pointer-events-none">
-              USDC.e
-            </span>
-          </div>
-          {bal.proxy !== null && bal.proxy > 0 && (
-            <button
-              onClick={() => setWithdrawAmount(bal.proxy!.toFixed(2))}
-              className="text-[12px] px-2 h-[24px] border border-pixel-border bg-pixel-black text-pixel-gray hover:text-amber-400 hover:border-amber-400 font-mono"
-              title={`Withdraw entire $${bal.proxy.toFixed(2)} proxy balance`}
-            >
-              MAX
-            </button>
-          )}
-          <button
-            onClick={() => { void handleWithdraw(); }}
-            disabled={busy || !proxy || !withdrawAmount || (bal.proxy !== null && bal.proxy <= 0)}
-            className="pixel-btn text-[13px] px-2.5 py-0.5 border-amber-400 text-amber-400 hover:bg-amber-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            WITHDRAW
-          </button>
-        </div>
-
-        {busy && (
-          <div className="text-[12px] text-pixel-gray font-mono animate-pulse">working…</div>
-        )}
-        {status && (
-          <div className="text-[12px] text-amber-400 font-mono break-all">{status}</div>
-        )}
-        {error && (
-          <div className="text-[12px] text-red-400 font-mono break-all">{error}</div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

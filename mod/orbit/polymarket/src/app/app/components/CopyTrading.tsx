@@ -280,18 +280,20 @@ export default function CopyTrading({
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume],
   );
 
-  // Streaming load — used for cold cache (pipeline needs to run)
+  // Streaming load — used for cold cache (pipeline needs to run) AND
+  // for the manual SYNC button (force=true bypasses every cache layer).
   const loadStream = useCallback(
-    async () => {
+    async (opts: { force?: boolean } = {}) => {
       if (inFlightRef.current) return;
       inFlightRef.current = true;
       setLoading(true);
+      setRefreshing(true);
       setProgress(null);
       setSource(null);
       try {
         const { traders: data, source: src, syncedAt: streamSyncedAt } = await fetchTopTradersStream(
           2000,
-          { daysWindow: days, minTradesPerDay },
+          { daysWindow: days, minTradesPerDay, force: opts.force },
           (p) => {
             setProgress(p);
             // Trust the `kept` field from progress — partials are bandwidth-capped
@@ -323,6 +325,7 @@ export default function CopyTrading({
         setTraders([]);
       } finally {
         setLoading(false);
+        setRefreshing(false);
         setHasLoaded(true);
         inFlightRef.current = false;
       }
@@ -656,15 +659,25 @@ export default function CopyTrading({
                 {source === "memory" ? "MEM" : source === "disk" ? "DISK" : "LIVE"}
               </span>
             )}
-            {/* Manual SYNC button — forces a re-aggregation from Polymarket,
-                bypassing the 60s cache. Use when the staleness label is red. */}
+            {/* Manual SYNC button — bypasses the 60s cache by routing
+                through the streaming path so the user sees enrichment
+                progress (`enriching 1240/2000`) instead of an opaque
+                SYNCING… for the 2-5 min a fresh aggregation takes.
+                loadStream is the same call used on cold-cache cold-start;
+                we just trigger it explicitly here. */}
             <button
-              onClick={() => { void loadPage({ pg: pageRef.current, force: true }); }}
-              disabled={refreshing}
+              onClick={() => { void loadStream({ force: true }); }}
+              disabled={refreshing || loading}
               className="pixel-btn text-[11px] px-2 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Force a fresh pull from Polymarket — bypasses the 60s server cache"
+              title="Force a fresh pull from Polymarket — bypasses the cache and streams progress"
             >
-              {refreshing ? "SYNCING…" : "↻ SYNC"}
+              {(refreshing || loading) && progress
+                ? progress.phase === "enrich"
+                  ? `SYNCING ${progress.done}/${progress.total}`
+                  : `SYNCING ${progress.done}/${progress.total} (leaderboard)`
+                : refreshing || loading
+                  ? "SYNCING…"
+                  : "↻ SYNC"}
             </button>
             {(syncedAt ?? lastUpdated) && (() => {
               // Prefer the server's syncedAt — it tells the user when the data
@@ -872,6 +885,7 @@ export default function CopyTrading({
                     </th>
                   ))}
                   <th className="num text-right" title="Trades in last 24h — flags dormant traders">24H</th>
+                  <th className="num text-right" title="Time since this trader's most recent trade">LAST</th>
                   <th className="text-center"></th>
                 </tr>
               </thead>
@@ -927,6 +941,36 @@ export default function CopyTrading({
                         return (
                           <td className={`num text-right font-mono ${cls}`} title={title}>
                             {c24}
+                          </td>
+                        );
+                      })()}
+                      {/* LAST TRADE — relative timestamp of most recent
+                          in-window trade. Green if < 1h (firing now),
+                          amber if < 24h (recent), red if older (dormant).
+                          Falls back to "—" when the backend payload pre-
+                          dates the lastTradeTs field (older disk cache). */}
+                      {(() => {
+                        const ts = trader.lastTradeTs;
+                        if (!ts) return <td className="num text-right text-pixel-gray-light font-mono" title="No last-trade timestamp in payload — sync to refresh">—</td>;
+                        const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+                        const cls = ageSec < 3600
+                          ? "text-green-400"
+                          : ageSec < 86_400
+                            ? "text-amber-400"
+                            : "text-red-400";
+                        const label = ageSec < 60
+                          ? `${ageSec}s`
+                          : ageSec < 3600
+                            ? `${Math.floor(ageSec / 60)}m`
+                            : ageSec < 86_400
+                              ? `${Math.floor(ageSec / 3600)}h`
+                              : `${Math.floor(ageSec / 86_400)}d`;
+                        return (
+                          <td
+                            className={`num text-right font-mono ${cls}`}
+                            title={`Last trade ${new Date(ts * 1000).toLocaleString()}`}
+                          >
+                            {label}
                           </td>
                         );
                       })()}

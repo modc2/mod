@@ -4,11 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCopy } from "../lib/api";
 
-export default function CopyForm({
-  defaultTarget,
-}: {
-  defaultTarget?: string;
-}) {
+export default function CopyForm({ defaultTarget }: { defaultTarget?: string }) {
   const router = useRouter();
   const [target, setTarget] = useState(defaultTarget || "");
   const [hotkey, setHotkey] = useState("");
@@ -30,89 +26,85 @@ export default function CopyForm({
         daily_limit_tao: parseFloat(dailyLimit),
         rebalance_threshold_pct: parseFloat(threshold),
       });
-      router.push("/copy");
-    } catch (e: any) {
-      setError(e.message);
+      router.push("/strats");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
   }
 
+  const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
+    <div>
+      <label className="block text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
+        {label}
+      </label>
+      {children}
+      {hint && <p className="text-[10px] text-pixel-gray mt-1">{hint}</p>}
+    </div>
+  );
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-xl">
-      <div>
-        <label className="block text-sm text-muted mb-1">
-          Target SS58 Address
-        </label>
+    <form onSubmit={handleSubmit} className="pixel-panel p-5 space-y-4 max-w-2xl">
+      <Field label="target coldkey ss58" hint="The validator you want to mirror.">
         <input
           required
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           placeholder="5..."
-          className="w-full"
+          className="pixel-input w-full font-mono text-sm"
         />
-      </div>
+      </Field>
 
-      <div>
-        <label className="block text-sm text-muted mb-1">
-          Your Hotkey SS58
-        </label>
+      <Field label="your hotkey ss58" hint="The hotkey you'll stake through.">
         <input
           required
           value={hotkey}
           onChange={(e) => setHotkey(e.target.value)}
           placeholder="5..."
-          className="w-full"
+          className="pixel-input w-full font-mono text-sm"
         />
-        <p className="text-xs text-muted mt-1">
-          The hotkey you want to stake through
-        </p>
-      </div>
+      </Field>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm text-muted mb-1">Max TAO/tx</label>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="max τ / tx">
           <input
-            type="number"
-            step="0.1"
-            min="0"
+            type="number" step="0.1" min="0"
             value={maxPerTx}
             onChange={(e) => setMaxPerTx(e.target.value)}
-            className="w-full"
+            className="pixel-input w-full font-mono"
           />
-        </div>
-        <div>
-          <label className="block text-sm text-muted mb-1">Daily limit</label>
+        </Field>
+        <Field label="daily limit (τ)">
           <input
-            type="number"
-            step="1"
-            min="0"
+            type="number" step="1" min="0"
             value={dailyLimit}
             onChange={(e) => setDailyLimit(e.target.value)}
-            className="w-full"
+            className="pixel-input w-full font-mono"
           />
-        </div>
-        <div>
-          <label className="block text-sm text-muted mb-1">Threshold %</label>
+        </Field>
+        <Field label="rebal threshold %">
           <input
-            type="number"
-            step="0.5"
-            min="0"
+            type="number" step="0.5" min="0"
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
-            className="w-full"
+            className="pixel-input w-full font-mono"
           />
-        </div>
+        </Field>
       </div>
 
-      {error && <p className="text-negative text-sm">{error}</p>}
+      {error && (
+        <div className="pixel-panel-red px-3 py-2 text-[12px] text-red-400 font-mono">
+          {error}
+        </div>
+      )}
 
       <button
         type="submit"
         disabled={submitting}
-        className="btn-primary"
+        className="pixel-btn border-green-400 text-green-400 disabled:opacity-50"
       >
-        {submitting ? "Creating..." : "Start Copy Trading"}
+        {submitting ? "CREATING…" : "START COPY"}
       </button>
     </form>
   );

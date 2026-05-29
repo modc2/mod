@@ -49,6 +49,7 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
   const [editingRebalance, setEditingRebalance] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
 
   // Refresh indexes from localStorage periodically (backtest snapshots update there)
   useEffect(() => {
@@ -158,6 +159,8 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
     if (updated) pushToServer(updated);
   };
 
+  const activeIndex = indexes.find((i) => i.id === activeId) ?? null;
+
   // Sort strats for leaderboard — active strat always pins to top
   const sorted = [...indexes].sort((a, b) => {
     if (a.id === activeId) return -1;
@@ -181,12 +184,24 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
   return (
     <div className="pixel-panel border-2 border-pixel-border bg-pixel-black">
       {/* Header */}
-      <div className="px-4 py-2.5 border-b-2 border-pixel-border flex items-center justify-between">
+      <div
+        className="px-4 py-2.5 border-b-2 border-pixel-border flex items-center justify-between cursor-pointer select-none"
+        onClick={() => setCollapsed((v) => !v)}
+      >
         <div className="flex items-center gap-3">
+          <span className={`text-[11px] text-pixel-gray transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
           <span className="text-[15px] text-pixel-white font-bold tracking-wider">STRATS</span>
+          {collapsed && activeIndex && (
+            <span className="text-[13px] font-mono text-green-400">{activeIndex.name}</span>
+          )}
+          {collapsed && activeIndex?.lastPnlAfterCosts !== undefined && (
+            <span className={`text-[13px] font-mono ${(activeIndex.lastPnlAfterCosts ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {formatPnlShort(activeIndex.lastPnlAfterCosts)}
+            </span>
+          )}
         </div>
         <button
-          onClick={create}
+          onClick={(e) => { e.stopPropagation(); create(); }}
           className="text-[15px] text-pixel-gray hover:text-green-400 transition-colors px-3 py-1.5 border border-pixel-border hover:border-green-400 font-mono"
           title="Create new strat"
         >
@@ -194,6 +209,7 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
         </button>
       </div>
 
+      {!collapsed && <>
       {/* Leaderboard header */}
       {indexes.length > 0 && (
         <div className="px-4 py-1.5 border-b border-pixel-border/50 flex items-center text-[15px] text-pixel-gray tracking-wider">
@@ -326,6 +342,7 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
           })
         )}
       </div>
+      </>}
     </div>
   );
 }

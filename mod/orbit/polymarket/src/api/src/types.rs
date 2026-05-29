@@ -37,6 +37,12 @@ pub struct Trader {
     /// `#[serde(default)]` keeps older cached payloads loadable.
     #[serde(rename = "trades24h", default)]
     pub trades_24h: u32,
+    /// Unix-seconds timestamp of this trader's most recent trade in the
+    /// enriched window. Lets the leaderboard show "last trade 4m ago" so
+    /// the user can tell whether a trader is firing now vs. went dormant
+    /// mid-window. `Option` keeps older cached payloads loadable.
+    #[serde(rename = "lastTradeTs", default, skip_serializing_if = "Option::is_none")]
+    pub last_trade_ts: Option<u64>,
     #[serde(rename = "pnlCurve", skip_serializing_if = "Option::is_none")]
     pub pnl_curve: Option<Vec<f64>>,
     /// Per-market metrics — memory-only, not serialized to JSON / disk cache.

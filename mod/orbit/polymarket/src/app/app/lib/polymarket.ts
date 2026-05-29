@@ -19,6 +19,10 @@ export interface TopTrader {
   /** Trades in the last 24h — distinct from `recentTrades` (whole window).
       Lets the UI flag dormant traders even on a 30d-window leaderboard. */
   trades24h?: number;
+  /** Unix-seconds timestamp of this trader's most recent in-window trade.
+      Surfaces "last trade Xs ago" in the leaderboard so the user can tell
+      whether a high-PnL trader is firing right now vs. went silent days ago. */
+  lastTradeTs?: number;
   pnlCurve?: number[];   // ~12-point cumulative PnL over the window
 }
 
@@ -431,17 +435,22 @@ export type ActiveTradersProgress =
 // the pipeline is still running.
 export async function fetchTopTradersStream(
   candidatePool: number,
-  options: { daysWindow?: number; minTradesPerDay?: number },
+  options: { daysWindow?: number; minTradesPerDay?: number; force?: boolean },
   onProgress: (p: ActiveTradersProgress) => void,
   onPartial?: (traders: TopTrader[]) => void,
 ): Promise<{ traders: TopTrader[]; source: "memory" | "disk" | "fresh"; syncedAt: number }> {
-  const { daysWindow = 7, minTradesPerDay = 1 } = options;
+  const { daysWindow = 7, minTradesPerDay = 1, force = false } = options;
+  // force=1 bypasses both the in-memory agg cache and the per-trader
+  // activity cache on the server. Without this the SYNC button looked
+  // like it was working but the streaming response was a cache HIT
+  // returning the same payload with the same stale syncedAt timestamp.
   const qs = new URLSearchParams({
     days: String(daysWindow),
     minPerDay: String(minTradesPerDay),
     pool: String(candidatePool),
     stream: "1",
   });
+  if (force) qs.set("force", "1");
   const res = await fetch(`${API_URL}/active-traders?${qs}`);
   if (!res.ok || !res.body) throw new Error(`active-traders ${res.status}`);
 
@@ -478,6 +487,7 @@ export async function fetchTopTradersStream(
           marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
           recentTrades: Number(t.recentTrades || 0),
           trades24h: Number(t.trades24h || 0),
+          lastTradeTs: typeof t.lastTradeTs === "number" ? t.lastTradeTs : undefined,
           pnlCurve: Array.isArray(t.pnlCurve) ? (t.pnlCurve as number[]) : undefined,
         }));
         if (evt.type === "partial") {

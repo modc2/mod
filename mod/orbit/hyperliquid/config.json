@@ -47,6 +47,6 @@
         "src/api/": "Rust REST API (axum, tokio) \u2014 fast hot path",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults)"
     },
-    "schema": "QmbB2vpLDM7Rz8Ad1qxbY1Mfk3gMdE3nuktA5jUzRWApRr",
+    "schema": "QmSz8LDzshQpNhsu2MfXtgLTrn2jX3QJiXbDEG9xKHgxTp",
     "gateway_port": 3919
 }

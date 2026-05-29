@@ -78,6 +78,11 @@ export interface CopyEngineConfig {
   creds: ClobCredentials;
   address: string;
   minOrderSize: number;
+  /** Upper clamp for mirror notional. When proportional sizing produces a
+      mirror larger than this, we cap it instead of placing the full amount.
+      Pairs with minOrderSize to make TRADE SIZE feel like a real range
+      ("every copy lands in [$1, $10]") instead of just a skip floor. */
+  maxOrderSize?: number;
   maxSlippageBps: number;
 }
 
@@ -427,29 +432,41 @@ export class CopyEngine {
             if (!this.running) break;
 
             const traderNotional = trade.price * trade.size;
-            const mirrorNotional = traderNotional * copyRatio;
-            const mirrorSize = trade.size * copyRatio;
-
-            // Skip if below minimum. Include both the actual mirror size and
-            // the configured floor in the reason so the UI can show *how
-            // close* the skip was — "$0.0026 < $1 floor" vs the previous
-            // bare BELOW_MIN_SIZE which made every skip look identical.
-            if (mirrorNotional < this.config.minOrderSize) {
+            const rawMirrorNotional = traderNotional * copyRatio;
+            // Clamp proportional sizing into [minOrderSize, maxOrderSize]
+            // instead of skipping. With $50 capital and a trader moving
+            // $4M in the window, proportional mirrors collapse to dust
+            // ($0.00006) and EVERY trade hit BELOW_MIN_SIZE → 0 orders.
+            // Clamping means dust mirrors fire at the floor (eating capital
+            // faster but actually trading), and outlier whale-sized trades
+            // get capped at the ceiling so a single $50k buy doesn't blow
+            // the budget. Capital exhaustion is then surfaced naturally
+            // by the existing INSUFFICIENT_BALANCE path.
+            const floor = this.config.minOrderSize;
+            const ceiling = this.config.maxOrderSize ?? Number.POSITIVE_INFINITY;
+            let mirrorNotional = rawMirrorNotional;
+            let clampedReason: string | null = null;
+            if (rawMirrorNotional < floor) {
+              mirrorNotional = floor;
+              clampedReason = `clamped up: proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} → floor $${floor.toFixed(2)}`;
+            } else if (rawMirrorNotional > ceiling) {
+              mirrorNotional = ceiling;
+              clampedReason = `clamped down: proportional $${rawMirrorNotional.toFixed(2)} → ceiling $${ceiling.toFixed(2)}`;
+            }
+            // Recompute mirrorSize at the (possibly clamped) notional so
+            // the order is built from consistent values: at trade.price
+            // for `size` shares, `size * price = notional`.
+            const mirrorSize = mirrorNotional / Math.max(trade.price, 1e-9);
+            if (clampedReason) {
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
-                type: "SKIP",
+                type: "BALANCE",
                 traderAddress: trader.address,
                 market: trade.market,
-                conditionId: trade.conditionId,
-                side: trade.side,
-                traderSize: trade.size,
-                mirrorNotional,
-                reason: `BELOW_MIN_SIZE · mirror $${mirrorNotional < 0.01 ? mirrorNotional.toExponential(2) : mirrorNotional.toFixed(2)} < floor $${this.config.minOrderSize.toFixed(2)}`,
+                reason: clampedReason,
                 upstreamTradeId: trade.id,
               });
-              this.copiedIds.add(trade.id);
-              continue;
             }
 
             // Resolve token ID

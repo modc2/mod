@@ -536,12 +536,14 @@ export default function Home() {
     } catch {
       // Routy not running — but caddy may still be proxying. Probe with a
       // same-origin HEAD; if /claude is reachable, the gateway is up.
+      // Keep routyStats null (UI guards on it) — we only know caddy is alive,
+      // not its real metrics.
       try {
         const r = await fetch(`${ROUTY_API}/claude`, { method: "GET", redirect: "manual" });
         if (r.status > 0 && r.status < 500) {
           setRoutyApps([]);
           setRoutyApis([]);
-          setRoutyStats({ apps: 0, apis: 0, total_requests: 0 } as any);
+          setRoutyStats(null);
           setRoutyConnected(true);
           return;
         }

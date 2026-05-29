@@ -38,7 +38,18 @@ const DEFAULT_LIVE_POLL_MIN = 1;
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
-  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
+  return `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}:${d.getUTCSeconds().toString().padStart(2, "0")}`;
+}
+
+// Compact label for the LIVE header's read-only POLL display, mirroring
+// the STRAT panel's POLL EVERY options (5s … 24h). Same fractional-minute
+// space — values below 1 render as seconds, otherwise minute/hour units.
+function formatLivePoll(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "—";
+  if (minutes < 1) return `${Math.round(minutes * 60)}s`;
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
 }
 
 function formatCountdown(ms: number): string {
@@ -109,7 +120,7 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
 
 export default function LivePanel() {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Proxy USDC.e balance — this is the on-chain "BALANCE" the engine should
@@ -120,8 +131,16 @@ export default function LivePanel() {
   // and respect their explicit cap. Clearing the cap (or hitting MAX) re-
   // enables auto-tracking.
   const userOverrodeCapitalRef = useRef(false);
-  const [livePollMin, setLivePollMin] = useState(DEFAULT_LIVE_POLL_MIN);
   const [now, setNow] = useState(Date.now());
+  // Re-tick at the strat panel cadence so activeStrat reflects edits the
+  // user makes in the STRAT panel (POLL EVERY changes etc) WITHOUT this
+  // component being unmounted/remounted. Previously useMemo([]) captured
+  // the strat once and the live engine never saw new params.
+  const [stratTick, setStratTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setStratTick((n) => n + 1), 2000);
+    return () => clearInterval(t);
+  }, []);
   // Paginated trade view (under the EXECUTION LOG). Toggle filter shows
   // only actual trade events (COPY_BUY / COPY_SELL / SKIP) instead of the
   // CYCLE_START/END heartbeat noise that dominates a healthy log.
@@ -184,19 +203,23 @@ export default function LivePanel() {
     setLiveCapital(n);
   }, []);
 
-  // Load persisted live poll interval from the active strat (or default 1).
-  useEffect(() => {
-    const id = getActiveIndexId();
-    if (!id) return;
-    const strat = loadIndexes().find((s) => s.id === id);
-    if (strat?.livePollMinutes) setLivePollMin(strat.livePollMinutes);
-  }, []);
-
   const activeStrat = useMemo((): SavedIndex | null => {
     const id = getActiveIndexId();
     if (!id) return null;
     return loadIndexes().find((s) => s.id === id) || null;
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stratTick]);
+
+  // Single source of truth for poll cadence: the STRAT panel's POLL EVERY
+  // field (`rebalanceMinutes`). Previously LivePanel had its own SCAN
+  // dropdown writing to a separate `livePollMinutes`, which let the
+  // STRAT setting (15s) and the engine setting (1MIN) silently disagree.
+  // Fallback to livePollMinutes for older strats that only set that
+  // field, then the 1m default. Supports fractional minutes (5s = 0.0833).
+  const livePollMin =
+    activeStrat?.rebalanceMinutes ??
+    activeStrat?.livePollMinutes ??
+    DEFAULT_LIVE_POLL_MIN;
 
   // Preconditions
   const hasWallet = auth.connected && !!auth.address;
@@ -231,12 +254,21 @@ export default function LivePanel() {
       // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
       // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $1.
       minOrderSize: activeStrat.minTrade ?? 1,
+      // Ceiling for the new clamp-instead-of-skip sizing. Without this,
+      // a single whale trade from a high-volume trader could blow the
+      // proportional mirror past the user's TRADE SIZE max and chew
+      // through capital in one shot.
+      maxOrderSize: activeStrat.maxTrade,
       maxSlippageBps: 300,
     });
 
     updateIndex(activeStrat.id, {
       liveEnabled: true,
       capital: liveCapital,
+      // Persist both for backwards compat — `rebalanceMinutes` is the
+      // canonical field the STRAT panel writes; we mirror it into
+      // `livePollMinutes` so older code paths keep working.
+      rebalanceMinutes: livePollMin,
       livePollMinutes: livePollMin,
       updatedAt: Date.now(),
     });
@@ -244,6 +276,44 @@ export default function LivePanel() {
 
   const status = engineState?.status || "stopped";
   const nextIn = engineState?.nextCycleAt ? engineState.nextCycleAt - now : 0;
+
+  // Auto-restart the engine when the STRAT POLL EVERY changes mid-run.
+  // Without this the engine keeps polling at whatever interval it was
+  // started with — the user sees POLL EVERY 15s but NEXT IN still
+  // counts down from 60s. Tracks the last-applied interval in a ref so
+  // we don't re-trigger on every render. Skips while paused (the engine
+  // is intentionally idle then, no point bouncing).
+  const lastAppliedIntervalRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isLive || status !== "running") return;
+    if (!auth.clobCreds || !auth.address || !activeStrat) return;
+    const intervalMs = Math.max(1000, Math.round(livePollMin * 60_000));
+    if (lastAppliedIntervalRef.current === null) {
+      lastAppliedIntervalRef.current = intervalMs;
+      return;
+    }
+    if (lastAppliedIntervalRef.current === intervalMs) return;
+    lastAppliedIntervalRef.current = intervalMs;
+    // Hot-restart: stop the existing engine, start a fresh one with the
+    // new interval. The CopyEngineContext preserves cursors via local
+    // storage so we don't re-copy old trades on restart.
+    stopLive();
+    startLive({
+      strategyId: activeStrat.id,
+      traders: activeStrat.traders.filter((t) => t.enabled !== false),
+      capital: liveCapital,
+      intervalMs,
+      creds: auth.clobCreds,
+      address: auth.address,
+      minOrderSize: activeStrat.minTrade ?? 1,
+      // Ceiling for the new clamp-instead-of-skip sizing. Without this,
+      // a single whale trade from a high-volume trader could blow the
+      // proportional mirror past the user's TRADE SIZE max and chew
+      // through capital in one shot.
+      maxOrderSize: activeStrat.maxTrade,
+      maxSlippageBps: 300,
+    });
+  }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, liveCapital, startLive, stopLive]);
 
   return (
     <div className="space-y-1">
@@ -268,25 +338,22 @@ export default function LivePanel() {
                 {status.toUpperCase()}
               </span>
             )}
+            {backendRunning && (
+              <span className="text-[11px] font-mono px-1.5 py-0.5 border border-green-400/30 text-green-400/80 bg-green-400/5" title="Backend engine running — survives tab close">
+                BG
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <ThemeToggle />
-            {/* SCAN EVERY — how often the engine hits Polymarket per trader.
-                Disabled mid-run since changing intervals requires a stop/start. */}
-            <label className="inline-flex items-center gap-1.5 text-[11px] text-pixel-gray tracking-wider">
-              SCAN
-              <select
-                value={livePollMin}
-                disabled={isLive}
-                onChange={(e) => setLivePollMin(Number(e.target.value))}
-                className="bg-pixel-black/60 border border-pixel-border rounded-[6px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                title="How often the engine polls each trader. Lower = more real-time, more API hits."
-              >
-                {LIVE_POLL_OPTIONS.map((o) => (
-                  <option key={o.minutes} value={o.minutes}>{o.label}</option>
-                ))}
-              </select>
-            </label>
+            {/* SCAN dropdown removed — the STRAT panel's POLL EVERY field
+                is the single source of truth for poll cadence now. The
+                engine hot-restarts when that field changes (see the
+                lastAppliedIntervalRef effect above). Display-only echo
+                so the user can see at-a-glance what the engine is using. */}
+            <span className="text-[11px] text-pixel-gray tracking-wider" title="Poll cadence — change in STRAT panel POLL EVERY">
+              POLL <span className="font-mono text-pixel-white">{formatLivePoll(livePollMin)}</span>
+            </span>
             {/* Polygon USDC ready-to-trade indicator — visible before GO LIVE */}
             {auth.connected && <LoadedBadge capital={liveCapital} />}
             {isLive && status === "running" && (
@@ -475,8 +542,41 @@ export default function LivePanel() {
                   ? `Most recent successful Polymarket data-api fetch at ${new Date(engineState.lastCycleAt).toLocaleTimeString()}`
                   : "No sync yet — first cycle pending"
               }
-              fullWidth
             />
+            {/* LAST FETCH — surfaces the most recent CYCLE_END summary so
+                the user can see whether the engine is actually pulling
+                trader activity ("polled 7 · 2 active · 5 new trades") vs.
+                silently hitting fetch errors ("polled 7 · 7 fetch
+                errors"). This was the missing signal in the "0 trades
+                forever" failure mode the user kept hitting. */}
+            {(() => {
+              const lastCycleEnd = engineState.log.find((e) => e.type === "CYCLE_END");
+              const lastError = engineState.log.find((e) => e.type === "ERROR" && e.reason);
+              const summary = lastCycleEnd?.reason ?? "—";
+              const hasFetchErrors = summary.includes("fetch error");
+              const tone: "white" | "amber" | "red" | "green" = hasFetchErrors
+                ? "red"
+                : summary.includes("new trades observed")
+                  ? "green"
+                  : "white";
+              return (
+                <StatCard
+                  label="LAST FETCH"
+                  value={
+                    <span className="text-[12px] tracking-wider">
+                      {summary}
+                    </span>
+                  }
+                  tone={tone}
+                  title={
+                    lastError?.reason
+                      ? `Most recent error in log: ${lastError.reason.slice(0, 200)}`
+                      : "Most recent CYCLE_END summary — what the engine pulled on its last poll"
+                  }
+                  fullWidth
+                />
+              );
+            })()}
           </div>
 
           {/* ── Skip-floor banner ──
@@ -518,6 +618,7 @@ export default function LivePanel() {
                   creds: auth.clobCreds,
                   address: auth.address,
                   minOrderSize: newFloor,
+                  maxOrderSize: activeStrat.maxTrade,
                   maxSlippageBps: 300,
                 });
               }, 100);

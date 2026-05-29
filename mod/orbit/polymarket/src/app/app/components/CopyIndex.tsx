@@ -406,6 +406,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   const [traderTrades, setTraderTrades] = useState<Map<string, PolymarketTrade[]>>(new Map());
   const [loadedCount, setLoadedCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [utcNow, setUtcNow] = useState(Date.now());
 
   // ── Backtest ──
   const [backtestDays, setBacktestDays] = useState(3);
@@ -445,6 +447,26 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // disabled until a watchlist exists, so first-time-no-strat users still
   // see STRATS through the disabled-tab fallback in the tabs render block.
   const [mode, setMode] = useState<"STRATS" | "BACKTEST" | "LIVE">("LIVE");
+
+  // STRAT panel collapsed state — params live above the BACKTEST/LIVE
+  // mode-content so the user can tweak window/capital/sample/poll-every
+  // without flipping tabs. Default open; once collapsed, persists in
+  // localStorage across reloads so the panel stays the way the user left
+  // it. Same params either way — they're the strat config.
+  const [stratPanelOpen, setStratPanelOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("stratPanelOpen") !== "0";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("stratPanelOpen", stratPanelOpen ? "1" : "0");
+  }, [stratPanelOpen]);
+
+  // UTC clock tick
+  useEffect(() => {
+    const t = setInterval(() => setUtcNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   // Derive watchlist from active strategy (only enabled traders)
   const watchlist = useMemo(
@@ -783,6 +805,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     );
 
     if (!silent) setLoading(false);
+    setLastUpdated(Date.now());
   }, []);
 
   // Mirror traderTrades into the ref so the silent-refresh path sees the
@@ -1241,8 +1264,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       out.push({
         i,
         ts: t.timestamp,
-        date: `${d.getMonth() + 1}/${d.getDate()}`,
-        time: `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`,
+        date: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+        time: `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`,
         pnl: running,
         side,
         realized,
@@ -1269,8 +1292,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       return {
         i,
         ts: t.ts,
-        date: `${d.getMonth() + 1}/${d.getDate()}`,
-        time: `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`,
+        date: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+        time: `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`,
         pnl: t.runningPnl,
         side: t.side,
         realized: t.realized,
@@ -1325,7 +1348,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   const backtestDateRange = useMemo(() => {
     const now = new Date();
     const from = new Date(Date.now() - backtestDays * 24 * 60 * 60 * 1000);
-    const fmt = (d: Date) => d.toLocaleDateString([], { month: "short", day: "numeric" });
+    const fmt = (d: Date) => d.toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" });
     return { from: fmt(from), to: fmt(now) };
   }, [backtestDays]);
 
@@ -1426,6 +1449,178 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             </button>
           )}
         </div>
+        {/* ── STRAT params panel (above tabs) ── */}
+        {activeIndex && watchlist.length > 0 && mode !== "STRATS" && (
+          <div className="pixel-panel">
+            <div
+              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-pixel-white/5 cursor-pointer select-none"
+              onClick={() => setStratPanelOpen((o) => !o)}
+              title={stratPanelOpen ? "Collapse strat params" : "Expand strat params"}
+            >
+              <span className="text-pixel-gray text-[12px] w-3 shrink-0">
+                {stratPanelOpen ? "▼" : "▶"}
+              </span>
+              <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">STRAT</span>
+              <div className="w-2 h-2 bg-green-400 shrink-0" />
+              <span className="text-[14px] font-mono text-green-400 font-bold truncate">{activeIndex.name}</span>
+              <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
+              {activeIndex.lastPnlAfterCosts !== undefined && (
+                <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
+                </span>
+              )}
+              <span className="text-[12px] text-pixel-gray/70 font-mono tracking-wider truncate">
+                {backtestDateRange.from} → {backtestDateRange.to}
+              </span>
+              <span className="text-pixel-border/40 shrink-0">·</span>
+              <span className="text-[11px] text-pixel-gray font-mono shrink-0" title="Current time (UTC)">
+                UTC {new Date(utcNow).toISOString().slice(11, 19)}
+              </span>
+              {lastUpdated && (
+                <>
+                  <span className="text-pixel-border/40 shrink-0">·</span>
+                  <span className="text-[11px] text-pixel-gray/70 font-mono shrink-0" title={`Last data fetch: ${new Date(lastUpdated).toISOString()}`}>
+                    UPD {new Date(lastUpdated).toISOString().slice(11, 19)}
+                  </span>
+                </>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); setMode("STRATS"); }}
+                className="text-[13px] text-pixel-gray hover:text-green-400 transition-colors px-2 py-0.5 border border-pixel-border hover:border-green-400 font-mono shrink-0 ml-auto"
+                title="Switch strat"
+              >
+                CHANGE →
+              </button>
+            </div>
+            {stratPanelOpen && (
+            <div className="px-3 pb-2.5 pt-1 border-t border-pixel-border/40">
+            <div className="flex items-end gap-2 flex-wrap">
+              <Field label="WINDOW" suffix="DAYS">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={backtestDaysInput}
+                  onChange={(e) => setBacktestDaysInput(e.target.value)}
+                  onBlur={() => {
+                    const v = parseInt(backtestDaysInput, 10);
+                    if (!isNaN(v) && v > 0 && v <= 365) {
+                      updateBacktestDays(v);
+                      setBacktestDaysInput(String(v));
+                    } else {
+                      setBacktestDaysInput(String(backtestDays));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const v = parseInt(backtestDaysInput, 10);
+                      if (!isNaN(v) && v > 0 && v <= 365) {
+                        updateBacktestDays(v);
+                        setRefreshKey((k) => k + 1);
+                      }
+                    }
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="CAPITAL" prefix="$">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={capital}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v > 0) updateCapital(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-16 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="TRADE SIZE" prefix="$">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={minTrade}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v >= 0) updateMinTrade(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+                <span className="text-pixel-gray/60 mx-0.5">–</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maxTrade}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v > 0) updateMaxTrade(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="THROTTLE" suffix="/HR">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maxTradesPerHour}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v > 0) updateMaxTradesPerHour(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="SAMPLE" suffix="%">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={samplePct}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v >= 1 && v <= 100) setSamplePct(v);
+                    else if (e.target.value === "") setSamplePct(1);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  title="Deterministically keep this % of in-window trades — the curve, feed, and stats all update. Quick chips below set 10/25/50/75/100%."
+                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="POLL EVERY">
+                <select
+                  value={rebalanceMinutes}
+                  onChange={(e) => updateRebalanceMinutes(Number(e.target.value))}
+                  className="bg-transparent font-mono text-[13px] text-pixel-white outline-none cursor-pointer pr-1"
+                >
+                  <option value={5 / 60}>5s</option>
+                  <option value={10 / 60}>10s</option>
+                  <option value={15 / 60}>15s</option>
+                  <option value={30 / 60}>30s</option>
+                  <option value={1}>1m</option>
+                  <option value={2}>2m</option>
+                  <option value={5}>5m</option>
+                  <option value={10}>10m</option>
+                  <option value={15}>15m</option>
+                  <option value={30}>30m</option>
+                  <option value={60}>1h</option>
+                  <option value={240}>4h</option>
+                  <option value={1440}>24h</option>
+                </select>
+              </Field>
+            </div>
+            </div>
+            )}
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex items-center gap-1 border-t border-pixel-border/40 pt-2">
           {(
@@ -1460,35 +1655,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         </div>
       </div>
 
-      {/* ── Wallet/funding (always visible on STRATS tab) ── */}
-      {mode === "STRATS" && <WalletFundingPanel />}
-
-      {/* ── Strat Leaderboard (full picker on STRATS tab only) ── */}
+      {/* ── Strat Leaderboard (full picker on STRATS tab only, collapsible) ── */}
       {mode === "STRATS" && <StratPicker onStratChange={() => setRefreshKey((v) => v + 1)} />}
 
-      {/* ── Compact active-strat header (non-STRATS tabs) ── */}
-      {mode !== "STRATS" && activeIndex && (
-        <div className="pixel-panel px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-[14px] text-pixel-gray tracking-wider shrink-0">STRAT</span>
-            <div className="w-2 h-2 bg-green-400 shrink-0" />
-            <span className="text-[15px] font-mono text-green-400 font-bold truncate">{activeIndex.name}</span>
-            <span className="text-[15px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
-            {activeIndex.lastPnlAfterCosts !== undefined && (
-              <span className={`text-[15px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => setMode("STRATS")}
-            className="text-[14px] text-pixel-gray hover:text-green-400 transition-colors px-2 py-1 border border-pixel-border hover:border-green-400 font-mono shrink-0"
-            title="Switch strat"
-          >
-            CHANGE →
-          </button>
-        </div>
-      )}
+      {/* ── Wallet/funding (always visible on STRATS tab) ── */}
+      {mode === "STRATS" && <WalletFundingPanel />}
 
       {/* ── Add trader bar (STRATS + BACKTEST only) ── */}
       {(mode === "STRATS" || mode === "BACKTEST") && (
@@ -1702,194 +1873,48 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             </div>
           )}
 
-          {/* ── Params panel — visible on BOTH BACKTEST and LIVE so the user
-              can tune WINDOW / CAPITAL / TRADE SIZE / THROTTLE / SAMPLE /
-              POLL INTERVAL from either view. BACKTEST-only bits (RUN, P&L
-              summary, chart, fee row) are wrapped in their own conditional
-              inside. STRATS still hides the whole panel — params are
-              meaningless without a chart or running engine to apply them. */}
-          {watchlist.length > 0 && (mode === "BACKTEST" || mode === "LIVE") && (
+          {/* ── BACKTEST panel ───────────────────────────────────────
+              RUN + P&L summary + chart + fee row. Always visible on
+              BACKTEST tab; LIVE has its own <LivePanel /> rendered
+              elsewhere with real-time engine state. Splitting this out
+              of the STRAT panel above keeps the param row scannable. */}
+          {watchlist.length > 0 && mode === "BACKTEST" && (
             <div className="pixel-panel px-3 py-2.5 space-y-3">
-              {/* ── Row 1: title + date range · RUN · P&L stats ─────── */}
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
                   <span className="text-[14px] text-pixel-white tracking-[0.2em]">
-                    {mode === "BACKTEST" ? "BACKTEST" : "PARAMETERS"}
+                    BACKTEST
                   </span>
-                  <span className="text-[12px] text-pixel-gray/70 font-mono tracking-wider">
-                    {backtestDateRange.from} → {backtestDateRange.to}
-                  </span>
-                  {mode === "BACKTEST" && (
-                    <button
-                      onClick={() => {
-                        const v = parseInt(backtestDaysInput, 10);
-                        if (!isNaN(v) && v > 0 && v <= 365) updateBacktestDays(v);
-                        setRefreshKey((k) => k + 1);
-                      }}
-                      className="inline-flex items-center gap-1.5 text-[12px] font-mono tracking-[0.15em] px-3 h-[24px] border border-green-400 text-green-400 hover:bg-green-400/10 active:bg-green-400/20 transition-colors"
-                      title="Run backtest with current settings"
-                    >
-                      ▶ RUN
-                    </button>
-                  )}
-                  {mode === "LIVE" && (
-                    <span className="text-[11px] text-amber-400/80 tracking-wider">
-                      · live changes restart the engine on next cycle
-                    </span>
-                  )}
-                </div>
-                {mode === "BACKTEST" && (
-                  <div className="flex items-center gap-4 text-[13px] font-mono">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-[12px] text-pixel-gray tracking-[0.15em]">P&L</span>
-                      <span className={chartNetPnl >= 0 ? "text-green-400" : "text-red-400"}>
-                        {formatPnl(chartNetPnl)}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-[12px] text-pixel-gray tracking-[0.15em]">ROI</span>
-                      <span className={chartRoi >= 0 ? "text-green-400" : "text-red-400"}>
-                        {chartRoi >= 0 ? "+" : ""}{chartRoi.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Row 2: labeled field cards for parameters ───────── */}
-              <div className="flex items-end gap-2 flex-wrap">
-                <Field label="WINDOW" suffix="DAYS">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={backtestDaysInput}
-                    onChange={(e) => setBacktestDaysInput(e.target.value)}
-                    onBlur={() => {
+                  <button
+                    onClick={() => {
                       const v = parseInt(backtestDaysInput, 10);
-                      if (!isNaN(v) && v > 0 && v <= 365) {
-                        updateBacktestDays(v);
-                        setBacktestDaysInput(String(v));
-                      } else {
-                        setBacktestDaysInput(String(backtestDays));
-                      }
+                      if (!isNaN(v) && v > 0 && v <= 365) updateBacktestDays(v);
+                      setRefreshKey((k) => k + 1);
                     }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = parseInt(backtestDaysInput, 10);
-                        if (!isNaN(v) && v > 0 && v <= 365) {
-                          updateBacktestDays(v);
-                          setRefreshKey((k) => k + 1);
-                        }
-                      }
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                </Field>
-
-                <Field label="CAPITAL" prefix="$">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={capital}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(v) && v > 0) updateCapital(v);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    className="bg-transparent w-16 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                </Field>
-
-                <Field label="TRADE SIZE" prefix="$">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={minTrade}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(v) && v >= 0) updateMinTrade(v);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                  <span className="text-pixel-gray/60 mx-0.5">–</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={maxTrade}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(v) && v > 0) updateMaxTrade(v);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                </Field>
-
-                <Field label="THROTTLE" suffix="/HR">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={maxTradesPerHour}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(v) && v > 0) updateMaxTradesPerHour(v);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                </Field>
-
-                <Field label="SAMPLE" suffix="%">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={samplePct}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(v) && v >= 1 && v <= 100) setSamplePct(v);
-                      else if (e.target.value === "") setSamplePct(1);
-                    }}
-                    onFocus={(e) => e.target.select()}
-                    title="Deterministically keep this % of in-window trades — the curve, feed, and stats all update. Quick chips below set 10/25/50/75/100%."
-                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                  />
-                </Field>
-
-                {/* POLL INTERVAL inlined into the field row — used to live
-                    in its own row plus a duplicate SAMPLE label row. With
-                    fractional-minute values we can offer SECONDS options
-                    (5s = 0.0833min) without changing the stored shape —
-                    intervalMs = livePollMinutes * 60_000 still resolves
-                    to the right ms for sub-minute selections. */}
-                <Field label="POLL EVERY">
-                  <select
-                    value={rebalanceMinutes}
-                    onChange={(e) => updateRebalanceMinutes(Number(e.target.value))}
-                    className="bg-transparent font-mono text-[13px] text-pixel-white outline-none cursor-pointer pr-1"
+                    className="inline-flex items-center gap-1.5 text-[12px] font-mono tracking-[0.15em] px-3 h-[24px] border border-green-400 text-green-400 hover:bg-green-400/10 active:bg-green-400/20 transition-colors"
+                    title="Run backtest with current settings"
                   >
-                    <option value={5 / 60}>5s</option>
-                    <option value={10 / 60}>10s</option>
-                    <option value={15 / 60}>15s</option>
-                    <option value={30 / 60}>30s</option>
-                    <option value={1}>1m</option>
-                    <option value={2}>2m</option>
-                    <option value={5}>5m</option>
-                    <option value={10}>10m</option>
-                    <option value={15}>15m</option>
-                    <option value={30}>30m</option>
-                    <option value={60}>1h</option>
-                    <option value={240}>4h</option>
-                    <option value={1440}>24h</option>
-                  </select>
-                </Field>
+                    ▶ RUN
+                  </button>
+                </div>
+                <div className="flex items-center gap-4 text-[13px] font-mono">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">P&L</span>
+                    <span className={chartNetPnl >= 0 ? "text-green-400" : "text-red-400"}>
+                      {formatPnl(chartNetPnl)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">ROI</span>
+                    <span className={chartRoi >= 0 ? "text-green-400" : "text-red-400"}>
+                      {chartRoi >= 0 ? "+" : ""}{chartRoi.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Fee/gas cost summary + chart are BACKTEST-only — they're
-                  derived from the historical replay and have no meaning on
-                  LIVE (which has its own real-time stats card in LivePanel). */}
-              {mode === "BACKTEST" && (() => {
+              {/* Fee/gas cost summary derived from the historical replay. */}
+              {(() => {
                 const feedFees = linkedTrades.reduce((s, t) => s + t.fee, 0);
                 const feedGas = linkedTrades.length * GAS_PER_TRADE_USD;
                 const feedCosts = feedFees + feedGas;
@@ -1942,42 +1967,12 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                 );
               })()}
 
-              {/* PnL chart.
-                  LIVE  → plots only the engine's actually-executed orders
-                          (liveCurve). Historical replay is HIDDEN — user
-                          explicitly does not want past trades shown there.
-                  BACKTEST → constrained replay curve from linkedTrades. */}
+              {/* BACKTEST PnL chart — constrained replay curve from
+                  linkedTrades. The LIVE branch lived here too before the
+                  split; now LivePanel renders its own real-time chart and
+                  this panel is BACKTEST-gated. */}
               <div ref={chartPanelRef}>
-              {mode === "LIVE" ? (
-                liveCurve.length >= 2 ? (
-                  <PnlChart
-                    points={liveCurve}
-                    dayLabel="LIVE TRADING"
-                    tradesInWindow={liveCurve.map((p) => ({ timestamp: p.ts }))}
-                    highlightIndex={chartHighlight}
-                    onHoverChange={handleChartHover}
-                    linkedTrades={[]}
-                    shortAddress={shortAddress}
-                  />
-                ) : (
-                  <div className="p-8 text-center border border-dashed border-pixel-border/40 rounded">
-                    <div className="text-[13px] text-pixel-gray mb-1">
-                      {isLive
-                        ? engineState && engineState.totalOrdersPlaced === 0
-                          ? "Engine is running but hasn't placed any orders yet"
-                          : "Waiting for the next executed order…"
-                        : "Live engine not running — hit GO LIVE above to start"}
-                    </div>
-                    <div className="text-[11px] text-pixel-gray/70 font-mono">
-                      LIVE CHART ONLY PLOTS ORDERS PLACED IN THE CURRENT SESSION ·
-                      {" "}{engineState?.totalOrdersPlaced ?? 0} ORDERS ·
-                      {" "}LAST SYNC {engineState?.lastCycleAt
-                        ? `${Math.max(0, Math.floor((Date.now() - engineState.lastCycleAt) / 1000))}s ago`
-                        : "—"}
-                    </div>
-                  </div>
-                )
-              ) : chartCurve.length >= 2 ? (
+              {chartCurve.length >= 2 ? (
                 <PnlChart
                   points={chartCurve}
                   dayLabel={`${backtestDays}D INDEX`}
@@ -2120,7 +2115,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                             const origIdx = feedOrder === "newest" ? n - 1 - di : di;
                             const isHighlighted = tradeHighlight === origIdx;
                             const d = new Date(t.ts);
-                            const when = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+                            const when = `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`;
                             return (
                               <tr
                                 key={`${t.trader}-${t.ts}-${di}`}

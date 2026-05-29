@@ -20,7 +20,7 @@
         "sources",
         "chains"
     ],
-    "schema": "QmUfMPtW7RpYgok9GdyfrZpc83eMHTNhYJZ6kvXhe5zbQ8",
+    "schema": "Qmf57g1QoNnJB2ziKmuM7N1GqWMDXNSmyPJXRGQRujBMG8",
     "env": {
         "BITCOIN_RPC": "http://user:pass@localhost:18332 (optional)",
         "KASPA_RPC": "http://localhost:16110 (optional)"

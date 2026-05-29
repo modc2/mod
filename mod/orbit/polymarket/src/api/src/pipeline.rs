@@ -159,6 +159,7 @@ impl PipelineState {
                     market_titles: vec![],
                     recent_trades: 0,
                     trades_24h: 0,
+                    last_trade_ts: None,
                     pnl_curve: None,
                     market_metrics: None,
                 });
@@ -339,6 +340,14 @@ async fn enrich_trader_with_url(
         .filter_map(|t| t.get("timestamp").and_then(|v| v.as_u64()))
         .filter(|&ts| ts >= cutoff_24h)
         .count() as u32;
+    // Stamp the most recent in-window trade so the leaderboard can show
+    // "last trade Xm ago" — surfaces dormants that have a good window-
+    // total but went silent days ago. Uses the same timestamp pass as
+    // trades_24h above so no extra network cost.
+    trader.last_trade_ts = all_trades
+        .iter()
+        .filter_map(|t| t.get("timestamp").and_then(|v| v.as_u64()))
+        .max();
     trader.volume = metrics.volume;
     trader.buy_volume = metrics.buy_volume;
     trader.sell_volume = metrics.sell_volume;
@@ -1008,7 +1017,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         // Call with the mock server URL (override DATA_API)
@@ -1039,7 +1048,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         let cutoff = now - 86400;
@@ -1077,7 +1086,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         let cutoff = now - 86400;
@@ -1102,14 +1111,14 @@ mod tests {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
                     pnl: 150.0, win_rate: 65.0, positions: 10,
-                    market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0,
+                    market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
                 },
                 Trader {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
                     pnl: -50.0, win_rate: 40.0, positions: 5,
-                    market_titles: vec![], recent_trades: 5, trades_24h: 0,
+                    market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
                 },
             ],
@@ -1148,7 +1157,7 @@ mod tests {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
                 pnl: 5.0, win_rate: 50.0, positions: 2,
-                market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0,
+                market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
             }],
         };
@@ -1189,7 +1198,7 @@ mod tests {
             positions: 42,
             market_titles: vec!["Will BTC hit 100k?".into(), "US Election".into()],
             recent_trades: 42,
-            trades_24h: 7,
+            trades_24h: 7, last_trade_ts: None,
             pnl_curve: Some(vec![0.0, 5.0, 10.0, 8.0, 12.0, 15.0, 14.0, 18.0, 20.0, 22.0, 25.0, 30.0]),
             market_metrics: None,
         };
@@ -1215,7 +1224,7 @@ mod tests {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };
         let json = serde_json::to_string(&trader).unwrap();
