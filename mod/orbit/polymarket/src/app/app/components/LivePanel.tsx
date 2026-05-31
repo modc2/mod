@@ -11,7 +11,6 @@ import { networkById, withRpcFallback } from "../lib/networks";
 import type { SavedIndex } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import WalletFundingPanel from "./WalletFundingPanel";
-import LoadedBadge from "./LoadedBadge";
 import EnableTradingPanel from "./EnableTradingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
@@ -120,12 +119,101 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
 
 export default function LivePanel() {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Proxy USDC.e balance — this is the on-chain "BALANCE" the engine should
   // size mirrors against. Polled every 15s while the LIVE tab is mounted.
   const [proxyBalance, setProxyBalance] = useState<number | null>(null);
+  // Catch-up status — "running" disables the button, "result" surfaces
+  // the placed/failed count after the one-shot scan completes. Declared
+  // after proxyBalance so the useCallback dep array doesn't hit a TDZ
+  // ReferenceError on first render (const isn't hoisted).
+  const [catchUpStatus, setCatchUpStatus] = useState<string | null>(null);
+  const [catchingUp, setCatchingUp] = useState(false);
+  // Lookback window for CATCH UP, in hours. Persisted to localStorage so
+  // it survives page reloads — most users settle on one value (e.g. 6h)
+  // and re-typing it every time would be annoying. Clamped [1, 24] in
+  // the input handler; the engine accepts fractional but the UI sticks
+  // to whole hours for simplicity.
+  const [catchUpHours, setCatchUpHours] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    const saved = parseFloat(window.localStorage.getItem("polyCatchUpHours") || "");
+    return Number.isFinite(saved) && saved >= 1 && saved <= 24 ? saved : 1;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // QuotaExceededError can happen when other big keys (engine log,
+    // copiedIds dedup) have filled the bucket — wrap every preference
+    // write so a single tiny "1h" save doesn't crash the panel.
+    try { window.localStorage.setItem("polyCatchUpHours", String(catchUpHours)); } catch {}
+  }, [catchUpHours]);
+  // TOP N cap — how many of the highest-notional candidates across all
+  // traders to actually fire. Without a cap the engine sprayed every
+  // trade that cleared the floor and burned through capital on dust.
+  // Defaults to 5; persisted to localStorage.
+  const [catchUpTopN, setCatchUpTopN] = useState<number>(() => {
+    if (typeof window === "undefined") return 5;
+    const n = parseInt(window.localStorage.getItem("polyCatchUpTopN") || "", 10);
+    return Number.isFinite(n) && n >= 1 && n <= 100 ? n : 5;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try { window.localStorage.setItem("polyCatchUpTopN", String(catchUpTopN)); } catch {}
+  }, [catchUpTopN]);
+  // Sell-winners toggle — before catch-up buys, close any open position
+  // with positive P&L to recoup USDC. Defaults on so the user gets the
+  // "free liquidity" behavior they asked for without an extra click.
+  const [catchUpSellWinners, setCatchUpSellWinners] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("polyCatchUpSellWinners") !== "0";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try { window.localStorage.setItem("polyCatchUpSellWinners", catchUpSellWinners ? "1" : "0"); } catch {}
+  }, [catchUpSellWinners]);
+  // Confidence floor for CATCH UP — only mirror trader trades whose
+  // notional clears this threshold. `null` means "auto" (use proxy
+  // balance, mirrors the original "whatever I have in the proxy"
+  // intent). Persisted same as catchUpHours.
+  const [catchUpMinNotional, setCatchUpMinNotional] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem("polyCatchUpMinNotional");
+    if (raw === "auto" || raw === null) return null;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "polyCatchUpMinNotional",
+        catchUpMinNotional === null ? "auto" : String(catchUpMinNotional),
+      );
+    } catch {}
+  }, [catchUpMinNotional]);
+  // Resolve the actual threshold passed to the engine — auto uses proxy
+  // balance; explicit value uses what the user typed.
+  const effectiveMinNotional = catchUpMinNotional ?? Math.max(1, proxyBalance ?? 1);
+  const handleCatchUp = useCallback(async () => {
+    if (catchingUp || !isLive) return;
+    setCatchingUp(true);
+    setCatchUpStatus(`starting · last ${catchUpHours}h…`);
+    try {
+      const result = await catchUp({
+        lookbackHours: catchUpHours,
+        minNotional: effectiveMinNotional,
+        topN: catchUpTopN,
+        sellWinners: catchUpSellWinners,
+        onProgress: (msg) => setCatchUpStatus(msg),
+      });
+      setCatchUpStatus(`done · sold ${result.sold} · placed ${result.placed} · failed ${result.failed} · skipped ${result.skipped}`);
+    } catch (e) {
+      setCatchUpStatus(`error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCatchingUp(false);
+    }
+  }, [catchingUp, isLive, catchUp, effectiveMinNotional, catchUpHours, catchUpTopN, catchUpSellWinners]);
   // Track whether the user has manually overridden capital via the
   // CAPITAL CAP picker. If they have, we stop auto-syncing to proxy balance
   // and respect their explicit cap. Clearing the cap (or hitting MAX) re-
@@ -254,11 +342,14 @@ export default function LivePanel() {
       // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
       // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $1.
       minOrderSize: activeStrat.minTrade ?? 1,
-      // Ceiling for the new clamp-instead-of-skip sizing. Without this,
-      // a single whale trade from a high-volume trader could blow the
-      // proportional mirror past the user's TRADE SIZE max and chew
-      // through capital in one shot.
+      // Ceiling for the proportional sizing. Without this, a single whale
+      // trade from a high-volume trader could blow the proportional mirror
+      // past the user's TRADE SIZE max and chew through capital in one shot.
       maxOrderSize: activeStrat.maxTrade,
+      // Same lookback the BACKTEST tab uses to compute the per-trader
+      // volume denominator — keeps live copyRatio == backtest scale, so
+      // the preview predicts execution.
+      backtestDays: activeStrat.backtestDays ?? 3,
       maxSlippageBps: 300,
     });
 
@@ -306,11 +397,8 @@ export default function LivePanel() {
       creds: auth.clobCreds,
       address: auth.address,
       minOrderSize: activeStrat.minTrade ?? 1,
-      // Ceiling for the new clamp-instead-of-skip sizing. Without this,
-      // a single whale trade from a high-volume trader could blow the
-      // proportional mirror past the user's TRADE SIZE max and chew
-      // through capital in one shot.
       maxOrderSize: activeStrat.maxTrade,
+      backtestDays: activeStrat.backtestDays ?? 3,
       maxSlippageBps: 300,
     });
   }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, liveCapital, startLive, stopLive]);
@@ -354,8 +442,95 @@ export default function LivePanel() {
             <span className="text-[11px] text-pixel-gray tracking-wider" title="Poll cadence — change in STRAT panel POLL EVERY">
               POLL <span className="font-mono text-pixel-white">{formatLivePoll(livePollMin)}</span>
             </span>
-            {/* Polygon USDC ready-to-trade indicator — visible before GO LIVE */}
-            {auth.connected && <LoadedBadge capital={liveCapital} />}
+            {/* LOADED badge removed — duplicated the same proxy balance
+                already shown in the PROXY row below ("$35.22 / $300" up
+                here vs "BAL $300.00" right under it). Proxy panel is the
+                single source of truth for funded amount. */}
+            {/* CATCH UP — one-shot backfill controls + button. LAST is the
+                lookback window (1–24h), MIN is the confidence floor
+                (auto = proxy balance, or explicit USD value). Both
+                persisted to localStorage. Disabled mid-run to avoid
+                double-fires. */}
+            {isLive && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-pixel-gray tracking-wider">
+                LAST
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={String(catchUpHours)}
+                  disabled={catchingUp}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9.]/g, "");
+                    if (raw === "") return;
+                    const n = parseFloat(raw);
+                    if (!Number.isFinite(n)) return;
+                    // Clamp into [1, 24]. The engine accepts fractional
+                    // (e.g. 0.5h = 30min) but we cap at 24h because the
+                    // upstream wallet-trades endpoint gets heavy past
+                    // that and the rest of the engine isn't tuned for it.
+                    setCatchUpHours(Math.min(24, Math.max(1, n)));
+                  }}
+                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-12 outline-none disabled:opacity-50"
+                  title="Lookback in hours (1–24). Fractional values allowed."
+                />
+                <span className="text-pixel-gray/70 font-mono text-[11px]">h</span>
+                MIN
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={catchUpMinNotional === null ? "" : String(catchUpMinNotional)}
+                  placeholder={`auto $${(proxyBalance ?? 1).toFixed(0)}`}
+                  disabled={catchingUp}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
+                    if (raw === "") { setCatchUpMinNotional(null); return; }
+                    const n = parseFloat(raw);
+                    if (Number.isFinite(n) && n >= 0) setCatchUpMinNotional(n);
+                  }}
+                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-20 outline-none disabled:opacity-50"
+                  title="Copy threshold — only trades with trader notional ≥ this fire. Leave blank for auto (= proxy balance)."
+                />
+                TOP
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={String(catchUpTopN)}
+                  disabled={catchingUp}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, "");
+                    if (raw === "") return;
+                    const n = parseInt(raw, 10);
+                    if (!Number.isFinite(n)) return;
+                    setCatchUpTopN(Math.min(100, Math.max(1, n)));
+                  }}
+                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-12 outline-none disabled:opacity-50"
+                  title="Number of highest-notional trades to actually copy (1–100). The rest of the candidates get dropped."
+                />
+                <label
+                  className="inline-flex items-center gap-1 select-none cursor-pointer"
+                  title="Before catching up, sell every open position with positive P&L to free USDC for the new buys"
+                >
+                  <input
+                    type="checkbox"
+                    checked={catchUpSellWinners}
+                    disabled={catchingUp}
+                    onChange={(e) => setCatchUpSellWinners(e.target.checked)}
+                    className="accent-green-400 disabled:opacity-50"
+                  />
+                  <span className="text-[11px]">SELL WINS</span>
+                </label>
+              </span>
+            )}
+            {isLive && (
+              <button
+                onClick={() => { void handleCatchUp(); }}
+                disabled={catchingUp}
+                className="pixel-btn text-[13px] px-1.5 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                title={`${catchUpSellWinners ? "Sell winning positions, then " : ""}scan last ${catchUpHours}h and copy top ${catchUpTopN} trades ≥ $${effectiveMinNotional.toFixed(0)} notional`}
+              >
+                {catchingUp ? "CATCHING…" : "CATCH UP"}
+              </button>
+            )}
             {isLive && status === "running" && (
               <button
                 onClick={pauseLive}
@@ -619,6 +794,7 @@ export default function LivePanel() {
                   address: auth.address,
                   minOrderSize: newFloor,
                   maxOrderSize: activeStrat.maxTrade,
+                  backtestDays: activeStrat.backtestDays ?? 3,
                   maxSlippageBps: 300,
                 });
               }, 100);
@@ -626,12 +802,12 @@ export default function LivePanel() {
             return (
               <div className="mt-2 px-3 py-2 border border-amber-400/40 bg-amber-400/5 rounded">
                 <div className="text-[12px] text-amber-400 font-mono mb-1.5">
-                  {skipCount} skipped · 0 orders · mirrors averaging $
+                  {skipCount} dust skips · 0 orders · proportional sizing averages $
                   {(skippedSizes.reduce((s, v) => s + v, 0) / Math.max(skippedSizes.length, 1)).toFixed(2)}
                   {" "}vs floor ${currentFloor.toFixed(2)}
                 </div>
                 <div className="text-[11px] text-pixel-gray font-mono mb-1.5">
-                  Your capital is too thin OR the floor is too high. Drop the floor to start filling:
+                  Your capital is too thin OR the floor is too high — backtest preview would also skip these. Drop the floor to start filling (live + backtest both update):
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {[0.01, 0.05, 0.10, 0.25, 0.50].map((f) => (
@@ -658,6 +834,19 @@ export default function LivePanel() {
               {engineState.error}
             </div>
           )}
+
+          {catchUpStatus && (
+            <div
+              className={`mt-2 px-2 py-1 border text-[13px] font-mono rounded ${
+                catchingUp
+                  ? "border-amber-400/40 bg-amber-400/5 text-amber-400 animate-pulse"
+                  : "border-green-400/40 bg-green-400/5 text-green-400"
+              }`}
+              title="Result of the most recent CATCH UP scan"
+            >
+              CATCH UP · {catchUpStatus}
+            </div>
+          )}
         </div>
       )}
 
@@ -671,11 +860,21 @@ export default function LivePanel() {
         // UPSTREAM tab pulls from the engine's observed-trades ring buffer
         // (real-time mirror of what watched traders are doing); the other
         // tabs filter the engine log (copy decisions / cycle heartbeats).
+        // MIRROR view shows every per-trade decision: successful copies,
+        // failures, skips, AND clamp-applied entries from the new sizing
+        // path. Previously this filter only let through COPY_*/SKIP so the
+        // user saw "No copy events yet" while ORDERS=20F because failures
+        // are tagged ERROR (and clamps are tagged BALANCE) — both hidden.
+        // Cycle heartbeats stay hidden here; ALL surfaces those.
         const items = isUpstream
           ? engineState.observedTrades
           : engineState.log.filter((e) =>
               tradesFilter === "trades"
-                ? e.type === "COPY_BUY" || e.type === "COPY_SELL" || e.type === "SKIP"
+                ? e.type === "COPY_BUY" ||
+                  e.type === "COPY_SELL" ||
+                  e.type === "SKIP" ||
+                  e.type === "ERROR" ||
+                  (e.type === "BALANCE" && !!e.upstreamTradeId)
                 : true,
             );
 
@@ -702,11 +901,11 @@ export default function LivePanel() {
         const start = safePage * TRADES_PAGE_SIZE;
         const pageEntries = sorted.slice(start, start + TRADES_PAGE_SIZE);
         const headerLabel =
-          tradesFilter === "upstream" ? "UPSTREAM TRADES" :
-          tradesFilter === "trades" ? "MIRROR ACTIVITY" : "EXECUTION LOG";
+          tradesFilter === "upstream" ? "TRADER TRADES" :
+          tradesFilter === "trades" ? "MY TRADES" : "ALL TRADES";
         const countLabel =
-          tradesFilter === "upstream" ? "real-time trades" :
-          tradesFilter === "trades" ? "copy events" : "entries";
+          tradesFilter === "upstream" ? "from watched traders" :
+          tradesFilter === "trades" ? "decisions on my account" : "log entries";
         return (
           <div className="pixel-panel border-2 border-pixel-border">
             <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
@@ -722,9 +921,9 @@ export default function LivePanel() {
                       ? "border-green-400 text-green-400 bg-green-400/10"
                       : "border-pixel-border text-pixel-gray hover:text-pixel-white"
                   }`}
-                  title="Raw real-time trades from watched traders — independent of copy decisions"
+                  title="Raw real-time trades from the traders you watch"
                 >
-                  UPSTREAM
+                  TRADER TRADES
                 </button>
                 <button
                   onClick={() => { setTradesFilter("trades"); setTradesPage(0); }}
@@ -733,9 +932,9 @@ export default function LivePanel() {
                       ? "border-green-400 text-green-400 bg-green-400/10"
                       : "border-pixel-border text-pixel-gray hover:text-pixel-white"
                   }`}
-                  title="Show only copy events (BUY / SELL / SKIP)"
+                  title="Orders the engine placed (or tried to) on your account — copies, skips, errors"
                 >
-                  MIRROR
+                  MY TRADES
                 </button>
                 <button
                   onClick={() => { setTradesFilter("all"); setTradesPage(0); }}
@@ -744,9 +943,9 @@ export default function LivePanel() {
                       ? "border-green-400 text-green-400 bg-green-400/10"
                       : "border-pixel-border text-pixel-gray hover:text-pixel-white"
                   }`}
-                  title="Show every log entry, including cycle heartbeats"
+                  title="Everything: trades, decisions, cycle heartbeats, errors"
                 >
-                  ALL
+                  ALL TRADES
                 </button>
               </div>
             </div>

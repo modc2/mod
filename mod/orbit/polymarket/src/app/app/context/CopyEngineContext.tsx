@@ -19,6 +19,16 @@ interface CopyEngineContextValue {
   pauseLive: () => void;
   resumeLive: () => void;
   clearLog: () => void;
+  /** One-shot catch-up: scan the last N hours of trades for every
+      enrolled trader and copy the ones above the notional floor.
+      Resolves with placement stats. Requires a running engine. */
+  catchUp: (opts: {
+    lookbackHours: number;
+    minNotional: number;
+    topN?: number;
+    sellWinners?: boolean;
+    onProgress?: (msg: string) => void;
+  }) => Promise<{ scanned: number; placed: number; failed: number; skipped: number; sold: number }>;
 }
 
 // Persisted live-session record. Holds only the *config* needed to rebuild
@@ -147,6 +157,7 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   pauseLive: () => {},
   resumeLive: () => {},
   clearLog: () => {},
+  catchUp: async () => ({ scanned: 0, placed: 0, failed: 0, skipped: 0, sold: 0 }),
 });
 
 export function useCopyEngine() {
@@ -232,6 +243,22 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     setEngineState((prev) => prev ? { ...prev, log: [] } : null);
   }, []);
 
+  // CATCH UP — delegates to the in-browser engine's one-shot backfill.
+  // Returns zeros when there's no live engine yet so the UI can disable
+  // the button cleanly instead of throwing.
+  const catchUp = useCallback(async (opts: {
+    lookbackHours: number;
+    minNotional: number;
+    topN?: number;
+    sellWinners?: boolean;
+    onProgress?: (msg: string) => void;
+  }) => {
+    if (!engineRef.current) {
+      return { scanned: 0, placed: 0, failed: 0, skipped: 0, sold: 0 };
+    }
+    return engineRef.current.catchUp(opts);
+  }, []);
+
   // Poll backend status every 5s while live. Merge backend observed trades
   // into the frontend engine state so the user sees trades the backend
   // picked up even when the browser engine missed them (e.g. tab was
@@ -309,7 +336,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   return (
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
-      startLive, stopLive, pauseLive, resumeLive, clearLog,
+      startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>
       {children}
     </CopyEngineContext.Provider>

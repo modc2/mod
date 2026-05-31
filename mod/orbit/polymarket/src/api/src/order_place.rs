@@ -103,6 +103,12 @@ pub struct PlaceOrderRequest {
 /// All numeric fields are stringified base-unit integers — Polymarket's
 /// API rejects floats, and the EIP-712 digest is computed over the same
 /// integer values.
+///
+/// Note on `side`: the HTTP body uses the STRING form ("BUY" / "SELL"),
+/// even though the EIP-712 typed data uses uint8 (0 / 1) for the hash.
+/// This split matches @polymarket/clob-client's `orderToJson` — and is the
+/// root cause of the "Invalid order payload" rejection we hit when sending
+/// the numeric form.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClobOrder {
     pub salt: String,
@@ -119,7 +125,8 @@ pub struct ClobOrder {
     pub nonce: String,
     #[serde(rename = "feeRateBps")]
     pub fee_rate_bps: String,
-    pub side: u8,
+    /// "BUY" or "SELL" — string in the HTTP body (uint8 in the EIP-712 hash).
+    pub side: String,
     #[serde(rename = "signatureType")]
     pub signature_type: u8,
     pub signature: String,
@@ -200,6 +207,104 @@ fn u256_limbs_to_decimal_str(mut limbs: [u64; 4]) -> String {
 
 // ─── Place order pipeline ──────────────────────────────────────────────
 
+/// Backend-owned CLOB API key minted against the backend signer's EOA.
+/// Polymarket's CLOB rejects orders whose `POLY_ADDRESS` / `order.signer`
+/// don't match the API key's bound EOA — so we mint a separate key tied
+/// to the backend signer and ignore whatever creds the frontend hands us.
+#[derive(Debug, Clone)]
+pub struct BackendCreds {
+    pub api_key: String,
+    pub secret: String,
+    pub passphrase: String,
+}
+
+/// Mint or look up a backend-owned CLOB API key for `eoa`. Hits
+/// /auth/derive-api-key first (returns the existing key for this backend
+/// EOA if one was ever minted), falls back to /auth/api-key if not.
+pub async fn ensure_backend_creds(
+    http: &reqwest::Client,
+    signer_store: &SignerStore,
+    eoa: &str,
+) -> Result<(BackendCreds, String)> {
+    let backend_addr = signer_store.signer_address(eoa)?;
+    let timestamp = chrono::Utc::now().timestamp().to_string();
+    let nonce: u64 = 0;
+    let digest = crate::clob_auth::clob_auth_digest(&backend_addr, &timestamp, nonce)?;
+    let sig = signer_store.sign_digest(eoa, &digest)?;
+    let sig_hex = format!("0x{}", hex::encode(sig));
+
+    async fn call(
+        http: &reqwest::Client,
+        method: reqwest::Method,
+        path: &str,
+        addr: &str,
+        sig_hex: &str,
+        timestamp: &str,
+        nonce: u64,
+    ) -> Result<(reqwest::StatusCode, serde_json::Value)> {
+        let url = format!("{}{}", CLOB_API, path);
+        let r = http
+            .request(method, &url)
+            .header("POLY_ADDRESS", addr)
+            .header("POLY_SIGNATURE", sig_hex)
+            .header("POLY_TIMESTAMP", timestamp)
+            .header("POLY_NONCE", nonce.to_string())
+            .send()
+            .await
+            .context("clob auth upstream")?;
+        let status = r.status();
+        let text = r.text().await.unwrap_or_default();
+        let json: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({"raw": text}));
+        Ok((status, json))
+    }
+
+    let (status, body) = call(
+        http,
+        reqwest::Method::GET,
+        "/auth/derive-api-key",
+        &backend_addr,
+        &sig_hex,
+        &timestamp,
+        nonce,
+    )
+    .await?;
+    let body = if status.is_success() {
+        body
+    } else {
+        let (s2, b2) = call(
+            http,
+            reqwest::Method::POST,
+            "/auth/api-key",
+            &backend_addr,
+            &sig_hex,
+            &timestamp,
+            nonce,
+        )
+        .await?;
+        if !s2.is_success() {
+            return Err(anyhow!("mint backend creds HTTP {}: {}", s2, b2));
+        }
+        b2
+    };
+    let api_key = body
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("creds: missing apiKey"))?
+        .to_string();
+    let secret = body
+        .get("secret")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("creds: missing secret"))?
+        .to_string();
+    let passphrase = body
+        .get("passphrase")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("creds: missing passphrase"))?
+        .to_string();
+    Ok((BackendCreds { api_key, secret, passphrase }, backend_addr))
+}
+
 pub async fn place_order(
     http: &reqwest::Client,
     signer_store: &SignerStore,
@@ -209,8 +314,13 @@ pub async fn place_order(
     let (maker_amount, taker_amount) =
         compute_amounts(req.args.side, req.args.price, req.args.size)?;
 
-    // 2. Resolve signer address — the EOA's backend key.
-    let signer_addr = signer_store.signer_address(&req.eoa)?;
+    // 2. Resolve backend creds + signer address. We IGNORE req.creds
+    //    entirely — those were minted against the user's EOA and CLOB
+    //    won't accept orders signed by anyone else for that key. Backend
+    //    creds are minted against the backend signer's EOA, which the
+    //    Safe (proxy) recognizes as an authorized owner.
+    let (backend_creds, signer_addr) =
+        ensure_backend_creds(http, signer_store, &req.eoa).await?;
 
     // 3. Build OrderInput for the digest.
     let salt = random_salt();
@@ -226,8 +336,21 @@ pub async fn place_order(
     let order_input = OrderInput {
         salt: salt.clone(),
         maker: req.args.maker.clone(),
-        // For sigType 0 the signer IS the maker (EOA mode). For 1/2 the
-        // signer is the backend signer address (registered against the proxy).
+        // signer field semantics:
+        //   sigType 0 (EOA)         — signer = maker (trading EOA itself).
+        //   sigType 1 (POLY_PROXY)  — signer = the EOA that owns the proxy.
+        //                             predictProxy(signer) == maker AND
+        //                             ecrecover(sig) == signer.
+        //   sigType 2 (SAFE)        — signer = the Safe-owner EOA whose key
+        //                             actually signed. CLOB validates
+        //                             ecrecover(sig) == signer AND that
+        //                             signer is a registered Safe owner on
+        //                             maker (via eth_call to
+        //                             Safe.isValidSignature). For our
+        //                             backend setup that's signer_addr,
+        //                             not req.eoa — the backend key signs
+        //                             the digest, so order.signer must match
+        //                             what ECDSA recovery yields.
         signer: if req.args.signature_type == 0 {
             req.args.maker.clone()
         } else {
@@ -261,7 +384,14 @@ pub async fn place_order(
         expiration: order_input.expiration,
         nonce: order_input.nonce,
         fee_rate_bps: order_input.fee_rate_bps,
-        side: order_input.side,
+        // HTTP body wants "BUY" / "SELL" strings — the digest was already
+        // computed over the uint8 form in `order_input.side` above, so the
+        // signature stays valid.
+        side: match order_input.side {
+            0 => "BUY".to_string(),
+            1 => "SELL".to_string(),
+            other => return Err(anyhow!("invalid side {} (must be 0=BUY or 1=SELL)", other)),
+        },
         signature_type: order_input.signature_type,
         signature: sig_hex,
     };
@@ -269,7 +399,7 @@ pub async fn place_order(
     // 5. POST /order to Polymarket CLOB with L2 HMAC headers.
     let body = serde_json::json!({
         "order": order,
-        "owner": req.creds.api_key,
+        "owner": backend_creds.api_key,
         "orderType": match req.args.order_type {
             OrderTimeInForce::Gtc => "GTC",
             OrderTimeInForce::Gtd => "GTD",
@@ -280,15 +410,35 @@ pub async fn place_order(
     let body_str = serde_json::to_string(&body)?;
     let timestamp = chrono::Utc::now().timestamp().to_string();
     let path = "/order";
-    let hmac_sig = build_hmac_signature(&req.creds.secret, &timestamp, "POST", path, &body_str)?;
+    let hmac_sig = build_hmac_signature(&backend_creds.secret, &timestamp, "POST", path, &body_str)?;
+
+    // Log the outbound body and the upstream response side-by-side so a
+    // rejection like "Invalid order payload" can be diagnosed without
+    // wiring a packet capture. Stays at info because order-placement is
+    // a relatively rare event and the operator typically wants to see
+    // every one in the early operational window.
+    tracing::info!(
+        path = path,
+        sig_type = req.args.signature_type,
+        neg_risk = req.args.neg_risk,
+        maker = %order.maker,
+        signer = %order.signer,
+        order_body = %body_str,
+        "POST /order outbound",
+    );
 
     let resp = http
         .post(format!("{}{}", CLOB_API, path))
-        .header("POLY_ADDRESS", &order.maker)
+        // POLY_ADDRESS = backend signer EOA. Must match the address
+        // bound to backend_creds.api_key (which IS the backend signer
+        // — that's how ensure_backend_creds mints it). order.signer
+        // matches too. Sign-with-backend + key-owned-by-backend = no
+        // mismatch errors.
+        .header("POLY_ADDRESS", &signer_addr)
         .header("POLY_SIGNATURE", hmac_sig)
         .header("POLY_TIMESTAMP", timestamp)
-        .header("POLY_API_KEY", &req.creds.api_key)
-        .header("POLY_PASSPHRASE", &req.creds.passphrase)
+        .header("POLY_API_KEY", &backend_creds.api_key)
+        .header("POLY_PASSPHRASE", &backend_creds.passphrase)
         .header("Content-Type", "application/json")
         .body(body_str)
         .send()
@@ -299,6 +449,7 @@ pub async fn place_order(
     let text = resp.text().await.unwrap_or_default();
     let json: serde_json::Value = serde_json::from_str(&text)
         .unwrap_or_else(|_| serde_json::json!({"raw": text}));
+    tracing::info!(%status, response = %json, "POST /order response");
     if !status.is_success() {
         return Err(anyhow!("CLOB /order HTTP {}: {}", status, json));
     }
@@ -392,6 +543,31 @@ mod tests {
         let s = random_salt();
         assert!(!s.is_empty());
         assert!(s.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn clob_order_serializes_side_as_string() {
+        // Polymarket's POST /order rejects numeric side with "Invalid order
+        // payload"; the JSON body must use "BUY" / "SELL". The EIP-712 hash
+        // still uses uint8 — only the HTTP body shape differs.
+        let order = ClobOrder {
+            salt: "1".into(),
+            maker: "0x0000000000000000000000000000000000000001".into(),
+            signer: "0x0000000000000000000000000000000000000002".into(),
+            taker: "0x0000000000000000000000000000000000000000".into(),
+            token_id: "9".into(),
+            maker_amount: "1000000".into(),
+            taker_amount: "2000000".into(),
+            expiration: "0".into(),
+            nonce: "0".into(),
+            fee_rate_bps: "0".into(),
+            side: "BUY".into(),
+            signature_type: 2,
+            signature: "0xdead".into(),
+        };
+        let v = serde_json::to_value(&order).unwrap();
+        assert_eq!(v["side"], serde_json::json!("BUY"));
+        assert_eq!(v["signatureType"], serde_json::json!(2));
     }
 
     #[test]

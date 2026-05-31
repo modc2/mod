@@ -659,6 +659,42 @@ export default function BackendSignerPanel() {
                   RESTART API
                 </button>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="tracking-[0.12em] text-pixel-gray/80 w-16 shrink-0">
+                  storage
+                </span>
+                <span className="text-[11px] text-pixel-gray/80 flex-1 leading-snug">
+                  Clear the engine&apos;s persisted history (log, dedup,
+                  cursors). Use when localStorage fills up and writes
+                  start throwing QuotaExceededError. Strats + signer keys
+                  are untouched.
+                </span>
+                <button
+                  onClick={() => {
+                    if (typeof window === "undefined") return;
+                    let cleared = 0;
+                    const keep = new Set(["poly_active_index", "poly_indexes", "poly_proxy_addresses"]);
+                    // Walk every key, drop the engine bloat. Two passes
+                    // since removeItem mutates the index.
+                    const all: string[] = [];
+                    for (let i = 0; i < window.localStorage.length; i++) {
+                      const k = window.localStorage.key(i);
+                      if (k) all.push(k);
+                    }
+                    for (const k of all) {
+                      if (keep.has(k)) continue;
+                      if (k.startsWith("poly_copy_") || k.startsWith("poly_engine_") || k === "poly_live_session") {
+                        try { window.localStorage.removeItem(k); cleared++; } catch {}
+                      }
+                    }
+                    setStatus(`cleared ${cleared} engine keys from localStorage`);
+                  }}
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-gray/60 text-pixel-gray hover:text-amber-400 hover:border-amber-400 shrink-0"
+                  title="Remove poly_copy_*, poly_engine_*, poly_live_session — strats + signer untouched"
+                >
+                  CLEAR LOCAL
+                </button>
+              </div>
             </div>
           </details>
         )}

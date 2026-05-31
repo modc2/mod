@@ -8,6 +8,7 @@ pub mod strats;
 pub mod auth;
 pub mod signer;
 pub mod order_signing;
+pub mod clob_auth;
 pub mod order_place;
 pub mod live_engine;
 

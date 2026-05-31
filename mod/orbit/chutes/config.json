@@ -12,6 +12,6 @@
         "models": "GET /models",
         "forward": "POST /forward"
     },
-    "schema": "Qmddr5819kCnjoTgajo1G2c3vaHeQgaLK5QKkUptRMKkEz",
+    "schema": "QmbxW2Kt3i3wKKoAUiS9Dx3uJAwPhhSuSXHBLYz7UFoWwY",
     "gateway_port": 50121
 }

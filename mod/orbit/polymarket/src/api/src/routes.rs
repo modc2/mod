@@ -26,6 +26,13 @@ pub fn router() -> Router<AppState> {
         // anything that isn't structurally a Polymarket CLOB order.
         .route("/signer/address", get(signer_address))
         .route("/signer/sign-order", post(signer_sign_order))
+        // Mint a CLOB API key bound to the per-user BACKEND signer EOA.
+        // One-shot per user: backend signs ClobAuth with its own key,
+        // POSTs to Polymarket /auth/api-key with POLY_ADDRESS=backend.
+        // The resulting key lets the backend place orders without the
+        // user's wallet — Safe-owner authorization gates the maker
+        // address on Polymarket's side.
+        .route("/signer/mint-clob-creds", post(mint_clob_creds))
         // Place an order on Polymarket CLOB end-to-end: backend builds the
         // Order struct, signs it with the per-EOA stored key, HMAC-auths
         // the L2 call, POSTs to clob.polymarket.com/order. Returns CLOB's
@@ -147,6 +154,120 @@ async fn admin_restart() -> impl IntoResponse {
         std::process::exit(0);
     });
     Json(json!({"ok": true, "restarting": true}))
+}
+
+// ─── Backend-owned CLOB API key ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct MintCredsRequest {
+    /// User EOA the per-user backend key is keyed on. Looks up the
+    /// backend address from `signer_store` and mints a CLOB API key
+    /// against that backend address.
+    eoa: String,
+}
+
+async fn mint_clob_creds(
+    State(state): State<AppState>,
+    Json(req): Json<MintCredsRequest>,
+) -> impl IntoResponse {
+    // 1. Resolve backend signer address for this user.
+    let backend_addr = match state.signer_store.signer_address(&req.eoa) {
+        Ok(a) => a,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("signer address: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+
+    // 2. Build the ClobAuth EIP-712 digest, sign with backend key.
+    let timestamp = chrono::Utc::now().timestamp().to_string();
+    let nonce: u64 = 0;
+    let digest = match crate::clob_auth::clob_auth_digest(&backend_addr, &timestamp, nonce) {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("digest: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+    let sig = match state.signer_store.sign_digest(&req.eoa, &digest) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("sign: {}", e)})),
+            )
+                .into_response();
+        }
+    };
+    let sig_hex = format!("0x{}", hex::encode(sig));
+
+    // 3. Hit Polymarket's /auth/api-key (POST) and /auth/derive-api-key
+    //    (GET) using the backend address. Try derive first — if a key
+    //    already exists for this backend EOA we just return it. Otherwise
+    //    create a fresh one.
+    const CLOB: &str = "https://clob.polymarket.com";
+    let try_call = |method: reqwest::Method, path: &str| {
+        let url = format!("{}{}", CLOB, path);
+        let http = state.http.clone();
+        let backend_addr = backend_addr.clone();
+        let sig_hex = sig_hex.clone();
+        let timestamp = timestamp.clone();
+        async move {
+            http.request(method, &url)
+                .header("POLY_ADDRESS", &backend_addr)
+                .header("POLY_SIGNATURE", &sig_hex)
+                .header("POLY_TIMESTAMP", &timestamp)
+                .header("POLY_NONCE", nonce.to_string())
+                .send()
+                .await
+        }
+    };
+
+    let resp = match try_call(reqwest::Method::GET, "/auth/derive-api-key").await {
+        Ok(r) if r.status().is_success() => r,
+        _ => match try_call(reqwest::Method::POST, "/auth/api-key").await {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": format!("upstream: {}", e)})),
+                )
+                    .into_response();
+            }
+        },
+    };
+
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    let body: Value =
+        serde_json::from_str(&body_text).unwrap_or_else(|_| json!({"raw": body_text}));
+    if !status.is_success() {
+        tracing::warn!(
+            "mint-clob-creds failed: backend={} status={} body={}",
+            backend_addr, status, body
+        );
+        let code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+        return (code, Json(body)).into_response();
+    }
+
+    // Augment the response with the backend address so the client knows
+    // which signer to use for `POLY_ADDRESS` and `order.signer`.
+    tracing::info!(
+        "mint-clob-creds ok: backend={} body_len={}",
+        backend_addr, body_text.len()
+    );
+    let mut merged = match body {
+        Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    merged.insert("signerAddress".to_string(), Value::String(backend_addr));
+    Json(Value::Object(merged)).into_response()
 }
 
 async fn order_place_handler(

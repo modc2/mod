@@ -206,7 +206,12 @@ export async function placeOrder(
   }
 
   const path = "/order";
-  const body = JSON.stringify({ order: signed, owner: creds.apiKey, orderType: order.type });
+  // Polymarket's POST /order body wants `side` as the string "BUY"/"SELL",
+  // even though the EIP-712 typed data (already hashed/signed in `signed`)
+  // uses uint8 0/1. Sending the numeric form produces an opaque "Invalid
+  // order payload" 400. Mirrors @polymarket/clob-client's `orderToJson`.
+  const orderBody = { ...signed, side: signed.side === 0 ? "BUY" : "SELL" };
+  const body = JSON.stringify({ order: orderBody, owner: creds.apiKey, orderType: order.type });
   const headers = await buildL2Headers(creds, maker, "POST", path, body);
   let res: Response;
   try {

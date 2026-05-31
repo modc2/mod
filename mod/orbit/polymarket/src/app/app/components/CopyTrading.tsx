@@ -388,6 +388,30 @@ export default function CopyTrading({
     return () => clearInterval(t);
   }, [loadPage, cacheWarm, lastUpdated]);
 
+  // Background source-data refresh. The page-cache check above keeps the
+  // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
+  // server `syncedAt` — when Polymarket data was actually pulled. Once
+  // that crosses 60s we kick off `loadStream({ force: true })` in the
+  // background so the chip stays under a minute. Guarded by inFlightRef
+  // and a per-attempt cooldown so a long-running sync doesn't queue up.
+  const lastForceAtRef = useRef(0);
+  useEffect(() => {
+    const MAX_SOURCE_STALENESS_MS = 60_000;
+    const MIN_RETRY_MS = 30_000;
+    const TICK_MS = 10_000;
+    const t = setInterval(() => {
+      if (inFlightRef.current) return;
+      const stamp = syncedAt ?? lastUpdated;
+      if (!stamp) return;
+      const age = Date.now() - stamp;
+      if (age < MAX_SOURCE_STALENESS_MS) return;
+      if (Date.now() - lastForceAtRef.current < MIN_RETRY_MS) return;
+      lastForceAtRef.current = Date.now();
+      void loadStreamRef.current({ force: true });
+    }, TICK_MS);
+    return () => clearInterval(t);
+  }, [syncedAt, lastUpdated]);
+
   // 5-second tick so the "Xs ago" label re-renders even when nothing else changes.
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 5_000);

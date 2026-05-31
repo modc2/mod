@@ -1,7 +1,7 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
-import { fetchWalletTradesUntil } from "./polymarket";
+import { fetchWalletTradesUntil, fetchPositions } from "./polymarket";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
 import { getProxyAddress } from "./polymarketProxy";
 import { USDC_E } from "./polymarketContracts";
@@ -84,12 +84,29 @@ export interface CopyEngineConfig {
       ("every copy lands in [$1, $10]") instead of just a skip floor. */
   maxOrderSize?: number;
   maxSlippageBps: number;
+  /** Lookback window (days) used to compute each trader's volume denominator
+      for the proportional copy-ratio. Mirrors the BACKTEST tab's `backtestDays`
+      so the live engine's sizing matches what the backtest preview shows.
+      Defaults to 3 (the backtest default) when not provided. */
+  backtestDays?: number;
 }
 
 const MAX_LOG_ENTRIES = 200;
 const MAX_ORDERS_PER_CYCLE = 20;
 const ORDER_DELAY_MS = 500;
-const TAKER_FEE_BPS = 200;
+// 0 — the matcher's fee schedule for binary markets returns 0, and a
+// hardcoded 200 bps was making every CLOB POST reject with HTTP 400
+// "Invalid order payload" because the signed feeRateBps didn't match
+// what the matcher expected. Per-market fee lookup is a TODO but 0 is
+// the safe default for taker-side fills on standard CTF markets.
+const TAKER_FEE_BPS = 0;
+// Polymarket's CLOB rejects any order below $1 notional with the generic
+// "Invalid order payload" error (no specific reason returned). The user-
+// configurable minOrderSize is for the strat's per-trade floor; this is
+// the hard API limit we MUST clamp to regardless of strat settings.
+// Without this, users who dropped the floor to $0.01 via the auto-fix
+// banner produced cascades of rejected $0.01 orders.
+const POLYMARKET_MIN_USD = 1.0;
 
 // ── Token ID Cache ─────────────────────────────────────────────
 
@@ -255,6 +272,387 @@ export class CopyEngine {
     return () => this.listeners.delete(fn);
   }
 
+  // ── Catch-up (one-shot backfill) ─────────────────────────────
+  //
+  // Replaces "wait for next live trade" with "look at the last N hours
+  // and copy the most confident recent trades NOW." Used by the CATCH UP
+  // button on LIVE — runs once, doesn't touch the cycle loop, ignores the
+  // cursor + dedup set so it can re-evaluate previously skipped trades
+  // under the new clamp sizing.
+  //
+  // Filter logic per trade:
+  //   - trade.notional (trader's USD position) ≥ minNotional
+  //   - skip SELLs (we can't sell what we don't hold)
+  //   - all surviving trades sent through the existing per-trade pipeline
+  //     (clamp → token-id resolution → backend-signed placeOrder)
+  //
+  // Price-drift filter is a TODO — would need a per-conditionId midpoint
+  // fetch, which slows the catch-up considerably. Leaving it as a future
+  // tightening once the basic flow is proven.
+  async catchUp(opts: {
+    lookbackHours: number;
+    minNotional: number;
+    /** Maximum number of buys to copy across the entire lookback window
+        (ALL traders combined). Trades are scored by trader notional and
+        the top N picked. Avoids the previous "fire 143 mirrors and burn
+        the budget" failure mode. */
+    topN?: number;
+    /** Liquidate any open position whose `pnlUsd > 0` before the buy
+        loop. Recoups USDC into the proxy so the catch-up buys actually
+        have budget to spend. */
+    sellWinners?: boolean;
+    onProgress?: (msg: string) => void;
+  }): Promise<{ scanned: number; placed: number; failed: number; skipped: number; sold: number }> {
+    const lookbackSec = Math.max(60, Math.floor(opts.lookbackHours * 3600));
+    const cutoffSec = Math.floor(Date.now() / 1000) - lookbackSec;
+    let scanned = 0;
+    let placed = 0;
+    let failed = 0;
+    let skipped = 0;
+    let sold = 0;
+    // Tracks back-to-back failures so we can halt after a small run of
+    // them — the alternative is a 100+ entry log of identical rejections
+    // before the user notices something is structurally wrong.
+    let consecutiveFailures = 0;
+    const topN = opts.topN ?? Number.POSITIVE_INFINITY;
+
+    const enabled = this.config.traders.filter((t) => t.enabled !== false);
+    const totalWeight = enabled.reduce((s, t) => s + t.weight, 0);
+    if (totalWeight <= 0) return { scanned, placed, failed, skipped, sold };
+    // CATCH UP uses the same backtest-aligned window for the copyRatio
+    // denominator as the live cycle — keeps the catch-up sizing consistent
+    // with what the backtest preview showed for the same lookback.
+    const backtestDays = this.config.backtestDays ?? 3;
+    const denomCutoffMs = Date.now() - backtestDays * 86400_000;
+
+    this.addLog({
+      id: uid(),
+      timestamp: Date.now(),
+      type: "BALANCE",
+      reason: `CATCH UP started · lookback ${opts.lookbackHours}h · top ${Number.isFinite(topN) ? topN : "∞"} · min $${opts.minNotional.toFixed(0)} · sellWinners ${opts.sellWinners ? "on" : "off"}`,
+    });
+
+    // ── Phase 1: free liquidity by selling profitable open positions ──
+    // Fetched at the proxy address (where the funds + positions live —
+    // CLOB binds to that, not the EOA). Each in-the-green position is
+    // closed at currentPrice with size = full position; freed USDC then
+    // backs the buy phase below.
+    if (opts.sellWinners) {
+      opts.onProgress?.("freeing liquidity…");
+      try {
+        const proxy =
+          this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+        const positions = await fetchPositions(proxy);
+        const winners = positions
+          .filter((p) => p.size > 0 && p.pnlUsd > 0)
+          .sort((a, b) => b.pnlUsd - a.pnlUsd);
+        opts.onProgress?.(`${winners.length} winning positions → selling`);
+        for (const pos of winners) {
+          if (!this.running) break;
+          try {
+            const tokenId = await this.resolveTokenId(pos.conditionId, pos.outcome || "Yes");
+            if (!tokenId) {
+              this.addLog({
+                id: uid(),
+                timestamp: Date.now(),
+                type: "SKIP",
+                market: pos.market,
+                conditionId: pos.conditionId,
+                side: "SELL",
+                reason: `FREE LIQUIDITY · TOKEN_ID_NOT_FOUND for ${pos.outcome}`,
+              });
+              continue;
+            }
+            const signer = await this.getSigner();
+            const negRisk = await this.resolveNegRisk(pos.conditionId);
+            const maker = this.sigType === 0 ? this.config.address : proxy;
+            const sellPrice = Math.max(0.01, Math.min(0.99, pos.currentPrice));
+            const result = await placeOrder(
+              this.config.creds,
+              signer,
+              maker,
+              {
+                tokenID: tokenId,
+                price: sellPrice,
+                size: Math.round(pos.size * 100) / 100,
+                side: "SELL",
+                type: "FOK",
+                feeRateBps: TAKER_FEE_BPS,
+              },
+              negRisk,
+              this.sigType,
+            );
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: result.success ? "COPY_SELL" : "ERROR",
+              market: pos.market,
+              conditionId: pos.conditionId,
+              tokenId,
+              side: "SELL",
+              traderSize: pos.size,
+              mirrorSize: pos.size,
+              mirrorNotional: Math.round(pos.size * sellPrice * 100) / 100,
+              price: sellPrice,
+              orderResult: result,
+              reason: result.success
+                ? `FREE LIQUIDITY · +$${pos.pnlUsd.toFixed(2)} P&L at @${(sellPrice * 100).toFixed(0)}¢`
+                : (result.errorMsg ?? "REJECTED"),
+            });
+            if (result.success) {
+              sold++;
+              opts.onProgress?.(`sold ${sold} winners · still freeing…`);
+              await delay(ORDER_DELAY_MS);
+            }
+          } catch (e) {
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: "ERROR",
+              market: pos.market,
+              conditionId: pos.conditionId,
+              reason: `FREE LIQUIDITY sell failed: ${e instanceof Error ? e.message : String(e)}`,
+            });
+          }
+        }
+      } catch (e) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "ERROR",
+          reason: `FREE LIQUIDITY fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+    }
+
+    opts.onProgress?.(`scanning ${enabled.length} traders…`);
+
+    // ── Phase 2a: collect candidates across all traders ──
+    // The previous version processed each trader's full sorted list in
+    // turn — a single high-volume trader could fire 50+ mirrors before
+    // we got to the second trader's best signal. By collecting GLOBALLY
+    // and sorting, "top N" reflects the highest-conviction trades in
+    // the whole lookback window regardless of which trader sent them.
+    type Candidate = {
+      trader: IndexTrader;
+      copyRatio: number;
+      trade: PolymarketTrade & { notional: number };
+      tradeKey: string;
+    };
+    const candidates: Candidate[] = [];
+    for (const trader of enabled) {
+      if (!this.running) break;
+      try {
+        const trades = await fetchWalletTradesUntil(trader.address, cutoffSec);
+        // Denominator uses the same `backtestDays` window as the backtest
+        // preview and the live cycle — keeps catch-up sizing in sync.
+        const denomWindow = trades.filter((t) => t.timestamp >= denomCutoffMs);
+        const buyVol = denomWindow
+          .filter((t) => t.side === "BUY")
+          .reduce((s, t) => s + t.price * t.size, 0);
+        const sellVol = denomWindow
+          .filter((t) => t.side === "SELL")
+          .reduce((s, t) => s + t.price * t.size, 0);
+        const traderVol = Math.max(buyVol, sellVol, 1);
+        const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
+        const copyRatio = capitalAlloc / traderVol;
+        for (const t of trades) {
+          if (t.side !== "BUY") continue;
+          const notional = t.price * t.size;
+          if (notional < opts.minNotional) continue;
+          const tradeKey = `${trader.address.toLowerCase()}:${t.conditionId}:${t.timestamp}`;
+          if (this.catchUpSeen.has(tradeKey)) continue;
+          candidates.push({ trader, copyRatio, trade: { ...t, notional }, tradeKey });
+        }
+      } catch (e) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "ERROR",
+          traderAddress: trader.address,
+          reason: `CATCH UP fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+    }
+    candidates.sort((a, b) => b.trade.notional - a.trade.notional);
+    const picked = candidates.slice(0, topN);
+    opts.onProgress?.(`${candidates.length} candidates · firing top ${picked.length}…`);
+
+    // ── Phase 2b: place orders for the top-N picks ──
+    for (const { trader, copyRatio, trade, tradeKey } of picked) {
+      if (!this.running) break;
+      scanned++;
+      this.catchUpSeen.add(tradeKey);
+
+      const rawMirrorNotional = trade.notional * copyRatio;
+      // SKIP below floor to mirror the backtest preview (which drops dust
+      // mirrors via `if (rawAmount < minTrade) continue`). Polymarket's
+      // $1 CLOB hard floor is an additional skip reason on top of the
+      // user's TRADE SIZE setting.
+      const userFloor = this.config.minOrderSize;
+      const ceiling = this.config.maxOrderSize ?? Number.POSITIVE_INFINITY;
+      if (rawMirrorNotional < userFloor) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          side: trade.side,
+          mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+          reason: `CATCH UP · BELOW_MIN_SIZE · proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} < floor $${userFloor.toFixed(2)}`,
+        });
+        skipped++;
+        continue;
+      }
+      if (rawMirrorNotional < POLYMARKET_MIN_USD) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          side: trade.side,
+          mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+          reason: `CATCH UP · BELOW_CLOB_MIN · $${rawMirrorNotional.toFixed(2)} < Polymarket $${POLYMARKET_MIN_USD.toFixed(2)}`,
+        });
+        skipped++;
+        continue;
+      }
+      const mirrorNotional = Math.min(rawMirrorNotional, ceiling);
+      // Whole shares for the 1¢ tick grid — see executeCycle for rationale.
+      const mirrorSize = Math.max(
+        1,
+        Math.ceil(mirrorNotional / Math.max(trade.price, 1e-9)),
+      );
+
+      const tokenId = await this.resolveTokenId(
+        trade.conditionId,
+        (trade.outcome as string | undefined) || "Yes",
+      );
+      if (!tokenId) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          side: trade.side,
+          reason: "CATCH_UP · TOKEN_ID_NOT_FOUND",
+        });
+        skipped++;
+        continue;
+      }
+
+      try {
+        const signer = await this.getSigner();
+        const negRisk = await this.resolveNegRisk(trade.conditionId);
+        const proxy =
+          this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+        const maker = this.sigType === 0 ? this.config.address : proxy;
+        const result = await placeOrder(
+          this.config.creds,
+          signer,
+          maker,
+          {
+            tokenID: tokenId,
+            price: trade.price,
+            size: Math.round(mirrorSize * 100) / 100,
+            side: trade.side,
+            type: "FOK",
+            feeRateBps: TAKER_FEE_BPS,
+          },
+          negRisk,
+          this.sigType,
+        );
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: result.success
+            ? trade.side === "BUY"
+              ? "COPY_BUY"
+              : "COPY_SELL"
+            : "ERROR",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          tokenId,
+          side: trade.side,
+          traderSize: trade.size,
+          mirrorSize: Math.round(mirrorSize * 100) / 100,
+          mirrorNotional: Math.round(mirrorNotional * 100) / 100,
+          price: trade.price,
+          orderResult: result,
+          reason: result.success
+            ? `CATCH UP · top pick · $${trade.notional.toFixed(0)} notional`
+            : (result.errorMsg ?? "REJECTED"),
+        });
+        if (result.success) {
+          placed++;
+          consecutiveFailures = 0;
+          this.setState({
+            totalOrdersPlaced: this.state.totalOrdersPlaced + 1,
+            totalVolumeMirrored: this.state.totalVolumeMirrored + mirrorNotional,
+          });
+          opts.onProgress?.(`placed ${placed}/${picked.length}…`);
+          await delay(ORDER_DELAY_MS);
+        } else {
+          failed++;
+          consecutiveFailures++;
+          this.setState({
+            totalOrdersFailed: this.state.totalOrdersFailed + 1,
+          });
+          opts.onProgress?.(`placed ${placed} · failed ${failed} · ${result.errorMsg ?? "rejected"}`);
+          const msg = (result.errorMsg ?? "").toLowerCase();
+          const isFatal =
+            msg.includes("insufficient_balance") ||
+            msg.includes("unauthenticated") ||
+            msg.includes("backend_signer_not_authorized") ||
+            msg.includes("invalid order payload") ||
+            msg.includes("http 400");
+          if (isFatal || consecutiveFailures >= 5) {
+            const reason = isFatal
+              ? `CATCH UP halted (fatal): ${result.errorMsg}`
+              : `CATCH UP halted after ${consecutiveFailures} consecutive failures: ${result.errorMsg}`;
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: "ERROR",
+              reason,
+            });
+            this.setState({ error: result.errorMsg ?? null });
+            return { scanned, placed, failed, skipped, sold };
+          }
+        }
+      } catch (e) {
+        failed++;
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "ERROR",
+          traderAddress: trader.address,
+          market: trade.market,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    this.addLog({
+      id: uid(),
+      timestamp: Date.now(),
+      type: "CYCLE_END",
+      reason: `CATCH UP done · sold ${sold} winners · ${candidates.length} candidates → top ${picked.length} · placed ${placed} · failed ${failed} · skipped ${skipped}`,
+    });
+    return { scanned, placed, failed, skipped, sold };
+  }
+
+  // Per-session dedup for catch-up — keeps a single click from
+  // re-evaluating the same trade twice if the user keeps the panel open.
+  private catchUpSeen = new Set<string>();
+
   // ── Core Cycle ───────────────────────────────────────────────
 
   private async executeCycle(): Promise<void> {
@@ -415,17 +813,27 @@ export class CopyEngine {
             .slice(0, RECENT_TRADES_LIMIT);
           this.setState({ observedTrades: merged });
 
-          // Per-trade sizing (proportional). copyRatio = how much of the
-          // trader's recent buy volume gets replicated with our capital
-          // allocation. Computed from the full cached trade set (hourly
-          // cache), so the ratio is stable across cycles — same as the
-          // backtest's per-trade replay.
-          const traderBuyVol = trades
+          // Per-trade sizing (proportional) — must match the BACKTEST tab
+          // exactly so the preview the user signs off on predicts live
+          // behavior. Backtest computes:
+          //   scale = (capital * weight/totalWeight) / max(buyVol, sellVol, 1)
+          // over trades within the backtestDays window. We replicate that
+          // here. Using max(buy, sell) instead of buy-only keeps the
+          // denominator stable when a trader is mostly closing positions,
+          // and using a fixed-days window (not "whatever is in the hourly
+          // cache") keeps the ratio reproducible across cycles.
+          const backtestDays = this.config.backtestDays ?? 3;
+          const windowCutoffMs = Date.now() - backtestDays * 86400_000;
+          const windowTrades = trades.filter((t) => t.timestamp >= windowCutoffMs);
+          const buyVol = windowTrades
             .filter((t) => t.side === "BUY")
             .reduce((s, t) => s + t.price * t.size, 0);
-
+          const sellVol = windowTrades
+            .filter((t) => t.side === "SELL")
+            .reduce((s, t) => s + t.price * t.size, 0);
+          const traderVol = Math.max(buyVol, sellVol, 1);
           const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
-          const copyRatio = traderBuyVol > 0 ? capitalAlloc / traderBuyVol : 0;
+          const copyRatio = capitalAlloc / traderVol;
 
           for (const trade of newTrades) {
             if (ordersThisCycle >= MAX_ORDERS_PER_CYCLE) break;
@@ -433,30 +841,70 @@ export class CopyEngine {
 
             const traderNotional = trade.price * trade.size;
             const rawMirrorNotional = traderNotional * copyRatio;
-            // Clamp proportional sizing into [minOrderSize, maxOrderSize]
-            // instead of skipping. With $50 capital and a trader moving
-            // $4M in the window, proportional mirrors collapse to dust
-            // ($0.00006) and EVERY trade hit BELOW_MIN_SIZE → 0 orders.
-            // Clamping means dust mirrors fire at the floor (eating capital
-            // faster but actually trading), and outlier whale-sized trades
-            // get capped at the ceiling so a single $50k buy doesn't blow
-            // the budget. Capital exhaustion is then surfaced naturally
-            // by the existing INSUFFICIENT_BALANCE path.
-            const floor = this.config.minOrderSize;
+            // SKIP below the user's TRADE SIZE floor — matches the BACKTEST
+            // tab's `if (rawAmount < minTrade) continue`. Previously we
+            // clamped up to the floor, which made live fire MANY more (and
+            // smaller) trades than the backtest preview predicted, so users
+            // could never trust what the preview said they'd execute. The
+            // user-configured floor IS the dust gate.
+            //
+            // POLYMARKET_MIN_USD ($1) is the CLOB's hard rejection threshold
+            // — we apply it as an additional skip reason so the user sees
+            // exactly why an in-range backtest trade can't fire on-chain.
+            const userFloor = this.config.minOrderSize;
+            const polymarketFloor = POLYMARKET_MIN_USD;
             const ceiling = this.config.maxOrderSize ?? Number.POSITIVE_INFINITY;
+            if (rawMirrorNotional < userFloor) {
+              this.addLog({
+                id: uid(),
+                timestamp: Date.now(),
+                type: "SKIP",
+                traderAddress: trader.address,
+                market: trade.market,
+                conditionId: trade.conditionId,
+                side: trade.side,
+                mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+                reason: `BELOW_MIN_SIZE · proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} < floor $${userFloor.toFixed(2)}`,
+                upstreamTradeId: trade.id,
+              });
+              this.copiedIds.add(trade.id);
+              continue;
+            }
+            if (rawMirrorNotional < polymarketFloor) {
+              this.addLog({
+                id: uid(),
+                timestamp: Date.now(),
+                type: "SKIP",
+                traderAddress: trader.address,
+                market: trade.market,
+                conditionId: trade.conditionId,
+                side: trade.side,
+                mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+                reason: `BELOW_CLOB_MIN · proportional $${rawMirrorNotional.toFixed(2)} < Polymarket $${polymarketFloor.toFixed(2)} hard floor`,
+                upstreamTradeId: trade.id,
+              });
+              this.copiedIds.add(trade.id);
+              continue;
+            }
+            // Clamp DOWN to the user's ceiling — matches backtest's
+            // `Math.min(rawAmount, maxTrade)`. Outlier whale trades get
+            // capped instead of blowing the budget.
             let mirrorNotional = rawMirrorNotional;
             let clampedReason: string | null = null;
-            if (rawMirrorNotional < floor) {
-              mirrorNotional = floor;
-              clampedReason = `clamped up: proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} → floor $${floor.toFixed(2)}`;
-            } else if (rawMirrorNotional > ceiling) {
+            if (rawMirrorNotional > ceiling) {
               mirrorNotional = ceiling;
               clampedReason = `clamped down: proportional $${rawMirrorNotional.toFixed(2)} → ceiling $${ceiling.toFixed(2)}`;
             }
-            // Recompute mirrorSize at the (possibly clamped) notional so
-            // the order is built from consistent values: at trade.price
-            // for `size` shares, `size * price = notional`.
-            const mirrorSize = mirrorNotional / Math.max(trade.price, 1e-9);
+            // Ceil to WHOLE shares so the resulting makerAmount/takerAmount ratio
+            // lands exactly on Polymarket's 1¢ tick price grid. With fractional
+            // shares the implied price drifts off-tick (e.g. 1/1.86 = 0.5376…)
+            // and CLOB rejects with "Invalid order payload". Whole shares ×
+            // 1¢-tick price = clean 1¢ implied price. Backtest uses fractional
+            // — this is a live-only on-chain constraint.
+            const mirrorSize = Math.max(
+              1,
+              Math.ceil(mirrorNotional / Math.max(trade.price, 1e-9)),
+            );
             if (clampedReason) {
               this.addLog({
                 id: uid(),

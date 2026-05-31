@@ -459,7 +459,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("stratPanelOpen", stratPanelOpen ? "1" : "0");
+    try { window.localStorage.setItem("stratPanelOpen", stratPanelOpen ? "1" : "0"); } catch {}
   }, [stratPanelOpen]);
 
   // UTC clock tick
@@ -1449,8 +1449,12 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             </button>
           )}
         </div>
-        {/* ── STRAT params panel (above tabs) ── */}
-        {activeIndex && watchlist.length > 0 && mode !== "STRATS" && (
+        {/* ── STRAT params panel (above tabs) ──
+            Visible on STRATS, BACKTEST, and LIVE so the user can tweak
+            window / capital / trade size / poll-every from any view
+            once a strat is active. Previously hidden on STRATS, which
+            made the picker tab feel inert. */}
+        {activeIndex && watchlist.length > 0 && (
           <div className="pixel-panel">
             <div
               className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-pixel-white/5 cursor-pointer select-none"
