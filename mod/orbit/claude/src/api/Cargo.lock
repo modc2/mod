@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "agent_base"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha3",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -204,6 +214,7 @@ dependencies = [
 name = "claude-jobs"
 version = "0.1.0"
 dependencies = [
+ "agent_base",
  "axum",
  "base64",
  "chrono",

@@ -4204,24 +4204,25 @@ export default function Home() {
 
         {/* ── Model selector ── */}
         <div className="flex items-center gap-1.5 px-3 py-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
-          {MODEL_CHIPS.map(m => (
-            <button
-              key={m.value}
-              onClick={() => { setModel(m.value); localStorage.setItem("claude_jobs_model", m.value); }}
-              className="px-2.5 py-1 transition-all"
-              style={{
-                fontSize: "11px",
-                fontWeight: model === m.value ? 600 : 400,
-                background: model === m.value ? `${m.color}18` : "transparent",
-                border: model === m.value ? `1px solid ${m.color}40` : "1px solid transparent",
-                color: model === m.value ? m.color : "var(--text-tertiary)",
-                borderRadius: "5px",
-                cursor: "pointer",
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
+          <select
+            value={model}
+            onChange={(e) => { setModel(e.target.value); localStorage.setItem("claude_jobs_model", e.target.value); }}
+            className="px-2 py-1 bg-transparent border cursor-pointer transition-colors"
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              borderColor: `${activeModelChip.color}40`,
+              background: `${activeModelChip.color}18`,
+              color: activeModelChip.color,
+              borderRadius: "5px",
+            }}
+          >
+            {MODEL_CHIPS.map(m => (
+              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <div className="flex-1" />
           <select
             value={agentType}

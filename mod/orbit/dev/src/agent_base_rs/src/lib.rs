@@ -13,7 +13,91 @@ use sha3::{Digest, Sha3_256};
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+// ── Per-user × per-tool workspaces ───────────────────────────────────
+// Same layout as agent_base.py: ~/.mod/workspaces/<addr>/<tool>/workspace/
+// Each coding-tool module (claude, codex, cursor, …) resolves user-facing
+// paths through `resolve_user_path` so users never share filesystem state.
+// Override the root via MOD_WORKSPACES_ROOT (e.g. a container bind-mount).
+
+pub fn workspaces_root() -> PathBuf {
+    if let Ok(p) = env::var("MOD_WORKSPACES_ROOT") {
+        return PathBuf::from(p);
+    }
+    let home = env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".mod").join("workspaces")
+}
+
+fn normalize_addr(addr: &str) -> Result<String, String> {
+    let a = addr.trim().to_ascii_lowercase();
+    if !(a.starts_with("0x")
+        && a.len() == 42
+        && a[2..].chars().all(|c| c.is_ascii_hexdigit()))
+    {
+        return Err(format!("invalid address: {addr}"));
+    }
+    Ok(a)
+}
+
+pub fn user_root(addr: &str, tool: &str) -> Result<PathBuf, String> {
+    Ok(workspaces_root().join(normalize_addr(addr)?).join(tool))
+}
+
+pub fn user_workspace(addr: &str, tool: &str) -> Result<PathBuf, String> {
+    Ok(user_root(addr, tool)?.join("workspace"))
+}
+
+pub fn ensure_user_dirs(addr: &str, tool: &str) -> Result<PathBuf, String> {
+    let ws = user_workspace(addr, tool)?;
+    fs::create_dir_all(&ws).map_err(|e| format!("mkdir {}: {e}", ws.display()))?;
+    Ok(ws)
+}
+
+/// Join + canonicalize + assert containment under the user's workspace.
+/// Rejects `..` traversal and symlinks pointing outside the sandbox.
+pub fn resolve_user_path(addr: &str, tool: &str, rel: &str) -> Result<PathBuf, String> {
+    let ws = ensure_user_dirs(addr, tool)?;
+    let ws_canon = fs::canonicalize(&ws)
+        .map_err(|e| format!("canonicalize workspace {}: {e}", ws.display()))?;
+    let rel_clean = rel.trim_start_matches('/');
+    let candidate = ws.join(rel_clean);
+    // Try full canonicalize; if leaf missing (write target), canonicalize parent.
+    let resolved = match fs::canonicalize(&candidate) {
+        Ok(p) => p,
+        Err(_) => {
+            let parent = candidate
+                .parent()
+                .ok_or_else(|| "candidate has no parent".to_string())?;
+            let parent_canon = fs::canonicalize(parent).map_err(|e| {
+                format!("canonicalize parent {}: {e}", parent.display())
+            })?;
+            let leaf = candidate
+                .file_name()
+                .ok_or_else(|| "candidate has no leaf".to_string())?;
+            parent_canon.join(leaf)
+        }
+    };
+    if !resolved.starts_with(&ws_canon) {
+        return Err(format!(
+            "path escapes workspace: {} not under {}",
+            resolved.display(),
+            ws_canon.display()
+        ));
+    }
+    Ok(resolved)
+}
+
+/// Per-user-per-tool jobs DB path. The caller is responsible for opening +
+/// running migrations — this just returns where the file should live.
+pub fn user_jobs_db(addr: &str, tool: &str) -> Result<PathBuf, String> {
+    let root = user_root(addr, tool)?;
+    fs::create_dir_all(&root).map_err(|e| format!("mkdir {}: {e}", root.display()))?;
+    Ok(root.join("jobs.db"))
+}
+
+#[allow(dead_code)]
+fn _path_helper_doc(_: &Path) {} // suppress unused-import warning for `Path`
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AbiEntry {

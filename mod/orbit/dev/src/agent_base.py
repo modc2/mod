@@ -37,6 +37,67 @@ from typing import Any, Callable, Dict, List, Optional
 import mod as m
 
 
+# ── Per-user × per-tool workspaces ────────────────────────────────────
+# Layout: ~/.mod/workspaces/<addr-lowercase>/<tool>/
+#   workspace/      job cwds + file-tree root for that user
+#   jobs.db         per-user-per-tool job log
+#   manifest.json   {root_cid, registered_at, prev_cid} linked-list
+# Shared by claude/codex/cursor/any future coding-tool module so paths
+# are sandboxed and one user never sees another's files. Override the
+# root via MOD_WORKSPACES_ROOT for container bind-mounts.
+
+USERSPACE_ROOT = Path(os.path.expanduser(
+    os.environ.get("MOD_WORKSPACES_ROOT", "~/.mod/workspaces")
+))
+
+
+def _norm_addr(addr: str) -> str:
+    a = (addr or "").strip().lower()
+    if not (a.startswith("0x") and len(a) == 42
+            and all(c in "0123456789abcdef" for c in a[2:])):
+        raise ValueError(f"invalid address: {addr!r}")
+    return a
+
+
+def user_root(addr: str, tool: str) -> Path:
+    """Per-user, per-tool root dir."""
+    return USERSPACE_ROOT / _norm_addr(addr) / tool
+
+
+def user_workspace(addr: str, tool: str) -> Path:
+    """Sandboxed filesystem area; everything path-bound resolves under here."""
+    return user_root(addr, tool) / "workspace"
+
+
+def ensure_user_dirs(addr: str, tool: str) -> Path:
+    """Idempotent mkdir -p; returns the workspace dir."""
+    ws = user_workspace(addr, tool)
+    ws.mkdir(parents=True, exist_ok=True)
+    return ws
+
+
+def resolve_user_path(addr: str, tool: str, rel: str) -> Path:
+    """Join + canonicalize + assert containment. Raises PermissionError on
+    `..` escape or symlink-traversal out of the workspace."""
+    ws = ensure_user_dirs(addr, tool).resolve()
+    rel_clean = (rel or "").lstrip("/")
+    candidate = (ws / rel_clean)
+    # Canonicalize; if leaf doesn't exist yet (writes), canonicalize parent.
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        parent = candidate.parent
+        parent_canon = parent.resolve()
+        resolved = parent_canon / candidate.name
+    try:
+        resolved.relative_to(ws)
+    except ValueError:
+        raise PermissionError(
+            f"path escapes workspace: {resolved} not under {ws}"
+        )
+    return resolved
+
+
 # ── Decorators — mark methods as part of the agent's "ABI" ───────────
 
 def view(fn: Callable) -> Callable:

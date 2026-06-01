@@ -2,6 +2,7 @@
 
 use crate::auth;
 use crate::jobs::{ClaudeJobManager, SubmitRequest};
+use crate::userspace;
 use crate::snapshots::{
     append_version, default_store, read_versions, restore_into, snapshot_dir, VersionRecord,
 };
@@ -352,57 +353,40 @@ async fn submit_job(
         }
     };
 
-    // Permission check: owner can edit anything, non-owners can only edit portal/{their_address}/ modules
+    // Non-owners: default + sandbox the job's work_dir to their workspace.
+    // Owner / local-mode: keep prior behavior (work anywhere on host).
+    let mut req = req;
     if !user_address.is_empty() && !auth::is_owner(&user_address) {
-        // Check work_dir — non-owners must work within portal/{their_address}/
-        if let Some(ref work_dir) = req.work_dir {
-            let normalized = work_dir.to_lowercase();
-            let user_portal = format!("portal/{}", user_address.to_lowercase());
-            if !normalized.contains(&user_portal) {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": format!(
-                            "Permission denied: non-owners can only edit modules in portal/{}/",
-                            user_address
-                        )
-                    })),
-                )
-                    .into_response();
-            }
+        // Default work_dir to the caller's workspace root.
+        let ws = match userspace::ensure_workspace(&user_address) {
+            Ok(p) => p,
+            Err(e) => return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("workspace init: {e}") })),
+            ).into_response(),
+        };
+        let requested = req.work_dir.clone().unwrap_or_else(|| ".".to_string());
+        match userspace::resolve_path(&user_address, &requested) {
+            Ok(p) => req.work_dir = Some(p.to_string_lossy().into_owned()),
+            Err(e) => return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": format!("work_dir outside your workspace: {e}") })),
+            ).into_response(),
         }
-
-        // Check module_name — non-owners must target portal/{their_address}/ modules
-        if let Some(ref module_name) = req.module_name {
-            let normalized = module_name.to_lowercase();
-            let user_prefix = format!("portal/{}", user_address.to_lowercase());
-            if !normalized.starts_with(&user_prefix) && !normalized.starts_with("portal/") {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": format!(
-                            "Permission denied: non-owners can only create/edit modules under portal/{}/",
-                            user_address
-                        )
-                    })),
-                )
-                    .into_response();
-            }
-            // If it starts with portal/ but not their address, also block
-            if normalized.starts_with("portal/") && !normalized.starts_with(&user_prefix) {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": "Permission denied: you can only edit your own modules in portal/"
-                    })),
-                )
-                    .into_response();
-            }
+        // module_name: non-owners cannot create at arbitrary orbit/ paths.
+        // They may scaffold inside their workspace only (treated as a sub-path).
+        if req.module_name.is_some() {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "Module creation requires owner. Non-owners can only modify files inside their workspace."
+                })),
+            ).into_response();
         }
+        // Surface the workspace root in logs so the user knows where their files land.
+        tracing::info!(addr = %user_address, ws = %ws.display(), "scoped submit");
     }
 
-    // Inject the authenticated user address into the request
-    let mut req = req;
     req.user_address = Some(user_address);
 
     let job = mgr.submit(req).await;
@@ -546,13 +530,30 @@ struct TreeQuery {
     depth: Option<usize>,
 }
 
-async fn file_tree(Query(params): Query<TreeQuery>) -> impl IntoResponse {
+async fn file_tree(
+    headers: axum::http::HeaderMap,
+    Query(params): Query<TreeQuery>,
+) -> impl IntoResponse {
+    // Default-deny: only authenticated callers (or local-mode) reach the FS.
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return Json(json!({ "tree": [], "error": e })),
+    };
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let raw_path = params.path.unwrap_or_else(|| "~/mod".to_string());
-    let resolved = raw_path.replacen("~", &home, 1);
+    // Non-owner default: their workspace root. Owner/local: ~/mod.
+    let default_root = if caller.is_empty() || userspace::is_owner(&caller) {
+        "~/mod".to_string()
+    } else {
+        "/".to_string()
+    };
+    let raw_path = params.path.unwrap_or(default_root);
+    let resolved_pb = match userspace::resolve_path(&caller, &raw_path) {
+        Ok(p) => p,
+        Err(e) => return Json(json!({ "tree": [], "error": e })),
+    };
     let max_depth = params.depth.unwrap_or(3);
 
-    let root = std::path::Path::new(&resolved);
+    let root = resolved_pb.as_path();
     if !root.is_dir() {
         return Json(json!({ "tree": [], "error": "Directory not found" }));
     }
@@ -1334,10 +1335,19 @@ struct ContentQuery {
     path: String,
 }
 
-async fn file_content(Query(params): Query<ContentQuery>) -> impl IntoResponse {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let resolved = params.path.replacen("~", &home, 1);
-    let file_path = std::path::Path::new(&resolved);
+async fn file_content(
+    headers: axum::http::HeaderMap,
+    Query(params): Query<ContentQuery>,
+) -> impl IntoResponse {
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response(),
+    };
+    let resolved = match userspace::resolve_path(&caller, &params.path) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
+    };
+    let file_path = resolved.as_path();
 
     if !file_path.exists() || !file_path.is_file() {
         return (
@@ -1361,10 +1371,19 @@ async fn file_content(Query(params): Query<ContentQuery>) -> impl IntoResponse {
     }
 }
 
-async fn file_raw(Query(params): Query<ContentQuery>) -> impl IntoResponse {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let resolved = params.path.replacen("~", &home, 1);
-    let file_path = std::path::Path::new(&resolved);
+async fn file_raw(
+    headers: axum::http::HeaderMap,
+    Query(params): Query<ContentQuery>,
+) -> impl IntoResponse {
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response(),
+    };
+    let resolved = match userspace::resolve_path(&caller, &params.path) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
+    };
+    let file_path = resolved.as_path();
 
     if !file_path.exists() || !file_path.is_file() {
         return (StatusCode::NOT_FOUND, "Not found").into_response();
@@ -1396,10 +1415,20 @@ struct SearchQuery {
     query: String,
 }
 
-async fn file_search(Query(params): Query<SearchQuery>) -> impl IntoResponse {
+async fn file_search(
+    headers: axum::http::HeaderMap,
+    Query(params): Query<SearchQuery>,
+) -> impl IntoResponse {
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return Json(json!({ "results": [], "error": e })),
+    };
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let resolved = params.path.replacen("~", &home, 1);
-    let dir_path = std::path::Path::new(&resolved);
+    let resolved_pb = match userspace::resolve_path(&caller, &params.path) {
+        Ok(p) => p,
+        Err(e) => return Json(json!({ "results": [], "error": e })),
+    };
+    let dir_path = resolved_pb.as_path();
 
     if !dir_path.is_dir() {
         return Json(json!({ "results": [], "error": "Directory not found" }));
@@ -1529,10 +1558,20 @@ struct GrepQuery {
     regex: bool,
 }
 
-async fn file_grep(Query(params): Query<GrepQuery>) -> impl IntoResponse {
+async fn file_grep(
+    headers: axum::http::HeaderMap,
+    Query(params): Query<GrepQuery>,
+) -> impl IntoResponse {
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return Json(json!({ "matches": [], "error": e })),
+    };
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let resolved = params.path.replacen("~", &home, 1);
-    let dir_path = std::path::Path::new(&resolved);
+    let resolved_pb = match userspace::resolve_path(&caller, &params.path) {
+        Ok(p) => p,
+        Err(e) => return Json(json!({ "matches": [], "error": e })),
+    };
+    let dir_path = resolved_pb.as_path();
 
     if !dir_path.is_dir() {
         return Json(json!({ "matches": [], "error": "Directory not found" }));
@@ -1610,31 +1649,41 @@ async fn file_write(
     headers: axum::http::HeaderMap,
     Json(body): Json<WriteBody>,
 ) -> impl IntoResponse {
-    if let Err(e) = require_owner(&headers) { return e.into_response(); }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let resolved = body.path.replacen("~", &home, 1);
-    let file_path = std::path::Path::new(&resolved);
+    // Auth: bearer required (or local-mode skip). Owner = wider write
+    // surface (~/mod/), non-owner = sandboxed under their workspace.
+    let caller = match userspace::caller(&headers) {
+        Ok(a) => a,
+        Err(e) => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response(),
+    };
+    let resolved_pb = match userspace::resolve_path(&caller, &body.path) {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
+    };
+    let file_path = resolved_pb.as_path();
 
-    let mod_dir = format!("{}/mod", home);
-    let canonical_mod = std::fs::canonicalize(&mod_dir).unwrap_or_else(|_| std::path::PathBuf::from(&mod_dir));
-    let parent = file_path.parent().unwrap_or(file_path);
-    let canonical_parent = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
-    if !canonical_parent.starts_with(&canonical_mod) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": "Writes only allowed within ~/mod/" })),
-        )
-            .into_response();
-    }
-
-    let rel = canonical_parent
-        .strip_prefix(&canonical_mod)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let first = rel.split('/').next().unwrap_or("");
-    if matches!(first, "core" | "orbit") {
-        let caller = auth::extract_address_from_headers(&headers).unwrap_or_default();
-        if !auth::is_owner(&caller) {
+    // Owner-only: keep the ~/mod/ guard + core/orbit gate for writes that
+    // land inside the host repo. Non-owners are already confined by the
+    // userspace path resolver above, so no extra check needed.
+    let is_owner_call = caller.is_empty() || userspace::is_owner(&caller);
+    if is_owner_call {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let mod_dir = format!("{}/mod", home);
+        let canonical_mod = std::fs::canonicalize(&mod_dir).unwrap_or_else(|_| std::path::PathBuf::from(&mod_dir));
+        let parent = file_path.parent().unwrap_or(file_path);
+        let canonical_parent = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+        if !canonical_parent.starts_with(&canonical_mod) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Writes only allowed within ~/mod/" })),
+            )
+                .into_response();
+        }
+        let rel = canonical_parent
+            .strip_prefix(&canonical_mod)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let first = rel.split('/').next().unwrap_or("");
+        if matches!(first, "core" | "orbit") && !auth::is_owner(&caller) {
             return (
                 StatusCode::FORBIDDEN,
                 Json(json!({ "error": "Owner-only: core/ and orbit/ writes require the configured owner" })),
