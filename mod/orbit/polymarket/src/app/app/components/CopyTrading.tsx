@@ -391,14 +391,15 @@ export default function CopyTrading({
   // Background source-data refresh. The page-cache check above keeps the
   // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
   // server `syncedAt` — when Polymarket data was actually pulled. Once
-  // that crosses 60s we kick off `loadStream({ force: true })` in the
-  // background so the chip stays under a minute. Guarded by inFlightRef
-  // and a per-attempt cooldown so a long-running sync doesn't queue up.
+  // that crosses 5min we kick off `loadStream({ force: true })` in the
+  // background so the chip stays reasonably current. Guarded by
+  // inFlightRef and a per-attempt cooldown so a long-running force-sync
+  // (the pipeline takes 2–5 minutes on a cold scan) doesn't queue up.
   const lastForceAtRef = useRef(0);
   useEffect(() => {
-    const MAX_SOURCE_STALENESS_MS = 60_000;
-    const MIN_RETRY_MS = 30_000;
-    const TICK_MS = 10_000;
+    const MAX_SOURCE_STALENESS_MS = 5 * 60_000;
+    const MIN_RETRY_MS = 2 * 60_000;
+    const TICK_MS = 30_000;
     const t = setInterval(() => {
       if (inFlightRef.current) return;
       const stamp = syncedAt ?? lastUpdated;

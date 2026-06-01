@@ -173,37 +173,22 @@ fn compute_amounts(side: OrderSide, price: f64, size: f64) -> Result<(u128, u128
     }
 }
 
-/// Random 256-bit salt as a decimal string (matches the frontend's
-/// `BigInt(randomHex)` shape — Polymarket's signer expects decimal).
+/// Random salt as a small decimal string (≤ 10 digits) — matches
+/// py-clob-client's `round(random.random() * 10**10)` and stays well
+/// inside Number.MAX_SAFE_INTEGER so @polymarket/clob-client's
+/// `parseInt(salt)` on the server side doesn't truncate. The CLOB
+/// rejects salts that overflow its int parser with the opaque
+/// "Invalid order payload" 400 — full uint256 salts (78 decimal digits)
+/// trigger this. The on-chain Exchange contract accepts any uint256
+/// salt, so going small is structurally safe; the field exists only to
+/// make per-order hashes unique, not for security.
 fn random_salt() -> String {
-    let mut bytes = [0u8; 32];
+    let mut bytes = [0u8; 8];
     OsRng.fill_bytes(&mut bytes);
-    // Render as decimal via 4×u64 limbs.
-    let mut limbs: [u64; 4] = [0; 4];
-    for i in 0..4 {
-        let mut b = [0u8; 8];
-        b.copy_from_slice(&bytes[i * 8..(i + 1) * 8]);
-        limbs[3 - i] = u64::from_be_bytes(b);
-    }
-    u256_limbs_to_decimal_str(limbs)
+    let v = u64::from_be_bytes(bytes) % 10_000_000_000u64; // ≤ 10 digits
+    v.to_string()
 }
 
-fn u256_limbs_to_decimal_str(mut limbs: [u64; 4]) -> String {
-    if limbs.iter().all(|l| *l == 0) {
-        return "0".to_string();
-    }
-    let mut digits = Vec::with_capacity(78);
-    while limbs.iter().any(|l| *l != 0) {
-        let mut rem: u128 = 0;
-        for limb in limbs.iter_mut().rev() {
-            let cur = (rem << 64) | (*limb as u128);
-            *limb = (cur / 10) as u64;
-            rem = cur % 10;
-        }
-        digits.push((b'0' + rem as u8) as char);
-    }
-    digits.into_iter().rev().collect()
-}
 
 // ─── Place order pipeline ──────────────────────────────────────────────
 
@@ -375,9 +360,15 @@ pub async fn place_order(
 
     let order = ClobOrder {
         salt: order_input.salt,
-        maker: order_input.maker,
-        signer: order_input.signer,
-        taker: order_input.taker,
+        // py-clob-client lowercases every address in the HTTP body — keep
+        // parity here. The EIP-712 hash already ran over the original
+        // values (encode_address normalizes case), so the signature stays
+        // valid against either form. Polymarket's body validator has been
+        // observed to reject mixed-case maker fields with the same opaque
+        // "Invalid order payload" 400.
+        maker: order_input.maker.to_lowercase(),
+        signer: order_input.signer.to_lowercase(),
+        taker: order_input.taker.to_lowercase(),
         token_id: order_input.token_id,
         maker_amount: order_input.maker_amount,
         taker_amount: order_input.taker_amount,
@@ -539,10 +530,14 @@ mod tests {
     }
 
     #[test]
-    fn salt_is_non_empty_decimal() {
+    fn salt_is_non_empty_small_decimal() {
         let s = random_salt();
         assert!(!s.is_empty());
         assert!(s.chars().all(|c| c.is_ascii_digit()));
+        // Must fit in Number.MAX_SAFE_INTEGER (2^53 - 1 = 9007199254740991,
+        // 16 digits) so the server's `parseInt(salt)` doesn't truncate. We
+        // cap at 10^10 so this is plenty of headroom.
+        assert!(s.len() <= 11, "salt too large: {} (would overflow JS Number)", s);
     }
 
     #[test]
