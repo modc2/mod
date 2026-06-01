@@ -14,6 +14,7 @@ import WalletFundingPanel from "./WalletFundingPanel";
 import EnableTradingPanel from "./EnableTradingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
+import WalletPanel from "./WalletPanel";
 import ThemeToggle from "./ThemeToggle";
 
 const ERC20_BAL_ABI = [
@@ -33,7 +34,10 @@ const LIVE_POLL_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 30, label: "30MIN" },
   { minutes: 60, label: "1H" },
 ];
-const DEFAULT_LIVE_POLL_MIN = 1;
+// 5 seconds in minute units. The user wanted continuous near-real-time
+// sync ("instead of prompting me to catchup") — the engine has a
+// re-entrancy guard now so a 5s cadence can't double-fire a long cycle.
+const DEFAULT_LIVE_POLL_MIN = 5 / 60;
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -299,15 +303,17 @@ export default function LivePanel() {
   }, [stratTick]);
 
   // Single source of truth for poll cadence: the STRAT panel's POLL EVERY
-  // field (`rebalanceMinutes`). Previously LivePanel had its own SCAN
-  // dropdown writing to a separate `livePollMinutes`, which let the
-  // STRAT setting (15s) and the engine setting (1MIN) silently disagree.
-  // Fallback to livePollMinutes for older strats that only set that
-  // field, then the 1m default. Supports fractional minutes (5s = 0.0833).
-  const livePollMin =
+  // field (`rebalanceMinutes`). Falls back to livePollMinutes (legacy) and
+  // then the 5s default. Strats that still have the old 1-minute legacy
+  // value (`=== 1`) get auto-upgraded to 5s so the user isn't stuck behind
+  // a stale default — the previous 1m cadence was what made the "CATCH UP"
+  // banner pop up constantly. Anything else (explicit 30s, 5m, 30m, …) is
+  // honored as-is.
+  const rawLivePollMin =
     activeStrat?.rebalanceMinutes ??
     activeStrat?.livePollMinutes ??
     DEFAULT_LIVE_POLL_MIN;
+  const livePollMin = rawLivePollMin === 1 ? DEFAULT_LIVE_POLL_MIN : rawLivePollMin;
 
   // Preconditions
   const hasWallet = auth.connected && !!auth.address;
@@ -637,9 +643,18 @@ export default function LivePanel() {
         <WalletFundingPanel capital={liveCapital} onCapitalChange={handleManualCapital} />
       )}
 
-      {/* ── Polymarket proxy account (trading address) ──
-          Shown even when live so the user can top up the proxy without
-          stopping the engine. */}
+      {/* ── V2 deposit wallet (trading address) ──
+          The address that actually holds trading funds on Polymarket V2.
+          Shown even when live so the user can top up / withdraw without
+          stopping the engine. Replaces PolymarketAccountPanel as the
+          *trading* surface; the old Safe panel below remains only as a
+          legacy "drain leftover USDC out" view. */}
+      {auth.connected && <WalletPanel />}
+
+      {/* ── Legacy V1 Safe (deprecated) ──
+          Kept around so users with USDC still parked in the old Safe
+          can pull it out and re-deposit into the V2 wallet above.
+          Polymarket V2 no longer accepts orders from this maker. */}
       {auth.connected && <PolymarketAccountPanel />}
 
       {/* ── Backend signer authorization ──

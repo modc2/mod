@@ -55,6 +55,17 @@ pub fn router() -> Router<AppState> {
         // configs in /tmp/polymarket-live-engine survive the restart and
         // resume_persisted re-spawns the tasks on boot.
         .route("/admin/restart", post(admin_restart))
+        // Deposit wallet (V2 POLY_1271) management — see relayer.rs +
+        // deposit_wallet.rs. The frontend WalletPanel uses these to
+        // surface the wallet address and balance to the user, and to
+        // initiate withdrawals back to a destination address.
+        .route("/deposit-wallet/info", get(deposit_wallet_info))
+        .route("/deposit-wallet/withdraw", post(deposit_wallet_withdraw))
+        // Wrap raw USDC.e in the deposit wallet into V2 trading collateral
+        // via Polymarket's CollateralOnramp. The frontend WalletPanel
+        // auto-fires this after a successful MetaMask deposit so users
+        // never see "balance: 0" despite their USDC being in the wallet.
+        .route("/deposit-wallet/wrap", post(deposit_wallet_wrap))
         // Encrypted strat storage
         .merge(crate::strats::router())
         // CLOB L1 auth proxy (derive/create api keys)
@@ -598,4 +609,119 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
         // staleness label so users see real source age, not cache hit age.
         "syncedAt": payload.synced_at,
     })
+}
+
+// ─── Deposit wallet endpoints ───────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct DepositWalletInfoQuery {
+    eoa: String,
+}
+
+/// Returns the V2 deposit-wallet address derived for `eoa`'s per-user
+/// backend signer + the wallet's deployment state + its current USDC.e
+/// balance on Polygon. Drives the WalletPanel UI.
+async fn deposit_wallet_info(
+    State(state): State<AppState>,
+    Query(q): Query<DepositWalletInfoQuery>,
+) -> impl IntoResponse {
+    let backend_addr = match state.signer_store.signer_address(&q.eoa) {
+        Ok(a) => a,
+        Err(e) => return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("signer: {}", e)})),
+        ).into_response(),
+    };
+    let wallet = match crate::deposit_wallet::derive_deposit_wallet(&backend_addr) {
+        Ok(w) => w,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("derive: {}", e)})),
+        ).into_response(),
+    };
+    // Best-effort on-chain reads. Frontend polls so a transient RPC
+    // failure self-heals on the next tick.
+    let deployed = crate::relayer::is_deposit_wallet_deployed(&state.http, &wallet)
+        .await
+        .unwrap_or(false);
+    let usdc_balance = crate::relayer::usdc_balance(&state.http, &wallet)
+        .await
+        .unwrap_or_else(|_| "0".to_string());
+
+    Json(json!({
+        "eoa": q.eoa.to_lowercase(),
+        "backendSigner": backend_addr,
+        "depositWallet": wallet,
+        "deployed": deployed,
+        // Stringified base-units (1e6 = $1) — avoids JS Number precision
+        // loss on large balances. Frontend divides by 1e6 for display.
+        "usdcBalance": usdc_balance,
+    })).into_response()
+}
+
+#[derive(Deserialize)]
+struct DepositWalletWithdrawRequest {
+    eoa: String,
+    /// 0x-prefixed 20-byte destination address. The contract has no
+    /// recovery for sends to dead addresses, so we validate length on
+    /// the backend before signing anything.
+    destination: String,
+    /// USDC.e amount as a base-units integer string (1e6 = $1). Sent
+    /// stringified to dodge JS Number precision issues.
+    #[serde(rename = "amountBaseUnits")]
+    amount_base_units: String,
+}
+
+/// Signs a Batch typed-data containing a single `USDC.transfer(dest,
+/// amount)` call via the user's deposit wallet, then submits to
+/// Polymarket's relayer. Gasless from the user's perspective.
+async fn deposit_wallet_withdraw(
+    State(state): State<AppState>,
+    Json(req): Json<DepositWalletWithdrawRequest>,
+) -> impl IntoResponse {
+    match crate::relayer::withdraw_usdc(
+        &state.http,
+        &state.signer_store,
+        &req.eoa,
+        &req.destination,
+        &req.amount_base_units,
+    ).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("withdraw: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct DepositWalletWrapRequest {
+    eoa: String,
+    /// Optional explicit amount (USDC.e base-units). When omitted, the
+    /// backend reads the wallet's full USDC.e balance and wraps all of
+    /// it — the common case after a deposit.
+    #[serde(rename = "amountBaseUnits", default)]
+    amount_base_units: Option<String>,
+}
+
+/// Submits a 2-call Batch (`USDC.e.approve(Onramp, MAX)` +
+/// `Onramp.wrap(USDC.e, wallet, amount)`) through the deposit wallet,
+/// converting raw USDC.e in the wallet into Polymarket V2 trading
+/// collateral. Gasless. Returns once the relayer confirms the tx.
+async fn deposit_wallet_wrap(
+    State(state): State<AppState>,
+    Json(req): Json<DepositWalletWrapRequest>,
+) -> impl IntoResponse {
+    match crate::relayer::wrap_usdce_to_collateral(
+        &state.http,
+        &state.signer_store,
+        &req.eoa,
+        req.amount_base_units.as_deref(),
+    ).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("wrap: {}", e)})),
+        ).into_response(),
+    }
 }
