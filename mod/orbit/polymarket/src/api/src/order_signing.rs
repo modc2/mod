@@ -19,40 +19,51 @@ use serde::{Deserialize, Serialize};
 // these from client input. Mismatched signing domains are the single most
 // common foot-gun and we kill it by hard-coding here.
 
+// Polymarket migrated to **Exchange V2** in 2026. V1 still exists on-chain
+// for legacy orders but the CLOB matcher now expects V2 signatures for any
+// market that's been registered with the new exchange — orders signed
+// against V1 come back as `order_version_mismatch` 400s. We sign V2 only.
 const POLYGON_CHAIN_ID: u64 = 137;
-const CTF_EXCHANGE: &str = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
-const NEG_RISK_CTF_EXCHANGE: &str = "0xC5d563A36AE78145C45a50134d48A1215220f80a";
+const CTF_EXCHANGE_V2: &str = "0xE111180000d2663C0091e4f400237545B87B996B";
+const NEG_RISK_CTF_EXCHANGE_V2: &str = "0xe2222d279d744050d28e00520010520000310F59";
 const DOMAIN_NAME: &str = "Polymarket CTF Exchange";
-const DOMAIN_VERSION: &str = "1";
+const DOMAIN_VERSION: &str = "2";
 
 // ─── Order representation ────────────────────────────────────────────────
 
-/// One Polymarket CLOB order. Numeric amounts are base-unit integers as
-/// `String` (Polymarket rejects floats). All fields are required — the
-/// signer endpoint won't fall back to defaults so a missing field can't
-/// produce a different digest than the caller expects.
+/// One Polymarket CLOB V2 order — the value the EIP-712 digest is computed
+/// over. Numeric amounts are base-unit integer strings (Polymarket rejects
+/// floats, and the digest depends on the exact integer value).
+///
+/// V2 dropped `taker`, `expiration`, `nonce`, `feeRateBps` from the signed
+/// struct (they still appear in the HTTP JSON body for `taker`/`expiration`
+/// per orderToJsonV2, but they are NOT inputs to the hash). V2 added
+/// `timestamp`, `metadata`, `builder` to the struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderInput {
     pub salt: String,        // uint256 decimal
     pub maker: String,       // 0x-prefixed address
     pub signer: String,      // 0x-prefixed address (the recovering address)
-    pub taker: String,       // 0x-prefixed address (zero for open orders)
     #[serde(rename = "tokenId")]
     pub token_id: String,    // uint256 decimal
     #[serde(rename = "makerAmount")]
     pub maker_amount: String,
     #[serde(rename = "takerAmount")]
     pub taker_amount: String,
-    pub expiration: String,  // unix seconds, 0 for GTC
-    pub nonce: String,
-    #[serde(rename = "feeRateBps")]
-    pub fee_rate_bps: String,
     pub side: u8,            // 0 BUY, 1 SELL
     #[serde(rename = "signatureType")]
-    pub signature_type: u8,  // 0 EOA, 1 POLY_PROXY, 2 POLY_GNOSIS_SAFE
-    /// "standard" | "negrisk" — selects which Exchange address signs into.
-    /// Required so a stale negRisk flag can't silently sign a CTF order
-    /// for the wrong matcher.
+    pub signature_type: u8,  // 0 EOA, 1 POLY_PROXY, 2 POLY_GNOSIS_SAFE, 3 POLY_1271
+    /// Order timestamp — `Date.now().toString()` in @polymarket/clob-client-v2
+    /// (unix milliseconds as a decimal string). Polymarket uses this to
+    /// scope per-maker order replay protection in lieu of the V1 `nonce`.
+    pub timestamp: String,   // uint256 decimal (unix milliseconds)
+    /// Free 32-byte client-supplied tag. Defaults to all-zero — Polymarket
+    /// echoes it back through fill webhooks for client-side reconciliation.
+    pub metadata: String,    // bytes32 hex, lowercase, 0x-prefixed
+    /// Builder code (32-byte). Used by Polymarket's builder-fee program.
+    /// All-zero for unbranded orders.
+    pub builder: String,     // bytes32 hex
+    /// "standard" | "negrisk" — selects which V2 exchange address signs into.
     pub exchange: ExchangeKind,
 }
 
@@ -66,8 +77,8 @@ pub enum ExchangeKind {
 impl ExchangeKind {
     fn verifying_contract(self) -> &'static str {
         match self {
-            ExchangeKind::Standard => CTF_EXCHANGE,
-            ExchangeKind::Negrisk => NEG_RISK_CTF_EXCHANGE,
+            ExchangeKind::Standard => CTF_EXCHANGE_V2,
+            ExchangeKind::Negrisk => NEG_RISK_CTF_EXCHANGE_V2,
         }
     }
 }
@@ -138,6 +149,22 @@ fn encode_uint8(v: u8) -> [u8; 32] {
     out
 }
 
+/// Parse a hex string (with or without 0x prefix) as exactly 32 bytes.
+/// V2's `metadata` and `builder` fields are bytes32 in the typed data —
+/// encoded as-is (no left-pad, no hashing), so a malformed value would
+/// produce a digest mismatch that surfaces as "invalid signature" rather
+/// than a structural error.
+fn encode_bytes32_hex(s: &str) -> Result<[u8; 32]> {
+    let stripped = s.strip_prefix("0x").unwrap_or(s);
+    let bytes = hex::decode(stripped).map_err(|e| anyhow!("bytes32 hex: {}", e))?;
+    if bytes.len() != 32 {
+        return Err(anyhow!("bytes32 must be 32 bytes, got {}", bytes.len()));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
 // ─── Domain + type hash ──────────────────────────────────────────────────
 
 fn domain_typehash() -> [u8; 32] {
@@ -147,8 +174,12 @@ fn domain_typehash() -> [u8; 32] {
 }
 
 fn order_typehash() -> [u8; 32] {
+    // V2 Order struct — must match @polymarket/clob-client-v2's
+    // CTF_EXCHANGE_V2_ORDER_STRUCT exactly (field order matters for the
+    // keccak256 type string). Drops V1 fields (taker, expiration, nonce,
+    // feeRateBps) and adds (timestamp, metadata, builder).
     keccak256(
-        b"Order(uint256 salt,address maker,address signer,address taker,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint256 expiration,uint256 nonce,uint256 feeRateBps,uint8 side,uint8 signatureType)",
+        b"Order(uint256 salt,address maker,address signer,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,uint256 timestamp,bytes32 metadata,bytes32 builder)",
     )
 }
 
@@ -174,24 +205,146 @@ fn struct_hash(order: &OrderInput) -> Result<[u8; 32]> {
     if order.side > 1 {
         return Err(anyhow!("side must be 0 (BUY) or 1 (SELL)"));
     }
-    if order.signature_type > 2 {
-        return Err(anyhow!("signatureType must be 0, 1, or 2"));
+    if order.signature_type > 3 {
+        return Err(anyhow!("signatureType must be 0, 1, 2, or 3"));
     }
-    let mut buf = Vec::with_capacity(13 * 32);
+    // V2 layout: typehash + 11 32-byte words matching
+    // (salt, maker, signer, tokenId, makerAmount, takerAmount, side,
+    //  signatureType, timestamp, metadata, builder).
+    let mut buf = Vec::with_capacity(12 * 32);
     buf.extend_from_slice(&order_typehash());
     buf.extend_from_slice(&encode_uint256_decimal(&order.salt)?);
     buf.extend_from_slice(&encode_address(&order.maker)?);
     buf.extend_from_slice(&encode_address(&order.signer)?);
-    buf.extend_from_slice(&encode_address(&order.taker)?);
     buf.extend_from_slice(&encode_uint256_decimal(&order.token_id)?);
     buf.extend_from_slice(&encode_uint256_decimal(&order.maker_amount)?);
     buf.extend_from_slice(&encode_uint256_decimal(&order.taker_amount)?);
-    buf.extend_from_slice(&encode_uint256_decimal(&order.expiration)?);
-    buf.extend_from_slice(&encode_uint256_decimal(&order.nonce)?);
-    buf.extend_from_slice(&encode_uint256_decimal(&order.fee_rate_bps)?);
     buf.extend_from_slice(&encode_uint8(order.side));
     buf.extend_from_slice(&encode_uint8(order.signature_type));
+    buf.extend_from_slice(&encode_uint256_decimal(&order.timestamp)?);
+    buf.extend_from_slice(&encode_bytes32_hex(&order.metadata)?);
+    buf.extend_from_slice(&encode_bytes32_hex(&order.builder)?);
     Ok(keccak256(&buf))
+}
+
+/// Public helper: the order's `contents hash` (struct hash). Same value
+/// the wrapped POLY_1271 envelope embeds, and what an EIP-712 verifier
+/// recomputes on the matcher side.
+pub fn order_contents_hash(order: &OrderInput) -> Result<[u8; 32]> {
+    struct_hash(order)
+}
+
+/// Public helper: the V2 app domain separator for the exchange the order
+/// targets. The POLY_1271 wrapped signature embeds this verbatim.
+pub fn app_domain_separator_for(exchange: ExchangeKind) -> Result<[u8; 32]> {
+    domain_separator(exchange)
+}
+
+// ─── POLY_1271 / Solady TypedDataSign envelope ──────────────────────────
+//
+// When a maker is a deposit wallet (sigType 3), Polymarket V2 wants a
+// signature that the wallet contract can verify via EIP-1271. The wallet
+// uses Solady's nested TypedDataSign scheme (rfc draft EIP-7739) — the
+// outer digest is signed by the EOA, and the wallet contract reconstructs
+// it from the wrapped envelope's tail bytes.
+//
+// Wire format (mirrors rs-clob-client-v2 `sign_poly1271_order`):
+//
+//   inner_sig (65) || app_domain_sep (32) || contents_hash (32)
+//                  || ORDER_TYPE_STRING (raw bytes)
+//                  || uint16_be(len(ORDER_TYPE_STRING))
+//
+// The outer EOA-signed digest is:
+//
+//   keccak256(0x1901 || app_domain_sep || typed_data_sign_struct_hash)
+//
+// where typed_data_sign_struct_hash hashes Solady's `TypedDataSign` over
+// (contents, name="DepositWallet", version="1", chainId, verifyingContract=signer, salt=0).
+
+/// Solady's nested wrapper type. The exchange's order struct is embedded
+/// by reference via `contents`, and its full definition is appended.
+pub const SOLADY_TYPE_STRING: &str = concat!(
+    "TypedDataSign(Order contents,string name,string version,uint256 chainId,",
+    "address verifyingContract,bytes32 salt)",
+    "Order(uint256 salt,address maker,address signer,uint256 tokenId,",
+    "uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,",
+    "uint256 timestamp,bytes32 metadata,bytes32 builder)"
+);
+
+/// Order struct in standalone form — needed twice in the wrapped envelope
+/// because the wallet's EIP-1271 verifier reconstructs the hash from the
+/// trailing bytes.
+pub const ORDER_TYPE_STRING: &str = concat!(
+    "Order(uint256 salt,address maker,address signer,uint256 tokenId,",
+    "uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,",
+    "uint256 timestamp,bytes32 metadata,bytes32 builder)"
+);
+
+const DEPOSIT_WALLET_NAME: &str = "DepositWallet";
+const DEPOSIT_WALLET_VERSION: &str = "1";
+
+/// Build the outer EOA digest for a POLY_1271 order. The caller's signer
+/// signs this and the resulting 65-byte signature gets wrapped via
+/// [`wrap_poly1271_signature`] before being sent to the CLOB.
+///
+/// `wallet_signer` is the deposit-wallet contract address that the order
+/// names as `order.signer` (also the verifyingContract in the inner
+/// `TypedDataSign` — Solady's convention).
+pub fn poly1271_outer_digest(
+    order: &OrderInput,
+    wallet_signer: &str,
+) -> Result<([u8; 32], [u8; 32], [u8; 32])> {
+    let app_sep = domain_separator(order.exchange)?;
+    let contents = struct_hash(order)?;
+
+    // typed_data_sign_struct_hash = keccak(
+    //   keccak(SOLADY_TYPE_STRING)
+    //   || contents
+    //   || keccak("DepositWallet") || keccak("1")
+    //   || chainId (uint256) || wallet_signer (address-padded) || bytes32(0)
+    // )
+    let mut tds = Vec::with_capacity(7 * 32);
+    tds.extend_from_slice(&keccak256(SOLADY_TYPE_STRING.as_bytes()));
+    tds.extend_from_slice(&contents);
+    tds.extend_from_slice(&keccak256(DEPOSIT_WALLET_NAME.as_bytes()));
+    tds.extend_from_slice(&keccak256(DEPOSIT_WALLET_VERSION.as_bytes()));
+    let mut chain_be = [0u8; 32];
+    chain_be[24..].copy_from_slice(&POLYGON_CHAIN_ID.to_be_bytes());
+    tds.extend_from_slice(&chain_be);
+    tds.extend_from_slice(&encode_address(wallet_signer)?);
+    tds.extend_from_slice(&[0u8; 32]); // bytes32(0) salt
+    let tds_hash = keccak256(&tds);
+
+    let mut prefix = Vec::with_capacity(2 + 32 + 32);
+    prefix.push(0x19);
+    prefix.push(0x01);
+    prefix.extend_from_slice(&app_sep);
+    prefix.extend_from_slice(&tds_hash);
+    let outer = keccak256(&prefix);
+    Ok((outer, app_sep, contents))
+}
+
+/// Wrap a 65-byte EOA signature in the EIP-7739 / Solady envelope so the
+/// deposit wallet's EIP-1271 verifier can reconstruct the typed data.
+///
+/// Returns a 0x-prefixed lowercase hex string.
+pub fn wrap_poly1271_signature(
+    inner_sig: &[u8],
+    app_domain_sep: &[u8; 32],
+    contents_hash: &[u8; 32],
+) -> String {
+    let type_str = ORDER_TYPE_STRING.as_bytes();
+    let len_be = (type_str.len() as u16).to_be_bytes();
+    let mut out = String::with_capacity(
+        2 + (inner_sig.len() + 32 + 32 + type_str.len() + 2) * 2,
+    );
+    out.push_str("0x");
+    out.push_str(&hex::encode(inner_sig));
+    out.push_str(&hex::encode(app_domain_sep));
+    out.push_str(&hex::encode(contents_hash));
+    out.push_str(&hex::encode(type_str));
+    out.push_str(&hex::encode(len_be));
+    out
 }
 
 /// Final EIP-712 digest: `keccak256(0x1901 || domainSeparator || structHash)`.
@@ -213,20 +366,21 @@ mod tests {
 
     // Reference values cross-checked against a fresh `signTypedData` run from
     // the frontend's polymarketOrderSigning.ts with the same input.
+    const ZERO_BYTES32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
     fn fixture_order() -> OrderInput {
         OrderInput {
             salt: "1".into(),
             maker: "0x9A86ede983F707A0694B9ec37b36f70032333476".into(),
             signer: "0x89bcdee4a284cb0848eebb975bec78ab5bd06cfa".into(),
-            taker: "0x0000000000000000000000000000000000000000".into(),
             token_id: "1234567890".into(),
             maker_amount: "100000".into(),
             taker_amount: "200000".into(),
-            expiration: "0".into(),
-            nonce: "0".into(),
-            fee_rate_bps: "0".into(),
             side: 0,
             signature_type: 2,
+            timestamp: "1780000000000".into(),
+            metadata: ZERO_BYTES32.into(),
+            builder: ZERO_BYTES32.into(),
             exchange: ExchangeKind::Standard,
         }
     }

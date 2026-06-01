@@ -25,7 +25,10 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::order_signing::{order_digest, ExchangeKind, OrderInput};
+use crate::deposit_wallet::derive_deposit_wallet;
+use crate::order_signing::{
+    order_digest, poly1271_outer_digest, wrap_poly1271_signature, ExchangeKind, OrderInput,
+};
 use crate::signer::SignerStore;
 
 const CLOB_API: &str = "https://clob.polymarket.com";
@@ -66,14 +69,20 @@ pub struct PlaceOrderArgs {
     pub price: f64,
     /// Order size in shares (decimal — converted to base units server-side).
     pub size: f64,
-    /// Fee rate in basis points. 0 for taker-only sessions.
+    /// Fee rate in basis points. Unused in V2 (the exchange contract
+    /// dropped per-order fee from the signed struct), kept on the wire
+    /// only so older frontend builds don't fail deserialization.
     #[serde(rename = "feeRateBps", default)]
+    #[allow(dead_code)]
     pub fee_rate_bps: u32,
     /// Optional GTD expiration (unix seconds). 0 for GTC.
     #[serde(default)]
     pub expiration: u64,
-    /// 0 = EOA, 1 = POLY_PROXY (Maker), 2 = POLY_GNOSIS_SAFE. Default 2
-    /// since the current proxy type in this codebase is Safe.
+    /// 0 = EOA, 1 = POLY_PROXY, 2 = POLY_GNOSIS_SAFE, 3 = POLY_1271 (V2
+    /// deposit wallet). Defaults to 3 — Polymarket V2 rejects every other
+    /// maker type with "maker address not allowed". When sigType=3 we
+    /// derive the maker ourselves from `eoa` (CREATE2), ignoring whatever
+    /// the frontend sent (it typically still has the stale Safe address).
     #[serde(rename = "signatureType", default = "default_sig_type")]
     pub signature_type: u8,
     /// CLOB order type — defaults to GTC.
@@ -89,7 +98,7 @@ pub struct PlaceOrderArgs {
     pub maker: String,
 }
 
-fn default_sig_type() -> u8 { 2 }
+fn default_sig_type() -> u8 { 3 }
 fn default_order_type() -> OrderTimeInForce { OrderTimeInForce::Gtc }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -109,11 +118,21 @@ pub struct PlaceOrderRequest {
 /// This split matches @polymarket/clob-client's `orderToJson` — and is the
 /// root cause of the "Invalid order payload" rejection we hit when sending
 /// the numeric form.
+/// V2 JSON body for the inner `order` field. Mirrors
+/// @polymarket/clob-client-v2's `orderToJsonV2` exactly — including the
+/// quirk that `taker` and `expiration` appear in the HTTP body even though
+/// they're NOT part of the V2 EIP-712 hash. Sending these fields keeps
+/// the matcher happy; omitting them surfaces as a 400.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClobOrder {
-    pub salt: String,
+    /// JSON number, not string. clob-client-v2 emits salt via
+    /// `parseInt(order.salt, 10)` — sending it quoted trips the
+    /// "Invalid order payload" 400. Bounded to ≤ 10 digits (see
+    /// `random_salt`) so it fits in u64.
+    pub salt: u64,
     pub maker: String,
     pub signer: String,
+    /// Body-only — V2 EIP-712 hash no longer includes taker.
     pub taker: String,
     #[serde(rename = "tokenId")]
     pub token_id: String,
@@ -121,14 +140,20 @@ pub struct ClobOrder {
     pub maker_amount: String,
     #[serde(rename = "takerAmount")]
     pub taker_amount: String,
-    pub expiration: String,
-    pub nonce: String,
-    #[serde(rename = "feeRateBps")]
-    pub fee_rate_bps: String,
     /// "BUY" or "SELL" — string in the HTTP body (uint8 in the EIP-712 hash).
     pub side: String,
     #[serde(rename = "signatureType")]
     pub signature_type: u8,
+    /// Unix milliseconds as a decimal string — matches V2's
+    /// `Date.now().toString()`. Part of the EIP-712 hash.
+    pub timestamp: String,
+    /// Body-only — V2 EIP-712 hash no longer includes expiration.
+    /// "0" means no expiration.
+    pub expiration: String,
+    /// 32-byte hex (0x + 64 chars). All-zero for unbranded orders.
+    pub metadata: String,
+    /// 32-byte hex builder code. All-zero for non-affiliate orders.
+    pub builder: String,
     pub signature: String,
 }
 
@@ -203,18 +228,42 @@ pub struct BackendCreds {
     pub passphrase: String,
 }
 
-/// Mint or look up a backend-owned CLOB API key for `eoa`. Hits
-/// /auth/derive-api-key first (returns the existing key for this backend
-/// EOA if one was ever minted), falls back to /auth/api-key if not.
+/// Mint or look up a backend-owned CLOB API key. For Polymarket V2's
+/// POLY_1271 (deposit wallet) flow, the API key must be bound to the
+/// *deposit wallet address*, not the backend signer EOA — V2 enforces
+/// `order.signer == api_key.address` (we saw the "the order signer
+/// address has to be the address of the API KEY" 400 when this didn't
+/// hold). We use the V2 `address` override in ClobAuth: hash the typed
+/// data against the deposit-wallet address, sign with the backend signer
+/// EOA, and pass `POLY_ADDRESS = deposit_wallet`. Polymarket recovers the
+/// EOA from the signature and verifies it's authorized for the claimed
+/// address.
+///
+/// For non-POLY_1271 paths (legacy V1, no longer reachable since we
+/// always override to sigType=3), `bind_address` falls back to the
+/// backend signer's own EOA.
 pub async fn ensure_backend_creds(
     http: &reqwest::Client,
     signer_store: &SignerStore,
     eoa: &str,
 ) -> Result<(BackendCreds, String)> {
     let backend_addr = signer_store.signer_address(eoa)?;
+    // Make sure the deposit wallet exists on-chain before we attempt any
+    // CLOB operations (it's the maker for V2 POLY_1271 orders). Gasless,
+    // via gamma SIWE + relayer WALLET-CREATE — no Polymarket UI step.
+    // Idempotent + in-process-cached.
+    let _wallet = crate::relayer::ensure_deposit_wallet_deployed(http, signer_store, eoa).await?;
+    // Mint the API key against the backend signer's *EOA*, not the wallet.
+    // V2's /auth/api-key + /auth/derive-api-key only accept signatures
+    // where the recovered EOA equals the typed-data `address` field —
+    // attempting to bind directly to a smart-contract wallet trips
+    // 401 "Invalid L1 Request headers". For POLY_1271 orders Polymarket
+    // re-derives the expected order.signer (the deposit wallet) from the
+    // api_key.address via CREATE2, so the EOA binding is the right one.
+    let bind_address = backend_addr.clone();
     let timestamp = chrono::Utc::now().timestamp().to_string();
     let nonce: u64 = 0;
-    let digest = crate::clob_auth::clob_auth_digest(&backend_addr, &timestamp, nonce)?;
+    let digest = crate::clob_auth::clob_auth_digest(&bind_address, &timestamp, nonce)?;
     let sig = signer_store.sign_digest(eoa, &digest)?;
     let sig_hex = format!("0x{}", hex::encode(sig));
 
@@ -248,7 +297,7 @@ pub async fn ensure_backend_creds(
         http,
         reqwest::Method::GET,
         "/auth/derive-api-key",
-        &backend_addr,
+        &bind_address,
         &sig_hex,
         &timestamp,
         nonce,
@@ -261,7 +310,7 @@ pub async fn ensure_backend_creds(
             http,
             reqwest::Method::POST,
             "/auth/api-key",
-            &backend_addr,
+            &bind_address,
             &sig_hex,
             &timestamp,
             nonce,
@@ -303,9 +352,44 @@ pub async fn place_order(
     //    entirely — those were minted against the user's EOA and CLOB
     //    won't accept orders signed by anyone else for that key. Backend
     //    creds are minted against the backend signer's EOA, which the
-    //    Safe (proxy) recognizes as an authorized owner.
+    //    Safe/proxy recognizes as an authorized owner.
     let (backend_creds, signer_addr) =
         ensure_backend_creds(http, signer_store, &req.eoa).await?;
+
+    // 2a. POLY_1271 (sigType 3) override: Polymarket V2 phased out Gnosis
+    //     Safe makers and now requires deposit wallets. The wallet address
+    //     is a deterministic CREATE2 of (factory, implementation, EOA), so
+    //     we derive it ourselves rather than trusting whatever maker the
+    //     frontend hands us — that maker is typically the user's stale
+    //     Safe address, which V2 rejects with "maker address not allowed".
+    //
+    //     We *always* upgrade to sigType=3 here regardless of what the
+    //     frontend sent. The legacy 0/1/2 paths universally fail against
+    //     V2's exchange ("maker address not allowed" for any maker type
+    //     other than a deposit wallet, per probing). Once sigType=3 is the
+    //     only viable path, hardcoding it server-side keeps the frontend
+    //     ignorant of the V2 transition.
+    let mut effective_sig_type = req.args.signature_type;
+    if effective_sig_type != 3 {
+        tracing::info!(
+            from = effective_sig_type,
+            "overriding to POLY_1271 (sigType=3) — V2 exchange rejects other maker types",
+        );
+        effective_sig_type = 3;
+    }
+    // Derive the deposit wallet from the BACKEND SIGNER's EOA, not the
+    // user's. The wallet's EIP-1271 verifier auto-trusts the EOA used as
+    // its CREATE2 salt — so deriving from the backend signer means the
+    // wallet recognizes the backend signer's signatures with no on-chain
+    // authorization step. User funds USDC into this address (shown in UI)
+    // and the backend can autonomously sign and place orders.
+    let derived_maker = derive_deposit_wallet(&signer_addr)?;
+    let effective_maker = derived_maker.clone();
+    tracing::info!(
+        backend_signer = %signer_addr,
+        deposit_wallet = %derived_maker,
+        "derived V2 deposit wallet (CREATE2 from backend signer EOA)",
+    );
 
     // 3. Build OrderInput for the digest.
     let salt = random_salt();
@@ -318,76 +402,91 @@ pub async fn place_order(
     } else {
         ExchangeKind::Standard
     };
+    // V2 uses millisecond unix timestamp as the per-order entropy bumper
+    // (replaces V1's `nonce`). Matches clob-client-v2's `Date.now().toString()`.
+    let timestamp_ms = chrono::Utc::now().timestamp_millis().to_string();
+    const ZERO_BYTES32: &str =
+        "0x0000000000000000000000000000000000000000000000000000000000000000";
+
     let order_input = OrderInput {
         salt: salt.clone(),
-        maker: req.args.maker.clone(),
+        maker: effective_maker.clone(),
         // signer field semantics:
         //   sigType 0 (EOA)         — signer = maker (trading EOA itself).
         //   sigType 1 (POLY_PROXY)  — signer = the EOA that owns the proxy.
-        //                             predictProxy(signer) == maker AND
-        //                             ecrecover(sig) == signer.
         //   sigType 2 (SAFE)        — signer = the Safe-owner EOA whose key
-        //                             actually signed. CLOB validates
-        //                             ecrecover(sig) == signer AND that
-        //                             signer is a registered Safe owner on
-        //                             maker (via eth_call to
-        //                             Safe.isValidSignature). For our
-        //                             backend setup that's signer_addr,
-        //                             not req.eoa — the backend key signs
-        //                             the digest, so order.signer must match
-        //                             what ECDSA recovery yields.
-        signer: if req.args.signature_type == 0 {
-            req.args.maker.clone()
-        } else {
-            signer_addr.clone()
+        //                             actually signed. Backend setup: that's
+        //                             signer_addr; ecrecover must match this.
+        //   sigType 3 (POLY_1271)   — signer = the smart-contract wallet
+        //                             (also the maker). Wallet uses EIP-1271
+        //                             to verify a wrapped sig where the
+        //                             *inner* signer is the EOA owner.
+        signer: match effective_sig_type {
+            0 => effective_maker.clone(),
+            3 => effective_maker.clone(),
+            _ => signer_addr.clone(),
         },
-        taker: "0x0000000000000000000000000000000000000000".to_string(),
         token_id: req.args.token_id.clone(),
         maker_amount: maker_amount.to_string(),
         taker_amount: taker_amount.to_string(),
-        expiration: req.args.expiration.to_string(),
-        nonce: "0".to_string(),
-        fee_rate_bps: req.args.fee_rate_bps.to_string(),
         side: side_u8,
-        signature_type: req.args.signature_type,
+        signature_type: effective_sig_type,
+        timestamp: timestamp_ms.clone(),
+        metadata: ZERO_BYTES32.to_string(),
+        builder: ZERO_BYTES32.to_string(),
         exchange,
     };
 
     // 4. Sign.
-    let digest = order_digest(&order_input)?;
-    let sig = signer_store.sign_digest(&req.eoa, &digest)?;
-    let sig_hex = format!("0x{}", hex::encode(sig));
+    // POLY_1271: outer digest is the Solady TypedDataSign wrapper that the
+    // deposit wallet's EIP-1271 verifier reconstructs. We sign that, then
+    // wrap (innerSig || app_sep || contents_hash || ORDER_TYPE_STRING || len_be).
+    // Other sigTypes (EOA / POLY_PROXY / SAFE): straight EIP-712 order digest.
+    let sig_hex = if effective_sig_type == 3 {
+        let (outer, app_sep, contents) =
+            poly1271_outer_digest(&order_input, &effective_maker)?;
+        let inner = signer_store.sign_digest(&req.eoa, &outer)?;
+        wrap_poly1271_signature(&inner, &app_sep, &contents)
+    } else {
+        let digest = order_digest(&order_input)?;
+        let sig = signer_store.sign_digest(&req.eoa, &digest)?;
+        format!("0x{}", hex::encode(sig))
+    };
 
+    let salt_u64: u64 = order_input.salt.parse().map_err(|e| {
+        anyhow!("salt parse to u64 failed (must fit in u64 for JSON number): {}", e)
+    })?;
     let order = ClobOrder {
-        salt: order_input.salt,
-        // py-clob-client lowercases every address in the HTTP body — keep
-        // parity here. The EIP-712 hash already ran over the original
-        // values (encode_address normalizes case), so the signature stays
-        // valid against either form. Polymarket's body validator has been
-        // observed to reject mixed-case maker fields with the same opaque
-        // "Invalid order payload" 400.
+        salt: salt_u64,
+        // Lowercased to mirror clob-client-v2 / py-clob-client behavior.
+        // The EIP-712 hash normalizes case in encode_address, so the
+        // signature stays valid against either form.
         maker: order_input.maker.to_lowercase(),
         signer: order_input.signer.to_lowercase(),
-        taker: order_input.taker.to_lowercase(),
+        taker: "0x0000000000000000000000000000000000000000".to_string(),
         token_id: order_input.token_id,
         maker_amount: order_input.maker_amount,
         taker_amount: order_input.taker_amount,
-        expiration: order_input.expiration,
-        nonce: order_input.nonce,
-        fee_rate_bps: order_input.fee_rate_bps,
-        // HTTP body wants "BUY" / "SELL" strings — the digest was already
-        // computed over the uint8 form in `order_input.side` above, so the
-        // signature stays valid.
+        // HTTP body wants "BUY" / "SELL" strings — the digest was computed
+        // over the uint8 form in `order_input.side`, signature stays valid.
         side: match order_input.side {
             0 => "BUY".to_string(),
             1 => "SELL".to_string(),
             other => return Err(anyhow!("invalid side {} (must be 0=BUY or 1=SELL)", other)),
         },
         signature_type: order_input.signature_type,
+        timestamp: order_input.timestamp,
+        expiration: req.args.expiration.to_string(),
+        metadata: order_input.metadata,
+        builder: order_input.builder,
         signature: sig_hex,
     };
 
     // 5. POST /order to Polymarket CLOB with L2 HMAC headers.
+    // V2 always sends `deferExec` and `postOnly` at top level, even when
+    // false. Omitting them has been observed to produce the same opaque
+    // "Invalid order payload" 400 — V2's validator is strict about the
+    // outer envelope shape, not just the inner order struct.
     let body = serde_json::json!({
         "order": order,
         "owner": backend_creds.api_key,
@@ -397,6 +496,8 @@ pub async fn place_order(
             OrderTimeInForce::Fok => "FOK",
             OrderTimeInForce::Fak => "FAK",
         },
+        "deferExec": false,
+        "postOnly": false,
     });
     let body_str = serde_json::to_string(&body)?;
     let timestamp = chrono::Utc::now().timestamp().to_string();
@@ -410,7 +511,7 @@ pub async fn place_order(
     // every one in the early operational window.
     tracing::info!(
         path = path,
-        sig_type = req.args.signature_type,
+        sig_type = effective_sig_type,
         neg_risk = req.args.neg_risk,
         maker = %order.maker,
         signer = %order.signer,
@@ -420,11 +521,11 @@ pub async fn place_order(
 
     let resp = http
         .post(format!("{}{}", CLOB_API, path))
-        // POLY_ADDRESS = backend signer EOA. Must match the address
-        // bound to backend_creds.api_key (which IS the backend signer
-        // — that's how ensure_backend_creds mints it). order.signer
-        // matches too. Sign-with-backend + key-owned-by-backend = no
-        // mismatch errors.
+        // POLY_ADDRESS = the address the api_key was bound against, which
+        // is the backend signer's *EOA* (mint endpoint forbids non-EOA
+        // bindings). order.signer is still the deposit wallet — Polymarket
+        // re-derives `expected_signer = depositWallet(POLY_ADDRESS)` via
+        // CREATE2 for POLY_1271 and compares against order.signer.
         .header("POLY_ADDRESS", &signer_addr)
         .header("POLY_SIGNATURE", hmac_sig)
         .header("POLY_TIMESTAMP", timestamp)
@@ -546,23 +647,28 @@ mod tests {
         // payload"; the JSON body must use "BUY" / "SELL". The EIP-712 hash
         // still uses uint8 — only the HTTP body shape differs.
         let order = ClobOrder {
-            salt: "1".into(),
+            salt: 1,
             maker: "0x0000000000000000000000000000000000000001".into(),
             signer: "0x0000000000000000000000000000000000000002".into(),
             taker: "0x0000000000000000000000000000000000000000".into(),
             token_id: "9".into(),
             maker_amount: "1000000".into(),
             taker_amount: "2000000".into(),
-            expiration: "0".into(),
-            nonce: "0".into(),
-            fee_rate_bps: "0".into(),
             side: "BUY".into(),
             signature_type: 2,
+            timestamp: "1780000000000".into(),
+            expiration: "0".into(),
+            metadata: "0x0000000000000000000000000000000000000000000000000000000000000000".into(),
+            builder: "0x0000000000000000000000000000000000000000000000000000000000000000".into(),
             signature: "0xdead".into(),
         };
         let v = serde_json::to_value(&order).unwrap();
         assert_eq!(v["side"], serde_json::json!("BUY"));
         assert_eq!(v["signatureType"], serde_json::json!(2));
+        // salt must be emitted as a JSON Number, not a String — Polymarket's
+        // body validator rejects quoted salt with "Invalid order payload".
+        assert!(v["salt"].is_number(), "salt must serialize as JSON number, got {:?}", v["salt"]);
+        assert_eq!(v["salt"], serde_json::json!(1));
     }
 
     #[test]

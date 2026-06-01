@@ -223,6 +223,20 @@ impl SignerStore {
         out[64] = 27 + u8::from(recid);
         Ok(out)
     }
+
+    /// EIP-191 `personal_sign`: signs `keccak256("\x19Ethereum Signed
+    /// Message:\n" + len(message) + message)`. Used for the SIWE login
+    /// flow against Polymarket's Gamma API — the relayer authenticates
+    /// us via a base64 envelope of (json payload || sig) where the sig
+    /// is a personal_sign over the SIWE message string.
+    pub fn personal_sign(&self, eoa: &str, message: &[u8]) -> Result<[u8; 65]> {
+        let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+        let mut buf = Vec::with_capacity(prefix.len() + message.len());
+        buf.extend_from_slice(prefix.as_bytes());
+        buf.extend_from_slice(message);
+        let digest = keccak256(&buf);
+        self.sign_digest(eoa, &digest)
+    }
 }
 
 /// Address = keccak256(uncompressed_pubkey[1..])[12..] in classical Ethereum.

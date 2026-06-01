@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # ── Stage 1: Build Rust API ──────────────────────────────────────
 FROM rust:slim AS api-builder
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
@@ -8,7 +9,20 @@ ENV CARGO_HTTP_MULTIPLEXING=false
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 WORKDIR /build
 COPY src/api/ .
-RUN cargo build --release
+# Cache mounts: the cargo registry/git caches and the build target dir
+# persist across `docker build` runs. Without these, every rebuild
+# re-downloads the entire dependency graph (~10+ min) — a single source
+# edit then triggers a fresh full build. With them, rebuilds reuse cached
+# crates and incremental compilation artifacts, dropping to ~30s for
+# small edits.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    cargo build --release && \
+    cp /build/target/release/polymarket-api /tmp/polymarket-api
+# Move the binary outside the target cache mount so the next stage can
+# COPY it (cache mounts vanish after RUN completes).
+RUN cp /tmp/polymarket-api /build/polymarket-api
 
 # ── Stage 2: Build Next.js app ──────────────────────────────────
 FROM node:20-slim AS app-builder
@@ -39,8 +53,8 @@ WORKDIR /app
 # Config
 COPY config.json .
 
-# Rust API binary
-COPY --from=api-builder /build/target/release/polymarket-api /app/bin/polymarket-api
+# Rust API binary (copied out of the cache-mounted target/ to a stable path)
+COPY --from=api-builder /build/polymarket-api /app/bin/polymarket-api
 
 # Next.js production build + runtime deps
 COPY --from=app-builder /build/.next /app/src/app/.next

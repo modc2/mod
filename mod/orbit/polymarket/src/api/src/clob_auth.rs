@@ -10,7 +10,7 @@
 //! `Safe.isValidSignature` check accepts these orders against the user's
 //! maker address.
 //!
-//! Schema (from @polymarket/clob-client / app/lib/auth.ts):
+//! Schema (from @polymarket/clob-client-v2 `signing/eip712.ts`):
 //!
 //!   domain  = EIP712Domain(string name, string version, uint256 chainId)
 //!            { name: "ClobAuthDomain", version: "1", chainId: 137 }
@@ -19,6 +19,11 @@
 //!                     uint256 nonce, string message)
 //!
 //!   message = "This message attests that I control the given wallet"
+//!
+//! (clob-client-v2 has a *separate* `signing/constants.ts:CLOB_TYPES`
+//! that omits `nonce` — it's stale/unused. The actual typed data built
+//! by `buildClobEip712Signature` includes nonce. Stripping nonce here
+//! produces a 401 "Invalid L1 Request headers".)
 
 use anyhow::Result;
 
