@@ -242,6 +242,19 @@ export default function Home() {
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
+  // Inline versions strip in the AGENT panel — recent snapshots of the
+  // currently-selected module. Polls every 30s; clicking the strip opens
+  // the full VersionsPanel for fork/restore actions.
+  type VersionChainEntry = {
+    cid: string;
+    message: string;
+    author: string;
+    timestamp: number;
+    parent: string | null;
+    action?: string;
+  };
+  const [agentVersions, setAgentVersions] = useState<VersionChainEntry[]>([]);
+
   // File viewer state
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [viewingFileContent, setViewingFileContent] = useState<string>("");
@@ -793,6 +806,27 @@ export default function Home() {
       loadTokenStats();
     }
   }, [address]);
+
+  // Poll the snapshot chain for the currently-selected module so the
+  // AGENT panel can render the inline VERSIONS strip without opening
+  // the full VersionsPanel.
+  useEffect(() => {
+    const mod = selectedModule || "claude";
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${apiUrl}/modules/${encodeURIComponent(mod)}/versions`);
+        const d = await r.json();
+        if (cancelled) return;
+        setAgentVersions(Array.isArray(d.versions) ? d.versions.slice().reverse() : []);
+      } catch {
+        if (!cancelled) setAgentVersions([]);
+      }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [apiUrl, selectedModule]);
 
   // Check owner status when address changes
   useEffect(() => {
@@ -4235,6 +4269,72 @@ export default function Home() {
             ))}
           </select>
         </div>
+
+        {/* ── Versions strip — inline snapshot chain for the active module ── */}
+        {agentVersions.length > 0 && (
+          <div
+            className="flex items-center gap-1.5 px-3 py-1.5 shrink-0 overflow-x-auto"
+            style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg, scrollbarWidth: "none" }}
+          >
+            <span
+              className="text-[9px] font-bold uppercase tracking-wider shrink-0"
+              style={{ color: "var(--text-tertiary)", opacity: 0.6 }}
+              title={`${selectedModule || "claude"}: ${agentVersions.length} snapshots`}
+            >
+              {(selectedModule || "claude")}/v
+            </span>
+            {agentVersions.slice(0, 12).map((v, i) => {
+              const action = v.action || "snapshot";
+              const actionColor =
+                action === "restore" ? "var(--crt-amber)" :
+                action === "auto-snapshot" ? "var(--text-tertiary)" :
+                action === "fork" ? "var(--crt-blue)" :
+                "#a78bfa";
+              const isHead = i === 0;
+              const short = v.cid.slice(0, 8);
+              const ts = v.timestamp ? timeSince(v.timestamp) : "";
+              const msg = (v.message || "").replace(/\n.*/s, "");
+              return (
+                <button
+                  key={v.cid}
+                  onClick={() => setShowVersions(true)}
+                  className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 transition-all cursor-pointer"
+                  title={`${action} · ${short} ← ${(v.parent || "root").slice(0, 8)}\n${ts}  by ${v.author?.slice(0, 10) || "—"}\n\n${v.message || "(no message)"}`}
+                  style={{
+                    fontSize: "10px",
+                    fontFamily: "monospace",
+                    background: isHead ? `${actionColor}1a` : "transparent",
+                    border: `1px solid ${isHead ? actionColor + "55" : subtleBorder}`,
+                    borderRadius: "3px",
+                    color: isHead ? actionColor : "var(--text-tertiary)",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = `${actionColor}22`)}
+                  onMouseLeave={e => (e.currentTarget.style.background = isHead ? `${actionColor}1a` : "transparent")}
+                >
+                  <span style={{ opacity: 0.9 }}>{short}</span>
+                  {msg && (
+                    <span
+                      className="truncate"
+                      style={{ maxWidth: "120px", opacity: 0.7, fontFamily: "inherit" }}
+                    >
+                      {msg}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {agentVersions.length > 12 && (
+              <button
+                onClick={() => setShowVersions(true)}
+                className="shrink-0 px-1.5 py-0.5 cursor-pointer"
+                style={{ fontSize: "10px", color: "var(--text-tertiary)", opacity: 0.6 }}
+                title={`${agentVersions.length - 12} more — open full VERSIONS panel`}
+              >
+                +{agentVersions.length - 12}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Main content area ── */}
         <div ref={outputRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
