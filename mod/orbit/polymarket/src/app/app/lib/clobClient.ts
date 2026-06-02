@@ -99,7 +99,7 @@ export interface ClobOrder {
   price: number;
   size: number;
   side: "BUY" | "SELL";
-  type: "GTC" | "FOK";
+  type: "GTC" | "FOK" | "FAK" | "GTD";
   feeRateBps?: number;
 }
 

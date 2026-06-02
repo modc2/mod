@@ -187,6 +187,12 @@ export class CopyEngine {
   // Auto-detected sigType for this user's apiKey binding. Resolved once
   // per engine session via detectSigType().
   private sigType: 0 | 1 | 2 = 2;
+  // Guard against re-entering executeCycle when the previous cycle is still
+  // mid-flight. Necessary at sub-minute poll cadences (5s) where a slow
+  // cycle (token-id lookup + order placement RTT) can outlast a tick of
+  // setInterval. Without this, a stuck cycle would silently spawn a parallel
+  // copy that double-fires every trade.
+  private cycleInFlight = false;
 
   constructor(config: CopyEngineConfig) {
     this.config = config;
@@ -233,6 +239,11 @@ export class CopyEngine {
     this.executeCycle().then(() => {
       if (!this.running) return;
       this.timer = setInterval(() => {
+        // Re-entrancy guard: at 5s polling a slow cycle (token-id
+        // lookup + several FOK RTTs) can outlast the next tick. Skipping
+        // here keeps the engine honest; we'll catch up on the tick that
+        // fires after the previous cycle resolves.
+        if (this.cycleInFlight) return;
         if (this.state.status === "running") {
           this.executeCycle();
         }
@@ -332,97 +343,14 @@ export class CopyEngine {
       reason: `CATCH UP started · lookback ${opts.lookbackHours}h · top ${Number.isFinite(topN) ? topN : "∞"} · min $${opts.minNotional.toFixed(0)} · sellWinners ${opts.sellWinners ? "on" : "off"}`,
     });
 
-    // ── Phase 1: free liquidity by selling profitable open positions ──
-    // Fetched at the proxy address (where the funds + positions live —
-    // CLOB binds to that, not the EOA). Each in-the-green position is
-    // closed at currentPrice with size = full position; freed USDC then
-    // backs the buy phase below.
+    // ── Phase 1: free liquidity (delegate to shared helper) ──
     if (opts.sellWinners) {
       opts.onProgress?.("freeing liquidity…");
-      try {
-        const proxy =
-          this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
-        const positions = await fetchPositions(proxy);
-        const winners = positions
-          .filter((p) => p.size > 0 && p.pnlUsd > 0)
-          .sort((a, b) => b.pnlUsd - a.pnlUsd);
-        opts.onProgress?.(`${winners.length} winning positions → selling`);
-        for (const pos of winners) {
-          if (!this.running) break;
-          try {
-            const tokenId = await this.resolveTokenId(pos.conditionId, pos.outcome || "Yes");
-            if (!tokenId) {
-              this.addLog({
-                id: uid(),
-                timestamp: Date.now(),
-                type: "SKIP",
-                market: pos.market,
-                conditionId: pos.conditionId,
-                side: "SELL",
-                reason: `FREE LIQUIDITY · TOKEN_ID_NOT_FOUND for ${pos.outcome}`,
-              });
-              continue;
-            }
-            const signer = await this.getSigner();
-            const negRisk = await this.resolveNegRisk(pos.conditionId);
-            const maker = this.sigType === 0 ? this.config.address : proxy;
-            const sellPrice = Math.max(0.01, Math.min(0.99, pos.currentPrice));
-            const result = await placeOrder(
-              this.config.creds,
-              signer,
-              maker,
-              {
-                tokenID: tokenId,
-                price: sellPrice,
-                size: Math.round(pos.size * 100) / 100,
-                side: "SELL",
-                type: "FOK",
-                feeRateBps: TAKER_FEE_BPS,
-              },
-              negRisk,
-              this.sigType,
-            );
-            this.addLog({
-              id: uid(),
-              timestamp: Date.now(),
-              type: result.success ? "COPY_SELL" : "ERROR",
-              market: pos.market,
-              conditionId: pos.conditionId,
-              tokenId,
-              side: "SELL",
-              traderSize: pos.size,
-              mirrorSize: pos.size,
-              mirrorNotional: Math.round(pos.size * sellPrice * 100) / 100,
-              price: sellPrice,
-              orderResult: result,
-              reason: result.success
-                ? `FREE LIQUIDITY · +$${pos.pnlUsd.toFixed(2)} P&L at @${(sellPrice * 100).toFixed(0)}¢`
-                : (result.errorMsg ?? "REJECTED"),
-            });
-            if (result.success) {
-              sold++;
-              opts.onProgress?.(`sold ${sold} winners · still freeing…`);
-              await delay(ORDER_DELAY_MS);
-            }
-          } catch (e) {
-            this.addLog({
-              id: uid(),
-              timestamp: Date.now(),
-              type: "ERROR",
-              market: pos.market,
-              conditionId: pos.conditionId,
-              reason: `FREE LIQUIDITY sell failed: ${e instanceof Error ? e.message : String(e)}`,
-            });
-          }
-        }
-      } catch (e) {
-        this.addLog({
-          id: uid(),
-          timestamp: Date.now(),
-          type: "ERROR",
-          reason: `FREE LIQUIDITY fetch failed: ${e instanceof Error ? e.message : String(e)}`,
-        });
-      }
+      const res = await this.freeLiquidity({
+        reasonPrefix: "FREE LIQUIDITY",
+        onProgress: opts.onProgress,
+      });
+      sold += res.sold;
     }
 
     opts.onProgress?.(`scanning ${enabled.length} traders…`);
@@ -562,11 +490,21 @@ export class CopyEngine {
             price: trade.price,
             size: Math.round(mirrorSize * 100) / 100,
             side: trade.side,
-            type: "FOK",
+            type: "FAK",
             feeRateBps: TAKER_FEE_BPS,
           },
           negRisk,
           this.sigType,
+        );
+        // Classify before logging — a FOK that the book couldn't fully
+        // fill at the requested price/size is a market-state SKIP, not an
+        // ERROR. Tagging it ERROR (and halting the loop) used to mean one
+        // thin market killed the whole catch-up batch.
+        const errMsg = (result.errorMsg ?? "").toLowerCase();
+        const isThinBookSkip = !result.success && (
+          errMsg.includes("couldn't be fully filled") ||
+          errMsg.includes("could not be fully filled") ||
+          errMsg.includes("fok orders are fully filled or killed")
         );
         this.addLog({
           id: uid(),
@@ -575,7 +513,9 @@ export class CopyEngine {
             ? trade.side === "BUY"
               ? "COPY_BUY"
               : "COPY_SELL"
-            : "ERROR",
+            : isThinBookSkip
+              ? "SKIP"
+              : "ERROR",
           traderAddress: trader.address,
           market: trade.market,
           conditionId: trade.conditionId,
@@ -588,7 +528,9 @@ export class CopyEngine {
           orderResult: result,
           reason: result.success
             ? `CATCH UP · top pick · $${trade.notional.toFixed(0)} notional`
-            : (result.errorMsg ?? "REJECTED"),
+            : isThinBookSkip
+              ? `CATCH UP · THIN_BOOK · FOK kill — book didn't have full size at @${(trade.price * 100).toFixed(0)}¢`
+              : (result.errorMsg ?? "REJECTED"),
         });
         if (result.success) {
           placed++;
@@ -599,6 +541,12 @@ export class CopyEngine {
           });
           opts.onProgress?.(`placed ${placed}/${picked.length}…`);
           await delay(ORDER_DELAY_MS);
+        } else if (isThinBookSkip) {
+          // Book moved or partial liquidity — don't tick failed /
+          // consecutiveFailures, keep walking the picked list.
+          skipped++;
+          opts.onProgress?.(`placed ${placed} · skipped ${skipped} (thin book) · failed ${failed}`);
+          continue;
         } else {
           failed++;
           consecutiveFailures++;
@@ -606,13 +554,17 @@ export class CopyEngine {
             totalOrdersFailed: this.state.totalOrdersFailed + 1,
           });
           opts.onProgress?.(`placed ${placed} · failed ${failed} · ${result.errorMsg ?? "rejected"}`);
-          const msg = (result.errorMsg ?? "").toLowerCase();
+          const msg = errMsg;
+          // True fatal signals — account/auth/payload-shape problems that
+          // re-trying the next trade can't help. A bare "http 400" used to
+          // be in here but the CLOB returns 400 for transient book issues
+          // too, so we now only halt on explicit account/auth failures.
           const isFatal =
             msg.includes("insufficient_balance") ||
             msg.includes("unauthenticated") ||
             msg.includes("backend_signer_not_authorized") ||
             msg.includes("invalid order payload") ||
-            msg.includes("http 400");
+            msg.includes("invalid_signature");
           if (isFatal || consecutiveFailures >= 5) {
             const reason = isFatal
               ? `CATCH UP halted (fatal): ${result.errorMsg}`
@@ -653,9 +605,121 @@ export class CopyEngine {
   // re-evaluating the same trade twice if the user keeps the panel open.
   private catchUpSeen = new Set<string>();
 
+  // ── Free liquidity (auto-sell winning open positions) ──────────
+  //
+  // Closes the top-N profitable positions at current market price so the
+  // proxy gets fresh USDC to back the next round of copy buys. Used by:
+  //   • CATCH UP (manual, sellWinners toggle)
+  //   • executeCycle (auto, triggered when balance is below the gate AND
+  //     we have at least one new BUY candidate this cycle — i.e. an
+  //     opportunity worth freeing capital for)
+  //
+  // Returns the count of winners actually filled + total USD freed so
+  // callers can decide whether to retry the balance check.
+  private async freeLiquidity(opts: {
+    maxToSell?: number;
+    reasonPrefix?: string;
+    onProgress?: (msg: string) => void;
+  } = {}): Promise<{ sold: number; freedUsd: number }> {
+    const maxToSell = opts.maxToSell ?? Number.POSITIVE_INFINITY;
+    const reasonPrefix = opts.reasonPrefix ?? "FREE LIQUIDITY";
+    let sold = 0;
+    let freedUsd = 0;
+    try {
+      const proxy =
+        this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+      const positions = await fetchPositions(proxy);
+      const winners = positions
+        .filter((p) => p.size > 0 && p.pnlUsd > 0)
+        .sort((a, b) => b.pnlUsd - a.pnlUsd);
+      opts.onProgress?.(`${winners.length} winning positions → selling`);
+      for (const pos of winners) {
+        if (!this.running) break;
+        if (sold >= maxToSell) break;
+        try {
+          const tokenId = await this.resolveTokenId(pos.conditionId, pos.outcome || "Yes");
+          if (!tokenId) {
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: "SKIP",
+              market: pos.market,
+              conditionId: pos.conditionId,
+              side: "SELL",
+              reason: `${reasonPrefix} · TOKEN_ID_NOT_FOUND for ${pos.outcome}`,
+            });
+            continue;
+          }
+          const signer = await this.getSigner();
+          const negRisk = await this.resolveNegRisk(pos.conditionId);
+          const maker = this.sigType === 0 ? this.config.address : proxy;
+          const sellPrice = Math.max(0.01, Math.min(0.99, pos.currentPrice));
+          const result = await placeOrder(
+            this.config.creds,
+            signer,
+            maker,
+            {
+              tokenID: tokenId,
+              price: sellPrice,
+              size: Math.round(pos.size * 100) / 100,
+              side: "SELL",
+              type: "FAK",
+              feeRateBps: TAKER_FEE_BPS,
+            },
+            negRisk,
+            this.sigType,
+          );
+          const notional = Math.round(pos.size * sellPrice * 100) / 100;
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: result.success ? "COPY_SELL" : "ERROR",
+            market: pos.market,
+            conditionId: pos.conditionId,
+            tokenId,
+            side: "SELL",
+            traderSize: pos.size,
+            mirrorSize: pos.size,
+            mirrorNotional: notional,
+            price: sellPrice,
+            orderResult: result,
+            reason: result.success
+              ? `${reasonPrefix} · +$${pos.pnlUsd.toFixed(2)} P&L at @${(sellPrice * 100).toFixed(0)}¢`
+              : (result.errorMsg ?? "REJECTED"),
+          });
+          if (result.success) {
+            sold++;
+            freedUsd += notional;
+            opts.onProgress?.(`sold ${sold} winners · freed $${freedUsd.toFixed(2)}`);
+            await delay(ORDER_DELAY_MS);
+          }
+        } catch (e) {
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: "ERROR",
+            market: pos.market,
+            conditionId: pos.conditionId,
+            reason: `${reasonPrefix} sell failed: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
+    } catch (e) {
+      this.addLog({
+        id: uid(),
+        timestamp: Date.now(),
+        type: "ERROR",
+        reason: `${reasonPrefix} fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+    return { sold, freedUsd };
+  }
+
   // ── Core Cycle ───────────────────────────────────────────────
 
   private async executeCycle(): Promise<void> {
+    if (this.cycleInFlight) return;
+    this.cycleInFlight = true;
     const cycleId = uid();
     this.addLog({
       id: cycleId,
@@ -715,31 +779,126 @@ export class CopyEngine {
       });
 
       if (effective < this.config.capital * 0.05) {
-        const proxy = this.proxyAddress!;
-        const proxyShort = `${proxy.slice(0, 6)}…${proxy.slice(-4)}`;
-        const need = this.config.capital * 0.05;
-        // Read the EOA balance so we can give a precise next-step in the
-        // common case where the user funded the EOA but never deposited.
-        let eoaBal = 0;
-        try {
-          const raw = await withRpcFallback(polygon, async (url) => {
-            const provider = new JsonRpcProvider(url);
-            const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
-            return (await c.balanceOf(this.config.address)) as bigint;
+        // ── Auto free-liquidity ──
+        // Before erroring out, try selling the top winning open position to
+        // make room. This matches the catch-up "sellWinners" behavior but
+        // fires automatically when:
+        //   (a) balance dipped below the 5%-of-capital gate, AND
+        //   (b) there's at least one watched-trader BUY candidate this
+        //       cycle — i.e. a real opportunity worth freeing for, not a
+        //       quiet poll. Without the candidate check we'd churn open
+        //       positions every cycle just to hold dust.
+        // The criterion roughly approximates "the trade is ranked to have
+        // a higher probability of profit": we sort candidates by trader
+        // notional below and only run free-liquidity when one of those
+        // candidates exists — high notional = trader's conviction = our
+        // proxy for expected edge.
+        let hasHighConvictionCandidate = false;
+        for (const trader of this.config.traders.filter((t) => t.enabled !== false)) {
+          try {
+            const cursor = this.state.traderCursors[trader.address.toLowerCase()] ?? 0;
+            const trades = await fetchWalletTradesUntil(
+              trader.address,
+              Math.floor((cursor - 60_000) / 1000),
+            );
+            if (
+              trades.some(
+                (t) => t.side === "BUY" && t.timestamp > cursor && !this.copiedIds.has(t.id),
+              )
+            ) {
+              hasHighConvictionCandidate = true;
+              break;
+            }
+          } catch {
+            // ignore per-trader fetch failures during the candidate check —
+            // the main loop below logs them properly.
+          }
+        }
+
+        let freedAnything = false;
+        if (hasHighConvictionCandidate) {
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: "BALANCE",
+            reason: `Balance $${effective.toFixed(2)} < 5% gate · candidate BUY pending → auto-selling top winner`,
           });
-          eoaBal = Number(formatUnits(raw, 6));
-        } catch {}
-        const reason = eoaBal >= need
-          ? `Polymarket trades from a proxy address, not your wallet. Your wallet has $${eoaBal.toFixed(2)} USDC.e but proxy ${proxyShort} has only $${onchainProxyBal.toFixed(2)}. Open POLYMARKET ACCOUNT → DEPOSIT to move at least $${need.toFixed(2)} from wallet → proxy, then press RUN.`
-          : `Proxy ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)} = 5% of capital). Wallet also has only $${eoaBal.toFixed(2)} — fund USDC.e to your wallet first, then DEPOSIT to proxy.`;
-        this.addLog({
-          id: uid(),
-          timestamp: Date.now(),
-          type: "ERROR",
-          reason,
-        });
-        this.setState({ status: "error", error: "INSUFFICIENT_BALANCE" });
-        return;
+          const { sold, freedUsd } = await this.freeLiquidity({
+            maxToSell: 1,
+            reasonPrefix: "AUTO FREE LIQUIDITY",
+          });
+          if (sold > 0) {
+            freedAnything = true;
+            // Re-check on-chain balance — the SELL settles atomically on
+            // Polymarket so the proxy USDC.e bumps before this returns.
+            try {
+              const raw = await withRpcFallback(polygon, async (url) => {
+                const provider = new JsonRpcProvider(url);
+                const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
+                return (await c.balanceOf(this.proxyAddress!)) as bigint;
+              });
+              onchainProxyBal = Number(formatUnits(raw, 6));
+            } catch {}
+            const newEffective = Math.max(bal.balance, onchainProxyBal);
+            this.setState({ balance: newEffective });
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: "BALANCE",
+              reason: `Freed $${freedUsd.toFixed(2)} · proxy now $${onchainProxyBal.toFixed(2)} → continuing cycle`,
+            });
+            // If the freed amount lifts us above the gate, fall through to
+            // the normal BUY pipeline. Otherwise still error out — the
+            // next cycle will try another sell.
+            if (newEffective >= this.config.capital * 0.05) {
+              // Continue normal processing
+            } else {
+              this.addLog({
+                id: uid(),
+                timestamp: Date.now(),
+                type: "ERROR",
+                reason: `Still below gate after freeing $${freedUsd.toFixed(2)} — next cycle will free more.`,
+              });
+              this.setState({ error: "INSUFFICIENT_BALANCE" });
+              return;
+            }
+          }
+        }
+
+        if (!freedAnything) {
+          const proxy = this.proxyAddress!;
+          const proxyShort = `${proxy.slice(0, 6)}…${proxy.slice(-4)}`;
+          const need = this.config.capital * 0.05;
+          // Read the EOA balance so we can give a precise next-step in the
+          // common case where the user funded the EOA but never deposited.
+          let eoaBal = 0;
+          try {
+            const raw = await withRpcFallback(polygon, async (url) => {
+              const provider = new JsonRpcProvider(url);
+              const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
+              return (await c.balanceOf(this.config.address)) as bigint;
+            });
+            eoaBal = Number(formatUnits(raw, 6));
+          } catch {}
+          const reason = !hasHighConvictionCandidate
+            ? `Balance $${effective.toFixed(2)} < 5% gate; no new BUY candidates → idling without freeing liquidity. Will retry next cycle.`
+            : eoaBal >= need
+            ? `Polymarket trades from a proxy address, not your wallet. Your wallet has $${eoaBal.toFixed(2)} USDC.e but proxy ${proxyShort} has only $${onchainProxyBal.toFixed(2)}. Open POLYMARKET ACCOUNT → DEPOSIT to move at least $${need.toFixed(2)} from wallet → proxy, then press RUN.`
+            : `Proxy ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)} = 5% of capital). Wallet also has only $${eoaBal.toFixed(2)} — fund USDC.e to your wallet first, then DEPOSIT to proxy.`;
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: hasHighConvictionCandidate ? "ERROR" : "BALANCE",
+            reason,
+          });
+          // Don't transition to status="error" for the no-candidate case
+          // — we want the engine to keep polling. Only real funding gaps
+          // (with a candidate present) escalate to an error state.
+          if (hasHighConvictionCandidate) {
+            this.setState({ error: "INSUFFICIENT_BALANCE" });
+          }
+          return;
+        }
       }
 
       const enabledTraders = this.config.traders.filter((t) => t.enabled !== false);
@@ -782,10 +941,15 @@ export class CopyEngine {
             },
           });
 
-          // Filter to new trades only
-          const newTrades = trades.filter(
-            (t) => t.timestamp > cursor && !this.copiedIds.has(t.id),
-          );
+          // Filter to new trades only, then rank by trader notional desc.
+          // High notional ≈ high conviction → highest expected-edge trades
+          // get the first crack at remaining capital before MAX_ORDERS_PER_CYCLE
+          // or balance constraints close the cycle out. This is the same
+          // ranking signal the auto-free-liquidity branch uses to decide
+          // whether to sell winners.
+          const newTrades = trades
+            .filter((t) => t.timestamp > cursor && !this.copiedIds.has(t.id))
+            .sort((a, b) => b.price * b.size - a.price * a.size);
 
           if (newTrades.length === 0) continue;
           tradersWithNewActivity++;
@@ -956,7 +1120,7 @@ export class CopyEngine {
                   price: trade.price,
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
-                  type: "FOK",
+                  type: "FAK",
                   feeRateBps: TAKER_FEE_BPS,
                 },
                 negRisk,
@@ -1102,6 +1266,7 @@ export class CopyEngine {
         cycleCount: this.state.cycleCount + 1,
         nextCycleAt: Date.now() + this.config.intervalMs,
       });
+      this.cycleInFlight = false;
     }
   }
 
