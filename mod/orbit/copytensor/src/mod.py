@@ -54,7 +54,7 @@ class Copytensor(m.Mod):
     )
     fns = [
         # lifecycle
-        "serve", "kill", "status", "logs", "test",
+        "serve", "kill", "status", "logs", "test", "gateway",
         # public-read passthroughs (no wallet needed)
         "subnets", "leaderboard", "account", "account_pnl",
         "trader", "trades", "rpc_pool",
@@ -134,27 +134,105 @@ class Copytensor(m.Mod):
         return proc.stdout or proc.stderr or "<no output>"
 
     # ── local lifecycle ───────────────────────────────────────────
+    # We avoid pm2 here: pm2.start() auto-generates a python serve script
+    # that imports `mod`, which collides with copytensor/src/mod.py when the
+    # cwd is inside the package. Plain Popen + a PID file is simpler and
+    # actually runs the uvicorn / npm commands we want.
+
+    LOG_DIR = "/tmp/copytensor"
+
+    def _pid_file(self, role: str) -> str:
+        os.makedirs(self.LOG_DIR, exist_ok=True)
+        return os.path.join(self.LOG_DIR, f"{role}.pid")
+
+    def _log_file(self, role: str) -> str:
+        os.makedirs(self.LOG_DIR, exist_ok=True)
+        return os.path.join(self.LOG_DIR, f"{role}.log")
+
+    def _is_running(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, PermissionError, OSError):
+            return False
+
+    def _read_pid(self, role: str) -> Optional[int]:
+        path = self._pid_file(role)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path) as f:
+                pid = int(f.read().strip())
+            return pid if self._is_running(pid) else None
+        except Exception:
+            return None
+
+    def _kill_role(self, role: str, port: Optional[int] = None):
+        pid = self._read_pid(role)
+        if pid:
+            try:
+                os.kill(pid, 15)
+                time.sleep(0.3)
+                if self._is_running(pid):
+                    os.kill(pid, 9)
+            except Exception:
+                pass
+        try:
+            os.remove(self._pid_file(role))
+        except Exception:
+            pass
+        if port is not None:
+            try:
+                subprocess.run(
+                    ["bash", "-c", f"lsof -ti:{port} | xargs -r kill -9"],
+                    capture_output=True, timeout=5,
+                )
+            except Exception:
+                pass
+
+    def _spawn(self, role: str, cmd: List[str], cwd: str,
+               env: Dict[str, str]) -> Dict[str, Any]:
+        log_path = self._log_file(role)
+        log_f = open(log_path, "ab")
+        proc = subprocess.Popen(
+            cmd, cwd=cwd,
+            env={**os.environ, **env},
+            stdout=log_f, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        with open(self._pid_file(role), "w") as f:
+            f.write(str(proc.pid))
+        return {"ok": True, "pid": proc.pid, "log": log_path}
 
     def _local_api(self, port: Optional[int] = None) -> Dict[str, Any]:
         port = port or self.api_port
-        name = "copytensor-api"
-        env = {"PORT": str(port), "PYTHONPATH": SRC_DIR}
+        self._kill_role("api", port=port)
+        # Prefer the prebuilt Rust binary if it exists — it's the canonical
+        # backend (axum + subxt). Fall back to uvicorn + the python copy if
+        # the binary isn't built.
+        rust_bin = os.path.join(
+            SRC_DIR, "api", "target", "release", "copytensor-api",
+        )
+        if os.path.exists(rust_bin) and os.access(rust_bin, os.X_OK):
+            cmd = [rust_bin]
+            env = {"PORT": str(port), "RUST_LOG": "info"}
+            out = self._spawn("api", cmd, cwd=ROOT_DIR, env=env)
+            out["backend"] = "rust"
+            out["port"] = port
+            return out
+
+        # api/app.py uses `from ..chain.client` so it must be loaded as
+        # `src.api.app`. We run uvicorn from ROOT_DIR (one above src/) and
+        # set PYTHONPATH there too so the `src` package is importable.
         cmd = [
-            "uvicorn", "api.app:app",
+            "uvicorn", "src.api.app:app",
             "--host", "0.0.0.0", "--port", str(port),
         ]
-        try:
-            pm2 = m.mod("pm.pm2")()
-            if pm2.exists(name):
-                pm2.kill(name, remove_script=False)
-            pm2.start(name=name, cmd=" ".join(cmd), cwd=SRC_DIR, env=env)
-            return {"ok": True, "name": name, "port": port}
-        except Exception as e:
-            proc = subprocess.Popen(
-                cmd, cwd=SRC_DIR,
-                env={**os.environ, **env},
-            )
-            return {"ok": True, "pid": proc.pid, "port": port, "warn": str(e)}
+        env = {"PORT": str(port), "PYTHONPATH": ROOT_DIR}
+        out = self._spawn("api", cmd, cwd=ROOT_DIR, env=env)
+        out["backend"] = "python"
+        out["port"] = port
+        return out
 
     def _local_app(self, port: Optional[int] = None,
                    api_port: Optional[int] = None) -> Dict[str, Any]:
@@ -165,25 +243,18 @@ class Copytensor(m.Mod):
                 ["npm", "install", "--no-audit", "--no-fund"],
                 cwd=APP_DIR, capture_output=True,
             )
-        name = "copytensor-app"
+        self._kill_role("app", port=port)
         env = {
             "PORT": str(port),
             "NEXT_PUBLIC_API_URL": f"http://localhost:{api_port}",
         }
-        try:
-            pm2 = m.mod("pm.pm2")()
-            if pm2.exists(name):
-                pm2.kill(name, remove_script=False)
-            pm2.start(name=name, cmd=f"npm run dev -- -p {port}",
-                      cwd=APP_DIR, env=env)
-            return {"ok": True, "name": name, "port": port}
-        except Exception as e:
-            proc = subprocess.Popen(
-                ["npm", "run", "dev", "--", "-p", str(port)],
-                cwd=APP_DIR,
-                env={**os.environ, **env},
-            )
-            return {"ok": True, "pid": proc.pid, "port": port, "warn": str(e)}
+        out = self._spawn(
+            "app",
+            ["npm", "run", "dev", "--", "-p", str(port)],
+            cwd=APP_DIR, env=env,
+        )
+        out["port"] = port
+        return out
 
     # ── unified serve / kill / status / logs ──────────────────────
 
@@ -214,7 +285,20 @@ class Copytensor(m.Mod):
                 "api": a, "app": b}
 
     def _register_gateway(self, api_port: int, app_port: int):
-        """Persist URLs to config.json + sync with routy gateway (best-effort)."""
+        """Wire copytensor into the mod-protocol gateway.
+
+        The gateway is the core Next.js app on :3001 (whose middleware reads
+        app_namespace from the Flask backend on :8000 and rewrites
+        /api/{mod}/* → api_url and /{mod}/* → app url). Caddy on :3000 is the
+        public-facing edge. Registering with `server.namespace.reg_app`
+        publishes copytensor into the namespace so both work:
+
+            http://localhost:3001/copytensor          → app  (mod gateway)
+            http://localhost:3001/api/copytensor/*    → API  (mod gateway)
+            http://localhost:3000/copytensor          → app  (caddy edge)
+            http://localhost:3000/api/copytensor/*    → API  (caddy edge)
+        """
+        gateway_port = self._detect_gateway_port()
         cfg_path = os.path.join(ROOT_DIR, "config.json")
         try:
             with open(cfg_path) as f:
@@ -222,33 +306,62 @@ class Copytensor(m.Mod):
             cfg["urls"] = {
                 "api": f"http://localhost:{api_port}",
                 "app": f"http://localhost:{app_port}/copytensor",
+                "gateway_api": f"http://localhost:{gateway_port}/api/copytensor",
+                "gateway_app": f"http://localhost:{gateway_port}/copytensor",
             }
             cfg["port"] = api_port
             cfg["app_port"] = app_port
+            cfg["gateway_port"] = gateway_port
             with open(cfg_path, "w") as f:
                 json.dump(cfg, f, indent=4)
                 f.write("\n")
         except Exception:
             pass
 
+        # Register with the mod-protocol app namespace so the core gateway
+        # middleware can resolve /copytensor and /api/copytensor.
         import threading
         def _sync():
-            for port in (3001, 3000):
-                try:
-                    requests.post(f"http://localhost:{port}/_api/register", json={
-                        "name": "copytensor",
-                        "target_url": f"http://127.0.0.1:{api_port}",
-                        "website_type": "api",
-                    }, timeout=3)
-                    requests.post(f"http://localhost:{port}/_api/register", json={
-                        "name": "copytensor",
-                        "target_url": f"http://127.0.0.1:{app_port}",
-                        "website_type": "app",
-                    }, timeout=3)
-                    break
-                except Exception:
-                    continue
+            try:
+                ns = m.mod("server.namespace")()
+                ns.reg_app(
+                    name="copytensor",
+                    address=f"http://localhost:{app_port}",
+                    api_url=f"http://localhost:{api_port}",
+                )
+            except Exception as e:
+                log.warning("namespace reg_app failed: %s", e)
         threading.Thread(target=_sync, daemon=True).start()
+
+    def _detect_gateway_port(self) -> int:
+        """Pick the active mod-protocol gateway port.
+
+        Prefer the core Next.js app on :3001 (canonical mod-protocol
+        gateway). Fall back to caddy edge on :3000 if the core app isn't
+        reachable.
+        """
+        for p in (3001, 3000, 3002):
+            try:
+                r = requests.get(f"http://localhost:{p}/", timeout=1)
+                if r.status_code < 500:
+                    return p
+            except Exception:
+                continue
+        return 3001
+
+    def gateway(self) -> Dict[str, Any]:
+        """Show the public gateway URLs for this module (mod-protocol pattern)."""
+        p = self._detect_gateway_port()
+        return {
+            "gateway_port": p,
+            "app": f"http://localhost:{p}/copytensor",
+            "api": f"http://localhost:{p}/api/copytensor",
+            "examples": {
+                "leaderboard": f"http://localhost:{p}/api/copytensor/leaderboard?days=7&top=20",
+                "subnets": f"http://localhost:{p}/api/copytensor/subnets",
+                "health": f"http://localhost:{p}/api/copytensor/health",
+            },
+        }
 
     def kill(self, target: str = "all", mode: Optional[str] = None) -> Dict[str, Any]:
         """Stop services. mode='docker' (default) or 'local'."""
@@ -258,16 +371,13 @@ class Copytensor(m.Mod):
         if mode == "docker":
             return self._docker_kill()
 
-        out: Dict[str, Any] = {}
-        try:
-            pm2 = m.mod("pm.pm2")()
-            if target in ("api", "all") and pm2.exists("copytensor-api"):
-                pm2.kill("copytensor-api"); out["api"] = "stopped"
-            if target in ("app", "all") and pm2.exists("copytensor-app"):
-                pm2.kill("copytensor-app"); out["app"] = "stopped"
-        except Exception as e:
-            out["error"] = str(e)
-        out["mode"] = "local"
+        out: Dict[str, Any] = {"mode": "local"}
+        if target in ("api", "all"):
+            self._kill_role("api", port=self.api_port)
+            out["api"] = "stopped"
+        if target in ("app", "all"):
+            self._kill_role("app", port=self.app_port)
+            out["app"] = "stopped"
         return out
 
     def status(self, mode: Optional[str] = None) -> Dict[str, Any]:
@@ -279,12 +389,8 @@ class Copytensor(m.Mod):
             return self._docker_status()
 
         out = {"module": self.name, "mode": "local", "api_url": self.api_url}
-        try:
-            pm2 = m.mod("pm.pm2")()
-            out["api"] = "running" if pm2.exists("copytensor-api") else "stopped"
-            out["app"] = "running" if pm2.exists("copytensor-app") else "stopped"
-        except Exception:
-            out["api"] = out["app"] = "unknown"
+        out["api"] = "running" if self._read_pid("api") else "stopped"
+        out["app"] = "running" if self._read_pid("app") else "stopped"
         try:
             r = requests.get(f"{self.api_url}/health", timeout=2)
             out["health"] = r.json() if r.ok else {"http": r.status_code}
@@ -301,11 +407,15 @@ class Copytensor(m.Mod):
         if mode == "docker":
             return self._docker_logs(lines=lines)
 
+        path = self._log_file(target)
+        if not os.path.exists(path):
+            return f"<no logs: {path}>"
         try:
-            pm2 = m.mod("pm.pm2")()
-            return pm2.logs(f"copytensor-{target}", lines=lines)
+            with open(path, "rb") as f:
+                data = f.read().decode("utf-8", errors="replace")
+            return "\n".join(data.splitlines()[-lines:])
         except Exception as e:
-            return f"<no logs: {e}>"
+            return f"<read failed: {e}>"
 
     # ── data passthroughs (call live API) ─────────────────────────
 

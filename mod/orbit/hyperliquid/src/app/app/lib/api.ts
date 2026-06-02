@@ -140,6 +140,63 @@ export const vaultIntent = (id: string, initial_usd: number) =>
     body: JSON.stringify({ initial_usd }),
   });
 
+// ── backend agent signer ──
+export const signerAddress = (eoa: string) =>
+  j<{ eoa: string; agentAddress: string }>(`/signer/address`, {
+    method: "POST", body: JSON.stringify({ eoa }),
+  });
+
+export const approveAgentIntent = (eoa: string, agent_name?: string) =>
+  j<{ action: any; nonce: number; agentAddress: string; digest: string; exchange_url: string }>(
+    `/signer/approve_agent`,
+    { method: "POST", body: JSON.stringify({ eoa, ...(agent_name ? { agent_name } : {}) }) }
+  );
+
+// ── trade actions ──
+export const trade = (b: {
+  eoa: string; coin: string; is_buy: boolean; size: number;
+  price?: number; tif?: "Gtc" | "Ioc" | "Alo"; reduce_only?: boolean;
+  slippage_bps?: number; cloid?: string; vault_address?: string;
+}) => j<any>(`/trade`, { method: "POST", body: JSON.stringify(b) });
+
+export const cancelOrders = (b: { eoa: string; cancels: { coin: string; oid: number }[]; vault_address?: string }) =>
+  j<any>(`/cancel`, { method: "POST", body: JSON.stringify(b) });
+
+export const modifyOrder = (b: {
+  eoa: string; oid: number; coin: string; is_buy: boolean;
+  price: number; size: number; reduce_only?: boolean; tif?: string; vault_address?: string;
+}) => j<any>(`/modify`, { method: "POST", body: JSON.stringify(b) });
+
+export const setLeverage = (b: { eoa: string; coin: string; leverage: number; is_cross?: boolean; vault_address?: string }) =>
+  j<any>(`/leverage`, { method: "POST", body: JSON.stringify(b) });
+
+export const usdClassTransfer = (b: { eoa: string; amount: string; to_perp: boolean }) =>
+  j<any>(`/usd_class_transfer`, { method: "POST", body: JSON.stringify(b) });
+
+export const vaultTransfer = (b: { eoa: string; vault: string; is_deposit: boolean; amount_usd: number }) =>
+  j<any>(`/vault_transfer`, { method: "POST", body: JSON.stringify(b) });
+
+export const withdraw = (b: { eoa: string; destination: string; amount: string }) =>
+  j<any>(`/withdraw`, { method: "POST", body: JSON.stringify(b) });
+
+export const usdSend = (b: { eoa: string; destination: string; amount: string }) =>
+  j<any>(`/usd_send`, { method: "POST", body: JSON.stringify(b) });
+
+// ── live engine ──
+export type LiveTrader = { address: string; weight?: number; enabled?: boolean };
+export type LiveStartReq = {
+  eoa: string; traders: LiveTrader[]; interval_ms?: number; size_pct?: number;
+  max_per_trade_usd?: number; min_order_size_usd?: number; max_slippage_bps?: number;
+  coins_allow?: string[]; coins_deny?: string[]; vault_address?: string; capital?: number;
+  strategy_id?: string;
+};
+export const liveStart = (b: LiveStartReq) =>
+  j<any>(`/live/start`, { method: "POST", body: JSON.stringify(b) });
+export const liveStop = (eoa: string) =>
+  j<any>(`/live/stop`, { method: "POST", body: JSON.stringify({ eoa }) });
+export const liveStatus = (eoa: string) =>
+  j<{ eoa: string; config: any; state: any }>(`/live/status?eoa=${encodeURIComponent(eoa)}`);
+
 // ── formatting helpers ──
 export const fmtUsd = (n: number) => {
   const a = Math.abs(n);

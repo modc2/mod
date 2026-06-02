@@ -431,7 +431,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // unless an older strat still has a non-zero value.
   const [rebalancePeriod, setRebalancePeriod] = useState<number>(0); // hours (0 = per-trade)
   const [rebalanceHour, setRebalanceHour] = useState<number>(0); // 0-23 (unused when per-trade)
-  const [rebalanceMinutes, setRebalanceMinutes] = useState<number>(1); // minutes between live polls
+  const [rebalanceMinutes, setRebalanceMinutes] = useState<number>(5 / 60); // minutes between live polls (5s)
   const [customDaysInput, setCustomDaysInput] = useState("");
   const [expandedTrader, setExpandedTrader] = useState<string | null>(null);
   const [showSimTrades, setShowSimTrades] = useState<Record<string, boolean>>({});
@@ -560,7 +560,14 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     // windows with no way to undo from the UI.
     setRebalancePeriod(0);
     setRebalanceHour(0);
-    setRebalanceMinutes(activeIndex.rebalanceMinutes ?? 1);
+    // Treat the legacy 1-minute default as "unset" and surface the new 5s
+    // default — keeps strats saved before the 5s switch from being stuck
+    // on the slow cadence.
+    setRebalanceMinutes(
+      activeIndex.rebalanceMinutes && activeIndex.rebalanceMinutes !== 1
+        ? activeIndex.rebalanceMinutes
+        : 5 / 60,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex?.id]);
 
@@ -929,7 +936,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     setSamplePct(100);
     setRebalancePeriod(0);
     setRebalanceHour(0);
-    setRebalanceMinutes(1);
+    setRebalanceMinutes(5 / 60);
     persistIndex({
       ...activeIndex,
       traders: [],
@@ -939,7 +946,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       maxTradesPerHour: 10,
       rebalancePeriod: 0,
       rebalanceHour: 0,
-      rebalanceMinutes: 1,
+      rebalanceMinutes: 5 / 60,
       // Drop the cached backtest snapshot so the leaderboard doesn't show
       // stale +145 / +1.4% next to an empty strat.
       lastPnl: undefined,

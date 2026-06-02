@@ -1,3 +1,6 @@
+use crate::actions::{self, OrderRequest, OrderSide, TimeInForce};
+use crate::live_engine::{EngineConfig, TraderEntry};
+use crate::sign_user;
 use crate::store::{Follow, Index, IndexLeg};
 use crate::AppState;
 use axum::{
@@ -52,6 +55,36 @@ pub fn router() -> Router<AppState> {
         .route("/vaults/:addr", get(vault_details))
         .route("/vaults/:addr/perf", get(vault_perf))
         .route("/indexes/:id/vault/intent", post(vault_intent))
+
+        // ── backend signer / agent wallet ──
+        .route("/signer/address", post(signer_address))
+        .route("/signer/approve_agent", post(approve_agent_intent))
+
+        // ── trading actions (signed by backend agent) ──
+        .route("/trade", post(trade))
+        .route("/cancel", post(cancel))
+        .route("/cancel_by_cloid", post(cancel_by_cloid))
+        .route("/modify", post(modify))
+        .route("/leverage", post(set_leverage))
+        .route("/isolated_margin", post(update_isolated_margin))
+        .route("/schedule_cancel", post(schedule_cancel))
+
+        // ── transfers / bridging ──
+        .route("/usd_class_transfer", post(usd_class_transfer))
+        .route("/vault_transfer", post(vault_transfer))
+        .route("/withdraw", post(withdraw_route))
+        .route("/usd_send", post(usd_send_route))
+        .route("/spot_send", post(spot_send_route))
+        .route("/create_vault", post(create_vault_route))
+        .route("/set_referrer", post(set_referrer_route))
+
+        // ── generic signed action passthrough (anything else) ──
+        .route("/action", post(action_route))
+
+        // ── live copy-trade engine ──
+        .route("/live/start", post(live_start))
+        .route("/live/stop", post(live_stop))
+        .route("/live/status", get(live_status))
 
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
@@ -460,3 +493,449 @@ async fn forward(State(s): State<AppState>, Json(b): Json<ForwardBody>)
     Ok(Json(json!({"result": result})))
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  Backend agent signer + trading actions
+// ════════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+struct EoaBody { eoa: String }
+
+async fn signer_address(State(s): State<AppState>, Json(b): Json<EoaBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let addr = s.signer.signer_address(&b.eoa).map_err(err500)?;
+    Ok(Json(json!({ "eoa": b.eoa, "agentAddress": addr })))
+}
+
+/// Build the `approveAgent` action + digest the *user's* master wallet
+/// needs to sign in their browser to authorize the backend agent. We don't
+/// sign it ourselves — the user does. Returns the action JSON, the digest
+/// (as hex), and the EIP-712 typed-data so the wallet can sign either way.
+#[derive(Deserialize)]
+struct ApproveAgentBody {
+    eoa: String,
+    #[serde(default)]
+    agent_name: Option<String>,
+}
+
+async fn approve_agent_intent(State(s): State<AppState>, Json(b): Json<ApproveAgentBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let agent_addr = s.signer.signer_address(&b.eoa).map_err(err500)?;
+    let is_mainnet = !s.hl.testnet;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_approve_agent(
+        &agent_addr, b.agent_name.as_deref(), nonce, is_mainnet,
+    );
+    Ok(Json(json!({
+        "action": action,
+        "nonce": nonce,
+        "agentAddress": agent_addr,
+        "digest": format!("0x{}", hex::encode(digest)),
+        "exchange_url": s.hl.exchange_url,
+        "note": "Sign `digest` with the master EOA wallet, then POST { action, nonce, signature: {r,s,v} } to /exchange (or via /forward with fn:'exchange_post').",
+    })))
+}
+
+#[derive(Deserialize)]
+struct TradeBody {
+    eoa: String,
+    coin: String,
+    is_buy: bool,
+    /// Order size in base units (e.g. ETH amount, not USD).
+    size: f64,
+    /// Optional limit price. Omit for market orders (slippage-padded IOC).
+    #[serde(default)]
+    price: Option<f64>,
+    /// Time-in-force: "Gtc" | "Ioc" | "Alo". Defaults to Gtc for limits, Ioc for market.
+    #[serde(default)]
+    tif: Option<String>,
+    #[serde(default)]
+    reduce_only: bool,
+    #[serde(default)]
+    slippage_bps: Option<u32>,
+    #[serde(default)]
+    cloid: Option<String>,
+    #[serde(default)]
+    vault_address: Option<String>,
+}
+
+async fn trade(State(s): State<AppState>, Json(b): Json<TradeBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let side = if b.is_buy { OrderSide::Buy } else { OrderSide::Sell };
+    let result = match b.price {
+        Some(px) => {
+            let tif = match b.tif.as_deref() {
+                Some("Ioc") => TimeInForce::Ioc,
+                Some("Alo") => TimeInForce::Alo,
+                _ => TimeInForce::Gtc,
+            };
+            let req = OrderRequest {
+                coin: b.coin.clone(), side,
+                price: px, size: b.size,
+                reduce_only: b.reduce_only, tif,
+                cloid: b.cloid.clone(),
+            };
+            actions::place_order(&s.http, &s.hl, &s.signer, &s.meta, &b.eoa, req, b.vault_address.as_deref()).await
+        }
+        None => {
+            actions::place_market_order(
+                &s.http, &s.hl, &s.signer, &s.meta, &b.eoa, &b.coin, side, b.size,
+                b.slippage_bps.unwrap_or(100), b.reduce_only,
+                b.vault_address.as_deref(),
+            ).await
+        }
+    };
+    result.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct CancelEntry { coin: String, oid: u64 }
+#[derive(Deserialize)]
+struct CancelBody {
+    eoa: String,
+    cancels: Vec<CancelEntry>,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+async fn cancel(State(s): State<AppState>, Json(b): Json<CancelBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    // Build a coin→spec lookup just for the assets referenced.
+    let mut meta_map = std::collections::HashMap::new();
+    for c in &b.cancels {
+        let spec = s.meta.get(&c.coin).await.map_err(err500)?;
+        meta_map.insert(c.coin.to_ascii_uppercase(), spec);
+    }
+    let reqs: Vec<actions::CancelRequest> = b.cancels.iter()
+        .map(|c| actions::CancelRequest { coin: c.coin.clone(), oid: c.oid }).collect();
+    let action = actions::build_cancel_action(&reqs, &meta_map).map_err(err500)?;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct CancelByCloidEntry { coin: String, cloid: String }
+#[derive(Deserialize)]
+struct CancelByCloidBody {
+    eoa: String,
+    cancels: Vec<CancelByCloidEntry>,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+async fn cancel_by_cloid(State(s): State<AppState>, Json(b): Json<CancelByCloidBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let mut meta_map = std::collections::HashMap::new();
+    for c in &b.cancels {
+        let spec = s.meta.get(&c.coin).await.map_err(err500)?;
+        meta_map.insert(c.coin.to_ascii_uppercase(), spec);
+    }
+    let reqs: Vec<actions::CancelByCloidRequest> = b.cancels.iter()
+        .map(|c| actions::CancelByCloidRequest { coin: c.coin.clone(), cloid: c.cloid.clone() }).collect();
+    let action = actions::build_cancel_by_cloid_action(&reqs, &meta_map).map_err(err500)?;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct ModifyBody {
+    eoa: String,
+    oid: u64,
+    coin: String,
+    is_buy: bool,
+    price: f64,
+    size: f64,
+    #[serde(default)] reduce_only: bool,
+    #[serde(default)] tif: Option<String>,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+async fn modify(State(s): State<AppState>, Json(b): Json<ModifyBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let spec = s.meta.get(&b.coin).await.map_err(err500)?;
+    let tif = match b.tif.as_deref() {
+        Some("Ioc") => TimeInForce::Ioc,
+        Some("Alo") => TimeInForce::Alo,
+        _ => TimeInForce::Gtc,
+    };
+    let req = OrderRequest {
+        coin: b.coin.clone(),
+        side: if b.is_buy { OrderSide::Buy } else { OrderSide::Sell },
+        price: b.price, size: b.size, reduce_only: b.reduce_only, tif, cloid: None,
+    };
+    let action = actions::build_modify_action(b.oid, &req, &spec).map_err(err500)?;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct LeverageBody {
+    eoa: String,
+    coin: String,
+    leverage: u32,
+    #[serde(default = "default_true_v")] is_cross: bool,
+    #[serde(default)] vault_address: Option<String>,
+}
+fn default_true_v() -> bool { true }
+
+async fn set_leverage(State(s): State<AppState>, Json(b): Json<LeverageBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let spec = s.meta.get(&b.coin).await.map_err(err500)?;
+    let action = actions::build_update_leverage_action(spec.asset, b.is_cross, b.leverage);
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct IsolatedMarginBody {
+    eoa: String,
+    coin: String,
+    is_buy: bool,
+    /// USDC amount to add (positive) or remove (negative). Will be converted to ntli (microUSDC).
+    amount_usd: f64,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+async fn update_isolated_margin(State(s): State<AppState>, Json(b): Json<IsolatedMarginBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let spec = s.meta.get(&b.coin).await.map_err(err500)?;
+    let ntli = (b.amount_usd * 1_000_000.0).round() as i64;
+    let action = actions::build_update_isolated_margin_action(spec.asset, b.is_buy, ntli);
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct ScheduleCancelBody {
+    eoa: String,
+    #[serde(default)] time_ms: Option<u64>,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+async fn schedule_cancel(State(s): State<AppState>, Json(b): Json<ScheduleCancelBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let action = actions::build_schedule_cancel_action(b.time_ms);
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct VaultTransferBody {
+    eoa: String,
+    /// The vault address to deposit into / withdraw from.
+    vault: String,
+    is_deposit: bool,
+    /// USDC amount.
+    amount_usd: f64,
+}
+
+async fn vault_transfer(State(s): State<AppState>, Json(b): Json<VaultTransferBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let usd_micro = (b.amount_usd * 1_000_000.0).round() as u64;
+    let action = actions::build_vault_transfer_action(&b.vault, b.is_deposit, usd_micro);
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    // NB: vaultAddress is part of the action itself for vaultTransfer — the
+    // envelope-level vaultAddress is for *trading as* a vault, not transfers.
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, None)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct UsdClassTransferBody {
+    eoa: String,
+    /// USDC amount, as a string (matches HL convention; e.g. "10.5").
+    amount: String,
+    to_perp: bool,
+}
+
+async fn usd_class_transfer(State(s): State<AppState>, Json(b): Json<UsdClassTransferBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_usd_class_transfer(&b.amount, b.to_perp, nonce, is_mainnet);
+    actions::post_user_action(&s.http, &s.hl, &s.signer, &b.eoa, action, digest, nonce)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct WithdrawBody {
+    eoa: String,
+    destination: String,
+    amount: String,
+}
+
+async fn withdraw_route(State(s): State<AppState>, Json(b): Json<WithdrawBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_withdraw3(&b.destination, &b.amount, now, is_mainnet);
+    actions::post_user_action(&s.http, &s.hl, &s.signer, &b.eoa, action, digest, now)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct UsdSendBody {
+    eoa: String,
+    destination: String,
+    amount: String,
+}
+
+async fn usd_send_route(State(s): State<AppState>, Json(b): Json<UsdSendBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_usd_send(&b.destination, &b.amount, now, is_mainnet);
+    actions::post_user_action(&s.http, &s.hl, &s.signer, &b.eoa, action, digest, now)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct SpotSendBody {
+    eoa: String,
+    destination: String,
+    token: String,
+    amount: String,
+}
+
+async fn spot_send_route(State(s): State<AppState>, Json(b): Json<SpotSendBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_spot_send(&b.destination, &b.token, &b.amount, now, is_mainnet);
+    actions::post_user_action(&s.http, &s.hl, &s.signer, &b.eoa, action, digest, now)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct CreateVaultBody {
+    eoa: String,
+    name: String,
+    #[serde(default)] description: String,
+    initial_usd: f64,
+}
+
+async fn create_vault_route(State(s): State<AppState>, Json(b): Json<CreateVaultBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    let initial_micro = (b.initial_usd * 1_000_000.0).round() as u64;
+    let action = actions::build_create_vault_action(&b.name, &b.description, initial_micro, nonce);
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, None)
+        .await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct SetReferrerBody { eoa: String, code: String }
+
+async fn set_referrer_route(State(s): State<AppState>, Json(b): Json<SetReferrerBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let action = actions::build_set_referrer_action(&b.code);
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, None)
+        .await.map(Json).map_err(err500)
+}
+
+/// Generic signed action passthrough. Caller supplies the raw L1 action JSON
+/// (must use insertion-ordered keys per HL's encoding); we sign with the
+/// backend agent for `eoa` and POST to /exchange. Useful for action types
+/// we haven't wrapped explicitly (e.g. `setReferrer`, `approveBuilderFee`,
+/// `subAccountTransfer`, etc.).
+#[derive(Deserialize)]
+struct GenericActionBody {
+    eoa: String,
+    action: Value,
+    #[serde(default)] vault_address: Option<String>,
+    #[serde(default)] nonce: Option<u64>,
+}
+
+async fn action_route(State(s): State<AppState>, Json(b): Json<GenericActionBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let nonce = b.nonce.unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
+    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, b.action, nonce, b.vault_address.as_deref())
+        .await.map(Json).map_err(err500)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Live copy-trade engine
+// ════════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+struct LiveStartBody {
+    eoa: String,
+    #[serde(default)] strategy_id: Option<String>,
+    traders: Vec<TraderInput>,
+    #[serde(default)] capital: Option<f64>,
+    #[serde(default)] interval_ms: Option<u64>,
+    #[serde(default)] min_order_size_usd: Option<f64>,
+    #[serde(default)] max_slippage_bps: Option<u32>,
+    #[serde(default)] size_pct: Option<f64>,
+    #[serde(default)] max_per_trade_usd: Option<f64>,
+    #[serde(default)] coins_allow: Option<Vec<String>>,
+    #[serde(default)] coins_deny: Option<Vec<String>>,
+    #[serde(default)] vault_address: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TraderInput {
+    address: String,
+    #[serde(default = "one")] weight: f64,
+    #[serde(default = "yes")] enabled: bool,
+}
+fn one() -> f64 { 1.0 }
+fn yes() -> bool { true }
+
+async fn live_start(State(s): State<AppState>, Json(b): Json<LiveStartBody>) -> Json<Value> {
+    let cfg = EngineConfig {
+        eoa: b.eoa.to_lowercase(),
+        strategy_id: b.strategy_id.unwrap_or_default(),
+        traders: b.traders.into_iter().map(|t| TraderEntry {
+            address: t.address.to_lowercase(),
+            weight: t.weight.max(0.0),
+            enabled: t.enabled,
+        }).collect(),
+        capital: b.capital.unwrap_or(0.0),
+        interval_ms: b.interval_ms.unwrap_or(15_000).max(2_000),
+        min_order_size_usd: b.min_order_size_usd.unwrap_or(10.0).max(0.0),
+        max_slippage_bps: b.max_slippage_bps.unwrap_or(100).min(5000),
+        size_pct: b.size_pct.unwrap_or(10.0).clamp(0.0, 1000.0),
+        max_per_trade_usd: b.max_per_trade_usd.unwrap_or(0.0).max(0.0),
+        coins_allow: b.coins_allow.unwrap_or_default(),
+        coins_deny: b.coins_deny.unwrap_or_default(),
+        vault_address: b.vault_address,
+    };
+    s.live.start(cfg.clone());
+    Json(json!({ "ok": true, "eoa": cfg.eoa, "status": "running" }))
+}
+
+async fn live_stop(State(s): State<AppState>, Json(b): Json<EoaBody>) -> Json<Value> {
+    let stopped = s.live.stop(&b.eoa);
+    Json(json!({ "ok": true, "eoa": b.eoa, "wasRunning": stopped }))
+}
+
+#[derive(Deserialize)]
+struct LiveStatusQ { eoa: String }
+
+async fn live_status(State(s): State<AppState>, Query(q): Query<LiveStatusQ>) -> Json<Value> {
+    let cfg = s.live.config_of(&q.eoa);
+    let st = s.live.status_of(&q.eoa);
+    Json(json!({ "eoa": q.eoa, "config": cfg, "state": st }))
+}

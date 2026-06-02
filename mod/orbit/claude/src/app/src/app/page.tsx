@@ -237,8 +237,7 @@ export default function Home() {
   const [images, setImages] = useState<Array<{ name: string; data: string }>>(
     []
   );
-  const [theme, setTheme] = useState<"dark" | "light" | "matrix" | "cyberpunk" | "amber" | "ocean" | "ibm" | "win95">("dark");
-  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -422,12 +421,11 @@ export default function Home() {
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
-  const themeRef = useRef<HTMLDivElement>(null);
   const userDetailsRef = useRef<HTMLDivElement>(null);
   const tokenStatsRef = useRef<HTMLDivElement>(null);
 
   // Theme-aware helpers
-  const isLight = theme === "light" || (!["dark", "matrix", "cyberpunk", "amber", "ocean", "ibm"].includes(theme) && theme !== "win95");
+  const isLight = theme === "light";
   const STATUS_COLOR = isLight ? STATUS_COLOR_LIGHT : STATUS_COLOR_DARK;
   const tintBg = isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)";
   const tintBgStrong = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
@@ -601,8 +599,8 @@ export default function Home() {
   // Apply theme to document root
   useEffect(() => {
     const savedTheme = localStorage.getItem("claude_jobs_theme");
-    if (savedTheme) {
-      setTheme(savedTheme as typeof theme);
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
     }
   }, []);
 
@@ -675,9 +673,6 @@ export default function Home() {
   // Close menus when clicking outside
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
-        setShowThemeMenu(false);
-      }
       if (userDetailsRef.current && !userDetailsRef.current.contains(e.target as Node)) {
         setShowUserDetails(false);
       }
@@ -4204,20 +4199,86 @@ export default function Home() {
       <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "var(--bg-primary)" }}>
         {/* ── Header ── */}
         <div
-          className="flex items-center justify-between px-3 py-2 shrink-0"
+          className="flex items-center justify-between px-3.5 py-2.5 shrink-0"
           style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[13px]" style={{ color: "#a78bfa" }}>⬡</span>
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <span
-              className="text-[12px] font-bold uppercase tracking-wider"
-              style={{ color: "#a78bfa", textShadow: "0 0 8px rgba(167, 139, 250, 0.4)" }}
+              className="inline-flex items-center justify-center shrink-0"
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: 6,
+                background: "rgba(167,139,250,0.12)",
+                border: "1px solid rgba(167,139,250,0.30)",
+                color: "#a78bfa",
+                fontSize: 12,
+                boxShadow: "0 0 14px -4px rgba(167,139,250,0.55)",
+              }}
+            >
+              ⬡
+            </span>
+            <span
+              className="text-[12px] font-semibold uppercase shrink-0"
+              style={{ color: "#c4b5fd", letterSpacing: "0.16em" }}
             >
               Agent
             </span>
+            {/* Selected module · version count — click to open full VERSIONS panel */}
+            {selectedModule && (
+              <button
+                onClick={() => setShowVersions(true)}
+                className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 transition-colors"
+                style={{
+                  color: "var(--accent-color)",
+                  border: `1px solid ${subtleBorder}`,
+                  borderRadius: "4px",
+                  background: "color-mix(in srgb, var(--accent-color) 8%, transparent)",
+                }}
+                title={`Module: ${selectedModule} · ${agentVersions.length} version${agentVersions.length !== 1 ? "s" : ""} — click to open VERSIONS panel`}
+              >
+                <span className="truncate max-w-[100px]">{selectedModule}</span>
+                <span style={{ color: "var(--text-tertiary)" }}>·</span>
+                <span>◆{agentVersions.length}</span>
+              </button>
+            )}
+            {/* Connected user — click to copy address */}
+            {address && (
+              <button
+                onClick={() => {
+                  if (address && address !== "local") {
+                    navigator.clipboard.writeText(address);
+                    setCopiedAddress(true);
+                    setTimeout(() => setCopiedAddress(false), 1500);
+                  }
+                }}
+                className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 transition-colors"
+                style={{
+                  color: "var(--crt-green)",
+                  border: `1px solid ${subtleBorder}`,
+                  borderRadius: "4px",
+                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                }}
+                title={copiedAddress ? "Copied!" : `Signed in as: ${address}${walletType ? ` (${walletType})` : ""} — click to copy`}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--crt-green)" }} />
+                {copiedAddress ? "COPIED" : address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`}
+              </button>
+            )}
             {runningCount > 0 && (
-              <span className="flex items-center gap-1 text-[10px] font-bold" style={{ color: "#3b82f6" }}>
-                <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+              <span
+                className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full"
+                style={{
+                  background: "rgba(59,130,246,0.10)",
+                  border: "1px solid rgba(59,130,246,0.28)",
+                  color: "#93c5fd",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: "0.03em",
+                }}
+                title={`${runningCount} job${runningCount > 1 ? "s" : ""} running`}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full soft-pulse" style={{ background: "#3b82f6", boxShadow: "0 0 6px #3b82f6" }} />
                 {runningCount} active
               </span>
             )}
@@ -4227,28 +4288,46 @@ export default function Home() {
           </div>
           <button
             onClick={() => setAgentSidebarOpen(false)}
-            className="flex items-center justify-center transition-all rounded"
-            style={{ width: "24px", height: "24px", color: "var(--text-tertiary)" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+            className="flex items-center justify-center focus-ring shrink-0"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 6,
+              color: "var(--text-tertiary)",
+              border: "1px solid transparent",
+              background: "transparent",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = "var(--text-primary)";
+              e.currentTarget.style.borderColor = "var(--border-color)";
+              e.currentTarget.style.background = "var(--bg-secondary)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = "var(--text-tertiary)";
+              e.currentTarget.style.borderColor = "transparent";
+              e.currentTarget.style.background = "transparent";
+            }}
+            title="Close agent panel"
           >
             ✕
           </button>
         </div>
 
         {/* ── Model selector ── */}
-        <div className="flex items-center gap-1.5 px-3 py-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
+        <div className="flex items-center gap-2 px-3.5 py-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
+          <span className="label-muted shrink-0" style={{ fontSize: 9, opacity: 0.6 }}>Model</span>
           <select
             value={model}
             onChange={(e) => { setModel(e.target.value); localStorage.setItem("claude_jobs_model", e.target.value); }}
-            className="px-2 py-1 bg-transparent border cursor-pointer transition-colors"
+            className="px-2.5 py-1 bg-transparent border cursor-pointer"
             style={{
-              fontSize: "11px",
+              fontSize: 11,
               fontWeight: 600,
-              borderColor: `${activeModelChip.color}40`,
-              background: `${activeModelChip.color}18`,
+              borderColor: `${activeModelChip.color}55`,
+              background: `${activeModelChip.color}1a`,
               color: activeModelChip.color,
-              borderRadius: "5px",
+              borderRadius: 999,
+              letterSpacing: "0.02em",
             }}
           >
             {MODEL_CHIPS.map(m => (
@@ -4258,11 +4337,18 @@ export default function Home() {
             ))}
           </select>
           <div className="flex-1" />
+          <span className="label-muted shrink-0" style={{ fontSize: 9, opacity: 0.6 }}>Agent</span>
           <select
             value={agentType}
             onChange={(e) => { setAgentType(e.target.value); localStorage.setItem("claude_jobs_agent", e.target.value); }}
-            className="px-1.5 py-0.5 text-[10px] bg-transparent border uppercase cursor-pointer transition-colors"
-            style={{ borderColor: subtleBorder, color: "var(--crt-blue)", borderRadius: "4px" }}
+            className="px-2 py-[3px] text-[10px] bg-transparent border uppercase cursor-pointer"
+            style={{
+              borderColor: "color-mix(in srgb, var(--crt-blue) 30%, transparent)",
+              background: "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
+              color: "var(--crt-blue)",
+              borderRadius: 999,
+              letterSpacing: "0.05em",
+            }}
           >
             {AGENT_OPTIONS.map((a) => (
               <option key={a.value} value={a.value}>{a.icon} {a.label}</option>
@@ -4270,99 +4356,220 @@ export default function Home() {
           </select>
         </div>
 
-        {/* ── Versions strip — inline snapshot chain for the active module ── */}
-        {agentVersions.length > 0 && (
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 shrink-0 overflow-x-auto"
-            style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg, scrollbarWidth: "none" }}
-          >
-            <span
-              className="text-[9px] font-bold uppercase tracking-wider shrink-0"
-              style={{ color: "var(--text-tertiary)", opacity: 0.6 }}
-              title={`${selectedModule || "claude"}: ${agentVersions.length} snapshots`}
+        {/* ── Versions strip — git-graph for the active module ── */}
+        {agentVersions.length > 0 && (() => {
+          const ACTION_GLYPH: Record<string, string> = {
+            snapshot: "◆",
+            restore: "↻",
+            "auto-snapshot": "◌",
+            fork: "⎇",
+          };
+          const ACTION_COLOR: Record<string, string> = {
+            snapshot: "var(--accent-color)",
+            restore: "var(--crt-amber)",
+            "auto-snapshot": "var(--text-tertiary)",
+            fork: "var(--crt-blue)",
+          };
+          // Deterministic color from an address — for the author dot.
+          const authorColor = (addr: string) => {
+            if (!addr || addr.length < 6) return "var(--text-tertiary)";
+            const h = parseInt(addr.slice(2, 8), 16);
+            const hue = h % 360;
+            return `hsl(${hue}, 70%, 62%)`;
+          };
+          const visible = agentVersions.slice(0, 12);
+          return (
+            <div
+              className="versions-strip flex items-stretch gap-0 px-3 py-2 shrink-0 overflow-x-auto"
+              style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
             >
-              {(selectedModule || "claude")}/v
-            </span>
-            {agentVersions.slice(0, 12).map((v, i) => {
-              const action = v.action || "snapshot";
-              const actionColor =
-                action === "restore" ? "var(--crt-amber)" :
-                action === "auto-snapshot" ? "var(--text-tertiary)" :
-                action === "fork" ? "var(--crt-blue)" :
-                "#a78bfa";
-              const isHead = i === 0;
-              const short = v.cid.slice(0, 8);
-              const ts = v.timestamp ? timeSince(v.timestamp) : "";
-              const msg = (v.message || "").replace(/\n.*/s, "");
-              return (
+              {/* Module label + count */}
+              <div
+                className="flex flex-col justify-center shrink-0 pr-3 mr-1"
+                style={{ borderRight: `1px solid ${subtleBorder}` }}
+                title={`${selectedModule || "claude"} · ${agentVersions.length} snapshots in chain`}
+              >
+                <span
+                  className="text-[9px] font-bold uppercase tracking-[0.18em]"
+                  style={{ color: "var(--accent-color)", opacity: 0.9 }}
+                >
+                  {(selectedModule || "claude")}
+                </span>
+                <span
+                  className="text-[8px] uppercase tracking-wider"
+                  style={{ color: "var(--text-tertiary)", marginTop: "1px" }}
+                >
+                  {agentVersions.length} ver
+                </span>
+              </div>
+              {visible.map((v, i) => {
+                const action = v.action || "snapshot";
+                const color = ACTION_COLOR[action] || ACTION_COLOR.snapshot;
+                const glyph = ACTION_GLYPH[action] || ACTION_GLYPH.snapshot;
+                const isHead = i === 0;
+                const short = v.cid.slice(0, 8);
+                const ts = v.timestamp ? timeSince(v.timestamp) : "";
+                const firstLine = (v.message || "").split("\n")[0];
+                const aColor = authorColor(v.author || "");
+                return (
+                  <button
+                    key={v.cid}
+                    onClick={() => setShowVersions(true)}
+                    className={`commit-chip commit-rail shrink-0 flex items-center gap-2 px-2.5 py-1.5 mr-2.5 cursor-pointer ${isHead ? "head-glow" : ""}`}
+                    title={`${action.toUpperCase()}  ${short}${isHead ? "  (HEAD)" : ""}\nparent: ${(v.parent || "root").slice(0, 12)}\nauthor: ${v.author?.slice(0, 10) || "—"}  ·  ${ts}\n\n${v.message || "(no message)"}`}
+                    style={{
+                      ["--head-color" as any]: color,
+                      background: isHead ? `${color}1f` : `${color}08`,
+                      border: `1px solid ${isHead ? color + "60" : color + "22"}`,
+                      borderRadius: "6px",
+                      minWidth: isHead ? "210px" : "180px",
+                      maxWidth: "240px",
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = `${color}2a`)}
+                    onMouseLeave={e => (e.currentTarget.style.background = isHead ? `${color}1f` : `${color}08`)}
+                  >
+                    {/* Action glyph */}
+                    <span
+                      className="shrink-0 text-[14px] leading-none"
+                      style={{ color, textShadow: isHead ? `0 0 6px ${color}` : "none" }}
+                    >
+                      {glyph}
+                    </span>
+                    {/* Body: cid + message + meta */}
+                    <div className="flex flex-col items-start min-w-0 flex-1 gap-[1px]">
+                      <div className="flex items-center gap-1.5 w-full">
+                        <span
+                          className="text-[10px] font-mono shrink-0"
+                          style={{ color, opacity: 0.95, letterSpacing: "0.02em" }}
+                        >
+                          #{short}
+                        </span>
+                        {isHead && (
+                          <span
+                            className="text-[8px] font-bold uppercase tracking-widest px-1 leading-none py-[1px] rounded-sm shrink-0"
+                            style={{ background: color, color: "var(--bg-primary)" }}
+                          >
+                            HEAD
+                          </span>
+                        )}
+                        <span
+                          className="text-[9px] ml-auto shrink-0 font-mono"
+                          style={{ color: "var(--text-tertiary)", opacity: 0.75 }}
+                        >
+                          {ts}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 w-full min-w-0">
+                        {v.author && (
+                          <span
+                            className="shrink-0 rounded-full"
+                            style={{
+                              width: "6px",
+                              height: "6px",
+                              background: aColor,
+                              boxShadow: `0 0 4px ${aColor}80`,
+                            }}
+                            title={v.author}
+                          />
+                        )}
+                        <span
+                          className="text-[10px] truncate text-left flex-1 min-w-0"
+                          style={{
+                            color: isHead ? "var(--text-primary)" : "var(--text-secondary)",
+                            fontFamily: "inherit",
+                            opacity: isHead ? 1 : 0.78,
+                          }}
+                        >
+                          {firstLine || <span style={{ opacity: 0.4 }}>(no message)</span>}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+              {agentVersions.length > visible.length && (
                 <button
-                  key={v.cid}
                   onClick={() => setShowVersions(true)}
-                  className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 transition-all cursor-pointer"
-                  title={`${action} · ${short} ← ${(v.parent || "root").slice(0, 8)}\n${ts}  by ${v.author?.slice(0, 10) || "—"}\n\n${v.message || "(no message)"}`}
+                  className="shrink-0 flex flex-col items-center justify-center px-3 cursor-pointer transition-colors"
                   style={{
                     fontSize: "10px",
+                    color: "var(--text-tertiary)",
+                    border: `1px dashed ${subtleBorder}`,
+                    borderRadius: "6px",
                     fontFamily: "monospace",
-                    background: isHead ? `${actionColor}1a` : "transparent",
-                    border: `1px solid ${isHead ? actionColor + "55" : subtleBorder}`,
-                    borderRadius: "3px",
-                    color: isHead ? actionColor : "var(--text-tertiary)",
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = `${actionColor}22`)}
-                  onMouseLeave={e => (e.currentTarget.style.background = isHead ? `${actionColor}1a` : "transparent")}
+                  title={`${agentVersions.length - visible.length} more — open full VERSIONS panel`}
+                  onMouseEnter={e => (e.currentTarget.style.color = "var(--accent-color)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
                 >
-                  <span style={{ opacity: 0.9 }}>{short}</span>
-                  {msg && (
-                    <span
-                      className="truncate"
-                      style={{ maxWidth: "120px", opacity: 0.7, fontFamily: "inherit" }}
-                    >
-                      {msg}
-                    </span>
-                  )}
+                  <span className="text-[14px] leading-none">…</span>
+                  <span className="text-[9px] mt-0.5 leading-none">+{agentVersions.length - visible.length}</span>
                 </button>
-              );
-            })}
-            {agentVersions.length > 12 && (
-              <button
-                onClick={() => setShowVersions(true)}
-                className="shrink-0 px-1.5 py-0.5 cursor-pointer"
-                style={{ fontSize: "10px", color: "var(--text-tertiary)", opacity: 0.6 }}
-                title={`${agentVersions.length - 12} more — open full VERSIONS panel`}
-              >
-                +{agentVersions.length - 12}
-              </button>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Main content area ── */}
         <div ref={outputRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {selectedJobData ? (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full fade-in">
               {/* Job header */}
-              <div className="px-3 py-2.5 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[11px] ${isRunning ? "led-pulse" : ""}`} style={{ color: STATUS_COLOR[selectedJobData.status] }}>
-                      {STATUS_ICON[selectedJobData.status]}
+              <div
+                className="px-3.5 py-3 shrink-0"
+                style={{
+                  borderBottom: `1px solid ${subtleBorder}`,
+                  background: `linear-gradient(180deg, ${STATUS_COLOR[selectedJobData.status]}0a, ${tintBg})`,
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full ${isRunning ? "" : ""}`}
+                      style={{
+                        background: `${STATUS_COLOR[selectedJobData.status]}1a`,
+                        border: `1px solid ${STATUS_COLOR[selectedJobData.status]}40`,
+                      }}
+                    >
+                      <span
+                        className={`text-[10px] ${isRunning ? "soft-pulse" : ""}`}
+                        style={{ color: STATUS_COLOR[selectedJobData.status] }}
+                      >
+                        {STATUS_ICON[selectedJobData.status]}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase" style={{ color: STATUS_COLOR[selectedJobData.status], letterSpacing: "0.06em" }}>
+                        {STATUS_LABEL[selectedJobData.status]}
+                      </span>
                     </span>
-                    <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: STATUS_COLOR[selectedJobData.status] }}>
-                      {STATUS_LABEL[selectedJobData.status]}
-                    </span>
-                    <span className="text-[10px] uppercase" style={{ color: "var(--text-tertiary)" }}>
+                    <span className="text-[10px] uppercase font-semibold" style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>
                       {selectedJobData.model}
                     </span>
-                    <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+                    <span
+                      className="text-[10px] font-mono px-1.5 py-[1px] rounded"
+                      style={{
+                        color: "var(--text-tertiary)",
+                        background: "var(--bg-secondary)",
+                        border: `1px solid ${subtleBorder}`,
+                        opacity: 0.8,
+                      }}
+                      title={selectedJobData.id}
+                    >
                       {selectedJobData.id.slice(0, 8)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {isRunning && (
                       <button
                         onClick={() => cancelJob(selectedJobData.id)}
-                        className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded transition-all"
-                        style={{ color: "var(--crt-red)", border: "1px solid rgba(239,68,68,0.3)" }}
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                        style={{
+                          color: "var(--crt-red)",
+                          border: "1px solid rgba(239,68,68,0.35)",
+                          background: "rgba(239,68,68,0.08)",
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.18)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "rgba(239,68,68,0.08)")}
                       >
                         STOP
                       </button>
@@ -4370,22 +4577,51 @@ export default function Home() {
                     {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
                       <button
                         onClick={() => deleteJob(selectedJobData.id)}
-                        className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded transition-all"
-                        style={{ color: "var(--text-tertiary)", border: `1px solid ${subtleBorder}` }}
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                        style={{
+                          color: "var(--text-tertiary)",
+                          border: `1px solid ${subtleBorder}`,
+                          background: "transparent",
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = "var(--bg-secondary)";
+                          e.currentTarget.style.color = "var(--crt-red)";
+                          e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.color = "var(--text-tertiary)";
+                          e.currentTarget.style.borderColor = subtleBorder;
+                        }}
                       >
                         DELETE
                       </button>
                     )}
                     <button
                       onClick={() => { setSelectedJob(null); setStreamOutput(""); }}
-                      className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded transition-all"
-                      style={{ color: "var(--text-tertiary)", border: `1px solid ${subtleBorder}` }}
+                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                      style={{
+                        color: "var(--text-secondary)",
+                        border: `1px solid ${subtleBorder}`,
+                        background: "var(--bg-secondary)",
+                        letterSpacing: "0.05em",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = "var(--text-primary)";
+                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = "var(--text-secondary)";
+                        e.currentTarget.style.borderColor = subtleBorder;
+                      }}
+                      title="Back to job list"
                     >
-                      BACK
+                      ← BACK
                     </button>
                   </div>
                 </div>
-                <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                   {selectedJobData.prompt}
                 </p>
               </div>
@@ -4423,16 +4659,24 @@ export default function Home() {
             </div>
           ) : (
             /* Job list */
-            <div>
+            <div className="fade-in">
               {/* Filter bar */}
-              <div className="flex items-center gap-2 px-3 py-1.5 sticky top-0 z-10" style={{ borderBottom: `1px solid ${subtleBorder}`, background: "var(--bg-primary)" }}>
+              <div
+                className="flex items-center gap-2 px-3.5 py-2 sticky top-0 z-10"
+                style={{
+                  borderBottom: `1px solid ${subtleBorder}`,
+                  background: "color-mix(in srgb, var(--bg-primary) 92%, transparent)",
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                <span className="text-[11px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>⌕</span>
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="filter..."
-                  className="flex-1 min-w-0 px-1 py-0.5 text-[11px] border-none bg-transparent focus:outline-none placeholder:opacity-20"
-                  style={{ color: "var(--text-secondary)" }}
+                  placeholder="filter tasks…"
+                  className="flex-1 min-w-0 px-1 py-0.5 text-[11.5px] border-none bg-transparent focus:outline-none placeholder:opacity-30"
+                  style={{ color: "var(--text-primary)", boxShadow: "none" }}
                 />
                 <div className="flex gap-1 shrink-0 items-center">
                   {["running", "pending", "completed", "failed"].map((status) => {
@@ -4443,10 +4687,19 @@ export default function Home() {
                       <button
                         key={status}
                         onClick={() => setStatusFilter(isActive ? null : status)}
-                        className="text-[10px] transition-all border-none bg-transparent cursor-pointer"
-                        style={{ color: STATUS_COLOR[status], opacity: isActive ? 0.9 : 0.3 }}
+                        className="text-[10px] font-mono px-1.5 py-[2px] rounded-full cursor-pointer"
+                        style={{
+                          color: STATUS_COLOR[status],
+                          opacity: isActive ? 1 : 0.45,
+                          background: isActive ? `${STATUS_COLOR[status]}1f` : "transparent",
+                          border: `1px solid ${isActive ? `${STATUS_COLOR[status]}50` : "transparent"}`,
+                          transition: "opacity 150ms ease, background 150ms ease, border-color 150ms ease",
+                        }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.opacity = "0.85"; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.opacity = "0.45"; }}
+                        title={`${STATUS_LABEL[status]}: ${count}`}
                       >
-                        {STATUS_ICON[status]}{count}
+                        {STATUS_ICON[status]} {count}
                       </button>
                     );
                   })}
@@ -4454,13 +4707,27 @@ export default function Home() {
               </div>
 
               {filteredJobs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3" style={{ opacity: 0.4 }}>
-                  <span className="text-[28px]" style={{ color: "#a78bfa" }}>⬡</span>
-                  <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <span
+                    className="inline-flex items-center justify-center"
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 12,
+                      background: "rgba(167,139,250,0.08)",
+                      border: "1px solid rgba(167,139,250,0.18)",
+                      color: "#a78bfa",
+                      fontSize: 22,
+                      boxShadow: "0 0 24px -6px rgba(167,139,250,0.4)",
+                    }}
+                  >
+                    ⬡
+                  </span>
+                  <p className="text-[11px] font-bold uppercase" style={{ color: "var(--text-secondary)", letterSpacing: "0.16em" }}>
                     No tasks yet
                   </p>
-                  <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                    Submit a prompt below
+                  <p className="text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+                    Submit a prompt below to get started
                   </p>
                 </div>
               ) : (
@@ -4472,26 +4739,69 @@ export default function Home() {
                     <button
                       key={job.id}
                       onClick={() => viewJob(job)}
-                      className="w-full text-left transition-all group"
-                      style={{ borderBottom: `1px solid ${subtleBorder}` }}
-                      onMouseEnter={e => (e.currentTarget.style.background = tintBgStrong)}
-                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                      className="w-full text-left group relative"
+                      style={{
+                        borderBottom: `1px solid ${subtleBorder}`,
+                        transition: "background 150ms ease, border-color 150ms ease",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = tintBgStrong;
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = "transparent";
+                      }}
                     >
-                      <div className="px-3 py-2.5">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-[11px] ${job.status === "running" ? "led-pulse" : ""}`} style={{ color }}>{STATUS_ICON[job.status]}</span>
-                            <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color }}>{STATUS_LABEL[job.status]}</span>
-                            <span className="text-[10px] uppercase" style={{ color: "var(--text-tertiary)" }}>
+                      {/* left accent rail (status-tinted) — appears on hover */}
+                      <span
+                        aria-hidden
+                        className="absolute left-0 top-0 bottom-0 opacity-0 group-hover:opacity-100"
+                        style={{
+                          width: 2,
+                          background: color,
+                          transition: "opacity 150ms ease",
+                          boxShadow: `0 0 8px -1px ${color}`,
+                        }}
+                      />
+                      <div className="px-3.5 py-2.5">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${job.status === "running" ? "soft-pulse" : ""}`}
+                              style={{
+                                background: color,
+                                boxShadow: job.status === "running" ? `0 0 6px ${color}` : "none",
+                              }}
+                            />
+                            <span className="text-[10px] font-bold uppercase" style={{ color, letterSpacing: "0.06em" }}>{STATUS_LABEL[job.status]}</span>
+                            <span
+                              className="text-[9.5px] uppercase font-semibold px-1.5 py-[1px] rounded"
+                              style={{
+                                color: "var(--text-tertiary)",
+                                background: "var(--bg-secondary)",
+                                letterSpacing: "0.04em",
+                              }}
+                            >
                               {job.model === "opus" ? "Op" : job.model === "sonnet" ? "So" : "Ha"}
                             </span>
                             {moduleName && moduleName !== "claude" && (
-                              <span className="text-[9px] uppercase" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>{moduleName}</span>
+                              <span
+                                className="text-[9px] uppercase font-mono px-1.5 py-[1px] rounded"
+                                style={{
+                                  color: "var(--crt-amber)",
+                                  background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                                  border: "1px solid color-mix(in srgb, var(--crt-amber) 22%, transparent)",
+                                  opacity: 0.85,
+                                }}
+                              >
+                                {moduleName}
+                              </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>{timeSince(job.created_at)}</span>
+                          <span className="text-[10px] font-mono shrink-0" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                            {timeSince(job.created_at)}
+                          </span>
                         </div>
-                        <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                        <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                           {cleanPrompt}
                         </p>
                         {/* Hover actions */}
@@ -4499,8 +4809,13 @@ export default function Home() {
                           {job.status === "running" && (
                             <span
                               onClick={(e) => { e.stopPropagation(); cancelJob(job.id); }}
-                              className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded cursor-pointer"
-                              style={{ color: "var(--crt-red)", border: "1px solid rgba(239,68,68,0.25)" }}
+                              className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full cursor-pointer"
+                              style={{
+                                color: "var(--crt-red)",
+                                border: "1px solid rgba(239,68,68,0.3)",
+                                background: "rgba(239,68,68,0.08)",
+                                letterSpacing: "0.05em",
+                              }}
                             >
                               CANCEL
                             </span>
@@ -4508,8 +4823,12 @@ export default function Home() {
                           {["completed", "failed", "cancelled"].includes(job.status) && (
                             <span
                               onClick={(e) => { e.stopPropagation(); deleteJob(job.id); }}
-                              className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded cursor-pointer"
-                              style={{ color: "var(--text-tertiary)", border: `1px solid ${subtleBorder}` }}
+                              className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full cursor-pointer"
+                              style={{
+                                color: "var(--text-tertiary)",
+                                border: `1px solid ${subtleBorder}`,
+                                letterSpacing: "0.05em",
+                              }}
                             >
                               DELETE
                             </span>
@@ -4524,9 +4843,27 @@ export default function Home() {
           )}
         </div>
 
-        {/* ── Input bar (bottom) ── */}
-        <div className="shrink-0 px-3 py-2.5" style={{ borderTop: `1px solid ${subtleBorder}`, background: tintBg }}>
-          <div className="flex gap-1.5 items-center">
+        {/* ── Input bar (top) — moved from bottom so the ask box is the
+            first thing the user sees / can type into. ── */}
+        <div
+          className="shrink-0 px-3.5 py-3 order-first"
+          style={{
+            borderBottom: `1px solid ${subtleBorder}`,
+            background: `linear-gradient(180deg, var(--bg-primary), ${tintBg})`,
+          }}
+        >
+          <div
+            className="flex gap-1.5 items-stretch rounded-xl"
+            style={{
+              background: darkOverlay,
+              border: `1px solid ${submitting ? `${activeModelChip.color}55` : subtleBorder}`,
+              boxShadow: submitting
+                ? `0 0 0 3px ${activeModelChip.color}1a, 0 4px 16px -6px ${activeModelChip.color}40`
+                : "0 1px 3px rgba(0,0,0,0.3)",
+              transition: "border-color 150ms ease, box-shadow 150ms ease",
+              padding: 4,
+            }}
+          >
             <input
               type="text"
               value={prompt}
@@ -4549,44 +4886,98 @@ export default function Home() {
                   }
                 }
               }}
-              placeholder="ask agent..."
+              placeholder="ask agent…"
               disabled={submitting}
-              className="flex-1 px-2.5 py-2 rounded-lg border outline-none text-[12px]"
+              className="flex-1 px-3 py-2 bg-transparent border-0 outline-none text-[12.5px]"
               style={{
-                backgroundColor: darkOverlay,
-                borderColor: submitting ? `${activeModelChip.color}40` : subtleBorder,
                 color: "var(--text-primary)",
-                fontFamily: "monospace",
+                fontFamily: "'JetBrains Mono', monospace",
+                boxShadow: "none",
               }}
-              onFocus={e => (e.currentTarget.style.borderColor = activeModelChip.color)}
-              onBlur={e => (e.currentTarget.style.borderColor = subtleBorder)}
+              onFocus={e => {
+                const wrap = e.currentTarget.parentElement as HTMLElement;
+                if (wrap) {
+                  wrap.style.borderColor = activeModelChip.color + "80";
+                  wrap.style.boxShadow = `0 0 0 3px ${activeModelChip.color}1f, 0 4px 16px -6px ${activeModelChip.color}40`;
+                }
+              }}
+              onBlur={e => {
+                const wrap = e.currentTarget.parentElement as HTMLElement;
+                if (wrap) {
+                  wrap.style.borderColor = subtleBorder;
+                  wrap.style.boxShadow = "0 1px 3px rgba(0,0,0,0.3)";
+                }
+              }}
             />
             <button
               onClick={submitJob}
               disabled={!prompt.trim() || submitting}
-              className="px-3 py-2 rounded-lg font-bold transition-all disabled:opacity-30"
+              className="px-3.5 rounded-lg font-bold disabled:opacity-30 focus-ring shrink-0"
               style={{
-                backgroundColor: `${activeModelChip.color}18`,
-                border: `1px solid ${activeModelChip.color}40`,
+                backgroundColor: !prompt.trim() || submitting
+                  ? `${activeModelChip.color}14`
+                  : `${activeModelChip.color}28`,
+                border: `1px solid ${activeModelChip.color}55`,
                 color: activeModelChip.color,
+                fontSize: 13,
+                transition: "background-color 150ms ease, transform 100ms ease",
               }}
+              onMouseEnter={e => {
+                if (!e.currentTarget.disabled) {
+                  e.currentTarget.style.backgroundColor = `${activeModelChip.color}3a`;
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = !prompt.trim() || submitting
+                  ? `${activeModelChip.color}14`
+                  : `${activeModelChip.color}28`;
+              }}
+              title={submitting ? "Submitting…" : "Send (Enter)"}
             >
-              {submitting ? <span className="animate-spin text-[14px]">⟳</span> : "▶"}
+              {submitting ? <span className="animate-spin inline-block">⟳</span> : "▶"}
             </button>
           </div>
           {images.length > 0 && (
-            <div className="flex items-center gap-1 mt-1.5">
-              <span className="text-[10px] px-1.5 py-0.5 border rounded" style={{ borderColor: "rgba(96,165,250,0.3)", color: "rgba(96,165,250,0.7)" }}>
+            <div className="flex items-center gap-1.5 mt-2">
+              <span
+                className="text-[10px] px-2 py-[3px] rounded-full"
+                style={{
+                  borderColor: "rgba(96,165,250,0.35)",
+                  border: "1px solid rgba(96,165,250,0.35)",
+                  background: "rgba(96,165,250,0.08)",
+                  color: "rgba(147,197,253,0.9)",
+                  fontWeight: 600,
+                  letterSpacing: "0.05em",
+                }}
+              >
                 {images.length} IMG{images.length > 1 ? "S" : ""}
               </span>
-              <button onClick={() => setImages([])} className="text-[11px] transition-colors" style={{ color: "var(--crt-red)", opacity: 0.6 }} title="Clear images">✕</button>
+              <button
+                onClick={() => setImages([])}
+                className="text-[11px] transition-colors"
+                style={{ color: "var(--crt-red)", opacity: 0.6 }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                onMouseLeave={e => (e.currentTarget.style.opacity = "0.6")}
+                title="Clear images"
+              >
+                ✕
+              </button>
             </div>
           )}
-          <div className="flex items-center justify-between mt-1.5 px-0.5">
-            <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
-              Enter to submit
+          <div className="flex items-center justify-between mt-2 px-1">
+            <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.55, letterSpacing: "0.04em" }}>
+              <kbd style={{
+                padding: "1px 5px",
+                borderRadius: 4,
+                border: `1px solid ${subtleBorder}`,
+                background: "var(--bg-secondary)",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                marginRight: 4,
+              }}>↵</kbd>
+              to submit
             </span>
-            <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+            <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
               {activeModelChip.label} · {apiUrl.replace("http://", "")}
             </span>
           </div>
@@ -6326,13 +6717,33 @@ export default function Home() {
               )}
             </div>
             {selectedModule && effectiveConfig?.owner && (
-              <span
-                className="text-[13px] px-1.5 py-0.5 text-crt-green/35 truncate max-w-[140px] font-mono"
-                title={effectiveConfig.owner}
-                style={{ letterSpacing: "0" }}
+              <button
+                className="text-[12px] px-2 py-0.5 font-mono transition-all cursor-pointer flex items-center gap-1.5"
+                title={`Owner key — click to copy\n${effectiveConfig.owner}`}
+                onClick={() => {
+                  navigator.clipboard?.writeText(effectiveConfig.owner).catch(() => {});
+                }}
+                style={{
+                  color: "var(--crt-green)",
+                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                  borderRadius: "4px",
+                  letterSpacing: "0.02em",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
               >
-                {effectiveConfig.owner.slice(0, 6)}··{effectiveConfig.owner.slice(-4)}
-              </span>
+                <span
+                  className="shrink-0 inline-block rounded-full"
+                  style={{
+                    width: "6px",
+                    height: "6px",
+                    background: "var(--crt-green)",
+                    boxShadow: "0 0 6px var(--crt-green)",
+                  }}
+                />
+                {effectiveConfig.owner}
+              </button>
             )}
 
           </div>
@@ -6823,49 +7234,18 @@ export default function Home() {
           <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
             │
           </span>
-          {/* Theme Selector */}
-          <div className="relative" ref={themeRef}>
-            <button
-              onClick={() => setShowThemeMenu(!showThemeMenu)}
-              className="pixel-btn text-[13px] py-0.5 px-2"
-              style={{
-                background: "var(--accent-color)",
-                color: isLight ? "#fff" : "#000",
-              }}
-              title="Change theme"
-            >
-              {theme.toUpperCase()}
-            </button>
-            {showThemeMenu && (
-              <div
-                className="absolute right-0 bottom-full mb-1 border-2 z-50 min-w-[140px]"
-                style={{
-                  background: "var(--bg-primary)",
-                  borderColor: "var(--accent-color)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                }}
-              >
-                {(["dark", "light", "matrix", "cyberpunk", "amber", "ocean", "ibm", "win95"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => {
-                      setTheme(t);
-                      setShowThemeMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-[14px] hover:opacity-100 transition-all border-b"
-                    style={{
-                      color: "var(--text-primary)",
-                      opacity: theme === t ? 1 : 0.6,
-                      background: theme === t ? (isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)") : "transparent",
-                      borderColor: "var(--border-color)",
-                    }}
-                  >
-                    {theme === t && "▸ "}{t.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Theme toggle — dark ⇄ light only */}
+          <button
+            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            className="pixel-btn text-[13px] py-0.5 px-2"
+            style={{
+              background: "var(--accent-color)",
+              color: isLight ? "#fff" : "#000",
+            }}
+            title={`Switch to ${theme === "light" ? "DARK" : "LIGHT"} mode`}
+          >
+            {theme === "light" ? "LIGHT" : "DARK"}
+          </button>
           <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
             │
           </span>

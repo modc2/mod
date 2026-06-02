@@ -1,7 +1,7 @@
 {
     "name": "hyperliquid",
-    "version": "0.2.0",
-    "description": "Hyperliquid copy-trading + indexes \u2014 Rust API, Next.js app, mod.py orchestrator",
+    "version": "0.3.0",
+    "description": "Hyperliquid full-stack \u2014 backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults",
     "anchor": "src/mod.py",
     "fns": [
         "forward",
@@ -32,7 +32,36 @@
         "list_vaults",
         "vault_details",
         "vault_perf",
-        "vault_intent"
+        "vault_intent",
+        "create_vault",
+        "vault_transfer",
+        "signer_address",
+        "approve_agent_intent",
+        "trade",
+        "cancel",
+        "cancel_by_cloid",
+        "modify",
+        "set_leverage",
+        "update_isolated_margin",
+        "schedule_cancel",
+        "action",
+        "usd_class_transfer",
+        "withdraw",
+        "usd_send",
+        "spot_send",
+        "set_referrer",
+        "live_start",
+        "live_stop",
+        "live_status",
+        "mids",
+        "meta",
+        "orderbook",
+        "candles",
+        "user_state",
+        "user_fills",
+        "user_pnl",
+        "user_orders",
+        "user_funding"
     ],
     "ports": {
         "api": 8919,
@@ -43,10 +72,10 @@
         "app": "http://localhost:3919"
     },
     "layout": {
-        "src/mod.py": "Python orchestrator (serve/kill/status/forward, calls Rust API)",
-        "src/api/": "Rust REST API (axum, tokio) \u2014 fast hot path",
-        "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults)"
+        "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
+        "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine",
+        "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
     },
-    "schema": "QmSz8LDzshQpNhsu2MfXtgLTrn2jX3QJiXbDEG9xKHgxTp",
+    "schema": "QmYRbN71c6wo2R9v5jDmNr1s58wVpTAh6k6C9tecZeqBfE",
     "gateway_port": 3919
 }

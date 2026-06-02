@@ -1,0 +1,16 @@
+{
+    "name": "bat-agent",
+    "version": "0.1.0",
+    "description": "bat-agent (cloned from https://github.com/sharkdp/bat)",
+    "lang": "rust",
+    "port": 8900,
+    "app_port": 8901,
+    "owner": "0xc3315cafce99e84b9a05fc79d7501a54bf896658",
+    "icon": "B",
+    "color": "#da4df3",
+    "binary": "bat",
+    "default_model": "",
+    "env_key": "BAT_AGENT_API_KEY",
+    "source_repo": "https://github.com/sharkdp/bat",
+    "schema": "Qmd8x4dmMbHYeZryBypFBB6V9UwpUtrvHJvb38AagqS6Y2"
+}

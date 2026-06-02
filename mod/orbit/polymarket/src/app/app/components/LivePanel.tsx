@@ -15,6 +15,7 @@ import EnableTradingPanel from "./EnableTradingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
 import WalletPanel from "./WalletPanel";
+import PortfolioPanel from "./PortfolioPanel";
 import ThemeToggle from "./ThemeToggle";
 
 const ERC20_BAL_ABI = [
@@ -243,6 +244,21 @@ export default function LivePanel() {
   const [tradesFilter, setTradesFilter] = useState<"upstream" | "trades" | "all">("upstream");
   const TRADES_PAGE_SIZE = 25;
 
+  // ── Live-page tab nav ──
+  // The LIVE view previously stacked 6+ panels vertically and overflowed
+  // the screen on anything < 1080p. Tabs group related panels so only the
+  // section the user is looking at is visible.
+  // Split the LIVE view into focused tabs — "OVERVIEW" used to mean
+  // PortfolioPanel + the 7-stat metric grid + the skip-floor banner all
+  // stacked, which is the over-stuffed view the user flagged. Now:
+  //   PNL    — pie + over-time curve + top positions (PortfolioPanel)
+  //   TRADES — execution log + filters
+  //   STATS  — balance/orders/volume/cycles/sync grid + last fetch + banners
+  //   WALLET — trading wallet deposit/withdraw + V1 proxy
+  //   PARAMS — auto-trading config + signer + funding + checklist (ex-SETUP)
+  type LiveTab = "pnl" | "trades" | "stats" | "wallet" | "params";
+  const [liveTab, setLiveTab] = useState<LiveTab>("pnl");
+
   // Tick for countdown
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -452,91 +468,12 @@ export default function LivePanel() {
                 already shown in the PROXY row below ("$35.22 / $300" up
                 here vs "BAL $300.00" right under it). Proxy panel is the
                 single source of truth for funded amount. */}
-            {/* CATCH UP — one-shot backfill controls + button. LAST is the
-                lookback window (1–24h), MIN is the confidence floor
-                (auto = proxy balance, or explicit USD value). Both
-                persisted to localStorage. Disabled mid-run to avoid
-                double-fires. */}
-            {isLive && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-pixel-gray tracking-wider">
-                LAST
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={String(catchUpHours)}
-                  disabled={catchingUp}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/[^0-9.]/g, "");
-                    if (raw === "") return;
-                    const n = parseFloat(raw);
-                    if (!Number.isFinite(n)) return;
-                    // Clamp into [1, 24]. The engine accepts fractional
-                    // (e.g. 0.5h = 30min) but we cap at 24h because the
-                    // upstream wallet-trades endpoint gets heavy past
-                    // that and the rest of the engine isn't tuned for it.
-                    setCatchUpHours(Math.min(24, Math.max(1, n)));
-                  }}
-                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-12 outline-none disabled:opacity-50"
-                  title="Lookback in hours (1–24). Fractional values allowed."
-                />
-                <span className="text-pixel-gray/70 font-mono text-[11px]">h</span>
-                MIN
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={catchUpMinNotional === null ? "" : String(catchUpMinNotional)}
-                  placeholder={`auto $${(proxyBalance ?? 1).toFixed(0)}`}
-                  disabled={catchingUp}
-                  onChange={(e) => {
-                    const raw = e.target.value.trim().replace(/[^0-9.]/g, "");
-                    if (raw === "") { setCatchUpMinNotional(null); return; }
-                    const n = parseFloat(raw);
-                    if (Number.isFinite(n) && n >= 0) setCatchUpMinNotional(n);
-                  }}
-                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-20 outline-none disabled:opacity-50"
-                  title="Copy threshold — only trades with trader notional ≥ this fire. Leave blank for auto (= proxy balance)."
-                />
-                TOP
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={String(catchUpTopN)}
-                  disabled={catchingUp}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/[^0-9]/g, "");
-                    if (raw === "") return;
-                    const n = parseInt(raw, 10);
-                    if (!Number.isFinite(n)) return;
-                    setCatchUpTopN(Math.min(100, Math.max(1, n)));
-                  }}
-                  className="bg-pixel-black/60 border border-pixel-border rounded-[4px] font-mono text-[12px] text-pixel-white px-1.5 py-0.5 w-12 outline-none disabled:opacity-50"
-                  title="Number of highest-notional trades to actually copy (1–100). The rest of the candidates get dropped."
-                />
-                <label
-                  className="inline-flex items-center gap-1 select-none cursor-pointer"
-                  title="Before catching up, sell every open position with positive P&L to free USDC for the new buys"
-                >
-                  <input
-                    type="checkbox"
-                    checked={catchUpSellWinners}
-                    disabled={catchingUp}
-                    onChange={(e) => setCatchUpSellWinners(e.target.checked)}
-                    className="accent-green-400 disabled:opacity-50"
-                  />
-                  <span className="text-[11px]">SELL WINS</span>
-                </label>
-              </span>
-            )}
-            {isLive && (
-              <button
-                onClick={() => { void handleCatchUp(); }}
-                disabled={catchingUp}
-                className="pixel-btn text-[13px] px-1.5 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
-                title={`${catchUpSellWinners ? "Sell winning positions, then " : ""}scan last ${catchUpHours}h and copy top ${catchUpTopN} trades ≥ $${effectiveMinNotional.toFixed(0)} notional`}
-              >
-                {catchingUp ? "CATCHING…" : "CATCH UP"}
-              </button>
-            )}
+            {/* CATCH UP removed: engine polls every 5s (POLL above), so a
+                manual backfill is redundant for steady-state operation.
+                The LAST/MIN/TOP/SELL_WINS settings the button controlled
+                were also noise in the top bar. If a true backfill is
+                ever needed (e.g. after a long pause), STOP + GO LIVE
+                rebuilds the cursor — no separate UI needed. */}
             {isLive && status === "running" && (
               <button
                 onClick={pauseLive}
@@ -573,12 +510,40 @@ export default function LivePanel() {
         </div>
       </div>
 
+      {/* ── Tab nav ──
+          Splits the LIVE page into bite-sized sections. Always-visible
+          top control bar (status + START/STOP/PAUSE) lives above this so
+          the engine can be paused from any tab. */}
+      <div className="flex gap-1 border-b border-pixel-border">
+        {(
+          [
+            { id: "pnl",    label: "PNL"    },
+            { id: "trades", label: "TRADES" },
+            { id: "stats",  label: "STATS"  },
+            { id: "wallet", label: "WALLET" },
+            { id: "params", label: "PARAMS" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setLiveTab(t.id)}
+            className={`px-3 py-1.5 text-[12px] font-mono tracking-[0.18em] uppercase border-b-2 -mb-px transition-colors ${
+              liveTab === t.id
+                ? "border-green-400 text-green-400"
+                : "border-transparent text-pixel-gray hover:text-pixel-white"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── Preconditions ──
           Moved to the TOP so the user knows what's blocking GO LIVE before
           scrolling through funding panels. Compact pill row: each step is
           green-filled when satisfied, amber-outline when actionable, muted
           when stale. The summary count tells you "5/6 ready" at a glance. */}
-      {!isLive && (() => {
+      {liveTab === "params" && !isLive && (() => {
         const items = [
           { ok: hasWallet, label: "WALLET", action: null as null | { label: string; disabled: boolean; onClick: () => void } },
           {
@@ -638,38 +603,30 @@ export default function LivePanel() {
         );
       })()}
 
-      {/* ── Wallet + Funds + Capital ── */}
-      {!isLive && (
+      {/* ── Wallet + Funds + Capital ── (PARAMS tab, pre-launch) */}
+      {liveTab === "params" && !isLive && (
         <WalletFundingPanel capital={liveCapital} onCapitalChange={handleManualCapital} />
       )}
 
-      {/* ── V2 deposit wallet (trading address) ──
-          The address that actually holds trading funds on Polymarket V2.
-          Shown even when live so the user can top up / withdraw without
-          stopping the engine. Replaces PolymarketAccountPanel as the
-          *trading* surface; the old Safe panel below remains only as a
-          legacy "drain leftover USDC out" view. */}
-      {auth.connected && <WalletPanel />}
+      {/* ── V2 deposit wallet (trading address) ── (WALLET tab) */}
+      {liveTab === "wallet" && auth.connected && <WalletPanel />}
 
-      {/* ── Legacy V1 Safe (deprecated) ──
-          Kept around so users with USDC still parked in the old Safe
-          can pull it out and re-deposit into the V2 wallet above.
-          Polymarket V2 no longer accepts orders from this maker. */}
-      {auth.connected && <PolymarketAccountPanel />}
+      {/* ── Portfolio: cash vs positions, pie + over-time ── (PNL tab) */}
+      {liveTab === "pnl" && auth.connected && <PortfolioPanel />}
 
-      {/* ── Backend signer authorization ──
+      {/* ── Legacy V1 Safe (deprecated) ── (WALLET tab — "drain it" view) */}
+      {liveTab === "wallet" && auth.connected && <PolymarketAccountPanel />}
+
+      {/* ── Backend signer authorization ── (PARAMS tab)
           One-time setup: add the backend EOA as a co-signer on the user's
           Safe so the live engine can place orders without a MetaMask popup
-          per trade. See BackendSignerPanel.tsx for the full rationale. */}
-      {auth.connected && <BackendSignerPanel />}
+          per trade. */}
+      {liveTab === "params" && auth.connected && <BackendSignerPanel />}
 
-      {/* ── Stats (when live) ──
-          Card grid replaces the old text-only flex rows. Each stat now has
-          its own rounded mini-panel with a label + big mono value so the
-          eye lands on numbers, not labels. LAST SYNC is the most recent
-          successful Polymarket data-api pull (engine `lastCycleAt`) —
-          tracks freshness directly instead of the cache snapshot age. */}
-      {isLive && engineState && (
+      {/* ── Stats (when live) ── (STATS tab)
+          Card grid; LAST SYNC tracks the most recent successful Polymarket
+          data-api pull, LAST FETCH surfaces the CYCLE_END summary. */}
+      {liveTab === "stats" && isLive && engineState && (
         <div className="pixel-panel border-2 border-pixel-border p-2">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
             <StatCard
@@ -769,76 +726,39 @@ export default function LivePanel() {
             })()}
           </div>
 
-          {/* ── Skip-floor banner ──
-              Pops up when most of what the engine sees is dust. Surfaces
-              the exact floor and a one-click "drop to N" action that hot-
-              restarts the engine with a lower min so orders start flowing
-              without leaving this tab. Threshold tuned to "more than 3
-              skips with zero orders" so it never appears for healthy runs. */}
+          {/* ── Recommended-capital hint ──
+              No longer a "drop the floor" prompt — the engine now clamps
+              dust mirrors UP to Polymarket's $1 floor instead of skipping
+              them, so trades flow regardless of capital size. This banner
+              just *suggests* a capital level at which proportional sizing
+              would produce $1+ mirrors naturally, instead of relying on
+              the clamp (which makes per-trade exposure equal across small
+              and large leader trades, blunting the strategy's signal).
+              Hidden until there's enough data to make a real recommendation. */}
           {(() => {
-            const skipCount = engineState.log.filter((e) => e.type === "SKIP").length;
-            const ordersCount = engineState.totalOrdersPlaced;
-            const noOrdersButSkipping = skipCount > 3 && ordersCount === 0;
-            if (!noOrdersButSkipping) return null;
-            // Suggest the largest skipped mirror as the new floor — that's
-            // the smallest value that would have placed *at least one* order.
-            const skippedSizes = engineState.log
+            // Pull recent SKIP/CLAMP entries from the log to estimate the
+            // average raw (unclamped) mirror size. If the average is way
+            // below $1, recommend scaling capital to bring it up.
+            const rawSizes = engineState.log
               .filter((e) => e.type === "SKIP" && typeof e.mirrorNotional === "number")
-              .map((e) => Math.abs(e.mirrorNotional as number));
-            const maxSkipped = skippedSizes.length > 0 ? Math.max(...skippedSizes) : 0.1;
-            // Round down to a tidy chip value (0.01 / 0.05 / 0.10 / 0.50).
-            const tidyFloors = [0.01, 0.05, 0.10, 0.25, 0.5, 1];
-            const suggested = tidyFloors.find((f) => f >= maxSkipped) ?? 1;
-            const currentFloor = activeStrat?.minTrade ?? 1;
-            const applyFloor = (newFloor: number) => {
-              if (!activeStrat) return;
-              updateIndex(activeStrat.id, { minTrade: newFloor, updatedAt: Date.now() });
-              // Re-trigger startLive with the fresh config so the running
-              // engine picks up the new floor. handleToggle skips the
-              // confirm step when already confirmed/live; we have to stop
-              // first then start to swap config cleanly.
-              stopLive();
-              setTimeout(() => {
-                if (!auth.clobCreds || !auth.address) return;
-                startLive({
-                  strategyId: activeStrat.id,
-                  traders: activeStrat.traders.filter((t) => t.enabled !== false),
-                  capital: liveCapital,
-                  intervalMs: livePollMin * 60_000,
-                  creds: auth.clobCreds,
-                  address: auth.address,
-                  minOrderSize: newFloor,
-                  maxOrderSize: activeStrat.maxTrade,
-                  backtestDays: activeStrat.backtestDays ?? 3,
-                  maxSlippageBps: 300,
-                });
-              }, 100);
-            };
+              .map((e) => Math.abs(e.mirrorNotional as number))
+              .filter((v) => v > 0);
+            if (rawSizes.length < 5) return null;
+            const avgRaw = rawSizes.reduce((s, v) => s + v, 0) / rawSizes.length;
+            // Target: average raw mirror = $1 (no clamping needed).
+            // Scale linearly: recommendedCapital = currentCapital * ($1 / avgRaw).
+            if (avgRaw >= 1) return null;
+            const recommended = Math.ceil((liveCapital * 1.0 / avgRaw) / 10) * 10;
             return (
-              <div className="mt-2 px-3 py-2 border border-amber-400/40 bg-amber-400/5 rounded">
-                <div className="text-[12px] text-amber-400 font-mono mb-1.5">
-                  {skipCount} dust skips · 0 orders · proportional sizing averages $
-                  {(skippedSizes.reduce((s, v) => s + v, 0) / Math.max(skippedSizes.length, 1)).toFixed(2)}
-                  {" "}vs floor ${currentFloor.toFixed(2)}
+              <div className="mt-2 px-3 py-2 border border-pixel-border/60 bg-pixel-black/30 rounded">
+                <div className="text-[12px] text-pixel-white font-mono mb-1">
+                  Trades are firing, but most are auto-clamped to Polymarket's $1 min
                 </div>
-                <div className="text-[11px] text-pixel-gray font-mono mb-1.5">
-                  Your capital is too thin OR the floor is too high — backtest preview would also skip these. Drop the floor to start filling (live + backtest both update):
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {[0.01, 0.05, 0.10, 0.25, 0.50].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => applyFloor(f)}
-                      className={`pixel-btn text-[11px] px-2 py-0.5 ${
-                        f === suggested
-                          ? "border-green-400 text-green-400 bg-green-400/10"
-                          : "border-pixel-border text-pixel-gray hover:text-pixel-white"
-                      }`}
-                      title={f === suggested ? "Recommended — clears the largest skipped mirror" : `Drop floor to $${f.toFixed(2)} and restart`}
-                    >
-                      ${f.toFixed(2)}
-                    </button>
-                  ))}
+                <div className="text-[11px] text-pixel-gray font-mono">
+                  Your $${liveCapital.toFixed(0)} capital × leader weight ≈ ${avgRaw.toFixed(2)}/trade.
+                  For natural proportional sizing (no clamp),
+                  <span className="text-green-400"> ~${recommended.toLocaleString()} recommended</span>.
+                  Until then everything still works — copy mirrors just take more relative size than the leader did.
                 </div>
               </div>
             );
@@ -870,7 +790,7 @@ export default function LivePanel() {
           "TRADES" view filters to just the entries you actually copy or skip,
           which is what the user usually wants when monitoring. Pagination
           keeps the panel a fixed height instead of growing across the page. */}
-      {isLive && engineState && (() => {
+      {liveTab === "trades" && isLive && engineState && (() => {
         const isUpstream = tradesFilter === "upstream";
         // UPSTREAM tab pulls from the engine's observed-trades ring buffer
         // (real-time mirror of what watched traders are doing); the other
@@ -1100,7 +1020,7 @@ export default function LivePanel() {
       })()}
 
       {/* ── Empty state when live but no log ── */}
-      {isLive && engineState && engineState.log.length === 0 && (
+      {liveTab === "trades" && isLive && engineState && engineState.log.length === 0 && (
         <div className="pixel-panel border-2 border-pixel-border px-3 py-4 text-center">
           <span className="text-[15px] text-pixel-gray">WAITING FOR FIRST CYCLE...</span>
         </div>

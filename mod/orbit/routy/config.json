@@ -3,7 +3,7 @@
     "port": 3000,
     "app_port": 3002,
     "description": "Local gateway router \u2014 proxies all mod apps and APIs",
-    "schema": "QmQuFu4arnn858D5XwChDVfwNKyoB3wYLy8ZjiCoHPzocU",
+    "schema": "QmTRoLBk7daAvXaaNoCUuznJNoUdiTAqR3VJYGG1SR4wFX",
     "storage_types": [
         "ipfs",
         "hippius",

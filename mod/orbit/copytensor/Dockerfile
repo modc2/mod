@@ -1,5 +1,7 @@
 # ── Stage 1: Build Rust API ──────────────────────────────────────
-FROM rust:1.78-slim AS api-builder
+# subxt + transitive crates (ar_archive_writer, constant_time_eq) pull in
+# nightly-stabilized features up through 1.93 — pin a recent stable.
+FROM rust:1.93-slim AS api-builder
 
 WORKDIR /build
 COPY src/api/ .

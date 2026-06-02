@@ -5,7 +5,9 @@ description: Copy-trade any Hyperliquid wallet by N-day performance and compose 
 
 # hyperliquid
 
-Copy-trading + index composer for Hyperliquid.
+Full-stack Hyperliquid integration: backend agent wallet that signs every
+action type, autonomous copy-trade live engine, trader analytics + indexes
++ vault helpers, plus a Next.js UI.
 
 ```
 src/
@@ -61,6 +63,73 @@ hl.list_signals(follower='0x…')
 
 The same operations are reachable via `POST /forward` on the Rust API
 for keyless mod-protocol consumers.
+
+## Backend agent wallet
+
+The Rust API generates an encrypted-at-rest ECDSA key per master EOA. The
+user signs `approveAgent` once in their browser wallet; after that the
+backend signs every order/cancel/modify/leverage/vault-transfer/etc. on
+their behalf — no browser tab needed.
+
+```python
+agent = hl.signer_address(eoa)                # → "0xagent..."
+intent = hl.approve_agent_intent(eoa)         # → {action, digest, nonce, agentAddress}
+# user signs `intent.digest` with their wallet, then forward to /exchange:
+hl.forward(fn='exchange_post', payload={
+    'action': intent['action'],
+    'nonce':  intent['nonce'],
+    'signature': {'r': '0x..', 's': '0x..', 'v': 28},
+})
+```
+
+Master key for the AES-encrypted keystore is sourced from
+`HYPERLIQUID_SIGNER_MASTER_KEY` or persisted to `<HYPERLIQUID_DATA_DIR>/signer-store/.master`.
+
+## Trading
+
+Once the agent is approved, every action signs server-side:
+
+```python
+hl.trade(eoa, coin='ETH', is_buy=True,  size=0.01)             # market (IOC + 100bps slip)
+hl.trade(eoa, coin='ETH', is_buy=True,  size=0.01, price=2900) # GTC limit
+hl.trade(eoa, coin='ETH', is_buy=False, size=0.01, reduce_only=True)
+hl.cancel(eoa, [{'coin':'ETH','oid': 12345}])
+hl.modify(eoa, oid=12345, coin='ETH', is_buy=True, price=2905, size=0.01)
+hl.set_leverage(eoa, 'ETH', 10)
+hl.update_isolated_margin(eoa, 'ETH', is_buy=True, amount_usd=50)
+hl.schedule_cancel(eoa, time_ms=int(time.time()*1000) + 3600_000)  # dead-man switch
+```
+
+## Transfers / bridging
+
+```python
+hl.usd_class_transfer(eoa, amount='100', to_perp=True)   # spot → perp
+hl.vault_transfer(eoa, vault='0xvault...', is_deposit=True, amount_usd=100)
+hl.withdraw(eoa, destination='0xL1addr', amount='50')
+hl.usd_send(eoa, destination='0xanotherUser', amount='10')
+hl.spot_send(eoa, destination='0x...', token='PURR:0x...', amount='1.5')
+```
+
+## Live copy-trade engine
+
+Long-running per-EOA tokio task that polls leader fills and mirrors them
+through the backend agent. Auto-resumes on API restart from
+`<HYPERLIQUID_DATA_DIR>/live-engine/<eoa>.config.json`.
+
+```python
+hl.live_start(eoa,
+    traders=[{'address':'0xLeader...','weight':1.0}],
+    interval_ms=15000,
+    size_pct=10,                # mirror leader.size × 10%
+    max_per_trade_usd=200,
+    min_order_size_usd=10,
+    max_slippage_bps=100,
+    coins_allow=['ETH','BTC'],  # optional whitelist
+    vault_address='0xvault...', # optional: route via vault
+)
+hl.live_status(eoa)             # cycle count, observed trades, orders placed/failed
+hl.live_stop(eoa)
+```
 
 ## Vault create payload
 

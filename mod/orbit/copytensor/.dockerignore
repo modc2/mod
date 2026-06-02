@@ -1,0 +1,10 @@
+src/api/target
+src/api/Cargo.lock.bak
+src/app/node_modules
+src/app/.next
+src/app/out
+src/data
+.git
+.gitignore
+*.log
+/tmp

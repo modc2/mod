@@ -11,6 +11,7 @@ const NAV = [
   { href: "/indexes", label: "Indexes" },
   { href: "/follows", label: "My Follows" },
   { href: "/signals", label: "Signals" },
+  { href: "/live", label: "Live" },
 ];
 
 export default function Header() {

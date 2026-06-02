@@ -57,7 +57,8 @@ export const unwatchAccount = (ss58: string) =>
 export const fetchCopies = () => j<CopyConfig[]>("/copies");
 
 export const createCopy = (body: {
-  target_ss58: string;
+  target_ss58?: string;
+  targets?: { ss58: string; weight: number }[];
   our_hotkey: string;
   label?: string;
   max_tao_per_tx?: number;

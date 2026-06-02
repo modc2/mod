@@ -155,13 +155,13 @@ export async function placeOrder(
   maker: string,
   order: ClobOrder,
   negRisk: boolean,
-  sigType: 0 | 1 | 2 = 2,
+  sigType: 0 | 1 | 2 | 3 = 3,
 ): Promise<ClobOrderResult> {
-  if (sigType === 2) {
-    // We don't fall back to wallet signing on backend failure — that would
-    // re-introduce the MetaMask popup behind the user's back, defeating
-    // the whole AUTO-TRADING toggle. Surface the error so the user can
-    // either retry the toggle or pick a different path.
+  // sigType=2 (legacy Safe) AND sigType=3 (V2 deposit wallet) both go
+  // through the backend. The backend overrides any incoming sigType to 3
+  // internally for V2 placements, so callers can pass either and get the
+  // same behavior — see order_place.rs `effective_sig_type` override.
+  if (sigType === 2 || sigType === 3) {
     try {
       const eoa = await signer.getAddress();
       return await placeOrderViaBackend(creds, eoa, maker, order, negRisk);
@@ -315,9 +315,9 @@ async function placeOrderViaBackend(
 export async function detectSigType(
   creds: ClobCredentials,
   address: string,
-): Promise<{ sigType: 0 | 1 | 2; bal: ClobBalance }> {
+): Promise<{ sigType: 0 | 1 | 2 | 3; bal: ClobBalance }> {
   const types: (0 | 1 | 2)[] = [2, 1, 0];
-  let best: { sigType: 0 | 1 | 2; bal: ClobBalance } = {
+  let best: { sigType: 0 | 1 | 2 | 3; bal: ClobBalance } = {
     sigType: 2,
     bal: { balance: 0, rawBalance: 0, allowance: 0 },
   };
@@ -341,7 +341,7 @@ export async function detectSigType(
 export async function refreshBalance(
   creds: ClobCredentials,
   address: string,
-  sigType: 0 | 1 | 2 = 2,
+  sigType: 0 | 1 | 2 | 3 = 3,
 ): Promise<boolean> {
   const path = "/balance-allowance/update";
   const body = JSON.stringify({ asset_type: "COLLATERAL", signature_type: sigType });
@@ -357,7 +357,7 @@ export async function refreshBalance(
 export async function getBalance(
   creds: ClobCredentials,
   address: string,
-  sigType: 0 | 1 | 2 = 2,
+  sigType: 0 | 1 | 2 | 3 = 3,
 ): Promise<ClobBalance> {
   // py-clob-client signs the HMAC over the *base* request_path (e.g.
   // "/balance-allowance") WITHOUT the query string, then fetches the URL

@@ -45,140 +45,74 @@
   --crt-blue: #818cf8;
   --crt-red: #fb7185;
   --crt-dark: #0a0a0f;
-  --text-primary: #f5f5fa;
-  --text-secondary: #c8c8d4;
-  --text-tertiary: #74748a;
+  --text-primary: #ffffff;
+  --text-secondary: #d8d8e4;
+  --text-tertiary: #8a8aa2;
   --accent-color: #a78bfa;
   --accent-color-2: #38bdf8;
   --bg-primary: #07070d;
   --bg-secondary: #11111a;
   --bg-tint: rgba(167,139,250,0.05);
-  --glass-bg: rgba(20, 20, 30, 0.55);
-  --glass-bg-strong: rgba(28, 28, 42, 0.75);
-  --glass-border: rgba(255, 255, 255, 0.07);
-  --glass-border-strong: rgba(255, 255, 255, 0.14);
-  --glass-highlight: rgba(255, 255, 255, 0.04);
-  --border-color: rgba(255,255,255,0.07);
-  --border-color-strong: rgba(255,255,255,0.14);
+  --glass-bg: rgba(22, 22, 34, 0.65);
+  --glass-bg-strong: rgba(32, 32, 48, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-border-strong: rgba(255, 255, 255, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255,255,255,0.09);
+  --border-color-strong: rgba(255,255,255,0.18);
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
-  --shadow-md: 0 8px 24px rgba(0,0,0,0.45);
-  --shadow-lg: 0 24px 60px rgba(0,0,0,0.55);
-  --shadow-glow: 0 0 0 1px rgba(167,139,250,0.18), 0 8px 32px rgba(167,139,250,0.12);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 0 1px rgba(167,139,250,0.22), 0 8px 32px rgba(167,139,250,0.14);
   --radius-sm: 10px;
   --radius-md: 16px;
   --radius-lg: 22px;
 }
 
 :root[data-theme="light"] {
-  --crt-green: #059669;
-  --crt-amber: #d97706;
-  --crt-blue: #2563eb;
-  --crt-red: #dc2626;
+  /* Bumped: many UI sites render these at 25–35% opacity (e.g.
+     text-crt-green/35) — on white that needs a much darker base to stay
+     readable. WCAG-AA-ish contrast at the common usage opacities. */
+  --crt-green: #047857;
+  --crt-amber: #92400e;
+  --crt-blue: #1d4ed8;
+  --crt-red: #b91c1c;
   --crt-dark: #ffffff;
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-tertiary: #64748b;
-  --accent-color: #2563eb;
+  --text-primary: #020617;
+  --text-secondary: #1e293b;
+  --text-tertiary: #475569;
+  --accent-color: #1d4ed8;
+  --accent-color-2: #0e7490;
   --bg-primary: #ffffff;
-  --bg-secondary: #f8fafc;
-  --bg-tint: rgba(37,99,235,0.03);
-  --border-color: rgba(0,0,0,0.10);
-  --border-color-strong: rgba(0,0,0,0.18);
+  --bg-secondary: #f1f5f9;
+  --bg-tint: rgba(29,78,216,0.06);
+  --glass-bg: rgba(248, 250, 252, 0.85);
+  --glass-bg-strong: rgba(241, 245, 249, 0.95);
+  --glass-border: rgba(0, 0, 0, 0.12);
+  --glass-border-strong: rgba(0, 0, 0, 0.22);
+  --glass-highlight: rgba(0, 0, 0, 0.04);
+  --border-color: rgba(0,0,0,0.16);
+  --border-color-strong: rgba(0,0,0,0.28);
   --pixel-border: 1px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.12);
+  --shadow-sm: 0 1px 3px rgba(15,23,42,0.10);
+  --shadow-md: 0 4px 14px rgba(15,23,42,0.14);
+  --shadow-lg: 0 12px 36px rgba(15,23,42,0.18);
+  --shadow-glow: 0 0 0 1px rgba(29,78,216,0.30), 0 8px 32px rgba(29,78,216,0.18);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
 }
 
-:root[data-theme="matrix"] {
-  --crt-green: #22c55e;
-  --crt-amber: #22c55e;
-  --crt-blue: #16a34a;
-  --crt-red: #ef4444;
-  --crt-dark: #020617;
-  --text-primary: #22c55e;
-  --text-secondary: #16a34a;
-  --text-tertiary: #15803d;
-  --accent-color: #22c55e;
-  --bg-primary: #020617;
-  --bg-secondary: #0a1628;
-  --pixel-border: 1px;
-}
+/* Floor opacity-styled text in light mode so the common
+   `text-crt-*/30..40` utilities don't render as ghost text on white. */
+:root[data-theme="light"] [class*="text-crt-green/"] { color: #047857 !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-amber/"] { color: #92400e !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-blue/"]  { color: #1d4ed8 !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-red/"]   { color: #b91c1c !important; opacity: 1 !important; }
 
-:root[data-theme="cyberpunk"] {
-  --crt-green: #d946ef;
-  --crt-amber: #facc15;
-  --crt-blue: #22d3ee;
-  --crt-red: #f43f5e;
-  --crt-dark: #0f0326;
-  --text-primary: #f1f5f9;
-  --text-secondary: #d946ef;
-  --text-tertiary: #22d3ee;
-  --accent-color: #d946ef;
-  --bg-primary: #0f0326;
-  --bg-secondary: #1a0a3e;
-  --pixel-border: 1px;
-}
-
-:root[data-theme="amber"] {
-  --crt-green: #f59e0b;
-  --crt-amber: #ea580c;
-  --crt-blue: #fbbf24;
-  --crt-red: #ef4444;
-  --crt-dark: #1c1207;
-  --text-primary: #fef3c7;
-  --text-secondary: #f59e0b;
-  --text-tertiary: #d97706;
-  --accent-color: #f59e0b;
-  --bg-primary: #1c1207;
-  --bg-secondary: #0f0a04;
-  --pixel-border: 1px;
-}
-
-:root[data-theme="ocean"] {
-  --crt-green: #38bdf8;
-  --crt-amber: #22d3ee;
-  --crt-blue: #0ea5e9;
-  --crt-red: #f87171;
-  --crt-dark: #0c1929;
-  --text-primary: #e0f2fe;
-  --text-secondary: #38bdf8;
-  --text-tertiary: #0ea5e9;
-  --accent-color: #38bdf8;
-  --bg-primary: #0c1929;
-  --bg-secondary: #071320;
-  --pixel-border: 1px;
-}
-
-:root[data-theme="ibm"] {
-  --crt-green: #22c55e;
-  --crt-amber: #16a34a;
-  --crt-blue: #15803d;
-  --crt-red: #ef4444;
-  --crt-dark: #020617;
-  --text-primary: #22c55e;
-  --text-secondary: #16a34a;
-  --text-tertiary: #15803d;
-  --accent-color: #22c55e;
-  --bg-primary: #020617;
-  --bg-secondary: #0a0f1a;
-  --pixel-border: 1px;
-}
-
-:root[data-theme="win95"] {
-  --crt-green: #1e40af;
-  --crt-amber: #1e3a8a;
-  --crt-blue: #2563eb;
-  --crt-red: #dc2626;
-  --crt-dark: #d1d5db;
-  --text-primary: #111827;
-  --text-secondary: #1e3a8a;
-  --text-tertiary: #6b7280;
-  --accent-color: #1e40af;
-  --bg-primary: #e5e7eb;
-  --bg-secondary: #f9fafb;
-  --pixel-border: 1px;
-}
+/* Only `dark` and `light` themes ship now. The legacy
+   matrix/cyberpunk/amber/ocean/ibm/win95 blocks were removed — the JS
+   toggle is dark↔light-only and saved-theme reads ignore anything else. */
 
 * {
   margin: 0;
@@ -191,20 +125,27 @@ html, body {
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 16px;
+  font-weight: 500;
   line-height: 1.5;
   overflow: hidden;
   height: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  letter-spacing: -0.005em;
 }
 
-html[data-theme="win95"], html[data-theme="win95"] body {
-  background: #e5e7eb;
-  color: var(--text-primary);
+button, select, input, textarea {
+  font-weight: 500;
 }
 
-html[data-theme="ibm"], html[data-theme="ibm"] body {
-  background: #020617;
+strong, b {
+  font-weight: 700;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-color) 35%, transparent);
   color: var(--text-primary);
 }
 
@@ -240,14 +181,14 @@ html[data-theme="ibm"], html[data-theme="ibm"] body {
   border: none;
   padding: 8px 16px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   position: relative;
   text-transform: none;
   transition: all 0.15s ease;
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
 }
 
 .pixel-btn:hover {
@@ -296,17 +237,36 @@ html[data-theme="ibm"], html[data-theme="ibm"] body {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color-strong);
   border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color-strong) transparent;
 }
 
 /* Text glow - subtle in modern mode */
@@ -327,6 +287,77 @@ html[data-theme="ibm"], html[data-theme="ibm"] body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* Versions strip — HEAD chip glow + scroll-edge fades */
+.head-glow {
+  animation: head-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes head-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--head-color, var(--accent-color)),
+      0 0 14px -2px var(--head-color, var(--accent-color));
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--head-color, var(--accent-color)),
+      0 0 22px 1px var(--head-color, var(--accent-color));
+  }
+}
+
+.versions-strip {
+  position: relative;
+  scrollbar-width: none;
+}
+.versions-strip::-webkit-scrollbar { display: none; }
+
+.versions-strip::before,
+.versions-strip::after {
+  content: "";
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  flex-shrink: 0;
+}
+.versions-strip::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-primary), transparent);
+  margin-right: -24px;
+}
+.versions-strip::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-primary), transparent);
+  margin-left: -24px;
+}
+
+.commit-chip {
+  position: relative;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.commit-chip:hover {
+  transform: translateY(-1px);
+}
+
+/* Tiny rail that connects commit dots — drawn as a pseudo line */
+.commit-rail {
+  position: relative;
+}
+.commit-rail::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 10px;
+  height: 1px;
+  background: var(--border-color-strong);
+  transform: translateY(-0.5px);
+}
+.commit-rail:last-child::after { display: none; }
 
 /* Select styling */
 select {
@@ -510,11 +541,11 @@ body {
 .bento {
   position: relative;
   background: var(--glass-bg);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--glass-border-strong);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
   box-shadow: var(--shadow-md);
   transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
   overflow: hidden;
@@ -560,23 +591,24 @@ body {
 }
 
 .bento-title {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .bento-value {
   font-size: 30px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   line-height: 1.1;
 }
 
 .bento-sub {
   font-size: 14px;
+  font-weight: 500;
   color: var(--text-secondary);
   margin-top: 6px;
 }
@@ -587,10 +619,11 @@ body {
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(167,139,250,0.10);
-  border: 1px solid rgba(167,139,250,0.20);
+  background: rgba(167,139,250,0.12);
+  border: 1px solid rgba(167,139,250,0.28);
   font-family: 'JetBrains Mono', monospace;
   font-size: 12.5px;
+  font-weight: 700;
   color: var(--accent-color);
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -611,8 +644,9 @@ body {
   border: 1px solid var(--glass-border-strong);
   background: var(--glass-bg-strong);
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   cursor: pointer;
   backdrop-filter: blur(8px);
   transition: background 150ms ease, border-color 150ms ease, transform 100ms ease;
@@ -670,6 +704,7 @@ body {
 
 .version-row .msg {
   font-size: 14.5px;
+  font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -678,7 +713,164 @@ body {
 
 .version-row .meta {
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--text-tertiary);
   font-family: 'JetBrains Mono', monospace;
   margin-top: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Refinements — subtle motion, hairlines, focus rings, button polish
+ * ──────────────────────────────────────────────────────────────────────*/
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.92); }
+}
+
+.fade-in {
+  animation: fade-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.soft-pulse {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+/* Hairline borders that adapt to theme via currentColor mix */
+.hairline {
+  border: 1px solid var(--border-color);
+}
+.hairline-strong {
+  border: 1px solid var(--border-color-strong);
+}
+
+/* Refined focus ring used on interactive elements that aren't inputs */
+.focus-ring:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-color) 40%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Subtle chip used across the UI */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid var(--border-color-strong);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.ui-chip:hover {
+  border-color: var(--border-color-strong);
+  color: var(--text-primary);
+}
+
+/* Soft divider that fades at the edges */
+.divider-soft {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-color-strong),
+    transparent
+  );
+}
+
+/* Glow ring used around the agent button while running */
+.ring-running {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--crt-blue) 50%, transparent),
+    0 0 12px -2px color-mix(in srgb, var(--crt-blue) 60%, transparent);
+}
+
+/* Make pre/code blocks easier on the eyes */
+pre, code, kbd, samp {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+  font-variant-ligatures: none;
+}
+
+/* Smooth color/border transitions on common interactive elements */
+button, a, [role="button"], select, input, textarea {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 100ms ease;
+}
+
+/* Standard button hover lift — only when not disabled */
+button:not(:disabled):hover {
+  transition-duration: 120ms;
+}
+
+/* Refined hr-style spacer for sidebar sections */
+.section-rule {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Helper: muted label */
+.label-muted {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Refined select hover/focus state already exists; add a disabled variant */
+select:disabled,
+input:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Slightly brighter inline code */
+code:not(pre code) {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.92em;
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+/* Tighter, calmer placeholders site-wide */
+::placeholder {
+  font-weight: 400;
+}
+
+/* Tooltip-ish title decoration (no JS) — uses default browser title */
+
+/* Subtle marquee gradient for "loading" strips, if used */
+.loading-strip {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-color) 18%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
 }

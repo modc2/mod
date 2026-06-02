@@ -4,6 +4,11 @@ mod copytrade;
 mod indexes;
 mod store;
 mod routes;
+mod signer;
+mod sign_l1;
+mod sign_user;
+mod actions;
+mod live_engine;
 
 use axum::Router;
 use std::net::SocketAddr;
@@ -14,9 +19,13 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[derive(Clone)]
 pub struct AppState {
     pub hl: Arc<hl::Client>,
+    pub http: reqwest::Client,
     pub store: Arc<store::Store>,
     pub copy: Arc<copytrade::Engine>,
     pub progress: Arc<traders::ProgressTracker>,
+    pub signer: Arc<signer::SignerStore>,
+    pub meta: Arc<actions::MetaCache>,
+    pub live: Arc<live_engine::EngineRegistry>,
 }
 
 #[tokio::main]
@@ -41,18 +50,24 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir).ok();
 
     let hl = Arc::new(hl::Client::new(testnet));
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("http client");
     let store = Arc::new(store::Store::load(&data_dir)?);
     let copy = Arc::new(copytrade::Engine::new(hl.clone(), store.clone()));
     let progress = Arc::new(traders::ProgressTracker::default());
+    let signer = Arc::new(signer::SignerStore::new());
+    let meta = Arc::new(actions::MetaCache::new(hl.clone()));
+    let live = Arc::new(live_engine::EngineRegistry::new(hl.clone(), signer.clone(), meta.clone()));
 
-    // background loop: poll followed traders & mirror new fills
+    // Resume any live sessions that were active before this restart.
+    live.resume_persisted();
+
+    // Existing background loops.
     let copy_bg = copy.clone();
     tokio::spawn(async move { copy_bg.run().await });
 
-    // background loop: prewarm top-traders cache so the discover view is
-    // hot on first paint instead of paying ~30s for the cold scan. Rotate
-    // through window sizes since each picks a different cohort from the
-    // leaderboard (top-day ≠ top-week ≠ top-month).
     let prewarm_hl = hl.clone();
     let prewarm_progress = progress.clone();
     tokio::spawn(async move {
@@ -75,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let state = AppState { hl, store, copy, progress };
+    let state = AppState { hl, http, store, copy, progress, signer, meta, live };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

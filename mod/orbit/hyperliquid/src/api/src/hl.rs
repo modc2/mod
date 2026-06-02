@@ -43,7 +43,7 @@ impl Client {
         self.cache.insert(key, (Instant::now(), v));
     }
 
-    async fn info(&self, body: Value) -> anyhow::Result<Value> {
+    pub async fn info(&self, body: Value) -> anyhow::Result<Value> {
         // Hyperliquid's /info bursts to 429 under load; back off and retry.
         let mut delay_ms = 250u64;
         for attempt in 0..5 {

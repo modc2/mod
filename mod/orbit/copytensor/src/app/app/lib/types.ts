@@ -91,3 +91,25 @@ export type AccountWatch = {
   label: string | null;
   added_at: string | null;
 };
+
+// ── Index of traders (basket copy, polymarket-style) ─────────────
+export type IndexTrader = {
+  ss58: string;
+  label?: string | null;
+  weight: number; // any positive number; UI normalizes to sum=1
+  enabled?: boolean; // default true
+};
+
+export type SavedIndex = {
+  id: string;
+  name: string;
+  traders: IndexTrader[];
+  our_hotkey?: string;
+  max_tao_per_tx?: number;
+  daily_limit_tao?: number;
+  rebalance_threshold_pct?: number;
+  poll_interval_sec?: number;
+  liveCopyIds?: string[]; // server copy_ids when running
+  createdAt: number;
+  updatedAt: number;
+};

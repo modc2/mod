@@ -14,14 +14,14 @@
     }
   },
   {
-    "cid": "QmVuhMfLaJXeW3DsMpneFwh3DdYqt6ezDCkfuwLBpq5vaf",
-    "content": "QmXm3sf2GieS4Ecwtq6Ksp6Y6mBjxhMFJAAXRUqZauBaDy",
+    "cid": "QmS2XsSUi8T7ESTG4DEKkxoRzw9wf8ap4LQhYXAK9FRuEd",
+    "content": "QmXbDN76mQFwAJgYC1tf7Y4ZDMFd3f6YfGyWv4gaiKC3jg",
     "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "name": "claude",
-    "prev": null,
+    "prev": "QmNuXVX35kFgfiGGtKWqDsfeDFDyu3SraNVYE7DZWvTqpi",
     "schema": "QmRcEYWnsAATCJT2id2fHZCmBs5whwi1ZU1FVYWTxKmYRG",
-    "updated": 1778054657.024048,
+    "updated": 1779982411.670207,
     "url": {
       "api": "http://localhost:8820",
       "app": "http://localhost:8821"
@@ -67,14 +67,14 @@
     }
   },
   {
-    "cid": "QmfQVAmCedkJ7AWwPNRTrgprVac6mCfmYt2i6qLu5pgPkg",
+    "cid": "QmeiatcKPSpa1w9dLTwQm1JgP9w9dbMSpVzEvXKVwzFLXo",
     "content": "QmYXYKZRwrBcTaDyecg1FcuxS4HPrS8BhbpCuDCh364k1y",
     "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "name": "polymarket",
     "prev": null,
-    "schema": "QmPgRYnAdGiLramXzVhFz624PwUsmsT7T5vR7eWCpJHjUy",
-    "updated": 1779311070.9576828,
+    "schema": "QmbnsD3L967YyAuNrqx1yVqwBpJCCV8TbfqU3vD6NpuWh3",
+    "updated": 1780338311.7327309,
     "url": {
       "api": "http://localhost:50091",
       "app": "http://localhost:3091"
@@ -106,15 +106,14 @@
     }
   },
   {
-    "cid": null,
-    "content": null,
+    "cid": "QmcpRD8EUJNuyfofELqTVgZJPTEQSSTUjcwNK4vJLJapNJ",
+    "content": "QmXMz4uXim5E6vUyDBDkSPrzbEPLPwFE4idab2N3zoLaMD",
     "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
-    "local": true,
     "name": "store",
-    "path": "/Users/broski/mod/mod/core/store",
-    "schema": null,
-    "updated": null,
+    "prev": null,
+    "schema": "QmW4N59foa9oKvtZZPmw82SVFx5LB2p6oZg47eUtwAk5tp",
+    "updated": 1779900534.917889,
     "url": {
       "api": "http://localhost:50150",
       "app": "http://localhost:50151"
@@ -182,6 +181,36 @@
     "url": {
       "api": "http://localhost:50130",
       "app": "http://localhost:50131"
+    }
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "ipfs",
+    "path": "/Users/broski/mod/mod/orbit/ipfs",
+    "schema": null,
+    "updated": null,
+    "url": {
+      "api": "http://localhost:50079",
+      "app": "http://localhost:50080"
+    }
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "multistore",
+    "path": "/Users/broski/mod/mod/orbit/multistore",
+    "schema": null,
+    "updated": null,
+    "url": {
+      "api": "http://localhost:50160",
+      "app": "http://localhost:50161"
     }
   },
   {
@@ -595,22 +624,6 @@
     "cid": null,
     "content": null,
     "created": null,
-    "desc": "IPFS node management and content-addressed storage via Kubo",
-    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
-    "local": true,
-    "name": "ipfs",
-    "path": "/Users/broski/mod/mod/orbit/ipfs",
-    "schema": null,
-    "updated": null,
-    "url": {
-      "api": "http://localhost:50079",
-      "app": "http://localhost:50080"
-    }
-  },
-  {
-    "cid": null,
-    "content": null,
-    "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
     "name": "lium",
@@ -874,6 +887,19 @@
     "local": true,
     "name": "admin",
     "path": "/Users/broski/mod/mod/orbit/admin",
+    "schema": null,
+    "updated": null,
+    "url": null
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
+    "desc": "Aider AI pair programmer (Rust contract)",
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "aider",
+    "path": "/Users/broski/mod/mod/orbit/aider",
     "schema": null,
     "updated": null,
     "url": null
@@ -1463,6 +1489,22 @@
     "cid": null,
     "content": null,
     "created": null,
+    "desc": "Cursor (cursor-agent CLI) — multi-provider agent backend",
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "cursor",
+    "path": "/Users/broski/mod/mod/orbit/cursor",
+    "schema": null,
+    "updated": null,
+    "url": {
+      "api": "http://localhost:8835",
+      "app": "http://localhost:8836"
+    }
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
     "name": "diffie",
@@ -1749,6 +1791,22 @@
     "cid": null,
     "content": null,
     "created": null,
+    "desc": "Tether (USDT) on-chain integration — balance, transfers, allowances",
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "tether",
+    "path": "/Users/broski/mod/mod/orbit/tether",
+    "schema": null,
+    "updated": null,
+    "url": {
+      "api": "http://localhost:8850",
+      "app": "http://localhost:8851"
+    }
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
     "name": "venice",
@@ -1909,6 +1967,19 @@
     "local": true,
     "name": "content",
     "path": "/Users/broski/mod/mod/orbit/content",
+    "schema": null,
+    "updated": null,
+    "url": null
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
+    "desc": "GitHub Copilot CLI agent (JavaScript contract)",
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "copilot",
+    "path": "/Users/broski/mod/mod/orbit/copilot",
     "schema": null,
     "updated": null,
     "url": null
@@ -2497,6 +2568,19 @@
     "cid": null,
     "content": null,
     "created": null,
+    "desc": "bat-agent (cloned from https://github.com/sharkdp/bat)",
+    "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
+    "local": true,
+    "name": "bat-agent",
+    "path": "/Users/broski/mod/mod/orbit/bat-agent",
+    "schema": null,
+    "updated": null,
+    "url": null
+  },
+  {
+    "cid": null,
+    "content": null,
+    "created": null,
     "desc": "Claude Code + GitHub Integration - Automated AI code tasks with GitHub sync",
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
@@ -2750,7 +2834,7 @@
     "cid": null,
     "content": null,
     "created": null,
-    "desc": "Bittensor dTAO copy trading — mirror subnet allocations of top performers",
+    "desc": "Bittensor dTAO copy trading — mirror subnet allocations of top performers (round-robin public RPCs, no third-party APIs)",
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
     "name": "copytensor",
@@ -2759,7 +2843,9 @@
     "updated": null,
     "url": {
       "api": "http://localhost:50150",
-      "app": "http://localhost:3150"
+      "app": "http://localhost:3150/copytensor",
+      "gateway_api": "http://localhost:3001/api/copytensor",
+      "gateway_app": "http://localhost:3001/copytensor"
     }
   },
   {
@@ -2958,7 +3044,7 @@
     "cid": null,
     "content": null,
     "created": null,
-    "desc": "Hyperliquid copy-trading + indexes — Rust API, Next.js app, mod.py orchestrator",
+    "desc": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults",
     "key": "0xaf3e0796042af79ea1642c919ac0ea6d165bc6db",
     "local": true,
     "name": "hyperliquid",

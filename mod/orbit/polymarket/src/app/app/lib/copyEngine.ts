@@ -184,9 +184,11 @@ export class CopyEngine {
   // Polymarket Proxy address for this user's EOA. Resolved lazily on first
   // cycle; persists for the engine's lifetime.
   private proxyAddress: string | null = null;
-  // Auto-detected sigType for this user's apiKey binding. Resolved once
-  // per engine session via detectSigType().
-  private sigType: 0 | 1 | 2 = 2;
+  // Legacy V1 sigType field. The backend now always overrides to
+  // sigType=3 (POLY_1271) regardless of what we send, so this is
+  // vestigial — kept on the type to avoid churning every placeOrder
+  // call site, but its value no longer affects routing.
+  private sigType: 0 | 1 | 2 | 3 = 3;
   // Guard against re-entering executeCycle when the previous cycle is still
   // mid-flight. Necessary at sub-minute poll cadences (5s) where a slow
   // cycle (token-id lookup + order placement RTT) can outlast a tick of
@@ -434,22 +436,32 @@ export class CopyEngine {
         skipped++;
         continue;
       }
+      // Mirror is dust *relative to leader exposure*, but the leader's
+      // trade is real — clamp UP to Polymarket's $1 floor instead of
+      // skipping. This lets users with thin capital still copy whales
+      // (they just take more relative size per trade). When the leader's
+      // own trade is also under $1 we skip (no real signal).
+      let mirrorNotional: number;
       if (rawMirrorNotional < POLYMARKET_MIN_USD) {
-        this.addLog({
-          id: uid(),
-          timestamp: Date.now(),
-          type: "SKIP",
-          traderAddress: trader.address,
-          market: trade.market,
-          conditionId: trade.conditionId,
-          side: trade.side,
-          mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-          reason: `CATCH UP · BELOW_CLOB_MIN · $${rawMirrorNotional.toFixed(2)} < Polymarket $${POLYMARKET_MIN_USD.toFixed(2)}`,
-        });
-        skipped++;
-        continue;
+        if (trade.notional < POLYMARKET_MIN_USD) {
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: "SKIP",
+            traderAddress: trader.address,
+            market: trade.market,
+            conditionId: trade.conditionId,
+            side: trade.side,
+            mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+            reason: `CATCH UP · LEADER_DUST · leader $${trade.notional.toFixed(2)} < Polymarket $${POLYMARKET_MIN_USD.toFixed(2)} hard floor`,
+          });
+          skipped++;
+          continue;
+        }
+        mirrorNotional = POLYMARKET_MIN_USD;
+      } else {
+        mirrorNotional = Math.min(rawMirrorNotional, ceiling);
       }
-      const mirrorNotional = Math.min(rawMirrorNotional, ceiling);
       // Whole shares for the 1¢ tick grid — see executeCycle for rationale.
       const mirrorSize = Math.max(
         1,
@@ -490,7 +502,7 @@ export class CopyEngine {
             price: trade.price,
             size: Math.round(mirrorSize * 100) / 100,
             side: trade.side,
-            type: "FAK",
+            type: "GTC",
             feeRateBps: TAKER_FEE_BPS,
           },
           negRisk,
@@ -663,7 +675,7 @@ export class CopyEngine {
               price: sellPrice,
               size: Math.round(pos.size * 100) / 100,
               side: "SELL",
-              type: "FAK",
+              type: "GTC",
               feeRateBps: TAKER_FEE_BPS,
             },
             negRisk,
@@ -734,43 +746,36 @@ export class CopyEngine {
     // LAST SYNC never · NEXT IN NOW" with no visible cause. The user
     // assumed the engine was stalled when it had actually run + failed.
     try {
-      // Resolve the user's Polymarket Proxy address once. Polymarket binds
-      // every newly-minted apiKey to this proxy — that's the address that
-      // holds funds and signs orders, not the connected EOA.
-      if (!this.proxyAddress) {
-        this.proxyAddress = await getProxyAddress(this.config.address);
-      }
-
-      // Probe all three sig_types and pick whichever Polymarket reports a
-      // non-zero balance for. The CLOB's apiKey binding is opaque from the
-      // client side — best we can do is try and use the winner.
-      const detected = await detectSigType(this.config.creds, this.config.address);
-      this.sigType = detected.sigType;
-      const bal = detected.bal;
-
-      // Cross-check against the real on-chain USDC.e balance at the proxy.
-      // Polymarket's CLOB only counts funds at a *deployed + approved*
-      // proxy — for a brand-new user with USDC sitting at an undeployed
-      // Safe address, this will be 0 even though funds exist. The proxy
-      // deploys atomically on first order settlement, so we let the engine
-      // try the trade as long as on-chain funds clear the capital gate.
-      const polygon = networkById("polygon")!;
+      // V2 trading routes through the deposit wallet (POLY_1271,
+      // sigType=3) auto-derived from the backend signer EOA. Pull its
+      // address + on-chain V2 collateral balance from the backend — the
+      // old V1 Safe path (`getProxyAddress` + USDC.e balance) is dead
+      // for matching purposes now and will always report $0 even when
+      // the deposit wallet is fully funded.
+      let depositWallet: string | null = null;
       let onchainProxyBal = 0;
       try {
-        const raw = await withRpcFallback(polygon, async (url) => {
-          const provider = new JsonRpcProvider(url);
-          const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
-          return (await c.balanceOf(this.proxyAddress!)) as bigint;
-        });
-        onchainProxyBal = Number(formatUnits(raw, 6));
+        const r = await fetch(
+          `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
+          { cache: "no-store" },
+        );
+        if (r.ok) {
+          const j = (await r.json()) as { depositWallet?: string; usdcBalance?: string };
+          if (j.depositWallet) depositWallet = j.depositWallet;
+          if (j.usdcBalance) onchainProxyBal = Number(j.usdcBalance) / 1_000_000;
+        }
       } catch {}
+      this.proxyAddress = depositWallet ?? this.proxyAddress;
+      // We're always on sigType=3 now (backend overrides regardless of
+      // what we send), but keep the field set so downstream log shapes
+      // stay consistent.
+      // Vestigial — backend always overrides to POLY_1271.
+      this.sigType = 3 as 0 | 1 | 2 | 3;
 
-      // Trust whichever is larger — typically on-chain pre-deployment,
-      // CLOB post-deployment once funds are "live."
-      const effective = Math.max(bal.balance, onchainProxyBal);
+      const effective = onchainProxyBal;
       this.setState({ balance: effective });
       const balDetail =
-        `$${effective.toFixed(2)} usable · proxy $${onchainProxyBal.toFixed(2)} on-chain · CLOB $${bal.balance.toFixed(2)} (sigType=${this.sigType})`;
+        `$${effective.toFixed(2)} usable · V2 deposit wallet $${onchainProxyBal.toFixed(2)}`;
       this.addLog({
         id: uid(),
         timestamp: Date.now(),
@@ -829,23 +834,26 @@ export class CopyEngine {
           });
           if (sold > 0) {
             freedAnything = true;
-            // Re-check on-chain balance — the SELL settles atomically on
-            // Polymarket so the proxy USDC.e bumps before this returns.
+            // Re-check the V2 deposit wallet balance — the SELL settles
+            // atomically on Polymarket so the wallet's V2-collateral
+            // bumps before this returns.
             try {
-              const raw = await withRpcFallback(polygon, async (url) => {
-                const provider = new JsonRpcProvider(url);
-                const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
-                return (await c.balanceOf(this.proxyAddress!)) as bigint;
-              });
-              onchainProxyBal = Number(formatUnits(raw, 6));
+              const r = await fetch(
+                `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
+                { cache: "no-store" },
+              );
+              if (r.ok) {
+                const j = (await r.json()) as { usdcBalance?: string };
+                if (j.usdcBalance) onchainProxyBal = Number(j.usdcBalance) / 1_000_000;
+              }
             } catch {}
-            const newEffective = Math.max(bal.balance, onchainProxyBal);
+            const newEffective = onchainProxyBal;
             this.setState({ balance: newEffective });
             this.addLog({
               id: uid(),
               timestamp: Date.now(),
               type: "BALANCE",
-              reason: `Freed $${freedUsd.toFixed(2)} · proxy now $${onchainProxyBal.toFixed(2)} → continuing cycle`,
+              reason: `Freed $${freedUsd.toFixed(2)} · wallet now $${onchainProxyBal.toFixed(2)} → continuing cycle`,
             });
             // If the freed amount lifts us above the gate, fall through to
             // the normal BUY pipeline. Otherwise still error out — the
@@ -866,25 +874,14 @@ export class CopyEngine {
         }
 
         if (!freedAnything) {
-          const proxy = this.proxyAddress!;
-          const proxyShort = `${proxy.slice(0, 6)}…${proxy.slice(-4)}`;
+          const proxy = this.proxyAddress ?? "(deriving…)";
+          const proxyShort = proxy.length >= 10
+            ? `${proxy.slice(0, 6)}…${proxy.slice(-4)}`
+            : proxy;
           const need = this.config.capital * 0.05;
-          // Read the EOA balance so we can give a precise next-step in the
-          // common case where the user funded the EOA but never deposited.
-          let eoaBal = 0;
-          try {
-            const raw = await withRpcFallback(polygon, async (url) => {
-              const provider = new JsonRpcProvider(url);
-              const c = new Contract(USDC_E, ["function balanceOf(address) view returns (uint256)"], provider);
-              return (await c.balanceOf(this.config.address)) as bigint;
-            });
-            eoaBal = Number(formatUnits(raw, 6));
-          } catch {}
           const reason = !hasHighConvictionCandidate
             ? `Balance $${effective.toFixed(2)} < 5% gate; no new BUY candidates → idling without freeing liquidity. Will retry next cycle.`
-            : eoaBal >= need
-            ? `Polymarket trades from a proxy address, not your wallet. Your wallet has $${eoaBal.toFixed(2)} USDC.e but proxy ${proxyShort} has only $${onchainProxyBal.toFixed(2)}. Open POLYMARKET ACCOUNT → DEPOSIT to move at least $${need.toFixed(2)} from wallet → proxy, then press RUN.`
-            : `Proxy ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)} = 5% of capital). Wallet also has only $${eoaBal.toFixed(2)} — fund USDC.e to your wallet first, then DEPOSIT to proxy.`;
+            : `Trading wallet ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)} = 5% of capital). Open the TRADING WALLET panel and click DEPOSIT to fund — wrap + approvals happen automatically.`;
           this.addLog({
             id: uid(),
             timestamp: Date.now(),
@@ -1034,28 +1031,37 @@ export class CopyEngine {
               this.copiedIds.add(trade.id);
               continue;
             }
+            // Mirror dust relative to leader exposure → clamp UP to
+            // Polymarket's $1 floor instead of skipping. Lets users with
+            // thin capital still mirror whales (they just take a larger
+            // relative size per trade). If the leader's *own* trade is
+            // also dust we skip (no signal).
+            let mirrorNotional = rawMirrorNotional;
+            let clampedReason: string | null = null;
             if (rawMirrorNotional < polymarketFloor) {
-              this.addLog({
-                id: uid(),
-                timestamp: Date.now(),
-                type: "SKIP",
-                traderAddress: trader.address,
-                market: trade.market,
-                conditionId: trade.conditionId,
-                side: trade.side,
-                mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-                reason: `BELOW_CLOB_MIN · proportional $${rawMirrorNotional.toFixed(2)} < Polymarket $${polymarketFloor.toFixed(2)} hard floor`,
-                upstreamTradeId: trade.id,
-              });
-              this.copiedIds.add(trade.id);
-              continue;
+              if (traderNotional < polymarketFloor) {
+                this.addLog({
+                  id: uid(),
+                  timestamp: Date.now(),
+                  type: "SKIP",
+                  traderAddress: trader.address,
+                  market: trade.market,
+                  conditionId: trade.conditionId,
+                  side: trade.side,
+                  mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+                  reason: `LEADER_DUST · leader $${traderNotional.toFixed(2)} < Polymarket $${polymarketFloor.toFixed(2)} hard floor`,
+                  upstreamTradeId: trade.id,
+                });
+                this.copiedIds.add(trade.id);
+                continue;
+              }
+              mirrorNotional = polymarketFloor;
+              clampedReason = `clamped up: proportional $${rawMirrorNotional.toFixed(2)} → $${polymarketFloor.toFixed(2)} (CLOB min)`;
             }
             // Clamp DOWN to the user's ceiling — matches backtest's
             // `Math.min(rawAmount, maxTrade)`. Outlier whale trades get
             // capped instead of blowing the budget.
-            let mirrorNotional = rawMirrorNotional;
-            let clampedReason: string | null = null;
-            if (rawMirrorNotional > ceiling) {
+            if (mirrorNotional > ceiling) {
               mirrorNotional = ceiling;
               clampedReason = `clamped down: proportional $${rawMirrorNotional.toFixed(2)} → ceiling $${ceiling.toFixed(2)}`;
             }
@@ -1120,7 +1126,7 @@ export class CopyEngine {
                   price: trade.price,
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
-                  type: "FAK",
+                  type: "GTC",
                   feeRateBps: TAKER_FEE_BPS,
                 },
                 negRisk,

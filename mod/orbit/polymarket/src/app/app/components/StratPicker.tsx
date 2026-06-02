@@ -102,7 +102,7 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
       name: `Strat ${num}`,
       traders: [],
       backtestDays: 7,
-      rebalanceMinutes: 1,
+      rebalanceMinutes: 5 / 60,
       createdAt: now,
       updatedAt: now,
     };

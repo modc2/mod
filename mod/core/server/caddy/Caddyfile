@@ -70,14 +70,23 @@
     handle @polymarket_app {
         reverse_proxy polymarket:3091
     }
+    @hyperliquid_api path /api/hyperliquid /api/hyperliquid/*
+    handle @hyperliquid_api {
+        uri strip_prefix /api/hyperliquid
+        reverse_proxy host.docker.internal:8919
+    }
+    @hyperliquid_app path /hyperliquid /hyperliquid/*
+    handle @hyperliquid_app {
+        reverse_proxy host.docker.internal:3919
+    }
     @copytensor_api path /api/copytensor /api/copytensor/*
     handle @copytensor_api {
         uri strip_prefix /api/copytensor
-        reverse_proxy copytensor:50150
+        reverse_proxy host.docker.internal:50150
     }
     @copytensor_app path /copytensor /copytensor/*
     handle @copytensor_app {
-        reverse_proxy copytensor:3150
+        reverse_proxy host.docker.internal:3150
     }
     @chain_archive_api path /api/chain-archive /api/chain-archive/*
     handle @chain_archive_api {
@@ -157,7 +166,7 @@ modc2.com {
     @main_api path /api /api/*
     handle @main_api {
         uri strip_prefix /api
-        reverse_proxy {$PM2_HOST:localhost}:8000
+        reverse_proxy {env.PM2_HOST}:8000
     }
     handle /* {
         reverse_proxy host.docker.internal:3001
@@ -182,6 +191,6 @@ api.modc2.com {
     }
 
     handle /* {
-        reverse_proxy {$PM2_HOST:localhost}:8000
+        reverse_proxy {env.PM2_HOST}:8000
     }
 }

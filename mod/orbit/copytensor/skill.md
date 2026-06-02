@@ -16,6 +16,7 @@ operations need a wallet.
 - **Public reads, no wallet needed**: leaderboard, subnets, account positions, trader profile, PnL — all served from public RPC.
 - **Round-robin RPC pool**: `entrypoint-finney.opentensor.ai`, `archive.chain.opentensor.ai`, `lite.chain.opentensor.ai`, `bittensor-finney.api.onfinality.io` — shuffles on init, auto-fails over on RPC errors.
 - **Copy engine**: replicate a target validator's subnet allocations onto your own hotkey with safety limits (per-tx cap, daily cap, rebalance threshold).
+- **Index of traders (polymarket-style)**: build a named, weighted basket of validators and "Start Index Live" — the frontend spawns one server-side copy per trader with capital split by weight. Pause / Resume / Sync / Stop act on the whole basket. Stored client-side in localStorage (`copytensor:indexes:v1`).
 - **Seed validators**: ships with a curated list of well-known coldkeys so the leaderboard renders on first boot.
 
 ## Usage

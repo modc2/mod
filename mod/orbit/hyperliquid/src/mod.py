@@ -57,6 +57,21 @@ class Hyperliquid(m.Mod):
         "pause_follow", "resume_follow", "list_signals",
         # vaults
         "list_vaults", "vault_details", "vault_perf", "vault_intent",
+        "create_vault", "vault_transfer",
+        # backend signer / agent
+        "signer_address", "approve_agent_intent",
+        # trading
+        "trade", "cancel", "cancel_by_cloid", "modify", "set_leverage",
+        "update_isolated_margin", "schedule_cancel", "action",
+        # transfers / bridging
+        "usd_class_transfer", "withdraw", "usd_send", "spot_send",
+        # referrer
+        "set_referrer",
+        # live copy-trade engine
+        "live_start", "live_stop", "live_status",
+        # market / wallet data
+        "mids", "meta", "orderbook", "candles",
+        "user_state", "user_fills", "user_pnl", "user_orders", "user_funding",
     ]
 
     api_port = 8919
@@ -274,6 +289,177 @@ class Hyperliquid(m.Mod):
         body: Dict[str, Any] = {"initial_usd": initial_usd}
         if nonce is not None: body["nonce"] = nonce
         return self._post(f"/indexes/{index_id}/vault/intent", body)
+
+    # ── market / wallet data passthroughs ──
+
+    def mids(self) -> Any: return self._get("/mids")
+    def meta(self) -> Any: return self._get("/market/meta")
+    def orderbook(self, coin: str) -> Any: return self._get(f"/orderbook/{coin}")
+    def candles(self, coin: str, interval: str = "1h", hours: int = 24) -> Any:
+        return self._get(f"/candles/{coin}", interval=interval, hours=hours)
+
+    def user_state(self, addr: str) -> Any:   return self._get(f"/user/{addr}/state")
+    def user_fills(self, addr: str) -> Any:   return self._get(f"/user/{addr}/fills")
+    def user_pnl(self, addr: str) -> Any:     return self._get(f"/user/{addr}/pnl")
+    def user_orders(self, addr: str) -> Any:  return self._get(f"/user/{addr}/orders")
+    def user_funding(self, addr: str) -> Any: return self._get(f"/user/{addr}/funding")
+
+    # ── backend agent signer ──
+
+    def signer_address(self, eoa: str) -> Any:
+        """Get (or generate) the backend agent address for an EOA. The
+        master wallet must `approveAgent` this address before the engine
+        can trade for them."""
+        return self._post("/signer/address", {"eoa": eoa})
+
+    def approve_agent_intent(self, eoa: str, agent_name: Optional[str] = None) -> Any:
+        """Return the `approveAgent` action + EIP-712 digest the user's
+        master wallet must sign in their browser. Once signed, POST
+        {action, nonce, signature} to /exchange via `forward(fn='exchange_post')`."""
+        body: Dict[str, Any] = {"eoa": eoa}
+        if agent_name: body["agent_name"] = agent_name
+        return self._post("/signer/approve_agent", body)
+
+    # ── trading (signed by backend agent) ──
+
+    def trade(self, eoa: str, coin: str, is_buy: bool, size: float,
+              price: Optional[float] = None, tif: Optional[str] = None,
+              reduce_only: bool = False, slippage_bps: Optional[int] = None,
+              cloid: Optional[str] = None, vault_address: Optional[str] = None) -> Any:
+        """Place an order. Omit `price` for a slippage-padded IOC market order."""
+        body: Dict[str, Any] = {"eoa": eoa, "coin": coin, "is_buy": is_buy,
+                                "size": size, "reduce_only": reduce_only}
+        if price is not None: body["price"] = price
+        if tif is not None: body["tif"] = tif
+        if slippage_bps is not None: body["slippage_bps"] = slippage_bps
+        if cloid is not None: body["cloid"] = cloid
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/trade", body)
+
+    def cancel(self, eoa: str, cancels: List[Dict[str, Any]],
+               vault_address: Optional[str] = None) -> Any:
+        """cancels = [{coin, oid}, ...]"""
+        body: Dict[str, Any] = {"eoa": eoa, "cancels": cancels}
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/cancel", body)
+
+    def cancel_by_cloid(self, eoa: str, cancels: List[Dict[str, Any]],
+                        vault_address: Optional[str] = None) -> Any:
+        """cancels = [{coin, cloid}, ...]"""
+        body: Dict[str, Any] = {"eoa": eoa, "cancels": cancels}
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/cancel_by_cloid", body)
+
+    def modify(self, eoa: str, oid: int, coin: str, is_buy: bool,
+               price: float, size: float, reduce_only: bool = False,
+               tif: Optional[str] = None, vault_address: Optional[str] = None) -> Any:
+        body: Dict[str, Any] = {
+            "eoa": eoa, "oid": oid, "coin": coin, "is_buy": is_buy,
+            "price": price, "size": size, "reduce_only": reduce_only,
+        }
+        if tif is not None: body["tif"] = tif
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/modify", body)
+
+    def set_leverage(self, eoa: str, coin: str, leverage: int, is_cross: bool = True,
+                     vault_address: Optional[str] = None) -> Any:
+        body: Dict[str, Any] = {"eoa": eoa, "coin": coin, "leverage": leverage,
+                                "is_cross": is_cross}
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/leverage", body)
+
+    def update_isolated_margin(self, eoa: str, coin: str, is_buy: bool,
+                               amount_usd: float, vault_address: Optional[str] = None) -> Any:
+        """Add (positive) or remove (negative) isolated margin on an open position."""
+        body: Dict[str, Any] = {"eoa": eoa, "coin": coin, "is_buy": is_buy,
+                                "amount_usd": amount_usd}
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/isolated_margin", body)
+
+    def schedule_cancel(self, eoa: str, time_ms: Optional[int] = None,
+                        vault_address: Optional[str] = None) -> Any:
+        """Dead-man's-switch: cancel everything at `time_ms` if no further heartbeat."""
+        body: Dict[str, Any] = {"eoa": eoa}
+        if time_ms is not None: body["time_ms"] = time_ms
+        if vault_address is not None: body["vault_address"] = vault_address
+        return self._post("/schedule_cancel", body)
+
+    def action(self, eoa: str, action: Dict[str, Any],
+               vault_address: Optional[str] = None,
+               nonce: Optional[int] = None) -> Any:
+        """Generic signed-action passthrough — sign any L1 action with the
+        backend agent and POST to /exchange. The action JSON's key order
+        matters (HL hashes msgpack(action))."""
+        body: Dict[str, Any] = {"eoa": eoa, "action": action}
+        if vault_address is not None: body["vault_address"] = vault_address
+        if nonce is not None: body["nonce"] = nonce
+        return self._post("/action", body)
+
+    # ── transfers / bridging ──
+
+    def usd_class_transfer(self, eoa: str, amount: str, to_perp: bool) -> Any:
+        """Move USDC between perp and spot wallets. `amount` is a string ('10.5')."""
+        return self._post("/usd_class_transfer", {"eoa": eoa, "amount": amount, "to_perp": to_perp})
+
+    def vault_transfer(self, eoa: str, vault: str, is_deposit: bool, amount_usd: float) -> Any:
+        return self._post("/vault_transfer", {"eoa": eoa, "vault": vault,
+                                              "is_deposit": is_deposit, "amount_usd": amount_usd})
+
+    def withdraw(self, eoa: str, destination: str, amount: str) -> Any:
+        """Withdraw USDC to L1 (Arbitrum)."""
+        return self._post("/withdraw", {"eoa": eoa, "destination": destination, "amount": amount})
+
+    def usd_send(self, eoa: str, destination: str, amount: str) -> Any:
+        """HL → HL USDC transfer."""
+        return self._post("/usd_send", {"eoa": eoa, "destination": destination, "amount": amount})
+
+    def spot_send(self, eoa: str, destination: str, token: str, amount: str) -> Any:
+        """HL → HL spot token transfer. `token` is 'SYMBOL:0x<tokenId>'."""
+        return self._post("/spot_send", {"eoa": eoa, "destination": destination,
+                                         "token": token, "amount": amount})
+
+    def create_vault(self, eoa: str, name: str, initial_usd: float,
+                     description: str = "") -> Any:
+        return self._post("/create_vault", {"eoa": eoa, "name": name,
+                                            "initial_usd": initial_usd,
+                                            "description": description})
+
+    def set_referrer(self, eoa: str, code: str) -> Any:
+        return self._post("/set_referrer", {"eoa": eoa, "code": code})
+
+    # ── live copy-trade engine ──
+
+    def live_start(self, eoa: str, traders: List[Dict[str, Any]],
+                   interval_ms: int = 15000, size_pct: float = 10.0,
+                   max_per_trade_usd: float = 0.0,
+                   min_order_size_usd: float = 10.0,
+                   max_slippage_bps: int = 100,
+                   coins_allow: Optional[List[str]] = None,
+                   coins_deny: Optional[List[str]] = None,
+                   vault_address: Optional[str] = None,
+                   capital: Optional[float] = None,
+                   strategy_id: Optional[str] = None) -> Any:
+        """Start an autonomous copy-trade session for `eoa`.
+
+        traders = [{address, weight=1.0, enabled=true}, ...]"""
+        body: Dict[str, Any] = {
+            "eoa": eoa, "traders": traders, "interval_ms": interval_ms,
+            "size_pct": size_pct, "max_per_trade_usd": max_per_trade_usd,
+            "min_order_size_usd": min_order_size_usd,
+            "max_slippage_bps": max_slippage_bps,
+        }
+        if coins_allow is not None: body["coins_allow"] = coins_allow
+        if coins_deny is not None: body["coins_deny"] = coins_deny
+        if vault_address is not None: body["vault_address"] = vault_address
+        if capital is not None: body["capital"] = capital
+        if strategy_id is not None: body["strategy_id"] = strategy_id
+        return self._post("/live/start", body)
+
+    def live_stop(self, eoa: str) -> Any:
+        return self._post("/live/stop", {"eoa": eoa})
+
+    def live_status(self, eoa: str) -> Any:
+        return self._get("/live/status", eoa=eoa)
 
     # ── mod-protocol forward ──
 
