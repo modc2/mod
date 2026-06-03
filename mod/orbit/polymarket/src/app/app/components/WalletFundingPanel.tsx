@@ -315,7 +315,9 @@ export default function WalletFundingPanel({ capital, onCapitalChange }: Props) 
             {loaded !== null && loaded !== undefined && loaded === 0 ? (
               <div className="text-[13px] text-amber-400/80 tracking-wider">FUND BELOW ↓</div>
             ) : loaded !== null && loaded !== undefined && loaded > 0 ? (
-              <div className="text-[13px] text-purple-400/90 tracking-wider">DEPOSIT TO PROXY ↓</div>
+              <div className="text-[11px] text-pixel-gray tracking-wider">
+                in your MetaMask — use TRADING WALLET to deposit
+              </div>
             ) : null}
           </div>
         </div>

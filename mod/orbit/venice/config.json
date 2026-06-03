@@ -1,0 +1,33 @@
+{
+    "name": "venice",
+    "version": "0.1.0",
+    "description": "Venice AI \u2014 OpenAI-compatible LLM interface with uncensored models. Chat completions, streaming, model listing, key management.",
+    "port": 8880,
+    "icon": "V",
+    "color": "#b91c1c",
+    "provider": "venice",
+    "default_model": "kimi-2.6",
+    "fns": [
+        "forward",
+        "history",
+        "resolve_model",
+        "api_key",
+        "keys",
+        "add_key",
+        "set_keys",
+        "set_key",
+        "rm_key",
+        "model2info",
+        "models",
+        "model_infos",
+        "model_info",
+        "filter_models",
+        "pricing",
+        "test",
+        "env"
+    ],
+    "urls": {
+        "api": "http://localhost:8880"
+    },
+    "schema": "Qmc2J2uw2XK59daGxeQxJs2AqgEg3ShNSPrq9HcRaVsDJL"
+}

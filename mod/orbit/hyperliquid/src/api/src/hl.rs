@@ -24,7 +24,11 @@ impl Client {
         let stats_net = if testnet { "Testnet" } else { "Mainnet" };
         Self {
             http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(20))
+                // HL's stats CDN routinely takes 20-30s under load — the
+                // earlier 20s ceiling caused prewarm to consistently return
+                // 0 traders. 60s is long enough to absorb the worst-case
+                // latency without holding handlers open indefinitely.
+                .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .expect("http client"),
             info_url: format!("{base}/info"),

@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Optional
 
-from .base import (
+from ..base.mod import (
     Strat,
     StratConfig,
     Order,

@@ -101,5 +101,7 @@ mod/orbit/copytensor/
 - **Load**: `m.mod("copytensor")()`
 - **Call any fn**: `m.fn("copytensor/leaderboard")(days=7)`
 - **Default entry**: `forward()` returns module info; `forward(fn="leaderboard")` dispatches
-- **Logs**: `/tmp/copytensor/api.log`, `/tmp/copytensor/app.log` (local mode)
+- **Logs**: `/tmp/copytensor/api.log`, `/tmp/copytensor/app.log` (local mode), `docker logs copytensor` (docker mode)
 - **Ports**: api 50150, app 3150
+- **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/api/copytensor/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
+- **Docker**: `docker compose up -d --build` from the module dir, or `m copytensor/serve` (auto-picks docker when available, falls back to local with the prebuilt arm64 binary). Image: `copytensor-copytensor:latest`. Rust 1.93+ required (older base images choke on `ar_archive_writer`/`constant_time_eq` edition2024 features).

@@ -9,6 +9,12 @@ ENV CARGO_HTTP_MULTIPLEXING=false
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 WORKDIR /build
 COPY src/api/ .
+# Reference strats (base.py / copytrader.py / example_ev_strat.py)
+# get embedded into the binary via include_str! so the /user-strats/
+# template route can serve them. Path matches what dev sees: from
+# src/routes.rs, `../../strats/<file>.py` resolves to /strats/<file>.py
+# inside the build context (and src/strats/ outside Docker).
+COPY src/strats/ /strats/
 # Cache mounts: the cargo registry/git caches and the build target dir
 # persist across `docker build` runs. Without these, every rebuild
 # re-downloads the entire dependency graph (~10+ min) — a single source

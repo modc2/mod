@@ -254,6 +254,14 @@ export default function Home() {
   };
   const [agentVersions, setAgentVersions] = useState<VersionChainEntry[]>([]);
 
+  // Owner-managed whitelist of EOAs that may sign in to this module.
+  // Backed by GET/POST/DELETE /whitelist on the Rust API. Non-owners
+  // see the list read-only; owner gets a delete X per row + an add box.
+  const [whitelist, setWhitelist] = useState<string[]>([]);
+  const [whitelistInput, setWhitelistInput] = useState("");
+  const [whitelistBusy, setWhitelistBusy] = useState(false);
+  const [whitelistError, setWhitelistError] = useState<string | null>(null);
+
   // File viewer state
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [viewingFileContent, setViewingFileContent] = useState<string>("");
@@ -365,6 +373,20 @@ export default function Home() {
   const [agentEnabled, setAgentEnabled] = useState(true);
   const [agentFullscreen, setAgentFullscreen] = useState(false);
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(true);
+
+  // Mobile viewport detector — drives the AGENT-panel overlay vs. side-
+  // by-side layout, single vs. two-col bento, etc. Matches Tailwind's
+  // `md` breakpoint (768px) so the JS-driven inline styles align with
+  // any future `md:` class additions.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const [sidebarSide, setSidebarSide] = useState<"left" | "right">("right");
 
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
@@ -822,6 +844,61 @@ export default function Home() {
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
   }, [apiUrl, selectedModule]);
+
+  // Load the whitelist on mount + after any owner-driven mutation.
+  const loadWhitelist = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/whitelist`);
+      const d = await r.json();
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+    } catch {
+      setWhitelist([]);
+    }
+  }, [apiUrl]);
+  useEffect(() => { loadWhitelist(); }, [loadWhitelist]);
+
+  const addToWhitelist = useCallback(async (addr: string) => {
+    const clean = addr.trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(clean)) {
+      setWhitelistError("address must be 0x + 40 hex chars");
+      return;
+    }
+    setWhitelistBusy(true);
+    setWhitelistError(null);
+    try {
+      const r = await fetch(`${apiUrl}/whitelist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ address: clean }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+      setWhitelistInput("");
+    } catch (e) {
+      setWhitelistError((e as Error).message);
+    } finally {
+      setWhitelistBusy(false);
+    }
+  }, [apiUrl, token]);
+
+  const removeFromWhitelist = useCallback(async (addr: string) => {
+    setWhitelistBusy(true);
+    setWhitelistError(null);
+    try {
+      const r = await fetch(`${apiUrl}/whitelist/${encodeURIComponent(addr)}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+    } catch (e) {
+      setWhitelistError((e as Error).message);
+    } finally {
+      setWhitelistBusy(false);
+    }
+  }, [apiUrl, token]);
 
   // Check owner status when address changes
   useEffect(() => {
@@ -5423,13 +5500,31 @@ export default function Home() {
             <div className="p-4 flex flex-col gap-4">
 
               {/* ── Routy Gateway ──────────────────────── */}
-              <div className="border rounded" style={{ borderColor: routyConnected ? "color-mix(in srgb, var(--crt-blue) 25%, transparent)" : "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
+              <div
+                className="relative rounded-lg overflow-hidden"
+                style={{
+                  border: `1px solid color-mix(in srgb, var(--crt-blue) ${routyConnected ? 22 : 12}%, var(--border-color))`,
+                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-blue) 4%, transparent), transparent)",
+                }}
+              >
+                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-blue)", opacity: 0.7 }} />
+                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] uppercase font-bold" style={{ color: "var(--crt-blue)", letterSpacing: "0.02em" }}>GATEWAY</span>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: routyConnected ? "var(--crt-green)" : "var(--crt-red)", boxShadow: routyConnected ? "0 0 6px var(--crt-green)" : "0 0 6px var(--crt-red)" }} />
-                    <span className="text-[10px]" style={{ color: routyConnected ? "var(--crt-green)" : "var(--crt-red)" }}>
-                      {routyConnected ? "online" : "offline"}
+                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-blue)" }}>⇆</span>
+                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-blue)" }}>Gateway</span>
+                    <span
+                      className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ml-1"
+                      style={{
+                        color: routyConnected ? "var(--crt-green)" : "var(--crt-red)",
+                        background: `color-mix(in srgb, ${routyConnected ? "var(--crt-green)" : "var(--crt-red)"} 12%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${routyConnected ? "var(--crt-green)" : "var(--crt-red)"} 28%, transparent)`,
+                      }}
+                    >
+                      <span
+                        className={`inline-block w-1.5 h-1.5 rounded-full ${routyConnected ? "led-pulse" : ""}`}
+                        style={{ background: routyConnected ? "var(--crt-green)" : "var(--crt-red)", boxShadow: routyConnected ? "0 0 5px var(--crt-green)" : "none" }}
+                      />
+                      {routyConnected ? "ONLINE" : "OFFLINE"}
                     </span>
                   </div>
                   <button
@@ -5564,238 +5659,472 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Status Cards - only show if module has API or App */}
-              {(info?.api_url || info?.app_url) && (
-              <div className={`grid gap-3 ${info?.api_url && info?.app_url ? "grid-cols-2" : "grid-cols-1"}`}>
-                {info?.api_url && (
-                <div className="p-3 border rounded" style={{ borderColor: moduleRunning ? "color-mix(in srgb, var(--crt-green) 25%, transparent)" : "color-mix(in srgb, var(--crt-red) 25%, transparent)", background: moduleRunning ? "color-mix(in srgb, var(--crt-green) 3%, transparent)" : "color-mix(in srgb, var(--crt-red) 3%, transparent)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>API</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-sm uppercase font-bold" style={{ color: moduleRunning ? "var(--crt-green)" : "var(--crt-red)", background: moduleRunning ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "color-mix(in srgb, var(--crt-red) 10%, transparent)" }}>
-                      {moduleRunning ? "Online" : "Offline"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: moduleRunning ? "var(--crt-green)" : "var(--crt-red)", boxShadow: moduleRunning ? "0 0 6px var(--crt-green)" : "none" }} />
-                    <span className="text-[12px] text-crt-green/30 font-mono truncate">{info.api_url}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 50%, transparent)" }}>
-                    {moduleRunning ? (
-                      <>
-                        <button onClick={() => stopProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                          {togglingApi ? "..." : "Stop"}
+              {/* Service status cards — API + APP side by side. Each is a
+                  pill-bordered tile in its own accent color (blue for API,
+                  green for APP) with a breathing dot, the URL on its own
+                  line in mono, and a single primary action that flips
+                  with state. The duplicate STOP/RESTART pair from QUICK
+                  ACTIONS was redundant — actions live here, on the thing
+                  they act on. */}
+              {(info?.api_url || info?.app_url) && (() => {
+                const ServiceTile = (props: {
+                  kind: "API" | "APP";
+                  glyph: string;
+                  accent: string;        // css var for the accent color
+                  url: string;
+                  running: boolean;
+                  busy: boolean;
+                  onStart: () => void;
+                  onStop: () => void;
+                  onRestart: () => void;
+                  onClickUrl?: () => void;
+                }) => {
+                  const stateColor = props.running ? "var(--crt-green)" : "var(--crt-red)";
+                  return (
+                    <div
+                      className="relative rounded-lg overflow-hidden"
+                      style={{
+                        border: `1px solid color-mix(in srgb, ${props.accent} 22%, transparent)`,
+                        background: `linear-gradient(160deg, color-mix(in srgb, ${props.accent} 6%, transparent), color-mix(in srgb, ${props.accent} 2%, transparent))`,
+                        boxShadow: props.running ? `inset 0 1px 0 color-mix(in srgb, ${props.accent} 18%, transparent)` : "none",
+                      }}
+                    >
+                      {/* accent bar */}
+                      <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: props.accent, opacity: 0.85 }} />
+                      <div className="pl-4 pr-3 py-3 flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[14px] leading-none" style={{ color: props.accent }}>{props.glyph}</span>
+                            <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: props.accent }}>{props.kind}</span>
+                          </div>
+                          <span
+                            className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                            style={{
+                              color: stateColor,
+                              background: `color-mix(in srgb, ${stateColor} 12%, transparent)`,
+                              border: `1px solid color-mix(in srgb, ${stateColor} 30%, transparent)`,
+                            }}
+                          >
+                            <span
+                              className={`inline-block w-1.5 h-1.5 rounded-full ${props.running ? "led-pulse" : ""}`}
+                              style={{ background: stateColor, boxShadow: props.running ? `0 0 6px ${stateColor}` : "none" }}
+                            />
+                            {props.running ? "ONLINE" : "OFFLINE"}
+                          </span>
+                        </div>
+                        <button
+                          onClick={props.onClickUrl}
+                          disabled={!props.onClickUrl}
+                          className="text-left text-[12px] font-mono truncate transition-colors"
+                          style={{
+                            color: props.running ? "var(--text-secondary)" : "var(--text-tertiary)",
+                            cursor: props.onClickUrl ? "pointer" : "default",
+                            opacity: 0.95,
+                          }}
+                          title={props.url}
+                        >
+                          {props.url}
                         </button>
-                        <button onClick={() => restartProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                          {togglingApi ? "..." : "Restart"}
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => startProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                        {togglingApi ? "..." : "Start"}
-                      </button>
+                        <div className="flex items-center gap-1.5">
+                          {props.running ? (
+                            <>
+                              <button
+                                onClick={props.onStop}
+                                disabled={props.busy}
+                                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                                style={{
+                                  border: "1px solid color-mix(in srgb, var(--crt-red) 35%, transparent)",
+                                  color: "var(--crt-red)",
+                                  background: "color-mix(in srgb, var(--crt-red) 8%, transparent)",
+                                }}
+                              >
+                                {props.busy ? "…" : "STOP"}
+                              </button>
+                              <button
+                                onClick={props.onRestart}
+                                disabled={props.busy}
+                                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                                style={{
+                                  border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                                  color: "var(--crt-amber)",
+                                  background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
+                                }}
+                              >
+                                {props.busy ? "…" : "RESTART"}
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={props.onStart}
+                              disabled={props.busy}
+                              className="text-[10px] px-3 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                              style={{
+                                border: "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)",
+                                color: "var(--crt-green)",
+                                background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                              }}
+                            >
+                              {props.busy ? "…" : "START"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                };
+                return (
+                  <div className={`grid gap-3 ${info?.api_url && info?.app_url ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
+                    {info?.api_url && (
+                      <ServiceTile
+                        kind="API"
+                        glyph="⚡"
+                        accent="var(--crt-blue)"
+                        url={info.api_url}
+                        running={!!moduleRunning}
+                        busy={togglingApi}
+                        onStart={() => startProcess("api")}
+                        onStop={() => stopProcess("api")}
+                        onRestart={() => restartProcess("api")}
+                      />
+                    )}
+                    {info?.app_url && (
+                      <ServiceTile
+                        kind="APP"
+                        glyph="◈"
+                        accent="var(--crt-green)"
+                        url={info.app_url}
+                        running={!!appRunning}
+                        busy={togglingApp}
+                        onStart={() => startProcess("app")}
+                        onStop={() => stopProcess("app")}
+                        onRestart={() => restartProcess("app")}
+                        onClickUrl={() => setSidebarView("app")}
+                      />
                     )}
                   </div>
-                </div>
-                )}
-                {info?.app_url && (
-                <div className="p-3 border rounded" style={{ borderColor: appRunning ? "color-mix(in srgb, var(--crt-green) 25%, transparent)" : "color-mix(in srgb, var(--crt-red) 25%, transparent)", background: appRunning ? "color-mix(in srgb, var(--crt-green) 3%, transparent)" : "color-mix(in srgb, var(--crt-red) 3%, transparent)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>APP</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-sm uppercase font-bold" style={{ color: appRunning ? "var(--crt-green)" : "var(--crt-red)", background: appRunning ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "color-mix(in srgb, var(--crt-red) 10%, transparent)" }}>
-                      {appRunning ? "Online" : "Offline"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setSidebarView("app")}>
-                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: appRunning ? "var(--crt-green)" : "var(--crt-red)", boxShadow: appRunning ? "0 0 6px var(--crt-green)" : "none" }} />
-                    <span className="text-[12px] text-crt-green/30 font-mono truncate">{info.app_url}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 50%, transparent)" }}>
-                    {appRunning ? (
-                      <>
-                        <button onClick={() => stopProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                          {togglingApp ? "..." : "Stop"}
-                        </button>
-                        <button onClick={() => restartProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                          {togglingApp ? "..." : "Restart"}
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => startProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                        {togglingApp ? "..." : "Start"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                )}
-              </div>
-              )}
+                );
+              })()}
 
-              {/* Module Info */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>MODULE INFO</span>
+              {/* Module Info — definition list on top, big stats grid on
+                  bottom. Section header gets an accent bar + glyph so it
+                  reads at a glance instead of fading into the muted tone. */}
+              <div
+                className="relative rounded-lg overflow-hidden"
+                style={{
+                  border: "1px solid color-mix(in srgb, var(--accent-color) 18%, var(--border-color))",
+                  background: "linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 4%, transparent), transparent)",
+                }}
+              >
+                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--accent-color)", opacity: 0.7 }} />
+                <div className="pl-4 pr-3 py-2 border-b flex items-center gap-2" style={{ borderColor: "var(--border-color)" }}>
+                  <span className="text-[12px] leading-none" style={{ color: "var(--accent-color)" }}>◇</span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--accent-color)" }}>Module</span>
                 </div>
-                <div className="p-3 flex flex-col gap-2 text-[13px]">
+                <div className="pl-4 pr-3 py-3 flex flex-col gap-2">
                   {info?.path && (
                     <div className="flex items-start gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Path</span>
-                      <span className="text-crt-green/60 font-mono text-[12px] break-all">{info.path.replace(/^\/Users\/[^/]+\//, "~/")}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Path</span>
+                      <span className="font-mono text-[12px] break-all" style={{ color: "var(--text-secondary)" }}>{info.path.replace(/^\/Users\/[^/]+\//, "~/")}</span>
                     </div>
                   )}
                   {cfg?.owner && (
                     <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Owner</span>
-                      <span className="text-crt-green/60 font-mono text-[12px]">{cfg.owner.slice(0, 6)}...{cfg.owner.slice(-4)}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Owner</span>
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(cfg.owner).catch(() => {})}
+                        title={`Click to copy\n${cfg.owner}`}
+                        className="font-mono text-[12px] transition-colors cursor-pointer"
+                        style={{ color: "var(--crt-green)", background: "transparent", border: "none", padding: 0 }}
+                      >
+                        {cfg.owner.slice(0, 6)}…{cfg.owner.slice(-4)}
+                      </button>
                     </div>
                   )}
                   {info?.category && (
                     <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Category</span>
-                      <span className="text-crt-green/60">{info.category}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Cat</span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-bold"
+                        style={{
+                          color: "var(--accent-color)",
+                          background: "color-mix(in srgb, var(--accent-color) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--accent-color) 22%, transparent)",
+                        }}
+                      >
+                        {info.category}
+                      </span>
                     </div>
                   )}
-                  <div className="flex items-center gap-6 mt-1">
-                    {cfg?.fns && cfg.fns.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">Functions</span>
-                        <span className="text-crt-amber font-bold">{cfg.fns.length}</span>
-                      </div>
-                    )}
-                    {cfg?.endpoints && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">Endpoints</span>
-                        <span className="text-crt-amber font-bold">{Object.keys(cfg.endpoints).length}</span>
-                      </div>
-                    )}
-                    {info?.has_app_dir !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">App</span>
-                        <span style={{ color: info.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)" }}>{info.has_app_dir ? "Yes" : "No"}</span>
-                      </div>
-                    )}
-                    {(info?.has_api_dir || info?.has_server_dir) !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">API</span>
-                        <span style={{ color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)" }}>{(info?.has_api_dir || info?.has_server_dir) ? "Yes" : "No"}</span>
-                      </div>
-                    )}
-                  </div>
                   {info?.cid && (
-                    <div className="flex items-start gap-3 mt-1 pt-2" style={{ borderTop: "1px solid var(--border-color)" }}>
-                      <span className="text-crt-green/30 shrink-0 w-20">CID</span>
-                      <span className="text-crt-green/40 font-mono text-[11px] break-all">{info.cid}</span>
+                    <div className="flex items-start gap-3">
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>CID</span>
+                      <span className="font-mono text-[11px] break-all" style={{ color: "var(--text-tertiary)" }}>{info.cid}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Stat grid — punchier than the inline row. */}
+                <div
+                  className="grid grid-cols-4 gap-px"
+                  style={{
+                    background: "var(--border-color)",
+                    borderTop: "1px solid var(--border-color)",
+                  }}
+                >
+                  {[
+                    { label: "fns", value: cfg?.fns?.length ?? 0, color: "var(--crt-amber)" },
+                    { label: "endpoints", value: cfg?.endpoints ? Object.keys(cfg.endpoints).length : 0, color: "var(--crt-amber)" },
+                    {
+                      label: "app",
+                      value: info?.has_app_dir ? "yes" : "no",
+                      color: info?.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)",
+                    },
+                    {
+                      label: "api",
+                      value: (info?.has_api_dir || info?.has_server_dir) ? "yes" : "no",
+                      color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)",
+                    },
+                  ].map((s) => (
+                    <div key={s.label} className="flex flex-col items-center justify-center py-2.5" style={{ background: "var(--bg-primary)" }}>
+                      <span className="text-[18px] font-bold leading-none" style={{ color: s.color, letterSpacing: "-0.02em" }}>{s.value}</span>
+                      <span className="text-[9px] uppercase mt-1 tracking-wider" style={{ color: "var(--text-tertiary)" }}>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Whitelist — owner-managed list of EOAs allowed to sign in
+                  to this module. Backed by GET/POST/DELETE /whitelist on
+                  the Rust API; non-owners see read-only rows + a hint.
+                  Owner gets a click-to-remove X per row and a 0x… input
+                  with ADD. Always-visible: a new caller checking whether
+                  they were granted access shouldn't need owner perms to
+                  read the list. */}
+              <div
+                className="relative rounded-lg overflow-hidden"
+                style={{
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 18%, var(--border-color))",
+                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 3%, transparent), transparent)",
+                }}
+              >
+                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-green)", opacity: 0.65 }} />
+                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-green)" }}>◐</span>
+                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-green)" }}>Whitelist</span>
+                    <span
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded-full ml-1"
+                      style={{
+                        color: "var(--crt-green)",
+                        background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                        border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
+                      }}
+                    >
+                      {whitelist.length}
+                    </span>
+                  </div>
+                  <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    {isOwner ? "owner edit" : "read-only"}
+                  </span>
+                </div>
+                <div className="pl-4 pr-3 py-3 flex flex-col gap-2">
+                  {whitelist.length === 0 ? (
+                    <div className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
+                      No addresses whitelisted yet. The configured owner is always allowed.
+                    </div>
+                  ) : (
+                    whitelist.map((addr) => {
+                      const isCaller = address && address.toLowerCase() === addr.toLowerCase();
+                      return (
+                        <div
+                          key={addr}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded"
+                          style={{
+                            background: isCaller ? "color-mix(in srgb, var(--crt-green) 6%, transparent)" : "var(--bg-secondary)",
+                            border: `1px solid ${isCaller ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "var(--border-color)"}`,
+                          }}
+                        >
+                          <span
+                            className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: "var(--crt-green)", boxShadow: isCaller ? "0 0 4px var(--crt-green)" : "none" }}
+                          />
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(addr).catch(() => {})}
+                            className="font-mono text-[11px] truncate flex-1 text-left transition-colors cursor-pointer"
+                            style={{ color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
+                            title={`${addr} — click to copy`}
+                          >
+                            {addr}
+                          </button>
+                          {isCaller && (
+                            <span
+                              className="text-[8px] font-bold uppercase tracking-widest px-1 py-[1px] rounded shrink-0"
+                              style={{ background: "var(--crt-green)", color: "var(--bg-primary)" }}
+                            >
+                              YOU
+                            </span>
+                          )}
+                          {isOwner && (
+                            <button
+                              onClick={() => removeFromWhitelist(addr)}
+                              disabled={whitelistBusy}
+                              className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
+                              style={{
+                                color: "var(--crt-red)",
+                                background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                              }}
+                              title={`Remove ${addr.slice(0, 6)}…${addr.slice(-4)} from the whitelist`}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                  {isOwner && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <input
+                        type="text"
+                        value={whitelistInput}
+                        onChange={(e) => { setWhitelistInput(e.target.value); setWhitelistError(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && whitelistInput.trim()) addToWhitelist(whitelistInput); }}
+                        placeholder="0x… address to whitelist"
+                        disabled={whitelistBusy}
+                        className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                        style={{
+                          color: "var(--text-primary)",
+                          background: "var(--bg-secondary)",
+                          border: `1px solid ${whitelistError ? "color-mix(in srgb, var(--crt-red) 45%, transparent)" : "var(--border-color)"}`,
+                        }}
+                      />
+                      <button
+                        onClick={() => addToWhitelist(whitelistInput)}
+                        disabled={whitelistBusy || !whitelistInput.trim()}
+                        className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                        style={{
+                          color: "var(--crt-green)",
+                          background: "color-mix(in srgb, var(--crt-green) 12%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
+                        }}
+                      >
+                        {whitelistBusy ? "…" : "Add"}
+                      </button>
+                    </div>
+                  )}
+                  {whitelistError && (
+                    <div className="text-[10px] mt-1" style={{ color: "var(--crt-red)" }}>
+                      {whitelistError}
+                    </div>
+                  )}
+                  {!isOwner && (
+                    <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: "var(--text-tertiary)" }}>
+                      Only the configured owner ({cfg?.owner ? `${cfg.owner.slice(0, 6)}…${cfg.owner.slice(-4)}` : "—"}) can edit this list.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Quick Actions */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>QUICK ACTIONS</span>
-                </div>
-                <div className="p-3 flex flex-col gap-3">
-                  {/* Process Controls */}
-                  {(info?.api_url || info?.app_url) && (
-                    <div className="flex flex-col gap-2">
-                      {info?.api_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-crt-green/30 uppercase w-8 shrink-0">API</span>
-                          <div className="flex items-center gap-1.5">
-                            {moduleRunning ? (
-                              <>
-                                <button onClick={() => stopProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                                  {togglingApi ? "..." : "Stop"}
-                                </button>
-                                <button onClick={() => restartProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                                  {togglingApi ? "..." : "Restart"}
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => startProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                                {togglingApi ? "..." : "Start"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {info?.app_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-crt-green/30 uppercase w-8 shrink-0">APP</span>
-                          <div className="flex items-center gap-1.5">
-                            {appRunning ? (
-                              <>
-                                <button onClick={() => stopProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                                  {togglingApp ? "..." : "Stop"}
-                                </button>
-                                <button onClick={() => restartProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                                  {togglingApp ? "..." : "Restart"}
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => startProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                                {togglingApp ? "..." : "Start"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* Utility actions */}
-                  <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={fetchDirectConfig}
-                    className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-amber/25 text-crt-amber/70 hover:text-crt-amber hover:border-crt-amber/50 transition-all uppercase font-bold"
-                    style={{ letterSpacing: "0.02em", background: "color-mix(in srgb, var(--crt-amber) 4%, transparent)" }}
-                  >
-                    Reload Config
-                  </button>
-                  <button
-                    onClick={() => checkModuleHealth()}
-                    className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-blue/25 text-crt-blue/70 hover:text-crt-blue hover:border-crt-blue/50 transition-all uppercase font-bold"
-                    style={{ letterSpacing: "0.02em", background: "color-mix(in srgb, var(--crt-blue) 4%, transparent)" }}
-                  >
-                    Check Health
-                  </button>
-                  {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
-                    confirmDeleteModule === selectedModule ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-crt-red/70 uppercase font-bold">Delete?</span>
-                        <button
-                          onClick={() => deleteModule(selectedModule)}
-                          className="text-[12px] px-2 py-1 rounded-sm border border-crt-red/50 text-crt-red bg-crt-red/10 hover:bg-crt-red/20 transition-all uppercase font-bold"
-                          style={{ letterSpacing: "0.02em" }}
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteModule(null)}
-                          className="text-[12px] px-2 py-1 rounded-sm border border-crt-green/25 text-crt-green/60 hover:text-crt-green hover:border-crt-green/50 transition-all uppercase font-bold"
-                          style={{ letterSpacing: "0.02em" }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
+              {/* Utility toolbar — process start/stop/restart already live
+                  on the API/APP tiles above, so this is just the cross-
+                  cutting actions: reload config (re-pulls config.json),
+                  check health (probes /health), delete (owner only). Flat
+                  toolbar feels lighter than a section card and matches the
+                  density a header bar should have. */}
+              <div
+                className="rounded-lg flex items-center gap-1.5 p-2 flex-wrap"
+                style={{
+                  border: "1px solid var(--border-color)",
+                  background: "linear-gradient(180deg, var(--bg-tint), transparent)",
+                }}
+              >
+                <span className="text-[10px] uppercase font-bold tracking-[0.18em] pl-1.5 pr-1" style={{ color: "var(--text-tertiary)" }}>
+                  Actions
+                </span>
+                <button
+                  onClick={fetchDirectConfig}
+                  className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all flex items-center gap-1.5"
+                  style={{
+                    border: "1px solid color-mix(in srgb, var(--crt-amber) 30%, transparent)",
+                    color: "var(--crt-amber)",
+                    background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)",
+                  }}
+                  title="Re-fetch config.json from disk"
+                >
+                  <span style={{ opacity: 0.8 }}>↻</span> Reload Config
+                </button>
+                <button
+                  onClick={() => checkModuleHealth()}
+                  className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all flex items-center gap-1.5"
+                  style={{
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 30%, transparent)",
+                    color: "var(--crt-blue)",
+                    background: "color-mix(in srgb, var(--crt-blue) 6%, transparent)",
+                  }}
+                  title="Probe the module's /health endpoint"
+                >
+                  <span style={{ opacity: 0.8 }}>♡</span> Check Health
+                </button>
+                <div className="flex-1" />
+                {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
+                  confirmDeleteModule === selectedModule ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--crt-red)" }}>Delete?</span>
                       <button
-                        onClick={() => setConfirmDeleteModule(selectedModule)}
-                        className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-red/20 text-crt-red/40 hover:text-crt-red hover:border-crt-red/40 transition-all uppercase font-bold"
-                        style={{ letterSpacing: "0.02em" }}
+                        onClick={() => deleteModule(selectedModule)}
+                        className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                        style={{
+                          border: "1px solid var(--crt-red)",
+                          color: "#fff",
+                          background: "var(--crt-red)",
+                        }}
                       >
-                        Delete Module
+                        Confirm
                       </button>
-                    )
-                  )}
-                  </div>
-                </div>
+                      <button
+                        onClick={() => setConfirmDeleteModule(null)}
+                        className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                        style={{
+                          border: "1px solid var(--border-color)",
+                          color: "var(--text-tertiary)",
+                          background: "transparent",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteModule(selectedModule)}
+                      className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                      style={{
+                        border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                        color: "color-mix(in srgb, var(--crt-red) 60%, var(--text-tertiary))",
+                        background: "transparent",
+                      }}
+                      title="Permanently remove this module"
+                    >
+                      ✕ Delete Module
+                    </button>
+                  )
+                )}
               </div>
 
               {/* Logs */}
               {(info?.api_url || info?.app_url) && (
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>LOGS</span>
+              <div
+                className="relative rounded-lg overflow-hidden"
+                style={{
+                  border: "1px solid color-mix(in srgb, var(--crt-amber) 15%, var(--border-color))",
+                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 3%, transparent), transparent)",
+                }}
+              >
+                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-amber)", opacity: 0.55 }} />
+                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-amber)" }}>▤</span>
+                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-amber)" }}>Logs</span>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => { setModuleLogsAutoRefresh(!moduleLogsAutoRefresh); if (!moduleLogsOpen) setModuleLogsOpen("api"); }}
@@ -5887,9 +6216,17 @@ export default function Home() {
               )}
 
               {/* Scripts & Ports */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>SCRIPTS & PORTS</span>
+              <div
+                className="relative rounded-lg overflow-hidden"
+                style={{
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 15%, var(--border-color))",
+                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 3%, transparent), transparent)",
+                }}
+              >
+                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-green)", opacity: 0.55 }} />
+                <div className="pl-4 pr-3 py-2 border-b flex items-center gap-2" style={{ borderColor: "var(--border-color)" }}>
+                  <span className="text-[12px] leading-none" style={{ color: "var(--crt-green)" }}>▸</span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-green)" }}>Scripts & Ports</span>
                 </div>
                 <div className="p-3 flex flex-col gap-1.5 text-[12px] font-mono">
                   {cfg?.scripts?.start && (
@@ -6748,8 +7085,10 @@ export default function Home() {
 
           </div>
 
-          {/* Navigation Tabs — inline with module selector */}
-          <div className="flex items-center gap-0 ml-4">
+          {/* Navigation Tabs — inline with module selector. On phone we
+              still want the tabs visible but the row may wrap; `flex-wrap`
+              prevents the address chip from getting pushed off-screen. */}
+          <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap">
           {([
             { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
             ...(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir ? [{ key: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" }] : []),
@@ -6900,28 +7239,62 @@ export default function Home() {
             )}
         </div>
 
-        {/* ── Sidebar: Agent (collapsible) ──────────────────────── */}
-        <div
-          className="shrink-0"
-          style={{
-            width: agentSidebarOpen ? "1px" : "0px",
-            flexShrink: 0,
-            background: "rgba(96,165,250,0.2)",
-            boxShadow: agentSidebarOpen ? "0 0 8px rgba(96,165,250,0.1), 0 0 2px rgba(96,165,250,0.15)" : "none",
-            transition: "width 0.2s ease, box-shadow 0.2s ease",
-            order: sidebarSide === "left" ? -2 : undefined,
-          }}
-        />
+        {/* ── Sidebar: Agent (collapsible) ──────────────────────────
+            On phone (< 768px) it becomes a full-screen overlay so the
+            main content has the whole viewport when not in use, and the
+            agent has the whole viewport when open. A backdrop receives
+            taps to dismiss. On desktop it stays inline as a 520px pane. */}
+        {!isMobile && (
+          <div
+            className="shrink-0"
+            style={{
+              width: agentSidebarOpen ? "1px" : "0px",
+              flexShrink: 0,
+              background: "rgba(96,165,250,0.2)",
+              boxShadow: agentSidebarOpen ? "0 0 8px rgba(96,165,250,0.1), 0 0 2px rgba(96,165,250,0.15)" : "none",
+              transition: "width 0.2s ease, box-shadow 0.2s ease",
+              order: sidebarSide === "left" ? -2 : undefined,
+            }}
+          />
+        )}
+        {isMobile && agentSidebarOpen && (
+          <div
+            onClick={() => setAgentSidebarOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.55)",
+              backdropFilter: "blur(2px)",
+              zIndex: 60,
+            }}
+            aria-label="Close agent panel"
+          />
+        )}
         <div
           className="flex flex-col overflow-hidden shrink-0"
-          style={{
-            width: agentSidebarOpen ? "520px" : "0px",
-            minWidth: agentSidebarOpen ? "380px" : "0px",
-            maxWidth: "60vw",
-            background: "var(--bg-primary)",
-            transition: "width 0.25s ease, min-width 0.25s ease",
-            order: sidebarSide === "left" ? -3 : undefined,
-          }}
+          style={
+            isMobile
+              ? {
+                  position: agentSidebarOpen ? "fixed" : "static",
+                  inset: agentSidebarOpen ? 0 : "auto",
+                  width: agentSidebarOpen ? "100vw" : "0px",
+                  height: agentSidebarOpen ? "100dvh" : "0px",
+                  maxWidth: "100vw",
+                  background: "var(--bg-primary)",
+                  zIndex: 70,
+                  boxShadow: agentSidebarOpen ? "0 0 40px rgba(0,0,0,0.6)" : "none",
+                  transition: "none",
+                  order: undefined,
+                }
+              : {
+                  width: agentSidebarOpen ? "520px" : "0px",
+                  minWidth: agentSidebarOpen ? "380px" : "0px",
+                  maxWidth: "60vw",
+                  background: "var(--bg-primary)",
+                  transition: "width 0.25s ease, min-width 0.25s ease",
+                  order: sidebarSide === "left" ? -3 : undefined,
+                }
+          }
         >
           {agentSidebarOpen && renderAgentTab()}
         </div>
@@ -7059,7 +7432,7 @@ export default function Home() {
 
       {/* ── Status Bar ───────────────────────────────────────────── */}
       <footer
-        className="flex items-center justify-between px-5 py-1"
+        className="flex items-center justify-between gap-2 px-3 sm:px-5 py-1 flex-wrap"
         style={{
           background: "var(--bg-secondary)",
           borderTop: "1px solid var(--border-color)",

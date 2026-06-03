@@ -161,17 +161,21 @@ pub struct ClobOrder {
 
 fn round2_normal(x: f64) -> f64 { (x * 100.0).round() / 100.0 }
 fn round2_down(x: f64) -> f64 { (x * 100.0).floor() / 100.0 }
+/// Round to 4 decimal places — the precision Polymarket allows for the
+/// USDC notional on a tickSize=0.01 market. Rounding the notional to 2dp
+/// (= whole cents) makes `makerAmount / takerAmount` land on a price
+/// that's NOT a valid tick (e.g. 1.00 / 3.45 = 0.2898…), which trips
+/// Polymarket's "Price breaks minimum tick size rule" 400. 4dp keeps
+/// `notional = price_tick × size_2dp` exact for tickSize=0.01.
+fn round4_down(x: f64) -> f64 { (x * 10_000.0).floor() / 10_000.0 }
 
-/// Convert a 2dp decimal amount to USDC base units (×10^6) as a u128
-/// without introducing float error. Polymarket cares about the EXACT
-/// integer — a single-unit drift breaks the signature.
-fn to_base_units_u128(amount_2dp: f64) -> Result<u128> {
-    // amount is rounded to 2 decimals already, so multiplying by 1e6 and
-    // rounding is safe within f64's 52-bit mantissa for any realistic order
-    // size (10^15 microUSDC ≈ $1B, well below 2^52).
-    let scaled = (amount_2dp * 1_000_000.0).round();
+/// Convert a decimal USDC amount (≤ 6 fractional digits) to base units
+/// (×10^6) as a u128 without introducing float error. Polymarket cares
+/// about the EXACT integer — a single-unit drift breaks the signature.
+fn to_base_units_u128(amount: f64) -> Result<u128> {
+    let scaled = (amount * 1_000_000.0).round();
     if scaled < 0.0 || !scaled.is_finite() {
-        return Err(anyhow!("amount out of range: {}", amount_2dp));
+        return Err(anyhow!("amount out of range: {}", amount));
     }
     Ok(scaled as u128)
 }
@@ -185,7 +189,11 @@ fn compute_amounts(side: OrderSide, price: f64, size: f64) -> Result<(u128, u128
     }
     let p = round2_normal(price);
     let s = round2_down(size);
-    let usdc = round2_down(s * p);
+    // USDC notional rounds to 4dp (not 2dp): keeps the implied price
+    // `notional / size = p` exact down to the tick. With 2dp we'd get
+    // e.g. p=0.29, s=3.45, notional=round(1.0005,2)=1.00, implied
+    // 1.00/3.45 = 0.2898… → Polymarket rejects as off-tick.
+    let usdc = round4_down(s * p);
     match side {
         OrderSide::Buy => {
             // maker pays USDC, takes shares

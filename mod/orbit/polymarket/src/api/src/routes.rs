@@ -66,6 +66,20 @@ pub fn router() -> Router<AppState> {
         // auto-fires this after a successful MetaMask deposit so users
         // never see "balance: 0" despite their USDC being in the wallet.
         .route("/deposit-wallet/wrap", post(deposit_wallet_wrap))
+        // Send wrapped V2 collateral back out as USDC.e in one tx:
+        // approves Offramp + calls Offramp.unwrap(USDC.e, dest, amount)
+        // through the wallet's Batch flow. Used for "send my trading
+        // balance to my MetaMask" without a separate unwrap step.
+        .route("/deposit-wallet/unwrap-and-send", post(deposit_wallet_unwrap_send))
+        // User-uploaded strats (mod.py / mod.rs). Storage only — execution
+        // is a follow-up; the endpoints are here so the framework + UI
+        // upload flow are ready ahead of the runtime hookup.
+        .route("/user-strats", get(user_strats_list).post(user_strats_upload))
+        // Template route MUST come before the `/:id/:kind` catch-all
+        // below — axum matches in declaration order and otherwise this
+        // resolves as `id=template, kind=<name>` and 400s on `kind`.
+        .route("/user-strats/template/:name", get(user_strats_template))
+        .route("/user-strats/:id/:kind", get(user_strats_read).delete(user_strats_delete))
         // Encrypted strat storage
         .merge(crate::strats::router())
         // CLOB L1 auth proxy (derive/create api keys)
@@ -722,6 +736,132 @@ async fn deposit_wallet_wrap(
         Err(e) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({"error": format!("wrap: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct UnwrapSendRequest {
+    eoa: String,
+    destination: String,
+    /// V2 collateral amount in base units (1e6 = $1).
+    #[serde(rename = "amountBaseUnits")]
+    amount_base_units: String,
+}
+
+async fn deposit_wallet_unwrap_send(
+    State(state): State<AppState>,
+    Json(req): Json<UnwrapSendRequest>,
+) -> impl IntoResponse {
+    match crate::relayer::unwrap_and_send(
+        &state.http,
+        &state.signer_store,
+        &req.eoa,
+        &req.destination,
+        &req.amount_base_units,
+    ).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("unwrap-and-send: {}", e)})),
+        ).into_response(),
+    }
+}
+
+// ─── User-uploaded strats (mod.py / mod.rs) ─────────────────────────────
+
+#[derive(Deserialize)]
+struct UploadStratBody {
+    id: String,
+    /// "py" or "rs". Determines the file extension; future runtimes will
+    /// dispatch by this field.
+    kind: crate::user_strats::StratKind,
+    /// Raw source text. UTF-8, ≤ 256 KiB — validated by the store.
+    content: String,
+}
+
+async fn user_strats_list(State(state): State<AppState>) -> impl IntoResponse {
+    match state.user_strats.list() {
+        Ok(items) => Json(json!({"strats": items})).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("list: {}", e)})),
+        ).into_response(),
+    }
+}
+
+async fn user_strats_upload(
+    State(state): State<AppState>,
+    Json(req): Json<UploadStratBody>,
+) -> impl IntoResponse {
+    match state.user_strats.upload(&req.id, req.kind, &req.content) {
+        Ok(entry) => Json(entry).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("upload: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct UserStratParams {
+    id: String,
+    kind: crate::user_strats::StratKind,
+}
+
+async fn user_strats_read(
+    State(state): State<AppState>,
+    axum::extract::Path(p): axum::extract::Path<UserStratParams>,
+) -> impl IntoResponse {
+    match state.user_strats.read(&p.id, p.kind) {
+        Ok(content) => Json(json!({"id": p.id, "kind": p.kind, "content": content})).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("read: {}", e)})),
+        ).into_response(),
+    }
+}
+
+async fn user_strats_delete(
+    State(state): State<AppState>,
+    axum::extract::Path(p): axum::extract::Path<UserStratParams>,
+) -> impl IntoResponse {
+    match state.user_strats.delete(&p.id) {
+        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("delete: {}", e)})),
+        ).into_response(),
+    }
+}
+
+async fn user_strats_template(
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    // Embed the reference files at compile time so the template route
+    // works regardless of where the binary runs (container has the
+    // sources at /app/src/strats but production-friendlier to bundle
+    // them in). Keys must be the *exact* set we want exposed; a typo
+    // shouldn't expose anything else from the FS.
+    // Paths are relative to *this file* (src/api/src/routes.rs) so
+    // they resolve identically whether the api builds in-place (dev)
+    // or in the Docker `api-builder` stage (which copies the strats
+    // into `/build/strats/`, sibling of the api crate root).
+    let body: Option<&'static str> = match name.as_str() {
+        "base" => Some(include_str!("../../strats/base/mod.py")),
+        "copytrader" => Some(include_str!("../../strats/copytrader/mod.py")),
+        "example_ev_strat" => Some(include_str!("../../strats/example_ev_strat/mod.py")),
+        _ => None,
+    };
+    match body {
+        Some(content) => Json(json!({
+            "name": name,
+            "kind": "py",
+            "content": content,
+        })).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("no template named '{}'", name)})),
         ).into_response(),
     }
 }

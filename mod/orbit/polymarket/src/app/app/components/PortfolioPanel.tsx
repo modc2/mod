@@ -28,6 +28,11 @@ interface PositionLite {
   size: number;
   value: number;
   pnlUsd: number;
+  // Forwarded so the SELL ALL button can build a /order/place body
+  // without re-fetching positions just for the asset/conditionId.
+  tokenId: string;
+  conditionId: string;
+  currentPrice: number;
 }
 
 interface Snapshot {
@@ -37,8 +42,10 @@ interface Snapshot {
 }
 
 const HISTORY_KEY = "poly_portfolio_history_v1";
-const PORTFOLIO_HISTORY_CAP = 1000; // ~12h at 45s cadence
-const POLL_MS = 45_000;
+// ~12h at 15s cadence. Faster cadence = livelier cash + position numbers
+// so a fill or withdrawal shows up within seconds instead of half a minute.
+const PORTFOLIO_HISTORY_CAP = 3000;
+const POLL_MS = 15_000;
 
 function loadHistory(): Snapshot[] {
   try {
@@ -223,6 +230,12 @@ function LineChart({ history }: { history: Snapshot[] }) {
 
 type Mode = "pie" | "line";
 
+function tickRound(p: number): number {
+  if (!Number.isFinite(p)) return 0.01;
+  const clamped = Math.max(0.01, Math.min(0.99, p));
+  return Math.round(clamped * 100) / 100;
+}
+
 export default function PortfolioPanel() {
   const { auth } = useAuth();
   const [mode, setMode] = useState<Mode>("pie");
@@ -231,6 +244,8 @@ export default function PortfolioPanel() {
   const [positions, setPositions] = useState<PositionLite[]>([]);
   const [history, setHistory] = useState<Snapshot[]>(() => loadHistory());
   const [lastError, setLastError] = useState<string | null>(null);
+  const [selling, setSelling] = useState(false);
+  const [sellStatus, setSellStatus] = useState<string | null>(null);
 
   const eoa = auth.address;
 
@@ -266,6 +281,9 @@ export default function PortfolioPanel() {
           size: p.size,
           value: p.value,
           pnlUsd: p.pnlUsd,
+          tokenId: p.tokenId,
+          conditionId: p.conditionId,
+          currentPrice: p.currentPrice,
         }));
         nextPosVal = nextPositions.reduce((s, p) => s + p.value, 0);
       } catch (e) {
@@ -349,8 +367,79 @@ export default function PortfolioPanel() {
       {/* Top positions list — only show when there's something to see. */}
       {topPositions.length > 0 && (
         <div className="space-y-1">
-          <div className="text-xs uppercase tracking-wide text-pixel-muted">
-            Top Positions
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs uppercase tracking-wide text-pixel-muted">
+              Top Positions
+            </span>
+            <button
+              onClick={async () => {
+                if (!eoa) return;
+                const all = positions.filter((p) => p.tokenId && p.size > 0);
+                if (all.length === 0) return;
+                if (
+                  !confirm(
+                    `Sell ALL ${all.length} positions (~${fmtUsd(posValue)} → cash)?\n\nUses market-aggressive limit orders (current price). Some may partially fill if liquidity is thin.`,
+                  )
+                ) {
+                  return;
+                }
+                setSelling(true);
+                setSellStatus(`selling ${all.length} positions…`);
+                let ok = 0;
+                let fail = 0;
+                for (let i = 0; i < all.length; i++) {
+                  const p = all[i];
+                  setSellStatus(`selling ${i + 1}/${all.length} · ${p.market.slice(0, 28)}…`);
+                  try {
+                    // Sell at current price - 1¢ to be aggressive against
+                    // existing bids. FAK so we don't end up with stuck
+                    // limits if the book gaps away.
+                    const sellPrice = tickRound(Math.max(0.01, p.currentPrice - 0.01));
+                    const body = {
+                      eoa,
+                      creds: { apiKey: "u", secret: "u", passphrase: "u" },
+                      args: {
+                        tokenId: p.tokenId,
+                        side: "SELL",
+                        price: sellPrice,
+                        size: Math.round(p.size * 100) / 100,
+                        feeRateBps: 0,
+                        expiration: 0,
+                        signatureType: 3,
+                        orderType: "FAK",
+                        negRisk: false,
+                        // Backend ignores this and derives the V2 deposit
+                        // wallet from `eoa` itself, but the field is
+                        // required by PlaceOrderArgs.
+                        maker: "0x0000000000000000000000000000000000000000",
+                      },
+                    };
+                    const r = await fetch("/api/polymarket/order/place", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify(body),
+                    });
+                    if (r.ok) {
+                      const j = (await r.json()) as { success?: boolean };
+                      if (j.success === false) fail++;
+                      else ok++;
+                    } else {
+                      fail++;
+                    }
+                  } catch {
+                    fail++;
+                  }
+                }
+                setSellStatus(`sold ${ok} ✓ · ${fail} failed`);
+                setSelling(false);
+                setTimeout(refresh, 4_000);
+              }}
+              disabled={selling || posValue <= 0}
+              className="text-[10px] px-2 py-0.5 bg-red-700/80 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded"
+              title="Aggressive market-priced FAK sells against every position. Anything that doesn't fill at the bid gets killed (no resting limits)."
+            >
+              {selling ? "SELLING…" : "SELL ALL → CASH"}
+            </button>
           </div>
           <div className="space-y-1 text-xs">
             {topPositions.map((p, i) => (
@@ -369,6 +458,11 @@ export default function PortfolioPanel() {
         </div>
       )}
 
+      {sellStatus && (
+        <div className={`text-xs font-mono ${selling ? "text-amber-400" : "text-green-400"}`}>
+          {sellStatus}
+        </div>
+      )}
       {lastError && (
         <div className="text-[10px] text-red-400/70 font-mono break-all">{lastError}</div>
       )}

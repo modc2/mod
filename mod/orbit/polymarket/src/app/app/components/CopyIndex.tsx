@@ -1198,7 +1198,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       // SHOW ALL skips both gates so the displayed amount is whatever the
       // raw scaled mirror would be (no floor, no ceiling).
       const clampRatio = showAllTrades || rawAmount <= maxTrade ? 1 : maxTrade / rawAmount;
-      const amount = Math.round((showAllTrades ? rawAmount : Math.min(rawAmount, maxTrade)) * 100) / 100;
+      // Keep full precision so sub-cent mirrors don't collapse to $0.00 in
+      // the table. The renderer formats with the right precision for tiny
+      // values (e.g. "0.42¢" instead of "0.00¢"); rounding here was the
+      // source of the "every row is $0.00" bug.
+      const amount = showAllTrades ? rawAmount : Math.min(rawAmount, maxTrade);
       const realizedScaled = t.side === "SELL"
         ? Math.round(t.realized * t.scale * clampRatio * 100) / 100
         : 0;
@@ -2187,11 +2191,15 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                                   </span>
                                 </td>
                                 <td className="text-right text-pixel-white font-mono whitespace-nowrap">
-                                  {t.amount < 0.01
-                                    ? `${(t.amount * 100).toFixed(2)}¢`
-                                    : t.amount < 1
-                                      ? `$${t.amount.toFixed(2)}`
-                                      : `$${t.amount.toFixed(0)}`
+                                  {t.amount === 0
+                                    ? "—"
+                                    : t.amount < 0.01
+                                      ? `${(t.amount * 100).toPrecision(2)}¢`
+                                      : t.amount < 1
+                                        ? `${(t.amount * 100).toFixed(1)}¢`
+                                        : t.amount < 100
+                                          ? `$${t.amount.toFixed(2)}`
+                                          : `$${t.amount.toFixed(0)}`
                                   }
                                 </td>
                                 <td className="text-right text-pixel-gray-light font-mono whitespace-nowrap">

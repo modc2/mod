@@ -108,6 +108,20 @@ const TAKER_FEE_BPS = 0;
 // banner produced cascades of rejected $0.01 orders.
 const POLYMARKET_MIN_USD = 1.0;
 
+// Polymarket binary markets use a 0.01 (1¢) tick size by default; some
+// fine-grained markets use 0.001. Leader trade prices come back from the
+// data-api with full f64 precision (e.g. 0.5099601593625498 from an
+// implied-price derivation), which trips a "Price breaks minimum tick
+// size" 400. Round every price we send to 2 decimals so it always lands
+// on a tick — slight cost is we round to the nearest cent rather than
+// the leader's exact fill, which is negligible for copy trading and
+// avoids per-market tick lookups.
+function tickRoundPrice(p: number): number {
+  if (!Number.isFinite(p)) return 0;
+  const clamped = Math.max(0.01, Math.min(0.99, p));
+  return Math.round(clamped * 100) / 100;
+}
+
 // ── Token ID Cache ─────────────────────────────────────────────
 
 const TOKEN_MAP_KEY = "poly_copy_tokenmap";
@@ -499,7 +513,7 @@ export class CopyEngine {
           maker,
           {
             tokenID: tokenId,
-            price: trade.price,
+            price: tickRoundPrice(trade.price),
             size: Math.round(mirrorSize * 100) / 100,
             side: trade.side,
             type: "GTC",
@@ -632,9 +646,16 @@ export class CopyEngine {
     maxToSell?: number;
     reasonPrefix?: string;
     onProgress?: (msg: string) => void;
+    /** When true (default), if no winners are available we'll fall back to
+     *  selling the WORST loser to clear stuck capital — better to take a
+     *  realized loss on a dead-weight position than miss every new
+     *  candidate because cash is frozen in a slow market. Set false to
+     *  preserve the legacy "winners only" behavior. */
+    sellLosersIfNoWinners?: boolean;
   } = {}): Promise<{ sold: number; freedUsd: number }> {
     const maxToSell = opts.maxToSell ?? Number.POSITIVE_INFINITY;
     const reasonPrefix = opts.reasonPrefix ?? "FREE LIQUIDITY";
+    const allowLosers = opts.sellLosersIfNoWinners ?? true;
     let sold = 0;
     let freedUsd = 0;
     try {
@@ -644,8 +665,23 @@ export class CopyEngine {
       const winners = positions
         .filter((p) => p.size > 0 && p.pnlUsd > 0)
         .sort((a, b) => b.pnlUsd - a.pnlUsd);
-      opts.onProgress?.(`${winners.length} winning positions → selling`);
-      for (const pos of winners) {
+      // No winners → try the worst loser (largest negative PnL). Realizing
+      // the loss + recycling the capital into a fresh signal is usually
+      // higher EV than holding dead weight that's been bleeding for a while.
+      const losers = winners.length === 0 && allowLosers
+        ? positions
+            .filter((p) => p.size > 0 && p.pnlUsd <= 0)
+            .sort((a, b) => a.pnlUsd - b.pnlUsd)
+            .slice(0, 1)
+        : [];
+      const candidates = winners.length > 0 ? winners : losers;
+      const kindLabel = winners.length > 0
+        ? `${winners.length} winning positions`
+        : losers.length > 0
+          ? `0 winners — rotating worst loser ($${losers[0].pnlUsd.toFixed(2)} PnL)`
+          : `nothing to sell`;
+      opts.onProgress?.(`${kindLabel} → selling`);
+      for (const pos of candidates) {
         if (!this.running) break;
         if (sold >= maxToSell) break;
         try {
@@ -665,7 +701,7 @@ export class CopyEngine {
           const signer = await this.getSigner();
           const negRisk = await this.resolveNegRisk(pos.conditionId);
           const maker = this.sigType === 0 ? this.config.address : proxy;
-          const sellPrice = Math.max(0.01, Math.min(0.99, pos.currentPrice));
+          const sellPrice = tickRoundPrice(pos.currentPrice);
           const result = await placeOrder(
             this.config.creds,
             signer,
@@ -1123,7 +1159,7 @@ export class CopyEngine {
                 maker,
                 {
                   tokenID: tokenId,
-                  price: trade.price,
+                  price: tickRoundPrice(trade.price),
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
                   type: "GTC",

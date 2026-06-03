@@ -826,7 +826,12 @@ export async function fetchPositions(address: string): Promise<PolymarketPositio
       const pnlUsd = safe(p.cashPnl, (currentPrice - avgPrice) * size);
 
       return {
-        conditionId: String(p.conditionId || p.asset || ""),
+        conditionId: String(p.conditionId || ""),
+        // CTF outcome token id — what /order needs as tokenID. The
+        // Polymarket data-api returns this in the `asset` field; we used
+        // to fall back to it for conditionId, which clobbered the actual
+        // conditionId. Carry both as distinct fields now.
+        tokenId: String(p.asset || ""),
         market: String(p.title || p.slug || ""),
         outcome: String(p.outcome || "Yes"),
         size,

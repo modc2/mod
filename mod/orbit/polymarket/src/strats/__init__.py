@@ -6,11 +6,15 @@ way ERC-20 standardizes `balanceOf` / `transfer`. The engine (live engine
 in TS, backtest engine here) speaks to the strat through these methods —
 nothing else. Owners write or fork classes to express custom logic.
 
-See `base.py` for the abstract Strat interface and `copytrader.py` for
-the reference implementation (mirrors trades from a watchlist with weights).
+Each strat lives in its own folder under `strats/` with the source in
+`mod.py` — mirrors the on-disk layout of user-uploaded strats
+(`<id>/mod.py`) so bundled and uploaded strats are organized the same way.
+See `base/mod.py` for the abstract Strat interface and `copytrader/mod.py`
+for the reference implementation (mirrors trades from a watchlist with
+weights).
 """
 
-from .base import (
+from .base.mod import (
     Strat,
     StratConfig,
     Order,
@@ -21,7 +25,7 @@ from .base import (
     TickResult,
     BacktestResult,
 )
-from .copytrader import CopyTrader
+from .copytrader.mod import CopyTrader
 
 __all__ = [
     "Strat",

@@ -32,6 +32,10 @@ export interface PolymarketTrade {
 
 export interface PolymarketPosition {
   conditionId: string;
+  /// CTF outcome token id (uint256 decimal string). Required for any SELL
+  /// flow that hits /order directly — the data-api returns it as `asset`,
+  /// we surface it here so callers don't need a separate markets lookup.
+  tokenId: string;
   market: string;
   outcome: string;
   size: number;

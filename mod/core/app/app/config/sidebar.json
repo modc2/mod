@@ -37,7 +37,7 @@
       "type": "direct"
     }
   ],
-  "additionalModules": [],
+  "additionalModules": ["venice"],
   "_comment": "Add module names here to include them in the sidebar. Example: [\"agent\", \"ipfs\", \"cache\"]",
   "availableRoutes": [
     "mod",

@@ -16,6 +16,8 @@ import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
 import WalletPanel from "./WalletPanel";
 import PortfolioPanel from "./PortfolioPanel";
+import UserStratsPanel from "./UserStratsPanel";
+import StratParamsPanel from "./StratParamsPanel";
 import ThemeToggle from "./ThemeToggle";
 
 const ERC20_BAL_ABI = [
@@ -427,6 +429,13 @@ export default function LivePanel() {
 
   return (
     <div className="space-y-1">
+      {/* ── Trading wallet at top of LIVE ──
+          Compact deposit/withdraw panel mounted above the engine status
+          bar so balance + funding is always one click away regardless
+          of which tab is active. Engine spamming "wallet empty" errors
+          every cycle was confusing — surface the fix inline. */}
+      {auth.connected && <WalletPanel />}
+
       {/* ── Header ── */}
       <div className="pixel-panel border-2 border-pixel-border">
         <div className="px-3 py-1.5 flex items-center justify-between">
@@ -510,11 +519,14 @@ export default function LivePanel() {
         </div>
       </div>
 
-      {/* ── Tab nav ──
-          Splits the LIVE page into bite-sized sections. Always-visible
-          top control bar (status + START/STOP/PAUSE) lives above this so
-          the engine can be paused from any tab. */}
-      <div className="flex gap-1 border-b border-pixel-border">
+      {/* ── Sidebar layout ──
+          Vertical tab nav on the left, content panels stacked on the
+          right. Splits the LIVE page so the user never has to scroll
+          past one section to find another. Always-visible top control
+          bar (status + START/STOP/PAUSE) lives above so the engine can
+          be paused from any tab. */}
+      <div className="flex gap-3">
+      <nav className="w-28 shrink-0 flex flex-col gap-1 border-r border-pixel-border pr-2 self-start sticky top-2">
         {(
           [
             { id: "pnl",    label: "PNL"    },
@@ -527,16 +539,17 @@ export default function LivePanel() {
           <button
             key={t.id}
             onClick={() => setLiveTab(t.id)}
-            className={`px-3 py-1.5 text-[12px] font-mono tracking-[0.18em] uppercase border-b-2 -mb-px transition-colors ${
+            className={`text-left px-2 py-2 text-[12px] font-mono tracking-[0.18em] uppercase border-l-2 transition-colors ${
               liveTab === t.id
-                ? "border-green-400 text-green-400"
-                : "border-transparent text-pixel-gray hover:text-pixel-white"
+                ? "border-green-400 text-green-400 bg-green-400/5"
+                : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
             }`}
           >
             {t.label}
           </button>
         ))}
-      </div>
+      </nav>
+      <div className="flex-1 min-w-0 space-y-3">
 
       {/* ── Preconditions ──
           Moved to the TOP so the user knows what's blocking GO LIVE before
@@ -603,9 +616,98 @@ export default function LivePanel() {
         );
       })()}
 
-      {/* ── Wallet + Funds + Capital ── (PARAMS tab, pre-launch) */}
-      {liveTab === "params" && !isLive && (
-        <WalletFundingPanel capital={liveCapital} onCapitalChange={handleManualCapital} />
+      {/* WalletFundingPanel moved to top of LivePanel — see directly above
+          the engine control bar. */}
+
+      {/* ── Funding required banner ──
+          Engine is running but the V2 deposit wallet is empty — every
+          cycle would log a "Trading wallet has $0.00" error and the
+          user wouldn't necessarily look at the log. Surface it as a
+          loud banner on every tab with a one-click jump to WALLET. */}
+      {isLive && engineState && engineState.balance !== null && engineState.balance <= 0 && (
+        <div className="pixel-panel border-2 border-amber-400/70 bg-amber-400/10 p-3 flex items-center gap-3 flex-wrap">
+          <span className="text-amber-400 text-xl">⚠</span>
+          <div className="flex-1">
+            <div className="text-sm font-bold text-amber-400">
+              Trading wallet is empty — deposit USDC to start trading
+            </div>
+            <div className="text-xs text-pixel-muted mt-0.5">
+              Engine is running but every cycle skips because there&apos;s no cash to trade with.
+            </div>
+          </div>
+          <button
+            onClick={() => setLiveTab("wallet")}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded"
+          >
+            FUND NOW →
+          </button>
+        </div>
+      )}
+
+      {/* ── WALLET tab help banner (collapsible) ──
+          Two wallet panels was confusing users — explain at the top
+          which is the right one to use and what the other is for. The
+          collapsed state persists across reloads so users who already
+          know the layout don't get the wall of text every time. */}
+      {liveTab === "wallet" && auth.connected && (() => {
+        const KEY = "poly_wallet_help_open";
+        const [open, setOpen] = [
+          (() => {
+            try { return localStorage.getItem(KEY) !== "0"; }
+            catch { return true; }
+          })(),
+          (next: boolean) => {
+            try { localStorage.setItem(KEY, next ? "1" : "0"); }
+            catch {}
+          },
+        ];
+        return (
+          <details
+            className="pixel-panel border-2 border-pixel-border px-3 py-2 text-xs"
+            open={open}
+            onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer list-none flex items-center gap-2">
+              <span className="inline-block w-4 h-4 rounded-full bg-blue-500/20 border border-blue-400/60 text-blue-400 text-center leading-[14px] text-[10px]">
+                ?
+              </span>
+              <span className="text-pixel-white font-bold tracking-wide">
+                Which wallet do I use?
+              </span>
+              <span className="ml-auto text-[10px] text-pixel-muted">
+                click to {open ? "collapse" : "expand"}
+              </span>
+            </summary>
+            <div className="mt-2 space-y-2">
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-green-400 font-bold">TRADING WALLET</span>
+                {" "}is where you put money to copy-trade. <b>This is the only
+                one you need.</b> Click DEPOSIT, send USDC.e from MetaMask,
+                engine starts trading.
+              </div>
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-purple-400 font-bold">LEGACY PROXY</span>
+                {" "}is a wallet from Polymarket's old (V1) system.
+                <b> Ignore it unless you have leftover USDC sitting there.</b>
+                {" "}If you do, WITHDRAW it back to your MetaMask, then DEPOSIT
+                into TRADING WALLET above. The panel auto-hides once empty.
+              </div>
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-amber-400 font-bold">WITHDRAW</span> from
+                TRADING WALLET sends USDC.e straight to your MetaMask address
+                — gasless, no popup. Use it any time to pull funds out.
+              </div>
+            </div>
+          </details>
+        );
+      })()}
+
+      {/* ── Legacy V1 Safe (proxy) ── (PARAMS + WALLET tabs)
+          Auto-hides itself when balance is 0 (see component). Lets
+          users with leftover V1 funds withdraw them out and re-deposit
+          into the V2 TRADING WALLET. */}
+      {(liveTab === "params" || liveTab === "wallet") && auth.connected && (
+        <PolymarketAccountPanel />
       )}
 
       {/* ── V2 deposit wallet (trading address) ── (WALLET tab) */}
@@ -614,14 +716,26 @@ export default function LivePanel() {
       {/* ── Portfolio: cash vs positions, pie + over-time ── (PNL tab) */}
       {liveTab === "pnl" && auth.connected && <PortfolioPanel />}
 
-      {/* ── Legacy V1 Safe (deprecated) ── (WALLET tab — "drain it" view) */}
-      {liveTab === "wallet" && auth.connected && <PolymarketAccountPanel />}
+      {/* BackendSignerPanel removed — the V1 Safe-co-owner flow that
+          panel managed isn't needed for V2 trading. The V2 deposit
+          wallet is CREATE2-derived from the per-user backend signer's
+          own EOA, so the backend is *inherently* the wallet's
+          authorized signer — no separate "TURN ON AUTO-TRADING" step
+          to flip. Auto-trading is on by construction. */}
 
-      {/* ── Backend signer authorization ── (PARAMS tab)
-          One-time setup: add the backend EOA as a co-signer on the user's
-          Safe so the live engine can place orders without a MetaMask popup
-          per trade. */}
-      {liveTab === "params" && auth.connected && <BackendSignerPanel />}
+      {/* ── Active strat params + watchlist ── (PARAMS tab)
+          Read-only mirror of what's set in the STRATS tab — capital,
+          min/max trade, poll cadence, the trader list with weights.
+          Lets the user sanity-check what's about to fire without
+          leaving the LIVE view. `stratTick` re-evaluates on each strat
+          edit elsewhere in the app. */}
+      {liveTab === "params" && auth.connected && <StratParamsPanel tick={stratTick} />}
+
+      {/* ── Custom strats: upload mod.py / mod.rs ── (PARAMS tab)
+          File-based strats stored on the persistent data volume. Engine
+          runtime loader is the next layer — this surfaces the upload /
+          list / delete plumbing so the framework is ready. */}
+      {liveTab === "params" && auth.connected && <UserStratsPanel />}
 
       {/* ── Stats (when live) ── (STATS tab)
           Card grid; LAST SYNC tracks the most recent successful Polymarket
@@ -1025,6 +1139,9 @@ export default function LivePanel() {
           <span className="text-[15px] text-pixel-gray">WAITING FOR FIRST CYCLE...</span>
         </div>
       )}
+
+      </div>{/* /flex-1 content area */}
+      </div>{/* /sidebar row */}
     </div>
   );
 }

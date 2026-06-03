@@ -395,19 +395,35 @@ async fn has_contract_code(http: &reqwest::Client, address: &str) -> Result<bool
     Ok(code.len() > 4)
 }
 
-/// Read USDC.e balance for an address (Polymarket V2 collateral token).
-/// Returns base-units as a decimal string (1e6 = $1) so the frontend
-/// doesn't lose precision on large balances. Uses the legacy bridged
-/// USDC.e at `0x2791...` since that's what people actually send.
+/// Read the deposit wallet's TRADING balance (V2 collateral token, the
+/// wrapped form that Polymarket's matcher actually counts). Returns
+/// base-units as a decimal string (1e6 = $1) so the frontend doesn't
+/// lose precision on large balances.
+///
+/// Reads the **wrapped** token (`0xC011...`), not raw USDC.e — after a
+/// deposit the wrap step moves balance there, and a wallet showing
+/// `Balance: $0.00` with $10 just wrapped was the exact "balance not
+/// updating" UX bug. Use [`raw_usdce_balance`] when you need the
+/// pre-wrap balance (e.g. detecting "user just deposited, need wrap").
 pub async fn usdc_balance(http: &reqwest::Client, address: &str) -> Result<String> {
-    const USDC_E: &str = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+    erc20_balance(http, V2_COLLATERAL, address).await
+}
+
+/// Raw USDC.e balance — used by the wrap flow to figure out how much
+/// unwrapped USDC.e is sitting in the wallet, and by the post-deposit
+/// auto-wrap to size the batch.
+pub async fn raw_usdce_balance(http: &reqwest::Client, address: &str) -> Result<String> {
+    erc20_balance(http, USDC_E_ADDR, address).await
+}
+
+async fn erc20_balance(http: &reqwest::Client, token: &str, address: &str) -> Result<String> {
     let addr_no0x = address.strip_prefix("0x").unwrap_or(address);
     // selector(balanceOf(address)) = 0x70a08231, then 32-byte-padded addr.
     let calldata = format!("0x70a08231{:0>64}", addr_no0x);
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": "eth_call",
-        "params": [{"to": USDC_E, "data": calldata}, "latest"],
+        "params": [{"to": token, "data": calldata}, "latest"],
         "id": 1,
     });
     let resp = http
@@ -455,7 +471,7 @@ async fn submit_wallet_batch(
     // Login + on-chain wallet+nonce read in parallel-ish.
     let cookies = gamma_login(http, signer_store, eoa).await?;
     let nonce = read_wallet_nonce(http, &wallet).await?;
-    let deadline = (chrono::Utc::now().timestamp() + 240) as u64; // 4 min
+    let deadline = (chrono::Utc::now().timestamp() + 290) as u64; // ~5 min, just under relayer cap of 300s
 
     // Sign the Batch typed data with the backend signer key (the wallet's
     // EIP-1271 verifier auto-trusts the EOA that salted its CREATE2 — that's
@@ -623,6 +639,62 @@ fn batch_digest(
     Ok(keccak256(&prefix))
 }
 
+/// Unwrap V2 collateral back to USDC.e and send straight to a destination
+/// address. Used for "send my Polymarket balance to my MetaMask" — the
+/// wallet's steady-state balance is wrapped collateral (`0xC011...`), not
+/// raw USDC.e, so a plain `withdraw_usdc` would have nothing to transfer.
+///
+/// Single Batch:
+///   1. V2 collateral.approve(Offramp, MAX) — idempotent, ~21k gas if
+///      already maxed
+///   2. Offramp.unwrap(USDC.e, destination, amount) — burns collateral
+///      from wallet, mints USDC.e directly to destination
+///
+/// `amount` is in V2 collateral base units (1e6 = $1).
+pub async fn unwrap_and_send(
+    http: &reqwest::Client,
+    signer_store: &SignerStore,
+    eoa: &str,
+    destination: &str,
+    amount_base_units: &str,
+) -> Result<serde_json::Value> {
+    let dst_no0x = destination.strip_prefix("0x").unwrap_or(destination);
+    if hex::decode(dst_no0x).map(|b| b.len()).unwrap_or(0) != 20 {
+        return Err(anyhow!("destination must be a 20-byte 0x-address"));
+    }
+    let amount: u128 = amount_base_units
+        .parse()
+        .map_err(|e| anyhow!("amount not a u128 base-units integer: {}", e))?;
+    if amount == 0 {
+        return Err(anyhow!("amount must be > 0"));
+    }
+
+    let offramp_no0x = COLLATERAL_OFFRAMP
+        .strip_prefix("0x")
+        .unwrap_or(COLLATERAL_OFFRAMP)
+        .to_lowercase();
+    let usdce_no0x = USDC_E_ADDR.strip_prefix("0x").unwrap_or(USDC_E_ADDR).to_lowercase();
+
+    // Call 1: V2 collateral.approve(Offramp, MAX_UINT256). Safe to issue
+    // every time — overwrites the slot if already approved.
+    let mut approve = String::from("0x095ea7b3");
+    approve.push_str(&format!("{:0>64}", offramp_no0x));
+    approve.push_str(MAX_UINT256_HEX);
+
+    // Call 2: Offramp.unwrap(USDC.e, destination, amount)
+    //   selector(unwrap(address,address,uint256)) = 0x8cc7104f
+    let mut unwrap = String::from("0x8cc7104f");
+    unwrap.push_str(&format!("{:0>64}", usdce_no0x));
+    unwrap.push_str(&format!("{:0>64}", dst_no0x.to_lowercase()));
+    unwrap.push_str(&format!("{:0>64x}", amount));
+
+    let calls = vec![
+        (V2_COLLATERAL.to_string(), approve),
+        (COLLATERAL_OFFRAMP.to_string(), unwrap),
+    ];
+    submit_wallet_multi_batch(http, signer_store, eoa, &calls).await
+}
+
 /// Withdraw USDC.e from the user's deposit wallet to `destination`.
 /// Gasless — relayer pays Polygon gas. Returns `{transactionID,
 /// transactionHash}` once confirmed.
@@ -665,6 +737,11 @@ pub async fn withdraw_usdc(
 // the deposit wallet (via Batch) and the trading balance matches.
 
 const COLLATERAL_ONRAMP: &str = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
+// Reverse of the Onramp — burns V2 collateral and sends the underlying
+// USDC.e to a destination. Used by the "send to my EOA" withdraw flow
+// when the wallet holds wrapped collateral (the steady state for any
+// user who has been trading).
+const COLLATERAL_OFFRAMP: &str = "0x2957922Eb93258b93368531d39fAcCA3B4dC5854";
 // V2 trading collateral token — what Polymarket reads for balance.
 const V2_COLLATERAL: &str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 // V2 Exchange contracts — must be approved as spender for the wallet's
@@ -698,7 +775,10 @@ pub async fn wrap_usdce_to_collateral(
     // just hit "allowance is not enough" on a trade.
     let amount: u128 = match amount_base_units {
         Some(s) => s.parse().map_err(|e| anyhow!("amount: {}", e))?,
-        None => usdc_balance(http, &wallet).await?.parse().unwrap_or(0),
+        // "wrap all" path uses the RAW USDC.e balance — that's what's
+        // wrappable. `usdc_balance` now returns V2 collateral (already
+        // wrapped), so using it here would size the batch wrong.
+        None => raw_usdce_balance(http, &wallet).await?.parse().unwrap_or(0),
     };
 
     let wallet_no0x = wallet.strip_prefix("0x").unwrap_or(&wallet).to_lowercase();
@@ -777,7 +857,7 @@ async fn submit_wallet_multi_batch(
 
     let cookies = gamma_login(http, signer_store, eoa).await?;
     let nonce = read_wallet_nonce(http, &wallet).await?;
-    let deadline = (chrono::Utc::now().timestamp() + 240) as u64;
+    let deadline = (chrono::Utc::now().timestamp() + 290) as u64; // ~5 min, just under relayer cap of 300s
 
     let digest = batch_digest_multi(&wallet_cs, nonce, deadline, calls)?;
     let sig = signer_store.sign_digest(eoa, &digest)?;

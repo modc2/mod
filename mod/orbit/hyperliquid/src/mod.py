@@ -47,6 +47,8 @@ class Hyperliquid(m.Mod):
     fns = [
         "forward", "serve", "app", "api", "kill", "status",
         "build", "logs",
+        # strategies (modular Python classes)
+        "strat", "list_strats", "run_strat",
         # data passthroughs
         "top_traders", "analyze_trader", "leaderboard",
         # indexes
@@ -460,6 +462,31 @@ class Hyperliquid(m.Mod):
 
     def live_status(self, eoa: str) -> Any:
         return self._get("/live/status", eoa=eoa)
+
+    # ── Modular strategies (see strat.py) ──
+
+    def strat(self, name: str, **kwargs: Any):
+        """Instantiate a strategy by name. Returns the Strat object —
+        call `.start(self, eoa)`, `.status(self, eoa)`, `.stop(self, eoa)`.
+
+            s = hl.strat('top_n', n=10, days=7, size_pct=5)
+            s.start(hl, eoa='0xabc…')
+        """
+        from . import strats as _strats
+        return _strats.make(name, **kwargs)
+
+    def list_strats(self) -> Any:
+        """Enumerate registered strategies (name + description)."""
+        from . import strats as _strats
+        return _strats.list_strats()
+
+    def run_strat(self, name: str, eoa: str, **kwargs: Any) -> Any:
+        """One-shot helper: instantiate + start a strat for `eoa`.
+
+            hl.run_strat('top_n', eoa='0xabc…', n=10, days=7, size_pct=5)
+        """
+        s = self.strat(name, **kwargs)
+        return s.start(self, eoa)
 
     # ── mod-protocol forward ──
 

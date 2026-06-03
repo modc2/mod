@@ -430,93 +430,198 @@ export default function PolymarketAccountPanel() {
 
   if (!auth.address) return null;
 
+  // V1 Safe is dead weight for users who never had funds there. Stay
+  // hidden by default (including while the balance read is in-flight)
+  // and only render once we've confirmed > 0 USDC.e sits in the proxy.
+  // Avoids the confusing "two wallets" UI for everyone on V2.
+  if (bal.proxy === null || bal.proxy <= 0) return null;
+
   const shortProxy = proxy ? `${proxy.slice(0, 6)}…${proxy.slice(-4)}` : "...";
 
   return (
-    <div className="pixel-panel border-2 border-pixel-border">
-      {/* Single compact line: PROXY [address] BAL $X | deposit | withdraw */}
-      <div className="px-3 py-1.5 flex items-center gap-2 flex-wrap">
+    <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
+      {/* Header: label + address + balance — mirrors the V2 TRADING WALLET
+          card so users can recognize "this is the *other* wallet I have on
+          Polymarket" at a glance instead of squinting at a one-line strip. */}
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="w-1.5 h-1.5 bg-purple-400 shrink-0" />
-        <span className="text-[13px] text-pixel-white tracking-[0.18em] shrink-0">PROXY</span>
+        <span className="text-xs uppercase tracking-wide text-pixel-muted">
+          Legacy Proxy (V1 Safe)
+        </span>
         {proxy ? (
           <>
-            <span className="text-[13px] text-pixel-white font-mono truncate max-w-[120px]" title={proxy}>{shortProxy}</span>
-            <button onClick={handleCopyProxy} className="text-[12px] text-pixel-gray hover:text-green-400" title="Copy proxy address">
-              {copied ? "✓" : "⧉"}
+            <button
+              onClick={handleCopyProxy}
+              className="text-xs font-mono text-pixel-fg hover:text-purple-400 transition-colors"
+              title={proxy}
+            >
+              {shortProxy} {copied ? "✓" : "📋"}
             </button>
-            <a href={`https://polygonscan.com/address/${proxy}`} target="_blank" rel="noreferrer" className="text-[12px] text-pixel-gray hover:text-green-400" title="Polygonscan">↗</a>
+            <a
+              href={`https://polygonscan.com/address/${proxy}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-xs text-pixel-muted hover:text-purple-400"
+              title="View on Polygonscan"
+            >
+              ↗
+            </a>
           </>
         ) : proxyError ? (
           <>
-            <span className="text-[11px] text-red-400 font-mono truncate max-w-[100px]" title={proxyError}>{proxyError.slice(0, 30)}</span>
-            <button onClick={() => { void resolveProxy(); }} className="text-[11px] text-amber-400 font-mono px-1.5 border border-amber-400/40">RETRY</button>
+            <span
+              className="text-[11px] text-red-400 font-mono truncate max-w-[160px]"
+              title={proxyError}
+            >
+              {proxyError.slice(0, 40)}
+            </span>
+            <button
+              onClick={() => { void resolveProxy(); }}
+              className="text-[11px] text-amber-400 font-mono px-1.5 border border-amber-400/40 rounded"
+            >
+              RETRY
+            </button>
           </>
         ) : proxyResolving ? (
-          <span className="text-[12px] text-pixel-gray font-mono animate-pulse">resolving…</span>
+          <span className="text-xs text-pixel-muted animate-pulse">resolving…</span>
         ) : (
-          <button onClick={() => { void resolveProxy(); }} className="text-[11px] text-green-400 font-mono px-1.5 border border-green-400">LOAD</button>
+          <button
+            onClick={() => { void resolveProxy(); }}
+            className="text-[11px] text-green-400 font-mono px-1.5 border border-green-400 rounded"
+          >
+            LOAD
+          </button>
         )}
-        <span className="text-[11px] text-pixel-gray shrink-0">BAL</span>
-        <span className="text-[14px] font-mono text-purple-400 shrink-0">
-          {bal.proxy === null ? "…" : `$${bal.proxy.toFixed(2)}`}
-        </span>
-        <span className="text-pixel-border/40 shrink-0">·</span>
-        {/* Deposit inline */}
-        <div className="flex items-center gap-1 shrink-0">
-          <input
-            type="text" inputMode="decimal" placeholder="0"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-            className="pixel-input-sm w-14 font-mono text-[12px] h-[20px] px-1"
-          />
-          <button
-            onClick={() => { void handleDeposit(); }}
-            disabled={busy || !proxy || !depositAmount || (bal.eoa !== null && bal.eoa <= 0)}
-            className="text-[11px] px-1.5 h-[20px] border border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 disabled:cursor-not-allowed font-mono"
-          >
-            DEP
-          </button>
-        </div>
-        {/* Withdraw inline */}
-        <div className="flex items-center gap-1 shrink-0">
-          <input
-            type="text" inputMode="decimal" placeholder="0"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-            className="pixel-input-sm w-14 font-mono text-[12px] h-[20px] px-1"
-          />
-          <button
-            onClick={() => { void handleWithdraw(); }}
-            disabled={busy || !proxy || !withdrawAmount || (bal.proxy !== null && bal.proxy <= 0)}
-            className="text-[11px] px-1.5 h-[20px] border border-amber-400 text-amber-400 hover:bg-amber-400/10 disabled:opacity-30 disabled:cursor-not-allowed font-mono"
-          >
-            WDR
-          </button>
-        </div>
         <button
           onClick={() => { void resolveProxy(); void refresh(); }}
           disabled={proxyResolving}
-          className="text-[13px] text-pixel-gray hover:text-green-400 shrink-0 disabled:opacity-40"
+          className="text-xs text-pixel-muted hover:text-purple-400 disabled:opacity-40"
           title="Refresh balances"
         >
           {proxyResolving ? "…" : "↻"}
         </button>
+        <span className="ml-auto text-sm">
+          <span className="text-pixel-muted mr-1">Balance:</span>
+          <span className="font-mono text-purple-400 text-base">
+            {bal.proxy === null ? "…" : `$${bal.proxy.toFixed(2)}`}
+          </span>
+        </span>
       </div>
-      {/* Status / error / deploy — only when needed */}
-      {(busy || status || error || proxyDeployed === false) && (
-        <div className="px-3 py-1 border-t border-pixel-border/30 flex items-center gap-2 flex-wrap">
-          {proxyDeployed === false && !busy && (
+
+      {/* DEPOSIT — send USDC.e from connected EOA into the Safe.
+          Useful for users still topping up the legacy Safe (e.g. if they
+          have positions held there). V2 trading goes through the new
+          deposit wallet instead — see WalletPanel above. */}
+      <div className="border border-pixel-border rounded p-2 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wide text-pixel-muted">
+            Deposit to Proxy
+          </span>
+          <span className="text-[10px] text-pixel-muted">
+            Sends USDC.e from your MetaMask
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
+            <span className="text-pixel-muted mr-1">$</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="0.00"
+              className="bg-transparent flex-1 py-1.5 outline-none font-mono"
+              disabled={busy}
+            />
+          </div>
+          {bal.eoa !== null && bal.eoa > 0 && (
             <button
-              onClick={() => { void handleDeployProxy(); }}
-              disabled={busy || !proxy}
-              className="text-[11px] px-2 py-0.5 border border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 font-mono"
+              onClick={() => setDepositAmount(bal.eoa!.toFixed(2))}
+              className="px-2 text-xs border border-pixel-border rounded hover:bg-pixel-border-light"
+              disabled={busy}
+              title={`Deposit your full wallet balance ($${bal.eoa.toFixed(2)})`}
             >
-              DEPLOY PROXY
+              MAX
             </button>
           )}
-          {busy && <span className="text-[11px] text-pixel-gray font-mono animate-pulse">working…</span>}
-          {status && <span className="text-[11px] text-amber-400 font-mono truncate" title={status}>{status}</span>}
-          {error && <span className="text-[11px] text-red-400 font-mono truncate" title={error}>{error.slice(0, 100)}</span>}
+          <button
+            onClick={() => { void handleDeposit(); }}
+            disabled={busy || !proxy || !depositAmount || (bal.eoa !== null && bal.eoa <= 0)}
+            className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded"
+          >
+            DEPOSIT
+          </button>
+        </div>
+      </div>
+
+      {/* WITHDRAW — Safe.execTransaction USDC.transfer(eoa, amount).
+          The owner EOA signs a pre-validated signature so MetaMask only
+          prompts for the tx send, not an EIP-712 sign popup. */}
+      <div className="border border-pixel-border rounded p-2 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wide text-pixel-muted">
+            Withdraw from Proxy
+          </span>
+          <span className="text-[10px] text-pixel-muted">
+            Sends USDC.e back to your MetaMask
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
+            <span className="text-pixel-muted mr-1">$</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="0.00"
+              className="bg-transparent flex-1 py-1.5 outline-none font-mono"
+              disabled={busy}
+            />
+          </div>
+          {bal.proxy !== null && bal.proxy > 0 && (
+            <button
+              onClick={() => setWithdrawAmount(bal.proxy!.toFixed(2))}
+              className="px-2 text-xs border border-pixel-border rounded hover:bg-pixel-border-light"
+              disabled={busy}
+              title="Withdraw all"
+            >
+              MAX
+            </button>
+          )}
+          <button
+            onClick={() => { void handleWithdraw(); }}
+            disabled={busy || !proxy || !withdrawAmount || (bal.proxy !== null && bal.proxy <= 0)}
+            className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded"
+          >
+            WITHDRAW
+          </button>
+        </div>
+      </div>
+
+      {proxyDeployed === false && !busy && (
+        <div className="flex items-center gap-2 text-[11px]">
+          <button
+            onClick={() => { void handleDeployProxy(); }}
+            disabled={busy || !proxy}
+            className="px-2 py-0.5 border border-purple-400 text-purple-400 hover:bg-purple-400/10 disabled:opacity-30 font-mono rounded"
+          >
+            DEPLOY PROXY
+          </button>
+          <span className="text-pixel-muted">
+            (auto-deploys on first WITHDRAW too — click only if you want it ready ahead of time)
+          </span>
+        </div>
+      )}
+      {busy && <div className="text-xs text-pixel-muted font-mono animate-pulse">working…</div>}
+      {status && (
+        <div className="text-xs text-amber-400 font-mono break-all" title={status}>
+          {status}
+        </div>
+      )}
+      {error && (
+        <div className="text-xs text-red-400 font-mono break-all" title={error}>
+          {error}
         </div>
       )}
     </div>

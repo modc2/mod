@@ -38,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     // every <eoa>.config.json present (explicit STOP deletes those files).
     engines.resume_persisted();
 
+    let user_strats = Arc::new(polymarket_api::UserStratStore::new());
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -45,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
         strat_store,
         signer_store,
         engines,
+        user_strats,
     };
 
     // Background warmup: traders pipeline. 60-second cadence pairs with the
