@@ -7,17 +7,18 @@ import type { AccountData, PnlData } from "../../lib/types";
 import {
   fetchAccount,
   fetchPnl,
-  fmtTao,
   shortSs58,
   watchAccount,
 } from "../../lib/api";
 import PnlBadge from "../../components/PnlBadge";
 import SubnetPositions from "../../components/SubnetPositions";
+import { useCurrency, fmtValue } from "../../context/CurrencyContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
 
 export default function TraderPage() {
   const { ss58 } = useParams<{ ss58: string }>();
+  const { currency, usdPerTao } = useCurrency();
   const [days, setDays] = useState(7);
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
@@ -86,7 +87,7 @@ export default function TraderPage() {
       </header>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Stat label="total stake" value={fmtTao(account.total_stake_tao)} />
+        <Stat label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
         <div className="pixel-panel p-4">
           <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
             {days}d PnL

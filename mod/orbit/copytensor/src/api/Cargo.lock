@@ -846,6 +846,7 @@ dependencies = [
  "axum",
  "blake2",
  "chrono",
+ "futures",
  "hex",
  "parity-scale-codec",
  "reqwest",

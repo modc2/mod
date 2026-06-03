@@ -490,6 +490,62 @@ pub async fn place_order(
         signature: sig_hex,
     };
 
+    // 4b. Force CLOB to rescan on-chain balance/allowance for the asset
+    //     this order touches. CLOB serves /order checks from a cached
+    //     snapshot — after a fresh deposit, a position update from a fill
+    //     on another path, or a CTF-token transfer, that cache is stale
+    //     and rejects valid orders with "not enough balance / allowance".
+    //     One POST /balance-allowance/update flushes the cache for the
+    //     relevant asset (USDC for BUY, the CTF tokenId for SELL).
+    //     Best-effort: log and continue on failure — a 401 here usually
+    //     means the apiKey was newly minted and isn't authorized for the
+    //     update endpoint yet, in which case the order POST will succeed
+    //     against whatever the cache already has.
+    let refresh_body = match req.args.side {
+        OrderSide::Buy => serde_json::json!({
+            "asset_type": "COLLATERAL",
+            "signature_type": effective_sig_type,
+        }),
+        OrderSide::Sell => serde_json::json!({
+            "asset_type": "CONDITIONAL",
+            "token_id": req.args.token_id,
+            "signature_type": effective_sig_type,
+        }),
+    };
+    let refresh_body_str = serde_json::to_string(&refresh_body)?;
+    let refresh_ts = chrono::Utc::now().timestamp().to_string();
+    let refresh_path = "/balance-allowance/update";
+    let refresh_hmac = build_hmac_signature(
+        &backend_creds.secret,
+        &refresh_ts,
+        "POST",
+        refresh_path,
+        &refresh_body_str,
+    )?;
+    let refresh_resp = http
+        .post(format!("{}{}", CLOB_API, refresh_path))
+        .header("POLY_ADDRESS", &signer_addr)
+        .header("POLY_SIGNATURE", refresh_hmac)
+        .header("POLY_TIMESTAMP", refresh_ts)
+        .header("POLY_API_KEY", &backend_creds.api_key)
+        .header("POLY_PASSPHRASE", &backend_creds.passphrase)
+        .header("Content-Type", "application/json")
+        .body(refresh_body_str.clone())
+        .send()
+        .await;
+    match refresh_resp {
+        Ok(r) => {
+            let st = r.status();
+            let body = r.text().await.unwrap_or_default();
+            if st.is_success() {
+                tracing::info!(%st, "balance-allowance refreshed pre-order");
+            } else {
+                tracing::warn!(%st, body = %body, "balance-allowance refresh failed; continuing");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "balance-allowance refresh request errored; continuing"),
+    }
+
     // 5. POST /order to Polymarket CLOB with L2 HMAC headers.
     // V2 always sends `deferExec` and `postOnly` at top level, even when
     // false. Omitting them has been observed to produce the same opaque

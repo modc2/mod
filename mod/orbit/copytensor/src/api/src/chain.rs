@@ -161,8 +161,8 @@ impl SubtensorClient {
             .await
             .unwrap_or(64);
 
-        let mut netuids = Vec::new();
-        for netuid in 0..(total as u16) {
+        let total = total as u16;
+        let futs = (0..total).map(|netuid| async move {
             let exists = self
                 .fetch_bool(
                     "SubtensorModule",
@@ -171,11 +171,10 @@ impl SubtensorClient {
                 )
                 .await
                 .unwrap_or(false);
-            if exists {
-                netuids.push(netuid);
-            }
-        }
-        Ok(netuids)
+            (netuid, exists)
+        });
+        let results = futures::future::join_all(futs).await;
+        Ok(results.into_iter().filter_map(|(n, e)| e.then_some(n)).collect())
     }
 
     pub async fn get_subnet_info(&self, netuid: u16) -> Result<SubnetInfo> {
@@ -205,14 +204,18 @@ impl SubtensorClient {
 
     pub async fn get_all_subnet_info(&self) -> Result<Vec<SubnetInfo>> {
         let netuids = self.get_all_netuids().await?;
-        let mut result = Vec::new();
-        for netuid in netuids {
-            match self.get_subnet_info(netuid).await {
-                Ok(info) => result.push(info),
+        // Fetch every subnet concurrently — sequential takes ~30-90s for
+        // 60+ subnets (6 storage reads each), join_all drops it to ~5-10s.
+        let futs = netuids.iter().map(|&n| self.get_subnet_info(n));
+        let results = futures::future::join_all(futs).await;
+        let mut out = Vec::with_capacity(netuids.len());
+        for (netuid, r) in netuids.into_iter().zip(results) {
+            match r {
+                Ok(info) => out.push(info),
                 Err(e) => warn!("skip subnet {netuid}: {e}"),
             }
         }
-        Ok(result)
+        Ok(out)
     }
 
     async fn get_subnet_name(&self, netuid: u16) -> String {

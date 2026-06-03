@@ -43,6 +43,10 @@ export interface PolymarketPosition {
   currentPrice: number;
   value: number;
   pnlUsd: number;
+  /// Whether the market lives on the negRisk exchange. SELL orders must
+  /// be signed against the matching exchange contract or CLOB rejects them
+  /// as "bad signature".
+  negRisk: boolean;
 }
 
 export interface ClobCredentials {

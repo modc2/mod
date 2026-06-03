@@ -185,6 +185,11 @@ class Mod:
                     and not stripped.startswith(('@', 'handle', 'header',
                         'uri', 'respond', 'reverse_proxy', 'redir',
                         'encode', 'log', 'tls', 'import'))):
+                # Skip bare global options blocks (`{ ... }` with no key).
+                # Caddy only allows one global block (must be first); the
+                # main Caddyfile already defines it, so module-local ones
+                # would crash the reload.
+                is_global = stripped.split('{', 1)[0].strip() == ''
                 block = []
                 depth = 0
                 while i < len(lines):
@@ -193,7 +198,8 @@ class Mod:
                     i += 1
                     if depth <= 0:
                         break
-                blocks.append('\n'.join(block))
+                if not is_global:
+                    blocks.append('\n'.join(block))
             else:
                 routes.append(lines[i])
                 i += 1

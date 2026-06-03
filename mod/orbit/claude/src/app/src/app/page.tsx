@@ -387,6 +387,12 @@ export default function Home() {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+  // On phone, default the AGENT side panel to CLOSED so the module's
+  // app gets the whole viewport. The user can still open it from the
+  // AGENT tab in the header.
+  useEffect(() => {
+    if (isMobile) setAgentSidebarOpen(false);
+  }, [isMobile]);
   const [sidebarSide, setSidebarSide] = useState<"left" | "right">("right");
 
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
@@ -481,10 +487,13 @@ export default function Home() {
   const jsonCopiedColor = isLight ? "#059669" : "#50fa7b";
   const jsonCopiedBg = isLight ? "rgba(5,150,105,0.1)" : "rgba(80,250,123,0.1)";
 
-  // Pick the best default tab for a module based on its capabilities
+  // Pick the best default tab for a module based on its capabilities.
+  // On phone we jump straight to APP (when the module has one) so the
+  // user lands on the real interface instead of the OVERVIEW chrome.
   const getBestTab = useCallback((info: typeof moduleList[0] | null): "overview" | "app" | "api" | "files" => {
+    if (isMobile && (info?.app_url || info?.has_app_dir)) return "app";
     return "overview";
-  }, []);
+  }, [isMobile]);
 
   // Reset all module-specific state when switching modules
   const resetModuleState = useCallback((newModuleInfo?: typeof moduleList[0] | null) => {
@@ -5064,8 +5073,59 @@ export default function Home() {
   };
 
   const renderAppTab = () => {
+    // Local gateway URL the user can type on a phone instead of the
+    // raw localhost:PORT. Caddy/routy proxy 3000 → the module's app.
+    // Hostname uses location.hostname so visiting from a phone on the
+    // same wifi (e.g. http://192.168.x.y:3000/claude) still shows the
+    // right address to copy.
+    const gatewayHost = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    const modName = selectedModule || "claude";
+    const gatewayUrl = `http://${gatewayHost}:3000/${modName}`;
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* URL strip — copyable, click-to-open in new tab. Shown above
+            every APP view so phone users can grab the route. */}
+        {selectedModuleInfo?.app_url && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 shrink-0"
+            style={{
+              borderBottom: "1px solid var(--border-color)",
+              background: "linear-gradient(180deg, var(--bg-tint), transparent)",
+            }}
+          >
+            <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
+            <button
+              onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+              className="flex-1 font-mono text-[11px] truncate text-left transition-colors"
+              style={{
+                color: "var(--text-secondary)",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: 4,
+                padding: "4px 8px",
+                cursor: "pointer",
+              }}
+              title={`${gatewayUrl} — click to copy`}
+            >
+              {gatewayUrl}
+            </button>
+            <a
+              href={gatewayUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
+              style={{
+                color: "var(--crt-green)",
+                background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                textDecoration: "none",
+              }}
+              title="Open in new tab"
+            >
+              ↗
+            </a>
+          </div>
+        )}
         {/* App Content */}
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url ? (

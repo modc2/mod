@@ -1,6 +1,7 @@
 "use client";
 
-import { fmtPct, fmtPnl } from "../lib/api";
+import { fmtPct } from "../lib/api";
+import { useCurrency, fmtPnlValue } from "../context/CurrencyContext";
 
 export default function PnlBadge({
   tao,
@@ -11,6 +12,7 @@ export default function PnlBadge({
   pct: number;
   size?: "sm" | "md" | "lg";
 }) {
+  const { currency, usdPerTao } = useCurrency();
   const positive = tao >= 0;
   const color = positive ? "text-green-400" : "text-red-400";
   const fontSize =
@@ -20,7 +22,7 @@ export default function PnlBadge({
 
   return (
     <span className={`${color} ${fontSize} font-mono tabular-nums whitespace-nowrap`}>
-      {fmtPnl(tao)}
+      {fmtPnlValue(tao, currency, usdPerTao)}
       <span className="opacity-60 ml-1">({fmtPct(pct)})</span>
     </span>
   );

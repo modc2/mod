@@ -5,7 +5,6 @@ import Link from "next/link";
 import type { IndexTrader, LeaderboardEntry, SavedIndex } from "../lib/types";
 import {
   fetchLeaderboard,
-  fmtTao,
   shortSs58,
   createCopy,
   pauseCopy,
@@ -21,6 +20,7 @@ import {
   deleteIndex,
   normalizedWeights,
 } from "../lib/indexStore";
+import { useCurrency, fmtValue } from "../context/CurrencyContext";
 
 const PROP_CAPITAL_TAO_DEFAULT = 100;
 
@@ -37,6 +37,7 @@ type Props = {
  * scaled by each trader's weight share of the configured total capital.
  */
 export default function StratPicker({ seedTarget }: Props) {
+  const { currency, usdPerTao } = useCurrency();
   const [indexes, setIndexes] = useState<SavedIndex[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("My Index");
@@ -523,7 +524,7 @@ export default function StratPicker({ seedTarget }: Props) {
                       <td className="num font-mono text-pixel-gray-light">
                         {(share * 100).toFixed(1)}%
                       </td>
-                      <td className="num font-mono">{fmtTao(dailyShare)}</td>
+                      <td className="num font-mono">{fmtValue(dailyShare, currency, usdPerTao)}</td>
                       <td>
                         <button
                           className="pixel-btn text-[10px] px-1.5 py-0.5 border-red-400/50 text-red-400"
@@ -573,7 +574,7 @@ export default function StratPicker({ seedTarget }: Props) {
                           {e.label || shortSs58(e.ss58)}
                         </td>
                         <td className="num font-mono">
-                          {fmtTao(e.total_stake_tao)}
+                          {fmtValue(e.total_stake_tao, currency, usdPerTao)}
                         </td>
                         <td
                           className={`num font-mono ${

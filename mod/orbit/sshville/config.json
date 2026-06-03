@@ -1,0 +1,85 @@
+{
+    "name": "sshville",
+    "version": "0.1.0",
+    "description": "Manage multiple SSH remote connections; auth via MetaMask (ETH personal_sign) or SubWallet/Polkadot.js (sr25519, Bittensor-compatible). Rust axum backend.",
+    "port": 50180,
+    "app_port": 50181,
+    "icon": "S",
+    "color": "#10b981",
+    "fns": [
+        "info",
+        "build",
+        "serve",
+        "kill",
+        "list",
+        "add",
+        "remove",
+        "test",
+        "exec"
+    ],
+    "backend": "rust",
+    "auth_schemes": [
+        {
+            "name": "eth",
+            "curve": "secp256k1",
+            "scheme": "EIP-191 personal_sign",
+            "header_format": "eth <0x-prefixed 65-byte signature>"
+        },
+        {
+            "name": "sub",
+            "curve": "sr25519",
+            "scheme": "Polkadot.js / SubWallet signRaw (Bittensor SS58 prefix=42 by default)",
+            "header_format": "sub <hex pubkey 32B> <hex sig 64B> [ss58_prefix]"
+        }
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module info"
+        },
+        "/challenge": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Return the challenge text the wallet must sign for auth, plus accepted X-Mod-Auth schemes (eth / sub)"
+        },
+        "/connections": {
+            "method": "GET",
+            "auth": true,
+            "docs": "List the caller's SSH connections (metadata only, no secrets)"
+        },
+        "/connections/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": true,
+            "docs": "Fetch (with ciphertext) or delete a single connection"
+        },
+        "/connections/add": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Add or upsert an SSH connection. Body: { name, host, port, user, auth_type, ciphertext, iv }"
+        },
+        "/connections/{id}/test": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Open a transient SSH session to verify reachability. Body: { secret } where secret is the decrypted password or private key"
+        },
+        "/connections/{id}/exec": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Run a one-shot command over SSH. Body: { secret, command }"
+        }
+    },
+    "urls": {
+        "api": "http://localhost:50180",
+        "app": "http://localhost:50181"
+    },
+    "schema": "QmQR6TCg4Zc6PEi5sVzRu9WygWQkeEMpPmo2s8Hufgpsnn"
+}

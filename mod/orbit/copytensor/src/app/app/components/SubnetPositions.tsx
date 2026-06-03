@@ -1,13 +1,15 @@
 "use client";
 
 import type { Allocation } from "../lib/types";
-import { fmtTao, shortSs58 } from "../lib/api";
+import { shortSs58 } from "../lib/api";
+import { useCurrency, fmtValue, fmtAlphaPrice } from "../context/CurrencyContext";
 
 export default function SubnetPositions({
   allocations,
 }: {
   allocations: Allocation[];
 }) {
+  const { currency, usdPerTao } = useCurrency();
   if (!allocations.length) {
     return <p className="text-pixel-gray text-sm">No alpha positions found.</p>;
   }
@@ -27,7 +29,7 @@ export default function SubnetPositions({
                 background: `hsla(${hue}, 70%, 55%, 0.55)`,
               }}
               className="relative group transition-all hover:brightness-150"
-              title={`SN${a.netuid} ${a.subnet_name}: ${a.pct_of_total.toFixed(1)}% (${fmtTao(a.value_tao)})`}
+              title={`SN${a.netuid} ${a.subnet_name}: ${a.pct_of_total.toFixed(1)}% (${fmtValue(a.value_tao, currency, usdPerTao)})`}
             >
               {a.pct_of_total > 6 && (
                 <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-pixel-white">
@@ -45,7 +47,7 @@ export default function SubnetPositions({
             <tr>
               <th>Subnet</th>
               <th className="num">Alpha</th>
-              <th className="num">Price (τ/α)</th>
+              <th className="num">Price ({currency === "USD" ? "$" : "τ"}/α)</th>
               <th className="num">Value</th>
               <th className="num">% port</th>
               <th>Hotkey</th>
@@ -59,8 +61,8 @@ export default function SubnetPositions({
                   <span className="text-pixel-gray text-xs ml-2">{a.subnet_name}</span>
                 </td>
                 <td className="num font-mono">{a.alpha_amount.toFixed(4)}</td>
-                <td className="num font-mono">{a.alpha_price_tao.toFixed(6)}</td>
-                <td className="num font-mono text-pixel-white">{fmtTao(a.value_tao)}</td>
+                <td className="num font-mono">{fmtAlphaPrice(a.alpha_price_tao, currency, usdPerTao)}</td>
+                <td className="num font-mono text-pixel-white">{fmtValue(a.value_tao, currency, usdPerTao)}</td>
                 <td className="num font-mono text-pixel-gray-light">
                   {a.pct_of_total.toFixed(1)}%
                 </td>

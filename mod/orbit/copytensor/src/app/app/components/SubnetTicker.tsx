@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchSubnets } from "../lib/api";
 import type { SubnetInfo } from "../lib/types";
+import { useCurrency, fmtAlphaPrice } from "../context/CurrencyContext";
 
 /**
  * Slim live alpha-price tape that sits above the top bar.
@@ -120,6 +121,7 @@ function TickerChip({
   prevPrice: number | undefined;
   onClick: () => void;
 }) {
+  const { currency, usdPerTao } = useCurrency();
   const price = subnet.alpha_price_tao;
   const delta = prevPrice != null && prevPrice > 0
     ? ((price - prevPrice) / prevPrice) * 100
@@ -130,23 +132,19 @@ function TickerChip({
     delta < -0.0001 ? "#f87171" :
     "#888";
 
-  const fmtPrice = price >= 1
-    ? price.toFixed(3)
-    : price >= 0.01
-      ? price.toFixed(5)
-      : price.toExponential(2);
+  const showPrice = fmtAlphaPrice(price, currency, usdPerTao);
 
   return (
     <button
       onClick={onClick}
       className="flex items-center gap-2 cursor-pointer hover:bg-pixel-white/5 px-1 py-0.5 transition-colors"
-      title={`${subnet.name} — ${price} TAO/α`}
+      title={`${subnet.name} — ${showPrice} per α`}
     >
       <span className="text-[12px] text-pixel-gray-light font-mono">
         SN{subnet.netuid}
       </span>
       <span className="text-[14px] font-mono font-bold" style={{ color: dirColor }}>
-        {fmtPrice}τ
+        {showPrice}
       </span>
       {Math.abs(delta) >= 0.01 && (
         <span className="text-[11px] font-mono" style={{ color: dirColor }}>

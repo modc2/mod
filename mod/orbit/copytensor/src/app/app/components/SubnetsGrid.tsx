@@ -5,9 +5,11 @@ import Link from "next/link";
 import { fetchSubnets } from "../lib/api";
 import type { SubnetInfo } from "../lib/types";
 import { useFilters } from "../context/FiltersContext";
+import { useCurrency, fmtValue, fmtAlphaPrice } from "../context/CurrencyContext";
 
 export default function SubnetsGrid() {
   const { search } = useFilters();
+  const { currency, usdPerTao } = useCurrency();
   const [subnets, setSubnets] = useState<SubnetInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -60,19 +62,17 @@ export default function SubnetsGrid() {
 
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <div>
-              <p className="text-pixel-gray tracking-[2px] uppercase">α/τ</p>
+              <p className="text-pixel-gray tracking-[2px] uppercase">
+                α/{currency === "USD" ? "$" : "τ"}
+              </p>
               <p className="font-mono text-pixel-white">
-                {s.alpha_price_tao >= 1
-                  ? s.alpha_price_tao.toFixed(3)
-                  : s.alpha_price_tao.toFixed(6)}
+                {fmtAlphaPrice(s.alpha_price_tao, currency, usdPerTao)}
               </p>
             </div>
             <div>
               <p className="text-pixel-gray tracking-[2px] uppercase">stake</p>
               <p className="font-mono text-pixel-white">
-                {s.total_stake_tao >= 1000
-                  ? `${(s.total_stake_tao / 1000).toFixed(2)}K`
-                  : s.total_stake_tao.toFixed(2)}τ
+                {fmtValue(s.total_stake_tao, currency, usdPerTao)}
               </p>
             </div>
             <div>

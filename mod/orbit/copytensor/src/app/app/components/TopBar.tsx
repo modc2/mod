@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import RpcPoolChip from "./RpcPoolChip";
+import CurrencyToggle from "./CurrencyToggle";
 import { useSidebar } from "../context/SidebarContext";
 import { useFilters } from "../context/FiltersContext";
 
@@ -80,6 +81,7 @@ export default function TopBar() {
 
         <div className="flex items-center gap-2">
           <RpcPoolChip />
+          <CurrencyToggle />
           <ThemeToggle />
           <button
             onClick={toggleDocked}

@@ -47,6 +47,12 @@ struct AppState {
     last_tx_time: RwLock<Instant>,
     daily_spent: RwLock<f64>,
     daily_reset: RwLock<Instant>,
+    // Per-block caches. Keyed by chain block height so every new block
+    // triggers a refresh; within a block, all reads are served from memory.
+    // Tuple = (block_height, payload, fetched_at). `fetched_at` lets us
+    // serve a stale value if the chain temporarily errors instead of 500ing.
+    subnets_cache: RwLock<Option<(u64, Vec<SubnetInfo>, Instant)>>,
+    tao_price_cache: RwLock<Option<(u64, f64, Instant)>>,
 }
 
 type S = Arc<AppState>;
@@ -111,7 +117,15 @@ async fn main() -> Result<()> {
         last_tx_time: RwLock::new(Instant::now()),
         daily_spent: RwLock::new(0.0),
         daily_reset: RwLock::new(Instant::now()),
+        subnets_cache: RwLock::new(None),
+        tao_price_cache: RwLock::new(None),
     });
+
+    // Background block-driven cache refresher. Polls the chain head every
+    // ~6s (one Bittensor block); on each new block, refreshes the subnet
+    // snapshot and the TAO/USD price in parallel. Request handlers read
+    // straight from the cache so they never block on RPC.
+    spawn_cache_refresher(state.clone());
 
     // Resume active copy loops
     {
@@ -134,6 +148,8 @@ async fn main() -> Result<()> {
         .route("/status", get(status))
         // subnets
         .route("/subnets", get(list_subnets))
+        // price (TAO/USD, cached server-side)
+        .route("/tao_price", get(tao_price))
         // accounts
         .route("/account/{ss58}", get(get_account))
         .route("/account/{ss58}/pnl", get(get_account_pnl))
@@ -222,12 +238,87 @@ async fn status(State(s): State<S>) -> impl IntoResponse {
     })
 }
 
+/// GET /tao_price → { usd, age_sec, block, stale }
+/// Pure cache read — populated by the background refresher.
+async fn tao_price(State(s): State<S>) -> Json<serde_json::Value> {
+    if let Some((block, usd, at)) = s.tao_price_cache.read().await.as_ref() {
+        let age = at.elapsed().as_secs();
+        return Json(json!({
+            "usd": usd,
+            "age_sec": age,
+            "block": block,
+            "stale": age > 120,
+        }));
+    }
+    Json(json!({ "error": "tao price not yet cached — refresher warming up" }))
+}
+
+/// Background task: on each new chain block, refresh the subnet snapshot
+/// and the TAO/USD price. Handlers serve directly from the cache so they
+/// never wait on chain or network I/O.
+async fn refresh_caches(state: &S, http: &reqwest::Client, last_block: u64) -> u64 {
+    let block = match state.client.get_block().await {
+        Ok(b) => b,
+        Err(e) => {
+            warn!("refresher: get_block failed: {e}");
+            return last_block;
+        }
+    };
+    if block == last_block {
+        return last_block;
+    }
+    // Fetch subnet snapshot + TAO/USD price concurrently.
+    let subnets_fut = async { state.client.get_all_subnet_info().await.ok() };
+    let price_fut = async {
+        let r = http
+            .get("https://api.coingecko.com/api/v3/simple/price?ids=bittensor&vs_currencies=usd")
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .ok()?;
+        r.json::<serde_json::Value>().await.ok()?
+            ["bittensor"]["usd"].as_f64()
+    };
+    let (subnets, price) = tokio::join!(subnets_fut, price_fut);
+    if let Some(info) = subnets {
+        let n = info.len();
+        *state.subnets_cache.write().await = Some((block, info, Instant::now()));
+        info!("refreshed subnets cache: {n} subnets @ block {block}");
+    }
+    if let Some(p) = price {
+        *state.tao_price_cache.write().await = Some((block, p, Instant::now()));
+        info!("refreshed TAO price: ${p:.2} @ block {block}");
+    }
+    block
+}
+
+fn spawn_cache_refresher(state: S) {
+    tokio::spawn(async move {
+        let http = reqwest::Client::new();
+        // First refresh immediately, then one per Bittensor block (~12s).
+        let mut last_block = refresh_caches(&state, &http, 0).await;
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(6)).await;
+            last_block = refresh_caches(&state, &http, last_block).await;
+        }
+    });
+}
+
 async fn list_subnets(State(s): State<S>) -> Result<Json<Vec<SubnetInfo>>, (StatusCode, Json<serde_json::Value>)> {
-    s.client
+    // Pure cache read — refresher keeps it warm per block.
+    if let Some((_, info, _)) = s.subnets_cache.read().await.as_ref() {
+        return Ok(Json(info.clone()));
+    }
+    // Cold start: cache hasn't been populated yet. Fall back to a one-shot
+    // fetch so the very first request after boot still works.
+    let info = s
+        .client
         .get_all_subnet_info()
         .await
-        .map(Json)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let block = s.client.get_block().await.unwrap_or(0);
+    *s.subnets_cache.write().await = Some((block, info.clone(), Instant::now()));
+    Ok(Json(info))
 }
 
 async fn get_account(

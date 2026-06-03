@@ -1,9 +1,8 @@
 {
     admin localhost:2099
-    auto_https off
 }
 
-(module_routes) {
+modc2.com {
     @agent_api path /api/agent /api/agent/*
     handle @agent_api {
         uri strip_prefix /api/agent
@@ -12,6 +11,33 @@
     @agent_app path /agent /agent/*
     handle @agent_app {
         reverse_proxy agent-api:3117
+    }
+    @basebuilder_api path /api/basebuilder /api/basebuilder/*
+    handle @basebuilder_api {
+        uri strip_prefix /api/basebuilder
+        reverse_proxy basebuilder:50200
+    }
+    @basebuilder_app path /basebuilder /basebuilder/*
+    handle @basebuilder_app {
+        reverse_proxy basebuilder:50201
+    }
+    @bitevo_api path /api/bitevo /api/bitevo/*
+    handle @bitevo_api {
+        uri strip_prefix /api/bitevo
+        reverse_proxy bitevo:50120
+    }
+    @bitevo_app path /bitevo /bitevo/*
+    handle @bitevo_app {
+        reverse_proxy bitevo:50121
+    }
+    @bitstore_api path /api/bitstore /api/bitstore/*
+    handle @bitstore_api {
+        uri strip_prefix /api/bitstore
+        reverse_proxy bitstore:50130
+    }
+    @bitstore_app path /bitstore /bitstore/*
+    handle @bitstore_app {
+        reverse_proxy bitstore:50131
     }
     @bloctime_api path /api/bloctime /api/bloctime/*
     handle @bloctime_api {
@@ -25,104 +51,20 @@
     @bridge_api path /api/bridge /api/bridge/*
     handle @bridge_api {
         uri strip_prefix /api/bridge
-        reverse_proxy bridge:8840
+        reverse_proxy {$PM2_HOST:localhost}:8840
     }
     @bridge_app path /bridge /bridge/*
     handle @bridge_app {
-        reverse_proxy bridge:8841
+        reverse_proxy {$PM2_HOST:localhost}:8841
     }
-    @latexhub_api path /api/latexhub /api/latexhub/*
-    handle @latexhub_api {
-        uri strip_prefix /api/latexhub
-        reverse_proxy latexhub-api:50200
+    @chutes_api path /api/chutes /api/chutes/*
+    handle @chutes_api {
+        uri strip_prefix /api/chutes
+        reverse_proxy chutes:50120
     }
-    @latexhub_app path /latexhub /latexhub/*
-    handle @latexhub_app {
-        reverse_proxy latexhub-api:3200
-    }
-    @openclaw_api path /api/openclaw /api/openclaw/*
-    handle @openclaw_api {
-        uri strip_prefix /api/openclaw
-        reverse_proxy openclaw:50120
-    }
-    @openclaw_app path /openclaw /openclaw/*
-    handle @openclaw_app {
-        reverse_proxy openclaw:50121
-    }
-    @polymarket_api path /api/polymarket /api/polymarket/*
-    handle @polymarket_api {
-        uri strip_prefix /api/polymarket
-        reverse_proxy polymarket:50091
-    }
-    # CLOB L2 passthrough (order, balance-allowance, orders, cancel).
-    # Browser can't hit clob.polymarket.com directly (no CORS on L2), so we
-    # reverse-proxy authenticated L2 calls straight through. Must come BEFORE
-    # the polymarket_app handler so it isn't shadowed by /api/polymarket-l2
-    # falling into a catch-all.
-    @polymarket_l2 path /api/polymarket-l2 /api/polymarket-l2/*
-    handle @polymarket_l2 {
-        uri strip_prefix /api/polymarket-l2
-        reverse_proxy https://clob.polymarket.com {
-            header_up Host clob.polymarket.com
-        }
-    }
-    @polymarket_app path /polymarket /polymarket/*
-    handle @polymarket_app {
-        reverse_proxy polymarket:3091
-    }
-    @hyperliquid_api path /api/hyperliquid /api/hyperliquid/*
-    handle @hyperliquid_api {
-        uri strip_prefix /api/hyperliquid
-        reverse_proxy host.docker.internal:8919
-    }
-    @hyperliquid_app path /hyperliquid /hyperliquid/*
-    handle @hyperliquid_app {
-        reverse_proxy host.docker.internal:3919
-    }
-    @copytensor_api path /api/copytensor /api/copytensor/*
-    handle @copytensor_api {
-        uri strip_prefix /api/copytensor
-        reverse_proxy host.docker.internal:50150
-    }
-    @copytensor_app path /copytensor /copytensor/*
-    handle @copytensor_app {
-        reverse_proxy host.docker.internal:3150
-    }
-    @chain_archive_api path /api/chain-archive /api/chain-archive/*
-    handle @chain_archive_api {
-        uri strip_prefix /api/chain-archive
-        reverse_proxy chain:50103
-    }
-    @prefi_app path /prefi /prefi/*
-    handle @prefi_app {
-        reverse_proxy prefi:3160
-    }
-    @codex_api path /api/codex /api/codex/*
-    handle @codex_api {
-        uri strip_prefix /api/codex
-        reverse_proxy host.docker.internal:8830
-    }
-    @codex_app path /codex /codex/*
-    handle @codex_app {
-        reverse_proxy host.docker.internal:8831
-    }
-    @tether_api path /api/tether /api/tether/*
-    handle @tether_api {
-        uri strip_prefix /api/tether
-        reverse_proxy host.docker.internal:8850
-    }
-    @tether_app path /tether /tether/*
-    handle @tether_app {
-        reverse_proxy host.docker.internal:8851
-    }
-    @dev_api path /api/dev /api/dev/*
-    handle @dev_api {
-        uri strip_prefix /api/dev
-        reverse_proxy host.docker.internal:8870
-    }
-    @dev_app path /dev /dev/*
-    handle @dev_app {
-        reverse_proxy host.docker.internal:8870
+    @chutes_app path /chutes /chutes/*
+    handle @chutes_app {
+        reverse_proxy chutes:50121
     }
     @claude_api path /api/claude /api/claude/*
     handle @claude_api {
@@ -133,43 +75,281 @@
     handle @claude_app {
         reverse_proxy claude:8823
     }
-    @whitepaper_api path /api/whitepaper /api/whitepaper/*
-    handle @whitepaper_api {
-        uri strip_prefix /api/whitepaper
-        reverse_proxy host.docker.internal:50106
+    @claudegit_api path /api/claudegit /api/claudegit/*
+    handle @claudegit_api {
+        uri strip_prefix /api/claudegit
+        reverse_proxy claudegit:8830
     }
-    @whitepaper_app path /whitepaper /whitepaper/*
-    handle @whitepaper_app {
-        reverse_proxy host.docker.internal:3106
+    @claudegit_app path /claudegit /claudegit/*
+    handle @claudegit_app {
+        reverse_proxy claudegit:8831
+    }
+    @codex_api path /api/codex /api/codex/*
+    handle @codex_api {
+        uri strip_prefix /api/codex
+        reverse_proxy codex:8830
+    }
+    @codex_app path /codex /codex/*
+    handle @codex_app {
+        reverse_proxy codex:8831
+    }
+    @coplay_api path /api/coplay /api/coplay/*
+    handle @coplay_api {
+        uri strip_prefix /api/coplay
+        reverse_proxy coplay:50118
+    }
+    @coplay_app path /coplay /coplay/*
+    handle @coplay_app {
+        reverse_proxy coplay:3118
+    }
+    @copytensor_api path /api/copytensor /api/copytensor/*
+    handle @copytensor_api {
+        uri strip_prefix /api/copytensor
+        reverse_proxy copytensor:50150
+    }
+    @copytensor_app path /copytensor /copytensor/*
+    handle @copytensor_app {
+        reverse_proxy copytensor:3150
+    }
+    @dev_api path /api/dev /api/dev/*
+    handle @dev_api {
+        uri strip_prefix /api/dev
+        reverse_proxy dev:8870
+    }
+    @dev_app path /dev /dev/*
+    handle @dev_app {
+        reverse_proxy dev:8871
+    }
+    @dns_api path /api/dns /api/dns/*
+    handle @dns_api {
+        uri strip_prefix /api/dns
+        reverse_proxy dns:5380
+    }
+    @dns_app path /dns /dns/*
+    handle @dns_app {
+        reverse_proxy dns:5382
+    }
+    @dstore_api path /api/dstore /api/dstore/*
+    handle @dstore_api {
+        uri strip_prefix /api/dstore
+        reverse_proxy dstore:50150
+    }
+    @dstore_app path /dstore /dstore/*
+    handle @dstore_app {
+        reverse_proxy dstore:50151
+    }
+    @filecoin_api path /api/filecoin /api/filecoin/*
+    handle @filecoin_api {
+        uri strip_prefix /api/filecoin
+        reverse_proxy filecoin:50140
+    }
+    @filecoin_app path /filecoin /filecoin/*
+    handle @filecoin_app {
+        reverse_proxy filecoin:50141
+    }
+    @goldfi_api path /api/goldfi /api/goldfi/*
+    handle @goldfi_api {
+        uri strip_prefix /api/goldfi
+        reverse_proxy goldfi:50095
+    }
+    @goldfi_app path /goldfi /goldfi/*
+    handle @goldfi_app {
+        reverse_proxy goldfi:3095
+    }
+    @hippius_api path /api/hippius /api/hippius/*
+    handle @hippius_api {
+        uri strip_prefix /api/hippius
+        reverse_proxy hippius:50142
+    }
+    @hippius_app path /hippius /hippius/*
+    handle @hippius_app {
+        reverse_proxy hippius:50143
+    }
+    @hyperliquid_api path /api/hyperliquid /api/hyperliquid/*
+    handle @hyperliquid_api {
+        uri strip_prefix /api/hyperliquid
+        reverse_proxy hyperliquid:8919
+    }
+    @hyperliquid_app path /hyperliquid /hyperliquid/*
+    handle @hyperliquid_app {
+        reverse_proxy hyperliquid:3919
+    }
+    @ipfs_api path /api/ipfs /api/ipfs/*
+    handle @ipfs_api {
+        uri strip_prefix /api/ipfs
+        reverse_proxy ipfs:50079
+    }
+    @ipfs_app path /ipfs /ipfs/*
+    handle @ipfs_app {
+        reverse_proxy ipfs:50080
+    }
+    @latexhub_api path /api/latexhub /api/latexhub/*
+    handle @latexhub_api {
+        uri strip_prefix /api/latexhub
+        reverse_proxy latexhub-api:50200
+    }
+    @latexhub_app path /latexhub /latexhub/*
+    handle @latexhub_app {
+        reverse_proxy latexhub-api:3200
     }
     @localfs_api path /api/localfs /api/localfs/*
     handle @localfs_api {
         uri strip_prefix /api/localfs
-        reverse_proxy host.docker.internal:8860
+        reverse_proxy {$PM2_HOST:localhost}:8860
     }
     @localfs_app path /localfs /localfs/*
     handle @localfs_app {
-        uri strip_prefix /localfs
-        reverse_proxy host.docker.internal:8861
+        reverse_proxy {$PM2_HOST:localhost}:8861
     }
-}
-
-:3000 {
-    import module_routes
-    handle /* {
-        reverse_proxy host.docker.internal:3001
+    @model_api path /api/model /api/model/*
+    handle @model_api {
+        uri strip_prefix /api/model
+        reverse_proxy model:50110
     }
-}
-
-modc2.com {
-    import module_routes
+    @model_app path /model /model/*
+    handle @model_app {
+        reverse_proxy model:50110
+    }
+    @multistore_api path /api/multistore /api/multistore/*
+    handle @multistore_api {
+        uri strip_prefix /api/multistore
+        reverse_proxy multistore:50160
+    }
+    @multistore_app path /multistore /multistore/*
+    handle @multistore_app {
+        reverse_proxy multistore:50161
+    }
+    @neartensor_api path /api/neartensor /api/neartensor/*
+    handle @neartensor_api {
+        uri strip_prefix /api/neartensor
+        reverse_proxy neartensor:50140
+    }
+    @neartensor_app path /neartensor /neartensor/*
+    handle @neartensor_app {
+        reverse_proxy neartensor:50141
+    }
+    @openclaw_api path /api/openclaw /api/openclaw/*
+    handle @openclaw_api {
+        uri strip_prefix /api/openclaw
+        reverse_proxy openclaw:50120
+    }
+    @openclaw_app path /openclaw /openclaw/*
+    handle @openclaw_app {
+        reverse_proxy openclaw:50121
+    }
+    @openhouse_api path /api/openhouse /api/openhouse/*
+    handle @openhouse_api {
+        uri strip_prefix /api/openhouse
+        reverse_proxy openhouse:50130
+    }
+    @openhouse_app path /openhouse /openhouse/*
+    handle @openhouse_app {
+        reverse_proxy openhouse:50131
+    }
+    @polycopy_api path /api/polycopy /api/polycopy/*
+    handle @polycopy_api {
+        uri strip_prefix /api/polycopy
+        reverse_proxy polycopy:50130
+    }
+    @polycopy_app path /polycopy /polycopy/*
+    handle @polycopy_app {
+        reverse_proxy polycopy:3130
+    }
+    @prefi_api path /api/prefi /api/prefi/*
+    handle @prefi_api {
+        uri strip_prefix /api/prefi
+        reverse_proxy prefi:8830
+    }
+    @prefi_app path /prefi /prefi/*
+    handle @prefi_app {
+        reverse_proxy prefi:8831
+    }
+    @qbit_api path /api/qbit /api/qbit/*
+    handle @qbit_api {
+        uri strip_prefix /api/qbit
+        reverse_proxy qbit:50100
+    }
+    @qbit_app path /qbit /qbit/*
+    handle @qbit_app {
+        reverse_proxy qbit:50101
+    }
+    @skillvill_api path /api/skillvill /api/skillvill/*
+    handle @skillvill_api {
+        uri strip_prefix /api/skillvill
+        reverse_proxy skillvill:50140
+    }
+    @skillvill_app path /skillvill /skillvill/*
+    handle @skillvill_app {
+        reverse_proxy skillvill:3140
+    }
+    @staketime_api path /api/staketime /api/staketime/*
+    handle @staketime_api {
+        uri strip_prefix /api/staketime
+        reverse_proxy staketime:8849
+    }
+    @staketime_app path /staketime /staketime/*
+    handle @staketime_app {
+        reverse_proxy staketime:8850
+    }
+    @store_api path /api/store /api/store/*
+    handle @store_api {
+        uri strip_prefix /api/store
+        reverse_proxy mod-store:50150
+    }
+    @store_app path /store /store/*
+    handle @store_app {
+        reverse_proxy mod-store:50151
+    }
+    @tt_api path /api/tt /api/tt/*
+    handle @tt_api {
+        uri strip_prefix /api/tt
+        reverse_proxy tt:8849
+    }
+    @tt_app path /tt /tt/*
+    handle @tt_app {
+        reverse_proxy tt:8850
+    }
+    @uniswap_api path /api/uniswap /api/uniswap/*
+    handle @uniswap_api {
+        uri strip_prefix /api/uniswap
+        reverse_proxy uniswap:50088
+    }
+    @uniswap_app path /uniswap /uniswap/*
+    handle @uniswap_app {
+        reverse_proxy uniswap:3088
+    }
+    @vali_api path /api/vali /api/vali/*
+    handle @vali_api {
+        uri strip_prefix /api/vali
+        reverse_proxy vali:50100
+    }
+    @vali_app path /vali /vali/*
+    handle @vali_app {
+        reverse_proxy vali:50101
+    }
+    @venice_api path /api/venice /api/venice/*
+    handle @venice_api {
+        uri strip_prefix /api/venice
+        reverse_proxy {$PM2_HOST:localhost}:8880
+    }
+    # Listener port is parametrised. Default is :3000 (canonical mod-protocol
+    # proxy port). `m whitepaper/serve` will pick the first free port from
+    @zcash_api path /api/zcash /api/zcash/*
+    handle @zcash_api {
+        uri strip_prefix /api/zcash
+        reverse_proxy zcash:8930
+    }
+    @zcash_app path /zcash /zcash/*
+    handle @zcash_app {
+        reverse_proxy zcash:3930
+    }
     @main_api path /api /api/*
     handle @main_api {
         uri strip_prefix /api
-        reverse_proxy {env.PM2_HOST}:8000
+        reverse_proxy {$PM2_HOST:localhost}:8000
     }
     handle /* {
-        reverse_proxy host.docker.internal:3001
+        reverse_proxy {$PM2_HOST:localhost}:3000
     }
 }
 
@@ -187,10 +367,48 @@ api.modc2.com {
 
     handle /bridge/* {
         uri strip_prefix /bridge
-        reverse_proxy bridge:8840
+        reverse_proxy {$PM2_HOST:localhost}:8840
     }
 
     handle /* {
-        reverse_proxy {env.PM2_HOST}:8000
+        reverse_proxy {$PM2_HOST:localhost}:8000
+    }
+}
+
+:3000 {
+    @polymarket_api path /api/polymarket /api/polymarket/*
+    handle @polymarket_api {
+        uri strip_prefix /api/polymarket
+        reverse_proxy localhost:50091
+    }
+    # CLOB L2 passthrough — browser can hit clob.polymarket.com under CORS,
+    # but proxying keeps origin checks predictable and matches the dev script.
+    @polymarket_l2 path /api/polymarket-l2 /api/polymarket-l2/*
+    handle @polymarket_l2 {
+        uri strip_prefix /api/polymarket-l2
+        reverse_proxy https://clob.polymarket.com {
+            header_up Host clob.polymarket.com
+        }
+    }
+    @polymarket_app path /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5/*
+    handle @polymarket_app {
+        uri replace /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket 1
+        reverse_proxy localhost:3091
+    }
+    handle /* {
+        reverse_proxy localhost:3091
+    }
+}
+
+# {3000, 3030, 3031, ...} and pass it in via WHITEPAPER_PROXY_PORT.
+
+:{$WHITEPAPER_PROXY_PORT:3000} {
+    @whitepaper_api path /api/whitepaper /api/whitepaper/*
+    handle @whitepaper_api {
+        uri strip_prefix /api/whitepaper
+        reverse_proxy localhost:{$WHITEPAPER_API_PORT:50106}
+    }
+    handle /whitepaper* {
+        reverse_proxy localhost:{$WHITEPAPER_APP_PORT:3106}
     }
 }

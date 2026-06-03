@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
 import { FiltersProvider } from "./context/FiltersContext";
 import { SidebarProvider } from "./context/SidebarContext";
+import { CurrencyProvider } from "./context/CurrencyContext";
 import SidebarShell from "./components/SidebarShell";
 import SubnetTicker from "./components/SubnetTicker";
 import TopBar from "./components/TopBar";
@@ -30,21 +31,23 @@ export default function RootLayout({
       </head>
       <body className="font-pixel antialiased bg-pixel-bg text-pixel-white min-h-screen">
         <ThemeProvider>
-          <FiltersProvider>
-            <SidebarProvider>
-              <div className="crt-overlay" />
-              <div className="crt-screen min-h-screen">
-                <SubnetTicker />
-                <TopBar />
-                <SidebarShell>
-                  <main className="max-w-[1600px] mx-auto px-4 py-6">
-                    {children}
-                  </main>
-                </SidebarShell>
-                <BuildBadge />
-              </div>
-            </SidebarProvider>
-          </FiltersProvider>
+          <CurrencyProvider>
+            <FiltersProvider>
+              <SidebarProvider>
+                <div className="crt-overlay" />
+                <div className="crt-screen min-h-screen">
+                  <SubnetTicker />
+                  <TopBar />
+                  <SidebarShell>
+                    <main className="max-w-[1600px] mx-auto px-4 py-6">
+                      {children}
+                    </main>
+                  </SidebarShell>
+                  <BuildBadge />
+                </div>
+              </SidebarProvider>
+            </FiltersProvider>
+          </CurrencyProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -33,6 +33,7 @@ interface PositionLite {
   tokenId: string;
   conditionId: string;
   currentPrice: number;
+  negRisk: boolean;
 }
 
 interface Snapshot {
@@ -274,7 +275,7 @@ export default function PortfolioPanel() {
     // 2) Positions for the deposit wallet — that's where trades land in V2.
     if (wallet) {
       try {
-        const pos = await fetchPositions(wallet);
+        const pos = await fetchPositions(wallet, { bypassCache: true });
         nextPositions = pos.map((p) => ({
           market: p.market,
           outcome: p.outcome,
@@ -284,6 +285,7 @@ export default function PortfolioPanel() {
           tokenId: p.tokenId,
           conditionId: p.conditionId,
           currentPrice: p.currentPrice,
+          negRisk: p.negRisk,
         }));
         nextPosVal = nextPositions.reduce((s, p) => s + p.value, 0);
       } catch (e) {
@@ -407,7 +409,7 @@ export default function PortfolioPanel() {
                         expiration: 0,
                         signatureType: 3,
                         orderType: "FAK",
-                        negRisk: false,
+                        negRisk: p.negRisk,
                         // Backend ignores this and derives the V2 deposit
                         // wallet from `eoa` itself, but the field is
                         // required by PlaceOrderArgs.
@@ -420,18 +422,30 @@ export default function PortfolioPanel() {
                       body: JSON.stringify(body),
                     });
                     if (r.ok) {
-                      const j = (await r.json()) as { success?: boolean };
-                      if (j.success === false) fail++;
-                      else ok++;
+                      const j = (await r.json()) as { success?: boolean; errorMsg?: string };
+                      if (j.success === false) {
+                        fail++;
+                        if (j.errorMsg) setLastError(`${p.market.slice(0, 28)}: ${j.errorMsg}`);
+                      } else ok++;
                     } else {
                       fail++;
+                      const detail = await r.text().catch(() => "");
+                      setLastError(`${p.market.slice(0, 28)}: HTTP ${r.status} ${detail.slice(0, 120)}`);
                     }
-                  } catch {
+                  } catch (e) {
                     fail++;
+                    setLastError(`${p.market.slice(0, 28)}: ${e instanceof Error ? e.message : String(e)}`);
                   }
                 }
                 setSellStatus(`sold ${ok} ✓ · ${fail} failed`);
                 setSelling(false);
+                // Reset portfolio history so the curves redraw from the
+                // post-sell state instead of dragging the old positions
+                // wedge across the time axis.
+                if (ok > 0) {
+                  try { localStorage.removeItem(HISTORY_KEY); } catch {}
+                  setHistory([]);
+                }
                 setTimeout(refresh, 4_000);
               }}
               disabled={selling || posValue <= 0}

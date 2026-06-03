@@ -24,6 +24,10 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+// ── price ──
+export const fetchTaoPrice = () =>
+  j<{ usd: number; age_sec: number; stale: boolean } | { error: string }>("/tao_price");
+
 // ── subnets ──
 export const fetchSubnets = () => j<SubnetInfo[]>("/subnets");
 

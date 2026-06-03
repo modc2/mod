@@ -3,15 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LeaderboardEntry } from "../lib/types";
-import { fetchLeaderboard, fmtTao, shortSs58 } from "../lib/api";
+import { fetchLeaderboard, shortSs58 } from "../lib/api";
 import PnlBadge from "./PnlBadge";
 import { useFilters, type SortKey } from "../context/FiltersContext";
+import { useCurrency, fmtValue } from "../context/CurrencyContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
 
 export default function Leaderboard() {
   const { days, setDays, search, sortKey, sortDir, toggleSort, minSubnets,
           setMinSubnets, reloadKey } = useFilters();
+  const { currency, usdPerTao } = useCurrency();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -101,8 +103,8 @@ export default function Leaderboard() {
             <tr>
               <th style={{ width: 36 }}>#</th>
               <th>Validator</th>
-              <Th k="total_stake_tao" label={`Stake`} num />
-              <Th k="pnl_tao" label={`${days}d PnL (τ)`} num />
+              <Th k="total_stake_tao" label={`Stake (${currency === "USD" ? "$" : "τ"})`} num />
+              <Th k="pnl_tao" label={`${days}d PnL (${currency === "USD" ? "$" : "τ"})`} num />
               <Th k="pnl_pct" label={`${days}d %`} num />
               <Th k="num_subnets" label="SNs" num />
               <th>Top SN</th>
@@ -135,7 +137,7 @@ export default function Leaderboard() {
                       {e.label || shortSs58(e.ss58)}
                     </Link>
                   </td>
-                  <td className="num font-mono">{fmtTao(e.total_stake_tao)}</td>
+                  <td className="num font-mono">{fmtValue(e.total_stake_tao, currency, usdPerTao)}</td>
                   <td className="num">
                     <PnlBadge tao={e.pnl_tao} pct={e.pnl_pct} size="sm" />
                   </td>

@@ -1477,7 +1477,23 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               </span>
               <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">STRAT</span>
               <div className="w-2 h-2 bg-green-400 shrink-0" />
-              <span className="text-[14px] font-mono text-green-400 font-bold truncate">{activeIndex.name}</span>
+              {/* Inline picker — switch active strat without leaving BACKTEST/LIVE. */}
+              <select
+                value={activeIndex.id}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  selectStrategy(e.target.value);
+                }}
+                className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
+                title="Switch active strat"
+              >
+                {savedIndexes.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
+                    {s.name}
+                  </option>
+                ))}
+              </select>
               <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
               {activeIndex.lastPnlAfterCosts !== undefined && (
                 <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -1502,9 +1518,9 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               <button
                 onClick={(e) => { e.stopPropagation(); setMode("STRATS"); }}
                 className="text-[13px] text-pixel-gray hover:text-green-400 transition-colors px-2 py-0.5 border border-pixel-border hover:border-green-400 font-mono shrink-0 ml-auto"
-                title="Switch strat"
+                title="Open strats manager (rename, delete, weights, fresh strat)"
               >
-                CHANGE →
+                MANAGE →
               </button>
             </div>
             {stratPanelOpen && (
@@ -1911,6 +1927,81 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                   >
                     ▶ RUN
                   </button>
+                  <div
+                    className="inline-flex items-center gap-1 text-[12px] font-mono h-[24px] px-2 border border-pixel-border/60 text-pixel-gray"
+                    title="Backtest window (days back from now)"
+                  >
+                    <span className="tracking-[0.15em]">DAYS</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={backtestDaysInput}
+                      onChange={(e) => setBacktestDaysInput(e.target.value)}
+                      onBlur={() => {
+                        const v = parseInt(backtestDaysInput, 10);
+                        if (!isNaN(v) && v > 0 && v <= 365) {
+                          updateBacktestDays(v);
+                          setBacktestDaysInput(String(v));
+                        } else {
+                          setBacktestDaysInput(String(backtestDays));
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const v = parseInt(backtestDaysInput, 10);
+                          if (!isNaN(v) && v > 0 && v <= 365) {
+                            updateBacktestDays(v);
+                            setRefreshKey((k) => k + 1);
+                          }
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      className="bg-transparent w-8 text-right font-mono text-[13px] text-pixel-white outline-none"
+                    />
+                    <div className="flex flex-col leading-none">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(365, backtestDays + 1);
+                          updateBacktestDays(next);
+                          setBacktestDaysInput(String(next));
+                        }}
+                        className="text-[8px] text-pixel-gray hover:text-green-400 px-0.5"
+                        title="+1 day"
+                      >▲</button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(1, backtestDays - 1);
+                          updateBacktestDays(next);
+                          setBacktestDaysInput(String(next));
+                        }}
+                        className="text-[8px] text-pixel-gray hover:text-green-400 px-0.5"
+                        title="-1 day"
+                      >▼</button>
+                    </div>
+                    <div className="flex items-center gap-0.5 ml-1 border-l border-pixel-border/40 pl-1">
+                      {[3, 7, 14, 30].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            updateBacktestDays(d);
+                            setBacktestDaysInput(String(d));
+                          }}
+                          className={`text-[10px] px-1 tracking-wider ${
+                            backtestDays === d
+                              ? "text-green-400"
+                              : "text-pixel-gray hover:text-pixel-white"
+                          }`}
+                          title={`${d}-day backtest window`}
+                        >
+                          {d}d
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-[13px] font-mono">
                   <div className="flex items-baseline gap-1.5">
@@ -1931,6 +2022,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               {/* Fee/gas cost summary derived from the historical replay. */}
               {(() => {
                 const feedFees = linkedTrades.reduce((s, t) => s + t.fee, 0);
+                const feedVolume = linkedTrades.reduce((s, t) => s + t.amount, 0);
                 const feedGas = linkedTrades.length * GAS_PER_TRADE_USD;
                 const feedCosts = feedFees + feedGas;
                 const chartPnl = combinedPnlCurve.length > 0 ? combinedPnlCurve[combinedPnlCurve.length - 1].pnl : 0;
@@ -1942,6 +2034,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                   <>
                     <div className="flex items-center justify-between flex-wrap gap-3 text-[13px] font-mono border-t border-pixel-border/40 pt-2">
                       <div className="flex items-center gap-4">
+                        <div className="flex items-baseline gap-1.5" title="Total notional traded across the backtest window (sum of BUY/SELL amounts)">
+                          <span className="text-[12px] text-pixel-gray tracking-[0.15em]">AMOUNT</span>
+                          <span className="text-pixel-white">${feedVolume.toFixed(2)}</span>
+                        </div>
+                        <span className="text-pixel-border/60">·</span>
                         <div className="flex items-baseline gap-1.5">
                           <span className="text-[12px] text-pixel-gray tracking-[0.15em]">FEES</span>
                           <span className="text-amber-400">${feedFees.toFixed(2)}</span>

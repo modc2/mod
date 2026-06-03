@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type { Trade } from "../lib/types";
-import { fetchTrades, fmtTao, ago } from "../lib/api";
+import { fetchTrades, ago } from "../lib/api";
+import { useCurrency, fmtValue } from "../context/CurrencyContext";
 
 export default function PortfolioPage() {
+  const { currency, usdPerTao } = useCurrency();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,7 +68,7 @@ export default function PortfolioPage() {
                     </span>
                   </td>
                   <td className="font-mono">SN{t.netuid}</td>
-                  <td className="num font-mono text-pixel-white">{fmtTao(t.amount_tao)}</td>
+                  <td className="num font-mono text-pixel-white">{fmtValue(t.amount_tao, currency, usdPerTao)}</td>
                   <td>
                     <span
                       className={`pixel-badge ${

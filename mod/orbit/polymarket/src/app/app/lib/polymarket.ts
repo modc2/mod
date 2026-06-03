@@ -799,9 +799,20 @@ export async function fetchWalletTrades(address: string, limit: number = 200): P
   return result;
 }
 
-export async function fetchPositions(address: string): Promise<PolymarketPosition[]> {
-  const cached = getCached<PolymarketPosition[]>(address, "positions");
-  if (cached) return cached;
+export async function fetchPositions(
+  address: string,
+  opts: { bypassCache?: boolean } = {},
+): Promise<PolymarketPosition[]> {
+  // Cache is hour-bucketed with no TTL — fine for browsing other traders'
+  // historical positions, but lethal for the user's own deposit wallet:
+  // stale entries linger up to ~60min and the SELL ALL button submits
+  // against sizes that no longer exist on-chain ("balance: 4290, order
+  // amount: 32000000"). Callers reading the user's own wallet must pass
+  // bypassCache.
+  if (!opts.bypassCache) {
+    const cached = getCached<PolymarketPosition[]>(address, "positions");
+    if (cached) return cached;
+  }
 
   // Polymarket data API: /positions?user=<address>&sizeThreshold=.1
   const raw = await polyApi("positions", {
@@ -839,10 +850,11 @@ export async function fetchPositions(address: string): Promise<PolymarketPositio
         currentPrice,
         value,
         pnlUsd,
+        negRisk: Boolean(p.negativeRisk ?? p.negRisk ?? p.neg_risk ?? false),
       };
     })
     .filter((p) => p.conditionId && p.size > 0);
 
-  setCache(address, "positions", result);
+  if (!opts.bypassCache) setCache(address, "positions", result);
   return result;
 }
