@@ -485,13 +485,21 @@ export default function CopyTrading({
   // Background source-data refresh. The page-cache check above keeps the
   // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
   // server `syncedAt` — when Polymarket data was actually pulled. Once
-  // that crosses 5min we kick off `loadStream({ force: true })` in the
-  // background so the chip stays reasonably current. Guarded by
-  // inFlightRef and a per-attempt cooldown so a long-running force-sync
-  // (the pipeline takes 2–5 minutes on a cold scan) doesn't queue up.
+  // that crosses 10min we kick off `loadStream({ force: true })` in the
+  // background so the chip stays reasonably current. Threshold matches
+  // the staleness banner so the visible "STALE → SYNCING" transition
+  // tracks the actual auto-trigger. Guarded by inFlightRef and a
+  // per-attempt cooldown so a long-running force-sync (the pipeline
+  // takes 2–5 minutes on a cold scan) doesn't queue up.
   const lastForceAtRef = useRef(0);
+  // Flagged true when the most recent loadStream was kicked off by the
+  // auto-refresh path (vs the user clicking ↻ SYNC or initial cold start).
+  // Drives the SYNCING IN PROGRESS banner so we only surface it for the
+  // background auto-trigger — the user pressing ↻ SYNC already sees the
+  // SYNCING badge animate, no banner needed for that case.
+  const [autoSyncActive, setAutoSyncActive] = useState(false);
   useEffect(() => {
-    const MAX_SOURCE_STALENESS_MS = 5 * 60_000;
+    const MAX_SOURCE_STALENESS_MS = 10 * 60_000;
     const MIN_RETRY_MS = 2 * 60_000;
     const TICK_MS = 30_000;
     const t = setInterval(() => {
@@ -502,7 +510,10 @@ export default function CopyTrading({
       if (age < MAX_SOURCE_STALENESS_MS) return;
       if (Date.now() - lastForceAtRef.current < MIN_RETRY_MS) return;
       lastForceAtRef.current = Date.now();
-      void loadStreamRef.current({ force: true });
+      setAutoSyncActive(true);
+      void loadStreamRef.current({ force: true }).finally(() => {
+        setAutoSyncActive(false);
+      });
     }, TICK_MS);
     return () => clearInterval(t);
   }, [syncedAt, lastUpdated]);
@@ -749,17 +760,38 @@ export default function CopyTrading({
   const pageVol = traders.reduce((s, t) => s + t.volume, 0);
 
   // Staleness banner — full-width warning stripe when the leaderboard data
-  // is older than 5 min. The small "sync 5m ago" chip in the header is easy
-  // to miss; this makes it unmissable so the user doesn't trade on a stale
-  // ranking. Hidden while actively syncing (the SYNCING badge already covers
-  // that case) and while data is fresh.
+  // is older than 10 min. The small "sync 5m ago" chip in the header is
+  // easy to miss; this makes it unmissable so the user doesn't trade on a
+  // stale ranking. Three states:
+  //   • fresh (<10min): hidden
+  //   • stale (≥10min) + auto-sync running: green "SYNCING IN PROGRESS"
+  //   • stale (≥10min) + no sync yet: amber/red "STALE DATA" + SYNC NOW
+  // The auto-refresh effect above triggers loadStream when staleness crosses
+  // the same 10min threshold, so the "stale, not syncing" window is at most
+  // a 30s tick — but we still render it correctly during that gap.
   const staleStamp = syncedAt ?? lastUpdated;
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
-  const showStaleBanner = !loading && !refreshing && staleStamp != null && staleAgeMs >= 5 * 60_000;
+  const isStale = staleStamp != null && staleAgeMs >= 10 * 60_000;
+  const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
+  const showStaleBanner = isStale && !showSyncingBanner;
   const staleSeverity = staleAgeMs >= 30 * 60_000 ? "red" : "amber";
 
   return (
     <div className="space-y-3">
+      {showSyncingBanner && (
+        <div className="pixel-panel px-4 py-2 border-2 border-green-400 bg-green-400/10 text-green-400 flex items-center gap-3 font-mono text-[13px]">
+          <span className="w-2 h-2 bg-green-400 animate-pulse shrink-0" />
+          <span className="tracking-wider shrink-0">SYNCING IN PROGRESS</span>
+          <span className="shrink-0">
+            Leaderboard was {formatAgo(staleAgeMs)} old — refreshing from Polymarket
+            {progress?.phase === "enrich" && progress.total > 0
+              ? ` (${progress.done}/${progress.total} enriched${rateInfo ? `, ETA ${formatEta(rateInfo.etaSec)}` : ""})`
+              : progress?.phase === "leaderboard" && progress.total > 0
+                ? ` (leaderboard ${progress.done}/${progress.total})`
+                : "…"}
+          </span>
+        </div>
+      )}
       {showStaleBanner && (
         <div
           className={`pixel-panel px-4 py-2 border-2 flex items-center gap-3 font-mono text-[13px] ${
