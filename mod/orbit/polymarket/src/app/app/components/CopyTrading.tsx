@@ -75,6 +75,16 @@ function formatAgo(ms: number): string {
   return `${hr}h ${min % 60}m ago`;
 }
 
+// ETA formatter — "47s" / "3m" / "1h12m". Caps at "—" for unknown/non-finite.
+function formatEta(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h${(min % 60).toString().padStart(2, "0")}m`;
+}
+
 function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
     <span className="inline-block w-3 ml-0.5 text-center">
@@ -226,7 +236,21 @@ export default function CopyTrading({
   const [stratAddrs, setStratAddrs] = useState<Set<string>>(new Set());
   const [stratName, setStratName] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+  // AbortController for the in-flight stream. A new SYNC click aborts
+  // the prior one and starts fresh — without this, an HMR-dropped or
+  // network-stalled stream leaves inFlightRef stuck true and every
+  // subsequent click silently no-ops ("sync doesn't work, button does
+  // nothing"). Also wall-clock guards in case abort doesn't trip.
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamStartedAtRef = useRef(0);
   const pageRef = useRef(0);
+
+  // Rolling samples of (timestamp, done) for the active sync. Used to derive
+  // a smoothed enrich rate and ETA — bare `done/total` doesn't tell the user
+  // whether the run is healthy (>10/s) or rate-limited (<2/s). Cleared when
+  // a new sync starts (setProgress(null)).
+  const rateSamplesRef = useRef<Array<{ ts: number; done: number; phase: string }>>([]);
+  const [rateInfo, setRateInfo] = useState<{ rate: number; etaSec: number; phase: string } | null>(null);
 
   // Server-side paginated fetch — used when cache is warm
   const loadPage = useCallback(
@@ -284,22 +308,60 @@ export default function CopyTrading({
   // for the manual SYNC button (force=true bypasses every cache layer).
   const loadStream = useCallback(
     async (opts: { force?: boolean } = {}) => {
-      if (inFlightRef.current) return;
+      // If a stream is already in flight, abort it before starting a new
+      // one. The old request was either stalled by HMR, dropped by the
+      // network, or just slow — either way, a fresh user-triggered SYNC
+      // should always win over a stuck one.
+      if (inFlightRef.current && streamAbortRef.current) {
+        streamAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      streamStartedAtRef.current = Date.now();
       inFlightRef.current = true;
       setLoading(true);
       setRefreshing(true);
       setProgress(null);
+      setRateInfo(null);
+      rateSamplesRef.current = [];
       setSource(null);
       try {
         const { traders: data, source: src, syncedAt: streamSyncedAt } = await fetchTopTradersStream(
           2000,
-          { daysWindow: days, minTradesPerDay, force: opts.force },
+          { daysWindow: days, minTradesPerDay, force: opts.force, signal: controller.signal },
           (p) => {
             setProgress(p);
             // Trust the `kept` field from progress — partials are bandwidth-capped
             // (top 500 by PnL), but `kept` reflects the true running total.
             if (p.phase === "enrich" && typeof p.kept === "number" && p.kept > 0) {
               setTotalTraders((prev) => Math.max(prev, p.kept));
+            }
+            // Sample for rate/ETA. Reset the window when phase changes (leaderboard
+            // → enrich) since the two phases run at very different rates.
+            const samples = rateSamplesRef.current;
+            if (samples.length > 0 && samples[samples.length - 1].phase !== p.phase) {
+              rateSamplesRef.current = [];
+            }
+            const now = Date.now();
+            rateSamplesRef.current.push({ ts: now, done: p.done, phase: p.phase });
+            // Keep ~last 30s of samples — long enough to smooth bursts, short
+            // enough that ETA reflects current throughput (not the slow warm-up).
+            const cutoff = now - 30_000;
+            while (rateSamplesRef.current.length > 2 && rateSamplesRef.current[0].ts < cutoff) {
+              rateSamplesRef.current.shift();
+            }
+            const ss = rateSamplesRef.current;
+            if (ss.length >= 2 && p.total > 0) {
+              const first = ss[0];
+              const last = ss[ss.length - 1];
+              const dt = (last.ts - first.ts) / 1000;
+              const dDone = last.done - first.done;
+              if (dt > 0.5 && dDone > 0) {
+                const rate = dDone / dt;
+                const remaining = Math.max(0, p.total - p.done);
+                const etaSec = rate > 0 ? remaining / rate : 0;
+                setRateInfo({ rate, etaSec, phase: p.phase });
+              }
             }
           },
           (partial) => {
@@ -321,17 +383,47 @@ export default function CopyTrading({
         setTotalTraders(data.length);
         setLastUpdated(Date.now());
         if (streamSyncedAt > 0) setSyncedAt(streamSyncedAt * 1000);
-      } catch {
-        setTraders([]);
+      } catch (e) {
+        // AbortError = a newer SYNC click replaced this one; leave the
+        // previous traders visible (the new request will repopulate).
+        // Any other failure clears the table so the user knows.
+        const aborted = e instanceof Error && e.name === "AbortError";
+        if (!aborted) setTraders([]);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
-        setHasLoaded(true);
-        inFlightRef.current = false;
+        // Only reset inFlight if THIS controller is still the current
+        // one — a re-click during this finally would have replaced it
+        // and we don't want to clobber its in-flight state.
+        if (streamAbortRef.current === controller) {
+          setLoading(false);
+          setRefreshing(false);
+          setHasLoaded(true);
+          inFlightRef.current = false;
+          streamAbortRef.current = null;
+        }
       }
     },
     [days, minTradesPerDay],
   );
+
+  // Safety net: if the in-flight stream has been running for >5 minutes,
+  // assume it's stalled (HMR dropped the body without throwing, network
+  // proxy is buffering, etc.) and clear the inFlight lock so the user's
+  // next SYNC click can fire. The Rust pipeline is bounded at <2min for
+  // pool=2000, so 5min is a generous ceiling.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!inFlightRef.current) return;
+      const age = Date.now() - streamStartedAtRef.current;
+      if (age > 5 * 60_000) {
+        if (streamAbortRef.current) streamAbortRef.current.abort();
+        streamAbortRef.current = null;
+        inFlightRef.current = false;
+        setRefreshing(false);
+        setLoading(false);
+      }
+    }, 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Keep refs to latest fetch functions so effects don't go stale
   const loadPageRef = useRef(loadPage);
@@ -346,6 +438,8 @@ export default function CopyTrading({
     setTotalTraders(0);
     setSource(null);
     setProgress(null);
+    setRateInfo(null);
+    rateSamplesRef.current = [];
     setCacheWarm(false);
     setPage(0);
     pageRef.current = 0;
@@ -654,8 +748,44 @@ export default function CopyTrading({
   const pagePnl = traders.reduce((s, t) => s + t.pnl, 0);
   const pageVol = traders.reduce((s, t) => s + t.volume, 0);
 
+  // Staleness banner — full-width warning stripe when the leaderboard data
+  // is older than 5 min. The small "sync 5m ago" chip in the header is easy
+  // to miss; this makes it unmissable so the user doesn't trade on a stale
+  // ranking. Hidden while actively syncing (the SYNCING badge already covers
+  // that case) and while data is fresh.
+  const staleStamp = syncedAt ?? lastUpdated;
+  const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
+  const showStaleBanner = !loading && !refreshing && staleStamp != null && staleAgeMs >= 5 * 60_000;
+  const staleSeverity = staleAgeMs >= 30 * 60_000 ? "red" : "amber";
+
   return (
     <div className="space-y-3">
+      {showStaleBanner && (
+        <div
+          className={`pixel-panel px-4 py-2 border-2 flex items-center gap-3 font-mono text-[13px] ${
+            staleSeverity === "red"
+              ? "border-red-400 bg-red-400/10 text-red-400"
+              : "border-amber-400 bg-amber-400/10 text-amber-400"
+          }`}
+        >
+          <span className="tracking-wider shrink-0">STALE DATA</span>
+          <span className="shrink-0">
+            Leaderboard last synced {formatAgo(staleAgeMs)} — trade decisions may be based on old rankings.
+          </span>
+          <button
+            onClick={() => { void loadStream({ force: true }); }}
+            className={`ml-auto pixel-btn text-[12px] px-2 py-0.5 shrink-0 ${
+              staleSeverity === "red"
+                ? "border-red-400 text-red-400 hover:bg-red-400/20"
+                : "border-amber-400 text-amber-400 hover:bg-amber-400/20"
+            }`}
+            title="Force a fresh pull from Polymarket"
+          >
+            ↻ SYNC NOW
+          </button>
+        </div>
+      )}
+
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
         <div className="flex items-center gap-3 flex-wrap">
@@ -694,15 +824,26 @@ export default function CopyTrading({
               onClick={() => { void loadStream({ force: true }); }}
               disabled={refreshing || loading}
               className="pixel-btn text-[11px] px-2 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Force a fresh pull from Polymarket — bypasses the cache and streams progress"
+              title={
+                (refreshing || loading) && rateInfo
+                  ? `Enrich rate ${rateInfo.rate.toFixed(1)}/s · ETA ${formatEta(rateInfo.etaSec)} · phase ${rateInfo.phase}`
+                  : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
+              }
             >
-              {(refreshing || loading) && progress
-                ? progress.phase === "enrich"
-                  ? `SYNCING ${progress.done}/${progress.total}`
-                  : `SYNCING ${progress.done}/${progress.total} (leaderboard)`
-                : refreshing || loading
-                  ? "SYNCING…"
-                  : "↻ SYNC"}
+              {(refreshing || loading) && progress ? (
+                <>
+                  {progress.phase === "enrich"
+                    ? `SYNCING ${progress.done}/${progress.total}`
+                    : `SYNCING ${progress.done}/${progress.total} (leaderboard)`}
+                  {rateInfo && rateInfo.phase === progress.phase && (
+                    <span className="text-pixel-gray-light ml-1">
+                      · {rateInfo.rate.toFixed(1)}/s · ETA {formatEta(rateInfo.etaSec)}
+                    </span>
+                  )}
+                </>
+              ) : refreshing || loading
+                ? "SYNCING…"
+                : "↻ SYNC"}
             </button>
             {(syncedAt ?? lastUpdated) && (() => {
               // Prefer the server's syncedAt — it tells the user when the data
@@ -861,11 +1002,23 @@ export default function CopyTrading({
           pct = 50 + Math.round((enrDone / enrTotal) * 50);
           label = `ENRICHING ${enrDone}/${enrTotal} \u00b7 ${enrKept} kept \u00b7 ${hoursScraped}/${hoursTarget}h scraped`;
         }
+        // Color the rate green when healthy (>=5/s), amber when slow (1-5/s),
+        // red when crawling (<1/s, almost certainly rate-limited).
+        const rateColor = rateInfo
+          ? rateInfo.rate >= 5 ? "text-green-400"
+            : rateInfo.rate >= 1 ? "text-amber-400"
+            : "text-red-400"
+          : "text-pixel-gray-light";
         return (
           <div className="pixel-panel p-2">
             <div className="flex items-center gap-3 font-mono text-[12px]">
               <div className="w-2 h-2 bg-green-400 animate-pulse shrink-0" />
               <span className="text-pixel-white shrink-0">{label}</span>
+              {rateInfo && progress && rateInfo.phase === progress.phase && (
+                <span className={`shrink-0 ${rateColor}`} title={rateInfo.rate < 1 ? "Slow \u2014 likely Polymarket rate-limiting" : "Enrich throughput"}>
+                  {rateInfo.rate.toFixed(1)}/s {"\u00b7"} ETA {formatEta(rateInfo.etaSec)}
+                </span>
+              )}
               <div className="pixel-bar flex-1 h-2">
                 <div className="pixel-bar-fill bg-green-400/60 transition-all" style={{ width: `${pct}%` }} />
               </div>

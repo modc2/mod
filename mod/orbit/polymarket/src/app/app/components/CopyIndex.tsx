@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, TopTrader } from "../lib/polymarket";
-import { PolymarketPosition, PolymarketTrade, SavedIndex } from "../lib/types";
+import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats } from "../lib/types";
+import { getStrat } from "../lib/strats/registry";
+import type { TraderTrade as StratTraderTrade } from "../lib/strats/base";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
@@ -14,7 +16,9 @@ import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToReb
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId } from "../lib/indexStore";
 import LivePanel from "./LivePanel";
 import StratPicker from "./StratPicker";
+import StratSourceViewer from "./StratSourceViewer";
 import WalletFundingPanel from "./WalletFundingPanel";
+import WalletTokenPanel from "./WalletTokenPanel";
 import ThemeToggle from "./ThemeToggle";
 
 interface TraderSummary {
@@ -74,6 +78,17 @@ interface TraderBacktest {
 const TAKER_FEE_BPS = 200; // 2% = 200 bps
 const GAS_PER_TRADE_USD = 0.005;
 const DEFAULT_CAPITAL = 1000;
+
+// "12s" / "3m" / "1h4m" — terse relative-age formatter for lag chips.
+function formatAgoShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h${(min % 60).toString().padStart(2, "0")}m`;
+}
 
 // Deterministic per-trade sample filter. Same (samplePct, key) always returns
 // the same boolean — keeps the chart + feed in lockstep without re-sampling
@@ -415,6 +430,10 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   const [capital, setCapital] = useState(DEFAULT_CAPITAL);
   const [minTrade, setMinTrade] = useState(1);
   const [maxTrade, setMaxTrade] = useState(100);
+  // Top-N cap (mirrors CopyEngineConfig.maxPerCycle). The backtest applies
+  // the same sampling the live engine does so the displayed P&L reflects
+  // what live will actually execute after Sharpe-rank filtering.
+  const [maxPerCycle, setMaxPerCycle] = useState(3);
   // SHOW ALL TRADES — when true, the linkedTrades pipeline skips the TRADE
   // SIZE filter and surfaces every upstream trade regardless of mirror
   // amount. Declared here (not next to feedOrder) so it's available to the
@@ -555,6 +574,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     setMinTrade(activeIndex.minTrade ?? 1);
     setMaxTrade(activeIndex.maxTrade ?? 100);
     setMaxTradesPerHour(activeIndex.maxTradesPerHour ?? 10);
+    setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
     // Force per-trade replay on load — REBALANCE/AT selects were removed,
     // and any non-zero persisted value would silently aggregate trades into
     // windows with no way to undo from the UI.
@@ -1033,6 +1053,105 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     }, 0);
   }, [tradersWithBuys, traderWeights, totalWeight, capital]);
 
+  // ── Strat instance — single source of truth for live + backtest ──
+  // The live engine instantiates its OWN copy from the registry (so the
+  // backtest can re-render without disturbing the live cycle's state),
+  // but both reference the same class with the same opts. Drop a new
+  // strat into src/app/app/lib/strats/registry.ts and BOTH adopt it.
+  const backtestStrat = useMemo(
+    () => getStrat(undefined, { maxPerCycle }),
+    [maxPerCycle],
+  );
+
+  // ── Per-trader 30d ROI stats (drives top-N sampling) ──
+  // Computed from the same `traderTrades` cache the backtest already
+  // loaded — no extra fetches. The shape MUST match what the live engine
+  // builds in fetchTraderRoiStats so the strat's scoreCandidate behaves
+  // identically in live + backtest.
+  const traderStatsMap = useMemo(() => {
+    const out = new Map<string, TraderRoiStats>();
+    const sharpeCutoffMs = Date.now() - 30 * 86400_000;
+    for (const addr of watchlist) {
+      const trades = traderTrades.get(addr) || [];
+      const positions = traderData.get(addr) || [];
+      const annotated = computeFifoTrades(trades, positions, sharpeCutoffMs);
+      const inWin = annotated.filter((t) => t.timestamp >= sharpeCutoffMs);
+      let cashDeployed = 0;
+      const returns: number[] = [];
+      for (const t of inWin) {
+        if (t.side === "BUY") cashDeployed += t.price * t.size;
+        if (t.side !== "SELL" || !t.hasBasis || !t.buyPrice) continue;
+        const entryNotional = t.buyPrice * t.size;
+        if (entryNotional <= 0) continue;
+        returns.push(t.realized / entryNotional);
+      }
+      const n = returns.length;
+      let roi = 0, stdev = 0;
+      if (n > 0) {
+        roi = returns.reduce((s, r) => s + r, 0) / n;
+        if (n >= 2) {
+          const variance = returns.reduce((s, r) => s + (r - roi) ** 2, 0) / (n - 1);
+          stdev = Math.sqrt(variance);
+        }
+      }
+      const sharpe = n >= 3 && stdev > 0 ? roi / stdev : 0;
+      out.set(addr, {
+        address: addr.toLowerCase(),
+        windowDays: 30,
+        roi, stdev, sampleSize: n, sharpe, cashDeployed,
+        syncedAt: Date.now(),
+      });
+    }
+    return out;
+  }, [watchlist, traderTrades, traderData]);
+
+  // ── Top-N sampling: which BUY IDs survive the strat's filter ──
+  // Goes through the SAME strat class the live engine uses (registry).
+  // Swapping the strat in registry.ts updates BOTH live behavior AND
+  // this backtest preview — no separate inline math to keep in sync.
+  const keptBuyIds = useMemo(() => {
+    if (watchlist.length === 0) return new Set<string>();
+    const strat = backtestStrat;
+    const cycleBucketMs = Math.max(60_000, Math.round((rebalanceMinutes || 1) * 60_000));
+    const windowCutoffMs = Date.now() - backtestDays * 86400_000;
+    const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
+
+    type Cand = { id: string; ts: number; score: number };
+    const buys: Cand[] = [];
+    for (const addr of watchlist) {
+      const trades = traderTrades.get(addr) || [];
+      const stats = traderStatsMap.get(addr) ?? null;
+      const weight = traderWeights[addr] || 0;
+      const weightFraction = weight / totalW;
+      for (const t of trades) {
+        if (t.timestamp < windowCutoffMs) continue;
+        if (t.side !== "BUY") continue;
+        const stratTrade: StratTraderTrade = {
+          ...t, trader: addr, weight, weightFraction,
+          copyRatio: 0, notional: t.price * t.size,
+        };
+        const score = strat.scoreCandidate(stratTrade, stats);
+        buys.push({ id: t.id, ts: t.timestamp, score });
+      }
+    }
+    const buckets = new Map<number, Cand[]>();
+    for (const c of buys) {
+      const b = Math.floor(c.ts / cycleBucketMs);
+      let arr = buckets.get(b);
+      if (!arr) { arr = []; buckets.set(b, arr); }
+      arr.push(c);
+    }
+    const kept = new Set<string>();
+    const cap = strat.maxPerCycle();
+    for (const cands of buckets.values()) {
+      cands.sort((a, b) => b.score - a.score);
+      for (let i = 0; i < cands.length && i < cap; i++) {
+        if (cands[i].score > 0) kept.add(cands[i].id);
+      }
+    }
+    return kept;
+  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, backtestDays, backtestStrat, traderWeights]);
+
   // ── Combined FIFO PnL curve (scaled to user's capital) ──
   const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
     if (watchlist.length === 0 || loading) return { combined: [], perTrader: [] };
@@ -1049,11 +1168,19 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         : rawTrades;
       // Apply SAMPLE % only to in-window trades — pre-window trades stay
       // intact so FIFO basis tracking still sees the prior inventory.
-      const replayTrades = samplePct >= 100
+      const replaySampled = samplePct >= 100
         ? replayTradesRaw
         : replayTradesRaw.filter((t, i) =>
             t.timestamp < cutoffMs ||
             keepInSample(samplePct, `${addr}:${t.timestamp}:${i}`),
+          );
+      // Top-N Sharpe sampling — drop in-window BUYs that lost the per-cycle
+      // rank race. SELLs always kept (close existing positions). Pre-window
+      // trades pass through so FIFO basis stays intact.
+      const replayTrades = rebalancePeriod > 0
+        ? replaySampled
+        : replaySampled.filter((t) =>
+            t.timestamp < cutoffMs || t.side === "SELL" || keptBuyIds.has(t.id),
           );
       const annotated = computeFifoTrades(replayTrades, positions, cutoffMs);
       const curve = buildPnlCurve(annotated, positions, cutoffMs);
@@ -1072,7 +1199,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     }
 
     return { combined: buildCombinedPnlCurve(traderCurves), perTrader: traderCurves };
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct]);
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, keptBuyIds]);
 
   const combinedPnlCurve = combinedCurveData.combined;
 
@@ -1124,6 +1251,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     realized: number;     // realized PnL on SELL (scaled)
     runningPnl: number;   // combined running P&L after this trade
     pnlDelta: number;     // change in P&L from previous trade
+    /** Sharpe-weighted EV score the live engine would have assigned this
+        candidate when it was eligible. Undefined for SELLs (always honored)
+        and for BUYs from traders without enough 30d closed trades. */
+    score?: number;
+    sharpe?: number;
   }
 
   const linkedTrades = useMemo((): LinkedTrade[] => {
@@ -1134,6 +1266,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     type RawEntry = {
       ts: number; market: string; conditionId: string; trader: string;
       side: "BUY" | "SELL"; size: number; price: number; realized: number; scale: number;
+      score?: number; sharpe?: number;
     };
     const allEntries: RawEntry[] = [];
 
@@ -1150,10 +1283,16 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       // shouldn't appear in the feed (they're not actually replicable).
       const inWindowAll = replayTrades.filter((t) => t.timestamp >= cutoffMs);
       // Apply SAMPLE % so the feed matches the chart's sampled trade set.
-      const inWindowTrades = samplePct >= 100
+      const inWindowSampled = samplePct >= 100
         ? inWindowAll
         : inWindowAll.filter((t, i) =>
             keepInSample(samplePct, `${addr}:${t.timestamp}:${i}`),
+          );
+      // Same top-N Sharpe filter the curve uses — keeps the feed in sync.
+      const inWindowTrades = rebalancePeriod > 0
+        ? inWindowSampled
+        : inWindowSampled.filter((t) =>
+            t.side === "SELL" || keptBuyIds.has(t.id),
           );
       if (inWindowTrades.length === 0) continue;
       const annotated = computeFifoTrades(inWindowTrades, positions, cutoffMs);
@@ -1166,11 +1305,30 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       const traderVol = Math.max(buyVol, sellVol, 1);
       const scale = (capital * wFrac) / traderVol;
 
+      // Score via the SAME strat instance used live + by keptBuyIds — so
+      // dropping in a new strat changes BUY scores in the chart tooltip
+      // and feed without any extra wiring.
+      const stats = traderStatsMap.get(addr) ?? null;
+      const sharpe = stats?.sharpe ?? 0;
+      const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
+      const weight = traderWeights[addr] || 0;
+      const weightFraction = weight / totalW;
       for (const t of windowAnnotated) {
+        let score: number | undefined;
+        if (t.side === "BUY") {
+          const stratTrade: StratTraderTrade = {
+            ...t, trader: addr, weight, weightFraction,
+            copyRatio: 0, notional: t.price * t.size,
+          };
+          const s = backtestStrat.scoreCandidate(stratTrade, stats);
+          if (s > 0) score = s;
+        }
         allEntries.push({
           ts: t.timestamp, market: t.market, conditionId: t.conditionId || t.market,
           trader: addr, side: t.side, size: t.size, price: t.price,
           realized: t.realized, scale,
+          score,
+          sharpe: sharpe > 0 ? sharpe : undefined,
         });
       }
     }
@@ -1187,6 +1345,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     const derived: {
       ts: number; market: string; trader: string; side: "BUY" | "SELL";
       amount: number; price: number; fee: number; realized: number; pnlDelta: number;
+      score?: number; sharpe?: number;
     }[] = [];
     for (const t of allEntries) {
       const rawAmount = t.price * t.size * t.scale;
@@ -1218,6 +1377,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         fee,
         realized: realizedScaled,
         pnlDelta: realizedScaled,
+        score: t.score,
+        sharpe: t.sharpe,
       });
     }
 
@@ -1226,7 +1387,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       runningPnl = Math.round((runningPnl + t.realized) * 100) / 100;
       return { ...t, runningPnl };
     });
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades]);
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat]);
 
   // liveCurve — built from the engine's actual order log. Each successful
   // COPY_BUY / COPY_SELL becomes a point. P&L is a FIFO-realized running
@@ -1363,6 +1524,22 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     return { from: fmt(from), to: fmt(now) };
   }, [backtestDays]);
 
+  // Lag derivations — surfaces the freshness of the data the engine is
+  // basing decisions on. fetchAgeMs is how long since we last polled
+  // Polymarket; lastTradeAgeMs is the age of the most recent observed
+  // trade across the watchlist. A growing lastTradeAgeMs while fetchAgeMs
+  // stays small means the watched traders are quiet (no live signal);
+  // a growing fetchAgeMs means OUR poll loop is stalled.
+  const fetchAgeMs = lastUpdated ? utcNow - lastUpdated : null;
+  const lastTradeTs = useMemo(() => {
+    let max = 0;
+    for (const trades of traderTrades.values()) {
+      for (const t of trades) if (t.timestamp > max) max = t.timestamp;
+    }
+    return max;
+  }, [traderTrades]);
+  const lastTradeAgeMs = lastTradeTs > 0 ? utcNow - lastTradeTs : null;
+
   // ── Trader summaries (all traders including hidden, for editor panel) ──
   const traderSummaries: (TraderSummary & { enabled: boolean })[] = useMemo(() => {
     return allTraderAddrs.map((addr) => {
@@ -1460,6 +1637,12 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             </button>
           )}
         </div>
+        {/* ── WALLET / TOKEN / QR pairing panel ──
+            Full wallet status + token + scannable QR live at the top of the
+            sidebar so the user can pair a phone session without leaving the
+            current view. Mirrors the wallet-chip popover (CONNECTED · OWNER
+            · COPY · SIGN OUT) and adds full-token reveal + sign-in QR. */}
+        <WalletTokenPanel />
         {/* ── STRAT params panel (above tabs) ──
             Visible on STRATS, BACKTEST, and LIVE so the user can tweak
             window / capital / trade size / poll-every from any view
@@ -1507,11 +1690,33 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               <span className="text-[11px] text-pixel-gray font-mono shrink-0" title="Current time (UTC)">
                 UTC {new Date(utcNow).toISOString().slice(11, 19)}
               </span>
-              {lastUpdated && (
+              {lastUpdated && fetchAgeMs != null && (
                 <>
                   <span className="text-pixel-border/40 shrink-0">·</span>
-                  <span className="text-[11px] text-pixel-gray/70 font-mono shrink-0" title={`Last data fetch: ${new Date(lastUpdated).toISOString()}`}>
-                    UPD {new Date(lastUpdated).toISOString().slice(11, 19)}
+                  <span
+                    className={`text-[11px] font-mono shrink-0 ${
+                      fetchAgeMs < 90_000 ? "text-pixel-gray/70"
+                        : fetchAgeMs < 5 * 60_000 ? "text-amber-400"
+                        : "text-red-400"
+                    }`}
+                    title={`Watchlist trades last fetched at ${new Date(lastUpdated).toISOString()} — polling interval is 60s`}
+                  >
+                    UPD {formatAgoShort(fetchAgeMs)} ago
+                  </span>
+                </>
+              )}
+              {lastTradeAgeMs != null && (
+                <>
+                  <span className="text-pixel-border/40 shrink-0">·</span>
+                  <span
+                    className={`text-[11px] font-mono shrink-0 ${
+                      lastTradeAgeMs < 5 * 60_000 ? "text-green-400"
+                        : lastTradeAgeMs < 30 * 60_000 ? "text-pixel-gray-light"
+                        : "text-pixel-gray"
+                    }`}
+                    title={`Most recent observed trade across watched traders: ${new Date(lastTradeTs).toISOString()}`}
+                  >
+                    LAST TRADE {formatAgoShort(lastTradeAgeMs)} ago
                   </span>
                 </>
               )}
@@ -1653,7 +1858,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-t border-pixel-border/40 pt-2">
+        <div className="flex items-center gap-2 border-t border-pixel-border/40 pt-3">
           {(
             [
               { id: "STRATS", label: "STRATS", disabled: false },
@@ -1662,19 +1867,37 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             ] as { id: typeof mode; label: string; disabled: boolean }[]
           ).map((t) => {
             const active = mode === t.id;
+            // Show a RUNNING chip on the LIVE tab while the engine is
+            // actively trading — so the user can tell at a glance there's
+            // a "task" firing in the background even from STRATS/BACKTEST.
+            const showRunning = t.id === "LIVE" && isLive;
+            const runningTone = engineState?.status === "paused"
+              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
+              : engineState?.status === "error"
+                ? "border-red-400/60 text-red-400 bg-red-400/10"
+                : "border-green-400/60 text-green-400 bg-green-400/10";
             return (
               <button
                 key={t.id}
                 onClick={() => setMode(t.id)}
                 disabled={t.disabled}
                 style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.08em" }}
-                className={`relative text-[15px] px-4 py-2 transition-all uppercase ${
+                className={`relative text-[18px] px-6 py-3 transition-all uppercase flex items-center gap-2 ${
                   active
                     ? "text-green-400"
                     : "text-pixel-gray hover:text-pixel-white"
                 } disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 {t.label}
+                {showRunning && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 border tracking-wider rounded-sm ${runningTone}`}
+                    title={`Live engine ${engineState?.status ?? "running"}`}
+                  >
+                    {engineState?.status === "paused" ? "PAUSED" :
+                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
+                  </span>
+                )}
                 <span
                   className={`absolute left-2 right-2 -bottom-0.5 h-[3px] transition-all ${
                     active ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-transparent"
@@ -1691,6 +1914,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
 
       {/* ── Wallet/funding (always visible on STRATS tab) ── */}
       {mode === "STRATS" && <WalletFundingPanel />}
+
+      {/* ── Strat source viewer (STRATS tab only) ──
+          Read-only for built-in TS strats; editable for user-uploaded
+          mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
+      {mode === "STRATS" && <StratSourceViewer />}
 
       {/* ── Add trader bar (STRATS + BACKTEST only) ── */}
       {(mode === "STRATS" || mode === "BACKTEST") && (
