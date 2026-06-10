@@ -121,48 +121,47 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
     }
   };
 
+  const snapAction = (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <input
+        type="text"
+        value={snapMsg}
+        onChange={(e) => setSnapMsg(e.target.value)}
+        placeholder="describe…"
+        style={{
+          width: 180,
+          background: "var(--glass-bg-strong)",
+          border: "1px solid var(--glass-border)",
+          borderRadius: 8,
+          padding: "5px 9px",
+          color: "var(--text-primary)",
+          fontSize: 12.5,
+          outline: "none",
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !snapBusy) snapshot();
+        }}
+      />
+      <GlassButton variant="primary" onClick={snapshot} disabled={snapBusy}>
+        {snapBusy ? "…" : "snap"}
+      </GlassButton>
+    </div>
+  );
+
   return (
     <BentoGrid>
-      <Bento title="versions" span={3}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-          <input
-            type="text"
-            value={snapMsg}
-            onChange={(e) => setSnapMsg(e.target.value)}
-            placeholder="describe this version…"
-            style={{
-              flex: 1,
-              background: "var(--glass-bg-strong)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: 10,
-              padding: "10px 12px",
-              color: "var(--text-primary)",
-              fontSize: 14,
-              outline: "none",
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !snapBusy) snapshot();
-            }}
-          />
-          <GlassButton variant="primary" onClick={snapshot} disabled={snapBusy}>
-            {snapBusy ? "snapshotting…" : "snapshot"}
-          </GlassButton>
-        </div>
+      <Bento title={`versions · ${versions.length}`} span={3} action={snapAction}>
         {status && (
-          <div className="bento-sub" style={{ marginBottom: 8, color: "var(--crt-green)" }}>
-            ✓ {status}
-          </div>
+          <div className="bento-sub" style={{ marginBottom: 6, color: "var(--crt-green)" }}>✓ {status}</div>
         )}
         {error && (
-          <div className="bento-sub" style={{ marginBottom: 8, color: "var(--crt-red)" }}>
-            ✗ {error}
-          </div>
+          <div className="bento-sub" style={{ marginBottom: 6, color: "var(--crt-red)" }}>✗ {error}</div>
         )}
         {loading && <div className="bento-sub">loading…</div>}
         {!loading && versions.length === 0 && (
-          <div className="bento-sub">no versions yet — snapshot above to start a history</div>
+          <div className="bento-sub">no versions yet — snap above to start a history</div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
           {[...versions].reverse().map((v) => {
             const glyph = ACTION_GLYPH[v.action || "snapshot"] || ACTION_GLYPH.snapshot;
             return (
@@ -170,35 +169,21 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
                 <span
                   className="dot"
                   title={glyph.label}
-                  style={{ background: glyph.color, boxShadow: `0 0 0 3px ${glyph.color}1a` }}
+                  style={{ background: glyph.color, boxShadow: `0 0 0 2px ${glyph.color}1a` }}
                 />
-                <div style={{ minWidth: 0 }}>
-                  <div className="msg" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: glyph.color, fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                      {glyph.label}
-                    </span>
-                    <span>{v.message || "(no message)"}</span>
-                  </div>
-                  <div className="meta">
-                    {timeAgo(v.timestamp)} ·{" "}
-                    {v.author ? `${v.author.slice(0, 8)}…` : "local"}
-                    {v.registry_cid && (
-                      <> · registry <span style={{ color: "var(--accent-color)" }}>{v.registry_cid.slice(0, 10)}…</span></>
-                    )}
-                  </div>
+                <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
+                  <span className="msg" style={{ flex: "0 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {v.message || "(no message)"}
+                  </span>
+                  <span className="meta" style={{ flex: "0 0 auto" }}>
+                    {glyph.label} · {timeAgo(v.timestamp)}
+                    {v.registry_cid && <> · <span style={{ color: "var(--accent-color)" }}>{v.registry_cid.slice(0, 8)}…</span></>}
+                  </span>
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   <CidChip cid={v.cid} />
-                  <GlassButton variant="ghost" onClick={() => fork(v.cid)} title="Fork this version into your portal">
-                    fork
-                  </GlassButton>
-                  <GlassButton
-                    variant="ghost"
-                    onClick={() => restore(v.cid)}
-                    title="Rollback the module tree to this version (auto-snapshots current state first)"
-                  >
-                    rollback
-                  </GlassButton>
+                  <GlassButton variant="ghost" onClick={() => fork(v.cid)} title="Fork this version into your portal">fork</GlassButton>
+                  <GlassButton variant="ghost" onClick={() => restore(v.cid)} title="Rollback to this version (auto-snapshots current state first)">↺</GlassButton>
                 </div>
               </div>
             );

@@ -62,28 +62,41 @@ interface Personality {
   builtin?: boolean;
 }
 
-// ── Routy Types ──────────────────────────────────────────────────────
-
-interface RoutyWebsite {
-  name: string;
-  target_url: string;
-  description: string | null;
-  storage_type: string | null;
-  cid: string | null;
-  created_at: number;
-}
-
-interface RoutyStats {
-  cpu_usage_percent: number;
-  apps: number;
-  apis: number;
-  total: number;
-  max_websites: number;
-}
-
-const ROUTY_API = "http://localhost:3000";
-
 // ── Helpers ──────────────────────────────────────────────────────────
+
+// Safe localStorage write — never throws. When the browser quota is
+// exhausted (claude_personalities, claude_saved_prompts, the auto-saved
+// jobs cache, etc. can balloon), we evict the biggest claude_* keys
+// except the ones that hold the auth session, then retry the write.
+function safeSetItem(key: string, value: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.safeSetItem(key, value);
+    return true;
+  } catch (e) {
+    const isQuota = e instanceof Error && /quota/i.test(e.name + e.message);
+    if (!isQuota) return false;
+    const PRESERVE = new Set([
+      "claude_jobs_token", "claude_jobs_address", "claude_jobs_wallet_type",
+      "claude_jobs_seed", "claude_jobs_theme",
+    ]);
+    try {
+      const sizes: Array<[string, number]> = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (!k || PRESERVE.has(k) || k === key) continue;
+        if (!k.startsWith("claude_")) continue;
+        sizes.push([k, (window.localStorage.getItem(k) || "").length]);
+      }
+      sizes.sort((a, b) => b[1] - a[1]);
+      for (const [k] of sizes.slice(0, 3)) window.localStorage.removeItem(k);
+      window.safeSetItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 
 function timeSince(ts: number): string {
   const s = Math.floor(Date.now() / 1000 - ts);
@@ -159,6 +172,7 @@ const MODEL_OPTIONS = [
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", color: "#60a5fa" },
   { value: "claude-sonnet-4-5", label: "Sonnet 4.5", family: "sonnet", color: "#3b82f6" },
   { value: "claude-haiku-4-5",  label: "Haiku 4.5",  family: "haiku",  color: "#34d399" },
+  { value: "fable",             label: "Fable",      family: "fable",  color: "#f59e0b" },
 ];
 
 // Legacy aliases (saved by older builds / older jobs) → upgraded value.
@@ -361,6 +375,12 @@ export default function Home() {
   const [walletSidebarWidth, setWalletSidebarWidth] = useState(520);
   const [isWalletSidebarDragging, setIsWalletSidebarDragging] = useState(false);
 
+  // Owner sidebar (persistent right panel, mirrors wallet pattern)
+  const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
+  const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(420);
+  const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
+  const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
+
   // Network switcher (header)
   const [currentChainId, setCurrentChainId] = useState<number>(1);
   const [showHeaderNetworkDropdown, setShowHeaderNetworkDropdown] = useState(false);
@@ -389,15 +409,6 @@ export default function Home() {
   const [apiResponseStatus, setApiResponseStatus] = useState<number | null>(null);
   const [apiLoading, setApiLoading] = useState(false);
   const [apiMethod, setApiMethod] = useState<string>("GET");
-
-  // Routy gateway state
-  const [routyApps, setRoutyApps] = useState<RoutyWebsite[]>([]);
-  const [routyApis, setRoutyApis] = useState<RoutyWebsite[]>([]);
-  const [routyStats, setRoutyStats] = useState<RoutyStats | null>(null);
-  const [routyConnected, setRoutyConnected] = useState(false);
-  const [routySyncing, setRoutySyncing] = useState(false);
-  const [routySearch, setRoutySearch] = useState("");
-  const [routyTab, setRoutyTab] = useState<"all" | "apps" | "apis">("all");
 
   // Direct config from /config endpoint (fallback)
   const [directConfig, setDirectConfig] = useState<any>(null);
@@ -498,7 +509,10 @@ export default function Home() {
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
   const inlineModuleRef = useRef<HTMLDivElement>(null);
   const headerModuleRef = useRef<HTMLDivElement>(null);
+  const agentModuleRef = useRef<HTMLDivElement>(null);
   const [showInlineModuleDropdown, setShowInlineModuleDropdown] = useState(false);
+  const [showAgentModuleDropdown, setShowAgentModuleDropdown] = useState(false);
+  const [agentModuleSearch, setAgentModuleSearch] = useState("");
   const [showHeaderModuleDropdown, setShowHeaderModuleDropdown] = useState(false);
   const [headerModuleSearch, setHeaderModuleSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
@@ -662,70 +676,6 @@ export default function Home() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  // Gateway probe: caddy on :3000 already proxies /claude (app) AND /api/claude
-  // (api). Try routy's native API first for the rich service list, fall back
-  // to a same-origin HEAD on /claude — if anything answers, the gateway is up.
-  const refreshRouty = useCallback(async () => {
-    try {
-      const [ws, st] = await Promise.all([
-        fetch(`${ROUTY_API}/_api/websites`).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); }),
-        fetch(`${ROUTY_API}/_api/stats`).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); }),
-      ]);
-      setRoutyApps(ws.apps || []);
-      setRoutyApis(ws.apis || []);
-      setRoutyStats(typeof st?.cpu_usage_percent === "number" ? st : null);
-      setRoutyConnected(true);
-      return true;
-    } catch {
-      setRoutyConnected(false);
-      return false;
-    }
-  }, []);
-
-  // Probe once on mount. If the routy gateway answers, poll every 5s; if not,
-  // stay quiet — no point spamming the console (and the network tab) with
-  // 404s every 5 seconds when the gateway clearly isn't installed.
-  useEffect(() => {
-    let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    (async () => {
-      const ok = await refreshRouty();
-      if (cancelled || !ok) return;
-      intervalId = setInterval(refreshRouty, 5000);
-    })();
-    return () => {
-      cancelled = true;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [refreshRouty]);
-
-  const syncRouty = async () => {
-    setRoutySyncing(true);
-    try {
-      await fetch(`${ROUTY_API}/_api/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      await new Promise(r => setTimeout(r, 400));
-      await refreshRouty();
-    } catch {}
-    setRoutySyncing(false);
-  };
-
-  const routyFiltered = (() => {
-    const q = routySearch.toLowerCase();
-    const filterFn = (w: RoutyWebsite) =>
-      w.name.toLowerCase().includes(q) ||
-      (w.description?.toLowerCase().includes(q) ?? false) ||
-      w.target_url.toLowerCase().includes(q);
-    const taggedApps = routyApps.filter(filterFn).map(w => ({ ...w, _type: "app" as const }));
-    const taggedApis = routyApis.filter(filterFn).map(w => ({ ...w, _type: "api" as const }));
-    if (routyTab === "apps") return taggedApps;
-    if (routyTab === "apis") return taggedApis;
-    return [...taggedApps, ...taggedApis];
-  })();
-
   // Apply theme to document root
   useEffect(() => {
     const savedTheme = localStorage.getItem("claude_jobs_theme");
@@ -736,7 +686,7 @@ export default function Home() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem("claude_jobs_theme", theme);
+    safeSetItem("claude_jobs_theme", theme);
   }, [theme]);
 
   // Keyboard shortcuts for inline file search
@@ -828,7 +778,7 @@ export default function Home() {
       // so users don't get silently bumped to a different version on update.
       const upgraded = MODEL_ALIAS_UPGRADE[savedModel] || savedModel;
       setModel(upgraded);
-      if (upgraded !== savedModel) localStorage.setItem("claude_jobs_model", upgraded);
+      if (upgraded !== savedModel) safeSetItem("claude_jobs_model", upgraded);
     }
 
     const savedAgent = localStorage.getItem("claude_jobs_agent");
@@ -884,43 +834,55 @@ export default function Home() {
     if (savedWalletOpen !== null) setShowWalletSidebar(savedWalletOpen === "true");
     const savedWalletWidth = localStorage.getItem("claude_wallet_sidebar_width");
     if (savedWalletWidth) setWalletSidebarWidth(parseInt(savedWalletWidth, 10));
+    const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
+    if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
+    const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
+    if (savedOwnerWidth) setOwnerSidebarWidth(parseInt(savedOwnerWidth, 10));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("claude_tasks_sidebar_open", String(tasksSidebarOpen));
+    safeSetItem("claude_tasks_sidebar_open", String(tasksSidebarOpen));
   }, [tasksSidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem("claude_tasks_sidebar_width", String(sidebarWidth));
+    safeSetItem("claude_tasks_sidebar_width", String(sidebarWidth));
   }, [sidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("claude_left_sidebar_open", String(leftSidebarOpen));
+    safeSetItem("claude_left_sidebar_open", String(leftSidebarOpen));
   }, [leftSidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem("claude_left_sidebar_width", String(leftSidebarWidth));
+    safeSetItem("claude_left_sidebar_width", String(leftSidebarWidth));
   }, [leftSidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("claude_agent_enabled", String(agentEnabled));
+    safeSetItem("claude_agent_enabled", String(agentEnabled));
   }, [agentEnabled]);
 
   useEffect(() => {
-    localStorage.setItem("claude_sidebar_side", sidebarSide);
+    safeSetItem("claude_sidebar_side", sidebarSide);
   }, [sidebarSide]);
 
   useEffect(() => {
-    localStorage.setItem("claude_agent_sidebar_width", String(agentSidebarWidth));
+    safeSetItem("claude_agent_sidebar_width", String(agentSidebarWidth));
   }, [agentSidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("claude_wallet_sidebar_open", String(showWalletSidebar));
+    safeSetItem("claude_wallet_sidebar_open", String(showWalletSidebar));
   }, [showWalletSidebar]);
 
   useEffect(() => {
-    localStorage.setItem("claude_wallet_sidebar_width", String(walletSidebarWidth));
+    safeSetItem("claude_wallet_sidebar_width", String(walletSidebarWidth));
   }, [walletSidebarWidth]);
+
+  useEffect(() => {
+    safeSetItem("claude_owner_sidebar_open", String(showOwnerSidebar));
+  }, [showOwnerSidebar]);
+
+  useEffect(() => {
+    safeSetItem("claude_owner_sidebar_width", String(ownerSidebarWidth));
+  }, [ownerSidebarWidth]);
 
   // Check saved token or detect local mode
   useEffect(() => {
@@ -946,9 +908,9 @@ export default function Home() {
           setToken("local");
           setAddress("local");
           setWalletType("local");
-          localStorage.setItem("claude_jobs_token", "local");
-          localStorage.setItem("claude_jobs_address", "local");
-          localStorage.setItem("claude_jobs_wallet_type", "local");
+          safeSetItem("claude_jobs_token", "local");
+          safeSetItem("claude_jobs_address", "local");
+          safeSetItem("claude_jobs_wallet_type", "local");
         }
       })
       .catch(() => { /* server not reachable, show auth screen */ });
@@ -1085,8 +1047,8 @@ export default function Home() {
     if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
     setToken(newToken);
     setAddress(verifiedAddr);
-    localStorage.setItem("claude_jobs_token", newToken);
-    localStorage.setItem("claude_jobs_address", verifiedAddr);
+    safeSetItem("claude_jobs_token", newToken);
+    safeSetItem("claude_jobs_address", verifiedAddr);
 
     // Check if this user became the owner
     if (!wasOwnerSet) {
@@ -1123,7 +1085,7 @@ export default function Home() {
           });
         });
         setWalletType("subwallet");
-        localStorage.setItem("claude_jobs_wallet_type", "subwallet");
+        safeSetItem("claude_jobs_wallet_type", "subwallet");
       } else {
         // MetaMask or default provider
         const accounts: string[] = await ethereum.request({
@@ -1139,7 +1101,7 @@ export default function Home() {
           });
         });
         setWalletType("metamask");
-        localStorage.setItem("claude_jobs_wallet_type", "metamask");
+        safeSetItem("claude_jobs_wallet_type", "metamask");
       }
     } catch (e: any) {
       const msg = e.message || "";
@@ -1163,7 +1125,7 @@ export default function Home() {
         return await wallet.signMessage(msg);
       });
       setWalletType("password");
-      localStorage.setItem("claude_jobs_wallet_type", "password");
+      safeSetItem("claude_jobs_wallet_type", "password");
     } catch (e: any) {
       const msg = e.message || "";
       setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg || "PASSWORD KEY DERIVATION FAILED");
@@ -1183,7 +1145,7 @@ export default function Home() {
       if (!mnemonic) {
         const wallet = ethers.Wallet.createRandom();
         mnemonic = wallet.mnemonic!.phrase;
-        localStorage.setItem("claude_jobs_seed", mnemonic);
+        safeSetItem("claude_jobs_seed", mnemonic);
         isNew = true;
       }
 
@@ -1195,7 +1157,7 @@ export default function Home() {
       });
 
       setWalletType("local");
-      localStorage.setItem("claude_jobs_wallet_type", "local");
+      safeSetItem("claude_jobs_wallet_type", "local");
 
       if (isNew) {
         console.log(
@@ -1609,6 +1571,29 @@ export default function Home() {
     };
   }, [isWalletSidebarDragging]);
 
+  // Handle OWNER sidebar resize dragging. Sits at the far right; drag handle
+  // on the LEFT edge — dragging left grows the panel.
+  useEffect(() => {
+    if (!isOwnerSidebarDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const ww = window.innerWidth;
+      const newWidth = ww - e.clientX;
+      const maxWidth = Math.max(380, ww * 0.7);
+      setOwnerSidebarWidth(Math.max(300, Math.min(maxWidth, newWidth)));
+    };
+    const handleMouseUp = () => setIsOwnerSidebarDragging(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isOwnerSidebarDragging]);
+
   // Handle right panel resize dragging
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -1686,7 +1671,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("claude_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
+    safeSetItem("claude_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
   }, [filesPanelPos, filesPanelSize, filesPanelFloating]);
 
   // ── Jobs ──────────────────────────────────────────────────────────
@@ -1722,7 +1707,7 @@ export default function Home() {
     setPersonalities(ps);
     // Only persist non-default or modified builtins
     const toSave = ps.filter(p => !p.builtin || DEFAULT_PERSONALITIES.find(d => d.id === p.id)?.prompt !== p.prompt);
-    localStorage.setItem("claude_personalities", JSON.stringify(toSave));
+    safeSetItem("claude_personalities", JSON.stringify(toSave));
   };
 
   const savePersonality = () => {
@@ -1748,7 +1733,7 @@ export default function Home() {
     persistPersonalities(personalities.filter(x => x.id !== id));
     if (agentType === id) {
       setAgentType("default");
-      localStorage.setItem("claude_jobs_agent", "default");
+      safeSetItem("claude_jobs_agent", "default");
     }
   };
 
@@ -1774,7 +1759,7 @@ export default function Home() {
   // ── Prompt Management ──────────────────────────────────────────────
   const persistPrompts = (prompts: SavedPrompt[]) => {
     setSavedPrompts(prompts);
-    localStorage.setItem("claude_saved_prompts", JSON.stringify(prompts));
+    safeSetItem("claude_saved_prompts", JSON.stringify(prompts));
   };
 
   const savePromptFn = (title: string, body: string, tags?: string[], promptModel?: string, promptAgentType?: string) => {
@@ -2181,33 +2166,49 @@ export default function Home() {
   };
 
   const headerCreateOrFork = async () => {
-    if (!headerNewName.trim() || !token) return;
+    if (!token) return;
+    if (showHeaderCreateForm === "edit") {
+      if (!headerEditPrompt.trim() || !selectedModule) return;
+    } else {
+      if (!headerNewName.trim()) return;
+    }
     setSubmitting(true);
     try {
-      let finalName = headerNewName.trim();
-      if (!isOwner && !finalName.startsWith("peers/")) {
-        finalName = `peers/${finalName}`;
-      }
-
-      const defaultPrompt = showHeaderCreateForm === "fork"
-        ? `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`
-        : `Create a new module called "${finalName}". Set up the standard module structure with config.json, mod.py, and a README.md.`;
-
       const body: any = {
-        prompt: defaultPrompt,
         model,
-        module_name: finalName,
-        creation_mode: "new",
         anchor_dir: anchorDir,
       };
 
-      if (showHeaderCreateForm === "fork" && selectedModule) {
-        body.prompt = `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`;
-        body.fork_from = selectedModule;
-      }
+      if (showHeaderCreateForm === "edit") {
+        if (!isOwner && !selectedModule.includes("peers/") && !selectedModule.startsWith("peers.")) {
+          setError("NON-OWNERS CAN ONLY EDIT MODULES IN PEERS FOLDER");
+          setSubmitting(false);
+          return;
+        }
+        body.prompt = headerEditPrompt.trim();
+        body.work_dir = `${anchorDir}/mod/orbit/${selectedModule}`;
+        body.creation_mode = "edit";
+      } else {
+        let finalName = headerNewName.trim();
+        if (!isOwner && !finalName.startsWith("peers/")) {
+          finalName = `peers/${finalName}`;
+        }
 
-      if (headerGithubUrl.trim()) {
-        body.github_url = headerGithubUrl.trim();
+        const defaultPrompt = showHeaderCreateForm === "fork"
+          ? `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`
+          : `Create a new module called "${finalName}". Set up the standard module structure with config.json, mod.py, and a README.md.`;
+
+        body.prompt = defaultPrompt;
+        body.module_name = finalName;
+        body.creation_mode = "new";
+
+        if (showHeaderCreateForm === "fork" && selectedModule) {
+          body.fork_from = selectedModule;
+        }
+
+        if (headerGithubUrl.trim()) {
+          body.github_url = headerGithubUrl.trim();
+        }
       }
 
       const res = await authFetch("/jobs", {
@@ -2218,6 +2219,7 @@ export default function Home() {
       const job = await res.json();
       setHeaderNewName("");
       setHeaderGithubUrl("");
+      setHeaderEditPrompt("");
       setShowHeaderCreateForm(null);
       setSelectedJob(job.id);
       fetchJobs();
@@ -2570,6 +2572,9 @@ export default function Home() {
       }
       if (inlineModuleRef.current && !inlineModuleRef.current.contains(e.target as Node)) {
         setShowInlineModuleDropdown(false);
+      }
+      if (agentModuleRef.current && !agentModuleRef.current.contains(e.target as Node)) {
+        setShowAgentModuleDropdown(false);
       }
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
         setProfileMenuOpen(false);
@@ -3752,7 +3757,7 @@ export default function Home() {
                           </div>
                           <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); localStorage.setItem("claude_jobs_agent", p.id); }}
+                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); safeSetItem("claude_jobs_agent", p.id); }}
                               className="text-[10px] px-2 py-1 border rounded transition-colors"
                               style={{ borderColor: "rgba(96,165,250,0.3)", color: "#60a5fa" }}
                               title="Set as active"
@@ -3911,7 +3916,7 @@ export default function Home() {
                   value={model}
                   onChange={(e) => {
                     setModel(e.target.value);
-                    localStorage.setItem("claude_jobs_model", e.target.value);
+                    safeSetItem("claude_jobs_model", e.target.value);
                   }}
                   className="px-2 py-1 text-[13px] bg-transparent text-crt-green border border-crt-green/20 font-pixel uppercase cursor-pointer hover:border-crt-green/40 transition-colors"
                   style={{ maxWidth: "180px" }}
@@ -3928,7 +3933,7 @@ export default function Home() {
                     value={agentType}
                     onChange={(e) => {
                       setAgentType(e.target.value);
-                      localStorage.setItem("claude_jobs_agent", e.target.value);
+                      safeSetItem("claude_jobs_agent", e.target.value);
                     }}
                     className="px-2 py-1 text-[13px] bg-transparent text-crt-blue border border-crt-blue/20 font-pixel uppercase cursor-pointer hover:border-crt-blue/40 transition-colors rounded-l"
                     style={{ maxWidth: "160px", borderRight: "none" }}
@@ -3946,21 +3951,82 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* Active module indicator */}
-                {selectedModule && (
-                  <span
-                    className="px-2 py-1 text-[12px] font-pixel uppercase tracking-wide border rounded"
+                {/* Active module picker — click to switch the module being edited */}
+                <div ref={inlineModuleRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineModuleDropdown((v) => !v)}
+                    className="px-2 py-1 text-[12px] font-pixel uppercase tracking-wide border rounded flex items-center gap-1.5 hover:bg-amber-400/10 transition-colors"
                     style={{
                       color: "#fbbf24",
                       borderColor: "rgba(251,191,36,0.35)",
                       background: "rgba(251,191,36,0.08)",
                       letterSpacing: "0.04em",
                     }}
-                    title={`Module: ${selectedModule}`}
+                    title={selectedModule ? `Module: ${selectedModule} — click to switch` : "Pick a module to edit"}
                   >
-                    {selectedModule}
-                  </span>
-                )}
+                    <span>{selectedModule || "pick module"}</span>
+                    <span className="text-[9px] opacity-60">▾</span>
+                  </button>
+                  {showInlineModuleDropdown && (
+                    <div
+                      className="absolute z-50 mt-1 left-0 w-[280px] border rounded shadow-xl"
+                      style={{
+                        background: "var(--bg-primary, #0a0a0a)",
+                        borderColor: "rgba(251,191,36,0.35)",
+                      }}
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={moduleSearch}
+                        onChange={(e) => setModuleSearch(e.target.value)}
+                        placeholder="search modules..."
+                        className="w-full px-2 py-1.5 text-[12px] bg-transparent border-b font-mono outline-none"
+                        style={{
+                          borderColor: "rgba(251,191,36,0.2)",
+                          color: "#fbbf24",
+                        }}
+                        spellCheck={false}
+                      />
+                      <div className="max-h-[280px] overflow-y-auto">
+                        {moduleList
+                          .filter((m) => !moduleSearch.trim() || m.name.toLowerCase().includes(moduleSearch.toLowerCase()))
+                          .slice(0, 200)
+                          .map((m) => (
+                            <button
+                              key={m.name}
+                              type="button"
+                              onClick={() => {
+                                resetModuleState(m);
+                                setSelectedModule(m.name);
+                                setSelectedModuleInfo(m);
+                                setWorkDir(m.path);
+                                fetchModuleConfig(m.name);
+                                setShowInlineModuleDropdown(false);
+                                setModuleSearch("");
+                              }}
+                              className="w-full px-2 py-1.5 text-left text-[12px] font-code flex items-center gap-2 hover:bg-amber-400/10 transition-colors"
+                              style={{
+                                color: m.name === selectedModule ? "#fbbf24" : "var(--text-secondary)",
+                                background: m.name === selectedModule ? "rgba(251,191,36,0.08)" : "transparent",
+                              }}
+                            >
+                              <span className="truncate flex-1">{m.name}</span>
+                              {m.category && (
+                                <span className="text-[9px] opacity-50 shrink-0 uppercase">{m.category}</span>
+                              )}
+                            </button>
+                          ))}
+                        {moduleList.filter((m) => !moduleSearch.trim() || m.name.toLowerCase().includes(moduleSearch.toLowerCase())).length === 0 && (
+                          <div className="px-2 py-3 text-[11px] text-center opacity-50 font-pixel uppercase">
+                            no matches
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Mode selector: edit/ fork/ new/ */}
                 <div className="flex items-center border rounded overflow-hidden" style={{ borderColor: "rgba(251,191,36,0.25)" }}>
@@ -4624,7 +4690,7 @@ export default function Home() {
           {([
             { key: "info", label: "Agent", icon: "⬡", count: null as number | null },
             { key: "versions", label: "Versions", icon: "◆", count: agentVersions.length || null },
-            { key: "tasks", label: "Tasks", icon: "▤", count: filteredJobs.length || null },
+            { key: "tasks", label: "Tasks", icon: "▤", count: filteredJobs.filter(j => j.status === "running" || j.status === "pending").length || null },
           ] as const).map((t) => {
             const active = agentPanelTab === t.key;
             const tabColor = t.key === "info"
@@ -4695,7 +4761,7 @@ export default function Home() {
                 return;
               }
               setEngine(next);
-              localStorage.setItem("claude_jobs_engine", next);
+              safeSetItem("claude_jobs_engine", next);
             }}
             className="px-3 py-1.5 bg-transparent border cursor-pointer"
             style={{
@@ -4719,7 +4785,7 @@ export default function Home() {
           {/* Model (specific version) */}
           <select
             value={model}
-            onChange={(e) => { setModel(e.target.value); localStorage.setItem("claude_jobs_model", e.target.value); }}
+            onChange={(e) => { setModel(e.target.value); safeSetItem("claude_jobs_model", e.target.value); }}
             className="px-3 py-1.5 bg-transparent border cursor-pointer"
             style={{
               fontSize: 13,
@@ -4742,7 +4808,7 @@ export default function Home() {
           {/* Persona (was confusingly labelled "Agent" — that's now the engine) */}
           <select
             value={agentType}
-            onChange={(e) => { setAgentType(e.target.value); localStorage.setItem("claude_jobs_agent", e.target.value); }}
+            onChange={(e) => { setAgentType(e.target.value); safeSetItem("claude_jobs_agent", e.target.value); }}
             className="px-3 py-1.5 bg-transparent border uppercase cursor-pointer"
             style={{
               fontSize: 12,
@@ -5496,18 +5562,98 @@ export default function Home() {
             </div>
           )}
           <div className="flex items-center justify-between mt-2 px-1">
-            <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.55, letterSpacing: "0.04em" }}>
-              <kbd style={{
-                padding: "1px 5px",
-                borderRadius: 4,
-                border: `1px solid ${subtleBorder}`,
-                background: "var(--bg-secondary)",
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 9,
-                marginRight: 4,
-              }}>↵</kbd>
-              to submit
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Active module picker — choose which module the agent edits */}
+              <div ref={agentModuleRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowAgentModuleDropdown((v) => !v)}
+                  className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-[2px] rounded-full transition-colors"
+                  style={{
+                    color: "#fbbf24",
+                    border: "1px solid rgba(251,191,36,0.3)",
+                    background: "rgba(251,191,36,0.08)",
+                    letterSpacing: "0.04em",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(251,191,36,0.15)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "rgba(251,191,36,0.08)"; }}
+                  title={selectedModule ? `Editing module: ${selectedModule} — click to switch` : "Pick a module to edit"}
+                >
+                  <span className="truncate max-w-[120px]">{selectedModule || "pick module"}</span>
+                  <span className="text-[8px] opacity-60">▾</span>
+                </button>
+                {showAgentModuleDropdown && (
+                  <div
+                    className="absolute z-50 mt-1 left-0 w-[280px] border rounded-lg shadow-xl overflow-hidden"
+                    style={{
+                      background: "var(--bg-primary, #0a0a0a)",
+                      borderColor: "rgba(251,191,36,0.35)",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      autoFocus
+                      value={agentModuleSearch}
+                      onChange={(e) => setAgentModuleSearch(e.target.value)}
+                      placeholder="search modules..."
+                      className="w-full px-2 py-1.5 text-[12px] bg-transparent border-b font-mono outline-none"
+                      style={{
+                        borderColor: "rgba(251,191,36,0.2)",
+                        color: "#fbbf24",
+                      }}
+                      spellCheck={false}
+                    />
+                    <div className="max-h-[280px] overflow-y-auto">
+                      {moduleList
+                        .filter((m) => !agentModuleSearch.trim() || m.name.toLowerCase().includes(agentModuleSearch.toLowerCase()))
+                        .slice(0, 200)
+                        .map((m) => (
+                          <button
+                            key={m.name}
+                            type="button"
+                            onClick={() => {
+                              resetModuleState(m);
+                              setSelectedModule(m.name);
+                              setSelectedModuleInfo(m);
+                              setWorkDir(m.path);
+                              fetchModuleConfig(m.name);
+                              setShowAgentModuleDropdown(false);
+                              setAgentModuleSearch("");
+                            }}
+                            className="w-full px-2 py-1.5 text-left text-[12px] font-mono flex items-center gap-2 hover:bg-amber-400/10 transition-colors"
+                            style={{
+                              color: m.name === selectedModule ? "#fbbf24" : "var(--text-secondary)",
+                              background: m.name === selectedModule ? "rgba(251,191,36,0.08)" : "transparent",
+                            }}
+                          >
+                            <span className="truncate flex-1">{m.name}</span>
+                            {m.category && (
+                              <span className="text-[9px] opacity-50 shrink-0 uppercase">{m.category}</span>
+                            )}
+                          </button>
+                        ))}
+                      {moduleList.filter((m) => !agentModuleSearch.trim() || m.name.toLowerCase().includes(agentModuleSearch.toLowerCase())).length === 0 && (
+                        <div className="px-2 py-3 text-[11px] text-center opacity-50 font-mono uppercase">
+                          no matches
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.55, letterSpacing: "0.04em" }}>
+                <kbd style={{
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  border: `1px solid ${subtleBorder}`,
+                  background: "var(--bg-secondary)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 9,
+                  marginRight: 4,
+                }}>↵</kbd>
+                to submit
+              </span>
+            </div>
             <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
               {activeModelChip.label} · {apiUrl.replace("http://", "")}
             </span>
@@ -6297,152 +6443,6 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto">
           {sidebarView === "overview" && (
             <div className="p-4 flex flex-col gap-4">
-
-              {/* ── Routy Gateway ──────────────────────── */}
-              <div className="section-card" data-accent="blue">
-                <span className="section-card__bar" />
-                <div className="section-card__head">
-                  <div className="section-card__title">
-                    <span className="section-card__glyph">⇆</span>
-                    Gateway
-                    <span
-                      className="status-pill ml-1"
-                      style={{ ['--pill-accent' as any]: routyConnected ? "var(--crt-green)" : "var(--crt-red)" }}
-                    >
-                      <span className={`status-pill__dot ${routyConnected ? "led-pulse" : ""}`} />
-                      {routyConnected ? "ONLINE" : "OFFLINE"}
-                    </span>
-                  </div>
-                  <button
-                    onClick={syncRouty}
-                    disabled={routySyncing || !routyConnected}
-                    className="text-[10px] px-2.5 py-1 rounded-md border uppercase font-bold tracking-wider transition-all hover:brightness-125 disabled:opacity-50"
-                    style={{
-                      borderColor: routySyncing ? "var(--border-color)" : "color-mix(in srgb, var(--crt-blue) 35%, transparent)",
-                      color: routySyncing ? "var(--text-tertiary)" : "var(--crt-blue)",
-                      background: "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
-                    }}
-                  >
-                    {routySyncing ? "syncing…" : "sync"}
-                  </button>
-                </div>
-
-                {/* Stats row */}
-                {routyStats && (
-                  <div className="px-3 pt-2 pb-1 grid grid-cols-4 gap-2">
-                    {[
-                      { label: "apps", value: routyStats.apps, color: "var(--crt-green)" },
-                      { label: "apis", value: routyStats.apis, color: "var(--crt-blue)" },
-                      { label: "total", value: routyStats.total, color: "var(--crt-amber)" },
-                      { label: "cpu", value: `${routyStats.cpu_usage_percent.toFixed(0)}%`, color: routyStats.cpu_usage_percent > 80 ? "var(--crt-red)" : routyStats.cpu_usage_percent > 50 ? "var(--crt-amber)" : "var(--crt-green)" },
-                    ].map(s => (
-                      <div key={s.label} className="p-2 rounded border" style={{ borderColor: "var(--border-color)", background: "var(--bg-secondary)" }}>
-                        <div className="text-[18px] font-bold" style={{ color: s.color, letterSpacing: "-0.02em" }}>{s.value}</div>
-                        <div className="text-[10px] uppercase mt-0.5" style={{ color: "var(--text-tertiary)", letterSpacing: "0.04em" }}>{s.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Search + tabs */}
-                <div className="px-3 py-2 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={routySearch}
-                    onChange={e => setRoutySearch(e.target.value)}
-                    placeholder="search services..."
-                    className="flex-1 px-2 py-1 text-[12px] bg-transparent border rounded-sm outline-none"
-                    style={{ borderColor: "var(--border-color)", color: "var(--text-primary)" }}
-                  />
-                  <div className="flex items-center border rounded-sm overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
-                    {(["all", "apps", "apis"] as const).map(t => (
-                      <button
-                        key={t}
-                        onClick={() => setRoutyTab(t)}
-                        className="text-[10px] px-2 py-1 uppercase font-bold transition-all"
-                        style={{
-                          background: routyTab === t ? "var(--bg-secondary)" : "transparent",
-                          color: routyTab === t ? "var(--text-primary)" : "var(--text-tertiary)",
-                          borderRight: t !== "apis" ? "1px solid var(--border-color)" : "none",
-                        }}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Services list */}
-                <div className="px-3 pb-3 flex flex-col gap-1.5" style={{ maxHeight: 360, overflowY: "auto" }}>
-                  {!routyConnected ? (
-                    <div className="text-center py-6 text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                      no gateway on :3000 — start caddy or routy
-                    </div>
-                  ) : routyApps.length === 0 && routyApis.length === 0 ? (
-                    <div className="text-center py-6 text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                      caddy proxy live on :3000 · routy not running (service list unavailable, routing still works)
-                    </div>
-                  ) : routyFiltered.length === 0 ? (
-                    <div className="text-center py-6 text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                      {routySearch ? `no services match "${routySearch}"` : "no services registered"}
-                    </div>
-                  ) : (
-                    routyFiltered.map(w => {
-                      const isApp = w._type === "app";
-                      const route = isApp ? `/${w.name}/` : `/api/${w.name}/`;
-                      return (
-                        <div
-                          key={`${w._type}-${w.name}`}
-                          className="p-2.5 rounded border transition-all hover:brightness-110 cursor-default"
-                          style={{
-                            borderColor: "var(--border-color)",
-                            background: "var(--bg-secondary)",
-                          }}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>{w.name}</span>
-                              <span
-                                className="text-[9px] px-1.5 py-0.5 rounded-sm uppercase font-bold"
-                                style={{
-                                  color: isApp ? "var(--crt-green)" : "var(--crt-blue)",
-                                  background: isApp ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
-                                  border: `1px solid ${isApp ? "color-mix(in srgb, var(--crt-green) 25%, transparent)" : "color-mix(in srgb, var(--crt-blue) 25%, transparent)"}`,
-                                  letterSpacing: "0.05em",
-                                }}
-                              >
-                                {w._type}
-                              </span>
-                            </div>
-                            <a
-                              href={`${ROUTY_API}${route}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[10px] font-mono transition-opacity hover:opacity-70"
-                              style={{ color: isApp ? "var(--crt-green)" : "var(--crt-blue)", textDecoration: "none" }}
-                            >
-                              {route} &rarr;
-                            </a>
-                          </div>
-                          {w.description && (
-                            <p className="text-[11px] mb-1" style={{ color: "var(--text-tertiary)" }}>{w.description}</p>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <code className="text-[10px] px-1 py-0.5 rounded" style={{ color: "var(--text-tertiary)", background: "var(--bg-primary)" }}>
-                              {w.target_url}
-                            </code>
-                            {w.storage_type && (
-                              <span className="text-[9px] px-1 py-0.5 rounded uppercase font-bold" style={{ color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)" }}>
-                                {w.storage_type}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
 
               {/* Service status cards — API + APP side by side. Each is a
                   pill-bordered tile in its own accent color (blue for API,
@@ -7527,164 +7527,181 @@ export default function Home() {
           borderBottom: `1px solid ${subtleBorder}`,
         }}
       >
-        {/* First level: top-level categories. AGENT doubles as the sidebar
-            toggle so its active state mirrors the agent sidebar open state. */}
-        <div
-          className="flex items-center px-4 py-1 gap-1"
-          style={{ borderBottom: `1px solid ${subtleBorder}` }}
-        >
-          {([
-            { key: "explore" as const, label: "EXPLORE", color: "var(--crt-blue)" },
-            { key: "build" as const, label: "BUILD", color: "var(--crt-green)" },
-            { key: "agent" as const, label: "AGENT", color: "var(--crt-amber)" },
-          ]).map((cat) => {
-            const isActive = cat.key === "agent" ? agentSidebarOpen : activeCategory === cat.key;
-            return (
-              <button
-                key={cat.key}
-                onClick={() => {
-                  if (cat.key === "agent") {
-                    setAgentSidebarOpen(!agentSidebarOpen);
-                  } else {
-                    setActiveCategory(cat.key);
-                  }
-                }}
-                className="text-[13px] font-bold transition-all px-3 py-1 font-code"
-                style={{
-                  letterSpacing: "0.08em",
-                  color: isActive ? cat.color : "var(--text-tertiary)",
-                  opacity: isActive ? 1 : 0.5,
-                  borderBottom: isActive ? `2px solid ${cat.color}` : "2px solid transparent",
-                  background: isActive ? `color-mix(in srgb, ${cat.color} 8%, transparent)` : "transparent",
-                  marginBottom: "-1px",
-                  textShadow: isActive ? `0 0 8px color-mix(in srgb, ${cat.color} 45%, transparent)` : "none",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.opacity = "0.8";
-                    e.currentTarget.style.color = cat.color;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.opacity = "0.5";
-                    e.currentTarget.style.color = "var(--text-tertiary)";
-                  }
-                }}
-                title={cat.key === "agent" ? (agentSidebarOpen ? "Collapse agent panel" : "Expand agent panel") : undefined}
-              >
-                {cat.label}
-              </button>
-            );
-          })}
-
-          {/* BUILD / FORK action buttons (right side of first-level nav) */}
-          <div className="flex items-center gap-2 relative ml-auto" ref={headerCreateRef}>
-            <button
-              onClick={() => {
-                setShowHeaderCreateForm(showHeaderCreateForm === "create" ? null : "create");
-                setHeaderNewName("");
-                setHeaderGithubUrl("");
-              }}
-              className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-              style={{
-                borderColor: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.2)",
-                color: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.5)",
-                background: showHeaderCreateForm === "create" ? "rgba(16,185,129,0.08)" : "transparent",
-                letterSpacing: "0.01em",
-              }}
-              title="Build new module"
-            >
-              + BUILD
-            </button>
-            <button
-              onClick={() => {
-                setShowHeaderCreateForm(showHeaderCreateForm === "fork" ? null : "fork");
-                setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
-                setHeaderGithubUrl("");
-              }}
-              className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-              style={{
-                borderColor: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.2)",
-                color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.5)",
-                background: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.08)" : "transparent",
-                letterSpacing: "0.01em",
-              }}
-              title={`Fork ${selectedModule || "module"}`}
-            >
-              ⑂ FORK
-            </button>
-
-            {/* Build/Fork dropdown form */}
-            {showHeaderCreateForm && (
-              <div
-                className="absolute right-0 top-full mt-1 border z-50 p-3 flex flex-col gap-2 min-w-[300px]"
-                style={{
-                  background: "var(--bg-primary)",
-                  borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-                }}
-              >
-                <div className="text-[13px] font-bold uppercase" style={{
-                  letterSpacing: "0.02em",
-                  color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "var(--crt-green)",
-                }}>
-                  {showHeaderCreateForm === "fork" ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}` : "+ BUILD MODULE"}
-                </div>
-                <input
-                  type="text"
-                  autoFocus
-                  value={headerNewName}
-                  onChange={(e) => setHeaderNewName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") headerCreateOrFork();
-                    if (e.key === "Escape") setShowHeaderCreateForm(null);
-                  }}
-                  placeholder="module name..."
-                  className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                  style={{
-                    borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                    color: "var(--text-primary)",
-                  }}
-                />
-                {showHeaderCreateForm === "create" && (
-                  <input
-                    type="text"
-                    value={headerGithubUrl}
-                    onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") headerCreateOrFork();
-                      if (e.key === "Escape") setShowHeaderCreateForm(null);
-                    }}
-                    placeholder="github url (optional)..."
-                    className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
-                    style={{ color: "var(--text-primary)" }}
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={headerCreateOrFork}
-                    disabled={!headerNewName.trim() || submitting}
-                    className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
-                    style={{ letterSpacing: "0.01em", opacity: headerNewName.trim() ? 1 : 0.4 }}
-                  >
-                    {submitting ? "..." : showHeaderCreateForm === "fork" ? "FORK" : "BUILD"}
-                  </button>
-                  <button
-                    onClick={() => setShowHeaderCreateForm(null)}
-                    className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
-                  >
-                    ESC
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Second level: module selector + mod tabs (overview/app/api/files/terminal). */}
+        {/* Module selector + mod tabs (overview/app/api/files/terminal). */}
         <div className="flex items-center px-4 py-1.5">
           <div className="flex items-center gap-3">
+            {/* Wrench: BUILD / FORK / EDIT actions side panel.
+                Sits to the LEFT of the selected module name. Clicking
+                opens a tabbed panel anchored under the icon. */}
+            <div className="relative" ref={headerCreateRef}>
+              <button
+                onClick={() => setAgentSidebarOpen((v) => !v)}
+                className="flex items-center justify-center transition-all hover:brightness-125 rounded-sm"
+                style={{
+                  width: 28,
+                  height: 28,
+                  border: `1px solid ${agentSidebarOpen ? "var(--crt-green)" : "rgba(16,185,129,0.25)"}`,
+                  color: agentSidebarOpen ? "var(--crt-green)" : "rgba(16,185,129,0.55)",
+                  background: agentSidebarOpen ? "rgba(16,185,129,0.10)" : "transparent",
+                }}
+                title={agentSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+                aria-expanded={agentSidebarOpen}
+                aria-label="Toggle sidebar"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+              </button>
+
+              {showHeaderCreateForm && (
+                <div
+                  className="absolute left-0 top-full mt-1 border z-50 flex flex-col min-w-[320px]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: showHeaderCreateForm === "fork"
+                      ? "rgba(245,158,11,0.3)"
+                      : showHeaderCreateForm === "edit"
+                      ? "rgba(59,130,246,0.3)"
+                      : "rgba(16,185,129,0.3)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.20)",
+                  }}
+                >
+                  {/* Tabs */}
+                  <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    {([
+                      { key: "create" as const, label: "+ BUILD", color: "var(--crt-green)", rgb: "16,185,129" },
+                      { key: "fork"   as const, label: "⑂ FORK",  color: "var(--crt-amber)", rgb: "245,158,11" },
+                      { key: "edit"   as const, label: "✎ EDIT",  color: "var(--crt-blue)",  rgb: "59,130,246" },
+                    ]).map((tab) => {
+                      const isActive = showHeaderCreateForm === tab.key;
+                      const disabled = tab.key === "edit" && !selectedModule;
+                      return (
+                        <button
+                          key={tab.key}
+                          onClick={() => {
+                            if (disabled) return;
+                            if (tab.key === "fork") {
+                              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
+                              setHeaderGithubUrl("");
+                            } else if (tab.key === "create") {
+                              setHeaderNewName("");
+                              setHeaderGithubUrl("");
+                            } else {
+                              setHeaderEditPrompt("");
+                            }
+                            setShowHeaderCreateForm(tab.key);
+                          }}
+                          disabled={disabled}
+                          className="flex-1 text-[11px] font-bold py-1.5 px-2 font-code transition-all disabled:cursor-not-allowed"
+                          style={{
+                            letterSpacing: "0.02em",
+                            color: isActive ? tab.color : `rgba(${tab.rgb}, ${disabled ? 0.2 : 0.5})`,
+                            background: isActive ? `rgba(${tab.rgb}, 0.08)` : "transparent",
+                            borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
+                          }}
+                          title={disabled ? "Select a module to edit" : tab.label}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Active form */}
+                  <div className="p-3 flex flex-col gap-2">
+                    <div className="text-[12px] font-bold uppercase" style={{
+                      letterSpacing: "0.02em",
+                      color: showHeaderCreateForm === "fork"
+                        ? "var(--crt-amber)"
+                        : showHeaderCreateForm === "edit"
+                        ? "var(--crt-blue)"
+                        : "var(--crt-green)",
+                    }}>
+                      {showHeaderCreateForm === "fork"
+                        ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}`
+                        : showHeaderCreateForm === "edit"
+                        ? `✎ EDIT ${selectedModule?.toUpperCase() || "?"}`
+                        : "+ BUILD MODULE"}
+                    </div>
+                    {showHeaderCreateForm === "edit" ? (
+                      <textarea
+                        autoFocus
+                        value={headerEditPrompt}
+                        onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="describe the edit..."
+                        rows={3}
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none resize-none"
+                        style={{
+                          borderColor: "rgba(59,130,246,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={headerNewName}
+                        onChange={(e) => setHeaderNewName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="module name..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                        style={{
+                          borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    )}
+                    {showHeaderCreateForm === "create" && (
+                      <input
+                        type="text"
+                        value={headerGithubUrl}
+                        onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="github url (optional)..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
+                        style={{ color: "var(--text-primary)" }}
+                      />
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={headerCreateOrFork}
+                        disabled={(showHeaderCreateForm === "edit" ? !headerEditPrompt.trim() : !headerNewName.trim()) || submitting}
+                        className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
+                        style={{
+                          letterSpacing: "0.01em",
+                          opacity: (showHeaderCreateForm === "edit" ? headerEditPrompt.trim() : headerNewName.trim()) ? 1 : 0.4,
+                        }}
+                      >
+                        {submitting
+                          ? "..."
+                          : showHeaderCreateForm === "fork"
+                          ? "FORK"
+                          : showHeaderCreateForm === "edit"
+                          ? "EDIT"
+                          : "BUILD"}
+                      </button>
+                      <button
+                        onClick={() => setShowHeaderCreateForm(null)}
+                        className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
+                      >
+                        ESC
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Module/Folder selector dropdown */}
             <div className="relative" ref={headerModuleRef}>
               {showHeaderModuleDropdown ? (
@@ -7782,7 +7799,12 @@ export default function Home() {
               {/* Modules dropdown */}
               {showHeaderModuleDropdown && selectorMode === "modules" && moduleList.length > 0 && (() => {
                 const owners = [...new Set(moduleList.map(m => m.owner).filter(Boolean))] as string[];
-                const filtered = ownerFilter ? moduleList.filter(m => m.owner === ownerFilter) : moduleList;
+                // Plain substring filter on the typed query — the server-side
+                // /modules?q= ranking can be fuzzy, but the dropdown should
+                // only show names that literally contain what you typed.
+                const q = headerModuleSearch.trim().toLowerCase();
+                let filtered = ownerFilter ? moduleList.filter(m => m.owner === ownerFilter) : moduleList;
+                if (q) filtered = filtered.filter(m => m.name.toLowerCase().includes(q));
                 return (
                 <div
                   className="absolute left-0 top-full mt-1 border border-crt-green/20 max-h-[400px] overflow-y-auto z-[80] rounded min-w-[340px]"
@@ -8026,20 +8048,14 @@ export default function Home() {
               {selectedModule && effectiveConfig?.owner ? (
                 <button
                   className="text-[12px] px-2 py-0.5 font-mono transition-all cursor-pointer flex items-center gap-1.5"
-                  title={address && address !== "local" && walletType
-                    ? (showWalletSidebar ? "Close wallet panel" : "Open wallet panel")
-                    : `Profile — ${effectiveConfig.owner}`}
+                  title={showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (address && address !== "local" && walletType) {
-                      setShowWalletSidebar(o => !o);
-                    } else {
-                      setProfileMenuOpen(o => !o);
-                    }
+                    setShowOwnerSidebar(o => !o);
                   }}
                   style={{
                     color: "var(--crt-green)",
-                    background: (showWalletSidebar || profileMenuOpen)
+                    background: showOwnerSidebar
                       ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
                       : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
                     border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
@@ -8047,11 +8063,10 @@ export default function Home() {
                     letterSpacing: "0.02em",
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = (showWalletSidebar || profileMenuOpen)
+                  onMouseLeave={e => (e.currentTarget.style.background = showOwnerSidebar
                     ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
                     : "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
-                  aria-expanded={address && address !== "local" && walletType ? showWalletSidebar : profileMenuOpen}
-                  aria-haspopup={address && address !== "local" && walletType ? undefined : "menu"}
+                  aria-expanded={showOwnerSidebar}
                 >
                   <span
                     className="shrink-0 inline-block rounded-full"
@@ -8065,9 +8080,7 @@ export default function Home() {
                   <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>
                   {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
                   <span className="text-[9px]" style={{ opacity: 0.6 }}>
-                    {address && address !== "local" && walletType
-                      ? (showWalletSidebar ? "◨" : "◧")
-                      : (profileMenuOpen ? "▴" : "▾")}
+                    {showOwnerSidebar ? "◨" : "◧"}
                   </span>
                 </button>
               ) : (
@@ -8191,6 +8204,22 @@ export default function Home() {
                       <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>↗</span>
                     </button>
                   )}
+                  <button
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setShowOwnerSidebar(v => !v);
+                    }}
+                    className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                    style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                      {showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
+                    </span>
+                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{showOwnerSidebar ? "✕" : "↗"}</span>
+                  </button>
                   {address ? (
                     <button
                       onClick={() => {
@@ -8456,6 +8485,553 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── Right Sidebar: Owner ─────────────────────────────────────
+            Mirrors wallet pattern — flex sibling on desktop (pushes main
+            content, drag-to-resize on left edge), fullscreen overlay on
+            phone. Sits at the far right when both wallet and owner are
+            open. */}
+        {isMobile && showOwnerSidebar && (
+          <div
+            onClick={() => setShowOwnerSidebar(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(2px)",
+              zIndex: 60,
+            }}
+            aria-label="Close owner panel"
+          />
+        )}
+        <div
+          className="flex flex-col overflow-hidden"
+          style={
+            isMobile
+              ? {
+                  position: showOwnerSidebar ? "fixed" : "static",
+                  inset: showOwnerSidebar ? 0 : "auto",
+                  width: showOwnerSidebar ? "100vw" : "0px",
+                  height: showOwnerSidebar ? "100dvh" : "0px",
+                  maxWidth: "100vw",
+                  background: "var(--bg-primary)",
+                  zIndex: 70,
+                  boxShadow: showOwnerSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
+                  transition: "none",
+                }
+              : {
+                  position: "relative",
+                  width: showOwnerSidebar ? `${ownerSidebarWidth}px` : "0px",
+                  minWidth: showOwnerSidebar ? "300px" : "0px",
+                  maxWidth: "100%",
+                  flexShrink: 0,
+                  background: "var(--bg-primary)",
+                  borderLeft: showOwnerSidebar ? "1px solid rgba(251,191,36,0.30)" : "none",
+                  boxShadow: showOwnerSidebar
+                    ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
+                    : "none",
+                  transition: isOwnerSidebarDragging ? "none" : "width 0.25s ease",
+                }
+          }
+        >
+          {!isMobile && showOwnerSidebar && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsOwnerSidebarDragging(true);
+              }}
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                left: -3,
+                width: 6,
+                cursor: "col-resize",
+                zIndex: 1,
+                background: isOwnerSidebarDragging ? "rgba(251,191,36,0.40)" : "transparent",
+                transition: "background 0.15s ease",
+              }}
+              title="Drag to resize"
+            />
+          )}
+          {showOwnerSidebar && (() => {
+            const cfg = effectiveConfig;
+            const cfgOwner: string | null = cfg?.owner || null;
+            const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
+            const moduleInfo = selectedModuleInfo;
+            return (
+              <div className="flex flex-col h-full overflow-hidden">
+                {/* Header */}
+                <div
+                  className="flex items-center justify-between px-4 py-3 shrink-0"
+                  style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span style={{ fontSize: 14, color: "var(--crt-amber)" }}>◈</span>
+                    <div className="flex flex-col min-w-0">
+                      <span
+                        className="text-[12px] font-bold uppercase tracking-[0.12em] truncate leading-tight"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        Owner
+                      </span>
+                      {selectedModule && (
+                        <span
+                          className="text-[10px] font-mono truncate leading-tight"
+                          style={{ color: "var(--text-tertiary)" }}
+                          title={selectedModule}
+                        >
+                          {selectedModule}
+                        </span>
+                      )}
+                    </div>
+                    {youAreOwner && (
+                      <span
+                        className="text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                        }}
+                      >
+                        YOU
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setShowOwnerSidebar(false)}
+                    className="flex items-center justify-center focus-ring shrink-0 transition-all"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 999,
+                      color: "var(--text-tertiary)",
+                      border: "1px solid transparent",
+                      background: "transparent",
+                      fontSize: 11,
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.color = "var(--crt-red)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 35%, transparent)";
+                      e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 10%, transparent)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.color = "var(--text-tertiary)";
+                      e.currentTarget.style.borderColor = "transparent";
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                    title="Close owner panel"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                  {/* Owner identity — gradient avatar derived from the address;
+                      the whole row is click-to-copy */}
+                  {cfgOwner && (() => {
+                    const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
+                    const h1 = seed % 360;
+                    const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
+                    const justCopied = copiedWlAddr === cfgOwner;
+                    return (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard?.writeText(cfgOwner).catch(() => {});
+                          setCopiedWlAddr(cfgOwner);
+                          setTimeout(() => setCopiedWlAddr(c => (c === cfgOwner ? null : c)), 1200);
+                        }}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-[14px] text-left transition-all cursor-pointer shrink-0"
+                        style={{
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, var(--border-color))",
+                          background: "linear-gradient(135deg, color-mix(in srgb, var(--crt-amber) 6%, transparent), transparent 65%)",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 38%, var(--border-color))")}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 20%, var(--border-color))")}
+                        title={justCopied ? "Copied!" : `${cfgOwner} — click to copy`}
+                      >
+                        <span
+                          className="shrink-0 rounded-full"
+                          style={{
+                            width: 34,
+                            height: 34,
+                            background: `linear-gradient(135deg, hsl(${h1} 75% 58%), hsl(${h2} 70% 38%))`,
+                            boxShadow: "0 0 14px -3px color-mix(in srgb, var(--crt-amber) 55%, transparent), inset 0 0 0 1px rgba(255,255,255,0.18)",
+                          }}
+                          aria-hidden
+                        />
+                        <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                          <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+                            Module owner{youAreOwner ? " · you" : ""}
+                          </span>
+                          <span
+                            className="font-mono text-[12px] truncate"
+                            style={{ color: justCopied ? "var(--crt-green)" : "var(--text-primary)" }}
+                          >
+                            {cfgOwner.length > 26 ? `${cfgOwner.slice(0, 12)}…${cfgOwner.slice(-10)}` : cfgOwner}
+                          </span>
+                        </span>
+                        <span
+                          className="text-[10px] font-mono shrink-0"
+                          style={{ color: justCopied ? "var(--crt-green)" : "var(--text-tertiary)" }}
+                        >
+                          {justCopied ? "✓ copied" : "⧉"}
+                        </span>
+                      </button>
+                    );
+                  })()}
+
+                  {/* Module info */}
+                  {selectedModule && (
+                    <div className="section-card" data-accent="blue">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⌬</span>
+                          Module
+                        </div>
+                      </div>
+                      <div className="section-card__body flex flex-col text-[12px]">
+                        {(moduleInfo?.version || cfg?.version) && (
+                          <div className="flex items-center justify-between gap-3 py-1.5">
+                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                              Version
+                            </span>
+                            <span
+                              className="font-mono text-[11px] px-1.5 py-0.5 rounded"
+                              style={{
+                                color: "var(--crt-blue)",
+                                background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
+                              }}
+                            >
+                              v{String(moduleInfo?.version || cfg?.version).replace(/^v/i, "")}
+                            </span>
+                          </div>
+                        )}
+                        {(moduleInfo?.cid || cfg?.cid) && (() => {
+                          const cid = String(moduleInfo?.cid || cfg?.cid);
+                          const justCopied = copiedWlAddr === cid;
+                          return (
+                            <div
+                              className="flex items-center justify-between gap-3 py-1.5"
+                              style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
+                            >
+                              <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                                CID
+                              </span>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(cid).catch(() => {});
+                                  setCopiedWlAddr(cid);
+                                  setTimeout(() => setCopiedWlAddr(c => (c === cid ? null : c)), 1200);
+                                }}
+                                className="font-mono text-[11px] truncate text-right cursor-pointer transition-colors"
+                                style={{
+                                  color: justCopied ? "var(--crt-green)" : "var(--text-secondary)",
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: 0,
+                                }}
+                                title={justCopied ? "Copied!" : `${cid} — click to copy`}
+                              >
+                                {justCopied ? "✓ copied" : (cid.length > 20 ? `${cid.slice(0, 9)}…${cid.slice(-8)}` : cid)}
+                              </button>
+                            </div>
+                          );
+                        })()}
+                        {moduleInfo?.created_at && (
+                          <div
+                            className="flex items-center justify-between gap-3 py-1.5"
+                            style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
+                          >
+                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                              Created
+                            </span>
+                            <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                              {new Date(moduleInfo.created_at * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Whitelist — owner edits inline; non-owners get read-only
+                      rows and a hint about who can edit. Each row is
+                      click-to-copy; owner gets an X to revoke. */}
+                  <div className="section-card" data-accent="green">
+                    <span className="section-card__bar" />
+                    <div className="section-card__head">
+                      <div className="section-card__title">
+                        <span className="section-card__glyph">◎</span>
+                        Whitelist
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="text-[9px] uppercase tracking-[0.12em]"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          {isOwner ? "owner edit" : "read-only"}
+                        </span>
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                          style={{
+                            color: "var(--crt-green)",
+                            background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                            border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                          }}
+                        >
+                          {whitelist.length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="section-card__body flex flex-col gap-2">
+                      {whitelist.length === 0 ? (
+                        <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
+                          No addresses whitelisted yet. The configured owner is always allowed.
+                        </span>
+                      ) : (
+                        <div
+                          className="flex flex-col gap-1"
+                          style={{ maxHeight: 192, overflowY: "auto" }}
+                        >
+                          {whitelist.map((addr) => {
+                            const isCaller = !!(address && address.toLowerCase() === addr.toLowerCase());
+                            const justCopied = copiedWlAddr === addr;
+                            return (
+                              <div
+                                key={addr}
+                                className="flex items-center gap-1.5 px-1.5 py-1 rounded transition-colors"
+                                style={{
+                                  background: isCaller
+                                    ? "color-mix(in srgb, var(--crt-green) 7%, transparent)"
+                                    : "var(--bg-secondary)",
+                                  border: `1px solid ${isCaller ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "var(--border-color)"}`,
+                                }}
+                              >
+                                <span
+                                  className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{
+                                    background: "var(--crt-green)",
+                                    boxShadow: isCaller ? "0 0 4px var(--crt-green)" : "none",
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(addr).catch(() => {});
+                                    setCopiedWlAddr(addr);
+                                    setTimeout(() => setCopiedWlAddr(c => (c === addr ? null : c)), 1200);
+                                  }}
+                                  className="font-mono text-[11px] truncate flex-1 text-left transition-colors cursor-pointer"
+                                  style={{
+                                    color: justCopied ? "var(--crt-green)" : "var(--text-secondary)",
+                                    background: "transparent",
+                                    border: "none",
+                                    padding: 0,
+                                  }}
+                                  title={justCopied ? "Copied!" : `${addr} — click to copy`}
+                                >
+                                  {addr.length > 22 ? `${addr.slice(0, 10)}…${addr.slice(-8)}` : addr}
+                                </button>
+                                {isCaller && (
+                                  <span
+                                    className="text-[8px] font-bold uppercase tracking-widest px-1 py-[1px] rounded shrink-0"
+                                    style={{ background: "var(--crt-green)", color: "var(--bg-primary)" }}
+                                  >
+                                    YOU
+                                  </span>
+                                )}
+                                {isOwner && (
+                                  <button
+                                    onClick={() => removeFromWhitelist(addr)}
+                                    disabled={whitelistBusy}
+                                    className="text-[10px] w-5 h-5 flex items-center justify-center rounded shrink-0 transition-all"
+                                    style={{
+                                      color: "var(--crt-red)",
+                                      background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
+                                      border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 16%, transparent)")}
+                                    onMouseLeave={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 6%, transparent)")}
+                                    title={`Remove ${addr.slice(0, 6)}…${addr.slice(-4)} from the whitelist`}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {isOwner ? (
+                        <>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <input
+                              type="text"
+                              value={whitelistInput}
+                              onChange={(e) => { setWhitelistInput(e.target.value); setWhitelistError(null); }}
+                              onKeyDown={(e) => { if (e.key === "Enter" && whitelistInput.trim()) addToWhitelist(whitelistInput); }}
+                              placeholder="0x… address"
+                              disabled={whitelistBusy}
+                              className="flex-1 min-w-0 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                              style={{
+                                color: "var(--text-primary)",
+                                background: "var(--bg-secondary)",
+                                border: `1px solid ${whitelistError ? "color-mix(in srgb, var(--crt-red) 45%, transparent)" : "var(--border-color)"}`,
+                              }}
+                            />
+                            <button
+                              onClick={() => addToWhitelist(whitelistInput)}
+                              disabled={whitelistBusy || !whitelistInput.trim()}
+                              className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40 shrink-0"
+                              style={{
+                                color: "var(--crt-green)",
+                                background: "color-mix(in srgb, var(--crt-green) 12%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
+                              }}
+                            >
+                              {whitelistBusy ? "…" : "Add"}
+                            </button>
+                          </div>
+                          {whitelistError && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>
+                              {whitelistError}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div
+                          className="text-[9px] uppercase tracking-[0.1em] mt-0.5"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          Only the configured owner
+                          {cfgOwner ? ` (${cfgOwner.slice(0, 6)}…${cfgOwner.slice(-4)})` : ""} can edit this list.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Owner-only quick actions */}
+                  {isOwner && (
+                    <div className="section-card" data-accent="red">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⚙</span>
+                          Owner Actions
+                        </div>
+                      </div>
+                      <div className="section-card__body flex flex-col gap-2">
+                        <button
+                          onClick={() => {
+                            setShowOwnerSidebar(false);
+                            setSidebarView("terminal");
+                          }}
+                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors group"
+                          style={{
+                            borderColor: "var(--border-color)",
+                            background: "var(--bg-secondary)",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-amber) 8%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 30%, var(--border-color))";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = "var(--bg-secondary)";
+                            e.currentTarget.style.borderColor = "var(--border-color)";
+                          }}
+                        >
+                          <span
+                            className="flex items-center justify-center shrink-0 font-mono text-[10px] rounded-md"
+                            style={{
+                              width: 26,
+                              height: 26,
+                              color: "var(--crt-amber)",
+                              background: "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--crt-amber) 25%, transparent)",
+                            }}
+                            aria-hidden
+                          >
+                            {">_"}
+                          </span>
+                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                            <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Open terminal</span>
+                            <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                              Shell session in this module
+                            </span>
+                          </span>
+                          <span className="text-[11px] shrink-0" style={{ color: "var(--text-tertiary)" }}>↗</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowOwnerSidebar(false);
+                            setShowKillDialog(true);
+                          }}
+                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                          style={{
+                            borderColor: "color-mix(in srgb, var(--crt-red) 26%, transparent)",
+                            background: "color-mix(in srgb, var(--crt-red) 5%, transparent)",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 13%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 45%, transparent)";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 5%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 26%, transparent)";
+                          }}
+                          title="Kill a process by PID or port (Cmd/Ctrl+K)"
+                        >
+                          <span
+                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                            style={{
+                              width: 26,
+                              height: 26,
+                              color: "var(--crt-red)",
+                              background: "color-mix(in srgb, var(--crt-red) 12%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--crt-red) 28%, transparent)",
+                            }}
+                            aria-hidden
+                          >
+                            ⏻
+                          </span>
+                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                            <span className="text-[12px]" style={{ color: "var(--crt-red)" }}>Kill process</span>
+                            <span className="text-[10px] truncate" style={{ color: "color-mix(in srgb, var(--crt-red) 55%, var(--text-tertiary))" }}>
+                              Stop a process by PID or port
+                            </span>
+                          </span>
+                          <span
+                            className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              color: "var(--crt-red)",
+                              border: "1px solid color-mix(in srgb, var(--crt-red) 30%, transparent)",
+                              opacity: 0.85,
+                            }}
+                          >
+                            ⌘K
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Footer — anchors the empty space below the cards */}
+                  <div className="flex-1" />
+                  <div
+                    className="flex items-center justify-center gap-1.5 pt-3 pb-1 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                    style={{ color: "var(--text-tertiary)", opacity: 0.55 }}
+                  >
+                    <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                    owner controls
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
       </div>
 
       {/* ── Floating FILES Panel ──────────────────────────── */}
@@ -8559,7 +9135,7 @@ export default function Home() {
                 const url = backendInput.trim();
                 if (url) {
                   setApiUrl(url);
-                  localStorage.setItem("claude_backend_url", url);
+                  safeSetItem("claude_backend_url", url);
                 }
                 setShowBackendEditor(false);
               }}

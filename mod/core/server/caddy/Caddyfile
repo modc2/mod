@@ -451,6 +451,17 @@ api.modc2.com {
         reverse_proxy host.docker.internal:3150
     }
 
+    @localfs_api_3000 path /api/localfs /api/localfs/*
+    handle @localfs_api_3000 {
+        uri strip_prefix /api/localfs
+        reverse_proxy host.docker.internal:8860
+    }
+    @localfs_app_3000 path /localfs /localfs/*
+    handle @localfs_app_3000 {
+        uri strip_prefix /localfs
+        reverse_proxy host.docker.internal:8861
+    }
+
     handle /* {
         reverse_proxy polymarket:3091
     }

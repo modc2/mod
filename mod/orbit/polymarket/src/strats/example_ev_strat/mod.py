@@ -146,6 +146,10 @@ class EVCopyTrader(Strat):
         fifo: dict[str, list[tuple[float, float]]] = defaultdict(list)
 
         for trade in history_sorted:
+            # Same pre-filter signal() applies — keeps backtest and live
+            # behavior identical for strats that override _should_mirror.
+            if not self._should_mirror(trade):
+                continue
             addr = trade.trader.lower()
             wf = weights.get(addr, 0.0) / total_w if total_w > 0 else 0.0
             tvol = per_trader_vol.get(addr, 0.0) or 1.0

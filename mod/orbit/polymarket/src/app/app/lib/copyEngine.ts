@@ -1140,6 +1140,23 @@ export class CopyEngine {
           // Bucket into candidates with their proportional sizing.
           for (const trade of newTrades) {
             const stratTrade = this.buildStratTrade(trade, trader, copyRatio, totalWeight);
+            // Strat pre-filter — runs before scoring/sizing per the Strat
+            // contract (base.ts). Default CopyTrader passes everything.
+            if (!this.strat.shouldMirror(stratTrade)) {
+              this.addLog({
+                id: uid(),
+                timestamp: Date.now(),
+                type: "SKIP",
+                traderAddress: trader.address,
+                market: trade.market,
+                conditionId: trade.conditionId,
+                side: trade.side,
+                reason: "STRAT_FILTERED · shouldMirror returned false",
+                upstreamTradeId: trade.id,
+              });
+              this.copiedIds.add(trade.id);
+              continue;
+            }
             const sc = this.scoreStratTrade(stratTrade);
             const cand: Candidate = {
               trader,

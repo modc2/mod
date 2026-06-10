@@ -1130,6 +1130,9 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
           ...t, trader: addr, weight, weightFraction,
           copyRatio: 0, notional: t.price * t.size,
         };
+        // Same pre-filter the live engine applies — a filtered BUY never
+        // enters the rank race, so it drops out of the backtest curve too.
+        if (!strat.shouldMirror(stratTrade)) continue;
         const score = strat.scoreCandidate(stratTrade, stats);
         buys.push({ id: t.id, ts: t.timestamp, score });
       }
