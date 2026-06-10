@@ -30,6 +30,7 @@ interface Job {
   pid: number | null;
   created_at: number;
   updated_at: number;
+  user_address?: string;
   asks?: Array<{ question: string; answer?: string; timestamp?: number }>;
 }
 
@@ -96,6 +97,26 @@ function formatDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
+function shortCaller(addr?: string): string {
+  if (!addr) return "local";
+  const a = addr.trim();
+  if (!a) return "local";
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function shortHost(p?: string): string {
+  if (!p) return "—";
+  const m = p.match(/\/orbit\/([^/]+)(\/.*)?$/);
+  if (m) {
+    const rest = m[2] ? m[2].replace(/\/$/, "") : "";
+    return rest ? `${m[1]}${rest}` : m[1];
+  }
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= 2) return p;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
 const STATUS_ICON: Record<string, string> = {
   pending: "○",
   running: "●",
@@ -127,6 +148,47 @@ const STATUS_COLOR_LIGHT: Record<string, string> = {
   failed: "#ef4444",
   cancelled: "#94a3b8",
 };
+
+// ── Models ──────────────────────────────────────────────────────────
+// Specific model IDs the user can pick. Value is what we hand to the CLI's
+// --model flag (accepts both family aliases and full names like
+// claude-opus-4-7). Keep first item = current default Opus.
+const MODEL_OPTIONS = [
+  { value: "claude-opus-4-7",   label: "Opus 4.7",   family: "opus",   color: "#a78bfa" },
+  { value: "claude-opus-4-6",   label: "Opus 4.6",   family: "opus",   color: "#9f7aea" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", color: "#60a5fa" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5", family: "sonnet", color: "#3b82f6" },
+  { value: "claude-haiku-4-5",  label: "Haiku 4.5",  family: "haiku",  color: "#34d399" },
+];
+
+// Legacy aliases (saved by older builds / older jobs) → upgraded value.
+const MODEL_ALIAS_UPGRADE: Record<string, string> = {
+  opus: "claude-opus-4-7",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+};
+
+// Pretty label for any model string (handles legacy aliases too).
+function modelLabel(m: string): string {
+  if (!m) return "—";
+  const chip = MODEL_OPTIONS.find(o => o.value === m);
+  if (chip) return chip.label;
+  if (m === "opus") return "Opus 4.6";       // historical default
+  if (m === "sonnet") return "Sonnet 4.5";   // historical default
+  if (m === "haiku") return "Haiku 4.5";
+  return m;
+}
+
+// ── Agent engines ───────────────────────────────────────────────────
+// The "engine" is which agent harness module is driving the work. Today the
+// app runs claude-code; the dropdown stays here so the same UI can later
+// route to aider / codex / cursor without a redesign.
+const ENGINE_OPTIONS = [
+  { value: "claude-code", label: "Claude Code", icon: "⬡", color: "#a78bfa", available: true,  hint: "Anthropic's claude-code CLI (this module)" },
+  { value: "aider",       label: "Aider",       icon: "✦", color: "#60a5fa", available: false, hint: "orbit/aider — coming soon" },
+  { value: "codex",       label: "Codex",       icon: "◇", color: "#fbbf24", available: false, hint: "orbit/codex — coming soon" },
+  { value: "cursor",      label: "Cursor",      icon: "◆", color: "#f472b6", available: false, hint: "orbit/cursor — coming soon" },
+];
 
 // ── Personalities ────────────────────────────────────────────────────
 
@@ -191,8 +253,12 @@ export default function Home() {
   const [dragOverJobId, setDragOverJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("opus");
+  const [model, setModel] = useState("claude-opus-4-7");
   const [agentType, setAgentType] = useState("default");
+  // The agent "engine" — i.e. which agent harness module drives the work.
+  // Defaults to claude-code (this module); we expose the toggle so the same UI
+  // can later swap in aider / codex / cursor without ripping out the panel.
+  const [engine, setEngine] = useState("claude-code");
 
   const [workDir, setWorkDir] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -289,7 +355,11 @@ export default function Home() {
   // Wallet modal
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const [showWalletSidebar, setShowWalletSidebar] = useState(false);
+  const [walletSidebarWidth, setWalletSidebarWidth] = useState(520);
+  const [isWalletSidebarDragging, setIsWalletSidebarDragging] = useState(false);
 
   // Network switcher (header)
   const [currentChainId, setCurrentChainId] = useState<number>(1);
@@ -365,7 +435,35 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [isLeftDragging, setIsLeftDragging] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"tasks" | "app" | "api" | "overview" | "files">("overview");
+  const [sidebarView, setSidebarView] = useState<"tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  // First-level nav category — sits above the mod tabs. The mod tabs
+  // (overview/app/api/files/terminal) form the second level. AGENT here
+  // doubles as the sidebar toggle.
+  const [activeCategory, setActiveCategory] = useState<"explore" | "build" | "agent">("build");
+
+  // ── Terminal tab state (owner-only shell access) ────────────────────
+  // Each history entry is one executed command plus its captured output.
+  // The terminal runs commands inside the selected module's working dir
+  // via /api/terminal — no PTY, just one-shot `bash -c` exec, which keeps
+  // the surface small and matches the existing /api/service pattern.
+  type TerminalEntry = {
+    id: string;
+    cmd: string;
+    cwd: string;
+    stdout: string;
+    stderr: string;
+    code: number | null;
+    durationMs: number;
+    pending: boolean;
+  };
+  const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([]);
+  const [terminalInput, setTerminalInput] = useState("");
+  const [terminalRunning, setTerminalRunning] = useState(false);
+  const [terminalRecallIdx, setTerminalRecallIdx] = useState<number | null>(null);
+
+  // Top-of-panel tabs inside the AGENT sidebar — switch between agent
+  // settings (engine/model/persona), version history, and the task list.
+  const [agentPanelTab, setAgentPanelTab] = useState<"info" | "versions" | "tasks">("tasks");
 
   // Left sidebar (agent) and right sidebar (wallet)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
@@ -373,6 +471,8 @@ export default function Home() {
   const [agentEnabled, setAgentEnabled] = useState(true);
   const [agentFullscreen, setAgentFullscreen] = useState(false);
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(true);
+  const [agentSidebarWidth, setAgentSidebarWidth] = useState(520);
+  const [isAgentSidebarDragging, setIsAgentSidebarDragging] = useState(false);
 
   // Mobile viewport detector — drives the AGENT-panel overlay vs. side-
   // by-side layout, single vs. two-col bento, etc. Matches Tailwind's
@@ -410,9 +510,10 @@ export default function Home() {
     name: string; path: string; display: string; has_config: boolean; has_mod: boolean;
   }>>([]);
   const [selectorMode, setSelectorMode] = useState<"modules" | "folders">("modules");
-  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | null>(null);
+  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | "edit" | null>(null);
   const [headerNewName, setHeaderNewName] = useState("");
   const [headerGithubUrl, setHeaderGithubUrl] = useState("");
+  const [headerEditPrompt, setHeaderEditPrompt] = useState("");
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -567,37 +668,35 @@ export default function Home() {
   const refreshRouty = useCallback(async () => {
     try {
       const [ws, st] = await Promise.all([
-        fetch(`${ROUTY_API}/_api/websites`).then(r => r.json()),
-        fetch(`${ROUTY_API}/_api/stats`).then(r => r.json()),
+        fetch(`${ROUTY_API}/_api/websites`).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); }),
+        fetch(`${ROUTY_API}/_api/stats`).then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); }),
       ]);
       setRoutyApps(ws.apps || []);
       setRoutyApis(ws.apis || []);
-      setRoutyStats(st);
+      setRoutyStats(typeof st?.cpu_usage_percent === "number" ? st : null);
       setRoutyConnected(true);
-      return;
+      return true;
     } catch {
-      // Routy not running — but caddy may still be proxying. Probe with a
-      // same-origin HEAD; if /claude is reachable, the gateway is up.
-      // Keep routyStats null (UI guards on it) — we only know caddy is alive,
-      // not its real metrics.
-      try {
-        const r = await fetch(`${ROUTY_API}/claude`, { method: "GET", redirect: "manual" });
-        if (r.status > 0 && r.status < 500) {
-          setRoutyApps([]);
-          setRoutyApis([]);
-          setRoutyStats(null);
-          setRoutyConnected(true);
-          return;
-        }
-      } catch {}
       setRoutyConnected(false);
+      return false;
     }
   }, []);
 
+  // Probe once on mount. If the routy gateway answers, poll every 5s; if not,
+  // stay quiet — no point spamming the console (and the network tab) with
+  // 404s every 5 seconds when the gateway clearly isn't installed.
   useEffect(() => {
-    refreshRouty();
-    const id = setInterval(refreshRouty, 5000);
-    return () => clearInterval(id);
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    (async () => {
+      const ok = await refreshRouty();
+      if (cancelled || !ok) return;
+      intervalId = setInterval(refreshRouty, 5000);
+    })();
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [refreshRouty]);
 
   const syncRouty = async () => {
@@ -680,9 +779,9 @@ export default function Home() {
     }
     const tid = setTimeout(async () => {
       setInlineSearchLoading(true);
-      const sd = selectedJob
-        ? jobs.find((j) => j.id === selectedJob)?.work_dir || workDir || "~/mod"
-        : workDir || "~/mod";
+      const sd = workDir
+        || (selectedJob ? jobs.find((j) => j.id === selectedJob)?.work_dir : "")
+        || "~/mod";
       try {
         if (inlineSearchMode === "files") {
           const r = await fetch(
@@ -724,10 +823,21 @@ export default function Home() {
   // Load saved model and backend URL
   useEffect(() => {
     const savedModel = localStorage.getItem("claude_jobs_model");
-    if (savedModel) setModel(savedModel);
+    if (savedModel) {
+      // Upgrade old family aliases (opus/sonnet/haiku) to the full model ID
+      // so users don't get silently bumped to a different version on update.
+      const upgraded = MODEL_ALIAS_UPGRADE[savedModel] || savedModel;
+      setModel(upgraded);
+      if (upgraded !== savedModel) localStorage.setItem("claude_jobs_model", upgraded);
+    }
 
     const savedAgent = localStorage.getItem("claude_jobs_agent");
     if (savedAgent) setAgentType(savedAgent);
+
+    const savedEngine = localStorage.getItem("claude_jobs_engine");
+    if (savedEngine && ENGINE_OPTIONS.some(e => e.value === savedEngine && e.available)) {
+      setEngine(savedEngine);
+    }
 
     const savedUrl = localStorage.getItem("claude_backend_url");
     if (savedUrl) setApiUrl(savedUrl);
@@ -768,6 +878,12 @@ export default function Home() {
     if (savedAgent !== null) setAgentEnabled(savedAgent === "true");
     const savedSide = localStorage.getItem("claude_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
+    const savedAgentWidth = localStorage.getItem("claude_agent_sidebar_width");
+    if (savedAgentWidth) setAgentSidebarWidth(parseInt(savedAgentWidth, 10));
+    const savedWalletOpen = localStorage.getItem("claude_wallet_sidebar_open");
+    if (savedWalletOpen !== null) setShowWalletSidebar(savedWalletOpen === "true");
+    const savedWalletWidth = localStorage.getItem("claude_wallet_sidebar_width");
+    if (savedWalletWidth) setWalletSidebarWidth(parseInt(savedWalletWidth, 10));
   }, []);
 
   useEffect(() => {
@@ -793,6 +909,18 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("claude_sidebar_side", sidebarSide);
   }, [sidebarSide]);
+
+  useEffect(() => {
+    localStorage.setItem("claude_agent_sidebar_width", String(agentSidebarWidth));
+  }, [agentSidebarWidth]);
+
+  useEffect(() => {
+    localStorage.setItem("claude_wallet_sidebar_open", String(showWalletSidebar));
+  }, [showWalletSidebar]);
+
+  useEffect(() => {
+    localStorage.setItem("claude_wallet_sidebar_width", String(walletSidebarWidth));
+  }, [walletSidebarWidth]);
 
   // Check saved token or detect local mode
   useEffect(() => {
@@ -1194,7 +1322,7 @@ export default function Home() {
 
   const startApiServer = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1214,7 +1342,7 @@ export default function Home() {
   const stopApiServer = useCallback(async () => {
     try {
       const port = API_PORT;
-      await fetch("/api/service", {
+      await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", port }),
@@ -1233,7 +1361,7 @@ export default function Home() {
     // Try starting via start.sh (the Rust binary)
     const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`;
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1373,7 +1501,10 @@ export default function Home() {
 
   const fetchDirectoryTree = useCallback(async (path?: string) => {
     try {
-      const targetPath = path || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : workDir) || "~/mod";
+      // workDir wins over the selected job's work_dir so an explicit module
+      // switch in the header always re-syncs FILES; the job dir is only a
+      // fallback for the pre-selection initial state.
+      const targetPath = path || workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : null) || "~/mod";
       const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(targetPath)}`);
       if (res.ok) {
         const data = await res.json();
@@ -1431,6 +1562,52 @@ export default function Home() {
       document.body.style.userSelect = '';
     };
   }, [isLeftDragging]);
+
+  // Handle AGENT sidebar resize dragging. The panel sits on the left with
+  // its drag handle on the right edge — dragging right grows the panel.
+  useEffect(() => {
+    if (!isAgentSidebarDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const ww = window.innerWidth;
+      const newWidth = e.clientX;
+      const maxWidth = Math.max(380, ww * 0.95);
+      setAgentSidebarWidth(Math.max(320, Math.min(maxWidth, newWidth)));
+    };
+    const handleMouseUp = () => setIsAgentSidebarDragging(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isAgentSidebarDragging]);
+
+  // Handle WALLET sidebar resize dragging. The panel sits on the right with
+  // its drag handle on the LEFT edge — dragging left grows the panel.
+  useEffect(() => {
+    if (!isWalletSidebarDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const ww = window.innerWidth;
+      const newWidth = ww - e.clientX;
+      const maxWidth = Math.max(380, ww * 0.95);
+      setWalletSidebarWidth(Math.max(320, Math.min(maxWidth, newWidth)));
+    };
+    const handleMouseUp = () => setIsWalletSidebarDragging(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isWalletSidebarDragging]);
 
   // Handle right panel resize dragging
   useEffect(() => {
@@ -2188,8 +2365,11 @@ export default function Home() {
     if (selectedModule && moduleList.length > 0) {
       const match = moduleList.find((m) => m.name === selectedModule);
       if (match) {
-        if (!selectedModuleInfo) {
-          // First load: set info, workDir, fetch config, and auto-select best tab
+        if (selectedModuleInfo?.name !== selectedModule) {
+          // Module switched (or first load): point workDir at the new module's
+          // path so the FILES tab tracks it, refetch its config, and pick a
+          // default tab. Without this, switching modules in a code path that
+          // doesn't itself call setWorkDir leaves FILES showing the prior mod.
           setWorkDir(match.path);
           fetchModuleConfig(match.name);
           setSidebarView(getBestTab(match));
@@ -2218,14 +2398,20 @@ export default function Home() {
     if (!selectedModuleInfo?.app_url) {
       setAppRunning(null);
     } else {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-        const res = await fetch(selectedModuleInfo.app_url, { signal: controller.signal });
-        clearTimeout(timeout);
-        setAppRunning(res.ok || res.status < 500);
-      } catch {
-        setAppRunning(false);
+      // Probe via the same-origin /api/service route (uses net.createServer
+      // to check port occupancy, no HTTP request to the app — avoids CORS).
+      const portMatch = selectedModuleInfo.app_url.match(/:(\d+)/);
+      const port = portMatch?.[1];
+      if (!port) {
+        setAppRunning(null);
+      } else {
+        try {
+          const res = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
+          const data = await res.json();
+          setAppRunning(!!data.running);
+        } catch {
+          setAppRunning(false);
+        }
       }
     }
   }, [selectedModuleInfo]);
@@ -2336,17 +2522,18 @@ export default function Home() {
     setModuleLogsLoading(false);
   }, [selectedModule, token, authFetch]);
 
-  // Auto-refresh logs
+  // Auto-refresh logs (in overview's inline logs panel or the dedicated LOGS tab)
   useEffect(() => {
-    if (!moduleLogsAutoRefresh || !moduleLogsOpen) return;
+    const inLogsTab = sidebarView === "logs";
+    if (!moduleLogsAutoRefresh || (!moduleLogsOpen && !inLogsTab)) return;
     const iv = setInterval(fetchModuleLogs, 4000);
     return () => clearInterval(iv);
-  }, [moduleLogsAutoRefresh, moduleLogsOpen, fetchModuleLogs]);
+  }, [moduleLogsAutoRefresh, moduleLogsOpen, sidebarView, fetchModuleLogs]);
 
-  // Fetch logs when opened
+  // Fetch logs when opened or when entering the LOGS tab
   useEffect(() => {
-    if (moduleLogsOpen) fetchModuleLogs();
-  }, [moduleLogsOpen]);
+    if (moduleLogsOpen || sidebarView === "logs") fetchModuleLogs();
+  }, [moduleLogsOpen, sidebarView]);
 
   // Reset logs when switching modules
   useEffect(() => {
@@ -2383,6 +2570,9 @@ export default function Home() {
       }
       if (inlineModuleRef.current && !inlineModuleRef.current.contains(e.target as Node)) {
         setShowInlineModuleDropdown(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
@@ -3092,7 +3282,7 @@ export default function Home() {
   };
 
   const renderDirectoryTab = () => {
-    const fileWorkDir = selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir || workDir : workDir || "~/mod";
+    const fileWorkDir = workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : "") || "~/mod";
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -3253,7 +3443,7 @@ export default function Home() {
         {/* Path display */}
         {(selectedJob || workDir) && (
           <div className="px-3 py-1 border-b text-[14px] text-crt-green/30 truncate font-code" style={{ borderColor: "var(--border-color)" }}>
-            {fileWorkDir}
+            {fileWorkDir.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~")}
           </div>
         )}
 
@@ -3716,7 +3906,7 @@ export default function Home() {
                 className="flex items-center gap-2 px-3 py-2 border-t border-crt-amber/20 shrink-0"
                 style={{ background: darkOverlayStrong }}
               >
-                {/* Model selector */}
+                {/* Model selector — actual versions, not just families */}
                 <select
                   value={model}
                   onChange={(e) => {
@@ -3724,11 +3914,12 @@ export default function Home() {
                     localStorage.setItem("claude_jobs_model", e.target.value);
                   }}
                   className="px-2 py-1 text-[13px] bg-transparent text-crt-green border border-crt-green/20 font-pixel uppercase cursor-pointer hover:border-crt-green/40 transition-colors"
-                  style={{ maxWidth: "160px" }}
+                  style={{ maxWidth: "180px" }}
+                  title={`Model: ${modelLabel(model)} (${model})`}
                 >
-                  <option value="opus">Opus 4.6</option>
-                  <option value="sonnet">Sonnet 4.5</option>
-                  <option value="haiku">Haiku 4.5</option>
+                  {MODEL_OPTIONS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
                 </select>
 
                 {/* Agent/Personality selector */}
@@ -4052,7 +4243,7 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      const matchesModule = !selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude")));
+      const matchesModule = !selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "claude");
       return matchesSearch && matchesStatus && matchesModule;
     });
 
@@ -4069,7 +4260,7 @@ export default function Home() {
           />
           <div className="flex gap-1.5 shrink-0 items-center">
             {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
-              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude"))))).length;
+              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "claude"))).length;
               if (count === 0) return null;
               const isActive = statusFilter === status;
               return (
@@ -4144,7 +4335,7 @@ export default function Home() {
                           {STATUS_LABEL[job.status]}
                         </span>
                         <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.4 }}>
-                          {job.model === "opus" ? "Opus 4.6" : job.model === "sonnet" ? "Sonnet 4.5" : job.model === "haiku" ? "Haiku 4.5" : job.model}
+                          {modelLabel(job.model)}
                         </span>
                         {job.work_dir && moduleName && moduleName !== "claude" && (
                           <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>
@@ -4267,19 +4458,17 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      const matchesModule = !selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude")));
+      const matchesModule = !selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "claude");
       return matchesSearch && matchesStatus && matchesModule;
     });
 
     const runningCount = filteredJobs.filter(j => j.status === "running").length;
     const isRunning = selectedJobData?.status === "running";
     const output = streamOutput || selectedJobData?.output || "";
-    const MODEL_CHIPS = [
-      { value: "opus", label: "Opus", color: "#a78bfa" },
-      { value: "sonnet", label: "Sonnet", color: "#60a5fa" },
-      { value: "haiku", label: "Haiku", color: "#34d399" },
-    ];
-    const activeModelChip = MODEL_CHIPS.find(m => m.value === model) || MODEL_CHIPS[0];
+    const activeModelChip = MODEL_OPTIONS.find(m => m.value === model)
+      || MODEL_OPTIONS.find(m => m.family === model)
+      || MODEL_OPTIONS[0];
+    const activeEngine = ENGINE_OPTIONS.find(e => e.value === engine) || ENGINE_OPTIONS[0];
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "var(--bg-primary)" }}>
@@ -4288,75 +4477,102 @@ export default function Home() {
           className="flex items-center justify-between px-3.5 py-2.5 shrink-0"
           style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
         >
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <span
               className="inline-flex items-center justify-center shrink-0"
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 6,
-                background: "rgba(167,139,250,0.12)",
-                border: "1px solid rgba(167,139,250,0.30)",
-                color: "#a78bfa",
-                fontSize: 12,
-                boxShadow: "0 0 14px -4px rgba(167,139,250,0.55)",
+                width: 24,
+                height: 24,
+                borderRadius: 7,
+                background: "linear-gradient(135deg, rgba(167,139,250,0.22), rgba(167,139,250,0.06))",
+                border: "1px solid rgba(167,139,250,0.38)",
+                color: "#c4b5fd",
+                fontSize: 13,
+                boxShadow: "0 0 18px -6px rgba(167,139,250,0.7), inset 0 1px 0 rgba(255,255,255,0.06)",
               }}
             >
               ⬡
             </span>
             <span
-              className="text-[12px] font-semibold uppercase shrink-0"
-              style={{ color: "#c4b5fd", letterSpacing: "0.16em" }}
+              className="text-[12px] font-semibold uppercase shrink-0 mr-1"
+              style={{ color: "#ddd6fe", letterSpacing: "0.18em" }}
             >
               Agent
             </span>
+            <span
+              aria-hidden
+              className="shrink-0"
+              style={{
+                width: 1,
+                height: 14,
+                background: "linear-gradient(to bottom, transparent, var(--border-color), transparent)",
+                marginRight: 2,
+              }}
+            />
             {/* Selected module · version count — click to open full VERSIONS panel */}
             {selectedModule && (
               <button
                 onClick={() => setShowVersions(true)}
-                className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 transition-colors"
+                className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-[3px] shrink-0 transition-all"
                 style={{
                   color: "var(--accent-color)",
-                  border: `1px solid ${subtleBorder}`,
-                  borderRadius: "4px",
-                  background: "color-mix(in srgb, var(--accent-color) 8%, transparent)",
+                  border: `1px solid color-mix(in srgb, var(--accent-color) 28%, transparent)`,
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--accent-color) 10%, transparent)",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 16%, transparent)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent-color) 45%, transparent)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 10%, transparent)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent-color) 28%, transparent)";
                 }}
                 title={`Module: ${selectedModule} · ${agentVersions.length} version${agentVersions.length !== 1 ? "s" : ""} — click to open VERSIONS panel`}
               >
-                <span className="truncate max-w-[100px]">{selectedModule}</span>
-                <span style={{ color: "var(--text-tertiary)" }}>·</span>
-                <span>◆{agentVersions.length}</span>
+                <span className="truncate max-w-[100px] font-semibold">{selectedModule}</span>
+                <span style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>◆</span>
+                <span style={{ opacity: 0.85 }}>{agentVersions.length}</span>
               </button>
             )}
-            {/* Connected user — click to copy address */}
-            {address && (
+            {/* Connected user — click to copy address. */}
+            {address && address !== "local" && (
               <button
                 onClick={() => {
-                  if (address && address !== "local") {
-                    navigator.clipboard.writeText(address);
-                    setCopiedAddress(true);
-                    setTimeout(() => setCopiedAddress(false), 1500);
-                  }
+                  navigator.clipboard.writeText(address);
+                  setCopiedAddress(true);
+                  setTimeout(() => setCopiedAddress(false), 1500);
                 }}
-                className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 transition-colors"
+                className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-[3px] shrink-0 transition-all"
                 style={{
                   color: "var(--crt-green)",
-                  border: `1px solid ${subtleBorder}`,
-                  borderRadius: "4px",
-                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                  border: `1px solid color-mix(in srgb, var(--crt-green) 28%, transparent)`,
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 45%, transparent)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 10%, transparent)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 28%, transparent)";
                 }}
                 title={copiedAddress ? "Copied!" : `Signed in as: ${address}${walletType ? ` (${walletType})` : ""} — click to copy`}
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--crt-green)" }} />
-                {copiedAddress ? "COPIED" : address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`}
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full"
+                  style={{ background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }}
+                />
+                {copiedAddress ? "COPIED" : `${address.slice(0, 6)}…${address.slice(-4)}`}
               </button>
             )}
             {runningCount > 0 && (
               <span
-                className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full"
+                className="inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full shrink-0"
                 style={{
-                  background: "rgba(59,130,246,0.10)",
-                  border: "1px solid rgba(59,130,246,0.28)",
+                  background: "rgba(59,130,246,0.12)",
+                  border: "1px solid rgba(59,130,246,0.32)",
                   color: "#93c5fd",
                   fontSize: 10,
                   fontWeight: 600,
@@ -4374,19 +4590,20 @@ export default function Home() {
           </div>
           <button
             onClick={() => setAgentSidebarOpen(false)}
-            className="flex items-center justify-center focus-ring shrink-0"
+            className="flex items-center justify-center focus-ring shrink-0 transition-all"
             style={{
               width: 26,
               height: 26,
-              borderRadius: 6,
+              borderRadius: 999,
               color: "var(--text-tertiary)",
               border: "1px solid transparent",
               background: "transparent",
+              fontSize: 11,
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.color = "var(--text-primary)";
-              e.currentTarget.style.borderColor = "var(--border-color)";
-              e.currentTarget.style.background = "var(--bg-secondary)";
+              e.currentTarget.style.color = "var(--crt-red)";
+              e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 35%, transparent)";
+              e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 10%, transparent)";
             }}
             onMouseLeave={e => {
               e.currentTarget.style.color = "var(--text-tertiary)";
@@ -4399,15 +4616,113 @@ export default function Home() {
           </button>
         </div>
 
-        {/* ── Model selector ── */}
-        <div className="flex items-center gap-2 px-3.5 py-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
-          <span className="label-muted shrink-0" style={{ fontSize: 9, opacity: 0.6 }}>Model</span>
+        {/* ── Tabs (Info / Versions / Tasks) ── */}
+        <div
+          className="flex items-center gap-1 px-2 pt-1.5 shrink-0"
+          style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+        >
+          {([
+            { key: "info", label: "Agent", icon: "⬡", count: null as number | null },
+            { key: "versions", label: "Versions", icon: "◆", count: agentVersions.length || null },
+            { key: "tasks", label: "Tasks", icon: "▤", count: filteredJobs.length || null },
+          ] as const).map((t) => {
+            const active = agentPanelTab === t.key;
+            const tabColor = t.key === "info"
+              ? "#a78bfa"
+              : t.key === "versions"
+                ? "var(--accent-color)"
+                : "var(--crt-blue)";
+            return (
+              <button
+                key={t.key}
+                onClick={() => setAgentPanelTab(t.key)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.10em] transition-colors"
+                style={{
+                  color: active ? tabColor : "var(--text-tertiary)",
+                  background: active
+                    ? `color-mix(in srgb, ${tabColor} 12%, transparent)`
+                    : "transparent",
+                  border: `1px solid ${active ? `color-mix(in srgb, ${tabColor} 40%, transparent)` : "transparent"}`,
+                  borderBottom: "none",
+                  borderTopLeftRadius: 6,
+                  borderTopRightRadius: 6,
+                  marginBottom: -1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.color = "var(--text-secondary)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.color = "var(--text-tertiary)";
+                }}
+                title={`${t.label} tab`}
+              >
+                <span style={{ fontSize: 11, opacity: active ? 1 : 0.65 }}>{t.icon}</span>
+                <span>{t.label}</span>
+                {t.count != null && t.count > 0 && (
+                  <span
+                    className="text-[9px] font-mono px-1 py-[1px] rounded"
+                    style={{
+                      color: active ? tabColor : "var(--text-tertiary)",
+                      background: active
+                        ? `color-mix(in srgb, ${tabColor} 18%, transparent)`
+                        : "var(--bg-secondary)",
+                      opacity: active ? 0.95 : 0.7,
+                    }}
+                  >
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Engine · Model · Persona (INFO tab) ── */}
+        {agentPanelTab === "info" && (
+        <div
+          className="flex items-center flex-wrap gap-2 px-3.5 py-3 shrink-0"
+          style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+        >
+          {/* Engine (which agent harness is driving the job) */}
+          <select
+            value={engine}
+            onChange={(e) => {
+              const next = e.target.value;
+              const opt = ENGINE_OPTIONS.find(o => o.value === next);
+              if (!opt?.available) {
+                setError(`${opt?.label || next} engine isn't wired up yet — staying on ${activeEngine.label}.`);
+                setTimeout(() => setError(null), 2500);
+                return;
+              }
+              setEngine(next);
+              localStorage.setItem("claude_jobs_engine", next);
+            }}
+            className="px-3 py-1.5 bg-transparent border cursor-pointer"
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              borderColor: `${activeEngine.color}55`,
+              background: `${activeEngine.color}1a`,
+              color: activeEngine.color,
+              borderRadius: 999,
+              letterSpacing: "0.02em",
+            }}
+            title={`Agent engine: ${activeEngine.label} — ${activeEngine.hint}`}
+          >
+            {ENGINE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                {opt.icon} {opt.label}{opt.available ? "" : " · soon"}
+              </option>
+            ))}
+          </select>
+
+          {/* Model (specific version) */}
           <select
             value={model}
             onChange={(e) => { setModel(e.target.value); localStorage.setItem("claude_jobs_model", e.target.value); }}
-            className="px-2.5 py-1 bg-transparent border cursor-pointer"
+            className="px-3 py-1.5 bg-transparent border cursor-pointer"
             style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
               borderColor: `${activeModelChip.color}55`,
               background: `${activeModelChip.color}1a`,
@@ -4415,35 +4730,40 @@ export default function Home() {
               borderRadius: 999,
               letterSpacing: "0.02em",
             }}
+            title={`Model: ${activeModelChip.label} (${activeModelChip.value})`}
           >
-            {MODEL_CHIPS.map(m => (
+            {MODEL_OPTIONS.map(m => (
               <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
                 {m.label}
               </option>
             ))}
           </select>
-          <div className="flex-1" />
-          <span className="label-muted shrink-0" style={{ fontSize: 9, opacity: 0.6 }}>Agent</span>
+
+          {/* Persona (was confusingly labelled "Agent" — that's now the engine) */}
           <select
             value={agentType}
             onChange={(e) => { setAgentType(e.target.value); localStorage.setItem("claude_jobs_agent", e.target.value); }}
-            className="px-2 py-[3px] text-[10px] bg-transparent border uppercase cursor-pointer"
+            className="px-3 py-1.5 bg-transparent border uppercase cursor-pointer"
             style={{
+              fontSize: 12,
+              fontWeight: 600,
               borderColor: "color-mix(in srgb, var(--crt-blue) 30%, transparent)",
-              background: "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
+              background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
               color: "var(--crt-blue)",
               borderRadius: 999,
               letterSpacing: "0.05em",
             }}
+            title={`Persona / system prompt preset: ${AGENT_OPTIONS.find(a => a.value === agentType)?.label || agentType}`}
           >
             {AGENT_OPTIONS.map((a) => (
               <option key={a.value} value={a.value}>{a.icon} {a.label}</option>
             ))}
           </select>
         </div>
+        )}
 
-        {/* ── Versions strip — git-graph for the active module ── */}
-        {agentVersions.length > 0 && (() => {
+        {/* ── Versions strip — git-graph for the active module (VERSIONS tab) ── */}
+        {agentPanelTab === "versions" && agentVersions.length > 0 && (() => {
           const ACTION_GLYPH: Record<string, string> = {
             snapshot: "◆",
             restore: "↻",
@@ -4463,186 +4783,214 @@ export default function Home() {
             const hue = h % 360;
             return `hsl(${hue}, 70%, 62%)`;
           };
-          const visible = agentVersions.slice(0, 12);
+          const visible = agentVersions.slice(0, 48);
           return (
             <div
-              className="versions-strip flex items-stretch gap-0 px-3 py-2 shrink-0 overflow-x-auto"
-              style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+              className="versions-strip flex flex-wrap content-start items-stretch gap-1.5 px-2.5 py-2 flex-1 overflow-y-auto"
+              style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg, scrollbarWidth: "thin" }}
             >
               {/* Module label + count */}
               <div
-                className="flex flex-col justify-center shrink-0 pr-3 mr-1"
-                style={{ borderRight: `1px solid ${subtleBorder}` }}
+                className="flex items-center justify-between shrink-0 w-full"
+                style={{ borderBottom: `1px solid ${subtleBorder}`, paddingBottom: 6, marginBottom: 2 }}
                 title={`${selectedModule || "claude"} · ${agentVersions.length} snapshots in chain`}
               >
-                <span
-                  className="text-[9px] font-bold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--accent-color)", opacity: 0.9 }}
+                <div className="flex items-baseline gap-1.5">
+                  <span
+                    className="text-[9px] font-bold uppercase tracking-[0.18em]"
+                    style={{ color: "var(--accent-color)", opacity: 0.9 }}
+                  >
+                    {(selectedModule || "claude")}
+                  </span>
+                  <span
+                    className="text-[8px] uppercase tracking-wider"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    {agentVersions.length} ver
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowVersions(true)}
+                  className="text-[9px] font-bold uppercase tracking-[0.10em] px-1.5 py-0.5 rounded transition-colors"
+                  style={{
+                    color: "var(--accent-color)",
+                    background: "color-mix(in srgb, var(--accent-color) 10%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--accent-color) 30%, transparent)",
+                  }}
+                  title="Open full VERSIONS panel (fork / restore / diff)"
                 >
-                  {(selectedModule || "claude")}
-                </span>
-                <span
-                  className="text-[8px] uppercase tracking-wider"
-                  style={{ color: "var(--text-tertiary)", marginTop: "1px" }}
-                >
-                  {agentVersions.length} ver
-                </span>
+                  Open Full ↗
+                </button>
               </div>
               {visible.map((v, i) => {
                 const action = v.action || "snapshot";
                 const color = ACTION_COLOR[action] || ACTION_COLOR.snapshot;
                 const glyph = ACTION_GLYPH[action] || ACTION_GLYPH.snapshot;
                 const isHead = i === 0;
-                const short = v.cid.slice(0, 8);
+                const short = v.cid.slice(0, 7);
                 const ts = v.timestamp ? timeSince(v.timestamp) : "";
                 const firstLine = (v.message || "").split("\n")[0];
                 const aColor = authorColor(v.author || "");
+                const bgIdle = isHead ? `${color}26` : `${color}14`;
+                const bgHover = `${color}38`;
                 return (
                   <button
-                    key={v.cid}
+                    key={`${v.cid}-${i}`}
                     onClick={() => setShowVersions(true)}
-                    className={`commit-chip commit-rail shrink-0 flex items-center gap-2 px-2.5 py-1.5 mr-2.5 cursor-pointer ${isHead ? "head-glow" : ""}`}
+                    className={`commit-chip commit-rail shrink-0 flex items-center gap-1.5 px-1.5 py-1 cursor-pointer ${isHead ? "head-glow" : ""}`}
                     title={`${action.toUpperCase()}  ${short}${isHead ? "  (HEAD)" : ""}\nparent: ${(v.parent || "root").slice(0, 12)}\nauthor: ${v.author?.slice(0, 10) || "—"}  ·  ${ts}\n\n${v.message || "(no message)"}`}
                     style={{
                       ["--head-color" as any]: color,
-                      background: isHead ? `${color}1f` : `${color}08`,
-                      border: `1px solid ${isHead ? color + "60" : color + "22"}`,
-                      borderRadius: "6px",
-                      minWidth: isHead ? "210px" : "180px",
-                      maxWidth: "240px",
+                      background: bgIdle,
+                      border: `1px solid ${isHead ? color + "70" : color + "44"}`,
+                      borderRadius: "5px",
+                      maxWidth: "170px",
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.background = `${color}2a`)}
-                    onMouseLeave={e => (e.currentTarget.style.background = isHead ? `${color}1f` : `${color}08`)}
+                    onMouseEnter={e => (e.currentTarget.style.background = bgHover)}
+                    onMouseLeave={e => (e.currentTarget.style.background = bgIdle)}
                   >
-                    {/* Action glyph */}
                     <span
-                      className="shrink-0 text-[14px] leading-none"
+                      className="shrink-0 text-[11px] leading-none"
                       style={{ color, textShadow: isHead ? `0 0 6px ${color}` : "none" }}
                     >
                       {glyph}
                     </span>
-                    {/* Body: cid + message + meta */}
-                    <div className="flex flex-col items-start min-w-0 flex-1 gap-[1px]">
-                      <div className="flex items-center gap-1.5 w-full">
-                        <span
-                          className="text-[10px] font-mono shrink-0"
-                          style={{ color, opacity: 0.95, letterSpacing: "0.02em" }}
-                        >
-                          #{short}
-                        </span>
-                        {isHead && (
-                          <span
-                            className="text-[8px] font-bold uppercase tracking-widest px-1 leading-none py-[1px] rounded-sm shrink-0"
-                            style={{ background: color, color: "var(--bg-primary)" }}
-                          >
-                            HEAD
-                          </span>
-                        )}
-                        <span
-                          className="text-[9px] ml-auto shrink-0 font-mono"
-                          style={{ color: "var(--text-tertiary)", opacity: 0.75 }}
-                        >
-                          {ts}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 w-full min-w-0">
-                        {v.author && (
-                          <span
-                            className="shrink-0 rounded-full"
-                            style={{
-                              width: "6px",
-                              height: "6px",
-                              background: aColor,
-                              boxShadow: `0 0 4px ${aColor}80`,
-                            }}
-                            title={v.author}
-                          />
-                        )}
-                        <span
-                          className="text-[10px] truncate text-left flex-1 min-w-0"
-                          style={{
-                            color: isHead ? "var(--text-primary)" : "var(--text-secondary)",
-                            fontFamily: "inherit",
-                            opacity: isHead ? 1 : 0.78,
-                          }}
-                        >
-                          {firstLine || <span style={{ opacity: 0.4 }}>(no message)</span>}
-                        </span>
-                      </div>
-                    </div>
+                    <span
+                      className="text-[10px] font-mono shrink-0"
+                      style={{ color, opacity: 0.95, letterSpacing: "0.02em" }}
+                    >
+                      #{short}
+                    </span>
+                    {isHead && (
+                      <span
+                        className="text-[7.5px] font-bold uppercase tracking-widest px-1 leading-none py-[1px] rounded-sm shrink-0"
+                        style={{ background: color, color: "var(--bg-primary)" }}
+                      >
+                        HEAD
+                      </span>
+                    )}
+                    {firstLine && (
+                      <span
+                        className="text-[10px] truncate min-w-0"
+                        style={{
+                          color: isHead ? "var(--text-primary)" : "var(--text-secondary)",
+                          opacity: isHead ? 0.95 : 0.72,
+                          maxWidth: "70px",
+                        }}
+                      >
+                        {firstLine}
+                      </span>
+                    )}
+                    {v.author && (
+                      <span
+                        className="shrink-0 rounded-full"
+                        style={{
+                          width: "5px",
+                          height: "5px",
+                          background: aColor,
+                          boxShadow: `0 0 3px ${aColor}80`,
+                        }}
+                        title={v.author}
+                      />
+                    )}
+                    <span
+                      className="text-[9px] shrink-0 font-mono ml-auto"
+                      style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
+                    >
+                      {ts}
+                    </span>
                   </button>
                 );
               })}
               {agentVersions.length > visible.length && (
                 <button
                   onClick={() => setShowVersions(true)}
-                  className="shrink-0 flex flex-col items-center justify-center px-3 cursor-pointer transition-colors"
+                  className="shrink-0 flex items-center justify-center gap-1 px-2 py-1 cursor-pointer transition-colors"
                   style={{
                     fontSize: "10px",
                     color: "var(--text-tertiary)",
                     border: `1px dashed ${subtleBorder}`,
-                    borderRadius: "6px",
+                    borderRadius: "5px",
                     fontFamily: "monospace",
                   }}
                   title={`${agentVersions.length - visible.length} more — open full VERSIONS panel`}
                   onMouseEnter={e => (e.currentTarget.style.color = "var(--accent-color)")}
                   onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
                 >
-                  <span className="text-[14px] leading-none">…</span>
-                  <span className="text-[9px] mt-0.5 leading-none">+{agentVersions.length - visible.length}</span>
+                  <span className="text-[10px] leading-none">+{agentVersions.length - visible.length}</span>
                 </button>
               )}
             </div>
           );
         })()}
 
-        {/* ── Main content area ── */}
+        {/* ── Versions empty-state (VERSIONS tab) ── */}
+        {agentPanelTab === "versions" && agentVersions.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <span
+              className="inline-flex items-center justify-center"
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                background: "color-mix(in srgb, var(--accent-color) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--accent-color) 22%, transparent)",
+                color: "var(--accent-color)",
+                fontSize: 18,
+              }}
+            >
+              ◆
+            </span>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--text-secondary)" }}>
+              No versions yet
+            </p>
+            <p className="text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+              Snapshots of {selectedModule || "this module"} will show up here.
+            </p>
+          </div>
+        )}
+
+        {/* ── Main content area (TASKS tab) ── */}
+        {agentPanelTab === "tasks" && (
         <div ref={outputRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {selectedJobData ? (
             <div className="flex flex-col h-full fade-in">
               {/* Job header */}
+              {(() => {
+                const statusColor = STATUS_COLOR[selectedJobData.status];
+                const moduleName = selectedJobData.work_dir
+                  ? extractModuleFromWorkDir(selectedJobData.work_dir)
+                  : null;
+                const { cleanPrompt } = parsePromptImages(selectedJobData.prompt);
+                const displayPrompt = cleanPrompt || selectedJobData.prompt;
+                return (
               <div
-                className="px-3.5 py-3 shrink-0"
+                className="px-4 py-3 shrink-0 space-y-2.5"
                 style={{
                   borderBottom: `1px solid ${subtleBorder}`,
-                  background: `linear-gradient(180deg, ${STATUS_COLOR[selectedJobData.status]}0a, ${tintBg})`,
+                  background: `linear-gradient(180deg, ${statusColor}0e, ${tintBg})`,
                 }}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
+                {/* Row 1 — status pill + action buttons */}
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full"
+                    style={{
+                      background: `${statusColor}1a`,
+                      border: `1px solid ${statusColor}40`,
+                    }}
+                  >
                     <span
-                      className={`inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full ${isRunning ? "" : ""}`}
+                      className={`inline-block w-1.5 h-1.5 rounded-full ${isRunning ? "soft-pulse" : ""}`}
                       style={{
-                        background: `${STATUS_COLOR[selectedJobData.status]}1a`,
-                        border: `1px solid ${STATUS_COLOR[selectedJobData.status]}40`,
+                        background: statusColor,
+                        boxShadow: isRunning ? `0 0 6px ${statusColor}` : "none",
                       }}
-                    >
-                      <span
-                        className={`text-[10px] ${isRunning ? "soft-pulse" : ""}`}
-                        style={{ color: STATUS_COLOR[selectedJobData.status] }}
-                      >
-                        {STATUS_ICON[selectedJobData.status]}
-                      </span>
-                      <span className="text-[10px] font-bold uppercase" style={{ color: STATUS_COLOR[selectedJobData.status], letterSpacing: "0.06em" }}>
-                        {STATUS_LABEL[selectedJobData.status]}
-                      </span>
+                    />
+                    <span className="text-[10px] font-bold uppercase" style={{ color: statusColor, letterSpacing: "0.08em" }}>
+                      {STATUS_LABEL[selectedJobData.status]}
                     </span>
-                    <span className="text-[10px] uppercase font-semibold" style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}>
-                      {selectedJobData.model}
-                    </span>
-                    <span
-                      className="text-[10px] font-mono px-1.5 py-[1px] rounded"
-                      style={{
-                        color: "var(--text-tertiary)",
-                        background: "var(--bg-secondary)",
-                        border: `1px solid ${subtleBorder}`,
-                        opacity: 0.8,
-                      }}
-                      title={selectedJobData.id}
-                    >
-                      {selectedJobData.id.slice(0, 8)}
-                    </span>
-                  </div>
+                  </span>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {isRunning && (
                       <button
@@ -4707,10 +5055,106 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
-                <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                  {selectedJobData.prompt}
-                </p>
+
+                {/* Row 2 — model · id · time · module */}
+                <div className="flex items-center gap-1.5 flex-wrap text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                  <span className="uppercase font-semibold tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    {modelLabel(selectedJobData.model)}
+                  </span>
+                  <span className="opacity-30">·</span>
+                  <span
+                    className="font-mono px-1.5 py-[1px] rounded"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      opacity: 0.85,
+                    }}
+                    title={selectedJobData.id}
+                  >
+                    #{selectedJobData.id.slice(0, 8)}
+                  </span>
+                  <span className="opacity-30">·</span>
+                  <span className="font-mono" title={formatDate(selectedJobData.created_at)}>
+                    {timeSince(selectedJobData.created_at)}
+                  </span>
+                  {moduleName && moduleName !== "claude" && (
+                    <>
+                      <span className="opacity-30">·</span>
+                      <span
+                        className="uppercase font-mono px-1.5 py-[1px] rounded"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 22%, transparent)",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {moduleName}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Row 3 — caller · host */}
+                <div className="flex items-stretch gap-2 text-[10px]">
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                    }}
+                  >
+                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
+                      caller
+                    </span>
+                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.user_address || "local"}>
+                      {shortCaller(selectedJobData.user_address)}
+                    </span>
+                  </div>
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0 flex-1"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                    }}
+                  >
+                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
+                      host
+                    </span>
+                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.work_dir || "—"}>
+                      {shortHost(selectedJobData.work_dir)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Prompt preview */}
+                <div
+                  className="px-2.5 py-2 rounded-md"
+                  style={{
+                    background: tintBg,
+                    borderLeft: `2px solid ${statusColor}66`,
+                    border: `1px solid ${subtleBorder}`,
+                    borderLeftWidth: 2,
+                    borderLeftColor: `${statusColor}66`,
+                  }}
+                >
+                  <p
+                    className="text-[12px] leading-relaxed m-0"
+                    style={{
+                      color: "var(--text-secondary)",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {displayPrompt}
+                  </p>
+                </div>
               </div>
+                );
+              })()}
 
               {/* Output */}
               <div className="flex-1 overflow-y-auto p-3">
@@ -4867,7 +5311,7 @@ export default function Home() {
                                 letterSpacing: "0.04em",
                               }}
                             >
-                              {job.model === "opus" ? "Op" : job.model === "sonnet" ? "So" : "Ha"}
+                              {job.model?.includes("opus") ? "Op" : job.model?.includes("sonnet") ? "So" : "Ha"}
                             </span>
                             {moduleName && moduleName !== "claude" && (
                               <span
@@ -4928,6 +5372,7 @@ export default function Home() {
             </div>
           )}
         </div>
+        )}
 
         {/* ── Input bar (top) — moved from bottom so the ask box is the
             first thing the user sees / can type into. ── */}
@@ -4974,7 +5419,7 @@ export default function Home() {
               }}
               placeholder="ask agent…"
               disabled={submitting}
-              className="flex-1 px-3 py-2 bg-transparent border-0 outline-none text-[12.5px]"
+              className="flex-1 px-5 py-5 bg-transparent border-0 outline-none text-[18px]"
               style={{
                 color: "var(--text-primary)",
                 fontFamily: "'JetBrains Mono', monospace",
@@ -4998,14 +5443,14 @@ export default function Home() {
             <button
               onClick={submitJob}
               disabled={!prompt.trim() || submitting}
-              className="px-3.5 rounded-lg font-bold disabled:opacity-30 focus-ring shrink-0"
+              className="px-5 rounded-lg font-bold disabled:opacity-30 focus-ring shrink-0"
               style={{
                 backgroundColor: !prompt.trim() || submitting
                   ? `${activeModelChip.color}14`
                   : `${activeModelChip.color}28`,
                 border: `1px solid ${activeModelChip.color}55`,
                 color: activeModelChip.color,
-                fontSize: 13,
+                fontSize: 18,
                 transition: "background-color 150ms ease, transform 100ms ease",
               }}
               onMouseEnter={e => {
@@ -5130,7 +5575,7 @@ export default function Home() {
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url ? (
             <iframe
-              src={selectedModuleInfo.app_url}
+              src={gatewayUrl}
               className="w-full h-full border-0"
               title="Module App"
             />
@@ -5336,6 +5781,300 @@ export default function Home() {
             </div>
           </>
         )}
+      </div>
+    );
+  };
+
+  const runTerminalCommand = async (rawCmd: string) => {
+    const cmd = rawCmd.trim();
+    if (!cmd || terminalRunning) return;
+    const cwd = selectedModuleInfo?.path || workDir || "~";
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const start = Date.now();
+
+    // Client-side built-ins so they feel instant and don't bother the server.
+    if (cmd === "clear" || cmd === "cls") {
+      setTerminalHistory([]);
+      setTerminalInput("");
+      setTerminalRecallIdx(null);
+      return;
+    }
+
+    setTerminalHistory(h => [...h, {
+      id, cmd, cwd, stdout: "", stderr: "", code: null, durationMs: 0, pending: true,
+    }]);
+    setTerminalInput("");
+    setTerminalRecallIdx(null);
+    setTerminalRunning(true);
+    try {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cmd, cwd }),
+      });
+      const data = await res.json();
+      setTerminalHistory(h => h.map(e => e.id === id ? {
+        ...e,
+        stdout: data.stdout || "",
+        stderr: data.stderr || (res.ok ? "" : (data.error || `HTTP ${res.status}`)),
+        code: typeof data.code === "number" ? data.code : (res.ok ? 0 : 1),
+        durationMs: Date.now() - start,
+        pending: false,
+      } : e));
+    } catch (err: any) {
+      setTerminalHistory(h => h.map(e => e.id === id ? {
+        ...e,
+        stderr: err?.message || String(err),
+        code: 1,
+        durationMs: Date.now() - start,
+        pending: false,
+      } : e));
+    } finally {
+      setTerminalRunning(false);
+    }
+  };
+
+  const renderTerminalTab = () => {
+    const cwd = selectedModuleInfo?.path || workDir || "~";
+    const prompt = `${selectedModule || "shell"} $`;
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "color-mix(in srgb, var(--crt-blue) 3%, transparent)" }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] leading-none" style={{ color: "var(--crt-blue)" }}>▶_</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-blue)" }}>
+              {selectedModule || "module"} TERMINAL
+            </span>
+            <span className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
+              {cwd}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded-sm uppercase font-bold"
+              style={{
+                color: "var(--crt-amber)",
+                background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--crt-amber) 30%, transparent)",
+                letterSpacing: "0.08em",
+              }}
+              title="Visible to module owner only"
+            >
+              OWNER
+            </span>
+            <button
+              onClick={() => { setTerminalHistory([]); setTerminalRecallIdx(null); }}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+              title="Clear terminal output"
+            >
+              CLEAR
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollback */}
+        <div
+          ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+          className="flex-1 overflow-auto px-4 py-3 text-[12px]"
+          style={{
+            fontFamily: "var(--font-code, monospace)",
+            lineHeight: "1.5",
+            background: "var(--bg-primary)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {terminalHistory.length === 0 ? (
+            <div style={{ color: "var(--text-tertiary)" }}>
+              <div>{`# shell access in ${cwd}`}</div>
+              <div>{`# commands run via bash -c — owner-only, single-shot (no PTY).`}</div>
+              <div>{`# try: ls, cat config.json, git status, pwd`}</div>
+              <div>{`# 'clear' wipes the scrollback.`}</div>
+            </div>
+          ) : terminalHistory.map(e => (
+            <div key={e.id} className="mb-2">
+              <div className="flex gap-2">
+                <span style={{ color: "var(--crt-green)", flexShrink: 0 }}>{prompt}</span>
+                <span style={{ color: "var(--text-primary)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{e.cmd}</span>
+              </div>
+              {e.pending ? (
+                <div style={{ color: "var(--text-tertiary)" }}>…running…</div>
+              ) : (
+                <>
+                  {e.stdout && (
+                    <pre className="m-0" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--text-secondary)" }}>{e.stdout}</pre>
+                  )}
+                  {e.stderr && (
+                    <pre className="m-0" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--crt-red)" }}>{e.stderr}</pre>
+                  )}
+                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    exit {e.code} · {e.durationMs}ms
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Input */}
+        <form
+          onSubmit={(ev) => { ev.preventDefault(); runTerminalCommand(terminalInput); }}
+          className="border-t flex items-center gap-2 px-4 py-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "var(--bg-secondary, var(--bg-primary))" }}
+        >
+          <span className="text-[12px] font-mono" style={{ color: "var(--crt-green)" }}>{prompt}</span>
+          <input
+            value={terminalInput}
+            onChange={(ev) => { setTerminalInput(ev.target.value); setTerminalRecallIdx(null); }}
+            onKeyDown={(ev) => {
+              // ArrowUp / ArrowDown walk through prior commands, bash-style.
+              if (ev.key === "ArrowUp") {
+                if (terminalHistory.length === 0) return;
+                ev.preventDefault();
+                const next = terminalRecallIdx === null ? terminalHistory.length - 1 : Math.max(0, terminalRecallIdx - 1);
+                setTerminalRecallIdx(next);
+                setTerminalInput(terminalHistory[next].cmd);
+              } else if (ev.key === "ArrowDown") {
+                if (terminalRecallIdx === null) return;
+                ev.preventDefault();
+                const next = terminalRecallIdx + 1;
+                if (next >= terminalHistory.length) {
+                  setTerminalRecallIdx(null);
+                  setTerminalInput("");
+                } else {
+                  setTerminalRecallIdx(next);
+                  setTerminalInput(terminalHistory[next].cmd);
+                }
+              }
+            }}
+            disabled={terminalRunning}
+            autoFocus
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            placeholder={terminalRunning ? "running…" : "type a command, ↑/↓ for history"}
+            className="flex-1 bg-transparent outline-none text-[12px] font-mono"
+            style={{ color: "var(--text-primary)" }}
+          />
+          <button
+            type="submit"
+            disabled={terminalRunning || !terminalInput.trim()}
+            className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all"
+            style={{
+              borderColor: "color-mix(in srgb, var(--crt-blue) 50%, transparent)",
+              color: "var(--crt-blue)",
+              background: "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
+              opacity: terminalRunning || !terminalInput.trim() ? 0.4 : 1,
+            }}
+          >
+            {terminalRunning ? "…" : "RUN"}
+          </button>
+        </form>
+      </div>
+    );
+  };
+
+  const renderLogsTab = () => {
+    const info = selectedModuleInfo;
+    const hasApi = !!(info?.api_url || info?.has_api_dir);
+    const hasApp = !!(info?.app_url || info?.has_app_dir);
+    // Default to whichever side exists; prefer api.
+    const active = moduleLogsOpen || (hasApi ? "api" : hasApp ? "app" : "api") as "api" | "app";
+    const keys = Object.keys(moduleLogs);
+    const matchKey = keys.find(k => k.toLowerCase().includes(active));
+    const logContent = matchKey
+      ? (moduleLogs[matchKey] || "(empty)")
+      : keys.length > 0
+        ? (moduleLogs[keys[0]] || "(empty)")
+        : moduleLogsLoading ? "Loading..." : "(no logs found — start the service to begin capturing output)";
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "color-mix(in srgb, var(--crt-amber) 3%, transparent)" }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] leading-none" style={{ color: "var(--crt-amber)" }}>▤</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-amber)" }}>
+              {selectedModule || "claude"} LOGS
+            </span>
+            <span className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
+              /tmp/mod-{active}-{selectedModule || "claude"}.log
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Source tabs */}
+            {hasApi && (
+              <button
+                onClick={() => setModuleLogsOpen("api")}
+                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                style={{
+                  borderColor: active === "api" ? "color-mix(in srgb, var(--crt-blue) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                  color: active === "api" ? "var(--crt-blue)" : "var(--text-tertiary)",
+                  background: active === "api" ? "color-mix(in srgb, var(--crt-blue) 8%, transparent)" : "transparent",
+                }}
+              >
+                API
+              </button>
+            )}
+            {hasApp && (
+              <button
+                onClick={() => setModuleLogsOpen("app")}
+                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                style={{
+                  borderColor: active === "app" ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                  color: active === "app" ? "var(--crt-amber)" : "var(--text-tertiary)",
+                  background: active === "app" ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
+                }}
+              >
+                APP
+              </button>
+            )}
+            <div className="w-px h-4 mx-1" style={{ background: "var(--border-color)" }} />
+            <button
+              onClick={() => setModuleLogsAutoRefresh(!moduleLogsAutoRefresh)}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{
+                borderColor: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                color: moduleLogsAutoRefresh ? "var(--crt-green)" : "var(--text-tertiary)",
+                background: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+              }}
+              title="Auto-refresh every 4s"
+            >
+              {moduleLogsAutoRefresh ? "● LIVE" : "AUTO"}
+            </button>
+            <button
+              onClick={fetchModuleLogs}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+            >
+              {moduleLogsLoading ? "..." : "REFRESH"}
+            </button>
+          </div>
+        </div>
+
+        {/* Log content */}
+        <pre
+          className="flex-1 overflow-auto px-4 py-3 text-[12px] m-0"
+          style={{
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-code, monospace)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            lineHeight: "1.5",
+            background: "var(--bg-primary)",
+          }}
+          ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+        >
+          {logContent}
+        </pre>
       </div>
     );
   };
@@ -5560,45 +6299,31 @@ export default function Home() {
             <div className="p-4 flex flex-col gap-4">
 
               {/* ── Routy Gateway ──────────────────────── */}
-              <div
-                className="relative rounded-lg overflow-hidden"
-                style={{
-                  border: `1px solid color-mix(in srgb, var(--crt-blue) ${routyConnected ? 22 : 12}%, var(--border-color))`,
-                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-blue) 4%, transparent), transparent)",
-                }}
-              >
-                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-blue)", opacity: 0.7 }} />
-                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-blue)" }}>⇆</span>
-                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-blue)" }}>Gateway</span>
+              <div className="section-card" data-accent="blue">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">⇆</span>
+                    Gateway
                     <span
-                      className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ml-1"
-                      style={{
-                        color: routyConnected ? "var(--crt-green)" : "var(--crt-red)",
-                        background: `color-mix(in srgb, ${routyConnected ? "var(--crt-green)" : "var(--crt-red)"} 12%, transparent)`,
-                        border: `1px solid color-mix(in srgb, ${routyConnected ? "var(--crt-green)" : "var(--crt-red)"} 28%, transparent)`,
-                      }}
+                      className="status-pill ml-1"
+                      style={{ ['--pill-accent' as any]: routyConnected ? "var(--crt-green)" : "var(--crt-red)" }}
                     >
-                      <span
-                        className={`inline-block w-1.5 h-1.5 rounded-full ${routyConnected ? "led-pulse" : ""}`}
-                        style={{ background: routyConnected ? "var(--crt-green)" : "var(--crt-red)", boxShadow: routyConnected ? "0 0 5px var(--crt-green)" : "none" }}
-                      />
+                      <span className={`status-pill__dot ${routyConnected ? "led-pulse" : ""}`} />
                       {routyConnected ? "ONLINE" : "OFFLINE"}
                     </span>
                   </div>
                   <button
                     onClick={syncRouty}
                     disabled={routySyncing || !routyConnected}
-                    className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                    className="text-[10px] px-2.5 py-1 rounded-md border uppercase font-bold tracking-wider transition-all hover:brightness-125 disabled:opacity-50"
                     style={{
-                      borderColor: routySyncing ? "var(--border-color)" : "color-mix(in srgb, var(--crt-blue) 40%, transparent)",
+                      borderColor: routySyncing ? "var(--border-color)" : "color-mix(in srgb, var(--crt-blue) 35%, transparent)",
                       color: routySyncing ? "var(--text-tertiary)" : "var(--crt-blue)",
-                      background: "color-mix(in srgb, var(--crt-blue) 6%, transparent)",
-                      opacity: routySyncing || !routyConnected ? 0.5 : 1,
+                      background: "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
                     }}
                   >
-                    {routySyncing ? "syncing..." : "sync"}
+                    {routySyncing ? "syncing…" : "sync"}
                   </button>
                 </div>
 
@@ -5742,33 +6467,21 @@ export default function Home() {
                   const stateColor = props.running ? "var(--crt-green)" : "var(--crt-red)";
                   return (
                     <div
-                      className="relative rounded-lg overflow-hidden"
-                      style={{
-                        border: `1px solid color-mix(in srgb, ${props.accent} 22%, transparent)`,
-                        background: `linear-gradient(160deg, color-mix(in srgb, ${props.accent} 6%, transparent), color-mix(in srgb, ${props.accent} 2%, transparent))`,
-                        boxShadow: props.running ? `inset 0 1px 0 color-mix(in srgb, ${props.accent} 18%, transparent)` : "none",
-                      }}
+                      className="section-card"
+                      style={{ ['--card-accent' as any]: props.accent }}
                     >
-                      {/* accent bar */}
-                      <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: props.accent, opacity: 0.85 }} />
-                      <div className="pl-4 pr-3 py-3 flex flex-col gap-2.5">
+                      <span className="section-card__bar" />
+                      <div className="pl-5 pr-4 py-3.5 flex flex-col gap-2.5">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[14px] leading-none" style={{ color: props.accent }}>{props.glyph}</span>
-                            <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: props.accent }}>{props.kind}</span>
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">{props.glyph}</span>
+                            {props.kind}
                           </div>
                           <span
-                            className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                            style={{
-                              color: stateColor,
-                              background: `color-mix(in srgb, ${stateColor} 12%, transparent)`,
-                              border: `1px solid color-mix(in srgb, ${stateColor} 30%, transparent)`,
-                            }}
+                            className="status-pill"
+                            style={{ ['--pill-accent' as any]: stateColor }}
                           >
-                            <span
-                              className={`inline-block w-1.5 h-1.5 rounded-full ${props.running ? "led-pulse" : ""}`}
-                              style={{ background: stateColor, boxShadow: props.running ? `0 0 6px ${stateColor}` : "none" }}
-                            />
+                            <span className={`status-pill__dot ${props.running ? "led-pulse" : ""}`} />
                             {props.running ? "ONLINE" : "OFFLINE"}
                           </span>
                         </div>
@@ -5868,19 +6581,15 @@ export default function Home() {
               {/* Module Info — definition list on top, big stats grid on
                   bottom. Section header gets an accent bar + glyph so it
                   reads at a glance instead of fading into the muted tone. */}
-              <div
-                className="relative rounded-lg overflow-hidden"
-                style={{
-                  border: "1px solid color-mix(in srgb, var(--accent-color) 18%, var(--border-color))",
-                  background: "linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 4%, transparent), transparent)",
-                }}
-              >
-                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--accent-color)", opacity: 0.7 }} />
-                <div className="pl-4 pr-3 py-2 border-b flex items-center gap-2" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[12px] leading-none" style={{ color: "var(--accent-color)" }}>◇</span>
-                  <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--accent-color)" }}>Module</span>
+              <div className="section-card">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">◇</span>
+                    Module
+                  </div>
                 </div>
-                <div className="pl-4 pr-3 py-3 flex flex-col gap-2">
+                <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
                   {info?.path && (
                     <div className="flex items-start gap-3">
                       <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Path</span>
@@ -5959,20 +6668,14 @@ export default function Home() {
                   with ADD. Always-visible: a new caller checking whether
                   they were granted access shouldn't need owner perms to
                   read the list. */}
-              <div
-                className="relative rounded-lg overflow-hidden"
-                style={{
-                  border: "1px solid color-mix(in srgb, var(--crt-green) 18%, var(--border-color))",
-                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 3%, transparent), transparent)",
-                }}
-              >
-                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-green)", opacity: 0.65 }} />
-                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-green)" }}>◐</span>
-                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-green)" }}>Whitelist</span>
+              <div className="section-card" data-accent="green">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title min-w-0">
+                    <span className="section-card__glyph">◐</span>
+                    Whitelist
                     <span
-                      className="text-[9px] font-mono px-1.5 py-0.5 rounded-full ml-1"
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
                       style={{
                         color: "var(--crt-green)",
                         background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
@@ -5986,7 +6689,7 @@ export default function Home() {
                     {isOwner ? "owner edit" : "read-only"}
                   </span>
                 </div>
-                <div className="pl-4 pr-3 py-3 flex flex-col gap-2">
+                <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
                   {whitelist.length === 0 ? (
                     <div className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
                       No addresses whitelisted yet. The configured owner is always allowed.
@@ -6092,38 +6795,40 @@ export default function Home() {
                   toolbar feels lighter than a section card and matches the
                   density a header bar should have. */}
               <div
-                className="rounded-lg flex items-center gap-1.5 p-2 flex-wrap"
+                className="rounded-xl flex items-center gap-2 p-2.5 flex-wrap"
                 style={{
                   border: "1px solid var(--border-color)",
-                  background: "linear-gradient(180deg, var(--bg-tint), transparent)",
+                  background: "color-mix(in srgb, var(--glass-bg) 70%, transparent)",
+                  backdropFilter: "blur(10px) saturate(140%)",
+                  WebkitBackdropFilter: "blur(10px) saturate(140%)",
                 }}
               >
-                <span className="text-[10px] uppercase font-bold tracking-[0.18em] pl-1.5 pr-1" style={{ color: "var(--text-tertiary)" }}>
+                <span className="text-[10.5px] uppercase font-bold tracking-[0.16em] pl-2 pr-1.5" style={{ color: "var(--text-tertiary)" }}>
                   Actions
                 </span>
                 <button
                   onClick={fetchDirectConfig}
-                  className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all flex items-center gap-1.5"
+                  className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
                   style={{
-                    border: "1px solid color-mix(in srgb, var(--crt-amber) 30%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-amber) 28%, transparent)",
                     color: "var(--crt-amber)",
-                    background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)",
+                    background: "color-mix(in srgb, var(--crt-amber) 7%, transparent)",
                   }}
                   title="Re-fetch config.json from disk"
                 >
-                  <span style={{ opacity: 0.8 }}>↻</span> Reload Config
+                  <span style={{ opacity: 0.85 }}>↻</span> Reload Config
                 </button>
                 <button
                   onClick={() => checkModuleHealth()}
-                  className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all flex items-center gap-1.5"
+                  className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
                   style={{
-                    border: "1px solid color-mix(in srgb, var(--crt-blue) 30%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
                     color: "var(--crt-blue)",
-                    background: "color-mix(in srgb, var(--crt-blue) 6%, transparent)",
+                    background: "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
                   }}
                   title="Probe the module's /health endpoint"
                 >
-                  <span style={{ opacity: 0.8 }}>♡</span> Check Health
+                  <span style={{ opacity: 0.85 }}>♡</span> Check Health
                 </button>
                 <div className="flex-1" />
                 {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
@@ -6172,18 +6877,12 @@ export default function Home() {
 
               {/* Logs */}
               {(info?.api_url || info?.app_url) && (
-              <div
-                className="relative rounded-lg overflow-hidden"
-                style={{
-                  border: "1px solid color-mix(in srgb, var(--crt-amber) 15%, var(--border-color))",
-                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 3%, transparent), transparent)",
-                }}
-              >
-                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-amber)", opacity: 0.55 }} />
-                <div className="pl-4 pr-3 py-2 border-b flex items-center justify-between" style={{ borderColor: "var(--border-color)" }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] leading-none" style={{ color: "var(--crt-amber)" }}>▤</span>
-                    <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-amber)" }}>Logs</span>
+              <div className="section-card" data-accent="amber">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">▤</span>
+                    Logs
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -6276,17 +6975,13 @@ export default function Home() {
               )}
 
               {/* Scripts & Ports */}
-              <div
-                className="relative rounded-lg overflow-hidden"
-                style={{
-                  border: "1px solid color-mix(in srgb, var(--crt-green) 15%, var(--border-color))",
-                  background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 3%, transparent), transparent)",
-                }}
-              >
-                <div className="absolute left-0 top-0 bottom-0" style={{ width: 3, background: "var(--crt-green)", opacity: 0.55 }} />
-                <div className="pl-4 pr-3 py-2 border-b flex items-center gap-2" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[12px] leading-none" style={{ color: "var(--crt-green)" }}>▸</span>
-                  <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--crt-green)" }}>Scripts & Ports</span>
+              <div className="section-card" data-accent="green">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">▸</span>
+                    Scripts &amp; Ports
+                  </div>
                 </div>
                 <div className="p-3 flex flex-col gap-1.5 text-[12px] font-mono">
                   {cfg?.scripts?.start && (
@@ -6327,48 +7022,52 @@ export default function Home() {
               </div>
 
               {/* Config */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b flex items-center gap-1.5" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>CONFIG</span>
-                  <div className="ml-auto flex items-center gap-1">
+              <div className="section-card" data-accent="amber">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">{"{}"}</span>
+                    Config
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => collapseAll(cfg)}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
-                      style={{ color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, transparent)" }}
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
+                      style={{ color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 26%, transparent)" }}
                     >
-                      COLLAPSE
+                      Collapse
                     </button>
                     <button
                       onClick={expandAll}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
-                      style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 20%, transparent)" }}
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
+                      style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 26%, transparent)" }}
                     >
-                      EXPAND
+                      Expand
                     </button>
                     <button
                       onClick={() => copyValue("$root", cfg)}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
                       style={{
                         color: copiedPath === "$root" ? jsonCopiedColor : "var(--crt-blue)",
-                        background: copiedPath === "$root" ? jsonCopiedBg : "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
-                        border: `1px solid ${copiedPath === "$root" ? `color-mix(in srgb, ${jsonCopiedColor} 30%, transparent)` : "color-mix(in srgb, var(--crt-blue) 20%, transparent)"}`,
+                        background: copiedPath === "$root" ? jsonCopiedBg : "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
+                        border: `1px solid ${copiedPath === "$root" ? `color-mix(in srgb, ${jsonCopiedColor} 30%, transparent)` : "color-mix(in srgb, var(--crt-blue) 26%, transparent)"}`,
                       }}
                     >
-                      {copiedPath === "$root" ? "COPIED" : "COPY"}
+                      {copiedPath === "$root" ? "Copied" : "Copy"}
                     </button>
                   </div>
                 </div>
                 {cfg ? (
                   <div
-                    className="overflow-y-auto overflow-x-auto px-1 py-2 text-[13px] font-mono leading-[1.5]"
+                    className="overflow-y-auto overflow-x-auto px-3 py-3 text-[13px] font-mono leading-[1.55]"
                     style={{ color: "var(--crt-green)", maxHeight: "400px" }}
                   >
                     {renderJsonNode(null, cfg, "$", 0, true, false)}
                   </div>
                 ) : (
-                  <div className="p-3 text-center">
+                  <div className="p-4 text-center">
                     <span className="text-[13px] text-crt-green/30 uppercase">
-                      {loadingConfig ? "Loading config..." : "No config loaded"}
+                      {loadingConfig ? "Loading config…" : "No config loaded"}
                     </span>
                   </div>
                 )}
@@ -6822,15 +7521,170 @@ export default function Home() {
 
       {/* ── Compact Nav Bar ───────────────────────────────────────── */}
       <div
-        className="flex items-center px-4 py-1.5 shrink-0"
+        className="flex flex-col shrink-0"
         style={{
           background: "var(--bg-secondary)",
           borderBottom: `1px solid ${subtleBorder}`,
         }}
       >
+        {/* First level: top-level categories. AGENT doubles as the sidebar
+            toggle so its active state mirrors the agent sidebar open state. */}
+        <div
+          className="flex items-center px-4 py-1 gap-1"
+          style={{ borderBottom: `1px solid ${subtleBorder}` }}
+        >
+          {([
+            { key: "explore" as const, label: "EXPLORE", color: "var(--crt-blue)" },
+            { key: "build" as const, label: "BUILD", color: "var(--crt-green)" },
+            { key: "agent" as const, label: "AGENT", color: "var(--crt-amber)" },
+          ]).map((cat) => {
+            const isActive = cat.key === "agent" ? agentSidebarOpen : activeCategory === cat.key;
+            return (
+              <button
+                key={cat.key}
+                onClick={() => {
+                  if (cat.key === "agent") {
+                    setAgentSidebarOpen(!agentSidebarOpen);
+                  } else {
+                    setActiveCategory(cat.key);
+                  }
+                }}
+                className="text-[13px] font-bold transition-all px-3 py-1 font-code"
+                style={{
+                  letterSpacing: "0.08em",
+                  color: isActive ? cat.color : "var(--text-tertiary)",
+                  opacity: isActive ? 1 : 0.5,
+                  borderBottom: isActive ? `2px solid ${cat.color}` : "2px solid transparent",
+                  background: isActive ? `color-mix(in srgb, ${cat.color} 8%, transparent)` : "transparent",
+                  marginBottom: "-1px",
+                  textShadow: isActive ? `0 0 8px color-mix(in srgb, ${cat.color} 45%, transparent)` : "none",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.opacity = "0.8";
+                    e.currentTarget.style.color = cat.color;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.opacity = "0.5";
+                    e.currentTarget.style.color = "var(--text-tertiary)";
+                  }
+                }}
+                title={cat.key === "agent" ? (agentSidebarOpen ? "Collapse agent panel" : "Expand agent panel") : undefined}
+              >
+                {cat.label}
+              </button>
+            );
+          })}
+
+          {/* BUILD / FORK action buttons (right side of first-level nav) */}
+          <div className="flex items-center gap-2 relative ml-auto" ref={headerCreateRef}>
+            <button
+              onClick={() => {
+                setShowHeaderCreateForm(showHeaderCreateForm === "create" ? null : "create");
+                setHeaderNewName("");
+                setHeaderGithubUrl("");
+              }}
+              className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
+              style={{
+                borderColor: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.2)",
+                color: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.5)",
+                background: showHeaderCreateForm === "create" ? "rgba(16,185,129,0.08)" : "transparent",
+                letterSpacing: "0.01em",
+              }}
+              title="Build new module"
+            >
+              + BUILD
+            </button>
+            <button
+              onClick={() => {
+                setShowHeaderCreateForm(showHeaderCreateForm === "fork" ? null : "fork");
+                setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
+                setHeaderGithubUrl("");
+              }}
+              className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
+              style={{
+                borderColor: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.2)",
+                color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.5)",
+                background: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.08)" : "transparent",
+                letterSpacing: "0.01em",
+              }}
+              title={`Fork ${selectedModule || "module"}`}
+            >
+              ⑂ FORK
+            </button>
+
+            {/* Build/Fork dropdown form */}
+            {showHeaderCreateForm && (
+              <div
+                className="absolute right-0 top-full mt-1 border z-50 p-3 flex flex-col gap-2 min-w-[300px]"
+                style={{
+                  background: "var(--bg-primary)",
+                  borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                }}
+              >
+                <div className="text-[13px] font-bold uppercase" style={{
+                  letterSpacing: "0.02em",
+                  color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "var(--crt-green)",
+                }}>
+                  {showHeaderCreateForm === "fork" ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}` : "+ BUILD MODULE"}
+                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  value={headerNewName}
+                  onChange={(e) => setHeaderNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") headerCreateOrFork();
+                    if (e.key === "Escape") setShowHeaderCreateForm(null);
+                  }}
+                  placeholder="module name..."
+                  className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                  style={{
+                    borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+                {showHeaderCreateForm === "create" && (
+                  <input
+                    type="text"
+                    value={headerGithubUrl}
+                    onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") headerCreateOrFork();
+                      if (e.key === "Escape") setShowHeaderCreateForm(null);
+                    }}
+                    placeholder="github url (optional)..."
+                    className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
+                    style={{ color: "var(--text-primary)" }}
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={headerCreateOrFork}
+                    disabled={!headerNewName.trim() || submitting}
+                    className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
+                    style={{ letterSpacing: "0.01em", opacity: headerNewName.trim() ? 1 : 0.4 }}
+                  >
+                    {submitting ? "..." : showHeaderCreateForm === "fork" ? "FORK" : "BUILD"}
+                  </button>
+                  <button
+                    onClick={() => setShowHeaderCreateForm(null)}
+                    className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
+                  >
+                    ESC
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Second level: module selector + mod tabs (overview/app/api/files/terminal). */}
+        <div className="flex items-center px-4 py-1.5">
           <div className="flex items-center gap-3">
-            {/* Brand */}
-            <span style={{ color: "var(--text-tertiary)", opacity: 0.15 }}>│</span>
             {/* Module/Folder selector dropdown */}
             <div className="relative" ref={headerModuleRef}>
               {showHeaderModuleDropdown ? (
@@ -6931,8 +7785,8 @@ export default function Home() {
                 const filtered = ownerFilter ? moduleList.filter(m => m.owner === ownerFilter) : moduleList;
                 return (
                 <div
-                  className="absolute left-0 top-full mt-1 border border-crt-green/20 max-h-[400px] overflow-y-auto z-50 rounded min-w-[340px]"
-                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)", backdropFilter: "blur(12px)" }}
+                  className="absolute left-0 top-full mt-1 border border-crt-green/20 max-h-[400px] overflow-y-auto z-[80] rounded min-w-[340px]"
+                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)" }}
                 >
                   {owners.length > 1 && (
                     <div className="px-3 py-2 border-b border-crt-green/20 flex flex-wrap gap-1.5 items-center sticky top-0 z-10" style={{ background: "var(--bg-primary)" }}>
@@ -7011,8 +7865,8 @@ export default function Home() {
               {/* Folders dropdown with embedding suggestions */}
               {showHeaderModuleDropdown && selectorMode === "folders" && (folderList.length > 0 || folderSuggestions.length > 0) && (
                 <div
-                  className="absolute left-0 top-full mt-1 border border-crt-blue/20 max-h-[450px] overflow-y-auto z-50 rounded min-w-[380px]"
-                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)", backdropFilter: "blur(12px)" }}
+                  className="absolute left-0 top-full mt-1 border border-crt-blue/20 max-h-[450px] overflow-y-auto z-[80] rounded min-w-[380px]"
+                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)" }}
                 >
                   {/* Embedding suggestions section */}
                   {folderSuggestions.length > 0 && (
@@ -7113,47 +7967,20 @@ export default function Home() {
                 </div>
               )}
             </div>
-            {selectedModule && effectiveConfig?.owner && (
-              <button
-                className="text-[12px] px-2 py-0.5 font-mono transition-all cursor-pointer flex items-center gap-1.5"
-                title={`Owner key — click to copy\n${effectiveConfig.owner}`}
-                onClick={() => {
-                  navigator.clipboard?.writeText(effectiveConfig.owner).catch(() => {});
-                }}
-                style={{
-                  color: "var(--crt-green)",
-                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
-                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
-                  borderRadius: "4px",
-                  letterSpacing: "0.02em",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
-                onMouseLeave={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
-              >
-                <span
-                  className="shrink-0 inline-block rounded-full"
-                  style={{
-                    width: "6px",
-                    height: "6px",
-                    background: "var(--crt-green)",
-                    boxShadow: "0 0 6px var(--crt-green)",
-                  }}
-                />
-                {effectiveConfig.owner}
-              </button>
-            )}
 
           </div>
 
           {/* Navigation Tabs — inline with module selector. On phone we
               still want the tabs visible but the row may wrap; `flex-wrap`
               prevents the address chip from getting pushed off-screen. */}
-          <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap">
+          <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
           {([
             { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
             ...(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir ? [{ key: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" }] : []),
             ...(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints ? [{ key: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" }] : []),
             { key: "files" as const, label: "FILES", icon: "◇", color: "var(--text-primary)" },
+            { key: "versions" as const, label: "VERSIONS", icon: "⌬", color: "var(--crt-purple, #c084fc)" },
+            ...(isOwner ? [{ key: "terminal" as const, label: "TERMINAL", icon: "▶_", color: "var(--crt-blue)" }] : []),
           ]).map((tab) => {
             const isActive = sidebarView === tab.key;
             return (
@@ -7189,69 +8016,204 @@ export default function Home() {
           })}
           </div>
 
-          {/* Address chip + Agent toggle */}
+          {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (address && address !== "local") {
-                  navigator.clipboard.writeText(address);
-                  setCopiedAddress(true);
-                  setTimeout(() => setCopiedAddress(false), 1500);
-                }
-              }}
-              className="text-[12px] font-bold font-mono px-2 py-1 transition-all"
-              style={{
-                color: "var(--crt-green)",
-                opacity: 0.5,
-              }}
-              title={copiedAddress ? "Copied!" : `Copy: ${address}`}
-            >
-              {copiedAddress ? "COPIED" : address === "local" ? "LOCAL" : `${address?.slice(0, 6)}··${address?.slice(-4)}`}
-            </button>
-            {/* Agent toggle — opens/closes right sidebar */}
-            <button
-              onClick={() => setAgentSidebarOpen(!agentSidebarOpen)}
-              className="text-[15px] font-bold transition-all px-3 py-2 font-code flex items-center gap-1.5 relative"
-              style={{
-                letterSpacing: "0.02em",
-                color: agentSidebarOpen ? "var(--crt-blue)" : "var(--text-tertiary)",
-                opacity: agentSidebarOpen ? 1 : 0.4,
-                borderBottom: agentSidebarOpen ? "2px solid var(--crt-blue)" : "2px solid transparent",
-                background: agentSidebarOpen ? "color-mix(in srgb, var(--crt-blue) 6%, transparent)" : "transparent",
-                marginBottom: "-1px",
-              }}
-              onMouseEnter={(e) => {
-                if (!agentSidebarOpen) {
-                  e.currentTarget.style.opacity = "0.7";
-                  e.currentTarget.style.color = "var(--crt-blue)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!agentSidebarOpen) {
-                  e.currentTarget.style.opacity = "0.4";
-                  e.currentTarget.style.color = "var(--text-tertiary)";
-                }
-              }}
-            >
-              <span className="text-[13px]">⬡</span>
-              AGENT
-            </button>
-            {/* Sidebar side toggle */}
-            <button
-              onClick={() => setSidebarSide(sidebarSide === "right" ? "left" : "right")}
-              className="text-[13px] px-2 py-1.5 transition-all font-code"
-              style={{
-                color: "var(--text-tertiary)",
-                opacity: 0.4,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.4"; }}
-              title={`Move sidebar to ${sidebarSide === "right" ? "left" : "right"}`}
-            >
-              {sidebarSide === "right" ? "◧" : "◨"}
-            </button>
+            {/* User profile chip — when a wallet is connected, clicking
+                pops out the full wallet sidebar (mirrors the AGENT
+                toggle pattern). For local/no-wallet sessions it opens
+                the small profile dropdown instead. */}
+            <div ref={profileMenuRef} className="relative">
+              {selectedModule && effectiveConfig?.owner ? (
+                <button
+                  className="text-[12px] px-2 py-0.5 font-mono transition-all cursor-pointer flex items-center gap-1.5"
+                  title={address && address !== "local" && walletType
+                    ? (showWalletSidebar ? "Close wallet panel" : "Open wallet panel")
+                    : `Profile — ${effectiveConfig.owner}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (address && address !== "local" && walletType) {
+                      setShowWalletSidebar(o => !o);
+                    } else {
+                      setProfileMenuOpen(o => !o);
+                    }
+                  }}
+                  style={{
+                    color: "var(--crt-green)",
+                    background: (showWalletSidebar || profileMenuOpen)
+                      ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+                      : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                    borderRadius: "4px",
+                    letterSpacing: "0.02em",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = (showWalletSidebar || profileMenuOpen)
+                    ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+                    : "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
+                  aria-expanded={address && address !== "local" && walletType ? showWalletSidebar : profileMenuOpen}
+                  aria-haspopup={address && address !== "local" && walletType ? undefined : "menu"}
+                >
+                  <span
+                    className="shrink-0 inline-block rounded-full"
+                    style={{
+                      width: "6px",
+                      height: "6px",
+                      background: "var(--crt-green)",
+                      boxShadow: "0 0 6px var(--crt-green)",
+                    }}
+                  />
+                  <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>
+                  {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
+                  <span className="text-[9px]" style={{ opacity: 0.6 }}>
+                    {address && address !== "local" && walletType
+                      ? (showWalletSidebar ? "◨" : "◧")
+                      : (profileMenuOpen ? "▴" : "▾")}
+                  </span>
+                </button>
+              ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (address && address !== "local" && walletType) {
+                    setShowWalletSidebar(o => !o);
+                  } else {
+                    setProfileMenuOpen(o => !o);
+                  }
+                }}
+                className="text-[12px] font-bold font-mono px-2 py-1 transition-all flex items-center gap-1.5"
+                style={{
+                  color: "var(--crt-green)",
+                  opacity: (showWalletSidebar || profileMenuOpen) ? 1 : 0.5,
+                  borderRadius: 4,
+                  background: (showWalletSidebar || profileMenuOpen) ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                }}
+                title={address && address !== "local" && walletType
+                  ? (showWalletSidebar ? "Close wallet panel" : "Open wallet panel")
+                  : (address ? `Profile: ${address}` : "Sign in")}
+                aria-expanded={address && address !== "local" && walletType ? showWalletSidebar : profileMenuOpen}
+                aria-haspopup={address && address !== "local" && walletType ? undefined : "menu"}
+              >
+                {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
+                <span className="text-[9px]" style={{ opacity: 0.6 }}>
+                  {address && address !== "local" && walletType
+                    ? (showWalletSidebar ? "◨" : "◧")
+                    : (profileMenuOpen ? "▴" : "▾")}
+                </span>
+              </button>
+              )}
+              {profileMenuOpen && (
+                <div
+                  className="absolute right-0 mt-1.5 flex flex-col rounded-md z-50 profile-menu-expand-left"
+                  style={{
+                    minWidth: 280,
+                    background: "var(--bg-primary)",
+                    border: "1px solid var(--border-color)",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                    overflow: "hidden",
+                    transformOrigin: "top right",
+                  }}
+                  role="menu"
+                >
+                  {/* Header */}
+                  <div
+                    className="flex items-center gap-2.5 px-3 py-2.5"
+                    style={{
+                      borderBottom: "1px solid var(--border-color)",
+                      background: "color-mix(in srgb, var(--crt-green) 4%, transparent)",
+                    }}
+                  >
+                    <span
+                      className="shrink-0 inline-block rounded-full"
+                      style={{
+                        width: 8, height: 8,
+                        background: "var(--crt-green)",
+                        boxShadow: "0 0 8px var(--crt-green)",
+                      }}
+                    />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                        {walletType === "metamask" ? "MetaMask"
+                          : walletType === "subwallet" ? "SubWallet"
+                          : walletType === "password" ? "Password Key"
+                          : walletType ? walletType : address ? "Connected" : "Not signed in"}
+                      </span>
+                      <span className="text-[11px] font-mono truncate" style={{ color: "var(--text-secondary)" }}>
+                        {address || "—"}
+                      </span>
+                    </div>
+                    {isOwner && (
+                      <span
+                        className="text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                        }}
+                      >
+                        OWNER
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Address copy */}
+                  {address && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(address).catch(() => {});
+                        setCopiedAddress(true);
+                        setTimeout(() => setCopiedAddress(false), 1500);
+                      }}
+                      className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                      style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span className="font-mono truncate mr-2">{address}</span>
+                      <span className="text-[10px] uppercase tracking-[0.1em] shrink-0" style={{ color: copiedAddress ? "var(--crt-green)" : "var(--text-tertiary)" }}>
+                        {copiedAddress ? "copied" : "copy"}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Actions */}
+                  {address && address !== "local" && walletType && (
+                    <button
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setShowWalletSidebar(true);
+                      }}
+                      className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                      style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span>Open wallet panel</span>
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>↗</span>
+                    </button>
+                  )}
+                  {address ? (
+                    <button
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        disconnect();
+                      }}
+                      className="px-3 py-2 text-[11px] text-left transition-colors"
+                      style={{ color: "var(--crt-red)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      Sign out
+                    </button>
+                  ) : (
+                    <div className="px-3 py-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      No session — connect a wallet or use a local key
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
+        </div>
       </div>
 
 
@@ -7263,7 +8225,80 @@ export default function Home() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-row overflow-hidden">
+      <div className="flex-1 flex flex-row overflow-hidden relative">
+
+        {/* ── Sidebar: Agent ────────────────────────────────────────────
+            One AGENT button in the header toggles this. On desktop it's
+            a flex sibling that pushes main content (so the embedded app
+            iframe shrinks to the remaining width and nothing the iframe
+            renders — like the Next.js dev build-error overlay — gets
+            hidden behind it). On phone it's a fullscreen overlay. */}
+        {isMobile && agentSidebarOpen && (
+          <div
+            onClick={() => setAgentSidebarOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(2px)",
+              zIndex: 60,
+            }}
+            aria-label="Close agent panel"
+          />
+        )}
+        <div
+          className="flex flex-col overflow-hidden"
+          style={
+            isMobile
+              ? {
+                  position: agentSidebarOpen ? "fixed" : "static",
+                  inset: agentSidebarOpen ? 0 : "auto",
+                  width: agentSidebarOpen ? "100vw" : "0px",
+                  height: agentSidebarOpen ? "100dvh" : "0px",
+                  maxWidth: "100vw",
+                  background: "var(--bg-primary)",
+                  zIndex: 70,
+                  boxShadow: agentSidebarOpen ? "0 0 40px rgba(0,0,0,0.6)" : "none",
+                  transition: "none",
+                }
+              : {
+                  position: "relative",
+                  width: agentSidebarOpen ? `${agentSidebarWidth}px` : "0px",
+                  minWidth: agentSidebarOpen ? "320px" : "0px",
+                  maxWidth: "100%",
+                  flexShrink: 0,
+                  background: "var(--bg-primary)",
+                  borderRight: agentSidebarOpen ? "1px solid rgba(251,191,36,0.30)" : "none",
+                  boxShadow: agentSidebarOpen
+                    ? "12px 0 32px rgba(0,0,0,0.35), inset -1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
+                    : "none",
+                  transition: isAgentSidebarDragging ? "none" : "width 0.25s ease",
+                }
+          }
+        >
+          {/* Drag handle on the right edge to resize the overlay sidebar */}
+          {!isMobile && agentSidebarOpen && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsAgentSidebarDragging(true);
+              }}
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                right: -3,
+                width: 6,
+                cursor: "col-resize",
+                zIndex: 1,
+                background: isAgentSidebarDragging ? "rgba(251,191,36,0.40)" : "transparent",
+                transition: "background 0.15s ease",
+              }}
+              title="Drag to resize"
+            />
+          )}
+          {agentSidebarOpen && renderAgentTab()}
+        </div>
 
         {/* ── Main Content ──────────────────────── */}
         <div
@@ -7282,6 +8317,14 @@ export default function Home() {
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderAppTab()}
               </div>
+            ) : sidebarView === "logs" ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {renderLogsTab()}
+              </div>
+            ) : sidebarView === "terminal" ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {renderTerminalTab()}
+              </div>
             ) : sidebarView === "files" ? (
               filesPanelFloating ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -7292,6 +8335,27 @@ export default function Home() {
                   {renderDirectoryTab()}
                 </div>
               )
+            ) : sidebarView === "versions" ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {selectedModule ? (
+                  <VersionsPanel
+                    apiBase={apiUrl}
+                    module={selectedModule}
+                    authHeader={token ? { Authorization: `Bearer ${token}` } : undefined}
+                    onForked={(m) => setSelectedModule(m)}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                    <span className="text-[48px]" style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.15 }}>⌬</span>
+                    <span className="text-[14px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>
+                      No module selected
+                    </span>
+                    <p className="text-[13px] text-center max-w-xs" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                      Pick a module to see its snapshot history and on-chain registry CIDs.
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderProfileTab()}
@@ -7299,88 +8363,76 @@ export default function Home() {
             )}
         </div>
 
-        {/* ── Sidebar: Agent (collapsible) ──────────────────────────
-            On phone (< 768px) it becomes a full-screen overlay so the
-            main content has the whole viewport when not in use, and the
-            agent has the whole viewport when open. A backdrop receives
-            taps to dismiss. On desktop it stays inline as a 520px pane. */}
-        {!isMobile && (
+        {/* ── Right Sidebar: Wallet ────────────────────────────────────
+            Mirrors the AGENT sidebar pattern: flex sibling on desktop
+            (pushes main content, drag-to-resize on the left edge),
+            fullscreen overlay on mobile. */}
+        {isMobile && showWalletSidebar && address && address !== "local" && walletType && (
           <div
-            className="shrink-0"
-            style={{
-              width: agentSidebarOpen ? "1px" : "0px",
-              flexShrink: 0,
-              background: "rgba(96,165,250,0.2)",
-              boxShadow: agentSidebarOpen ? "0 0 8px rgba(96,165,250,0.1), 0 0 2px rgba(96,165,250,0.15)" : "none",
-              transition: "width 0.2s ease, box-shadow 0.2s ease",
-              order: sidebarSide === "left" ? -2 : undefined,
-            }}
-          />
-        )}
-        {isMobile && agentSidebarOpen && (
-          <div
-            onClick={() => setAgentSidebarOpen(false)}
+            onClick={() => setShowWalletSidebar(false)}
             style={{
               position: "fixed",
               inset: 0,
-              background: "rgba(0,0,0,0.55)",
+              background: "rgba(0,0,0,0.45)",
               backdropFilter: "blur(2px)",
               zIndex: 60,
             }}
-            aria-label="Close agent panel"
+            aria-label="Close wallet panel"
           />
         )}
-        <div
-          className="flex flex-col overflow-hidden shrink-0"
-          style={
-            isMobile
-              ? {
-                  position: agentSidebarOpen ? "fixed" : "static",
-                  inset: agentSidebarOpen ? 0 : "auto",
-                  width: agentSidebarOpen ? "100vw" : "0px",
-                  height: agentSidebarOpen ? "100dvh" : "0px",
-                  maxWidth: "100vw",
-                  background: "var(--bg-primary)",
-                  zIndex: 70,
-                  boxShadow: agentSidebarOpen ? "0 0 40px rgba(0,0,0,0.6)" : "none",
-                  transition: "none",
-                  order: undefined,
-                }
-              : {
-                  width: agentSidebarOpen ? "520px" : "0px",
-                  minWidth: agentSidebarOpen ? "380px" : "0px",
-                  maxWidth: "60vw",
-                  background: "var(--bg-primary)",
-                  transition: "width 0.25s ease, min-width 0.25s ease",
-                  order: sidebarSide === "left" ? -3 : undefined,
-                }
-          }
-        >
-          {agentSidebarOpen && renderAgentTab()}
-        </div>
-
-        {/* ── Right Sidebar: Wallet ──────────────────────── */}
-        {showWalletSidebar && address && address !== "local" && walletType && (
-          <>
-            <div
-              className="shrink-0"
-              style={{
-                width: "1px",
-                flexShrink: 0,
-                background: "rgba(59,130,246,0.2)",
-                boxShadow: "0 0 8px rgba(59,130,246,0.1), 0 0 2px rgba(59,130,246,0.15)",
-              }}
-            />
-            <div
-              className="flex flex-col overflow-hidden shrink-0"
-              style={{
-                width: "380px",
-                minWidth: "320px",
-                maxWidth: "50vw",
-                background: "var(--bg-primary)",
-              }}
-            >
-              {/* Inline WalletModal */}
+        {address && address !== "local" && walletType && (
+          <div
+            className="flex flex-col overflow-hidden"
+            style={
+              isMobile
+                ? {
+                    position: showWalletSidebar ? "fixed" : "static",
+                    inset: showWalletSidebar ? 0 : "auto",
+                    width: showWalletSidebar ? "100vw" : "0px",
+                    height: showWalletSidebar ? "100dvh" : "0px",
+                    maxWidth: "100vw",
+                    background: "var(--bg-primary)",
+                    zIndex: 70,
+                    boxShadow: showWalletSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
+                    transition: "none",
+                  }
+                : {
+                    position: "relative",
+                    width: showWalletSidebar ? `${walletSidebarWidth}px` : "0px",
+                    minWidth: showWalletSidebar ? "320px" : "0px",
+                    maxWidth: "100%",
+                    flexShrink: 0,
+                    background: "var(--bg-primary)",
+                    borderLeft: showWalletSidebar ? "1px solid rgba(59,130,246,0.30)" : "none",
+                    boxShadow: showWalletSidebar
+                      ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(59,130,246,0.10), 0 0 60px -20px rgba(59,130,246,0.25)"
+                      : "none",
+                    transition: isWalletSidebarDragging ? "none" : "width 0.25s ease",
+                  }
+            }
+          >
+            {/* Drag handle on the LEFT edge to resize the sidebar */}
+            {!isMobile && showWalletSidebar && (
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsWalletSidebarDragging(true);
+                }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: -3,
+                  width: 6,
+                  cursor: "col-resize",
+                  zIndex: 1,
+                  background: isWalletSidebarDragging ? "rgba(59,130,246,0.40)" : "transparent",
+                  transition: "background 0.15s ease",
+                }}
+                title="Drag to resize"
+              />
+            )}
+            {showWalletSidebar && (
               <WalletModal
                 address={address}
                 walletType={walletType}
@@ -7400,8 +8452,8 @@ export default function Home() {
                   }
                 }}
               />
-            </div>
-          </>
+            )}
+          </div>
         )}
 
       </div>
@@ -7492,113 +8544,12 @@ export default function Home() {
 
       {/* ── Status Bar ───────────────────────────────────────────── */}
       <footer
-        className="flex items-center justify-between gap-2 px-3 sm:px-5 py-1 flex-wrap"
+        className="flex items-center justify-end gap-2 px-3 sm:px-5 py-1 flex-wrap"
         style={{
           background: "var(--bg-secondary)",
           borderTop: "1px solid var(--border-color)",
         }}
       >
-        <div className="flex items-center gap-2 relative" ref={headerCreateRef}>
-          <button
-            onClick={() => {
-              setShowHeaderCreateForm(showHeaderCreateForm === "create" ? null : "create");
-              setHeaderNewName("");
-              setHeaderGithubUrl("");
-            }}
-            className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-            style={{
-              borderColor: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.2)",
-              color: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.5)",
-              background: showHeaderCreateForm === "create" ? "rgba(16,185,129,0.08)" : "transparent",
-              letterSpacing: "0.01em",
-            }}
-            title="Create new module"
-          >
-            + NEW
-          </button>
-          <button
-            onClick={() => {
-              setShowHeaderCreateForm(showHeaderCreateForm === "fork" ? null : "fork");
-              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
-              setHeaderGithubUrl("");
-            }}
-            className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-            style={{
-              borderColor: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.2)",
-              color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.5)",
-              background: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.08)" : "transparent",
-              letterSpacing: "0.01em",
-            }}
-            title={`Fork ${selectedModule || "module"}`}
-          >
-            ⑂ FORK
-          </button>
-
-          {/* Create/Fork dropdown form */}
-          {showHeaderCreateForm && (
-            <div
-              className="absolute left-0 bottom-full mb-1 border z-50 p-3 flex flex-col gap-2 min-w-[300px]"
-              style={{
-                background: "var(--bg-primary)",
-                borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-              }}
-            >
-              <div className="text-[13px] font-bold uppercase" style={{
-                letterSpacing: "0.02em",
-                color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "var(--crt-green)",
-              }}>
-                {showHeaderCreateForm === "fork" ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}` : "+ CREATE MODULE"}
-              </div>
-              <input
-                type="text"
-                autoFocus
-                value={headerNewName}
-                onChange={(e) => setHeaderNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") headerCreateOrFork();
-                  if (e.key === "Escape") setShowHeaderCreateForm(null);
-                }}
-                placeholder="module name..."
-                className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                style={{
-                  borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                  color: "var(--text-primary)",
-                }}
-              />
-              {showHeaderCreateForm === "create" && (
-                <input
-                  type="text"
-                  value={headerGithubUrl}
-                  onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") headerCreateOrFork();
-                    if (e.key === "Escape") setShowHeaderCreateForm(null);
-                  }}
-                  placeholder="github url (optional)..."
-                  className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
-                  style={{ color: "var(--text-primary)" }}
-                />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={headerCreateOrFork}
-                  disabled={!headerNewName.trim() || submitting}
-                  className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
-                  style={{ letterSpacing: "0.01em", opacity: headerNewName.trim() ? 1 : 0.4 }}
-                >
-                  {submitting ? "..." : showHeaderCreateForm === "fork" ? "FORK" : "CREATE"}
-                </button>
-                <button
-                  onClick={() => setShowHeaderCreateForm(null)}
-                  className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
-                >
-                  ESC
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
         <div className="flex items-center gap-3">
           {showBackendEditor ? (
             <form

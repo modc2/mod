@@ -105,11 +105,11 @@ modc2.com {
     @copytensor_api path /api/copytensor /api/copytensor/*
     handle @copytensor_api {
         uri strip_prefix /api/copytensor
-        reverse_proxy copytensor:50150
+        reverse_proxy host.docker.internal:50150
     }
     @copytensor_app path /copytensor /copytensor/*
     handle @copytensor_app {
-        reverse_proxy copytensor:3150
+        reverse_proxy host.docker.internal:3150
     }
     @dev_api path /api/dev /api/dev/*
     handle @dev_api {
@@ -168,11 +168,11 @@ modc2.com {
     @hyperliquid_api path /api/hyperliquid /api/hyperliquid/*
     handle @hyperliquid_api {
         uri strip_prefix /api/hyperliquid
-        reverse_proxy hyperliquid:8919
+        reverse_proxy host.docker.internal:8919
     }
     @hyperliquid_app path /hyperliquid /hyperliquid/*
     handle @hyperliquid_app {
-        reverse_proxy hyperliquid:3919
+        reverse_proxy host.docker.internal:3919
     }
     @ipfs_api path /api/ipfs /api/ipfs/*
     handle @ipfs_api {
@@ -376,10 +376,37 @@ api.modc2.com {
 }
 
 :3000 {
+    # Default landing — claude is the canonical control-plane module.
+    # Using a 302 (not 301) so we can flip the default later without
+    # fighting browser cache. The exact-path matcher means /claude,
+    # /api/*, etc. are untouched.
+    @root path /
+    redir @root /claude 302
+
+    # Core mod-protocol api (FastAPI on :8000) — mounted at /api so the
+    # claude UI (and any other module's UI) can call mod core directly
+    # without going through host.docker.internal.
+    @mod_api path /api/mod /api/mod/*
+    handle @mod_api {
+        uri strip_prefix /api/mod
+        reverse_proxy mod-api:8000
+    }
+
+    @claude_api path /api/claude /api/claude/*
+    handle @claude_api {
+        uri strip_prefix /api/claude
+        reverse_proxy claude:8820
+    }
+    @claude_app path /claude /claude/*
+    handle @claude_app {
+        reverse_proxy claude:8823
+    }
+    # Single `polymarket` container runs both the Rust API and the Next.js
+    # app in dev mode (source is volume-mounted, hot-reloads on edit).
     @polymarket_api path /api/polymarket /api/polymarket/*
     handle @polymarket_api {
         uri strip_prefix /api/polymarket
-        reverse_proxy localhost:50091
+        reverse_proxy polymarket:50091
     }
     # CLOB L2 passthrough — browser can hit clob.polymarket.com under CORS,
     # but proxying keeps origin checks predictable and matches the dev script.
@@ -393,22 +420,54 @@ api.modc2.com {
     @polymarket_app path /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5/*
     handle @polymarket_app {
         uri replace /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket 1
-        reverse_proxy localhost:3091
+        reverse_proxy polymarket:3091
     }
+    # Hyperliquid runs on the host under pm2 (not a docker container) — see
+    # `m.mod('hyperliquid')().serve()`. Routes have to live inside :3000
+    # explicitly because the catch-all below forwards everything else to
+    # polymarket, and the `module_routes` snippet isn't imported in this block.
+    @hyperliquid_api path /api/hyperliquid /api/hyperliquid/*
+    handle @hyperliquid_api {
+        uri strip_prefix /api/hyperliquid
+        reverse_proxy host.docker.internal:8919
+    }
+    @hyperliquid_app path /hyperliquid /hyperliquid/*
+    handle @hyperliquid_app {
+        reverse_proxy host.docker.internal:3919
+    }
+
+    # copytensor — same pattern as hyperliquid. Can run on the host (PM-style)
+    # or as a docker container on modnet. When the container is healthy it
+    # answers on copytensor:50150/3150; when running locally on the host it
+    # answers via host.docker.internal. We point at host.docker.internal so
+    # both modes work without a Caddyfile rewrite.
+    @copytensor_api_3000 path /api/copytensor /api/copytensor/*
+    handle @copytensor_api_3000 {
+        uri strip_prefix /api/copytensor
+        reverse_proxy host.docker.internal:50150
+    }
+    @copytensor_app_3000 path /copytensor /copytensor/*
+    handle @copytensor_app_3000 {
+        reverse_proxy host.docker.internal:3150
+    }
+
     handle /* {
-        reverse_proxy localhost:3091
+        reverse_proxy polymarket:3091
     }
 }
 
-# {3000, 3030, 3031, ...} and pass it in via WHITEPAPER_PROXY_PORT.
-
-:{$WHITEPAPER_PROXY_PORT:3000} {
-    @whitepaper_api path /api/whitepaper /api/whitepaper/*
-    handle @whitepaper_api {
-        uri strip_prefix /api/whitepaper
-        reverse_proxy localhost:{$WHITEPAPER_API_PORT:50106}
-    }
-    handle /whitepaper* {
-        reverse_proxy localhost:{$WHITEPAPER_APP_PORT:3106}
-    }
-}
+# Whitepaper block disabled — its `:{$WHITEPAPER_PROXY_PORT:3000}` site
+# address parses as unexpected EOF in this caddy version when no env
+# vars are exported. Without this block commented out the whole file
+# fails to reload (blocking polymarket changes from taking effect).
+# Re-enable by setting WHITEPAPER_PROXY_PORT in caddy's environment.
+#:{$WHITEPAPER_PROXY_PORT:3000} {
+#    @whitepaper_api path /api/whitepaper /api/whitepaper/*
+#    handle @whitepaper_api {
+#        uri strip_prefix /api/whitepaper
+#        reverse_proxy localhost:{$WHITEPAPER_API_PORT:50106}
+#    }
+#    handle /whitepaper* {
+#        reverse_proxy localhost:{$WHITEPAPER_APP_PORT:3106}
+#    }
+#}

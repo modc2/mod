@@ -2119,6 +2119,93 @@ Apply the fix now. Edit only the affected file(s).
         except (json.JSONDecodeError, IOError):
             return None
 
+    # ── Mod protocol integration ──────────────────────────────────────────
+    # These methods route through the mod core/api sidecar so claude doesn't
+    # duplicate registry/version/meter logic. URL resolves through caddy
+    # (`/api/mod`) when running in-container; falls back to direct port 8000
+    # for host/dev. Override via env: MOD_API_URL=http://host:8000.
+
+    @property
+    def mod_api_url(self) -> str:
+        url = os.environ.get('MOD_API_URL')
+        if url:
+            return url.rstrip('/')
+        # Inside the claude container, the caddy gateway is on host.docker.internal:3000
+        # In host/dev mode, the api binds directly to :8000.
+        for candidate in ('http://mod-api:8000', 'http://host.docker.internal:8000', 'http://localhost:8000'):
+            try:
+                with urllib.request.urlopen(f'{candidate}/health', timeout=1) as r:
+                    if r.status == 200:
+                        return candidate
+            except Exception:
+                continue
+        return 'http://mod-api:8000'  # last-resort default
+
+    def _mod_api(self, method: str, path: str, body: Optional[dict] = None) -> dict:
+        """Call the mod core/api sidecar. Path is "/reg", "/versions/foo", etc."""
+        url = f"{self.mod_api_url}{path}"
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            url, data=data, method=method,
+            headers={'Content-Type': 'application/json'} if data else {},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            return {'error': f'HTTP {e.code}', 'detail': e.read().decode(errors='replace')}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def mod_register(self, mod: str, comment: str = '') -> dict:
+        """Register/update a module through mod core/api. Replaces the inline
+        api/reg POST that claude-jobs makes today — same on-the-wire shape."""
+        return self._mod_api('POST', '/reg', {'mod': mod, 'comment': comment})
+
+    def mod_versions(self, mod: str, n: int = 100) -> list:
+        """Get a module's version history via mod core/api (single source of truth)."""
+        result = self._mod_api('GET', f'/versions?mod={mod}&n={n}')
+        return result.get('result', []) if isinstance(result, dict) else []
+
+    def mod_meter(self, fn: str, duration: float, user: str = '', status: str = 'success') -> dict:
+        """Log a usage event to mod's meter. Called from job completion paths
+        so per-user/per-module stats accumulate in one place."""
+        return self._mod_api('POST', '/meter/record', {
+            'fn': fn, 'duration': duration, 'user': user, 'status': status,
+        })
+
+    # ── Container orchestration (DooD) ────────────────────────────────────
+    # When the host docker socket is bind-mounted, claude becomes a thin
+    # orchestrator. These methods shell to the docker CLI for one-off ops
+    # and route module-shape ones through m.up/m.down which handle compose
+    # files, port allocation, and the registry side-effect.
+
+    def container_list(self) -> list:
+        """List all sibling containers visible through the host socket."""
+        try:
+            out = subprocess.check_output(
+                ['docker', 'ps', '-a', '--format', '{{json .}}'],
+                stderr=subprocess.STDOUT, timeout=10,
+            ).decode().strip()
+            return [json.loads(line) for line in out.splitlines() if line]
+        except Exception as e:
+            return [{'error': str(e)}]
+
+    def container_up(self, mod_name: str) -> dict:
+        """Start a module via mod core's pm.docker pipeline. Side effect:
+        the module also lands in the local registry through the existing
+        config-scanner loop (core/api/mod.py:_scan_and_sync_configs)."""
+        try:
+            return {'result': m.up(mod_name)}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def container_down(self, mod_name: str) -> dict:
+        try:
+            return {'result': m.down(mod_name)}
+        except Exception as e:
+            return {'error': str(e)}
+
     def __repr__(self):
         server = "connected" if self._server_available() else "offline"
         return f"<Claude api={self.api_url} server={server} owner={self._owner or 'none'}>"

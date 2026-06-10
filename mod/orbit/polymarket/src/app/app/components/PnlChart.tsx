@@ -26,7 +26,10 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
   filtered?: boolean;
   highlightIndex?: number | null;
   onHoverChange?: (idx: number | null) => void;
-  linkedTrades?: any[];
+  /** Per-trade rich data keyed by timestamp. When provided, the hover
+      tooltip can show the Sharpe-weighted score the live engine would
+      have assigned this candidate. */
+  linkedTrades?: Array<{ ts: number; score?: number; sharpe?: number }>;
   shortAddress?: (addr: string) => string;
 }) {
   const W = 800, H = 260;
@@ -209,6 +212,28 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
           <span style={{ color: hp.pnl > 0 ? "#4ade80" : hp.pnl < 0 ? "#f87171" : "#fff" }}>
             MTM {hp.pnl >= 0 ? "+" : ""}${hp.pnl.toFixed(2)}
           </span>
+          {/* Sharpe-weighted score from the live-engine sampler. Joined
+              by timestamp since CurvePoint doesn't carry the upstream
+              trade id. Multiple trades on the same ms is rare enough
+              that first-match is acceptable; if it bites we'll widen
+              to (ts, market). */}
+          {(() => {
+            if (!linkedTrades || hp.side === "MARK") return null;
+            const lt = linkedTrades.find((l) => l.ts === hp.ts);
+            if (!lt) return null;
+            if (hp.side === "SELL") {
+              return <span className="text-pixel-gray">score — (SELL always honored)</span>;
+            }
+            if (lt.score === undefined || lt.sharpe === undefined || lt.score <= 0) {
+              return <span className="text-pixel-gray/60">score — (no 30d Sharpe)</span>;
+            }
+            const color = lt.score > 5 ? "#4ade80" : lt.score > 1 ? "#facc15" : "#a3a3a3";
+            return (
+              <span style={{ color }}>
+                score ${lt.score.toFixed(2)} (Sharpe {lt.sharpe.toFixed(2)})
+              </span>
+            );
+          })()}
           {hp.market && <span className="text-pixel-gray">{hp.market}</span>}
         </div>
       )}

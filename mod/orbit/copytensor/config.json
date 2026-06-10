@@ -101,7 +101,7 @@
         "wallet_balance",
         "forward"
     ],
-    "gateway_port": 3000,
+    "gateway_port": 3001,
     "leaderboard_pool_size": 100,
     "max_subnets": 20,
     "max_tao_per_tx": 10.0,
@@ -143,8 +143,8 @@
     "urls": {
         "api": "http://localhost:50150",
         "app": "http://localhost:3150/copytensor",
-        "gateway_api": "http://localhost:3000/api/copytensor",
-        "gateway_app": "http://localhost:3000/copytensor"
+        "gateway_api": "http://localhost:3001/api/copytensor",
+        "gateway_app": "http://localhost:3001/copytensor"
     },
     "version": "0.2.0",
     "watched_accounts": [

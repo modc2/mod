@@ -81,37 +81,51 @@ fn window_for_days(days: u32) -> &'static str {
     else { "allTime" }
 }
 
+/// Per-row leaderboard data we keep around for the fast-path fallback.
+/// When `/info` 429s on every candidate, we still want the UI to show
+/// SOMETHING — the leaderboard CDN already gives us pnl + vlm per window,
+/// so we synthesize a TopTrader directly from those.
+#[derive(Debug, Clone, Default)]
+struct LbRow {
+    pnl: f64,
+    vlm: f64,
+    last_active_ms: i64,
+}
+
 // Parse the stats-CDN leaderboard, ranking candidates by the chosen window's
 // PnL so the cohort we score with fills actually reflects performance in
 // that window — not just the all-time top accounts.
-fn parse_lb_ranked(v: &Value, window: &str) -> Vec<String> {
+fn parse_lb_ranked(v: &Value, window: &str) -> Vec<(String, LbRow)> {
     let rows = v.get("leaderboardRows").and_then(|x| x.as_array());
-    let mut scored: Vec<(String, f64)> = Vec::new();
+    let mut scored: Vec<(String, LbRow)> = Vec::new();
     if let Some(rows) = rows {
         for row in rows {
             let addr = row.get("ethAddress").and_then(|x| x.as_str()).unwrap_or("");
             if !addr.starts_with("0x") || addr.len() != 42 { continue; }
-            let mut pnl = f64::NEG_INFINITY;
+            let mut data = LbRow::default();
+            let mut found = false;
             if let Some(perfs) = row.get("windowPerformances").and_then(|x| x.as_array()) {
                 for p in perfs {
-                    let pair = p.as_array();
-                    if let Some(pair) = pair {
+                    if let Some(pair) = p.as_array() {
                         if pair.len() == 2 && pair[0].as_str() == Some(window) {
-                            pnl = pair[1].get("pnl")
-                                .and_then(|x| x.as_str())
-                                .and_then(|s| s.parse::<f64>().ok())
-                                .unwrap_or(f64::NEG_INFINITY);
+                            let body = &pair[1];
+                            data.pnl = body.get("pnl").and_then(|x| x.as_str())
+                                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                            data.vlm = body.get("vlm").and_then(|x| x.as_str())
+                                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                            found = true;
                         }
                     }
                 }
             }
-            scored.push((addr.to_lowercase(), pnl));
+            if !found { data.pnl = f64::NEG_INFINITY; }
+            scored.push((addr.to_lowercase(), data));
         }
     }
-    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let mut out: Vec<String> = scored.into_iter().map(|(a, _)| a).collect();
-    out.dedup();
-    out
+    scored.sort_by(|a, b| b.1.pnl.partial_cmp(&a.1.pnl).unwrap_or(std::cmp::Ordering::Equal));
+    // Drop the sentinel -inf rows (no window data) before returning.
+    scored.retain(|(_, d)| d.pnl > f64::NEG_INFINITY);
+    scored
 }
 
 fn score_fills(fills: &[Fill], cutoff_ms: i64) -> (f64, f64, f64, usize, Vec<String>, f64, i64) {
@@ -176,9 +190,18 @@ pub async fn top_traders_with_progress(
     progress: Option<Arc<ProgressTracker>>,
 ) -> anyhow::Result<Vec<TopTrader>> {
     let lb = hl.leaderboard().await.unwrap_or(Value::Null);
-    let mut addrs = parse_lb_ranked(&lb, window_for_days(days));
+    let ranked = parse_lb_ranked(&lb, window_for_days(days));
+    // Keep the per-row data accessible by address for the fast-path
+    // fallback below. We also keep the ordered Vec<String> for the fills
+    // fan-out so the rest of the loop is unchanged.
+    let mut lb_by_addr: std::collections::HashMap<String, LbRow> =
+        ranked.iter().cloned().collect();
+    let mut addrs: Vec<String> = ranked.into_iter().map(|(a, _)| a).collect();
     for a in extra_addrs {
-        if !addrs.contains(&a) { addrs.push(a); }
+        if !addrs.contains(&a) {
+            addrs.push(a.clone());
+            lb_by_addr.entry(a).or_default();
+        }
     }
     addrs.truncate(pool.max(1));
 
@@ -209,16 +232,22 @@ pub async fn top_traders_with_progress(
                 r
             }
         })
-        .buffer_unordered(4)
+        // Down from 4 — HL's /info aggressively 429s above ~2 concurrent
+        // per-IP, and each 429 drops that candidate from the cohort
+        // (no fill data = no score). 2 keeps us under the throttle while
+        // the scan stays usable.
+        .buffer_unordered(2)
         .collect()
         .await;
     if let Some(p) = progress.as_ref() { p.finish(); }
 
     let mut out = Vec::new();
+    let mut fill_scored = 0usize;
     for (addr, fills) in results {
         if fills.len() < min_trades.max(1) { continue; }
         let (vol, pnl, wr, n, coins, sharpe, last) = score_fills(&fills, cutoff_ms);
         if n == 0 { continue; }
+        fill_scored += 1;
         out.push(TopTrader {
             address: addr,
             volume: vol, pnl, win_rate: wr,
@@ -227,6 +256,36 @@ pub async fn top_traders_with_progress(
             sharpe,
             last_active: last,
         });
+    }
+    // Fallback: if /info was rate-limited so hard that we couldn't score
+    // enough candidates (less than half of the requested pool), synthesize
+    // rows from the leaderboard CDN data we already have. PnL + volume
+    // come from the window, but per-fill stats (win_rate, sharpe, trades,
+    // coins) are unknown — sentinel as -1 / 0 / [] so the UI can render
+    // them as "—". Better to show partial data than an empty table.
+    let want_at_least = (pool / 2).max(1);
+    if fill_scored < want_at_least {
+        let have: std::collections::HashSet<String> =
+            out.iter().map(|t| t.address.clone()).collect();
+        for addr in &addrs {
+            if have.contains(addr) { continue; }
+            let row = lb_by_addr.get(addr).cloned().unwrap_or_default();
+            // Skip if the window had no PnL data at all (already filtered
+            // upstream, but keep the guard for the extra_addrs path).
+            if row.pnl == 0.0 && row.vlm == 0.0 { continue; }
+            out.push(TopTrader {
+                address: addr.clone(),
+                volume: row.vlm,
+                pnl: row.pnl,
+                win_rate: -1.0,   // unknown — UI renders "—"
+                trades: 0,
+                coins: Vec::new(),
+                avg_trade_usd: 0.0,
+                sharpe: 0.0,
+                last_active: row.last_active_ms,
+            });
+            if out.len() >= pool { break; }
+        }
     }
     out.sort_by(|a, b| b.pnl.partial_cmp(&a.pnl).unwrap_or(std::cmp::Ordering::Equal));
     Ok(out)

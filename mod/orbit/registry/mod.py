@@ -434,8 +434,125 @@ class Mod:
         }
 
     def start_worker(self, interval=300, **kw):
-        """Start a background sync worker (no-op for now)."""
-        pass
+        """Reserved for the api's per-300s config-scan worker.
+
+        Kept as a no-op so the existing `Api.__init__` call site continues
+        to work. Use `start_onchain_sync()` for the daily CID publish.
+        """
+        return {'status': 'noop', 'note': 'use start_onchain_sync() for CID publishes'}
+
+    def start_onchain_sync(self, interval=86400, backends=('localfs',), **kw):
+        """Periodically push the local registry index to CID storage.
+
+        Default interval is 24h — one daily on-chain (content-addressed)
+        sync. First sync runs immediately so a fresh container has a CID
+        for its current registry without waiting a full cycle.
+
+        Args:
+            interval: seconds between syncs (default 86400 = 1 day).
+            backends: which CID backends to publish to. 'localfs' is wired
+                today; 'multistore' wraps ipfs/filecoin/hippius and will be
+                added once those modules are stable in this repo.
+        """
+        import threading
+        existing = getattr(self, '_onchain_worker', None)
+        if existing and existing.is_alive():
+            return {'status': 'already_running', 'interval': getattr(self, '_onchain_interval', interval)}
+
+        self._onchain_stop = threading.Event()
+        self._onchain_interval = interval
+        self._onchain_backends = tuple(backends)
+
+        def loop():
+            while True:
+                try:
+                    self.sync_onchain(backends=self._onchain_backends)
+                except Exception as e:
+                    print(f'[registry.onchain_sync] failed: {e}', file=sys.stderr)
+                if self._onchain_stop.wait(interval):
+                    return
+
+        self._onchain_worker = threading.Thread(
+            target=loop, daemon=True, name='registry-onchain-sync',
+        )
+        self._onchain_worker.start()
+        return {'status': 'started', 'interval': interval, 'backends': list(backends)}
+
+    def stop_onchain_sync(self):
+        """Signal the on-chain sync worker to stop after its current tick."""
+        if hasattr(self, '_onchain_stop'):
+            self._onchain_stop.set()
+        return {'status': 'stopped'}
+
+    def sync_onchain(self, backends=('localfs',)):
+        """One-shot publish of ~/.mod/registry/index.json to CID storage.
+
+        Appends `{ts, cid, prev, backends}` to ~/.mod/registry/onchain.json
+        so we get a linked-list audit trail of registry snapshots. The
+        `prev` pointer lets future readers reconstruct registry history
+        without scanning every backend.
+        """
+        import time
+        storage_path = os.path.expanduser('~/.mod/registry')
+        os.makedirs(storage_path, exist_ok=True)
+        index_path = os.path.join(storage_path, 'index.json')
+        log_path = os.path.join(storage_path, 'onchain.json')
+
+        if not os.path.exists(index_path):
+            return {'status': 'no_index', 'path': index_path}
+
+        with open(index_path) as f:
+            index_data = json.load(f)
+
+        # Lazy import — keeps registry importable when localfs/multistore
+        # aren't on disk yet (fresh checkout, partial install).
+        from mod.core.mod import m as _m  # noqa: WPS433
+        results = {}
+        for backend in backends:
+            try:
+                if backend == 'localfs':
+                    fs = _m.mod('localfs')()
+                    results[backend] = {'cid': fs.put(index_data)}
+                elif backend == 'multistore':
+                    ms = _m.mod('multistore')()
+                    results[backend] = {'cid': ms.put(index_data)}
+                else:
+                    results[backend] = {'error': f'unknown backend: {backend}'}
+            except Exception as e:
+                results[backend] = {'error': str(e)}
+
+        log = []
+        if os.path.exists(log_path):
+            try:
+                with open(log_path) as f:
+                    log = json.load(f)
+            except Exception:
+                log = []
+        prev_cid = log[-1].get('cid') if log else None
+        # Primary CID is the first successful backend; record all for audit.
+        primary_cid = next(
+            (r.get('cid') for r in results.values() if isinstance(r, dict) and r.get('cid')),
+            None,
+        )
+        entry = {
+            'ts': time.time(),
+            'cid': primary_cid,
+            'prev': prev_cid,
+            'backends': results,
+        }
+        log.append(entry)
+        with open(log_path, 'w') as f:
+            json.dump(log, f, indent=2)
+        return entry
+
+    def onchain_history(self, n: int = 20):
+        """Read the on-chain sync log — recent registry CIDs and their parents."""
+        log_path = os.path.expanduser('~/.mod/registry/onchain.json')
+        if not os.path.exists(log_path):
+            return []
+        with open(log_path) as f:
+            log = json.load(f)
+        return log[-n:]
 
     def backends(self):
         """List available backends."""

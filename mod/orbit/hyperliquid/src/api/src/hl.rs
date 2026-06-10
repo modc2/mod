@@ -49,17 +49,19 @@ impl Client {
 
     pub async fn info(&self, body: Value) -> anyhow::Result<Value> {
         // Hyperliquid's /info bursts to 429 under load; back off and retry.
+        // Bigger retry budget so a single 429 doesn't drop a candidate
+        // from the cohort. 8 attempts × backoff up to 4s = ~30s worst case.
         let mut delay_ms = 250u64;
-        for attempt in 0..5 {
+        for attempt in 0..8 {
             let r = self.http.post(&self.info_url).json(&body).send().await?;
             let status = r.status();
             let txt = r.text().await?;
             if status.is_success() {
                 return Ok(serde_json::from_str(&txt).unwrap_or(Value::Null));
             }
-            if status.as_u16() == 429 && attempt < 4 {
+            if status.as_u16() == 429 && attempt < 7 {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                delay_ms = (delay_ms * 2).min(2_000);
+                delay_ms = (delay_ms * 2).min(4_000);
                 continue;
             }
             anyhow::bail!("info {} {}", status, txt);

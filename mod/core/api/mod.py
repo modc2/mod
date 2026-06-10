@@ -33,6 +33,13 @@ class Api:
         if not Api._worker_started:
             Api._worker_started = True
             self._reg.start_worker(interval=300)
+            # Daily-ish push of the local registry index to CID storage.
+            # Pinned to localfs for now; multistore (ipfs/filecoin) follows
+            # once the surrounding modules stabilize.
+            try:
+                self._reg.start_onchain_sync(interval=86400, backends=('localfs',))
+            except Exception as e:
+                m.print(f'registry onchain_sync init failed: {e}', color='yellow')
             # Start config scanner worker
             self.threads['config_scanner'] = m.thread(self._config_scanner_worker)
 
@@ -477,6 +484,14 @@ class Api:
 
     def registry(self, key='all', update=False) -> Dict[str, str]:
         return self._reg.registry(key=key, update=update)
+
+    def onchain_history(self, n: int = 20) -> List[Dict[str, Any]]:
+        """Recent daily on-chain registry CIDs (linked-list audit trail)."""
+        return self._reg.onchain_history(n=n)
+
+    def sync_onchain(self, backends: list = None) -> Dict[str, Any]:
+        """One-shot manual trigger of the on-chain registry publish."""
+        return self._reg.sync_onchain(backends=tuple(backends or ('localfs',)))
 
     def _clear(self) -> bool:
         return self._reg._clear()

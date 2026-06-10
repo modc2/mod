@@ -10,11 +10,14 @@ from .base import Leader, Strat
 class HighWinRate(Strat):
     """Mirror traders with the highest win rate, gated by a minimum trade
     count to filter lucky-streak noise. Allocation is weighted by the
-    edge over a coin-flip (win_rate − 0.5), so consistent winners get
+    edge over a coin-flip (win_rate − 50), so consistent winners get
     most of the size.
 
+    `min_win_rate` is a PERCENTAGE (0-100) matching the backend's units —
+    so `min_win_rate=60` means "≥60% wins".
+
     Example:
-        HighWinRate(min_trades=50, min_win_rate=0.6, n=10).start(hl, eoa)
+        HighWinRate(min_trades=50, min_win_rate=60, n=10).start(hl, eoa)
     """
 
     name = "high_win_rate"
@@ -25,7 +28,7 @@ class HighWinRate(Strat):
         n: int = 10,
         days: int = 7,
         min_trades: int = 30,
-        min_win_rate: float = 0.55,
+        min_win_rate: float = 55.0,    # percent, matches backend's 0-100 scale
         pool: int = 200,
         **params: Any,
     ) -> None:
@@ -40,6 +43,8 @@ class HighWinRate(Strat):
     def pick_leaders(self, hl) -> List[Leader]:
         r = hl.top_traders(days=self.days, min_per_day=0.0, pool=self.pool)
         traders = r.get("traders", []) if isinstance(r, dict) else []
+        # Backend reports win_rate on 0-100; we compare against the
+        # percentage threshold directly.
         candidates = [
             t for t in traders
             if (t.get("trades") or 0) >= self.min_trades
@@ -49,7 +54,8 @@ class HighWinRate(Strat):
         picked = candidates[: self.n]
         if not picked:
             return []
-        edges = [max((t.get("win_rate", 0) - 0.5), 0.0) for t in picked]
+        # Edge over coin-flip is win_rate − 50 (in percent).
+        edges = [max((t.get("win_rate", 0) - 50.0), 0.0) for t in picked]
         total = sum(edges) or 1.0
         return [Leader(address=t["address"], weight=e / total)
                 for t, e in zip(picked, edges)]

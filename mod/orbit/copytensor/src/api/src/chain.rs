@@ -119,8 +119,11 @@ impl DynVal {
 // ── Subtensor Client ────────────────────────────────────────────
 
 pub struct SubtensorClient {
-    api: OnlineClient<SubstrateConfig>,
+    // Wrapped in RwLock so we can swap in a fresh OnlineClient on reconnect
+    // without changing the SubtensorClient instance held by AppState.
+    api: tokio::sync::RwLock<OnlineClient<SubstrateConfig>>,
     network: String,
+    url: String,
 }
 
 impl SubtensorClient {
@@ -139,13 +142,26 @@ impl SubtensorClient {
             .context(format!("failed to connect to subtensor at {url}"))?;
 
         Ok(Self {
-            api,
+            api: tokio::sync::RwLock::new(api),
             network: network.to_string(),
+            url,
         })
     }
 
+    /// Rebuild the underlying OnlineClient. Call when the WS connection
+    /// drops ("background task closed" — subxt 0.37 does not auto-reconnect).
+    pub async fn reconnect(&self) -> Result<()> {
+        tracing::info!("reconnecting subtensor at {}", self.url);
+        let fresh = OnlineClient::<SubstrateConfig>::from_url(&self.url)
+            .await
+            .context(format!("reconnect to subtensor at {} failed", self.url))?;
+        *self.api.write().await = fresh;
+        tracing::info!("reconnected subtensor");
+        Ok(())
+    }
+
     pub async fn get_block(&self) -> Result<u64> {
-        let block = self.api.blocks().at_latest().await?;
+        let block = self.api.read().await.blocks().at_latest().await?;
         Ok(block.number() as u64)
     }
 
@@ -400,6 +416,8 @@ impl SubtensorClient {
 
         let result = self
             .api
+            .read()
+            .await
             .tx()
             .sign_and_submit_then_watch_default(&tx, signer)
             .await?
@@ -434,6 +452,8 @@ impl SubtensorClient {
 
         let result = self
             .api
+            .read()
+            .await
             .tx()
             .sign_and_submit_then_watch_default(&tx, signer)
             .await?
@@ -473,7 +493,7 @@ impl SubtensorClient {
         keys: Vec<Value>,
     ) -> Result<Option<subxt::dynamic::DecodedValueThunk>> {
         let addr = subxt::dynamic::storage(pallet, entry, keys);
-        let storage = self.api.storage().at_latest().await?;
+        let storage = self.api.read().await.storage().at_latest().await?;
         Ok(storage.fetch(&addr).await?)
     }
 

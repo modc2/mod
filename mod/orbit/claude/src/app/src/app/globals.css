@@ -14,6 +14,21 @@
   }
 }
 
+@keyframes profileMenuExpandLeft {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.profile-menu-expand-left {
+  animation: profileMenuExpandLeft 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
 :root {
   --crt-green: #34d399;
   --crt-amber: #fbbf24;
@@ -352,10 +367,11 @@ strong, b {
   position: absolute;
   left: 100%;
   top: 50%;
-  width: 10px;
+  width: 6px;
   height: 1px;
   background: var(--border-color-strong);
   transform: translateY(-0.5px);
+  opacity: 0.6;
 }
 .commit-rail:last-child::after { display: none; }
 
@@ -873,4 +889,303 @@ code:not(pre code) {
   );
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Readability bump
+ *
+ * The whole dashboard was authored with `text-[10px]` / `text-[11px]` /
+ * `text-[12px]` arbitrary-value classes. On a real phone (let alone a
+ * laptop sitting on a desk) those are eye-strain territory. Rather than
+ * touch every call site we override the generated tailwind classes here.
+ *
+ * Desktop: a gentle +1–2px nudge so labels actually read.
+ * Mobile (< 768px): more aggressive — the design becomes single-column
+ *   anyway, so we have room to spend.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Desktop nudges — tiny labels were criminally small */
+.text-\[8px\]  { font-size: 10px !important; }
+.text-\[9px\]  { font-size: 11px !important; }
+.text-\[10px\] { font-size: 12px !important; }
+.text-\[10\.5px\] { font-size: 12.5px !important; }
+.text-\[11px\] { font-size: 13px !important; }
+.text-\[12px\] { font-size: 14px !important; }
+.text-\[12\.5px\] { font-size: 14.5px !important; }
+.text-\[13px\] { font-size: 15px !important; }
+.text-\[13\.5px\] { font-size: 15.5px !important; }
+.text-\[14px\] { font-size: 16px !important; }
+.text-\[14\.5px\] { font-size: 16.5px !important; }
+.text-\[15px\] { font-size: 16.5px !important; }
+.text-\[16px\] { font-size: 17.5px !important; }
+.text-\[18px\] { font-size: 20px !important; }
+
+/* Bento primitive sizes — used by the .bento-* utility classes */
+.bento-title { font-size: 14px !important; letter-spacing: 0.08em !important; }
+.bento-value { font-size: 34px !important; }
+.bento-sub   { font-size: 15px !important; }
+.label-muted { font-size: 11.5px !important; letter-spacing: 0.12em !important; }
+.ui-chip     { font-size: 12px !important; }
+.cid-chip    { font-size: 13.5px !important; padding: 5px 12px !important; }
+
+/* Glass + version primitives */
+.glass-btn       { font-size: 14.5px !important; padding: 10px 18px !important; }
+.version-row .msg  { font-size: 15.5px !important; }
+.version-row .meta { font-size: 13.5px !important; }
+
+/* Pixel button (used throughout for action chips) */
+.pixel-btn { font-size: 14px !important; padding: 9px 18px !important; }
+
+/* Mobile: turn everything up a notch — at a glance the dashboard
+ * should be readable from arm's length on a phone. */
+@media (max-width: 767px) {
+  html, body { font-size: 18px; }
+
+  .text-\[8px\]  { font-size: 13px !important; }
+  .text-\[9px\]  { font-size: 14px !important; }
+  .text-\[10px\] { font-size: 15px !important; }
+  .text-\[10\.5px\] { font-size: 15.5px !important; }
+  .text-\[11px\] { font-size: 16px !important; }
+  .text-\[12px\] { font-size: 17px !important; }
+  .text-\[12\.5px\] { font-size: 17.5px !important; }
+  .text-\[13px\] { font-size: 18px !important; }
+  .text-\[13\.5px\] { font-size: 18.5px !important; }
+  .text-\[14px\] { font-size: 19px !important; }
+  .text-\[14\.5px\] { font-size: 19.5px !important; }
+  .text-\[15px\] { font-size: 20px !important; }
+  .text-\[16px\] { font-size: 21px !important; }
+  .text-\[18px\] { font-size: 24px !important; }
+
+  .bento-title { font-size: 15px !important; }
+  .bento-value { font-size: 36px !important; }
+  .bento-sub   { font-size: 16px !important; }
+  .label-muted { font-size: 12.5px !important; }
+  .ui-chip     { font-size: 13px !important; padding: 5px 10px !important; }
+  .cid-chip    { font-size: 15px !important; padding: 6px 14px !important; }
+
+  .glass-btn   { font-size: 16px !important; padding: 12px 20px !important; }
+  .pixel-btn   { font-size: 15px !important; padding: 11px 20px !important; }
+
+  /* Bigger comfy tap targets — anything visibly button-like */
+  button, [role="button"], a, select, input, textarea {
+    min-height: 38px;
+  }
+  /* But don't force-grow inline tiny chips inside a row layout */
+  .ui-chip, .cid-chip, .commit-chip,
+  button.text-\[8px\], button.text-\[9px\], button.text-\[10px\] {
+    min-height: 0;
+  }
+
+  /* Side-scrolling tab rows on phone — let the OVERVIEW/APP/API/LOGS/FILES
+     row scroll instead of wrap into a stacked mess. */
+  .nav-tabs-mobile-scroll {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+  }
+  .nav-tabs-mobile-scroll::-webkit-scrollbar { display: none; }
+
+  /* Cards: more vertical breathing room on phone */
+  .bento { padding: 18px 18px; border-radius: 18px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * iPhone / touch-screen editor pass
+ *
+ * Two goals: (1) file editor needs to be comfortably legible on a phone
+ * while thumb-typing, (2) avoid the iOS Safari auto-zoom-on-focus
+ * behavior that triggers whenever an input/textarea has effective
+ * font-size < 16px. Code views and editor textareas inherit `font-code`
+ * (JetBrains Mono), so we anchor on that selector.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Always: code-font textareas and pre blocks read at a real size, with
+ * a touch more line-height so wrapping is easy on the eyes. */
+textarea.font-code,
+pre.font-code,
+.font-code textarea,
+.font-code pre {
+  font-size: 16px !important;
+  line-height: 1.55 !important;
+}
+
+/* iOS Safari refuses to NOT zoom when a focused input is < 16px. Pin
+ * every input/textarea to a 16px floor so tapping into a field never
+ * yanks the viewport. */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Phone-specific editor bump and safe-area handling */
+@media (max-width: 767px) {
+  textarea.font-code,
+  pre.font-code,
+  .font-code textarea,
+  .font-code pre {
+    font-size: 18px !important;
+    line-height: 1.6 !important;
+  }
+
+  /* Respect the iPhone notch + home indicator so the dashboard chrome
+   * isn't clipped under system UI. */
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Kill the 300ms tap delay + flash on iOS for everything tappable. */
+  button, [role="button"], a, select, input, textarea, label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * "Dope" polish — a little more depth on the section cards and
+ * a livelier accent bar where the codebase paints a 3px stripe on the
+ * left edge of each card. These rules don't change layout; they just
+ * make the surface feel less flat.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+:root[data-theme="dark"] .bento {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 30%),
+    var(--glass-bg);
+}
+
+/* Lift any rounded-lg card with an accent stripe (the codebase pattern
+ * `<div className="relative rounded-lg overflow-hidden">` followed by a
+ * 3px left bar). Adds a soft inset highlight + nicer shadow on hover. */
+.rounded-lg {
+  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+.rounded-lg:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Animated LED dot — currently `led-pulse` keyframes only fade opacity.
+ * Add a subtle glow halo so the "ONLINE" badge actually reads as alive. */
+@keyframes led-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--crt-green) 60%, transparent),
+                0 0 4px color-mix(in srgb, var(--crt-green) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--crt-green) 0%, transparent),
+                0 0 10px color-mix(in srgb, var(--crt-green) 70%, transparent);
+  }
+}
+.led-pulse {
+  animation: led-glow 2.2s ease-in-out infinite, led-pulse 2s ease-in-out infinite;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Section Card — unified primitive for the overview panel.
+ *
+ * Each card carries an accent color via --card-accent (set inline or
+ * via data-accent below). The bar, glyph and title pick it up; the
+ * background and border stay neutral-glassy so the six cards no longer
+ * fight each other for attention.
+ * ──────────────────────────────────────────────────────────────────────*/
+.section-card {
+  --card-accent: var(--accent-color);
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 14%, var(--border-color));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-accent) 2.5%, transparent), transparent 55%),
+    color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--card-accent) 6%, transparent), var(--shadow-sm);
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+.section-card:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 24%, var(--border-color-strong));
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--card-accent) 8%, transparent), var(--shadow-md);
+}
+
+.section-card[data-accent="blue"]  { --card-accent: var(--crt-blue); }
+.section-card[data-accent="green"] { --card-accent: var(--crt-green); }
+.section-card[data-accent="amber"] { --card-accent: var(--crt-amber); }
+.section-card[data-accent="red"]   { --card-accent: var(--crt-red); }
+
+.section-card__bar {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--card-accent) 80%, transparent),
+    color-mix(in srgb, var(--card-accent) 25%, transparent));
+  pointer-events: none;
+}
+
+.section-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px 10px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--card-accent) 8%, var(--border-color));
+}
+
+.section-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--card-accent) 88%, var(--text-primary));
+}
+
+.section-card__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1;
+  background: color-mix(in srgb, var(--card-accent) 13%, transparent);
+  color: var(--card-accent);
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, transparent);
+}
+
+.section-card__body {
+  padding: 12px 14px 14px 18px;
+}
+
+/* Reusable status pill that picks up an accent via --pill-accent. Used by
+ * the ONLINE/OFFLINE chips on Gateway / API / APP tiles. */
+.status-pill {
+  --pill-accent: var(--crt-green);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  color: var(--pill-accent);
+  background: color-mix(in srgb, var(--pill-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill-accent) 28%, transparent);
+}
+.status-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pill-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--pill-accent) 70%, transparent);
 }

@@ -121,60 +121,10 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
     }
   };
 
-  const latest = versions[versions.length - 1];
-
   return (
     <BentoGrid>
-      <Bento title="current version" accent>
-        {latest ? (
-          <>
-            <CidChip cid={latest.cid} />
-            <div className="bento-sub" style={{ marginTop: 8 }}>
-              {latest.message || "(no message)"} · {timeAgo(latest.timestamp)}
-            </div>
-          </>
-        ) : (
-          <div className="bento-sub">no snapshots yet</div>
-        )}
-      </Bento>
-
-      <Bento title="total versions">
-        <div className="bento-value">{versions.length}</div>
-        <div className="bento-sub">content-addressed via localfs</div>
-      </Bento>
-
-      <Bento title="storage">
-        <div className="bento-value" style={{ fontSize: 18 }}>localfs</div>
-        <div className="bento-sub">~/.mod/claude/blobs · pluggable</div>
-      </Bento>
-
-      <Bento title="mod registry" span={3}>
-        {latest?.registry_cid ? (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>head →</span>
-              <CidChip cid={latest.registry_cid} />
-              {latest.registry_prev && (
-                <>
-                  <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>prev →</span>
-                  <CidChip cid={latest.registry_prev} />
-                </>
-              )}
-            </div>
-            <div className="bento-sub" style={{ marginTop: 8 }}>
-              every change pushed through <code style={{ color: "var(--accent-color)" }}>api/reg</code> on :8000 ·
-              git-like linked-list via <code>prev</code>
-            </div>
-          </>
-        ) : (
-          <div className="bento-sub" style={{ color: "var(--text-tertiary)" }}>
-            not yet registered — snapshot to push through <code>api/reg</code>
-          </div>
-        )}
-      </Bento>
-
-      <Bento title="snapshot now" span={3}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+      <Bento title="versions" span={3}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
           <input
             type="text"
             value={snapMsg}
@@ -199,18 +149,15 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
           </GlassButton>
         </div>
         {status && (
-          <div className="bento-sub" style={{ marginTop: 8, color: "var(--crt-green)" }}>
+          <div className="bento-sub" style={{ marginBottom: 8, color: "var(--crt-green)" }}>
             ✓ {status}
           </div>
         )}
         {error && (
-          <div className="bento-sub" style={{ marginTop: 8, color: "var(--crt-red)" }}>
+          <div className="bento-sub" style={{ marginBottom: 8, color: "var(--crt-red)" }}>
             ✗ {error}
           </div>
         )}
-      </Bento>
-
-      <Bento title="history" span={3}>
         {loading && <div className="bento-sub">loading…</div>}
         {!loading && versions.length === 0 && (
           <div className="bento-sub">no versions yet — snapshot above to start a history</div>

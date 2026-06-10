@@ -44,6 +44,16 @@ function shortAddr(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <span
+      role="status"
+      aria-label="working"
+      className={`inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin align-[-2px] ${className}`}
+    />
+  );
+}
+
 export default function WalletPanel() {
   const { auth } = useAuth();
   const [info, setInfo] = useState<InfoResp | null>(null);
@@ -55,6 +65,13 @@ export default function WalletPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // When a deposit or withdrawal returns success, the on-chain balance
+  // hasn't necessarily landed yet (relayer batch may still be mining).
+  // Stash the pre-op balance so the polling loop can detect when the
+  // wrapped-collateral balance actually moves, then clear the spinner.
+  const [pendingOp, setPendingOp] = useState<
+    { prevBalance: string; label: string; startedAt: number } | null
+  >(null);
 
   const eoa = auth.address;
 
@@ -75,6 +92,16 @@ export default function WalletPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as InfoResp;
       setInfo(data);
+      setPendingOp((prev) => {
+        if (!prev) return null;
+        if (data.usdcBalance !== prev.prevBalance) {
+          setStatus(`${prev.label} ✓ balance updated.`);
+          return null;
+        }
+        // Bail out after 90s so a stuck relayer doesn't spin forever.
+        if (Date.now() - prev.startedAt > 90_000) return null;
+        return prev;
+      });
     } catch (e) {
       setError(`Could not load deposit wallet: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -84,11 +111,11 @@ export default function WalletPanel() {
 
   useEffect(() => {
     refresh();
-    // Poll every 15s so balance reflects deposits/withdrawals without a
-    // manual refresh.
-    const t = setInterval(refresh, 15_000);
+    // Poll fast while we're waiting for a deposit/withdraw to land,
+    // slow otherwise.
+    const t = setInterval(refresh, pendingOp ? 2_000 : 15_000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, pendingOp]);
 
   const balanceUsd = info ? Number(info.usdcBalance) / 1_000_000 : 0;
 
@@ -144,8 +171,13 @@ export default function WalletPanel() {
         const text = await wrapRes.text().catch(() => "");
         throw new Error(`Wrap failed: ${text.slice(0, 250)}`);
       }
-      setStatus(`Deposited + wrapped $${amt.toFixed(2)} ✓ ready to trade.`);
-      setTimeout(refresh, 4_000);
+      setStatus(`Deposited + wrapped $${amt.toFixed(2)} — finalizing on-chain…`);
+      setPendingOp({
+        prevBalance: info.usdcBalance,
+        label: `Deposited $${amt.toFixed(2)}`,
+        startedAt: Date.now(),
+      });
+      refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg.length > 200 ? msg.slice(0, 200) + "…" : msg);
@@ -175,7 +207,12 @@ export default function WalletPanel() {
     setBusy(true);
     try {
       const amountBase = parseUnits(amt.toString(), 6).toString();
-      const res = await fetch("/api/polymarket/deposit-wallet/withdraw", {
+      // Wallet balance is V2 collateral (`0xC011…`), not raw USDC.e. The
+      // plain /withdraw endpoint does USDC.e.transfer and reverts here
+      // (the wallet has 0 raw USDC.e after deposit auto-wraps). unwrap-
+      // and-send burns V2 collateral and mints USDC.e straight to dest
+      // in one relayer batch.
+      const res = await fetch("/api/polymarket/deposit-wallet/unwrap-and-send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -196,11 +233,16 @@ export default function WalletPanel() {
       let data: { transactionHash?: string } = {};
       try { data = JSON.parse(text); } catch {}
       setStatus(
-        `Withdrew $${amt.toFixed(2)} to ${shortAddr(dst)} ✓`
+        `Withdrawing $${amt.toFixed(2)} to ${shortAddr(dst)} — finalizing…`
         + (data.transactionHash ? ` (${data.transactionHash.slice(0, 10)}…)` : ""),
       );
       setWithdrawAmount("");
-      setTimeout(refresh, 4_000);
+      setPendingOp({
+        prevBalance: info.usdcBalance,
+        label: `Withdrew $${amt.toFixed(2)} to ${shortAddr(dst)}`,
+        startedAt: Date.now(),
+      });
+      refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg.length > 250 ? msg.slice(0, 250) + "…" : msg);
@@ -236,11 +278,19 @@ export default function WalletPanel() {
             >
               ↗
             </a>
-            <span className="ml-auto text-sm">
-              <span className="text-pixel-muted mr-1">Balance:</span>
+            <span className="ml-auto text-sm flex items-center gap-2">
+              <span className="text-pixel-muted">Balance:</span>
               <span className="font-mono text-green-400 text-base">
                 ${balanceUsd.toFixed(2)}
               </span>
+              {(busy || pendingOp) && (
+                <span
+                  className="text-green-400"
+                  title={pendingOp ? "Waiting for on-chain settlement…" : "Working…"}
+                >
+                  <Spinner />
+                </span>
+              )}
             </span>
           </>
         ) : (
@@ -293,8 +343,9 @@ export default function WalletPanel() {
           <button
             onClick={handleDeposit}
             disabled={busy || !depositAmount}
-            className="px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded"
+            className="px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded inline-flex items-center gap-2"
           >
+            {busy && <Spinner />}
             DEPOSIT
           </button>
         </div>
@@ -344,15 +395,19 @@ export default function WalletPanel() {
           <button
             onClick={handleWithdraw}
             disabled={busy || !withdrawAmount || balanceUsd <= 0}
-            className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded"
+            className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded inline-flex items-center gap-2"
           >
+            {busy && <Spinner />}
             WITHDRAW
           </button>
         </div>
       </div>
 
       {status && (
-        <div className="text-xs text-green-400 font-mono">{status}</div>
+        <div className="text-xs text-green-400 font-mono flex items-center gap-2">
+          {(busy || pendingOp) && <Spinner />}
+          <span>{status}</span>
+        </div>
       )}
       {error && (
         <div className="text-xs text-red-400 font-mono break-all">{error}</div>

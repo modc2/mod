@@ -1,9 +1,10 @@
-import { PolymarketMarket, PolymarketTrade, PolymarketPosition } from "./types";
+import { PolymarketMarket, PolymarketTrade, PolymarketPosition, TraderRoiStats } from "./types";
 import {
   getCached, setCache,
   getTradeCache, setTradeCache,
   getMarketCache, setMarketCache,
 } from "./cache";
+import { computeFifoTrades } from "./pnlEngine";
 
 // ── Top Trader type ─────────────────────────────────────────────
 export interface TopTrader {
@@ -435,11 +436,11 @@ export type ActiveTradersProgress =
 // the pipeline is still running.
 export async function fetchTopTradersStream(
   candidatePool: number,
-  options: { daysWindow?: number; minTradesPerDay?: number; force?: boolean },
+  options: { daysWindow?: number; minTradesPerDay?: number; force?: boolean; signal?: AbortSignal },
   onProgress: (p: ActiveTradersProgress) => void,
   onPartial?: (traders: TopTrader[]) => void,
 ): Promise<{ traders: TopTrader[]; source: "memory" | "disk" | "fresh"; syncedAt: number }> {
-  const { daysWindow = 7, minTradesPerDay = 1, force = false } = options;
+  const { daysWindow = 7, minTradesPerDay = 1, force = false, signal } = options;
   // force=1 bypasses both the in-memory agg cache and the per-trader
   // activity cache on the server. Without this the SYNC button looked
   // like it was working but the streaming response was a cache HIT
@@ -451,7 +452,11 @@ export async function fetchTopTradersStream(
     stream: "1",
   });
   if (force) qs.set("force", "1");
-  const res = await fetch(`${API_URL}/active-traders?${qs}`);
+  // Pass the abort signal through to fetch so a re-click on SYNC can
+  // cancel the prior in-flight stream and start fresh. Without this an
+  // HMR-dropped stream leaves inFlightRef stuck true on the caller and
+  // every subsequent click silently no-ops.
+  const res = await fetch(`${API_URL}/active-traders?${qs}`, { signal });
   if (!res.ok || !res.body) throw new Error(`active-traders ${res.status}`);
 
   const reader = res.body.getReader();
@@ -857,4 +862,79 @@ export async function fetchPositions(
 
   if (!opts.bypassCache) setCache(address, "positions", result);
   return result;
+}
+
+// ── Trader Sharpe / EV stats (powers copy-engine top-N sampling) ────
+//
+// For each candidate copy trade we score:
+//   score = (trader.roi_30d / trader.stdev_30d) * trade_notional
+//         = trader_sharpe * notional
+//
+// `roi` is the trader's realized return on cash deployed in the
+// window. `stdev` is the stdev of *per-closed-trade* fractional return
+// (realized / entry_notional). Sharpe = roi / stdev — unitless,
+// rewards consistency over lucky single hits.
+//
+// SELLs without a matching in-window BUY ("hasBasis = false") are
+// dropped: we can't compute a real return for them and the
+// `realized = 0` placeholder would deflate stdev.
+//
+// `sampleSize` is the closed-trade count. Below ~3 the stdev is too
+// noisy to be meaningful — callers should treat sharpe as 0 (i.e.
+// skip the trader) until more closed trades land.
+export async function fetchTraderRoiStats(
+  address: string,
+  windowDays: number = 30,
+): Promise<TraderRoiStats> {
+  const windowMs = windowDays * 86400 * 1000;
+  const cutoffMs = Date.now() - windowMs;
+  const untilSec = Math.floor(cutoffMs / 1000);
+
+  const trades = await fetchWalletTradesUntil(address, untilSec);
+  const positions = await fetchPositions(address).catch(() => [] as PolymarketPosition[]);
+
+  // FIFO with the window cutoff so we don't seed avg-prices from
+  // positions opened before the window — keeps stats representative
+  // of recent behavior.
+  const annotated = computeFifoTrades(trades, positions, cutoffMs);
+  const inWindow = annotated.filter((t) => t.timestamp >= cutoffMs);
+
+  let cashDeployed = 0;
+  for (const t of inWindow) {
+    if (t.side === "BUY") cashDeployed += t.price * t.size;
+  }
+
+  // Per-trade fractional return on closed SELLs only.
+  const returns: number[] = [];
+  for (const t of inWindow) {
+    if (t.side !== "SELL" || !t.hasBasis || !t.buyPrice) continue;
+    const entryNotional = t.buyPrice * t.size;
+    if (entryNotional <= 0) continue;
+    returns.push(t.realized / entryNotional);
+  }
+
+  const sampleSize = returns.length;
+  let roi = 0;
+  let stdev = 0;
+  if (sampleSize > 0) {
+    const mean = returns.reduce((s, r) => s + r, 0) / sampleSize;
+    roi = mean;
+    if (sampleSize >= 2) {
+      const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (sampleSize - 1);
+      stdev = Math.sqrt(variance);
+    }
+  }
+  // Treat <3 closed trades as "unknown" — too noisy to score on.
+  const sharpe = sampleSize >= 3 && stdev > 0 ? roi / stdev : 0;
+
+  return {
+    address: address.toLowerCase(),
+    windowDays,
+    roi,
+    stdev,
+    sampleSize,
+    sharpe,
+    cashDeployed,
+    syncedAt: Date.now(),
+  };
 }

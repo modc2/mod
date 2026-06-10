@@ -69,6 +69,28 @@ export interface IndexTrader {
   enabled?: boolean; // undefined/true = active, false = hidden
 }
 
+// ── Trader scoring (Sharpe-like EV) ────────────────────────────
+// Used by the copy engine + backtest to rank candidate BUY trades.
+// `roi` is realized return per dollar of cash deployed in the window
+// (e.g. 0.18 = +18%). `stdev` is the stdev of per-closed-trade
+// fractional returns — division yields the unitless Sharpe used as
+// the trader's quality multiplier on each candidate's notional.
+export interface TraderRoiStats {
+  address: string;
+  windowDays: number;
+  roi: number;
+  stdev: number;
+  // Closed-trade sample size. Below ~3 the stdev is too noisy to trust;
+  // callers should fall back to roi-only or skip the trader.
+  sampleSize: number;
+  // Sharpe = roi / stdev (0 when stdev is 0 or sampleSize too low).
+  sharpe: number;
+  // Cash deployed in the window (sum of BUY notional). Surfaces
+  // "is this a real trader" to the UI.
+  cashDeployed: number;
+  syncedAt: number;
+}
+
 export interface SavedIndex {
   id: string;
   name: string;
@@ -83,6 +105,10 @@ export interface SavedIndex {
   rebalanceMinutes?: number; // BACKTEST-only poll cadence (historical sim aggregation)
   livePollMinutes?: number; // LIVE engine scan interval in minutes (default 1)
   liveEnabled?: boolean; // whether live copy-trading is active
+  // Top-N sampling: per cycle, score every observed BUY candidate as
+  // score = trader_sharpe_30d * trade_notional, then copy only the top N.
+  // Suppresses fee-burn from spamming every observed trade.
+  maxPerCycle?: number; // default 3
   createdAt: number;
   updatedAt: number;
   // Cached backtest snapshot (updated each time backtest runs)

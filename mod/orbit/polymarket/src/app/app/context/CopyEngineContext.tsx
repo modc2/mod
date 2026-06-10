@@ -128,6 +128,7 @@ interface BackendStatus {
     observedTrades: Array<{
       id: string; timestamp: number; trader: string; market: string;
       conditionId: string; side: string; size: number; price: number; notional: number;
+      score?: number; sharpe?: number;
     }>;
     error: string | null;
     traderCursors: Record<string, number>;
@@ -295,6 +296,10 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
                 size: t.size,
                 price: t.price,
                 notional: t.notional,
+                // Backend may not stamp scores yet — defer to engine's
+                // own observed-trade enrichment for the score column.
+                score: t.score ?? 0,
+                sharpe: t.sharpe ?? 0,
               }));
             if (newFromBackend.length > 0) {
               const merged = [...newFromBackend, ...current.observedTrades]

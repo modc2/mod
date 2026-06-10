@@ -97,7 +97,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setHasWallet(detectWallet());
-    setLocalToken(loadStoredToken());
+    // Phone pairing: when the user scans the desktop's QR code, the URL
+    // fragment carries the token (`#token=…`). Adopt it before reading the
+    // existing local token so a freshly-paired phone matches the desktop
+    // session immediately. Fragments never reach the server, so this is
+    // safe to read even on a shared / proxied host.
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash;
+      const m = hash.match(/[#&]token=([a-f0-9]{32,128})/i);
+      if (m && m[1]) {
+        const token = m[1].toLowerCase();
+        const entry: LocalToken = {
+          token,
+          tokenPreview: token.slice(0, 8),
+          issuedAt: Date.now(),
+        };
+        try { localStorage.setItem(LOCAL_TOKEN_KEY, JSON.stringify(entry)); } catch {}
+        setLocalToken(entry);
+        // Clear the fragment so it isn't preserved in browser history /
+        // shared again accidentally.
+        try {
+          const clean = window.location.pathname + window.location.search;
+          window.history.replaceState(null, "", clean);
+        } catch {}
+      } else {
+        setLocalToken(loadStoredToken());
+      }
+    } else {
+      setLocalToken(loadStoredToken());
+    }
     // Silent reconnect: if the wallet still reports an authorized account
     // for this origin, rehydrate it + cached CLOB creds without prompting.
     // eth_accounts (vs eth_requestAccounts) returns [] on no-permission,

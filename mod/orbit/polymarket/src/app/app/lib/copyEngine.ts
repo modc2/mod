@@ -1,7 +1,9 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, TraderRoiStats } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
-import { fetchWalletTradesUntil, fetchPositions } from "./polymarket";
+import { fetchWalletTradesUntil, fetchPositions, fetchTraderRoiStats } from "./polymarket";
+import { Strat, TraderTrade as StratTraderTrade, SizeConstraints } from "./strats/base";
+import { getStrat } from "./strats/registry";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
 import { getProxyAddress } from "./polymarketProxy";
 import { USDC_E } from "./polymarketContracts";
@@ -31,6 +33,13 @@ export interface ExecutionLogEntry {
   /// this the user can only see a separate "execution log" feed and
   /// can't tell which upstream trade each error refers to.
   upstreamTradeId?: string;
+  /// Sharpe-weighted EV score this candidate had when the engine made
+  /// its decision (copy vs skip). Surfaced on COPY_BUY and SKIP rows
+  /// so the user can see "we picked this $0.83-score trade over that
+  /// $0.21-score trade" without reverse-engineering the math.
+  score?: number;
+  /// Trader's 30d Sharpe at decision time. Shown alongside score.
+  sharpe?: number;
 }
 
 /** A single upstream trade the engine observed during a sync cycle. Distinct
@@ -47,6 +56,14 @@ export interface ObservedTrade {
   size: number;
   price: number;
   notional: number;
+  /** Sharpe-weighted EV score the engine assigned to this candidate.
+      Computed as `trader_sharpe_30d * notional` — dollars of expected
+      profit if the trader behaves like their 30d Sharpe predicts. 0
+      for SELLs (always honored, score N/A) and for any BUY where the
+      trader has too few 30d closed trades (<3) to derive a Sharpe. */
+  score: number;
+  /** Trader's 30d Sharpe at the time we scored. 0 = insufficient stats. */
+  sharpe: number;
 }
 
 export interface CopyEngineState {
@@ -68,6 +85,10 @@ export interface CopyEngineState {
       (ms epoch). Lets the UI flag traders the engine hasn't synced in a
       while (rate-limited, network blip, etc.) without waiting for an error. */
   traderLastSync: Record<string, number>;
+  /** Per-trader 30d Sharpe stats. Exposed so the UI can render the score
+      breakdown next to each trader and observed trade. Keyed by lowercased
+      address. Refreshed every ROI_REFRESH_MS (30min) in the background. */
+  traderRoiStats: Record<string, TraderRoiStats>;
 }
 
 export interface CopyEngineConfig {
@@ -89,7 +110,23 @@ export interface CopyEngineConfig {
       so the live engine's sizing matches what the backtest preview shows.
       Defaults to 3 (the backtest default) when not provided. */
   backtestDays?: number;
+  /** Top-N sampling cap: per cycle, score every observed BUY candidate as
+      `score = trader_sharpe_30d * trade_notional` and copy only the top N.
+      The single most important fee-control knob — without it the engine
+      mirrors every observed trade (11k trades / 7d = $58 of gas burns the
+      gross P&L). Defaults to 3. */
+  maxPerCycle?: number;
 }
+
+// ── Scoring constants ──────────────────────────────────────────
+// Window the engine uses for trader Sharpe stats. 30 days matches
+// the leaderboard window most users sort by.
+const ROI_WINDOW_DAYS = 30;
+// How often to re-pull trader stats. Trades land continuously but
+// 30d Sharpe is slow-moving; 30min keeps the stats fresh without
+// hammering the data-api each cycle.
+const ROI_REFRESH_MS = 30 * 60 * 1000;
+const ROI_CACHE_KEY = "poly_copy_trader_roi";
 
 const MAX_LOG_ENTRIES = 200;
 const MAX_ORDERS_PER_CYCLE = 20;
@@ -100,13 +137,25 @@ const ORDER_DELAY_MS = 500;
 // what the matcher expected. Per-market fee lookup is a TODO but 0 is
 // the safe default for taker-side fills on standard CTF markets.
 const TAKER_FEE_BPS = 0;
-// Polymarket's CLOB rejects any order below $1 notional with the generic
-// "Invalid order payload" error (no specific reason returned). The user-
-// configurable minOrderSize is for the strat's per-trade floor; this is
-// the hard API limit we MUST clamp to regardless of strat settings.
-// Without this, users who dropped the floor to $0.01 via the auto-fix
-// banner produced cascades of rejected $0.01 orders.
+// Polymarket's CLOB rejects any order below 5 SHARES (not $5 — five
+// outcome tokens) with `order ... is invalid. Size (N) lower than the
+// minimum: 5`. Notional alone isn't enough: $1 at 50¢ = 2 shares = REJECT.
+// We must compute the floor in USD as `max($1, 5 × price)` per-trade so
+// the resulting order always hits ≥5 shares regardless of trade price.
+//
+// User-configurable minOrderSize is the strat's per-trade USD floor;
+// these constants are the hard API limit we MUST clamp to regardless
+// of strat settings. Without them, users who dropped the floor to $0.01
+// via the auto-fix banner produced cascades of rejected $0.01 orders.
 const POLYMARKET_MIN_USD = 1.0;
+const POLYMARKET_MIN_SHARES = 5;
+
+/** Smallest mirror notional that CLOB will accept at the given price
+ *  — combines the $1 notional floor and the 5-share share floor. */
+function clobMinNotional(price: number): number {
+  const sharesFloor = POLYMARKET_MIN_SHARES * Math.max(price, 1e-9);
+  return Math.max(POLYMARKET_MIN_USD, sharesFloor);
+}
 
 // Polymarket binary markets use a 0.01 (1¢) tick size by default; some
 // fine-grained markets use 0.001. Leader trade prices come back from the
@@ -209,11 +258,26 @@ export class CopyEngine {
   // setInterval. Without this, a stuck cycle would silently spawn a parallel
   // copy that double-fires every trade.
   private cycleInFlight = false;
+  // Per-trader 30d Sharpe cache. Keyed by lowercased address. Drives
+  // top-N candidate sampling. Refreshed every ROI_REFRESH_MS so we
+  // don't hammer the data-api each cycle. Persisted to localStorage
+  // so engine restarts don't blank scores until the first refresh.
+  private traderRoiStats: Record<string, TraderRoiStats> = {};
+  private roiRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private roiRefreshInFlight = false;
+  // The strategy decides scoring + sizing per candidate. Swap by
+  // pointing this at any class implementing Strat. Default = CopyTrader.
+  // The engine handles everything else (cycle loop, balance check,
+  // deposit wallet, CLOB submission, log persistence).
+  private strat: Strat;
 
-  constructor(config: CopyEngineConfig) {
+  constructor(config: CopyEngineConfig, strat?: Strat) {
     this.config = config;
     this.tokenMap = loadTokenMap();
     this.negRiskMap = loadNegRiskMap();
+    // Active strategy. Pass `strat` to override, or change the default
+    // in src/app/app/lib/strats/registry.ts to swap globally.
+    this.strat = strat ?? getStrat(undefined, { maxPerCycle: config.maxPerCycle });
     this.state = {
       status: "stopped",
       lastCycleAt: null,
@@ -228,6 +292,7 @@ export class CopyEngine {
       error: null,
       traderCursors: {},
       traderLastSync: {},
+      traderRoiStats: {},
     };
     this.loadPersisted();
   }
@@ -250,6 +315,17 @@ export class CopyEngine {
       this.setState({ traderCursors: cursors });
       this.saveCursors();
     }
+
+    // Kick a ROI refresh in the background so the first scored cycle
+    // has fresh stats. Don't await — the first cycle uses whatever we
+    // persisted (or zeros, in which case sharpe=0 → trader skipped
+    // by top-N until refresh lands).
+    this.refreshTraderRoiStats();
+    this.roiRefreshTimer = setInterval(() => {
+      if (this.state.status === "running" || this.state.status === "paused") {
+        this.refreshTraderRoiStats();
+      }
+    }, ROI_REFRESH_MS);
 
     // Run first cycle immediately then schedule
     this.executeCycle().then(() => {
@@ -274,6 +350,10 @@ export class CopyEngine {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+    if (this.roiRefreshTimer) {
+      clearInterval(this.roiRefreshTimer);
+      this.roiRefreshTimer = null;
     }
     this.signer = null;
     this.setState({ status: "stopped", nextCycleAt: null });
@@ -435,6 +515,23 @@ export class CopyEngine {
       // user's TRADE SIZE setting.
       const userFloor = this.config.minOrderSize;
       const ceiling = this.config.maxOrderSize ?? Number.POSITIVE_INFINITY;
+      // CLOB floor is max($1 notional, 5 shares × price) — per-trade.
+      const polymarketFloor = clobMinNotional(trade.price);
+      if (ceiling < polymarketFloor) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          side: trade.side,
+          mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
+          reason: `CATCH UP · CEILING_BELOW_CLOB_FLOOR · ceiling $${ceiling.toFixed(2)} < CLOB min $${polymarketFloor.toFixed(2)} (5 shares × ${(trade.price * 100).toFixed(0)}¢)`,
+        });
+        skipped++;
+        continue;
+      }
       if (rawMirrorNotional < userFloor) {
         this.addLog({
           id: uid(),
@@ -451,13 +548,12 @@ export class CopyEngine {
         continue;
       }
       // Mirror is dust *relative to leader exposure*, but the leader's
-      // trade is real — clamp UP to Polymarket's $1 floor instead of
-      // skipping. This lets users with thin capital still copy whales
-      // (they just take more relative size per trade). When the leader's
-      // own trade is also under $1 we skip (no real signal).
+      // trade is real — clamp UP to the CLOB floor instead of skipping.
+      // When the leader's own trade is also below the floor we skip
+      // (no real signal).
       let mirrorNotional: number;
-      if (rawMirrorNotional < POLYMARKET_MIN_USD) {
-        if (trade.notional < POLYMARKET_MIN_USD) {
+      if (rawMirrorNotional < polymarketFloor) {
+        if (trade.notional < polymarketFloor) {
           this.addLog({
             id: uid(),
             timestamp: Date.now(),
@@ -467,18 +563,19 @@ export class CopyEngine {
             conditionId: trade.conditionId,
             side: trade.side,
             mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-            reason: `CATCH UP · LEADER_DUST · leader $${trade.notional.toFixed(2)} < Polymarket $${POLYMARKET_MIN_USD.toFixed(2)} hard floor`,
+            reason: `CATCH UP · LEADER_DUST · leader $${trade.notional.toFixed(2)} < Polymarket $${polymarketFloor.toFixed(2)} hard floor (5 shares × ${(trade.price * 100).toFixed(0)}¢)`,
           });
           skipped++;
           continue;
         }
-        mirrorNotional = POLYMARKET_MIN_USD;
+        mirrorNotional = polymarketFloor;
       } else {
         mirrorNotional = Math.min(rawMirrorNotional, ceiling);
       }
       // Whole shares for the 1¢ tick grid — see executeCycle for rationale.
+      // Enforce the 5-share CLOB floor here too as a defensive backstop.
       const mirrorSize = Math.max(
-        1,
+        POLYMARKET_MIN_SHARES,
         Math.ceil(mirrorNotional / Math.max(trade.price, 1e-9)),
       );
 
@@ -943,8 +1040,26 @@ export class CopyEngine {
       let tradersWithNewActivity = 0;
       let totalNewTradesSeen = 0;
 
+      // ── Phase 1: collect candidates across all traders ──
+      // We split observation from execution so we can score every BUY
+      // candidate globally and copy only the top N — the single biggest
+      // fee-control lever. SELLs are always honored (they close positions
+      // we already hold; skipping them strands capital).
+      type Candidate = {
+        trader: IndexTrader;
+        trade: PolymarketTrade;
+        traderNotional: number;
+        rawMirrorNotional: number;
+        copyRatio: number;
+        // Filled in scoring phase:
+        score: number;
+        sharpe: number;
+        stats: TraderRoiStats | null;
+      };
+      const buyCandidates: Candidate[] = [];
+      const sellCandidates: Candidate[] = [];
+
       for (const trader of enabledTraders) {
-        if (ordersThisCycle >= MAX_ORDERS_PER_CYCLE) break;
         if (!this.running) break;
 
         const addr = trader.address.toLowerCase();
@@ -955,7 +1070,6 @@ export class CopyEngine {
         // boundary races where a trade lands microseconds before sync.
         const cursor = this.state.traderCursors[addr]
           || Date.now() - this.config.intervalMs;
-        // Fetch trades since cursor with 60s overlap
         const untilTs = Math.floor((cursor - 60_000) / 1000);
 
         try {
@@ -964,9 +1078,7 @@ export class CopyEngine {
             untilTs,
           );
           // Stamp the per-trader last-sync time the moment the fetch resolves
-          // — even if zero new trades came back. Empty result = "they're not
-          // trading", which is still a successful sync. Without this stamp,
-          // a quiet trader would look perpetually stale in the UI.
+          // — empty result = "they're not trading", still a successful sync.
           this.setState({
             traderLastSync: {
               ...this.state.traderLastSync,
@@ -974,51 +1086,16 @@ export class CopyEngine {
             },
           });
 
-          // Filter to new trades only, then rank by trader notional desc.
-          // High notional ≈ high conviction → highest expected-edge trades
-          // get the first crack at remaining capital before MAX_ORDERS_PER_CYCLE
-          // or balance constraints close the cycle out. This is the same
-          // ranking signal the auto-free-liquidity branch uses to decide
-          // whether to sell winners.
           const newTrades = trades
-            .filter((t) => t.timestamp > cursor && !this.copiedIds.has(t.id))
-            .sort((a, b) => b.price * b.size - a.price * a.size);
+            .filter((t) => t.timestamp > cursor && !this.copiedIds.has(t.id));
 
           if (newTrades.length === 0) continue;
           tradersWithNewActivity++;
           totalNewTradesSeen += newTrades.length;
 
-          // Push every observed upstream trade into the ring buffer BEFORE
-          // we filter/clamp/place — so users see the raw real-time feed of
-          // what their watched traders are doing, regardless of whether the
-          // engine acts on it. Buffer caps at RECENT_TRADES_LIMIT to keep
-          // memory bounded over long live sessions.
-          const observed: ObservedTrade[] = newTrades.map((t) => ({
-            id: t.id,
-            timestamp: t.timestamp,
-            trader: trader.address,
-            market: t.market,
-            conditionId: t.conditionId,
-            side: t.side,
-            size: t.size,
-            price: t.price,
-            notional: t.price * t.size,
-          }));
-          const RECENT_TRADES_LIMIT = 500;
-          const merged = [...observed, ...this.state.observedTrades]
-            .sort((a, b) => b.timestamp - a.timestamp)
-            .slice(0, RECENT_TRADES_LIMIT);
-          this.setState({ observedTrades: merged });
-
-          // Per-trade sizing (proportional) — must match the BACKTEST tab
-          // exactly so the preview the user signs off on predicts live
-          // behavior. Backtest computes:
+          // Per-trade sizing (proportional) — must match the BACKTEST tab.
           //   scale = (capital * weight/totalWeight) / max(buyVol, sellVol, 1)
-          // over trades within the backtestDays window. We replicate that
-          // here. Using max(buy, sell) instead of buy-only keeps the
-          // denominator stable when a trader is mostly closing positions,
-          // and using a fixed-days window (not "whatever is in the hourly
-          // cache") keeps the ratio reproducible across cycles.
+          // over trades within the backtestDays window.
           const backtestDays = this.config.backtestDays ?? 3;
           const windowCutoffMs = Date.now() - backtestDays * 86400_000;
           const windowTrades = trades.filter((t) => t.timestamp >= windowCutoffMs);
@@ -1032,26 +1109,129 @@ export class CopyEngine {
           const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
           const copyRatio = capitalAlloc / traderVol;
 
-          for (const trade of newTrades) {
-            if (ordersThisCycle >= MAX_ORDERS_PER_CYCLE) break;
-            if (!this.running) break;
+          // Push every observed trade into the UI ring buffer with its
+          // score, even ones we won't copy — gives the user a real view
+          // of "what we saw vs what we picked".
+          const observed: ObservedTrade[] = newTrades.map((t) => {
+            const stratTrade = this.buildStratTrade(t, trader, copyRatio, totalWeight);
+            const sc = t.side === "BUY"
+              ? this.scoreStratTrade(stratTrade)
+              : { score: 0, sharpe: 0, stats: null };
+            return {
+              id: t.id,
+              timestamp: t.timestamp,
+              trader: trader.address,
+              market: t.market,
+              conditionId: t.conditionId,
+              side: t.side,
+              size: t.size,
+              price: t.price,
+              notional: stratTrade.notional,
+              score: sc.score,
+              sharpe: sc.sharpe,
+            };
+          });
+          const RECENT_TRADES_LIMIT = 500;
+          const merged = [...observed, ...this.state.observedTrades]
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, RECENT_TRADES_LIMIT);
+          this.setState({ observedTrades: merged });
 
-            const traderNotional = trade.price * trade.size;
-            const rawMirrorNotional = traderNotional * copyRatio;
-            // SKIP below the user's TRADE SIZE floor — matches the BACKTEST
-            // tab's `if (rawAmount < minTrade) continue`. Previously we
-            // clamped up to the floor, which made live fire MANY more (and
-            // smaller) trades than the backtest preview predicted, so users
-            // could never trust what the preview said they'd execute. The
-            // user-configured floor IS the dust gate.
-            //
-            // POLYMARKET_MIN_USD ($1) is the CLOB's hard rejection threshold
-            // — we apply it as an additional skip reason so the user sees
-            // exactly why an in-range backtest trade can't fire on-chain.
-            const userFloor = this.config.minOrderSize;
-            const polymarketFloor = POLYMARKET_MIN_USD;
-            const ceiling = this.config.maxOrderSize ?? Number.POSITIVE_INFINITY;
-            if (rawMirrorNotional < userFloor) {
+          // Bucket into candidates with their proportional sizing.
+          for (const trade of newTrades) {
+            const stratTrade = this.buildStratTrade(trade, trader, copyRatio, totalWeight);
+            const sc = this.scoreStratTrade(stratTrade);
+            const cand: Candidate = {
+              trader,
+              trade,
+              traderNotional: stratTrade.notional,
+              rawMirrorNotional: stratTrade.notional * copyRatio,
+              copyRatio,
+              score: sc.score,
+              sharpe: sc.sharpe,
+              stats: sc.stats,
+            };
+            if (trade.side === "BUY") buyCandidates.push(cand);
+            else sellCandidates.push(cand);
+          }
+
+          // Advance cursor regardless of whether we end up copying any of
+          // these trades — top-N skips should NOT make us re-evaluate the
+          // same trade next cycle (we'd just keep skipping it).
+          const latestTs = Math.max(...newTrades.map((t) => t.timestamp));
+          if (latestTs > cursor) {
+            this.state.traderCursors[addr] = latestTs;
+          }
+        } catch (e) {
+          pollFailures++;
+          this.addLog({
+            id: uid(),
+            timestamp: Date.now(),
+            type: "ERROR",
+            traderAddress: trader.address,
+            reason: `FETCH_FAILED: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+      }
+
+      // ── Phase 2: score-rank BUYs and slice top N ──
+      // SELLs always execute. BUYs compete for the strat's maxPerCycle
+      // budget (a CopyTrader knob, overridable per-strat).
+      const maxPerCycle = this.strat.maxPerCycle();
+      buyCandidates.sort((a, b) => b.score - a.score);
+      const selectedBuys = buyCandidates.slice(0, maxPerCycle);
+      const skippedBuys = buyCandidates.slice(maxPerCycle);
+
+      // Log every loser explicitly — the whole point of this feature is
+      // transparency. The user should see WHY each skipped trade lost.
+      for (let i = 0; i < skippedBuys.length; i++) {
+        const c = skippedBuys[i];
+        const sharpeStr = c.sharpe > 0 ? `Sharpe ${c.sharpe.toFixed(2)}` : "no Sharpe (insufficient 30d closed trades)";
+        const reason = c.score > 0
+          ? `SCORE_RANK · score $${c.score.toFixed(2)} (${sharpeStr} × $${c.traderNotional.toFixed(0)} notional) — rank ${maxPerCycle + 1 + i}/${buyCandidates.length}, cap ${maxPerCycle}`
+          : `NO_SHARPE · ${sharpeStr} — skipped pending stats`;
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          traderAddress: c.trader.address,
+          market: c.trade.market,
+          conditionId: c.trade.conditionId,
+          side: c.trade.side,
+          reason,
+          upstreamTradeId: c.trade.id,
+          score: c.score,
+          sharpe: c.sharpe,
+        });
+        this.copiedIds.add(c.trade.id);
+      }
+
+      // ── Phase 3: execute selected candidates ──
+      // Sells first so freed capital is available for the chosen buys.
+      const toExecute: Candidate[] = [...sellCandidates, ...selectedBuys];
+
+      for (const cand of toExecute) {
+        if (ordersThisCycle >= MAX_ORDERS_PER_CYCLE) break;
+        if (!this.running) break;
+
+        const trader = cand.trader;
+        const trade = cand.trade;
+        const traderNotional = cand.traderNotional;
+        const rawMirrorNotional = cand.rawMirrorNotional;
+
+            // ── Strat-driven sizing ──
+            // Engine assembles the per-trade context + constraints;
+            // strat returns final notional + limit price + an optional
+            // log reason for clamps/skips. Same builder as scoring.
+            const stratTrade = this.buildStratTrade(trade, trader, cand.copyRatio, totalWeight);
+            const constraints: SizeConstraints = {
+              userFloor: this.config.minOrderSize,
+              userCeiling: this.config.maxOrderSize ?? Number.POSITIVE_INFINITY,
+              clobFloor: clobMinNotional(trade.price),
+              capital: this.config.capital,
+            };
+            const decision = this.strat.sizeAndPrice(stratTrade, constraints);
+            if (decision.mirrorNotional <= 0) {
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
@@ -1061,64 +1241,28 @@ export class CopyEngine {
                 conditionId: trade.conditionId,
                 side: trade.side,
                 mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-                reason: `BELOW_MIN_SIZE · proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} < floor $${userFloor.toFixed(2)}`,
+                reason: decision.reason ?? "STRAT_SKIPPED",
                 upstreamTradeId: trade.id,
               });
               this.copiedIds.add(trade.id);
               continue;
             }
-            // Mirror dust relative to leader exposure → clamp UP to
-            // Polymarket's $1 floor instead of skipping. Lets users with
-            // thin capital still mirror whales (they just take a larger
-            // relative size per trade). If the leader's *own* trade is
-            // also dust we skip (no signal).
-            let mirrorNotional = rawMirrorNotional;
-            let clampedReason: string | null = null;
-            if (rawMirrorNotional < polymarketFloor) {
-              if (traderNotional < polymarketFloor) {
-                this.addLog({
-                  id: uid(),
-                  timestamp: Date.now(),
-                  type: "SKIP",
-                  traderAddress: trader.address,
-                  market: trade.market,
-                  conditionId: trade.conditionId,
-                  side: trade.side,
-                  mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-                  reason: `LEADER_DUST · leader $${traderNotional.toFixed(2)} < Polymarket $${polymarketFloor.toFixed(2)} hard floor`,
-                  upstreamTradeId: trade.id,
-                });
-                this.copiedIds.add(trade.id);
-                continue;
-              }
-              mirrorNotional = polymarketFloor;
-              clampedReason = `clamped up: proportional $${rawMirrorNotional.toFixed(2)} → $${polymarketFloor.toFixed(2)} (CLOB min)`;
-            }
-            // Clamp DOWN to the user's ceiling — matches backtest's
-            // `Math.min(rawAmount, maxTrade)`. Outlier whale trades get
-            // capped instead of blowing the budget.
-            if (mirrorNotional > ceiling) {
-              mirrorNotional = ceiling;
-              clampedReason = `clamped down: proportional $${rawMirrorNotional.toFixed(2)} → ceiling $${ceiling.toFixed(2)}`;
-            }
-            // Ceil to WHOLE shares so the resulting makerAmount/takerAmount ratio
-            // lands exactly on Polymarket's 1¢ tick price grid. With fractional
-            // shares the implied price drifts off-tick (e.g. 1/1.86 = 0.5376…)
-            // and CLOB rejects with "Invalid order payload". Whole shares ×
-            // 1¢-tick price = clean 1¢ implied price. Backtest uses fractional
-            // — this is a live-only on-chain constraint.
+            const mirrorNotional = decision.mirrorNotional;
+            // Ceil to WHOLE shares so makerAmount/takerAmount ratio lands
+            // on the 1¢ tick. Defensive 5-share floor protects against
+            // edge cases where a strat returned notional < clob floor.
             const mirrorSize = Math.max(
-              1,
+              POLYMARKET_MIN_SHARES,
               Math.ceil(mirrorNotional / Math.max(trade.price, 1e-9)),
             );
-            if (clampedReason) {
+            if (decision.reason) {
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
                 type: "BALANCE",
                 traderAddress: trader.address,
                 market: trade.market,
-                reason: clampedReason,
+                reason: decision.reason,
                 upstreamTradeId: trade.id,
               });
             }
@@ -1159,7 +1303,10 @@ export class CopyEngine {
                 maker,
                 {
                   tokenID: tokenId,
-                  price: tickRoundPrice(trade.price),
+                  // Use the strat's limit price (already tick-rounded
+                  // by the strat). For BUYs the default CopyTrader widens
+                  // toward fillable by `slippageBps`; SELLs widen down.
+                  price: decision.limitPrice,
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
                   type: "GTC",
@@ -1173,6 +1320,9 @@ export class CopyEngine {
                 ? (trade.side === "BUY" ? "COPY_BUY" : "COPY_SELL")
                 : "ERROR";
 
+              const scoreSuffix = trade.side === "BUY" && cand.sharpe > 0
+                ? `score $${cand.score.toFixed(2)} (Sharpe ${cand.sharpe.toFixed(2)} × $${traderNotional.toFixed(0)})`
+                : null;
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
@@ -1189,8 +1339,10 @@ export class CopyEngine {
                 orderResult: result,
                 reason: !result.success
                   ? (result.errorMsg ?? "REJECTED")
-                  : undefined,
+                  : (scoreSuffix ?? undefined),
                 upstreamTradeId: trade.id,
+                score: cand.score,
+                sharpe: cand.sharpe,
               });
 
               if (result.success) {
@@ -1227,23 +1379,6 @@ export class CopyEngine {
               });
               this.copiedIds.add(trade.id);
             }
-          }
-
-          // Update cursor to latest trade
-          const latestTs = Math.max(...newTrades.map((t) => t.timestamp));
-          if (latestTs > cursor) {
-            this.state.traderCursors[addr] = latestTs;
-          }
-        } catch (e) {
-          pollFailures++;
-          this.addLog({
-            id: uid(),
-            timestamp: Date.now(),
-            type: "ERROR",
-            traderAddress: trader.address,
-            reason: `FETCH_FAILED: ${e instanceof Error ? e.message : String(e)}`,
-          });
-        }
       }
 
       this.setState({
@@ -1428,6 +1563,84 @@ export class CopyEngine {
         if (Array.isArray(arr)) for (const id of arr) this.copiedIds.add(id);
       }
     } catch {}
+    try {
+      const roi = localStorage.getItem(`${ROI_CACHE_KEY}_${this.config.strategyId}`);
+      if (roi) {
+        const parsed = JSON.parse(roi);
+        if (parsed && typeof parsed === "object") this.traderRoiStats = parsed;
+      }
+    } catch {}
+  }
+
+  private saveRoiStats(): void {
+    try {
+      localStorage.setItem(
+        `${ROI_CACHE_KEY}_${this.config.strategyId}`,
+        JSON.stringify(this.traderRoiStats),
+      );
+    } catch {}
+  }
+
+  // ── ROI / Sharpe refresh ─────────────────────────────────────
+  //
+  // Pulls 30d trade history per enabled trader, computes realized
+  // returns via FIFO, derives Sharpe. Runs in parallel across
+  // traders to amortize data-api latency. Per-trader failures are
+  // swallowed (we keep the previous stats); the engine only stops
+  // scoring a trader if their stats never load at all.
+  private async refreshTraderRoiStats(): Promise<void> {
+    if (this.roiRefreshInFlight) return;
+    this.roiRefreshInFlight = true;
+    try {
+      const enabled = this.config.traders.filter((t) => t.enabled !== false);
+      await Promise.all(enabled.map(async (t) => {
+        try {
+          const stats = await fetchTraderRoiStats(t.address, ROI_WINDOW_DAYS);
+          this.traderRoiStats[t.address.toLowerCase()] = stats;
+        } catch (e) {
+          // Soft-fail: keep stale stats if we had them.
+        }
+      }));
+      this.saveRoiStats();
+      // Publish to subscribers so the UI re-renders the trader table
+      // with new scores.
+      this.setState({ traderRoiStats: { ...this.traderRoiStats } });
+    } finally {
+      this.roiRefreshInFlight = false;
+    }
+  }
+
+  // Build the canonical StratTraderTrade shape the strat methods consume.
+  // Used by both observed-trade enrichment (score for UI display) and the
+  // execution path (score + sizing). One builder = one source of truth
+  // for the engine→strat hand-off.
+  private buildStratTrade(
+    trade: PolymarketTrade,
+    trader: IndexTrader,
+    copyRatio: number,
+    totalWeight: number,
+  ): StratTraderTrade {
+    return {
+      ...trade,
+      trader: trader.address,
+      weight: trader.weight,
+      weightFraction: totalWeight > 0 ? trader.weight / totalWeight : 0,
+      copyRatio,
+      notional: trade.price * trade.size,
+    };
+  }
+
+  // Score a built strat-trade. Returns the engine-side score record
+  // (score + sharpe + raw stats) so the UI rows + log entries can
+  // render the breakdown regardless of which strat is active.
+  private scoreStratTrade(stratTrade: StratTraderTrade): {
+    score: number;
+    sharpe: number;
+    stats: TraderRoiStats | null;
+  } {
+    const stats = this.traderRoiStats[stratTrade.trader.toLowerCase()] ?? null;
+    const score = this.strat.scoreCandidate(stratTrade, stats);
+    return { score, sharpe: stats?.sharpe ?? 0, stats };
   }
 
   private pruneDedup(): void {

@@ -7,19 +7,23 @@ GATEWAY_PORT="${GATEWAY_PORT:-3000}"
 
 echo "── polymarket dev ──"
 
-# ── Start Rust API ──
-PORT=$API_PORT STRAT_HMAC_SECRET="${STRAT_HMAC_SECRET:-}" /app/bin/polymarket-api &
-API_PID=$!
-echo "API starting on :$API_PORT (pid $API_PID)"
-
-# Wait for API to be ready
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:$API_PORT/health > /dev/null 2>&1; then
-        echo "API ready"
-        break
-    fi
-    sleep 1
-done
+# ── Start Rust API (only if the binary is present — dev-only image
+#    that ships without it should skip silently and rely on
+#    POLYMARKET_API_URL set externally) ──
+if [ -x /app/bin/polymarket-api ]; then
+    PORT=$API_PORT STRAT_HMAC_SECRET="${STRAT_HMAC_SECRET:-}" /app/bin/polymarket-api &
+    API_PID=$!
+    echo "API starting on :$API_PORT (pid $API_PID)"
+    for i in $(seq 1 30); do
+        if curl -sf http://localhost:$API_PORT/health > /dev/null 2>&1; then
+            echo "API ready"
+            break
+        fi
+        sleep 1
+    done
+else
+    echo "No /app/bin/polymarket-api — relying on POLYMARKET_API_URL=$POLYMARKET_API_URL"
+fi
 
 # ── Build CID + onchain pin ──
 # Prefer the localfs/IPFS CID published onchain via
@@ -35,6 +39,20 @@ if [ -f /app/config.json ]; then
     BUILD_SCAN=$(python3 -c "import json; print(json.load(open('/app/config.json')).get('build_onchain',{}).get('scan',''))" 2>/dev/null || echo "")
 fi
 cd /app/src/app
+
+# ── Sync node_modules with host package.json ──
+# The dev compose mounts the source dir from the host but keeps node_modules
+# as an anonymous volume populated by `npm ci` at image-build time. That
+# means adding a new dep on the host (package.json updated) leaves the
+# running container with stale node_modules and Next.js fails with
+# "Module not found". Re-run npm install when package.json is newer than
+# the installed tree, so a host-side `npm i foo` propagates on container
+# restart without needing a full image rebuild.
+if [ ! -d node_modules ] || [ package.json -nt node_modules/.package-lock.json ] 2>/dev/null; then
+    echo "deps out of sync — running npm install"
+    npm install --no-audit --no-fund --prefer-offline
+fi
+
 if [ -z "$BUILD_CID" ]; then
     if command -v sha256sum > /dev/null 2>&1; then
         BUILD_HASH=$(find app -type f \( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \) \
@@ -51,7 +69,7 @@ BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "Build CID: $BUILD_CID${BUILD_TX:+ (tx: $BUILD_TX)}"
 
 # ── Start Next.js (dev mode with hot-reload) ──
-POLYMARKET_API_URL="http://localhost:$API_PORT" \
+POLYMARKET_API_URL="${POLYMARKET_API_URL:-http://localhost:$API_PORT}" \
 NEXT_PUBLIC_API_URL="/api/polymarket" \
 NEXT_PUBLIC_BASE_PATH="/polymarket" \
 NEXT_PUBLIC_BUILD_CID="$BUILD_CID" \
@@ -73,28 +91,24 @@ for i in $(seq 1 60); do
     sleep 1
 done
 
-# ── Generate Caddyfile ──
-# Host-side sibling modules (e.g. whitepaper) are reached via host.docker.internal.
-WHITEPAPER_HOST="${WHITEPAPER_HOST:-host.docker.internal}"
-WHITEPAPER_HOST_API_PORT="${WHITEPAPER_HOST_API_PORT:-50106}"
-WHITEPAPER_HOST_APP_PORT="${WHITEPAPER_HOST_APP_PORT:-3106}"
+# ── Generate Caddyfile (only if caddy is installed in this image) ──
+if command -v caddy > /dev/null 2>&1; then
+    WHITEPAPER_HOST="${WHITEPAPER_HOST:-host.docker.internal}"
+    WHITEPAPER_HOST_API_PORT="${WHITEPAPER_HOST_API_PORT:-50106}"
+    WHITEPAPER_HOST_APP_PORT="${WHITEPAPER_HOST_APP_PORT:-3106}"
 
-cat > /app/Caddyfile <<EOF
+    cat > /app/Caddyfile <<EOF
 {
     admin localhost:2019
 }
 
 :${GATEWAY_PORT} {
-    # polymarket API
     @api path /api/polymarket /api/polymarket/*
     handle @api {
         uri strip_prefix /api/polymarket
         reverse_proxy localhost:${API_PORT}
     }
 
-    # polymarket CLOB L2 passthrough (order/balance/orders/cancel).
-    # Browser can't hit clob.polymarket.com directly (no CORS), so we
-    # transparently reverse-proxy authenticated L2 calls to upstream.
     @l2 path /api/polymarket-l2 /api/polymarket-l2/*
     handle @l2 {
         uri strip_prefix /api/polymarket-l2
@@ -103,7 +117,6 @@ cat > /app/Caddyfile <<EOF
         }
     }
 
-    # whitepaper (sibling orbit module on the host)
     @whitepaper_api path /api/whitepaper /api/whitepaper/*
     handle @whitepaper_api {
         uri strip_prefix /api/whitepaper
@@ -113,34 +126,39 @@ cat > /app/Caddyfile <<EOF
         reverse_proxy ${WHITEPAPER_HOST}:${WHITEPAPER_HOST_APP_PORT}
     }
 
-    # polymarket catchall (must remain last)
     handle /* {
         reverse_proxy localhost:${APP_PORT}
     }
 }
 EOF
 
-# ── Start Caddy ──
-caddy run --config /app/Caddyfile &
-CADDY_PID=$!
-echo "Gateway on :$GATEWAY_PORT (pid $CADDY_PID)"
+    caddy run --config /app/Caddyfile &
+    CADDY_PID=$!
+    echo "Gateway on :$GATEWAY_PORT (pid $CADDY_PID)"
+fi
 
 echo ""
 echo "  API:     http://localhost:$API_PORT/health"
-echo "  App:     http://localhost:$APP_PORT/polymarket (dev mode)"
-echo "  Gateway: http://localhost:$GATEWAY_PORT/polymarket"
+echo "  App:     http://localhost:$APP_PORT/polymarket"
+[ -n "${CADDY_PID:-}" ] && echo "  Gateway: http://localhost:$GATEWAY_PORT/polymarket"
 echo ""
 
 # ── Handle shutdown ──
 cleanup() {
     echo "shutting down..."
-    kill $CADDY_PID $APP_PID $API_PID 2>/dev/null
-    wait $CADDY_PID $APP_PID $API_PID 2>/dev/null
+    kill ${CADDY_PID:-} ${APP_PID:-} ${API_PID:-} 2>/dev/null || true
+    wait ${CADDY_PID:-} ${APP_PID:-} ${API_PID:-} 2>/dev/null || true
 }
 trap cleanup SIGTERM SIGINT
 
-# Wait for any process to exit
-wait -n $API_PID $APP_PID $CADDY_PID
+# Wait on whichever processes we actually started. wait -n returns on
+# the first one to exit; we then cleanup and exit.
+PIDS=""
+[ -n "${API_PID:-}" ] && PIDS="$PIDS $API_PID"
+[ -n "${APP_PID:-}" ] && PIDS="$PIDS $APP_PID"
+[ -n "${CADDY_PID:-}" ] && PIDS="$PIDS $CADDY_PID"
+# shellcheck disable=SC2086
+wait -n $PIDS
 EXIT_CODE=$?
 echo "process exited with code $EXIT_CODE — stopping all"
 cleanup

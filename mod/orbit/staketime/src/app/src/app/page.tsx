@@ -141,12 +141,13 @@ function StakeTimeApp() {
   const [registeringSub, setRegisteringSub] = useState(false)
   const [registrationCost, setRegistrationCost] = useState('0')
 
-  // LLM subnet creation
-  const [llmPrompt, setLlmPrompt] = useState('')
+  // Subnet builder (Fork / New / Edit)
+  type SubnetMode = 'fork' | 'new' | 'edit'
+  const [subnetMode, setSubnetMode] = useState<SubnetMode>('new')
+  const [forkSourceId, setForkSourceId] = useState<number | null>(null)
   const [llmParams, setLlmParams] = useState<any>(null)
-  const [llmGenerating, setLlmGenerating] = useState(false)
   const [llmDeploying, setLlmDeploying] = useState(false)
-  const [llmEditing, setLlmEditing] = useState(false)
+  const [llmEditing, setLlmEditing] = useState(true)
 
   // Boost
   const [boostSubnetId, setBoostSubnetId] = useState<number | null>(null)
@@ -408,19 +409,59 @@ function StakeTimeApp() {
     setSelling(false)
   }, [sellSubnetId, sellShares, sellSttToken, fetchAll])
 
-  const handleLlmGenerate = useCallback(async () => {
-    if (!llmPrompt.trim()) { toast.error('Describe the subnet you want to create'); return }
-    setLlmGenerating(true)
-    try {
-      const params = await api('generate_subnet_params', { prompt: llmPrompt.trim() })
-      setLlmParams(params)
-      setLlmEditing(false)
-      toast.success('Parameters generated')
-    } catch (err: any) {
-      toast.error(err?.message || 'Generation failed')
+  const defaultSubnetParams = useMemo(() => ({
+    name: '',
+    symbol: '',
+    initialSupply: '1000000',
+    emissionRate: '100',
+    epochLength: 43200,
+    decayBps: 500,
+    maxLockBlocks: 100000,
+    maxStakersPerValidator: 100,
+    defaultCommissionBps: 1000,
+    consensusType: 'yuma',
+    description: '',
+  }), [])
+
+  const applyMode = useCallback((mode: SubnetMode, sourceId: number | null) => {
+    setSubnetMode(mode)
+    setForkSourceId(sourceId)
+    if (mode === 'new') {
+      setLlmParams({ ...defaultSubnetParams })
+      setLlmEditing(true)
+      return
     }
-    setLlmGenerating(false)
-  }, [llmPrompt])
+    if (sourceId === null) {
+      setLlmParams(null)
+      return
+    }
+    const src = subnets.find(s => s.id === sourceId)
+    if (!src) { setLlmParams(null); return }
+    const base = { ...defaultSubnetParams }
+    if (mode === 'fork') {
+      setLlmParams({
+        ...base,
+        name: `${src.name} Fork`,
+        symbol: (src.name || '').replace(/\s+/g, '').slice(0, 4).toUpperCase(),
+        description: `Forked from subnet #${src.id} (${src.name})`,
+      })
+      setLlmEditing(true)
+    } else {
+      setLlmParams({
+        ...base,
+        name: src.name,
+        symbol: (src.name || '').replace(/\s+/g, '').slice(0, 4).toUpperCase(),
+        description: `Editing subnet #${src.id} (${src.name})`,
+      })
+      setLlmEditing(true)
+    }
+  }, [defaultSubnetParams, subnets])
+
+  useEffect(() => {
+    if (llmParams === null && subnetMode === 'new') {
+      setLlmParams({ ...defaultSubnetParams })
+    }
+  }, [llmParams, subnetMode, defaultSubnetParams])
 
   const handleLlmDeploy = useCallback(async () => {
     if (!llmParams) return
@@ -439,14 +480,16 @@ function StakeTimeApp() {
         consensus_type: llmParams.consensusType || 'yuma',
       })
       toast.success(`Subnet "${llmParams.name}" deployed!`)
-      setLlmParams(null)
-      setLlmPrompt('')
+      setSubnetMode('new')
+      setForkSourceId(null)
+      setLlmParams({ ...defaultSubnetParams })
+      setLlmEditing(true)
       fetchAll()
     } catch (err: any) {
       toast.error(err?.message || 'Deploy failed')
     }
     setLlmDeploying(false)
-  }, [llmParams, fetchAll])
+  }, [llmParams, fetchAll, defaultSubnetParams])
 
   // ── Sorting ─────────────────────────────────────────────────────────
 
@@ -614,7 +657,7 @@ function StakeTimeApp() {
         {/* ── Subnets Tab ────────────────────────────────────────────── */}
         {tab === 'subnets' && (
           <>
-            {/* LLM Subnet Creator */}
+            {/* Subnet Builder */}
             <div className="border border-white/10 rounded-lg p-4 bg-white/[0.02]">
               <div className="flex items-center gap-2 mb-3">
                 <SparklesIcon className="w-4 h-4 text-violet-400/70" />
@@ -622,30 +665,43 @@ function StakeTimeApp() {
                 <span className="text-[10px] text-white/20 ml-auto">Cost: {fmtEth(registrationCost)} GOV | {subnets.length} / 420</span>
               </div>
 
-              {!llmParams ? (
-                <div className="space-y-2">
-                  <textarea
-                    placeholder="Describe the subnet you want to create...&#10;&#10;e.g. &quot;An AI inference subnet with high throughput, rewarding consistent uptime. Fast 12-hour epochs, generous emissions to attract early validators.&quot;"
-                    value={llmPrompt}
-                    onChange={e => setLlmPrompt(e.target.value)}
-                    rows={3}
-                    className="w-full text-sm px-4 py-3 rounded-lg border border-white/10 bg-white/5 text-white/90 focus:outline-none focus:border-white/30 font-mono transition-colors placeholder:text-white/20 resize-none"
-                  />
-                  <div className="flex items-center justify-end">
-                    <button
-                      onClick={handleLlmGenerate}
-                      disabled={llmGenerating || !llmPrompt.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-violet-500/40 bg-violet-500/15 text-violet-300 text-[10px] font-bold uppercase tracking-wider hover:bg-violet-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {llmGenerating ? (
-                        <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Generating...</>
-                      ) : (
-                        <><SparklesIcon className="w-3.5 h-3.5" /> Generate</>
-                      )}
-                    </button>
-                  </div>
+              {/* Mode tabs */}
+              <div className="flex items-center gap-1 mb-3 border border-white/10 rounded-lg p-1 bg-white/[0.02]">
+                {(['fork', 'new', 'edit'] as SubnetMode[]).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => applyMode(m, m === 'new' ? null : forkSourceId)}
+                    className={`flex-1 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      subnetMode === m
+                        ? 'bg-white/10 text-white/90'
+                        : 'text-white/40 hover:text-white/60 hover:bg-white/5'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+
+              {/* Source selector for fork/edit */}
+              {subnetMode !== 'new' && (
+                <div className="mb-3">
+                  <label className="text-[9px] text-white/30 uppercase tracking-wider mb-0.5 block">
+                    {subnetMode === 'fork' ? 'Source Subnet' : 'Subnet to Edit'}
+                  </label>
+                  <select
+                    value={forkSourceId ?? ''}
+                    onChange={e => applyMode(subnetMode, e.target.value === '' ? null : parseInt(e.target.value))}
+                    className="w-full text-xs px-3 py-2 rounded-lg border border-white/20 bg-white/5 text-white/90 focus:outline-none focus:border-white/40 font-mono transition-colors"
+                  >
+                    <option value="">— Select a subnet —</option>
+                    {subnets.map(s => (
+                      <option key={s.id} value={s.id}>#{s.id} · {s.name}</option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
+              )}
+
+              {llmParams && (subnetMode === 'new' || forkSourceId !== null) ? (
                 <div className="space-y-3">
                   {llmParams.description && (
                     <p className="text-xs text-white/50 italic">{llmParams.description}</p>
@@ -700,10 +756,10 @@ function StakeTimeApp() {
                   <div className="flex items-center justify-between pt-1">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => { setLlmParams(null); setLlmPrompt('') }}
+                        onClick={() => applyMode(subnetMode, subnetMode === 'new' ? null : forkSourceId)}
                         className="px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/40 text-[10px] font-bold uppercase tracking-wider hover:bg-white/10 hover:text-white/60 transition-colors"
                       >
-                        Back
+                        Reset
                       </button>
                       <button
                         onClick={() => setLlmEditing(!llmEditing)}
@@ -720,10 +776,14 @@ function StakeTimeApp() {
                       {llmDeploying ? (
                         <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Deploying...</>
                       ) : (
-                        <><CheckIcon className="w-3.5 h-3.5" /> Deploy Subnet</>
+                        <><CheckIcon className="w-3.5 h-3.5" /> {subnetMode === 'edit' ? 'Redeploy' : subnetMode === 'fork' ? 'Deploy Fork' : 'Deploy Subnet'}</>
                       )}
                     </button>
                   </div>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-xs text-white/30 uppercase tracking-wider">
+                  {subnetMode === 'fork' ? 'Pick a subnet to fork' : 'Pick a subnet to edit'}
                 </div>
               )}
             </div>

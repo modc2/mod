@@ -526,28 +526,101 @@ export default function LivePanel() {
           bar (status + START/STOP/PAUSE) lives above so the engine can
           be paused from any tab. */}
       <div className="flex gap-3">
-      <nav className="w-28 shrink-0 flex flex-col gap-1 border-r border-pixel-border pr-2 self-start sticky top-2">
-        {(
-          [
-            { id: "pnl",    label: "PNL"    },
-            { id: "trades", label: "TRADES" },
-            { id: "stats",  label: "STATS"  },
-            { id: "wallet", label: "WALLET" },
-            { id: "params", label: "PARAMS" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setLiveTab(t.id)}
-            className={`text-left px-2 py-2 text-[12px] font-mono tracking-[0.18em] uppercase border-l-2 transition-colors ${
-              liveTab === t.id
-                ? "border-green-400 text-green-400 bg-green-400/5"
-                : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <nav className="w-44 shrink-0 flex flex-col gap-1.5 border-r border-pixel-border pr-2 self-start sticky top-2">
+        {/* Per-tab "task running" badges — small status chips that let the
+            user see at a glance what activity is happening on each tab
+            without flipping through them. Engine running = green dot on
+            every tab; counts surface trades/orders/balance inline. */}
+        {(() => {
+          const isRunning = isLive && status === "running";
+          const isPaused = isLive && status === "paused";
+          const isErrored = isLive && status === "error";
+          const dotCls = isRunning
+            ? "bg-green-400 animate-pulse"
+            : isPaused
+              ? "bg-amber-400"
+              : isErrored
+                ? "bg-red-400 animate-pulse"
+                : "";
+          const tradesCount = engineState?.observedTrades.length ?? 0;
+          const orderCount = engineState?.totalOrdersPlaced ?? 0;
+          const cycleCount = engineState?.cycleCount ?? 0;
+          const bal = engineState?.balance;
+          const items: { id: LiveTab; label: string; badge: ReactNode }[] = [
+            { id: "pnl",    label: "PNL",    badge: isLive ? <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} /> : null },
+            { id: "trades", label: "TRADES", badge: isLive ? (
+              <span className="flex items-center gap-1.5 shrink-0">
+                <span className={`w-2 h-2 rounded-full ${dotCls}`} />
+                {tradesCount > 0 && <span className="text-[11px] font-mono text-pixel-gray">{tradesCount}</span>}
+              </span>
+            ) : null },
+            { id: "stats",  label: "STATS",  badge: isLive ? (
+              <span className="flex items-center gap-1.5 shrink-0">
+                <span className={`w-2 h-2 rounded-full ${dotCls}`} />
+                {orderCount > 0 && <span className="text-[11px] font-mono text-pixel-gray">{orderCount}</span>}
+              </span>
+            ) : null },
+            { id: "wallet", label: "WALLET", badge: bal !== null && bal !== undefined ? (
+              <span className="text-[11px] font-mono text-pixel-gray shrink-0">${bal < 10 ? bal.toFixed(2) : Math.round(bal)}</span>
+            ) : null },
+            { id: "params", label: "PARAMS", badge: activeStrat ? (
+              <span className="text-[11px] font-mono text-pixel-gray shrink-0 truncate max-w-[60px]" title={activeStrat.name}>
+                {activeStrat.name}
+              </span>
+            ) : null },
+          ];
+          return (
+            <>
+              {items.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setLiveTab(t.id)}
+                  className={`text-left px-3 py-2.5 text-[14px] font-mono tracking-[0.18em] uppercase border-l-2 transition-colors flex items-center justify-between gap-2 ${
+                    liveTab === t.id
+                      ? "border-green-400 text-green-400 bg-green-400/5"
+                      : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
+                  }`}
+                >
+                  <span>{t.label}</span>
+                  {t.badge}
+                </button>
+              ))}
+              {/* Running summary — surfaces the active task at the bottom
+                  of the rail so it's visible no matter which tab is
+                  selected. */}
+              {isLive && (
+                <div className="mt-2 pt-2 border-t border-pixel-border/40 px-1">
+                  <div className="text-[10px] text-pixel-gray tracking-[0.18em] mb-1">RUNNING</div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                    <span className={`w-2 h-2 rounded-full ${dotCls}`} />
+                    <span className={
+                      isRunning ? "text-green-400" :
+                      isPaused ? "text-amber-400" :
+                      isErrored ? "text-red-400" : "text-pixel-gray"
+                    }>
+                      {status.toUpperCase()}
+                    </span>
+                  </div>
+                  {activeStrat && (
+                    <div className="text-[10px] text-pixel-white font-mono mt-1 truncate" title={activeStrat.name}>
+                      {activeStrat.name}
+                    </div>
+                  )}
+                  {engineState && (
+                    <div className="text-[10px] text-pixel-gray font-mono mt-0.5">
+                      {cycleCount} cycle{cycleCount === 1 ? "" : "s"}
+                    </div>
+                  )}
+                  {engineState?.nextCycleAt && isRunning && (
+                    <div className="text-[10px] text-pixel-gray font-mono">
+                      next {formatCountdown(nextIn)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
       </nav>
       <div className="flex-1 min-w-0 space-y-3">
 
@@ -1060,6 +1133,32 @@ export default function LivePanel() {
                           </span>
                           <span className="text-pixel-white shrink-0 text-right tabular-nums">
                             ${t.notional < 1 ? t.notional.toFixed(2) : t.notional < 10_000 ? t.notional.toFixed(0) : `${(t.notional / 1000).toFixed(1)}k`}
+                          </span>
+                          {/* Sharpe-weighted EV score the engine assigned to
+                              this candidate. Color-coded so the user can spot
+                              high-score trades at a glance. SELLs and no-Sharpe
+                              traders read "—" (always honored / pending stats). */}
+                          <span
+                            className={`shrink-0 w-[68px] text-right tabular-nums text-[12px] ${
+                              t.side === "SELL"
+                                ? "text-pixel-gray"
+                                : t.score > 5
+                                  ? "text-green-400"
+                                  : t.score > 1
+                                    ? "text-yellow-400"
+                                    : t.score > 0
+                                      ? "text-pixel-gray-light"
+                                      : "text-pixel-gray/60"
+                            }`}
+                            title={
+                              t.side === "SELL"
+                                ? "SELL — score N/A (always honored to close positions)"
+                                : t.sharpe > 0
+                                  ? `score = Sharpe ${t.sharpe.toFixed(2)} × $${t.notional.toFixed(0)} notional`
+                                  : "No Sharpe yet (trader needs ≥3 closed 30d trades)"
+                            }
+                          >
+                            {t.side === "SELL" || t.sharpe <= 0 ? "—" : `$${t.score.toFixed(2)}`}
                           </span>
                         </div>
                         {reasonText && (

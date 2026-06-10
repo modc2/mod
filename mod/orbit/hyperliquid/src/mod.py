@@ -229,8 +229,13 @@ class Hyperliquid(m.Mod):
 
     # ── data passthroughs (use the Rust API) ──────────────────────
 
-    def _get(self, path: str, **params) -> Any:
-        r = requests.get(f"{self.api_url}{path}", params=params, timeout=30)
+    def _get(self, path: str, _timeout: float = 30, **params) -> Any:
+        # Top-traders scan can legitimately take ~60s under HL's /info
+        # rate limiting (parallel=2 × up to 8 retries × ~4s backoff). Keep
+        # short timeouts for everything else but give the scan budget.
+        if path.startswith("/traders/top") or path.startswith("/trader/"):
+            _timeout = max(_timeout, 120)
+        r = requests.get(f"{self.api_url}{path}", params=params, timeout=_timeout)
         r.raise_for_status()
         return r.json()
 

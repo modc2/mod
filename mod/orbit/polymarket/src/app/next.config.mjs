@@ -10,6 +10,15 @@ const nextConfig = {
     NEXT_PUBLIC_BASE_PATH: basePath,
     NEXT_PUBLIC_STRAT_HMAC_SECRET: process.env.NEXT_PUBLIC_STRAT_HMAC_SECRET || "",
   },
+  webpack: (config) => {
+    // `import src from "./foo.ts?raw"` → bundles the file as a UTF-8 string.
+    // Used by the STRATS tab source viewer to show the built-in strat code.
+    config.module.rules.push({
+      resourceQuery: /raw/,
+      type: "asset/source",
+    });
+    return config;
+  },
   async rewrites() {
     return [
       {

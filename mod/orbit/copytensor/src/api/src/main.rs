@@ -256,28 +256,55 @@ async fn tao_price(State(s): State<S>) -> Json<serde_json::Value> {
 /// Background task: on each new chain block, refresh the subnet snapshot
 /// and the TAO/USD price. Handlers serve directly from the cache so they
 /// never wait on chain or network I/O.
+/// Returns the age (seconds) of the cached TAO/USD price, or None if absent.
+async fn s_price_cache_age(state: &S) -> Option<u64> {
+    state.tao_price_cache.read().await.as_ref().map(|(_, _, at)| at.elapsed().as_secs())
+}
+
 async fn refresh_caches(state: &S, http: &reqwest::Client, last_block: u64) -> u64 {
     let block = match state.client.get_block().await {
         Ok(b) => b,
         Err(e) => {
             warn!("refresher: get_block failed: {e}");
+            // subxt 0.37's OnlineClient does not auto-reconnect once the
+            // background task closes its WS — kick the client to rebuild.
+            if let Err(re) = state.client.reconnect().await {
+                warn!("refresher: reconnect failed: {re}");
+            }
             return last_block;
         }
     };
     if block == last_block {
         return last_block;
     }
-    // Fetch subnet snapshot + TAO/USD price concurrently.
+    // Subnets refresh on EVERY block (the chain data changes per block).
+    // CoinGecko is throttled to once per minute — TAO/USD doesn't move on
+    // a block timescale and the free tier rate-limits hard if hit too often.
+    let need_price = match s_price_cache_age(state).await {
+        Some(age) => age >= 60,
+        None => true,
+    };
     let subnets_fut = async { state.client.get_all_subnet_info().await.ok() };
     let price_fut = async {
-        let r = http
+        if !need_price { return None; }
+        let req = http
             .get("https://api.coingecko.com/api/v3/simple/price?ids=bittensor&vs_currencies=usd")
-            .timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(8))
             .send()
-            .await
-            .ok()?;
-        r.json::<serde_json::Value>().await.ok()?
-            ["bittensor"]["usd"].as_f64()
+            .await;
+        let r = match req {
+            Ok(r) => r,
+            Err(e) => { warn!("tao_price fetch http error: {e}"); return None; }
+        };
+        let v = match r.json::<serde_json::Value>().await {
+            Ok(v) => v,
+            Err(e) => { warn!("tao_price json error: {e}"); return None; }
+        };
+        let usd = v["bittensor"]["usd"].as_f64();
+        if usd.is_none() {
+            warn!("tao_price missing field in response: {v}");
+        }
+        usd
     };
     let (subnets, price) = tokio::join!(subnets_fut, price_fut);
     if let Some(info) = subnets {
@@ -294,7 +321,12 @@ async fn refresh_caches(state: &S, http: &reqwest::Client, last_block: u64) -> u
 
 fn spawn_cache_refresher(state: S) {
     tokio::spawn(async move {
-        let http = reqwest::Client::new();
+        // CoinGecko free tier requires a descriptive User-Agent, otherwise
+        // it returns HTTP 403 with a "please add a User-Agent" body.
+        let http = reqwest::Client::builder()
+            .user_agent("copytensor/0.2 (+https://github.com/modc2/mod)")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         // First refresh immediately, then one per Bittensor block (~12s).
         let mut last_block = refresh_caches(&state, &http, 0).await;
         loop {
