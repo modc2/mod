@@ -779,17 +779,10 @@ export default function CopyTrading({
   return (
     <div className="space-y-3">
       {showSyncingBanner && (
-        <div className="pixel-panel px-4 py-2 border-2 border-green-400 bg-green-400/10 text-green-400 flex items-center gap-3 font-mono text-[13px]">
-          <span className="w-2 h-2 bg-green-400 animate-pulse shrink-0" />
-          <span className="tracking-wider shrink-0">SYNCING IN PROGRESS</span>
-          <span className="shrink-0">
-            Leaderboard was {formatAgo(staleAgeMs)} old — refreshing from Polymarket
-            {progress?.phase === "enrich" && progress.total > 0
-              ? ` (${progress.done}/${progress.total} enriched${rateInfo ? `, ETA ${formatEta(rateInfo.etaSec)}` : ""})`
-              : progress?.phase === "leaderboard" && progress.total > 0
-                ? ` (leaderboard ${progress.done}/${progress.total})`
-                : "…"}
-          </span>
+        <div className="pixel-panel px-4 py-1.5 border border-green-400/60 bg-green-400/5 text-green-400 flex items-center gap-2 font-mono text-[12px]">
+          <span className="w-1.5 h-1.5 bg-green-400 animate-pulse shrink-0" />
+          <span className="tracking-wider shrink-0">AUTO-SYNCING</span>
+          <span className="text-pixel-gray-light shrink-0">leaderboard was {formatAgo(staleAgeMs)} stale</span>
         </div>
       )}
       {showStaleBanner && (
