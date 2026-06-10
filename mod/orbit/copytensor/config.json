@@ -117,7 +117,7 @@
         "wss://bittensor-finney.api.onfinality.io/public-ws"
     ],
     "rebalance_threshold_pct": 5.0,
-    "schema": "QmNnSSzhGU4h89Pg993vHaNtLJeduAZKm8yD3dPcXV4jno",
+    "schema": "QmRN7ogxxLxfiEzVYSZr7RAc6raRdUoesknmbRWGZFnPX4",
     "seed_validators": [
         {
             "label": "Opentensor Foundation",

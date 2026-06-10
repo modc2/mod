@@ -71,7 +71,7 @@ interface Personality {
 function safeSetItem(key: string, value: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    window.safeSetItem(key, value);
+    window.localStorage.setItem(key, value);
     return true;
   } catch (e) {
     const isQuota = e instanceof Error && /quota/i.test(e.name + e.message);
@@ -90,7 +90,7 @@ function safeSetItem(key: string, value: string): boolean {
       }
       sizes.sort((a, b) => b[1] - a[1]);
       for (const [k] of sizes.slice(0, 3)) window.localStorage.removeItem(k);
-      window.safeSetItem(key, value);
+      window.localStorage.setItem(key, value);
       return true;
     } catch {
       return false;
@@ -895,6 +895,8 @@ export default function Home() {
       setWalletType(savedWalletType);
       return;
     }
+    // The user explicitly signed out — stay on the auth screen
+    if (localStorage.getItem("claude_jobs_signed_out") === "1") return;
     // Probe server — if local mode is on, skip auth entirely
     fetch(`${apiUrl}/health`)
       .then((r) => r.json())
@@ -1047,6 +1049,7 @@ export default function Home() {
     if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
     setToken(newToken);
     setAddress(verifiedAddr);
+    localStorage.removeItem("claude_jobs_signed_out");
     safeSetItem("claude_jobs_token", newToken);
     safeSetItem("claude_jobs_address", verifiedAddr);
 
@@ -1184,6 +1187,9 @@ export default function Home() {
     localStorage.removeItem("claude_jobs_token");
     localStorage.removeItem("claude_jobs_address");
     localStorage.removeItem("claude_jobs_wallet_type");
+    // Persist the sign-out so the local-mode probe on next load
+    // doesn't silently reconnect us.
+    safeSetItem("claude_jobs_signed_out", "1");
     if (esRef.current) esRef.current.close();
   };
 
@@ -2864,198 +2870,196 @@ export default function Home() {
 
   if (!token) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-        {/* Ambient glow */}
+      <div className="h-screen w-screen flex relative overflow-hidden" style={{ background: "var(--bg-primary)" }}>
+        {/* Sign-in Sidebar */}
         <div
-          className="absolute inset-0 pointer-events-none"
+          className="relative z-10 h-full w-[360px] shrink-0 flex flex-col overflow-y-auto transition-all duration-500"
           style={{
-            background: isLight
-              ? "radial-gradient(ellipse at center, rgba(0,0,0,0.02) 0%, transparent 70%)"
-              : "radial-gradient(ellipse at center, rgba(16,185,129,0.03) 0%, transparent 70%)",
+            background: "var(--bg-secondary)",
+            borderRight: `1px solid ${subtleBorder}`,
+            opacity: bootPhase >= 3 ? 1 : 0,
+            transform: bootPhase >= 3 ? "translateX(0)" : "translateX(-10px)",
           }}
-        />
-
-        <div className="relative z-10 flex flex-col items-center gap-6 max-w-2xl w-full px-4">
-          {/* Boot Art */}
-          <pre
-            className="text-crt-green leading-none select-none whitespace-pre transition-opacity duration-700"
-            style={{
-              fontSize: "9px",
-              textShadow: "none",
-              opacity: bootPhase >= 1 ? 1 : 0,
-            }}
-          >
-            {BOOT_ART}
-          </pre>
-
-          {/* Boot Messages */}
-          <div
-            className="w-full max-w-lg transition-opacity duration-500"
-            style={{ opacity: bootPhase >= 2 ? 1 : 0 }}
-          >
-            <div className="rounded-xl p-4 space-y-2" style={{ background: tintBg, border: `1px solid ${subtleBorder}` }}>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>System Check — OK</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Claude Engine — Ready</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Job Scheduler — Active</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>SSE Stream — Enabled</div>
-              <div className="text-[13px] font-medium mt-2" style={{ color: "var(--crt-amber)" }}>
-                Wallet signature required for access
+        >
+          <div className="flex-1 flex flex-col justify-center p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
+                <span className="text-crt-amber text-[16px]">🔐</span>
               </div>
-              {!hasMetaMask && !hasSubWallet && (
-                <div className="text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                  No web3 wallet detected — local key mode available
-                </div>
-              )}
+              <h2
+                className="text-[16px] font-semibold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Connect Wallet
+              </h2>
             </div>
-          </div>
 
-          {/* Auth Card */}
-          <div
-            className="w-full max-w-lg transition-all duration-500"
-            style={{
-              opacity: bootPhase >= 3 ? 1 : 0,
-              transform: bootPhase >= 3 ? "translateY(0)" : "translateY(10px)",
-            }}
-          >
-            <div
-              className="rounded-2xl p-6"
-              style={{
-                background: "var(--bg-secondary)",
-                border: `1px solid ${subtleBorder}`,
-                boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
-              }}
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
-                  <span className="text-crt-amber text-[16px]">🔐</span>
-                </div>
-                <h2
-                  className="text-[16px] font-semibold"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Connect Wallet
-                </h2>
-              </div>
+            <div className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+              Sign a cryptographic challenge to authenticate.
+              Your signature is verified server-side via ecrecover and
+              becomes a 24-hour bearer token for all API requests.
+            </div>
 
-              <div className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                Sign a cryptographic challenge to authenticate.
-                Your signature is verified server-side via ecrecover and
-                becomes a 24-hour bearer token for all API requests.
-              </div>
+            <div className="flex flex-col items-center gap-4">
+              {(hasMetaMask || hasSubWallet) && (
+                <>
+                  <div className="flex gap-2 w-full">
+                    {hasMetaMask && (
+                      <button
+                        onClick={() => connectWallet("metamask")}
+                        disabled={authLoading}
+                        className="pixel-btn pixel-btn-amber flex-1 text-[13px] py-3"
+                        style={{ letterSpacing: "0.04em" }}
+                      >
+                        {authLoading ? (
+                          <span className="animate-pulse">SIGNING...</span>
+                        ) : (
+                          "MetaMask"
+                        )}
+                      </button>
+                    )}
+                    {hasSubWallet && (
+                      <button
+                        onClick={() => connectWallet("subwallet")}
+                        disabled={authLoading}
+                        className="pixel-btn pixel-btn-blue flex-1 text-[13px] py-3"
+                        style={{ letterSpacing: "0.04em" }}
+                      >
+                        {authLoading ? (
+                          <span className="animate-pulse">SIGNING...</span>
+                        ) : (
+                          "SubWallet"
+                        )}
+                      </button>
+                    )}
+                  </div>
 
-              <div className="flex flex-col items-center gap-4">
-                {(hasMetaMask || hasSubWallet) && (
-                  <>
-                    <div className="flex gap-2 w-full max-w-xs">
-                      {hasMetaMask && (
-                        <button
-                          onClick={() => connectWallet("metamask")}
-                          disabled={authLoading}
-                          className="pixel-btn pixel-btn-amber flex-1 text-[13px] py-3"
-                          style={{ letterSpacing: "0.04em" }}
-                        >
-                          {authLoading ? (
-                            <span className="animate-pulse">SIGNING...</span>
-                          ) : (
-                            "MetaMask"
-                          )}
-                        </button>
-                      )}
-                      {hasSubWallet && (
-                        <button
-                          onClick={() => connectWallet("subwallet")}
-                          disabled={authLoading}
-                          className="pixel-btn pixel-btn-blue flex-1 text-[13px] py-3"
-                          style={{ letterSpacing: "0.04em" }}
-                        >
-                          {authLoading ? (
-                            <span className="animate-pulse">SIGNING...</span>
-                          ) : (
-                            "SubWallet"
-                          )}
-                        </button>
-                      )}
-                    </div>
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="flex-1 border-t border-crt-green/10" />
+                    <span className="text-[13px] text-crt-green/20">OR</span>
+                    <div className="flex-1 border-t border-crt-green/10" />
+                  </div>
+                </>
+              )}
 
-                    <div className="flex items-center gap-3 w-full max-w-xs">
-                      <div className="flex-1 border-t border-crt-green/10" />
-                      <span className="text-[13px] text-crt-green/20">OR</span>
-                      <div className="flex-1 border-t border-crt-green/10" />
-                    </div>
-                  </>
+              <button
+                onClick={connectLocal}
+                disabled={authLoading}
+                className="pixel-btn w-full text-[13px] py-3"
+                style={{ letterSpacing: "0.04em" }}
+              >
+                {authLoading && !hasMetaMask && !hasSubWallet ? (
+                  <span className="animate-pulse">GENERATING KEY...</span>
+                ) : (
+                  "Use Local Key"
                 )}
+              </button>
 
+              <div className="flex items-center gap-3 w-full">
+                <div className="flex-1 border-t border-crt-green/10" />
+                <span className="text-[13px] text-crt-green/20">OR</span>
+                <div className="flex-1 border-t border-crt-green/10" />
+              </div>
+
+              {!showPasswordInput ? (
                 <button
-                  onClick={connectLocal}
-                  disabled={authLoading}
-                  className="pixel-btn w-full max-w-xs text-[13px] py-3"
+                  onClick={() => setShowPasswordInput(true)}
+                  className="pixel-btn w-full text-[13px] py-3"
                   style={{ letterSpacing: "0.04em" }}
                 >
-                  {authLoading && !hasMetaMask && !hasSubWallet ? (
-                    <span className="animate-pulse">GENERATING KEY...</span>
-                  ) : (
-                    "Use Local Key"
-                  )}
+                  Use Password Key
                 </button>
-
-                <div className="flex items-center gap-3 w-full max-w-xs">
-                  <div className="flex-1 border-t border-crt-green/10" />
-                  <span className="text-[13px] text-crt-green/20">OR</span>
-                  <div className="flex-1 border-t border-crt-green/10" />
-                </div>
-
-                {!showPasswordInput ? (
+              ) : (
+                <div className="w-full space-y-2">
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter password..."
+                    className="w-full px-3 py-2 text-[13px] bg-crt-dark text-crt-green border-2 border-crt-amber/40 font-pixel"
+                    style={{ letterSpacing: "0.01em" }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && passwordInput.trim()) connectWithPassword(passwordInput.trim());
+                    }}
+                  />
                   <button
-                    onClick={() => setShowPasswordInput(true)}
-                    className="pixel-btn w-full max-w-xs text-[13px] py-3"
+                    onClick={() => passwordInput.trim() && connectWithPassword(passwordInput.trim())}
+                    disabled={authLoading || !passwordInput.trim()}
+                    className="pixel-btn pixel-btn-amber w-full text-[13px] py-3"
                     style={{ letterSpacing: "0.04em" }}
                   >
-                    Use Password Key
+                    {authLoading ? (
+                      <span className="animate-pulse">DERIVING KEY...</span>
+                    ) : (
+                      "Connect with Password"
+                    )}
                   </button>
-                ) : (
-                  <div className="w-full max-w-xs space-y-2">
-                    <input
-                      type="password"
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Enter password..."
-                      className="w-full px-3 py-2 text-[13px] bg-crt-dark text-crt-green border-2 border-crt-amber/40 font-pixel"
-                      style={{ letterSpacing: "0.01em" }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && passwordInput.trim()) connectWithPassword(passwordInput.trim());
-                      }}
-                    />
-                    <button
-                      onClick={() => passwordInput.trim() && connectWithPassword(passwordInput.trim())}
-                      disabled={authLoading || !passwordInput.trim()}
-                      className="pixel-btn pixel-btn-amber w-full text-[13px] py-3"
-                      style={{ letterSpacing: "0.04em" }}
-                    >
-                      {authLoading ? (
-                        <span className="animate-pulse">DERIVING KEY...</span>
-                      ) : (
-                        "Connect with Password"
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                <div className="text-[13px] text-crt-green/25">
-                  Password derives a deterministic wallet key via keccak256
-                </div>
-              </div>
-
-              {authError && (
-                <div className="mt-4 border-2 border-crt-red/60 p-3" style={{ background: "rgba(239,68,68,0.05)" }}>
-                  <div className="text-[14px] text-crt-red text-center">{authError}</div>
                 </div>
               )}
+
+              <div className="text-[13px] text-crt-green/25 text-center">
+                Password derives a deterministic wallet key via keccak256
+              </div>
             </div>
+
+            {authError && (
+              <div className="mt-4 border-2 border-crt-red/60 p-3" style={{ background: "rgba(239,68,68,0.05)" }}>
+                <div className="text-[14px] text-crt-red text-center">{authError}</div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
-          <div className="text-[12px] mt-4" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+          <div className="p-4 text-[12px] text-center" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
             Bismillah — Mod AI v1.0 — Powered by Rust + Next.js
+          </div>
+        </div>
+
+        {/* Main Area — boot art + system status */}
+        <div className="relative flex-1 flex flex-col items-center justify-center overflow-hidden">
+          {/* Ambient glow */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: isLight
+                ? "radial-gradient(ellipse at center, rgba(0,0,0,0.02) 0%, transparent 70%)"
+                : "radial-gradient(ellipse at center, rgba(16,185,129,0.03) 0%, transparent 70%)",
+            }}
+          />
+
+          <div className="relative z-10 flex flex-col items-center gap-6 max-w-2xl w-full px-4">
+            {/* Boot Art */}
+            <pre
+              className="text-crt-green leading-none select-none whitespace-pre transition-opacity duration-700"
+              style={{
+                fontSize: "9px",
+                textShadow: "none",
+                opacity: bootPhase >= 1 ? 1 : 0,
+              }}
+            >
+              {BOOT_ART}
+            </pre>
+
+            {/* Boot Messages */}
+            <div
+              className="w-full max-w-lg transition-opacity duration-500"
+              style={{ opacity: bootPhase >= 2 ? 1 : 0 }}
+            >
+              <div className="rounded-xl p-4 space-y-2" style={{ background: tintBg, border: `1px solid ${subtleBorder}` }}>
+                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>System Check — OK</div>
+                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Claude Engine — Ready</div>
+                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Job Scheduler — Active</div>
+                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>SSE Stream — Enabled</div>
+                <div className="text-[13px] font-medium mt-2" style={{ color: "var(--crt-amber)" }}>
+                  Wallet signature required for access
+                </div>
+                {!hasMetaMask && !hasSubWallet && (
+                  <div className="text-[13px]" style={{ color: "var(--text-tertiary)" }}>
+                    No web3 wallet detected — local key mode available
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -5654,9 +5658,22 @@ export default function Home() {
                 to submit
               </span>
             </div>
-            <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
-              {activeModelChip.label} · {apiUrl.replace("http://", "")}
-            </span>
+            <div className="flex items-center gap-1">
+              <select
+                value={model}
+                onChange={(e) => { setModel(e.target.value); safeSetItem("claude_jobs_model", e.target.value); }}
+                className="text-[9px] font-mono bg-transparent border-0 outline-none cursor-pointer appearance-none pr-0"
+                style={{ color: activeModelChip.color, opacity: 0.85 }}
+                title={`Model: ${activeModelChip.label} (${activeModelChip.value})`}
+              >
+                {MODEL_OPTIONS.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+              <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
+                · {apiUrl.replace("http://", "")}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -8045,45 +8062,6 @@ export default function Home() {
                 toggle pattern). For local/no-wallet sessions it opens
                 the small profile dropdown instead. */}
             <div ref={profileMenuRef} className="relative">
-              {selectedModule && effectiveConfig?.owner ? (
-                <button
-                  className="text-[12px] px-2 py-0.5 font-mono transition-all cursor-pointer flex items-center gap-1.5"
-                  title={showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowOwnerSidebar(o => !o);
-                  }}
-                  style={{
-                    color: "var(--crt-green)",
-                    background: showOwnerSidebar
-                      ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
-                      : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
-                    border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
-                    borderRadius: "4px",
-                    letterSpacing: "0.02em",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = showOwnerSidebar
-                    ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
-                    : "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
-                  aria-expanded={showOwnerSidebar}
-                >
-                  <span
-                    className="shrink-0 inline-block rounded-full"
-                    style={{
-                      width: "6px",
-                      height: "6px",
-                      background: "var(--crt-green)",
-                      boxShadow: "0 0 6px var(--crt-green)",
-                    }}
-                  />
-                  <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>
-                  {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
-                  <span className="text-[9px]" style={{ opacity: 0.6 }}>
-                    {showOwnerSidebar ? "◨" : "◧"}
-                  </span>
-                </button>
-              ) : (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -8113,7 +8091,6 @@ export default function Home() {
                     : (profileMenuOpen ? "▴" : "▾")}
                 </span>
               </button>
-              )}
               {profileMenuOpen && (
                 <div
                   className="absolute right-0 mt-1.5 flex flex-col rounded-md z-50 profile-menu-expand-left"
@@ -9013,6 +8990,45 @@ export default function Home() {
                             ⌘K
                           </span>
                         </button>
+                        <button
+                          onClick={() => {
+                            setShowOwnerSidebar(false);
+                            disconnect();
+                          }}
+                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                          style={{
+                            borderColor: "var(--border-color)",
+                            background: "var(--bg-secondary)",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 30%, var(--border-color))";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = "var(--bg-secondary)";
+                            e.currentTarget.style.borderColor = "var(--border-color)";
+                          }}
+                        >
+                          <span
+                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                            style={{
+                              width: 26,
+                              height: 26,
+                              color: "var(--text-secondary)",
+                              background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--text-tertiary) 25%, transparent)",
+                            }}
+                            aria-hidden
+                          >
+                            ⎋
+                          </span>
+                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                            <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Sign out</span>
+                            <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                              End this session and disconnect
+                            </span>
+                          </span>
+                        </button>
                       </div>
                     </div>
                   )}
@@ -9126,6 +9142,46 @@ export default function Home() {
           borderTop: "1px solid var(--border-color)",
         }}
       >
+        {/* Owner chip — module owner identity + owner panel toggle */}
+        {selectedModule && effectiveConfig?.owner && (
+          <button
+            className="text-[12px] px-2 py-0.5 mr-auto font-mono transition-all cursor-pointer flex items-center gap-1.5"
+            title={showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowOwnerSidebar(o => !o);
+            }}
+            style={{
+              color: "var(--crt-green)",
+              background: showOwnerSidebar
+                ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+                : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+              borderRadius: "4px",
+              letterSpacing: "0.02em",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
+            onMouseLeave={e => (e.currentTarget.style.background = showOwnerSidebar
+              ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+              : "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
+            aria-expanded={showOwnerSidebar}
+          >
+            <span
+              className="shrink-0 inline-block rounded-full"
+              style={{
+                width: "6px",
+                height: "6px",
+                background: "var(--crt-green)",
+                boxShadow: "0 0 6px var(--crt-green)",
+              }}
+            />
+            <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>
+            {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
+            <span className="text-[9px]" style={{ opacity: 0.6 }}>
+              {showOwnerSidebar ? "◨" : "◧"}
+            </span>
+          </button>
+        )}
         <div className="flex items-center gap-3">
           {showBackendEditor ? (
             <form

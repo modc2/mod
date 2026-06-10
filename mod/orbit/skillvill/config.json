@@ -18,7 +18,7 @@
         "status",
         "health"
     ],
-    "schema": "QmdsTK7hqQ6vPksyPZaiFPVNRpUytg6fgYBF3LJcSvUST1",
+    "schema": "QmZw7Gh28a5zzX5B2YRsW9n8iQurd6rw3AQn5F8zDyJB6F",
     "urls": {
         "api": "http://localhost:50140",
         "app": "http://localhost:3140"

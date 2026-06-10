@@ -16,6 +16,6 @@
         "api": "http://localhost:50200",
         "app": "http://localhost:50201"
     },
-    "schema": "QmfXBqbaxWMA59qhgBNCRCFCXyRe7EyRAj9A21j6WvvzoP",
+    "schema": "QmZXo1c5Rvd9cppAFUJM24YQDx6gGhLiGx3Z5SxXDpgqhz",
     "gateway_port": 50201
 }
