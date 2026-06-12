@@ -149,6 +149,26 @@ class Polymarket(m.Mod):
         )
         return proc.stdout or proc.stderr or "<no output>"
 
+    def _detect_mode(self) -> str:
+        """Resolve the live deployment mode: a running docker container wins,
+        then pm2-managed local processes, then the mode set by serve/kill."""
+        try:
+            proc = subprocess.run(
+                ["docker", "compose", "ps", "--status", "running", "-q"],
+                cwd=ROOT_DIR, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return "docker"
+        except Exception:
+            pass
+        try:
+            pm2 = m.mod("pm.pm2")()
+            if pm2.exists("polymarket-api") or pm2.exists("polymarket-app"):
+                return "local"
+        except Exception:
+            pass
+        return self._mode or ("docker" if _has_docker() else "local")
+
     # ── local lifecycle (pm2 / subprocess) ────────────────────────
 
     def api(self, port: Optional[int] = None, build: bool = True) -> Dict[str, Any]:
@@ -267,9 +287,9 @@ class Polymarket(m.Mod):
         threading.Thread(target=_sync, daemon=True).start()
 
     def kill(self, target: str = "all", mode=None) -> Dict[str, Any]:
-        """Stop services. mode='docker' (default) or 'local'."""
+        """Stop services. mode defaults to whatever is actually running."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._detect_mode()
 
         if mode == "docker":
             return self._docker_kill()
@@ -287,9 +307,9 @@ class Polymarket(m.Mod):
         return out
 
     def status(self, mode=None) -> Dict[str, Any]:
-        """Service status. mode='docker' (default) or 'local'."""
+        """Service status. mode defaults to whatever is actually running."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._detect_mode()
 
         if mode == "docker":
             return self._docker_status()
@@ -309,9 +329,9 @@ class Polymarket(m.Mod):
         return out
 
     def logs(self, target: str = "api", lines: int = 50, mode=None) -> str:
-        """Fetch logs. mode='docker' (default) or 'local'."""
+        """Fetch logs. mode defaults to whatever is actually running."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._detect_mode()
 
         if mode == "docker":
             return self._docker_logs(lines=lines)
