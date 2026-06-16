@@ -135,9 +135,11 @@ class Mod:
 
     @property
     def shortcuts(self):
-        shortcuts = self.config()['shortcuts']
-        shortcuts[self.name] = 'mod'
-        return {k: v for k, v in shortcuts.items() if isinstance(v, str)}
+        if not hasattr(self, '_shortcuts'):
+            shortcuts = self.config()['shortcuts']
+            shortcuts[self.name] = 'mod'
+            self._shortcuts = {k: v for k, v in shortcuts.items() if isinstance(v, str)}
+        return self._shortcuts
 
     def set_routes(self, routes: dict, verbose=True):
         for mod, fns in routes.items():
@@ -295,6 +297,8 @@ class Mod:
         if not isinstance(mod, str):
             return mod
         name = self.get_name(mod)
+        if name == self.name:
+            return Mod
         if name in self._mod_cache:
             return self._mod_cache[name]
         obj = self.anchor_object(name)
@@ -352,7 +356,8 @@ class Mod:
             return self.name
         if new_name[0] == self.name:
             new_name = new_name[1:]
-        return '.'.join(new_name).strip('.').lower() or self.name
+        name = '.'.join(new_name).strip('.').lower() or self.name
+        return self.shortcuts.get(name, name)
 
     def dirpath(self, mod=None, update=False, trials=4, key=None, **kwargs) -> str:
         """Get the directory path of a mod."""
@@ -579,9 +584,8 @@ class Mod:
             obj = self.obj(obj)
         return inspect.getsource(obj)
 
-    def claude(self, *text, obj=None, **kwargs) -> str:
-        kwargs.setdefault('path', os.path.expanduser('~/mod'))
-        return self.fn('claude/forward')(query=' '.join(text), obj=obj, **kwargs)
+    def claude(self, *text, mod=None, **kwargs) -> str:
+        return self.dev(*text, mod=mod, agent='claude', **kwargs)
 
     def _has_hidden(self, relpath: str) -> bool:
         """Check if any path component is a hidden file/folder (starts with '.')."""
@@ -1018,7 +1022,7 @@ class Mod:
         fn_obj = getattr(self, fn) if hasattr(self, fn) else self.fn(fn)
         return fn_obj(**params)
 
-    def call(self, _fn: str = 'api/forward', params: Dict[str, Any] = {},
+    def call(self, _fn: str = 'mod/forward', params: Dict[str, Any] = {},
              timeout=30, wait=True, **_kwargs):
         if '/' not in _fn:
             _fn = _fn + '/forward'
@@ -1049,11 +1053,17 @@ class Mod:
     def context(self, path=None):
         return self.code()
 
-    def edit(self, *query, mod='app', base=None, timeout=60, wait=False, **kwargs):
+    def edit(self, *query, mod='app', agent=None, reg=True, **kwargs):
+        """Edit a module with a dev agent (claude or equivalent), then re-register it."""
         query_str = ' '.join(map(str, query))
-        params = {'query': query_str, 'mod': mod, 'base': base}
-        print(f'Editing {mod} with query: {query_str}')
-        return self.call('api/edit', params=params, wait=wait, timeout=timeout, **kwargs)
+        self.print(f'Editing {mod} with query: {query_str}')
+        result = {'mod': mod, 'result': self.dev(query_str, mod=mod, agent=agent, **kwargs)}
+        if reg:
+            try:
+                result['reg'] = self.reg(mod, comment=query_str)
+            except Exception as e:
+                self.print(f'reg after edit failed: {e}', color='yellow')
+        return result
 
     def desc(self, mod='mod', **kwargs):
         return self.fn('desc/')(mod, **kwargs)
@@ -1064,16 +1074,39 @@ class Mod:
     def pytest(self, mod='pypm'):
         return self.fn('tester/pytest')(mod)
 
-    # ── Info & Registry ──────────────────────────────────────────────────
+    # ── Info & Registry (api surface lives on mod.py, no core/api) ───────
 
-    _api = None
-
-    def info(self, mod: str = 'mod', schema=False, key=None, public=False, **kwargs):
-        if self._api is None:
-            self._api = self.mod('api')()
-        if not self._api.exists(mod, key=key):
-            self._api.reg(mod=mod, key=key, public=public)
-        return self._api.mod(mod=mod, schema=schema, key=key, **kwargs)
+    def info(self, mod: str = 'mod', schema=False, **kwargs):
+        """Module card built locally from the mod's files and config.json."""
+        config = self.config(mod)
+        if not isinstance(config, dict):
+            config = {}
+        fns = config.get('fns') or config.get('endpoints') or config.get('expose')
+        if isinstance(fns, dict):
+            fns = list(fns)
+        if not fns:
+            try:
+                fns = self.fns(mod)
+            except Exception:
+                fns = []
+        info = {
+            'name': config.get('name', self.get_name(mod)),
+            'key': self.owner(),
+            'desc': config.get('desc') or config.get('description'),
+            'path': self.relpath(self.dirpath(mod)),
+            'url': config.get('urls') or config.get('url'),
+            'port': config.get('port'),
+            'app_port': config.get('app_port'),
+            'fns': fns,
+            'time': self.time(),
+        }
+        if schema:
+            info['schema'] = self.schema(mod, public=False)
+        try:
+            info['signature'] = self.sign(info)
+        except Exception:
+            pass
+        return info
 
     def verify_info(self, info: Union[str, dict] = None, **kwargs) -> bool:
         if isinstance(info, str):
@@ -1084,16 +1117,16 @@ class Mod:
         return info
 
     def cid(self, mod=None, **kwargs) -> Union[str, Dict[str, str]]:
-        return self.fn('api/put')(self.content(mod, **kwargs))
+        return self.fn('registry/put')(self.content(mod, **kwargs))
 
     def reg(self, *args, **kwargs):
-        return self.fn('api/reg')(*args, **kwargs)
+        return self.fn('registry/reg')(*args, **kwargs)
 
     def setback(self, *args, **kwargs):
-        return self.fn('api/setback')(*args, **kwargs)
+        return self.fn('registry/setback')(*args, **kwargs)
 
-    def txs(self, **kwargs):
-        return self.df(self.call('api/txs', df=0, **kwargs))
+    def txs(self, search=None, **kwargs):
+        return self.fn('tx/list')(search=search, **kwargs)
 
     def token(self, *args, **kwargs):
         return self.fn('auth/token')(*args, **kwargs)
@@ -1368,14 +1401,13 @@ class Mod:
         return self.fn(f'{pm}/logs')(mod, **kwargs)
 
     def app(self):
-        if not self.server_exists('app'):
-            return
-        self.serve('api')
+        """Serve the core API (mod.py itself) and the core app."""
+        self.serve('mod')
         return self.serve('app')
 
     def setup(self):
         self.serve('ipfs')
-        self.serve('api')
+        self.serve('mod')
         self.up('app')
 
     def get_ports(self, n: int = 3) -> list:
@@ -1399,6 +1431,124 @@ class Mod:
         if not isinstance(port_range[0], int) or not isinstance(port_range[1], int):
             raise TypeError('Port range values must be integers')
         return port_range
+
+    # ── Module Management (deploy / configure via dev agents) ────────────
+
+    agent_options = ['claude', 'codex', 'cursor', 'dev', 'agent']
+
+    def agents(self, search=None) -> List[str]:
+        """List available dev-agent modules (claude and equivalents)."""
+        agents = [a for a in self.agent_options if self.mod_exists(a)]
+        if search is not None:
+            agents = [a for a in agents if search in a]
+        return agents
+
+    def get_agent(self, agent: str = None) -> str:
+        """Resolve a dev-agent name, defaulting to the first available (claude)."""
+        agents = self.agents()
+        assert agents, f'No dev-agent modules available (options: {self.agent_options})'
+        agent = agent or agents[0]
+        assert agent in agents, f'Agent {agent} not available, options: {agents}'
+        return agent
+
+    def dev(self, *query, mod=None, agent=None, **kwargs):
+        """Run a dev agent (claude or an equivalent) over a module."""
+        agent = self.get_agent(agent)
+        return self.fn(f'{agent}/forward')(' '.join(map(str, query)), mod=mod, **kwargs)
+
+    def configure(self, mod: str, updates: dict = None, query: str = None,
+                  agent: str = None, **kwargs):
+        """Configure a module: merge updates into its config.json, and/or
+        describe the change in natural language for a dev agent to apply."""
+        result = {'mod': mod}
+        if updates:
+            config = self.config(mod)
+            config = {**(config if isinstance(config, dict) else {}), **updates}
+            result['config_path'] = self.save_config(mod, config)
+        if query:
+            result['agent'] = self.get_agent(agent)
+            result['result'] = self.dev(
+                f'configure this module (config.json and related wiring): {query}',
+                mod=mod, agent=agent, **kwargs)
+        result['config'] = self.config(mod)
+        return result
+
+    def is_repo_url(self, url) -> bool:
+        """True for git URLs and user/repo GitHub shorthand."""
+        if not isinstance(url, str):
+            return False
+        if url.startswith(('http://', 'https://', 'git@')):
+            return True
+        parts = url.split('/')
+        return len(parts) == 2 and all(parts) and not os.path.exists(self.abspath(url))
+
+    def add_repo(self, url: str, name=None, key=None, comment=None) -> Dict[str, Any]:
+        """Copy a module from GitHub: clone the repo into the orbit and register it."""
+        if self.is_repo_url(url) and not url.startswith(('http://', 'https://', 'git@')):
+            url = f'https://github.com/{url}'
+        return self.fn('registry/reg_git')(url, name=name, key=key, comment=comment)
+
+    def modules(self, search=None, **kwargs) -> List[Dict[str, Any]]:
+        """Rich module cards (config + urls + running state) for the app."""
+        running = self._pm2_running()
+        mods = []
+        for name, path in self.operational_tree(search=search).items():
+            config = self.get_json(os.path.join(path, 'config.json'), {})
+            if not isinstance(config, dict):
+                config = {}
+            mods.append({
+                'name': config.get('name', name),
+                'path': self.relpath(path),
+                'url': config.get('urls') or config.get('url'),
+                'port': config.get('port'),
+                'app_port': config.get('app_port'),
+                'desc': config.get('desc') or config.get('description'),
+                'icon': config.get('icon'),
+                'color': config.get('color'),
+                'owner': config.get('owner') or config.get('key'),
+                'running': name in running,
+            })
+        return mods
+
+    def app_namespace(self, search: str = None, **kwargs):
+        """Registered app servers {name: {url, api_url, owner}}. Used by the gateway middleware to route /{mod}/* and /api/{mod}/*."""
+        return self.fn('server.namespace/app_namespace')(search=search, **kwargs)
+
+    def app_owner(self, name: str, **kwargs):
+        """Owner address of a registered app."""
+        return self.fn('server.namespace/app_owner')(name, **kwargs)
+
+    def is_app_owner(self, name: str, address: str, **kwargs):
+        """Whether an address owns a registered app."""
+        return self.fn('server.namespace/is_app_owner')(name, address, **kwargs)
+
+    def app_status(self, **kwargs):
+        """All module apps with running/stopped status."""
+        return self.fn('server.namespace/app_status')(**kwargs)
+
+    def serve_app(self, name: str, port: int = None, key=None, **kwargs):
+        """Start a module's servers. Owner only (when an owner is registered)."""
+        ns = self.mod('server.namespace')()
+        address = self.key_address(key) if key else self.owner()
+        if ns.app_owner(name) and not ns.is_app_owner(name, address):
+            return {'error': f'Not owner of {name}'}
+        return self.serve(name, port=port, **kwargs)
+
+    def app_logs(self, name: str, lines: int = 100, **kwargs):
+        """Tail the api/app logs for a module."""
+        logs = {}
+        for svc in ['api', 'app']:
+            for log_path in [f'/tmp/{name}/{svc}.log', f'/tmp/mod-{svc}-{name}.log']:
+                if os.path.exists(log_path):
+                    text = self.get_text(log_path, '') or ''
+                    logs[svc] = '\n'.join(text.splitlines()[-lines:])
+                    break
+        if not logs:
+            try:
+                logs['pm2'] = self.logs(name)
+            except Exception as e:
+                return {'error': f'No logs found for {name}: {e}'}
+        return logs
 
     # ── Docker ───────────────────────────────────────────────────────────
 
@@ -1628,7 +1778,10 @@ class Mod:
     # ── Module Creation ───────────────────────────────────────────────
 
     def new(self, name='test_base', base='base', orbit='orbit'):
-        """Create a new mod from a base template."""
+        """Create a new mod from a base template, or copy it from a GitHub URL."""
+        if isinstance(name, str) and (
+                name.startswith(('http://', 'https://', 'git@')) or 'github.com' in name):
+            return self.add_repo(name)
         dirpath = self.paths['orbit'][orbit] + '/' + name.replace('.', '/')
         if os.path.exists(dirpath):
             shutil.rmtree(dirpath)
@@ -1650,8 +1803,7 @@ class Mod:
         return {'name': name, 'path': dirpath, 'msg': 'Mod Created from path'}
 
     def addcid(self, name='churn', cid='QmXUjBQRFa8DbY2GhD1Aq6a44EBYzgejmtwwnYYTfvnFW4'):
-        api = self.mod('api')()
-        file2text = api.content(cid, expand=True)
+        file2text = self.fn('registry/content')(cid, expand=True)
         path = self.paths['orbit']['orbit'] + '/' + name.replace('.', '/')
         for k, v in file2text.items():
             print(f'Creating {path}/{k} for mod {name}')
@@ -1830,6 +1982,7 @@ class Mod:
     is_file_mod = is_mod_file
     future = fut = submit
     create = add = fork = new
+    copy = add_repo
 
 
 def main():

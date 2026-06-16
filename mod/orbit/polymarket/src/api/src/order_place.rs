@@ -33,6 +33,47 @@ use crate::signer::SignerStore;
 
 const CLOB_API: &str = "https://clob.polymarket.com";
 
+/// Send a request to the CLOB with bounded retry + backoff. `clob.polymarket.com`
+/// intermittently refuses connections or times out (surfaced to the user as
+/// 502 "clob auth upstream"); a single blip shouldn't kill an order. Retries
+/// on transport errors and on retryable upstream statuses (429/502/503/504).
+/// `make_req` must build a fresh request each attempt (the body is consumed
+/// on send). Returns the first success/non-retryable response, or the last
+/// error after exhausting attempts.
+async fn clob_send_retry(
+    make_req: impl Fn() -> reqwest::RequestBuilder,
+    what: &str,
+) -> Result<reqwest::Response> {
+    const ATTEMPTS: usize = 3;
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            // 200ms, 400ms backoff between retries.
+            tokio::time::sleep(std::time::Duration::from_millis(200 * (1 << (attempt - 1)))).await;
+        }
+        match make_req().send().await {
+            Ok(resp) => {
+                let st = resp.status();
+                let retryable = st.as_u16() == 429
+                    || st.as_u16() == 502
+                    || st.as_u16() == 503
+                    || st.as_u16() == 504;
+                if retryable && attempt + 1 < ATTEMPTS {
+                    tracing::warn!(%st, what, attempt, "clob retryable status; retrying");
+                    last_err = Some(anyhow!("{}: upstream {}", what, st));
+                    continue;
+                }
+                return Ok(resp);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, what, attempt, "clob transport error; retrying");
+                last_err = Some(anyhow!("{}: {}", what, e));
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("{}: exhausted retries", what)))
+}
+
 // ─── Request / response shapes ──────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -285,15 +326,17 @@ pub async fn ensure_backend_creds(
         nonce: u64,
     ) -> Result<(reqwest::StatusCode, serde_json::Value)> {
         let url = format!("{}{}", CLOB_API, path);
-        let r = http
-            .request(method, &url)
-            .header("POLY_ADDRESS", addr)
-            .header("POLY_SIGNATURE", sig_hex)
-            .header("POLY_TIMESTAMP", timestamp)
-            .header("POLY_NONCE", nonce.to_string())
-            .send()
-            .await
-            .context("clob auth upstream")?;
+        let r = clob_send_retry(
+            || {
+                http.request(method.clone(), &url)
+                    .header("POLY_ADDRESS", addr)
+                    .header("POLY_SIGNATURE", sig_hex)
+                    .header("POLY_TIMESTAMP", timestamp)
+                    .header("POLY_NONCE", nonce.to_string())
+            },
+            "clob auth upstream",
+        )
+        .await?;
         let status = r.status();
         let text = r.text().await.unwrap_or_default();
         let json: serde_json::Value =
@@ -583,23 +626,27 @@ pub async fn place_order(
         "POST /order outbound",
     );
 
-    let resp = http
-        .post(format!("{}{}", CLOB_API, path))
-        // POLY_ADDRESS = the address the api_key was bound against, which
-        // is the backend signer's *EOA* (mint endpoint forbids non-EOA
-        // bindings). order.signer is still the deposit wallet — Polymarket
-        // re-derives `expected_signer = depositWallet(POLY_ADDRESS)` via
-        // CREATE2 for POLY_1271 and compares against order.signer.
-        .header("POLY_ADDRESS", &signer_addr)
-        .header("POLY_SIGNATURE", hmac_sig)
-        .header("POLY_TIMESTAMP", timestamp)
-        .header("POLY_API_KEY", &backend_creds.api_key)
-        .header("POLY_PASSPHRASE", &backend_creds.passphrase)
-        .header("Content-Type", "application/json")
-        .body(body_str)
-        .send()
-        .await
-        .context("post /order upstream")?;
+    let order_url = format!("{}{}", CLOB_API, path);
+    let resp = clob_send_retry(
+        || {
+            http.post(&order_url)
+                // POLY_ADDRESS = the address the api_key was bound against,
+                // which is the backend signer's *EOA* (mint endpoint forbids
+                // non-EOA bindings). order.signer is still the deposit wallet
+                // — Polymarket re-derives `expected_signer =
+                // depositWallet(POLY_ADDRESS)` via CREATE2 for POLY_1271 and
+                // compares against order.signer.
+                .header("POLY_ADDRESS", &signer_addr)
+                .header("POLY_SIGNATURE", &hmac_sig)
+                .header("POLY_TIMESTAMP", &timestamp)
+                .header("POLY_API_KEY", &backend_creds.api_key)
+                .header("POLY_PASSPHRASE", &backend_creds.passphrase)
+                .header("Content-Type", "application/json")
+                .body(body_str.clone())
+        },
+        "post /order upstream",
+    )
+    .await?;
 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();

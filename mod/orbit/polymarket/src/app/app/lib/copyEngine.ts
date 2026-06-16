@@ -887,15 +887,30 @@ export class CopyEngine {
       // the deposit wallet is fully funded.
       let depositWallet: string | null = null;
       let onchainProxyBal = 0;
+      // `null` balance = the read failed (backend/RPC unreachable), which is
+      // NOT the same as a confirmed $0. Coercing a failed read to 0 was the
+      // phantom "wallet empty / deposit now" bug — a flaky Polygon RPC made
+      // a funded wallet look drained. Track unknown-ness explicitly.
+      let balanceKnown = false;
       try {
         const r = await fetch(
-          `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
+          `/polymarket/api/deposit-wallet/info?eoa=${this.config.address}`,
           { cache: "no-store" },
         );
         if (r.ok) {
-          const j = (await r.json()) as { depositWallet?: string; usdcBalance?: string };
+          const j = (await r.json()) as {
+            depositWallet?: string;
+            usdcBalance?: string | null;
+            balanceUnavailable?: boolean;
+          };
           if (j.depositWallet) depositWallet = j.depositWallet;
-          if (j.usdcBalance) onchainProxyBal = Number(j.usdcBalance) / 1_000_000;
+          // Balance is known only when the backend actually returned one.
+          // `balanceUnavailable` or a null/missing usdcBalance = RPC read
+          // failed upstream → keep last-known, don't trade on a phantom 0.
+          if (!j.balanceUnavailable && j.usdcBalance != null) {
+            onchainProxyBal = Number(j.usdcBalance) / 1_000_000;
+            balanceKnown = Number.isFinite(onchainProxyBal);
+          }
         }
       } catch {}
       this.proxyAddress = depositWallet ?? this.proxyAddress;
@@ -904,6 +919,24 @@ export class CopyEngine {
       // stay consistent.
       // Vestigial — backend always overrides to POLY_1271.
       this.sigType = 3 as 0 | 1 | 2 | 3;
+
+      // ── Balance read failed → skip cycle, keep last-known balance ──
+      // Don't zero out state.balance (that flips the UI to "$0.00 / empty"
+      // and fires the funding banner) and don't run the trade pipeline on
+      // an unknown balance. The next cycle retries; the RPC fallback in the
+      // backend makes this rare, but a total outage shouldn't masquerade as
+      // an empty wallet.
+      if (!balanceKnown) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "BALANCE",
+          reason:
+            `Balance read unavailable (backend/RPC unreachable) — skipping cycle, ` +
+            `keeping last known $${(this.state.balance ?? 0).toFixed(2)}. Will retry next cycle.`,
+        });
+        return;
+      }
 
       const effective = onchainProxyBal;
       this.setState({ balance: effective });
@@ -972,7 +1005,7 @@ export class CopyEngine {
             // bumps before this returns.
             try {
               const r = await fetch(
-                `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
+                `/polymarket/api/deposit-wallet/info?eoa=${this.config.address}`,
                 { cache: "no-store" },
               );
               if (r.ok) {
@@ -1475,7 +1508,7 @@ export class CopyEngine {
 
     // Try fetching market data from API
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
       const res = await fetch(`${API_URL}?endpoint=markets&condition_id=${conditionId}`);
       if (!res.ok) return null;
       const data = await res.json();

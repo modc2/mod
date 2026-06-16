@@ -374,8 +374,58 @@ pub async fn is_deposit_wallet_deployed(
     has_contract_code(http, wallet).await
 }
 
-/// Read-only eth_getCode against a public Polygon endpoint. Returns true
-/// iff `address` has bytecode > 0 bytes (i.e. a deployed contract).
+/// Public Polygon RPC endpoints, tried in order. A single endpoint
+/// (polygon.drpc.org) rate-limits and times out under load, which used
+/// to surface as phantom `$0.00` balances — a failed read was silently
+/// coerced to zero upstream. polygon-rpc.com and rpc.ankr.com are
+/// deliberately excluded: they gate-keep with API keys / 401s. Mirrors
+/// the fallback list the Python side already uses (mod.py `_POLYGON_RPCS`).
+const POLYGON_RPCS: &[&str] = &[
+    "https://polygon.drpc.org",
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://polygon.llamarpc.com",
+];
+
+/// POST a JSON-RPC body to Polygon, walking the endpoint list until one
+/// returns a well-formed `{"result": …}`. Each endpoint gets a brief
+/// retry. Returns the parsed `result` value on success, or an error only
+/// when EVERY endpoint failed — callers must NOT treat that as "zero".
+async fn polygon_rpc(http: &reqwest::Client, body: &serde_json::Value) -> Result<serde_json::Value> {
+    let mut last_err: Option<anyhow::Error> = None;
+    for url in POLYGON_RPCS {
+        // Two quick attempts per endpoint — covers a transient blip
+        // without stalling the whole list on one slow host.
+        for attempt in 0..2 {
+            match http
+                .post(*url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body.to_string())
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(v) => {
+                        if let Some(result) = v.get("result") {
+                            return Ok(result.clone());
+                        }
+                        // JSON-RPC error object (e.g. rate-limit) — try next.
+                        last_err = Some(anyhow!(
+                            "rpc {} no result: {}",
+                            url,
+                            v.get("error").map(|e| e.to_string()).unwrap_or_default()
+                        ));
+                    }
+                    Err(e) => last_err = Some(anyhow!("rpc {} json: {}", url, e)),
+                },
+                Err(e) => last_err = Some(anyhow!("rpc {} send (attempt {}): {}", url, attempt, e)),
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("no Polygon RPC reachable")))
+}
+
+/// Read-only eth_getCode against Polygon. Returns true iff `address` has
+/// bytecode > 0 bytes (i.e. a deployed contract).
 async fn has_contract_code(http: &reqwest::Client, address: &str) -> Result<bool> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -383,15 +433,8 @@ async fn has_contract_code(http: &reqwest::Client, address: &str) -> Result<bool
         "params": [address, "latest"],
         "id": 1,
     });
-    let resp = http
-        .post("https://polygon.drpc.org")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .context("polygon rpc eth_getCode")?;
-    let v: serde_json::Value = resp.json().await.context("polygon rpc json")?;
-    let code = v.get("result").and_then(|r| r.as_str()).unwrap_or("0x");
+    let result = polygon_rpc(http, &body).await.context("eth_getCode")?;
+    let code = result.as_str().unwrap_or("0x");
     Ok(code.len() > 4)
 }
 
@@ -416,6 +459,16 @@ pub async fn raw_usdce_balance(http: &reqwest::Client, address: &str) -> Result<
     erc20_balance(http, USDC_E_ADDR, address).await
 }
 
+/// Circle-native USDC (not USDC.e). Polymarket's Onramp only wraps
+/// USDC.e, so native USDC sent to a deposit wallet is stuck until the
+/// user swaps it — we surface it in /deposit-wallet/info so the UI can
+/// at least SHOW the funds instead of a silent $0.00.
+const NATIVE_USDC_ADDR: &str = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
+
+pub async fn native_usdc_balance(http: &reqwest::Client, address: &str) -> Result<String> {
+    erc20_balance(http, NATIVE_USDC_ADDR, address).await
+}
+
 async fn erc20_balance(http: &reqwest::Client, token: &str, address: &str) -> Result<String> {
     let addr_no0x = address.strip_prefix("0x").unwrap_or(address);
     // selector(balanceOf(address)) = 0x70a08231, then 32-byte-padded addr.
@@ -426,17 +479,9 @@ async fn erc20_balance(http: &reqwest::Client, token: &str, address: &str) -> Re
         "params": [{"to": token, "data": calldata}, "latest"],
         "id": 1,
     });
-    let resp = http
-        .post("https://polygon.drpc.org")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .context("polygon rpc balanceOf")?;
-    let v: serde_json::Value = resp.json().await.context("balanceOf json")?;
-    let hex = v
-        .get("result")
-        .and_then(|r| r.as_str())
+    let result = polygon_rpc(http, &body).await.context("balanceOf")?;
+    let hex = result
+        .as_str()
         .ok_or_else(|| anyhow!("balanceOf: no result"))?;
     let stripped = hex.strip_prefix("0x").unwrap_or(hex);
     if stripped.is_empty() {
@@ -535,18 +580,8 @@ async fn read_wallet_nonce(http: &reqwest::Client, wallet: &str) -> Result<u64> 
         "params": [{"to": wallet, "data": "0xaffed0e0"}, "latest"],
         "id": 1,
     });
-    let resp = http
-        .post("https://polygon.drpc.org")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body.to_string())
-        .send()
-        .await
-        .context("polygon rpc nonce()")?;
-    let v: serde_json::Value = resp.json().await.context("nonce json")?;
-    let hex = v
-        .get("result")
-        .and_then(|r| r.as_str())
-        .unwrap_or("0x0");
+    let result = polygon_rpc(http, &body).await.context("nonce()")?;
+    let hex = result.as_str().unwrap_or("0x0");
     let stripped = hex.strip_prefix("0x").unwrap_or(hex);
     if stripped.is_empty() {
         return Ok(0);

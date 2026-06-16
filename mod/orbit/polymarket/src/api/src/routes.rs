@@ -655,21 +655,38 @@ async fn deposit_wallet_info(
     };
     // Best-effort on-chain reads. Frontend polls so a transient RPC
     // failure self-heals on the next tick.
-    let deployed = crate::relayer::is_deposit_wallet_deployed(&state.http, &wallet)
-        .await
-        .unwrap_or(false);
-    let usdc_balance = crate::relayer::usdc_balance(&state.http, &wallet)
-        .await
-        .unwrap_or_else(|_| "0".to_string());
+    let (deployed, usdc_balance, raw_usdce, native_usdc) = tokio::join!(
+        crate::relayer::is_deposit_wallet_deployed(&state.http, &wallet),
+        crate::relayer::usdc_balance(&state.http, &wallet),
+        crate::relayer::raw_usdce_balance(&state.http, &wallet),
+        crate::relayer::native_usdc_balance(&state.http, &wallet),
+    );
 
+    // A failed on-chain read must NOT masquerade as a zero balance — that
+    // was the phantom "$0.00 / deposit now" bug. Emit `null` for any field
+    // whose RPC read errored so the frontend can show "unavailable" and the
+    // copy engine can keep its last-known balance instead of self-gating.
+    let usdc_opt = usdc_balance.ok();
+    let balance_unavailable = usdc_opt.is_none();
     Json(json!({
         "eoa": q.eoa.to_lowercase(),
         "backendSigner": backend_addr,
         "depositWallet": wallet,
-        "deployed": deployed,
+        "deployed": deployed.unwrap_or(false),
         // Stringified base-units (1e6 = $1) — avoids JS Number precision
         // loss on large balances. Frontend divides by 1e6 for display.
-        "usdcBalance": usdc_balance,
+        // usdcBalance is the WRAPPED trading collateral (what Polymarket
+        // counts). rawUsdceBalance is un-wrapped USDC.e sitting in the
+        // wallet (deposited but not yet tradable — needs /wrap).
+        // nativeUsdcBalance is Circle-native USDC, which the Onramp can't
+        // wrap at all; shown so funds are never invisible.
+        // `null` = read failed (unknown), distinct from "0" = confirmed empty.
+        "usdcBalance": usdc_opt,
+        "rawUsdceBalance": raw_usdce.ok(),
+        "nativeUsdcBalance": native_usdc.ok(),
+        // True when the primary balance read failed — consumers should treat
+        // the balance as unknown, not zero.
+        "balanceUnavailable": balance_unavailable,
     })).into_response()
 }
 

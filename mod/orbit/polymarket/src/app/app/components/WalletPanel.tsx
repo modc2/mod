@@ -36,8 +36,20 @@ interface InfoResp {
   backendSigner: string;
   depositWallet: string;
   deployed: boolean;
-  // Base-units string (1e6 = $1). Stringified to dodge JS Number precision.
-  usdcBalance: string;
+  // Base-units strings (1e6 = $1). Stringified to dodge JS Number precision.
+  // usdcBalance = WRAPPED V2 collateral (the tradable balance Polymarket
+  // counts). rawUsdceBalance = USDC.e sitting in the wallet un-wrapped
+  // (deposited outside the panel flow, or a wrap that never ran) — real
+  // money that shows as $0.00 tradable until wrapped. nativeUsdcBalance =
+  // Circle-native USDC, which the Onramp cannot wrap; surfaced so the
+  // funds are at least visible.
+  // `null` = the on-chain read failed (backend/RPC unreachable) — distinct
+  // from "0" = confirmed empty. Never render null as $0.00; show it as
+  // "unavailable" so a flaky RPC doesn't make a funded wallet look drained.
+  usdcBalance: string | null;
+  rawUsdceBalance?: string | null;
+  nativeUsdcBalance?: string | null;
+  balanceUnavailable?: boolean;
 }
 
 function shortAddr(a: string): string {
@@ -86,15 +98,35 @@ export default function WalletPanel() {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
+        `/polymarket/api/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as InfoResp;
-      setInfo(data);
+      const unavailable = data.balanceUnavailable || data.usdcBalance == null;
+      // A failed on-chain read comes back with a null balance. Don't let it
+      // clobber a good last-known value with $0.00 — keep the prior balance
+      // fields and just refresh address/deployed. The next poll self-heals.
+      setInfo((prev) =>
+        unavailable && prev
+          ? {
+              ...data,
+              usdcBalance: prev.usdcBalance,
+              rawUsdceBalance: prev.rawUsdceBalance,
+              nativeUsdcBalance: prev.nativeUsdcBalance,
+              balanceUnavailable: true,
+            }
+          : data,
+      );
+      if (unavailable) {
+        setError("Balance temporarily unavailable (RPC) — retrying…");
+      } else {
+        setError(null);
+      }
       setPendingOp((prev) => {
         if (!prev) return null;
-        if (data.usdcBalance !== prev.prevBalance) {
+        // Only treat a KNOWN balance as a settled update.
+        if (!unavailable && data.usdcBalance !== prev.prevBalance) {
           setStatus(`${prev.label} ✓ balance updated.`);
           return null;
         }
@@ -117,7 +149,45 @@ export default function WalletPanel() {
     return () => clearInterval(t);
   }, [refresh, pendingOp]);
 
-  const balanceUsd = info ? Number(info.usdcBalance) / 1_000_000 : 0;
+  // null = balance unknown (read failed, no last-known value). Render this
+  // as "unavailable", never as $0.00.
+  const balanceUsd: number | null =
+    info && info.usdcBalance != null ? Number(info.usdcBalance) / 1_000_000 : null;
+  const rawUsd = info ? Number(info.rawUsdceBalance ?? "0") / 1_000_000 : 0;
+  const nativeUsd = info ? Number(info.nativeUsdcBalance ?? "0") / 1_000_000 : 0;
+
+  // Wrap any un-wrapped USDC.e sitting in the wallet into tradable V2
+  // collateral. Covers deposits that arrived outside the panel's own
+  // flow (direct sends, bridges) or a deposit whose auto-wrap failed.
+  const handleWrap = useCallback(async () => {
+    if (!info || !eoa) return;
+    setError(null);
+    setStatus("Wrapping USDC.e for trading (gasless)…");
+    setBusy(true);
+    try {
+      const res = await fetch("/polymarket/api/deposit-wallet/wrap", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eoa }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Wrap failed: ${text.slice(0, 250)}`);
+      }
+      setStatus(`Wrapping $${rawUsd.toFixed(2)} — finalizing on-chain…`);
+      setPendingOp({
+        prevBalance: info.usdcBalance ?? "",
+        label: `Wrapped $${rawUsd.toFixed(2)}`,
+        startedAt: Date.now(),
+      });
+      refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg.length > 250 ? msg.slice(0, 250) + "…" : msg);
+    } finally {
+      setBusy(false);
+    }
+  }, [info, eoa, rawUsd, refresh]);
 
   const copyAddr = useCallback(async () => {
     if (!info) return;
@@ -162,7 +232,7 @@ export default function WalletPanel() {
       // would still report "balance: 0" and reject orders. Auto-wrap
       // makes the deposit feel like a single click.
       setStatus(`Deposited $${amt.toFixed(2)} ✓ — wrapping for trading (gasless)…`);
-      const wrapRes = await fetch("/api/polymarket/deposit-wallet/wrap", {
+      const wrapRes = await fetch("/polymarket/api/deposit-wallet/wrap", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -173,7 +243,7 @@ export default function WalletPanel() {
       }
       setStatus(`Deposited + wrapped $${amt.toFixed(2)} — finalizing on-chain…`);
       setPendingOp({
-        prevBalance: info.usdcBalance,
+        prevBalance: info.usdcBalance ?? "",
         label: `Deposited $${amt.toFixed(2)}`,
         startedAt: Date.now(),
       });
@@ -191,6 +261,10 @@ export default function WalletPanel() {
     const amt = parseFloat(withdrawAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
       setError("Enter a withdraw amount in USDC.");
+      return;
+    }
+    if (balanceUsd == null) {
+      setError("Balance unavailable right now — try again in a moment.");
       return;
     }
     if (amt > balanceUsd + 1e-6) {
@@ -212,7 +286,7 @@ export default function WalletPanel() {
       // (the wallet has 0 raw USDC.e after deposit auto-wraps). unwrap-
       // and-send burns V2 collateral and mints USDC.e straight to dest
       // in one relayer batch.
-      const res = await fetch("/api/polymarket/deposit-wallet/unwrap-and-send", {
+      const res = await fetch("/polymarket/api/deposit-wallet/unwrap-and-send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -238,7 +312,7 @@ export default function WalletPanel() {
       );
       setWithdrawAmount("");
       setPendingOp({
-        prevBalance: info.usdcBalance,
+        prevBalance: info.usdcBalance ?? "",
         label: `Withdrew $${amt.toFixed(2)} to ${shortAddr(dst)}`,
         startedAt: Date.now(),
       });
@@ -280,8 +354,11 @@ export default function WalletPanel() {
             </a>
             <span className="ml-auto text-sm flex items-center gap-2">
               <span className="text-pixel-muted">Balance:</span>
-              <span className="font-mono text-green-400 text-base">
-                ${balanceUsd.toFixed(2)}
+              <span
+                className={`font-mono text-base ${balanceUsd == null ? "text-amber-400" : "text-green-400"}`}
+                title={balanceUsd == null ? "On-chain read failed — retrying" : undefined}
+              >
+                {balanceUsd == null ? "unavailable" : `$${balanceUsd.toFixed(2)}`}
               </span>
               {(busy || pendingOp) && (
                 <span
@@ -304,6 +381,35 @@ export default function WalletPanel() {
         <div className="text-xs text-amber-400">
           Wallet not deployed on-chain yet — first trade attempt will
           deploy it automatically (gasless, takes ~10s).
+        </div>
+      )}
+
+      {/* Un-wrapped USDC.e detected — money is in the wallet but not
+          tradable until wrapped into V2 collateral. One click fixes it. */}
+      {rawUsd > 0.005 && (
+        <div className="border border-amber-600/50 rounded p-2 flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-amber-400">
+            ${rawUsd.toFixed(2)} USDC.e is in this wallet but not wrapped
+            for trading yet.
+          </span>
+          <button
+            onClick={handleWrap}
+            disabled={busy || !!pendingOp}
+            className="ml-auto px-3 py-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded inline-flex items-center gap-2"
+          >
+            {busy && <Spinner />}
+            WRAP FOR TRADING
+          </button>
+        </div>
+      )}
+
+      {/* Native USDC can't be wrapped by Polymarket's Onramp — tell the
+          user their funds exist instead of silently showing $0.00. */}
+      {nativeUsd > 0.005 && (
+        <div className="text-xs text-amber-400">
+          ${nativeUsd.toFixed(2)} native USDC detected in this wallet.
+          Polymarket trades USDC.e — swap native USDC to USDC.e (bridged)
+          to make it tradable.
         </div>
       )}
 
@@ -385,16 +491,16 @@ export default function WalletPanel() {
             />
           </div>
           <button
-            onClick={() => setWithdrawAmount(balanceUsd.toFixed(2))}
+            onClick={() => balanceUsd != null && setWithdrawAmount(balanceUsd.toFixed(2))}
             className="px-2 text-xs border border-pixel-border rounded hover:bg-pixel-border-light"
-            disabled={busy || balanceUsd <= 0}
+            disabled={busy || balanceUsd == null || balanceUsd <= 0}
             title="Withdraw all"
           >
             MAX
           </button>
           <button
             onClick={handleWithdraw}
-            disabled={busy || !withdrawAmount || balanceUsd <= 0}
+            disabled={busy || !withdrawAmount || balanceUsd == null || balanceUsd <= 0}
             className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded inline-flex items-center gap-2"
           >
             {busy && <Spinner />}

@@ -279,7 +279,13 @@ class Server:
                 mod = base
 
         mod_obj = m.mod(mod)()
-        if mod not in (None, 'mod') and 'serve' in type(mod_obj).__dict__:
+        # Delegate only to modules that define their OWN serve (e.g. bridge,
+        # polymarket). The base Mod is the generic dispatcher — calling its
+        # serve() here would re-enter with the default mod='app' and recurse.
+        # Aliases like 'api' resolve to the base Mod, so check the resolved
+        # type rather than the (alias) name.
+        is_base_mod = type(mod_obj) is m.Mod
+        if not is_base_mod and 'serve' in type(mod_obj).__dict__:
             print(f'Mod {mod} has its own serve function, using it to serve the mod', color='green')
             return mod_obj.serve()
         self.set_pm(pm)

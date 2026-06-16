@@ -6,7 +6,8 @@
     "app_port": 3091,
     "urls": {
         "api": "http://localhost:50091",
-        "app": "http://localhost:3091/polymarket"
+        "app": "http://localhost:3091/polymarket",
+        "gateway": "http://localhost:3000/polymarket"
     },
     "fns": [
         "serve",
@@ -51,6 +52,6 @@
             "docs": "Proxy: price history (clob)"
         }
     },
-    "schema": "QmPLGrs5dArB89YeUEZp29HykU3ZqFDYQPRujKSjvcgxDH",
+    "schema": "QmdkMw8xde7nwBkxCqaFgivP3NofMubNg2KCSqEkfAkv4F",
     "gateway_port": 3091
 }

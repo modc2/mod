@@ -167,7 +167,7 @@ class Polymarket(m.Mod):
                 return "local"
         except Exception:
             pass
-        return self._mode or ("docker" if _has_docker() else "local")
+        return self._mode or "local"
 
     # ── local lifecycle (pm2 / subprocess) ────────────────────────
 
@@ -224,9 +224,9 @@ class Polymarket(m.Mod):
 
     def serve(self, mode=None, api_port=None, app_port=None, gateway_port=3000,
               dev=True, build=True, **kw) -> Dict[str, Any]:
-        """Start polymarket. mode='docker' (default) or 'local' (pm2/subprocess)."""
+        """Start polymarket. mode='local' (pm2, default) or 'docker'."""
         if mode is None:
-            mode = "docker" if _has_docker() else "local"
+            mode = "local"
 
         if mode == "docker":
             result = self._docker_serve(gateway_port=gateway_port, build=build)
@@ -250,7 +250,7 @@ class Polymarket(m.Mod):
         return {"ok": a.get("ok") and b.get("ok"), "mode": "local", "api": a, "app": b}
 
     def _register_gateway(self, api_port: int, app_port: int):
-        """Persist urls to config.json and sync with routy gateway."""
+        """Persist urls to config.json and register in the :3000 gateway app namespace."""
         cfg_path = os.path.join(ROOT_DIR, "config.json")
         try:
             with open(cfg_path) as f:
@@ -258,6 +258,7 @@ class Polymarket(m.Mod):
             cfg["urls"] = {
                 "api": f"http://localhost:{api_port}",
                 "app": f"http://localhost:{app_port}/polymarket",
+                "gateway": "http://localhost:3000/polymarket",
             }
             cfg["port"] = api_port
             cfg["app_port"] = app_port
@@ -267,29 +268,29 @@ class Polymarket(m.Mod):
         except Exception:
             pass
 
-        import threading
-        def _sync():
-            for port in (3001, 3000):
-                try:
-                    requests.post(f"http://localhost:{port}/_api/register", json={
-                        "name": "polymarket",
-                        "target_url": f"http://127.0.0.1:{api_port}",
-                        "website_type": "api",
-                    }, timeout=3)
-                    requests.post(f"http://localhost:{port}/_api/register", json={
-                        "name": "polymarket",
-                        "target_url": f"http://127.0.0.1:{app_port}",
-                        "website_type": "app",
-                    }, timeout=3)
-                    break
-                except Exception:
-                    continue
-        threading.Thread(target=_sync, daemon=True).start()
+        # Gateway middleware routes /polymarket/* and /api/polymarket/* from
+        # the app_namespace registry — register the same way app/serve does
+        # for bridge.
+        try:
+            ns = m.mod("server.namespace")()
+            ns.reg_app(
+                "polymarket",
+                f"http://localhost:{app_port}",
+                api_url=f"http://localhost:{api_port}",
+            )
+        except Exception as e:
+            print(f"[polymarket] gateway registration failed: {e}")
 
     def kill(self, target: str = "all", mode=None) -> Dict[str, Any]:
         """Stop services. mode defaults to whatever is actually running."""
         if mode is None:
             mode = self._detect_mode()
+
+        if target == "all":
+            try:
+                m.mod("server.namespace")().dereg_app("polymarket")
+            except Exception:
+                pass
 
         if mode == "docker":
             return self._docker_kill()
@@ -498,7 +499,10 @@ class Polymarket(m.Mod):
     def events(self, limit: int = 20) -> Any:
         return self._get("/", endpoint="events", _limit=str(limit), active="true")
 
-    def active_traders(self, days: int = 7, pool: int = 1000) -> Any:
+    def active_traders(self, days: int = 7, pool: int = 2000) -> Any:
+        # pool=2000 matches the background warmup's cache key, so the default
+        # call returns the pre-aggregated payload instantly instead of
+        # forcing a fresh multi-minute pipeline run.
         return self._get("/active-traders", days=str(days), pool=str(pool))
 
     # ── test ──────────────────────────────────────────────────────
@@ -516,7 +520,7 @@ class Polymarket(m.Mod):
 
         # markets
         try:
-            r = requests.get(f"{self.api_url}/", params={"endpoint": "markets", "_limit": "3", "active": "true"}, timeout=10)
+            r = requests.get(f"{self.api_url}/", params={"endpoint": "markets", "_limit": "3", "active": "true"}, timeout=20)
             data = r.json() if r.ok else None
             results["markets"] = {"ok": r.ok, "status": r.status_code, "count": len(data) if isinstance(data, list) else None}
         except Exception as e:
@@ -524,15 +528,17 @@ class Polymarket(m.Mod):
 
         # events
         try:
-            r = requests.get(f"{self.api_url}/", params={"endpoint": "events", "_limit": "3", "active": "true"}, timeout=10)
+            r = requests.get(f"{self.api_url}/", params={"endpoint": "events", "_limit": "3", "active": "true"}, timeout=20)
             data = r.json() if r.ok else None
             results["events"] = {"ok": r.ok, "status": r.status_code, "count": len(data) if isinstance(data, list) else None}
         except Exception as e:
             results["events"] = {"ok": False, "error": str(e)}
 
-        # active-traders
+        # active-traders — paged=1 answers instantly from cache (or a cold
+        # marker) instead of forcing a fresh multi-minute aggregation.
         try:
-            r = requests.get(f"{self.api_url}/active-traders", params={"days": "1", "pool": "10"}, timeout=15)
+            r = requests.get(f"{self.api_url}/active-traders",
+                             params={"days": "7", "pool": "2000", "paged": "1"}, timeout=15)
             results["active_traders"] = {"ok": r.ok, "status": r.status_code}
         except Exception as e:
             results["active_traders"] = {"ok": False, "error": str(e)}
