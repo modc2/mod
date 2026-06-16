@@ -606,6 +606,11 @@ export default function LivePanel() {
                       {activeStrat.name}
                     </div>
                   )}
+                  {liveCapital > 0 && (
+                    <div className="text-[10px] text-pixel-gray font-mono mt-0.5">
+                      capital ${liveCapital < 10 ? liveCapital.toFixed(2) : Math.round(liveCapital).toLocaleString()}
+                    </div>
+                  )}
                   {engineState && (
                     <div className="text-[10px] text-pixel-gray font-mono mt-0.5">
                       {cycleCount} cycle{cycleCount === 1 ? "" : "s"}
@@ -691,6 +696,36 @@ export default function LivePanel() {
 
       {/* WalletFundingPanel moved to top of LivePanel — see directly above
           the engine control bar. */}
+
+      {/* ── CLOB credentials required banner ──
+          Orders are signed with a Polymarket CLOB API key derived from a
+          one-time MetaMask signature. Without it EVERY order placement fails
+          upstream ("clob auth"), but the auto-derive only attempts once on
+          connect and silently gives up if rejected — leaving the engine
+          running blind. Force it: a loud, always-visible block (even while
+          live) with a GENERATE button until creds exist. */}
+      {hasWallet && !hasCreds && (
+        <div className="pixel-panel border-2 border-red-500/70 bg-red-500/10 p-3 flex items-center gap-3 flex-wrap">
+          <span className="text-red-400 text-xl">⚠</span>
+          <div className="flex-1">
+            <div className="text-sm font-bold text-red-400">
+              CLOB credentials required — generate to place orders
+            </div>
+            <div className="text-xs text-pixel-muted mt-0.5">
+              {isLive
+                ? "Engine is running but every order fails with “clob auth” until you sign. One MetaMask signature, no gas."
+                : "Sign one MetaMask message to derive your Polymarket trading key. No gas, no transaction."}
+            </div>
+          </div>
+          <button
+            onClick={() => { void authenticate(); }}
+            disabled={authLoading}
+            className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded"
+          >
+            {authLoading ? "SIGNING…" : "GENERATE CLOB →"}
+          </button>
+        </div>
+      )}
 
       {/* ── Funding required banner ──
           Engine is running but the V2 deposit wallet is empty — every
