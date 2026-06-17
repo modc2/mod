@@ -65,26 +65,32 @@ export class CopyTrader implements Strat {
   }
 
   // ── Ranking ────────────────────────────────────────────────────
-  // Sharpe-weighted expected edge. Sharpe = roi_30d / stdev_30d
-  // (unitless, rewards consistency over lucky single hits). Multiplying
-  // by notional gives "dollars of expected profit if the trader behaves
-  // like their 30d Sharpe predicts".
+  // Expected profit in DOLLARS = trader's window ROI × the dollars we'd
+  // actually deploy on this mirror (raw proportional notional). roi is
+  // fractional (0.12 = +12% over the window), so roi × mirror$ is a real
+  // dollar expectation, not a unitless score. The engine ranks BUYs by
+  // this and copies the top `maxPerCycle`; the same number drives the
+  // EP-based capital rotation (sell held positions whose forward EP is
+  // below a new buy's EP). A trader with no loaded stats scores 0 — we
+  // can't estimate edge, so they never win the budget. Negative-ROI
+  // traders score negative and sort to the bottom (engine skips EP ≤ 0).
 
   scoreCandidate(trade: TraderTrade, stats: TraderRoiStats | null): number {
     if (!stats) return 0;
-    if (stats.sampleSize < this.minSampleSize) return 0;
-    if (stats.sharpe <= 0) return 0;
-    return stats.sharpe * trade.notional;
+    const rawMirrorNotional = trade.notional * trade.copyRatio;
+    return stats.roi * rawMirrorNotional;
   }
 
   // ── Sizing + limit price ──────────────────────────────────────
   // Order of clamping is significant:
-  //   1. Ceiling can't accommodate CLOB floor       → skip (no legal order)
-  //   2. Raw mirror below user floor                → skip (dust)
-  //   3. Raw mirror below CLOB floor + leader real  → clamp up
-  //   4. Raw mirror above ceiling                   → clamp down
-  // Returning `mirrorNotional: 0` signals SKIP to the engine; `reason`
-  // is shown verbatim in the log.
+  //   1. Ceiling can't accommodate CLOB floor          → skip (no legal order)
+  //   2. Raw mirror below effective floor + leader real → clamp up
+  //   3. Raw mirror below effective floor + leader dust → skip (no signal)
+  //   4. Raw mirror above ceiling                       → clamp down
+  // The effective floor is max(user TRADE SIZE floor, CLOB per-price min).
+  // Proportional dust is clamped UP to that floor (not skipped) so small-
+  // but-real leader trades still copy. Returning `mirrorNotional: 0`
+  // signals SKIP to the engine; `reason` is shown verbatim in the log.
 
   sizeAndPrice(trade: TraderTrade, c: SizeConstraints): CandidateDecision {
     const rawMirrorNotional = trade.notional * trade.copyRatio;
@@ -98,19 +104,14 @@ export class CopyTrader implements Strat {
         reason: `CEILING_BELOW_CLOB_FLOOR · ceiling $${c.userCeiling.toFixed(2)} < CLOB min $${c.clobFloor.toFixed(2)} (5 shares × ${(trade.price * 100).toFixed(0)}¢)`,
       };
     }
-    // (2) Below the user's TRADE SIZE floor — strat-level dust gate.
-    if (rawMirrorNotional < c.userFloor) {
-      return {
-        mirrorNotional: 0,
-        limitPrice,
-        reason: `BELOW_MIN_SIZE · proportional $${rawMirrorNotional.toFixed(2)} < floor $${c.userFloor.toFixed(2)}`,
-      };
-    }
-    // (3) Below CLOB floor — bump up unless the leader's own trade is
-    //     also below the floor (then it's not real signal, skip).
+    // Effective minimum order: the larger of the user's TRADE SIZE floor
+    // and the CLOB per-price hard floor (max($1, 5 × price)).
+    const minNotional = Math.max(c.userFloor, c.clobFloor);
     let mirrorNotional = rawMirrorNotional;
     let reason: string | undefined;
-    if (rawMirrorNotional < c.clobFloor) {
+    // (2)/(3) Below the effective floor — clamp UP unless the leader's own
+    //     trade is itself below the CLOB floor (then it's not real signal).
+    if (rawMirrorNotional < minNotional) {
       if (trade.notional < c.clobFloor) {
         return {
           mirrorNotional: 0,
@@ -118,8 +119,8 @@ export class CopyTrader implements Strat {
           reason: `LEADER_DUST · leader $${trade.notional.toFixed(2)} < Polymarket $${c.clobFloor.toFixed(2)} hard floor (5 shares × ${(trade.price * 100).toFixed(0)}¢)`,
         };
       }
-      mirrorNotional = c.clobFloor;
-      reason = `clamped up: proportional $${rawMirrorNotional.toFixed(2)} → $${c.clobFloor.toFixed(2)} (CLOB min: 5 shares × ${(trade.price * 100).toFixed(0)}¢)`;
+      mirrorNotional = minNotional;
+      reason = `clamped up: proportional $${rawMirrorNotional.toFixed(2)} → $${minNotional.toFixed(2)} (min order: max floor $${c.userFloor.toFixed(2)}, CLOB $${c.clobFloor.toFixed(2)} = 5 shares × ${(trade.price * 100).toFixed(0)}¢)`;
     }
     // (4) Above ceiling — clamp down.
     if (mirrorNotional > c.userCeiling) {

@@ -30,15 +30,30 @@ function buildStats(over: Partial<TraderRoiStats> = {}): TraderRoiStats {
   };
 }
 
-console.log("\n── CopyTrader.scoreCandidate ──");
+console.log("\n── CopyTrader.scoreCandidate (expected profit) ──");
 {
   const s = new CopyTrader();
+  // EP = roi × rawMirror, rawMirror = notional × copyRatio = 250 × 0.05 = 12.5.
+  // roi 0.20 → EP = 0.20 × 12.5 = $2.50.
   const trade = buildTrade({ notional: 250 });
-  const stats = buildStats({ sharpe: 1.5 });
-  check("Sharpe × notional", s.scoreCandidate(trade, stats) === 375);
+  const stats = buildStats({ roi: 0.20 });
+  check("EP = roi × mirror$", s.scoreCandidate(trade, stats) === 2.5, `got ${s.scoreCandidate(trade, stats)}`);
   check("no stats → 0", s.scoreCandidate(trade, null) === 0);
-  check("sampleSize < 3 → 0", s.scoreCandidate(trade, buildStats({ sampleSize: 2 })) === 0);
-  check("negative sharpe → 0", s.scoreCandidate(trade, buildStats({ sharpe: -1 })) === 0);
+  check("negative roi → negative EP", s.scoreCandidate(trade, buildStats({ roi: -0.1 })) < 0);
+  check("sampleSize no longer gates EP", s.scoreCandidate(trade, buildStats({ sampleSize: 2 })) === 2.5);
+}
+
+console.log("\n── CopyTrader.sizeAndPrice — sub-$1 mirror clamps UP (no skip) ──");
+{
+  const s = new CopyTrader();
+  // The reported case: tiny proportional mirror below the $1 user floor.
+  // At 10¢, clobFloor = max($1, 5×0.10=$0.50) = $1. rawMirror = 50 × 0.01 = $0.50.
+  // Old behavior skipped (BELOW_MIN_SIZE); new behavior clamps up to $1.
+  const trade = buildTrade({ price: 0.10, notional: 50, copyRatio: 0.01 });
+  const c: SizeConstraints = { userFloor: 1, userCeiling: 100, clobFloor: clobMinNotional(0.10), capital: 1000 };
+  const d = s.sizeAndPrice(trade, c);
+  check("clamped up to $1 (not skipped)", d.mirrorNotional === 1, `got ${d.mirrorNotional}`);
+  check("reason says clamped up", !!d.reason?.includes("clamped up"), `reason: ${d.reason}`);
 }
 
 console.log("\n── CopyTrader.sizeAndPrice — CLOB 5-share floor ──");
@@ -50,7 +65,7 @@ console.log("\n── CopyTrader.sizeAndPrice — CLOB 5-share floor ──");
   const d = s.sizeAndPrice(trade, c);
   check("clobFloor at 50¢ = $2.50", c.clobFloor === 2.50, `got ${c.clobFloor}`);
   check("clamped up to clobFloor", d.mirrorNotional === 2.50, `got ${d.mirrorNotional}`);
-  check("reason mentions CLOB min", !!d.reason?.includes("CLOB min"), `reason: ${d.reason}`);
+  check("reason mentions CLOB", !!d.reason?.includes("CLOB"), `reason: ${d.reason}`);
   // size = ceil(2.50 / 0.50) = 5 → matches CLOB minimum exactly
   check("resulting shares ≥ 5", Math.ceil(d.mirrorNotional / 0.50) >= POLYMARKET_MIN_SHARES);
 }

@@ -1,7 +1,8 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, TraderRoiStats } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
-import { fetchWalletTradesUntil, fetchPositions, fetchTraderRoiStats } from "./polymarket";
+import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats } from "./polymarket";
+import { getTradeCache } from "./cache";
 import { Strat, TraderTrade as StratTraderTrade, SizeConstraints } from "./strats/base";
 import { getStrat } from "./strats/registry";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
@@ -239,6 +240,14 @@ export class CopyEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<(s: CopyEngineState) => void>();
   private copiedIds = new Set<string>();
+  // Expected-profit ledger for OPEN positions we mirrored, keyed by
+  // `${conditionId}:${outcome}` (lowercased). `entryEP` = roi × mirrorNotional
+  // at the instant we copied the BUY. Consulted during EP-driven rotation:
+  // a position's FORWARD expected profit = max(0, entryEP − realized pnl), so
+  // a position that has already earned its expected profit is the first to be
+  // rotated out to fund a higher-EP new buy. Positions we didn't open have no
+  // entry → forward EP 0 → freely rotatable.
+  private positionEP: Record<string, { entryEP: number; mirrorNotional: number }> = {};
   private tokenMap: Map<string, string[]>;
   private negRiskMap: Map<string, boolean>;
   private running = false;
@@ -532,27 +541,14 @@ export class CopyEngine {
         skipped++;
         continue;
       }
-      if (rawMirrorNotional < userFloor) {
-        this.addLog({
-          id: uid(),
-          timestamp: Date.now(),
-          type: "SKIP",
-          traderAddress: trader.address,
-          market: trade.market,
-          conditionId: trade.conditionId,
-          side: trade.side,
-          mirrorNotional: Math.round(rawMirrorNotional * 100) / 100,
-          reason: `CATCH UP · BELOW_MIN_SIZE · proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} < floor $${userFloor.toFixed(2)}`,
-        });
-        skipped++;
-        continue;
-      }
-      // Mirror is dust *relative to leader exposure*, but the leader's
-      // trade is real — clamp UP to the CLOB floor instead of skipping.
-      // When the leader's own trade is also below the floor we skip
-      // (no real signal).
+      // Effective minimum order: larger of the user's TRADE SIZE floor and
+      // the CLOB per-price hard floor. Proportional dust is clamped UP to
+      // this floor (not skipped) so small-but-real leader trades still copy.
+      // When the leader's OWN trade is below the CLOB floor we skip — that's
+      // not real signal.
+      const minNotional = Math.max(userFloor, polymarketFloor);
       let mirrorNotional: number;
-      if (rawMirrorNotional < polymarketFloor) {
+      if (rawMirrorNotional < minNotional) {
         if (trade.notional < polymarketFloor) {
           this.addLog({
             id: uid(),
@@ -568,7 +564,18 @@ export class CopyEngine {
           skipped++;
           continue;
         }
-        mirrorNotional = polymarketFloor;
+        mirrorNotional = Math.min(minNotional, ceiling);
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "BALANCE",
+          traderAddress: trader.address,
+          market: trade.market,
+          conditionId: trade.conditionId,
+          side: trade.side,
+          mirrorNotional: Math.round(mirrorNotional * 100) / 100,
+          reason: `CATCH UP · clamped up: proportional $${rawMirrorNotional < 0.01 ? rawMirrorNotional.toExponential(2) : rawMirrorNotional.toFixed(2)} → $${mirrorNotional.toFixed(2)} (min order: max floor $${userFloor.toFixed(2)}, CLOB $${polymarketFloor.toFixed(2)})`,
+        });
       } else {
         mirrorNotional = Math.min(rawMirrorNotional, ceiling);
       }
@@ -749,6 +756,14 @@ export class CopyEngine {
      *  candidate because cash is frozen in a slow market. Set false to
      *  preserve the legacy "winners only" behavior. */
     sellLosersIfNoWinners?: boolean;
+    /** EP-driven rotation mode. When set, only positions whose FORWARD
+     *  expected profit clears the churn guard against this new-buy EP are
+     *  sold — lowest forward-EP first. This replaces the pnl-based winner
+     *  selection above. The new buy must beat a position's forward EP by
+     *  the round-trip fee + 20% before we rotate it (avoids fee churn). */
+    targetEP?: number;
+    /** Stop selling once this much USD has been freed (EP mode). */
+    fundingNeededUsd?: number;
   } = {}): Promise<{ sold: number; freedUsd: number }> {
     const maxToSell = opts.maxToSell ?? Number.POSITIVE_INFINITY;
     const reasonPrefix = opts.reasonPrefix ?? "FREE LIQUIDITY";
@@ -759,24 +774,53 @@ export class CopyEngine {
       const proxy =
         this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
       const positions = await fetchPositions(proxy);
-      const winners = positions
-        .filter((p) => p.size > 0 && p.pnlUsd > 0)
-        .sort((a, b) => b.pnlUsd - a.pnlUsd);
-      // No winners → try the worst loser (largest negative PnL). Realizing
-      // the loss + recycling the capital into a fresh signal is usually
-      // higher EV than holding dead weight that's been bleeding for a while.
-      const losers = winners.length === 0 && allowLosers
-        ? positions
-            .filter((p) => p.size > 0 && p.pnlUsd <= 0)
-            .sort((a, b) => a.pnlUsd - b.pnlUsd)
-            .slice(0, 1)
-        : [];
-      const candidates = winners.length > 0 ? winners : losers;
-      const kindLabel = winners.length > 0
-        ? `${winners.length} winning positions`
-        : losers.length > 0
-          ? `0 winners — rotating worst loser ($${losers[0].pnlUsd.toFixed(2)} PnL)`
-          : `nothing to sell`;
+      let candidates: PolymarketPosition[];
+      let kindLabel: string;
+      if (opts.targetEP != null) {
+        // ── EP-driven rotation ──
+        // Rank open positions by forward expected profit (lowest first) and
+        // keep only those the new buy beats by the churn guard. The guard:
+        //   targetEP ≥ (forwardEP + roundTripFee) × 1.20
+        // round-trip fee = exit fee on this position + entry fee on the
+        // replacement buy. TAKER_FEE_BPS is 0 today, so this reduces to a
+        // 20% margin over forward EP — kept general for when fees return.
+        const feeRate = TAKER_FEE_BPS / 10_000;
+        const ranked = positions
+          .filter((p) => p.size > 0)
+          .map((p) => {
+            const stored = this.positionEP[this.posKey(p.conditionId, p.outcome)];
+            const forwardEP = stored ? Math.max(0, stored.entryEP - p.pnlUsd) : 0;
+            const roundTripFee =
+              2 * feeRate * p.value + feeRate * (opts.fundingNeededUsd ?? p.value);
+            const hurdle = (forwardEP + roundTripFee) * 1.2;
+            return { p, forwardEP, hurdle };
+          })
+          .filter((x) => opts.targetEP! >= x.hurdle)
+          .sort((a, b) => a.forwardEP - b.forwardEP || b.p.pnlUsd - a.p.pnlUsd);
+        candidates = ranked.map((x) => x.p);
+        kindLabel = ranked.length > 0
+          ? `${ranked.length} positions below new-buy EP $${opts.targetEP.toFixed(2)} (forward EP ≤ $${ranked[ranked.length - 1].forwardEP.toFixed(2)}) → rotating`
+          : `no open position cheaper than new-buy EP $${opts.targetEP.toFixed(2)} — holding all`;
+      } else {
+        const winners = positions
+          .filter((p) => p.size > 0 && p.pnlUsd > 0)
+          .sort((a, b) => b.pnlUsd - a.pnlUsd);
+        // No winners → try the worst loser (largest negative PnL). Realizing
+        // the loss + recycling the capital into a fresh signal is usually
+        // higher EV than holding dead weight that's been bleeding for a while.
+        const losers = winners.length === 0 && allowLosers
+          ? positions
+              .filter((p) => p.size > 0 && p.pnlUsd <= 0)
+              .sort((a, b) => a.pnlUsd - b.pnlUsd)
+              .slice(0, 1)
+          : [];
+        candidates = winners.length > 0 ? winners : losers;
+        kindLabel = winners.length > 0
+          ? `${winners.length} winning positions`
+          : losers.length > 0
+            ? `0 winners — rotating worst loser ($${losers[0].pnlUsd.toFixed(2)} PnL)`
+            : `nothing to sell`;
+      }
       opts.onProgress?.(`${kindLabel} → selling`);
       for (const pos of candidates) {
         if (!this.running) break;
@@ -835,8 +879,14 @@ export class CopyEngine {
           if (result.success) {
             sold++;
             freedUsd += notional;
-            opts.onProgress?.(`sold ${sold} winners · freed $${freedUsd.toFixed(2)}`);
+            // Position closed — drop it from the EP ledger so a re-open
+            // starts a fresh entry EP.
+            delete this.positionEP[this.posKey(pos.conditionId, pos.outcome)];
+            this.savePositionEP();
+            opts.onProgress?.(`sold ${sold} · freed $${freedUsd.toFixed(2)}`);
             await delay(ORDER_DELAY_MS);
+            // EP mode: stop as soon as we've freed enough to fund the buy.
+            if (opts.fundingNeededUsd != null && freedUsd >= opts.fundingNeededUsd) break;
           }
         } catch (e) {
           this.addLog({
@@ -894,7 +944,7 @@ export class CopyEngine {
       let balanceKnown = false;
       try {
         const r = await fetch(
-          `/polymarket/api/deposit-wallet/info?eoa=${this.config.address}`,
+          `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
           { cache: "no-store" },
         );
         if (r.ok) {
@@ -950,53 +1000,41 @@ export class CopyEngine {
       });
 
       if (effective < this.config.capital * 0.05) {
-        // ── Auto free-liquidity ──
-        // Before erroring out, try selling the top winning open position to
-        // make room. This matches the catch-up "sellWinners" behavior but
-        // fires automatically when:
+        // ── Auto free-liquidity (EP-driven rotation) ──
+        // Before erroring out, free cash by SELLING held positions — but only
+        // to fund a NEW buy that's genuinely better. Fires when:
         //   (a) balance dipped below the 5%-of-capital gate, AND
-        //   (b) there's at least one watched-trader BUY candidate this
-        //       cycle — i.e. a real opportunity worth freeing for, not a
-        //       quiet poll. Without the candidate check we'd churn open
-        //       positions every cycle just to hold dust.
-        // The criterion roughly approximates "the trade is ranked to have
-        // a higher probability of profit": we sort candidates by trader
-        // notional below and only run free-liquidity when one of those
-        // candidates exists — high notional = trader's conviction = our
-        // proxy for expected edge.
-        let hasHighConvictionCandidate = false;
-        for (const trader of this.config.traders.filter((t) => t.enabled !== false)) {
-          try {
-            const cursor = this.state.traderCursors[trader.address.toLowerCase()] ?? 0;
-            const trades = await fetchWalletTradesUntil(
-              trader.address,
-              Math.floor((cursor - 60_000) / 1000),
-            );
-            if (
-              trades.some(
-                (t) => t.side === "BUY" && t.timestamp > cursor && !this.copiedIds.has(t.id),
-              )
-            ) {
-              hasHighConvictionCandidate = true;
-              break;
-            }
-          } catch {
-            // ignore per-trader fetch failures during the candidate check —
-            // the main loop below logs them properly.
-          }
-        }
+        //   (b) there's a pending watched-trader BUY with positive expected
+        //       profit (EP = roi × mirror$).
+        // We find the single highest-EP pending buy, then rotate out only the
+        // positions whose FORWARD expected profit is below it by the churn
+        // guard (round-trip fee + 20%) — lowest forward-EP first. This sells
+        // matured / low-edge positions to chase higher-edge ones instead of
+        // blindly dumping the biggest winner.
+        const gateTotalWeight = this.config.traders
+          .filter((t) => t.enabled !== false)
+          .reduce((s, t) => s + t.weight, 0);
+        const bestCandidate = await this.bestBuyCandidateEP(gateTotalWeight);
+        const hasHighConvictionCandidate = bestCandidate != null;
 
         let freedAnything = false;
-        if (hasHighConvictionCandidate) {
+        if (bestCandidate) {
+          // Free enough to clear the gate AND cover the new buy's size.
+          const fundingNeeded = Math.max(
+            this.config.capital * 0.05 - effective,
+            bestCandidate.mirrorNotional,
+          );
           this.addLog({
             id: uid(),
             timestamp: Date.now(),
             type: "BALANCE",
-            reason: `Balance $${effective.toFixed(2)} < 5% gate · candidate BUY pending → auto-selling top winner`,
+            reason: `Balance $${effective.toFixed(2)} < 5% gate · best pending BUY EP $${bestCandidate.ep.toFixed(2)} ("${bestCandidate.market}") → rotating lower-EP positions to free ~$${fundingNeeded.toFixed(2)}`,
           });
           const { sold, freedUsd } = await this.freeLiquidity({
-            maxToSell: 1,
-            reasonPrefix: "AUTO FREE LIQUIDITY",
+            maxToSell: 3,
+            reasonPrefix: "EP ROTATION",
+            targetEP: bestCandidate.ep,
+            fundingNeededUsd: fundingNeeded,
           });
           if (sold > 0) {
             freedAnything = true;
@@ -1005,7 +1043,7 @@ export class CopyEngine {
             // bumps before this returns.
             try {
               const r = await fetch(
-                `/polymarket/api/deposit-wallet/info?eoa=${this.config.address}`,
+                `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
                 { cache: "no-store" },
               );
               if (r.ok) {
@@ -1046,8 +1084,8 @@ export class CopyEngine {
             : proxy;
           const need = this.config.capital * 0.05;
           const reason = !hasHighConvictionCandidate
-            ? `Balance $${effective.toFixed(2)} < 5% gate; no new BUY candidates → idling without freeing liquidity. Will retry next cycle.`
-            : `Trading wallet ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)} = 5% of capital). Open the TRADING WALLET panel and click DEPOSIT to fund — wrap + approvals happen automatically.`;
+            ? `Balance $${effective.toFixed(2)} < 5% gate; no positive-EP BUY candidates → idling without freeing liquidity. Will retry next cycle.`
+            : `Balance $${effective.toFixed(2)} < 5% gate and every open position has higher forward EP than the best pending buy ($${bestCandidate!.ep.toFixed(2)}) — holding rather than rotating into a worse trade. Trading wallet ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)}); open the TRADING WALLET panel and DEPOSIT to add fresh capital.`;
           this.addLog({
             id: uid(),
             timestamp: Date.now(),
@@ -1106,8 +1144,15 @@ export class CopyEngine {
         const untilTs = Math.floor((cursor - 60_000) / 1000);
 
         try {
-          const trades = await fetchWalletTradesUntil(
+          // INCREMENTAL, not cache-first. `fetchWalletTradesUntil` returns the
+          // hourly cache verbatim when present, so at 5s polling the engine
+          // re-saw the same frozen snapshot for the whole clock-hour and never
+          // observed a fill newer than the start cursor → zero copies. The
+          // incremental path pages only the new tail off the API, merges it
+          // into the cache, and returns it so `t.timestamp > cursor` can match.
+          const trades = await fetchWalletTradesIncremental(
             trader.address,
+            getTradeCache(trader.address) ?? [],
             untilTs,
           );
           // Stamp the per-trader last-sync time the moment the fetch resolves
@@ -1224,22 +1269,28 @@ export class CopyEngine {
         }
       }
 
-      // ── Phase 2: score-rank BUYs and slice top N ──
+      // ── Phase 2: rank BUYs by EXPECTED PROFIT and slice top N ──
       // SELLs always execute. BUYs compete for the strat's maxPerCycle
-      // budget (a CopyTrader knob, overridable per-strat).
+      // budget (a CopyTrader knob, overridable per-strat). score = EP in
+      // dollars (roi × mirror$). Non-positive-EP buys never execute — no
+      // edge means no reason to spend capital or rotate a position for them.
       const maxPerCycle = this.strat.maxPerCycle();
       buyCandidates.sort((a, b) => b.score - a.score);
-      const selectedBuys = buyCandidates.slice(0, maxPerCycle);
-      const skippedBuys = buyCandidates.slice(maxPerCycle);
+      const positiveEP = buyCandidates.filter((c) => c.score > 0);
+      const selectedBuys = positiveEP.slice(0, maxPerCycle);
+      const selectedSet = new Set(selectedBuys);
+      const skippedBuys = buyCandidates.filter((c) => !selectedSet.has(c));
 
       // Log every loser explicitly — the whole point of this feature is
       // transparency. The user should see WHY each skipped trade lost.
       for (let i = 0; i < skippedBuys.length; i++) {
         const c = skippedBuys[i];
-        const sharpeStr = c.sharpe > 0 ? `Sharpe ${c.sharpe.toFixed(2)}` : "no Sharpe (insufficient 30d closed trades)";
+        const roiPct = c.stats ? (c.stats.roi * 100).toFixed(1) : "n/a";
         const reason = c.score > 0
-          ? `SCORE_RANK · score $${c.score.toFixed(2)} (${sharpeStr} × $${c.traderNotional.toFixed(0)} notional) — rank ${maxPerCycle + 1 + i}/${buyCandidates.length}, cap ${maxPerCycle}`
-          : `NO_SHARPE · ${sharpeStr} — skipped pending stats`;
+          ? `EP_RANK · EP $${c.score.toFixed(2)} (roi ${roiPct}% × mirror $${c.rawMirrorNotional.toFixed(2)}) — below top ${maxPerCycle} of ${positiveEP.length} positive-EP buys`
+          : c.stats
+            ? `NO_EDGE · EP $${c.score.toFixed(2)} ≤ 0 (roi ${roiPct}%) — trader has no positive expected profit`
+            : `NO_STATS · ROI not loaded yet — skipped pending stats`;
         this.addLog({
           id: uid(),
           timestamp: Date.now(),
@@ -1370,8 +1421,9 @@ export class CopyEngine {
                 ? (trade.side === "BUY" ? "COPY_BUY" : "COPY_SELL")
                 : "ERROR";
 
-              const scoreSuffix = trade.side === "BUY" && cand.sharpe > 0
-                ? `score $${cand.score.toFixed(2)} (Sharpe ${cand.sharpe.toFixed(2)} × $${traderNotional.toFixed(0)})`
+              const roiPct = cand.stats ? (cand.stats.roi * 100).toFixed(1) : "n/a";
+              const scoreSuffix = trade.side === "BUY"
+                ? `EP $${cand.score.toFixed(2)} (roi ${roiPct}% × mirror $${rawMirrorNotional.toFixed(2)})`
                 : null;
               this.addLog({
                 id: uid(),
@@ -1400,6 +1452,18 @@ export class CopyEngine {
                   totalOrdersPlaced: this.state.totalOrdersPlaced + 1,
                   totalVolumeMirrored: this.state.totalVolumeMirrored + mirrorNotional,
                 });
+                // Record / clear the EP ledger so rotation can reason about
+                // this position's forward expected profit later.
+                const key = this.posKey(trade.conditionId, trade.outcome || "Yes");
+                if (trade.side === "BUY") {
+                  this.positionEP[key] = {
+                    entryEP: Math.max(0, cand.score),
+                    mirrorNotional,
+                  };
+                } else {
+                  delete this.positionEP[key];
+                }
+                this.savePositionEP();
               } else {
                 this.setState({
                   totalOrdersFailed: this.state.totalOrdersFailed + 1,
@@ -1588,6 +1652,20 @@ export class CopyEngine {
     } catch {}
   }
 
+  /** Stable key for the EP ledger / position lookups. */
+  private posKey(conditionId: string, outcome?: string): string {
+    return `${conditionId.toLowerCase()}:${(outcome || "Yes").toLowerCase()}`;
+  }
+
+  private savePositionEP(): void {
+    try {
+      localStorage.setItem(
+        `poly_copy_positionep_${this.config.strategyId}`,
+        JSON.stringify(this.positionEP),
+      );
+    } catch {}
+  }
+
   private saveLog(): void {
     try {
       localStorage.setItem(
@@ -1618,6 +1696,13 @@ export class CopyEngine {
       if (roi) {
         const parsed = JSON.parse(roi);
         if (parsed && typeof parsed === "object") this.traderRoiStats = parsed;
+      }
+    } catch {}
+    try {
+      const ep = localStorage.getItem(`poly_copy_positionep_${this.config.strategyId}`);
+      if (ep) {
+        const parsed = JSON.parse(ep);
+        if (parsed && typeof parsed === "object") this.positionEP = parsed;
       }
     } catch {}
   }
@@ -1691,6 +1776,56 @@ export class CopyEngine {
     const stats = this.traderRoiStats[stratTrade.trader.toLowerCase()] ?? null;
     const score = this.strat.scoreCandidate(stratTrade, stats);
     return { score, sharpe: stats?.sharpe ?? 0, stats };
+  }
+
+  /** Best pending BUY across all enabled traders, by expected profit (EP =
+   *  roi × mirror$). Used by the balance gate to decide whether — and how
+   *  much — to rotate existing positions for. Mirrors the copyRatio + scoring
+   *  the main poll loop computes, but only to surface the single best EP so we
+   *  don't sell positions for a worse opportunity. Returns null if no positive
+   *  -EP buy is pending. Cheap: reuses the data-api trade cache. */
+  private async bestBuyCandidateEP(
+    totalWeight: number,
+  ): Promise<{ ep: number; mirrorNotional: number; market: string } | null> {
+    if (totalWeight <= 0) return null;
+    let best: { ep: number; mirrorNotional: number; market: string } | null = null;
+    for (const trader of this.config.traders.filter((t) => t.enabled !== false)) {
+      try {
+        const cursor = this.state.traderCursors[trader.address.toLowerCase()] ?? 0;
+        const trades = await fetchWalletTradesIncremental(
+          trader.address,
+          getTradeCache(trader.address) ?? [],
+          Math.floor((cursor - 60_000) / 1000),
+        );
+        const newBuys = trades.filter(
+          (t) => t.side === "BUY" && t.timestamp > cursor && !this.copiedIds.has(t.id),
+        );
+        if (newBuys.length === 0) continue;
+        // Same proportional copy-ratio the main loop uses (see Phase 1).
+        const backtestDays = this.config.backtestDays ?? 3;
+        const windowCutoffMs = Date.now() - backtestDays * 86400_000;
+        const windowTrades = trades.filter((t) => t.timestamp >= windowCutoffMs);
+        const buyVol = windowTrades
+          .filter((t) => t.side === "BUY")
+          .reduce((s, t) => s + t.price * t.size, 0);
+        const sellVol = windowTrades
+          .filter((t) => t.side === "SELL")
+          .reduce((s, t) => s + t.price * t.size, 0);
+        const traderVol = Math.max(buyVol, sellVol, 1);
+        const copyRatio = (this.config.capital * (trader.weight / totalWeight)) / traderVol;
+        for (const t of newBuys) {
+          const stratTrade = this.buildStratTrade(t, trader, copyRatio, totalWeight);
+          const ep = this.scoreStratTrade(stratTrade).score;
+          const mirrorNotional = stratTrade.notional * copyRatio;
+          if (ep > 0 && (!best || ep > best.ep)) {
+            best = { ep, mirrorNotional, market: t.market };
+          }
+        }
+      } catch {
+        // Per-trader fetch failures are logged by the main loop; ignore here.
+      }
+    }
+    return best;
   }
 
   private pruneDedup(): void {

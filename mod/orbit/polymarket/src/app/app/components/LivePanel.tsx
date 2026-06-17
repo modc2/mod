@@ -37,10 +37,14 @@ const LIVE_POLL_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 30, label: "30MIN" },
   { minutes: 60, label: "1H" },
 ];
-// 5 seconds in minute units. The user wanted continuous near-real-time
-// sync ("instead of prompting me to catchup") — the engine has a
-// re-entrancy guard now so a 5s cadence can't double-fire a long cycle.
-const DEFAULT_LIVE_POLL_MIN = 5 / 60;
+// Poll cadence floor, in minute units. A near-real-time 5s cadence × N
+// watched traders was firing several req/s at Polymarket's data-api 24/7
+// and getting throttled with HTTP 429 (Cloudflare 1015) on nearly every
+// fetch → no trades observed → no copies. 1 minute keeps the engine
+// responsive while staying well under the rate limit. Anything the strat
+// configures below this floor gets clamped up.
+const DEFAULT_LIVE_POLL_MIN = 1;
+const MIN_LIVE_POLL_MIN = 1;
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -331,7 +335,9 @@ export default function LivePanel() {
     activeStrat?.rebalanceMinutes ??
     activeStrat?.livePollMinutes ??
     DEFAULT_LIVE_POLL_MIN;
-  const livePollMin = rawLivePollMin === 1 ? DEFAULT_LIVE_POLL_MIN : rawLivePollMin;
+  // Clamp any sub-minute cadence (incl. the old 5s default) up to the floor so
+  // a stale strat config can't keep hammering the data-api into rate limits.
+  const livePollMin = Math.max(MIN_LIVE_POLL_MIN, rawLivePollMin);
 
   // Preconditions
   const hasWallet = auth.connected && !!auth.address;
@@ -1169,10 +1175,11 @@ export default function LivePanel() {
                           <span className="text-pixel-white shrink-0 text-right tabular-nums">
                             ${t.notional < 1 ? t.notional.toFixed(2) : t.notional < 10_000 ? t.notional.toFixed(0) : `${(t.notional / 1000).toFixed(1)}k`}
                           </span>
-                          {/* Sharpe-weighted EV score the engine assigned to
-                              this candidate. Color-coded so the user can spot
-                              high-score trades at a glance. SELLs and no-Sharpe
-                              traders read "—" (always honored / pending stats). */}
+                          {/* Expected profit (EP = trader ROI × the dollars
+                              we'd mirror) the engine ranks this candidate by.
+                              Color-coded so the user can spot high-EP trades at
+                              a glance. SELLs read "—" (always honored); buys
+                              with no loaded stats read "—" (pending). */}
                           <span
                             className={`shrink-0 w-[68px] text-right tabular-nums text-[12px] ${
                               t.side === "SELL"
@@ -1183,17 +1190,19 @@ export default function LivePanel() {
                                     ? "text-yellow-400"
                                     : t.score > 0
                                       ? "text-pixel-gray-light"
-                                      : "text-pixel-gray/60"
+                                      : "text-red-400/70"
                             }`}
                             title={
                               t.side === "SELL"
-                                ? "SELL — score N/A (always honored to close positions)"
-                                : t.sharpe > 0
-                                  ? `score = Sharpe ${t.sharpe.toFixed(2)} × $${t.notional.toFixed(0)} notional`
-                                  : "No Sharpe yet (trader needs ≥3 closed 30d trades)"
+                                ? "SELL — EP N/A (always honored to close positions)"
+                                : t.score > 0
+                                  ? `Expected profit $${t.score.toFixed(2)} = ROI × mirror notional`
+                                  : t.sharpe === 0 && t.score === 0
+                                    ? "ROI not loaded yet — pending stats"
+                                    : `No positive expected profit (EP $${t.score.toFixed(2)})`
                             }
                           >
-                            {t.side === "SELL" || t.sharpe <= 0 ? "—" : `$${t.score.toFixed(2)}`}
+                            {t.side === "SELL" ? "—" : `$${t.score.toFixed(2)}`}
                           </span>
                         </div>
                         {reasonText && (
