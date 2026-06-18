@@ -1,0 +1,47 @@
+# In-container reverse proxy. Only port {$APP_PORT} is exposed.
+#
+# Gateway paths (forwarded as-is by the host caddy):
+#   /taox/api, /taox/api/*     → strip /taox/api → Rust API
+#   /taox/_api, /taox/_api/*   → strip /taox/_api → Rust API (alias)
+#   /taox, /taox/*             → Next.js (basePath = /taox)
+#
+# Direct-access paths (when hitting the container port directly):
+#   /api, /api/*               → strip /api → Rust API
+#   /, /app, /app/*            → redirect to /taox/...
+{
+    auto_https off
+    admin off
+}
+
+:{$APP_PORT:3870} {
+    @api_gateway path /taox/api /taox/api/*
+    handle @api_gateway {
+        uri strip_prefix /taox/api
+        reverse_proxy localhost:{$API_PORT:8870}
+    }
+
+    @api_gateway_alt path /taox/_api /taox/_api/*
+    handle @api_gateway_alt {
+        uri strip_prefix /taox/_api
+        reverse_proxy localhost:{$API_PORT:8870}
+    }
+
+    @app_gateway path /taox /taox/*
+    handle @app_gateway {
+        reverse_proxy localhost:{$APP_INTERNAL_PORT:3871}
+    }
+
+    @api_direct path /api /api/*
+    handle @api_direct {
+        uri strip_prefix /api
+        reverse_proxy localhost:{$API_PORT:8870}
+    }
+
+    redir / /taox/ 308
+    redir /app /taox/ 308
+
+    @app_alias path_regexp app_alias ^/app/(.+)$
+    handle @app_alias {
+        redir /taox/{re.app_alias.1} 308
+    }
+}

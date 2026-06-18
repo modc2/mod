@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_chain = None
+_chains = {}
 
 MOD_NAMES = ['token', 'oracle', 'registry', 'perms', 'tokengate',
              'bloctime', 'treasury', 'market', 'debit', 'safe', 'bridge']
@@ -39,12 +39,37 @@ PORTS = {
 }
 
 
-def get_chain(network='testnet'):
-    global _chain
-    if _chain is None:
+def get_chain(network='testnet', key=None):
+    """Get (and cache) a chain orchestrator per network, optionally switching key."""
+    global _chains
+    if network not in _chains:
         import mod as m
-        _chain = m.mod('chain')(network=network)
-    return _chain
+        _chains[network] = m.mod('chain')(network=network)
+    chain = _chains[network]
+    if key:
+        try:
+            chain.set_key(key)
+        except Exception:
+            pass
+    return chain
+
+
+def _serialize(result):
+    """Best-effort JSON-safe serialization for tx receipts / arbitrary results."""
+    if result is None or isinstance(result, (str, int, float, bool)):
+        return result
+    if hasattr(result, 'transactionHash'):
+        return {
+            "tx_hash": result.transactionHash.hex(),
+            "status": "success" if result.get('status', 1) == 1 else "failed",
+        }
+    if isinstance(result, bytes):
+        return '0x' + result.hex()
+    if isinstance(result, dict):
+        return {k: _serialize(v) for k, v in result.items()}
+    if isinstance(result, (list, tuple)):
+        return [_serialize(v) for v in result]
+    return str(result)
 
 
 # ── Health ────────────────────────────────────────────────────────────────
@@ -142,6 +167,142 @@ async def config(req: NetworkReq):
     return {"config": config.get("deployments", {}).get(req.network, {})}
 
 
+# ── Contract source browsing (module-agnostic) ──────────────────────────────
+
+def _module_dir(mod_name: str):
+    """Resolve a module's root directory on disk (any core/orbit module)."""
+    import mod as m
+    try:
+        return m.dp(mod_name)
+    except Exception:
+        return None
+
+
+def _contracts_dir(mod_name: str = "chain"):
+    """Resolve the Solidity contracts directory for any module, or None."""
+    base = _module_dir(mod_name)
+    if not base:
+        return None
+    for cand in (os.path.join(base, "src", "contracts"),
+                 os.path.join(base, "contracts")):
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+def _deployed_index(mod_name: str, network: str):
+    """Map contract source name (e.g. 'Market') -> deployed address.
+
+    Reads the target module's own config deployments, so it works for any
+    module that publishes a deployments map (not just chain).
+    """
+    import mod as m
+    try:
+        cfg = m.config(mod_name)
+    except Exception:
+        return {}
+    deployment = (cfg or {}).get("deployments", {}).get(network, {})
+    index = {}
+    for _name, info in deployment.get("contracts", {}).items():
+        if isinstance(info, dict):
+            c = info.get("contract")
+            if c:
+                index.setdefault(c, info.get("address", ""))
+    return index
+
+
+def _has_solidity(root: str) -> bool:
+    for _dp, _dn, files in os.walk(root):
+        if any(f.endswith(".sol") for f in files):
+            return True
+    return False
+
+
+@app.get("/contracts/mods")
+async def contract_mods():
+    """Discover all modules (core + orbit) that ship Solidity contracts."""
+    base = _module_dir("chain")
+    found = []
+    if base:
+        mods_root = os.path.dirname(os.path.dirname(base))  # .../mod
+        for group in ("core", "orbit"):
+            gdir = os.path.join(mods_root, group)
+            if not os.path.isdir(gdir):
+                continue
+            for name in sorted(os.listdir(gdir)):
+                cdir = _contracts_dir_at(os.path.join(gdir, name))
+                if cdir and _has_solidity(cdir):
+                    found.append(name)
+    if "chain" not in found:
+        found.insert(0, "chain")
+    return {"mods": sorted(set(found))}
+
+
+def _contracts_dir_at(base: str):
+    for cand in (os.path.join(base, "src", "contracts"),
+                 os.path.join(base, "contracts")):
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+@app.get("/contracts/source")
+async def contract_source(file: Optional[str] = None, mod: str = "chain",
+                          network: str = "testnet"):
+    """List Solidity contracts for a module, or return one source via ?file=.
+
+    `mod` selects the module (default: chain). Test files are excluded from the
+    listing. `file` is sandboxed to the module's contracts dir and must end .sol.
+    """
+    root = _contracts_dir(mod)
+    if not root:
+        raise HTTPException(status_code=404,
+                            detail=f"No contracts directory for module '{mod}'")
+
+    if file:
+        rel = file.lstrip("/")
+        target = os.path.realpath(os.path.join(root, rel))
+        if not target.startswith(os.path.realpath(root) + os.sep) or not target.endswith(".sol"):
+            raise HTTPException(status_code=400, detail="Invalid contract path")
+        if not os.path.isfile(target):
+            raise HTTPException(status_code=404, detail=f"Contract not found: {file}")
+        with open(target, "r") as f:
+            source = f.read()
+        return {
+            "file": rel,
+            "name": os.path.basename(target)[:-4],
+            "lines": source.count("\n") + 1,
+            "source": source,
+        }
+
+    deployed = _deployed_index(mod, network)
+    contracts = []
+    for dirpath, _, files in os.walk(root):
+        if os.sep + "test" in dirpath + os.sep:
+            continue
+        for fn in files:
+            if not fn.endswith(".sol"):
+                continue
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root)
+            parts = rel.split(os.sep)
+            group = parts[0] if len(parts) > 1 else mod
+            name = fn[:-4]
+            try:
+                lines = sum(1 for _ in open(full))
+            except Exception:
+                lines = 0
+            contracts.append({
+                "name": name,
+                "mod": group,
+                "file": rel.replace(os.sep, "/"),
+                "lines": lines,
+                "address": deployed.get(name, ""),
+            })
+    contracts.sort(key=lambda c: (c["mod"], c["name"]))
+    return {"contracts": contracts, "count": len(contracts), "module": mod}
+
+
 # ── Module Proxy ──────────────────────────────────────────────────────────
 
 class ModCallReq(BaseModel):
@@ -186,6 +347,191 @@ async def timestamp(number: Optional[int] = None):
     return {"result": chain.timestamp(number)}
 
 
+# ── Protocol: Wallet & Balances ─────────────────────────────────────────────
+
+@app.get("/wallet")
+async def wallet(network: str = "testnet", key: Optional[str] = None):
+    """Get the active account address + balances across core tokens."""
+    chain = get_chain(network, key)
+    try:
+        address = chain.account.address
+        balances = chain.balances(address)
+        return {
+            "address": address,
+            "network": network,
+            "balances": _serialize(balances),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/balances")
+async def balances(address: Optional[str] = None, network: str = "testnet",
+                   tokens: Optional[str] = None):
+    """Get token balances for an address (comma-separated tokens optional)."""
+    chain = get_chain(network)
+    try:
+        addr = address or chain.account.address
+        tok_list = [t.strip() for t in tokens.split(",")] if tokens else None
+        result = chain.balances(addr, tokens=tok_list)
+        return {"address": addr, "balances": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Protocol: Staking (BlocTime) ────────────────────────────────────────────
+
+class StakeReq(BaseModel):
+    amount: float
+    lock_blocks: int
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/stake")
+async def stake(req: StakeReq):
+    """Stake NativeToken to earn BlocTime."""
+    chain = get_chain(req.network, req.key)
+    try:
+        decimals = chain.decimals('nativetoken')
+        amount_wei = int(req.amount * (10 ** decimals))
+        result = chain.stake(amount_wei, req.lock_blocks)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class UnstakeReq(BaseModel):
+    stake_id: int
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/unstake")
+async def unstake(req: UnstakeReq):
+    """Unstake a specific BlocTime position."""
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.unstake(req.stake_id)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/stakes")
+async def stakes(address: Optional[str] = None, network: str = "testnet"):
+    """List all stake positions for an address."""
+    chain = get_chain(network)
+    try:
+        addr = address or chain.account.address
+        ids = chain.get_user_stake_ids(addr)
+        positions = []
+        for sid in ids:
+            pos = chain.get_stake_position(addr, sid)
+            pos['stake_id'] = sid
+            positions.append(_serialize(pos))
+        return {"address": addr, "stakes": positions}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Protocol: Market (credit / transfer) ────────────────────────────────────
+
+class CreditReq(BaseModel):
+    stable_amount: float
+    payment_token: str = "usdt"
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/credit")
+async def credit(req: CreditReq):
+    """Buy MARKET (stable) tokens with a whitelisted payment token."""
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.raw_credit(req.stable_amount, payment_token=req.payment_token)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class TransferReq(BaseModel):
+    to: str
+    amount: float
+    token: str = "market"
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/transfer")
+async def transfer(req: TransferReq):
+    """Transfer tokens (or native ETH) to another address."""
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.transfer(req.to, req.amount, token=req.token)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/tokens")
+async def tokens(network: str = "testnet"):
+    """List whitelisted payment tokens (TokenGate) + all known tokens."""
+    chain = get_chain(network)
+    try:
+        cfg = chain.contracts_config()
+        known = [k for k, v in cfg.items() if v.get("contract") == "Token"]
+        whitelisted = []
+        try:
+            whitelisted = chain.tokens()
+        except Exception:
+            pass
+        return {"tokens": known, "whitelisted": _serialize(whitelisted)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Protocol: BlocTime ownership ────────────────────────────────────────────
+
+@app.get("/bloctime/owner")
+async def bloctime_owner(address: Optional[str] = None, network: str = "testnet"):
+    """Check whether an address holds BlocTime (staked), and how much."""
+    chain = get_chain(network)
+    try:
+        addr = address or chain.account.address
+        balance = chain.bloctime_balance(addr)
+        return {"address": addr, "bloctime": balance, "is_owner": balance > 0}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Protocol: Registry ──────────────────────────────────────────────────────
+
+@app.get("/registry/mods")
+async def registry_mods(address: Optional[str] = None, network: str = "testnet"):
+    """List mods registered by an address in the on-chain Registry."""
+    chain = get_chain(network)
+    try:
+        addr = address or chain.account.address
+        mods = chain.mods(address=addr)
+        return {"address": addr, "mods": _serialize(mods)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class RegReq(BaseModel):
+    name: str
+    data: Optional[str] = None
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/registry/register")
+async def registry_register(req: RegReq):
+    """Register (or update) a mod in the on-chain Registry."""
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.reg(req.name, req.data)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -197,5 +543,9 @@ async def info():
             "health", "mods", "status", "deploy",
             "contracts", "config", "call", "block",
             "timestamp", "info",
+            "wallet", "balances", "stake", "unstake", "stakes",
+            "credit", "transfer", "tokens",
+            "contracts/source", "contracts/mods",
+            "registry/mods", "registry/register", "bloctime/owner",
         ],
     }

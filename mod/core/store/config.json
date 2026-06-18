@@ -1,6 +1,7 @@
 {
     "name": "store",
-    "description": "Mod store \u2014 local KV + decentralized (filecoin + hippius) storage with MetaMask SIWE app",
+    "description": "Mod store \u2014 decentralized (filecoin + hippius) storage gated by mod protocol auth + per-user quotas",
+    "quota_bytes": 104857600,
     "port": 50150,
     "app_port": 50151,
     "urls": {
@@ -23,25 +24,25 @@
         "localfs"
     ],
     "endpoints": {
-        "nonce": {
-            "method": "GET",
-            "auth": false,
-            "docs": "Issue SIWE nonce"
-        },
-        "verify": {
-            "method": "POST",
-            "auth": false,
-            "docs": "Verify SIWE signature \u2192 session token"
-        },
         "me": {
             "method": "GET",
             "auth": true,
-            "docs": "Current session address"
+            "docs": "Caller address, admin flag, quota (protocol-auth token)"
+        },
+        "quota": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET caller usage+limit; POST (owner) set per-user limit"
+        },
+        "whitelist": {
+            "method": "GET/POST/DELETE",
+            "auth": true,
+            "docs": "List / add / remove allowed uploader addresses (owner only)"
         },
         "put": {
             "method": "POST",
             "auth": true,
-            "docs": "Upload to filecoin / hippius / both"
+            "docs": "Upload to filecoin / hippius / both (whitelisted + within quota)"
         },
         "get": {
             "method": "GET",
@@ -56,7 +57,7 @@
         "pin": {
             "method": "POST",
             "auth": true,
-            "docs": "Pin a CID"
+            "docs": "Pin a CID (whitelisted)"
         },
         "status": {
             "method": "GET",
@@ -64,10 +65,10 @@
             "docs": "Module + backend status"
         }
     },
+    "auth": "mod-protocol",
     "env": {
-        "STORE_JWT_SECRET": "HMAC secret for session tokens",
-        "STORE_DOMAIN": "SIWE domain (default: localhost:50151)",
-        "STORE_ORIGIN": "SIWE origin URL (default: http://localhost:50151)"
+        "STORE_SESSION_TTL": "Max token age in seconds (default: 604800 / 7 days)",
+        "STORE_PRIVATE_DIR": "Off-chain owner/whitelist/quotas dir (default: ~/.mod/store)"
     },
-    "schema": "QmS3C3RP2XM1f6ZyNNY1aeoBBc2mrRAy35DWNhVhrvwq1Z"
+    "schema": "QmcjurJjeGAKgF9GNC2ERcWQm7EFWqsBWmkxwpHzWUkF4q"
 }

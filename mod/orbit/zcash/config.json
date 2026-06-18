@@ -1,25 +1,25 @@
 {
-  "name": "zcash",
-  "version": "1.0.0",
-  "description": "Zcash blockchain explorer - blocks, transactions, addresses, network stats",
-  "fns": [
-    "info",
-    "block",
-    "tx",
-    "address",
-    "mempool",
-    "price",
-    "network",
-    "search",
-    "status",
-    "serve",
-    "kill",
-    "test"
-  ],
-  "schema": "QmQjsN2rfBnazFNDnf3SWau3bLepRzF5ABtBQ5n43DBc7u",
-  "urls": {
-    "api": "http://localhost:8930",
-    "app": "http://localhost:3930"
-  },
-  "gateway_port": 3930
+    "name": "zcash",
+    "version": "1.0.0",
+    "description": "Zcash blockchain explorer - blocks, transactions, addresses, network stats",
+    "fns": [
+        "info",
+        "block",
+        "tx",
+        "address",
+        "mempool",
+        "price",
+        "network",
+        "search",
+        "status",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "schema": "QmR8N4URpcVZS48cpyCZHKDpS4d6LJQkNxbxQhH6SMvokM",
+    "urls": {
+        "api": "http://localhost:8930",
+        "app": "http://localhost:3930"
+    },
+    "gateway_port": 3930
 }

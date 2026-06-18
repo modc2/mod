@@ -33,26 +33,27 @@ export async function personalSign(message: string, address: string): Promise<st
   })) as string;
 }
 
-export function buildSiweMessage(opts: {
-  domain: string;
-  address: string;
-  origin: string;
-  nonce: string;
-  chainId: number;
-  statement?: string;
-}): string {
-  const issuedAt = new Date().toISOString();
-  const statement = opts.statement || "Sign in to mod store.";
-  return [
-    `${opts.domain} wants you to sign in with your Ethereum account:`,
-    opts.address,
-    "",
-    statement,
-    "",
-    `URI: ${opts.origin}`,
-    `Version: 1`,
-    `Chain ID: ${opts.chainId}`,
-    `Nonce: ${opts.nonce}`,
-    `Issued At: ${issuedAt}`,
-  ].join("\n");
+// base64url JSON, matching python's urlsafe_b64encode(...).rstrip(b"=").
+function b64urlJson(obj: unknown): string {
+  const s = JSON.stringify(obj);
+  const b64 = btoa(unescape(encodeURIComponent(s)));
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Build a mod **protocol auth** token: a wallet-signed, time-bounded
+ * `{data, time, key, signature}` envelope, base64url-encoded.
+ *
+ * The signed material is `JSON.stringify({data, time})` with no spaces, which
+ * is exactly what `mod core/server/auth` re-serializes and verifies server-side
+ * (sig_features = ["data", "time"], separators (',',':')).
+ */
+export async function buildModToken(
+  address: string,
+  data: Record<string, unknown> = {}
+): Promise<string> {
+  const time = (Date.now() / 1000).toString();
+  const sigData = JSON.stringify({ data, time });
+  const signature = await personalSign(sigData, address);
+  return b64urlJson({ data, time, key: address, signature });
 }

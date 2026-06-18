@@ -117,6 +117,8 @@ fn should_skip_dir(name: &str) -> bool {
         name,
         "node_modules"
             | "target"
+            | "target-docker"
+            | "vendor"
             | "__pycache__"
             | ".git"
             | ".next"

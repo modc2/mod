@@ -737,6 +737,39 @@ class Mod:
         addr = address or self.account.address
         return bloctime.functions.getUserStakeIds(addr).call()
 
+    def bloctime_balance(self, address: Optional[str] = None) -> int:
+        """Get an address's aggregate BlocTime balance (raw uint).
+
+        Sums the aggregate position from getStakeInfo with any per-stake
+        positions so callers get a single number representing BlocTime held.
+        """
+        bloctime = self.contracts.get('bloctime')
+        if not bloctime:
+            raise ValueError('BlocTime contract not loaded')
+        if address and not self.is_address(address):
+            address = m.key(address).address
+        addr = self.checksum(address or self.account.address)
+        total = 0
+        try:
+            info = bloctime.functions.getStakeInfo(addr).call()
+            total += info[3]  # blocTimeBalance
+        except Exception:
+            pass
+        try:
+            for sid in bloctime.functions.getUserStakeIds(addr).call():
+                pos = bloctime.functions.getStakePosition(addr, sid).call()
+                total += pos[3]  # bloctime_balance
+        except Exception:
+            pass
+        return total
+
+    def is_bloctime_holder(self, address: Optional[str] = None) -> bool:
+        """Return True if the address holds any BlocTime (staked balance > 0)."""
+        try:
+            return self.bloctime_balance(address) > 0
+        except Exception:
+            return False
+
     # ==================== MARKET FUNCTIONS ====================
 
     def credit(self, stable_amount: str, payment_token: int = 'usdt') -> Dict[str, Any]:
@@ -1661,6 +1694,33 @@ class Mod:
 
     HUB_API_PORT = 8800
     HUB_APP_PORT = 8801
+    HUB_API_PM2 = 'chain-hub-api'
+    HUB_APP_PM2 = 'chain-hub-app'
+
+    def _pm2(self):
+        """Return the pm2 process manager mod."""
+        return m.mod('pm.pm2')()
+
+    def _serve_proc(self, name, script_dir, env, log_dir, log_name):
+        """Start <script_dir>/start.sh under pm2, falling back to a detached
+        subprocess if pm2 is unavailable. Returns a status dict."""
+        import subprocess
+        script = os.path.join(str(script_dir), 'start.sh')
+        try:
+            pm2 = self._pm2()
+            if pm2.exists(name):
+                pm2.kill(name, remove_script=False)
+            res = pm2.start_script(name=name, script_path=script,
+                                   cwd=str(script_dir), interpreter='bash', env=env)
+            if res.get('success'):
+                return {'manager': 'pm2', 'name': name}
+            raise RuntimeError(res.get('stderr') or res.get('error') or 'pm2 start failed')
+        except Exception as e:
+            log = open(os.path.join(str(log_dir), f'{log_name}.log'), 'w')
+            proc = subprocess.Popen(['bash', script], cwd=str(script_dir),
+                                    env={**os.environ, **env},
+                                    stdout=log, stderr=subprocess.STDOUT)
+            return {'manager': 'subprocess', 'pid': proc.pid, 'warn': str(e)}
 
     def serve(self, mods=None, dev=True):
         """Serve chain hub API + app, plus all (or selected) module APIs + apps.
@@ -1690,37 +1750,32 @@ class Mod:
         log_dir = Path('/tmp/chain-hub')
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        api_dir = chain_dir / 'api'
-        if api_dir.is_dir():
-            env = os.environ.copy()
-            env['PYTHONPATH'] = f"{chain_dir}:{env.get('PYTHONPATH', '')}"
-            env['PORT'] = str(api_port)
-
-            api_log = open(log_dir / 'api.log', 'w')
-            api_cmd = [
-                'python3', '-m', 'uvicorn', 'api:app',
-                '--host', '0.0.0.0', '--port', str(api_port),
-                '--app-dir', str(api_dir),
-            ]
-            if dev:
-                api_cmd.append('--reload')
-            subprocess.Popen(api_cmd, env=env, stdout=api_log, stderr=subprocess.STDOUT)
-            results['hub_api'] = api_url
-            results['hub_api_docs'] = f'{api_url}/docs'
+        api_dir = chain_dir / 'src' / 'api'
+        if not api_dir.is_dir():
+            api_dir = chain_dir / 'api'
+        if api_dir.is_dir() and (api_dir / 'start.sh').exists():
+            api_env = {
+                'PORT': str(api_port),
+                'PYTHONPATH': f"{chain_dir}:{os.environ.get('PYTHONPATH', '')}",
+            }
+            results['hub_api'] = self._serve_proc(
+                self.HUB_API_PM2, api_dir, api_env, log_dir, 'api')
+            results['hub_api']['url'] = api_url
+            results['hub_api']['docs'] = f'{api_url}/docs'
 
         # ── Start chain hub app ──────────────────────────────────
-        app_dir = chain_dir / 'app'
-        if app_dir.is_dir() and (app_dir / 'package.json').exists():
-            app_env = os.environ.copy()
-            app_env['NEXT_PUBLIC_API_URL'] = api_url
-            app_env['PORT'] = str(app_port)
-            app_log = open(log_dir / 'app.log', 'w')
-            app_cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
-            subprocess.Popen(
-                app_cmd, cwd=str(app_dir), env=app_env,
-                stdout=app_log, stderr=subprocess.STDOUT,
-            )
-            results['hub_app'] = app_url
+        app_dir = chain_dir / 'src' / 'app'
+        if not app_dir.is_dir():
+            app_dir = chain_dir / 'app'
+        if app_dir.is_dir() and (app_dir / 'package.json').exists() and (app_dir / 'start.sh').exists():
+            app_env = {
+                'NEXT_PUBLIC_API_URL': api_url,
+                'PORT': str(app_port),
+                'DEV': '1' if dev else '0',
+            }
+            results['hub_app'] = self._serve_proc(
+                self.HUB_APP_PM2, app_dir, app_env, log_dir, 'app')
+            results['hub_app']['url'] = app_url
 
         results['hub_logs'] = str(log_dir)
 
@@ -1758,6 +1813,16 @@ class Mod:
 
         # ── Kill chain hub ───────────────────────────────────────
         hub_killed = []
+        # pm2-managed hub processes first
+        try:
+            pm2 = self._pm2()
+            for name in (self.HUB_API_PM2, self.HUB_APP_PM2):
+                if pm2.exists(name):
+                    pm2.kill(name)
+                    hub_killed.append(name)
+        except Exception:
+            pass
+        # subprocess-started fallbacks (pgrep by port)
         for pattern in [f'uvicorn.*api:app.*{self.HUB_API_PORT}', f'next.*{self.HUB_APP_PORT}']:
             try:
                 result = subprocess.run(

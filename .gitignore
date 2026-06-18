@@ -239,6 +239,8 @@ __marimo__/
 ## --- Rust ---
 # Cargo build output
 target/
+# Out-of-tree cargo target used for docker (glibc-matched) builds; artifacts only
+target-docker/
 
 # Rust tooling
 *.rlib

@@ -17,6 +17,13 @@ mkdir -p "$CRED_DIR"
 if [ -f "$CRED_SRC" ]; then
     # Symlink so the CLI reads the live host file and can write refreshed tokens
     ln -sf "$CRED_SRC" "$CRED_DST"
+    # The CLI runs as node (uid 1000); the host file is typically root-owned 0600
+    # (that's how `claude login` writes it), which node can't read — every job
+    # then fails with "Not logged in". Hand the real file to node so it can both
+    # read the token and persist refreshed ones. The host runs claude as root,
+    # which ignores ownership, so this costs the host nothing. A host re-login
+    # resets it to root:0600, but this re-applies on the next container start.
+    chown node:node "$CRED_SRC" 2>/dev/null || chmod 0644 "$CRED_SRC" 2>/dev/null || true
     # When OAuth creds are present, unset any inherited ANTHROPIC_API_KEY so
     # claude doesn't prefer a stale/external key over the subscription token.
     unset ANTHROPIC_API_KEY
@@ -27,8 +34,7 @@ else
     echo "credentials: NONE — claude CLI will fail until you mount ~/.claude/.credentials.json or set ANTHROPIC_API_KEY" >&2
 fi
 
-# -h so we don't follow the credentials symlink into the RO host mount —
-# under `set -e` chowning the RO file would silently kill the entrypoint.
+# -h so we don't follow the credentials symlink (its target is chowned above).
 chown -h node:node "$CRED_DIR" "$CRED_DST" 2>/dev/null || true
 
 # Off-chain auth state (whitelist.json, gate.json, owner.json) — host-mounted.
@@ -40,6 +46,8 @@ mkdir -p "$PRIVATE_DIR"
 chown node:node "$PRIVATE_DIR" 2>/dev/null || true
 
 # Inner script runs as non-root: starts Rust API + Next.js, traps shutdown.
+# Clear any stale copy from a prior boot so a restart can recreate it cleanly.
+rm -f /tmp/run-as-claude.sh 2>/dev/null || true
 cat > /tmp/run-as-claude.sh <<EOF
 #!/bin/bash
 set -e
@@ -78,7 +86,10 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-wait -n \$API_PID \$APP_PID
+# Keep the container alive as long as the API (the load-bearing service) is up.
+# next start can exit when the bind-mounted host build is stale; that must NOT
+# tear the container down, since the user-facing app is served separately.
+wait \$API_PID
 EXIT=\$?
 cleanup
 exit \$EXIT

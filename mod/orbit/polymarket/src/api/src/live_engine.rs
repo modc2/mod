@@ -36,6 +36,18 @@ const DATA_API: &str = "https://data-api.polymarket.com";
 const OBSERVED_CAP: usize = 500;
 /// Max log entries kept. Older entries fall off.
 const LOG_CAP: usize = 1000;
+/// Floor on the cycle interval. Polymarket's data-api sits behind Cloudflare,
+/// which returns HTTP 429 (error 1015) once sustained request-rate crosses a
+/// few req/s. A 5s cycle × N watched traders was firing ~5 req/s continuously
+/// and getting rate-limited on essentially every fetch → zero trades observed
+/// → zero copies. We clamp any configured interval up to this floor regardless
+/// of what the frontend persisted, so an old 5s config can't keep hammering.
+const MIN_INTERVAL_MS: u64 = 60_000;
+/// Spacing between successive per-trader `/activity` fetches inside one cycle.
+/// Without it, all N traders are polled back-to-back as a burst — enough to
+/// trip the Cloudflare per-second limit even at a slow cycle cadence. Spreading
+/// the requests keeps the instantaneous rate well under the threshold.
+const INTER_REQUEST_DELAY_MS: u64 = 400;
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -330,6 +342,11 @@ impl EngineRegistry {
         // engine's first cycle filters every fetched trade out because
         // `trade.ts > cursor` is false the moment after start (matches the JS
         // engine's bug we already fixed there).
+        // Clamp the configured cadence up to the rate-limit floor. Old sessions
+        // persisted a 5s interval that hammered the data-api into 429s; the floor
+        // makes a stale config self-heal on resume without the user re-saving.
+        let effective_interval_ms = cfg.interval_ms.max(MIN_INTERVAL_MS);
+
         let now_ms = chrono::Utc::now().timestamp_millis();
         {
             let mut s = state.write();
@@ -357,8 +374,15 @@ impl EngineRegistry {
                 (cursors, cfg.traders.iter().filter(|t| t.enabled).cloned().collect())
             };
 
-            for trader in &enabled_traders {
+            for (idx, trader) in enabled_traders.iter().enumerate() {
                 if cancel.load(Ordering::Acquire) { break; }
+                // Spread the per-trader fetches out so we never burst N requests
+                // at once and trip Cloudflare's per-second limit (1015). Skip the
+                // delay before the first request so a single-trader engine isn't
+                // needlessly slowed.
+                if idx > 0 {
+                    tokio::time::sleep(Duration::from_millis(INTER_REQUEST_DELAY_MS)).await;
+                }
                 let key = trader.address.to_lowercase();
                 let cursor = *cursors.get(&key).unwrap_or(&(now_ms - cfg.interval_ms as i64));
                 match fetch_recent_activity(&self.http, &trader.address).await {
@@ -376,6 +400,7 @@ impl EngineRegistry {
                         }
                     }
                     Err(e) => {
+                        tracing::warn!(trader = %trader.address, error = %e, "activity fetch failed");
                         errors.push((trader.address.clone(), e.to_string()));
                     }
                 }
@@ -414,6 +439,7 @@ impl EngineRegistry {
                     )
                 };
                 let next_cycle_count = s.cycle_count + 1;
+                tracing::info!(eoa = %cfg.eoa, cycle = next_cycle_count, interval_ms = effective_interval_ms, "{}", summary);
                 push_log(&mut s.log, LogEntry {
                     id: format!("cycle-{}", next_cycle_count),
                     timestamp: cycle_ended_at,
@@ -435,7 +461,7 @@ impl EngineRegistry {
 
                 s.cycle_count += 1;
                 s.last_cycle_at = Some(cycle_ended_at);
-                s.next_cycle_at = Some(cycle_ended_at + cfg.interval_ms as i64);
+                s.next_cycle_at = Some(cycle_ended_at + effective_interval_ms as i64);
                 s.status = EngineStatus::Running;
             }
 
@@ -447,9 +473,9 @@ impl EngineRegistry {
             // for the full interval.
             let mut elapsed = 0u64;
             let step = 200u64;
-            while elapsed < cfg.interval_ms {
+            while elapsed < effective_interval_ms {
                 if cancel.load(Ordering::Acquire) { break; }
-                tokio::time::sleep(Duration::from_millis(step.min(cfg.interval_ms - elapsed))).await;
+                tokio::time::sleep(Duration::from_millis(step.min(effective_interval_ms - elapsed))).await;
                 elapsed += step;
             }
         }

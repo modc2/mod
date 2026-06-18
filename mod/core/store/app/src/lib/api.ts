@@ -12,17 +12,20 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export interface NonceResponse {
+export interface Quota {
   address: string;
-  nonce: string;
-  domain: string;
-  origin: string;
+  admin: boolean;
+  used_bytes: number;
+  limit_bytes: number | null;
+  unlimited: boolean;
+  remaining_bytes: number | null;
 }
 
-export interface VerifyResponse {
+export interface MeResponse {
   address: string;
-  token: string;
-  expires_in: number;
+  authorized: boolean;
+  admin: boolean;
+  quota: Quota;
 }
 
 export interface PutResponse {
@@ -51,22 +54,13 @@ export const api = {
   async backends() {
     return json<{ backends: string[] }>(await fetch(`${BASE}/backends`));
   },
-  async nonce(address: string) {
-    return json<NonceResponse>(await fetch(`${BASE}/nonce?address=${address}`));
-  },
-  async verify(message: string, signature: string) {
-    return json<VerifyResponse>(
-      await fetch(`${BASE}/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, signature }),
-      })
-    );
-  },
   async me(token: string) {
-    return json<{ address: string }>(
+    return json<MeResponse>(
       await fetch(`${BASE}/me`, { headers: authHeaders(token) })
     );
+  },
+  async quota(token: string) {
+    return json<Quota>(await fetch(`${BASE}/quota`, { headers: authHeaders(token) }));
   },
   async put(token: string, file: File, backend: string, key?: string) {
     const fd = new FormData();
@@ -99,5 +93,10 @@ export const api = {
   getUrl(cid: string, backend?: string) {
     const q = backend ? `&backend=${backend}` : "";
     return `${BASE}/get?cid=${cid}${q}`;
+  },
+  // Absolute URL (origin-qualified) so a scanned QR resolves off-device.
+  absoluteUrl(cid: string, backend?: string) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${api.getUrl(cid, backend)}`;
   },
 };

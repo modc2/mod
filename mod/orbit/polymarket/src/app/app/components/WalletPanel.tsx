@@ -98,7 +98,7 @@ export default function WalletPanel() {
     setLoading(true);
     try {
       const res = await fetch(
-        `/polymarket/api/deposit-wallet/info?eoa=${eoa}`,
+        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -165,7 +165,7 @@ export default function WalletPanel() {
     setStatus("Wrapping USDC.e for trading (gasless)…");
     setBusy(true);
     try {
-      const res = await fetch("/polymarket/api/deposit-wallet/wrap", {
+      const res = await fetch("/api/polymarket/deposit-wallet/wrap", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -232,7 +232,7 @@ export default function WalletPanel() {
       // would still report "balance: 0" and reject orders. Auto-wrap
       // makes the deposit feel like a single click.
       setStatus(`Deposited $${amt.toFixed(2)} ✓ — wrapping for trading (gasless)…`);
-      const wrapRes = await fetch("/polymarket/api/deposit-wallet/wrap", {
+      const wrapRes = await fetch("/api/polymarket/deposit-wallet/wrap", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -286,7 +286,7 @@ export default function WalletPanel() {
       // (the wallet has 0 raw USDC.e after deposit auto-wraps). unwrap-
       // and-send burns V2 collateral and mints USDC.e straight to dest
       // in one relayer batch.
-      const res = await fetch("/polymarket/api/deposit-wallet/unwrap-and-send", {
+      const res = await fetch("/api/polymarket/deposit-wallet/unwrap-and-send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

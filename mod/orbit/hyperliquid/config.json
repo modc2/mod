@@ -76,6 +76,6 @@
         "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
     },
-    "schema": "QmWNg1P1n8xqsX1uUf3KLFWe8jaAvzCf45eUoGk5pPoZdS",
+    "schema": "QmNVGwMj6uKQmZjxzYwa6jnmkWoqShkfUY25eyQa2gXBAD",
     "gateway_port": 3919
 }

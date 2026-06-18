@@ -31,7 +31,8 @@ class Mod:
         'bg', 'bg_status', 'bg_list', 'snapshot', 'changelog',
         'get_version', 'restore_version', 'health', 'modules',
         'folders', 'suggest_folders',
-        'set_owner', 'get_owner', 'is_owner', 'permissions', 'ensure_env',
+        'set_owner', 'get_owner', 'is_owner', 'is_bloctime_owner',
+        'register_onchain', 'permissions', 'ensure_env',
         'install', 'setup', 'serve',
         'kill', 'kill_port', 'status', 'logs', 'scan', 'fix',
     ]
@@ -56,6 +57,12 @@ class Mod:
         self._api_managed = False  # True if we started the API ourselves
         self._idle_lock = threading.Lock()
         self._idle_thread = None
+        # on-chain integration (chain mod Registry + BlocTime ownership)
+        self._chain_mod = None
+        self._chain_network = cfg.get('chain_network', 'testnet')
+        self._bloctime_gate = cfg.get('bloctime_gate', True)
+        self._bloctime_cache = {}          # addr -> (is_holder, ts)
+        self._bloctime_ttl = cfg.get('bloctime_ttl', 60)  # seconds
 
     # ── config ────────────────────────────────────────────────────
 
@@ -122,14 +129,72 @@ class Mod:
         """Verify a signed auth token. Returns decoded headers with 'key' address."""
         return self.auth.verify(token)
 
+    # ── on-chain integration (chain mod) ──────────────────────────
+
+    def _chain(self):
+        """Lazy chain orchestrator (BlocTime + Registry live on-chain)."""
+        if self._chain_mod is None:
+            self._chain_mod = m.mod('chain')(network=self._chain_network)
+        return self._chain_mod
+
+    def is_bloctime_owner(self, address=None) -> bool:
+        """Check whether an address holds BlocTime (staked) on-chain.
+
+        BlocTime holders are granted owner-level access to claude. Results are
+        cached briefly and every chain failure degrades to False so the auth
+        path never blocks on RPC issues.
+        """
+        if not self._bloctime_gate:
+            return False
+        addr = self._resolve_address(address) if address is not None else self.key.address
+        if not addr:
+            return False
+        addr = addr.lower()
+        now = time.time()
+        cached = self._bloctime_cache.get(addr)
+        if cached and now - cached[1] < self._bloctime_ttl:
+            return cached[0]
+        try:
+            holder = bool(self._chain().is_bloctime_holder(addr))
+        except Exception:
+            holder = False
+        self._bloctime_cache[addr] = (holder, now)
+        return holder
+
+    def register_onchain(self, network: str = None, data: str = None,
+                         force: bool = False) -> dict:
+        """Register this claude module in the on-chain Registry (chain mod).
+
+        Permissionless per-creator registration. Skips the transaction when the
+        module is already registered with identical data (unless force=True).
+        """
+        chain = self._chain() if network is None else m.mod('chain')(network=network)
+        data = data or self.api_url
+        try:
+            if not force and chain.mod_exists('claude'):
+                existing = chain.get_mod(chain.name2id('claude'))
+                if existing.get('data') == data:
+                    return {'status': 'already_registered', 'name': 'claude', 'data': data}
+        except Exception:
+            pass
+        receipt = chain.reg('claude', data)
+        tx = receipt.transactionHash.hex() if hasattr(receipt, 'transactionHash') else str(receipt)
+        return {'status': 'registered', 'name': 'claude', 'data': data, 'tx': tx}
+
     def is_owner(self, key=None) -> bool:
-        """Check if key/address/token belongs to the owner."""
+        """Check if key/address/token belongs to the owner.
+
+        Authorized if: no owner is set, the caller matches the config owner, OR
+        the caller holds BlocTime on-chain (BlocTime owners get owner access).
+        """
         if not self._owner:
             return True
         addr = self._resolve_address(key)
         if not addr:
             return False
-        return addr.lower() == self._owner.lower()
+        if addr.lower() == self._owner.lower():
+            return True
+        return self.is_bloctime_owner(addr)
 
     def _format_address(self, address) -> str:
         """Extract a clean hex address from a string, Key object, or repr."""
@@ -232,11 +297,13 @@ class Mod:
         """
         addr = self._resolve_address(key)
         if self.is_owner(key):
+            is_config_owner = bool(self._owner) and addr and addr.lower() == self._owner.lower()
             return {
-                'role': 'owner',
+                'role': 'owner' if (is_config_owner or not self._owner) else 'bloctime_owner',
                 'address': addr,
                 'can_edit': 'all',
                 'scope': ['orbit/*', 'core/*', 'portal/*'],
+                'via': 'config' if is_config_owner else ('open' if not self._owner else 'bloctime'),
             }
         allowed = self._user_allowed_modules(addr)
         return {
@@ -1459,6 +1526,15 @@ class Mod:
                              owner=self.key.address, api_url=api_url)
         except Exception as e:
             print(f'[claude] namespace registration failed: {e}')
+
+        # ── Register in on-chain Registry (chain mod) ──
+        if self.config.get('onchain_registry', False):
+            try:
+                res = self.register_onchain(data=api_url)
+                results['onchain'] = res
+                print(f"[claude] on-chain registry: {res.get('status')}")
+            except Exception as e:
+                print(f'[claude] on-chain registration failed: {e}')
 
         # ── Snapshot + update CID in registry ──
         all_live = all(c.get('live') for c in checks.values())

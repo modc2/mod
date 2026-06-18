@@ -14,6 +14,10 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 
+    /* Nav sidebar removed — keep the layout var at 0 so the padding/offset
+       consumers (providers paddingLeft, AgentPanel left) reserve no gutter. */
+    --sidebar-width: 0px;
+
     --bg-primary: #ebebeb;
     --bg-secondary: rgba(255, 255, 255, 0.95);
     --bg-surface: #f5f5f5;

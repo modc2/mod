@@ -8,6 +8,7 @@ import { toast } from 'react-toastify'
 import modConfig from '@config'
 import { text2color, colorWithOpacity } from '@/utils'
 import { motion, AnimatePresence } from 'framer-motion'
+import { CodeViewer } from './CodeViewer'
 
 import TreasuryABI from '@/contracts/treasury/Treasury.sol/Treasury.json'
 import MarketABI from '@/contracts/market/Market.sol/Market.json'
@@ -144,6 +145,8 @@ export default function ContractsPage() {
     return 'testnet'
   })
   const [selectedContract, setSelectedContract] = useState('Market')
+  // 'interact' = read/write function explorer · 'code' = Solidity source view.
+  const [viewMode, setViewMode] = useState<'interact' | 'code'>('interact')
   const [search, setSearch] = useState('')
   const [showRead, setShowRead] = useState(true)
   const [showWrite, setShowWrite] = useState(true)
@@ -218,6 +221,9 @@ export default function ContractsPage() {
     : contracts
   const contractInfo = contracts.find((c) => c.name === selectedContract)
   const customContract = customContracts.find(c => c.name === selectedContract)
+  // Solidity source is available for the bundled core contracts (those with a
+  // built-in ABI), not user-added custom contracts.
+  const hasSource = !customContract && !!selectedContract && !!CONTRACT_ABIS[selectedContract]
   const abi = customContract ? customContract.abi : (selectedContract ? CONTRACT_ABIS[selectedContract] : null)
   const allFunctions = abi ? getAllFunctions(abi) : []
 
@@ -238,6 +244,7 @@ export default function ContractsPage() {
     setFnArgs([])
     setReadResult(null)
     setFnSearch('')
+    setViewMode('interact')
   }, [selectedContract])
 
   useEffect(() => {
@@ -956,33 +963,58 @@ export default function ContractsPage() {
 
               <div className="flex-1" />
 
-              {/* Read / Write filter toggles */}
-              <div className="flex gap-1.5 shrink-0 p-1 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
-                <button
-                  onClick={() => setShowRead(!showRead)}
-                  className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
-                    showRead
-                      ? 'bg-emerald-500/15 text-emerald-500'
-                      : ''
-                  }`}
-                  style={!showRead ? { color: 'var(--text-tertiary)' } : undefined}
-                >
-                  Read{readCount > 0 && ` (${readCount})`}
-                </button>
-                <button
-                  onClick={() => setShowWrite(!showWrite)}
-                  className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
-                    showWrite
-                      ? 'bg-amber-500/15 text-amber-500'
-                      : ''
-                  }`}
-                  style={!showWrite ? { color: 'var(--text-tertiary)' } : undefined}
-                >
-                  Write{writeCount > 0 && ` (${writeCount})`}
-                </button>
-              </div>
+              {/* Interact / Code mode toggle (code only for bundled contracts) */}
+              {hasSource && (
+                <div className="flex gap-1.5 shrink-0 p-1 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                  {(['interact', 'code'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      className="px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all"
+                      style={viewMode === mode
+                        ? { color: activeColor, backgroundColor: colorWithOpacity(activeColor, 0.15) }
+                        : { color: 'var(--text-tertiary)' }}
+                    >
+                      {mode === 'interact' ? 'Interact' : 'Code'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Read / Write filter toggles (interact mode only) */}
+              {viewMode === 'interact' && (
+                <div className="flex gap-1.5 shrink-0 p-1 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                  <button
+                    onClick={() => setShowRead(!showRead)}
+                    className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
+                      showRead
+                        ? 'bg-emerald-500/15 text-emerald-500'
+                        : ''
+                    }`}
+                    style={!showRead ? { color: 'var(--text-tertiary)' } : undefined}
+                  >
+                    Read{readCount > 0 && ` (${readCount})`}
+                  </button>
+                  <button
+                    onClick={() => setShowWrite(!showWrite)}
+                    className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
+                      showWrite
+                        ? 'bg-amber-500/15 text-amber-500'
+                        : ''
+                    }`}
+                    style={!showWrite ? { color: 'var(--text-tertiary)' } : undefined}
+                  >
+                    Write{writeCount > 0 && ` (${writeCount})`}
+                  </button>
+                </div>
+              )}
             </div>
 
+            {/* Code view — Solidity source of the deployed contract */}
+            {viewMode === 'code' ? (
+              <CodeViewer name={contractInfo.name} accent={activeColor} />
+            ) : (
+            <>
             {/* Two-column layout */}
             <div className="flex gap-6">
               {/* Left: function cards */}
@@ -1240,6 +1272,8 @@ export default function ContractsPage() {
 
             {!showRead && !showWrite && (
               <p className="text-[14px] mt-6 text-center font-mono" style={{ color: 'var(--text-tertiary)' }}>Enable Read or Write to see functions</p>
+            )}
+            </>
             )}
           </div>
           )

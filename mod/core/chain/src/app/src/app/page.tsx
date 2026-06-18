@@ -16,6 +16,8 @@ import {
   ArrowTopRightOnSquareIcon,
   MagnifyingGlassIcon,
   CommandLineIcon,
+  WalletIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -294,6 +296,14 @@ function ChainHubInner() {
           </div>
 
           <div className="flex items-center gap-3">
+            <a href="/contracts"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] text-white/50 text-[10px] font-bold uppercase tracking-wider hover:text-white/80 hover:bg-white/[0.08] transition-all">
+              <DocumentTextIcon className="w-3.5 h-3.5" /> Contracts
+            </a>
+            <a href="/protocol"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 transition-all">
+              <WalletIcon className="w-3.5 h-3.5" /> Protocol App
+            </a>
             {/* Live block */}
             {chainData.blockNumber && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">

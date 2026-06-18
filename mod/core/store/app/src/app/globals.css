@@ -70,15 +70,35 @@ input[type="file"] { padding: 6px; }
 .pill.filecoin { background: #1e3a8a33; color: #60a5fa; }
 .pill.hippius { background: #064e3b33; color: #6ee7b7; }
 .pill.error { background: #7f1d1d33; color: #fca5a5; }
+.pill.admin { background: #78350f33; color: #fcd34d; }
 
 .objects { list-style: none; padding: 0; margin: 0; }
 .objects li {
-  padding: 10px 0;
+  padding: 14px 0;
   border-bottom: 1px solid #1a1a1a;
-  display: flex; gap: 12px; align-items: center; justify-content: space-between;
 }
 .objects li:last-child { border-bottom: none; }
+.object-card { display: flex; gap: 16px; align-items: flex-start; }
+.object-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.qr {
+  background: #fff; padding: 6px; border-radius: 6px; line-height: 0;
+  flex-shrink: 0;
+}
 .cid { word-break: break-all; font-size: 12px; }
+.cid-btn {
+  text-align: left; padding: 6px 8px; width: 100%;
+  background: #1a1a1a; border: 1px solid #262626;
+}
+.cid-btn:hover:not(:disabled) { border-color: #555; }
+
+.quota-bar {
+  height: 8px; background: #1a1a1a; border-radius: 4px; overflow: hidden;
+  margin-top: 10px; border: 1px solid #222;
+}
+.quota-fill {
+  height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa);
+  transition: width 0.2s;
+}
 
 .error-box { color: #fca5a5; background: #7f1d1d22; padding: 10px; border-radius: 4px; margin: 10px 0; }
 .success-box { color: #86efac; background: #14532d22; padding: 10px; border-radius: 4px; margin: 10px 0; }

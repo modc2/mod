@@ -15,11 +15,13 @@ RUN npm run build
 # ── Stage 2: runtime ────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
-# Node (for `next start`), plus minimal OS deps for eth-keys / pysha3 builds.
+# Node (for `next start`) + pm2 process manager, plus minimal OS deps for
+# eth-keys / pysha3 builds.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates gnupg build-essential libssl-dev pkg-config \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g pm2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -46,6 +48,7 @@ ENV MOD_LIB_PATH=/opt/mod/mod
 # Copy the store module bits the runtime needs.
 COPY mod/core/store/api/ /app/api/
 COPY mod/core/store/config.json /app/config.json
+COPY mod/core/store/ecosystem.config.js /app/ecosystem.config.js
 COPY mod/core/store/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
@@ -62,9 +65,7 @@ VOLUME ["/data"]
 
 ENV STORE_API_PORT=50150
 ENV STORE_APP_PORT=50151
-ENV STORE_JWT_SECRET=""
-ENV STORE_DOMAIN="localhost:50151"
-ENV STORE_ORIGIN="http://localhost:50151"
+ENV STORE_MODE=prod
 ENV NEXT_PUBLIC_API_URL="http://localhost:50150"
 
 EXPOSE 50150 50151

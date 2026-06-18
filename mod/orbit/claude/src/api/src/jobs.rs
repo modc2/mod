@@ -98,6 +98,22 @@ fn default_model() -> String {
     "sonnet".to_string()
 }
 
+/// Remap models the CLI can't actually run to a safe, available one.
+///
+/// `fable` / `claude-fable-5` are gated behind Mythos access and fail every job
+/// with "Claude Fable 5 is currently unavailable". Re-runs resubmit a stored
+/// model and stale UI state can send one too, so we normalize here — the single
+/// chokepoint every job passes through — rather than trusting the caller.
+fn normalize_model(model: &str) -> String {
+    let m = model.trim();
+    let base = m.strip_suffix("[1m]").unwrap_or(m);
+    match base {
+        "fable" | "claude-fable-5" => "claude-opus-4-7".to_string(),
+        "" => default_model(),
+        _ => model.to_string(),
+    }
+}
+
 // ── SQLite Job Store ─────────────────────────────────────────────────
 
 struct JobStore {
@@ -422,7 +438,7 @@ impl ClaudeJobManager {
         let claude_bin = which_claude().unwrap_or_else(|| self.claude_bin.clone());
         let job_id = id.clone();
         let prompt = enhanced_prompt;
-        let model = req.model;
+        let model = normalize_model(&req.model);
         let agent_type = req.agent_type;
         let system_prompt = req.system_prompt;
 

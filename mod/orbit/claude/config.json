@@ -5,6 +5,10 @@
     "port": 8820,
     "app_port": 8823,
     "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "chain_network": "testnet",
+    "bloctime_gate": true,
+    "bloctime_ttl": 60,
+    "onchain_registry": false,
     "icon": "C",
     "color": "#cc785c",
     "fns": [
@@ -38,6 +42,8 @@
         "get_owner",
         "set_owner",
         "is_owner",
+        "is_bloctime_owner",
+        "register_onchain",
         "health",
         "modules",
         "folders",
@@ -54,7 +60,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmS96Kee8xZ14drafo2mEvH97zFXzYd5xWLsBopcxh8dZN",
+    "schema": "QmXnpST1aEaCK6uxcm14N9AV1eEHF7scWy7jeaNMqxpWuS",
     "endpoints": {
         "/health": {
             "method": "GET",

@@ -35,7 +35,7 @@ class Mod:
     description = "Unified decentralized storage over filecoin + hippius backends."
 
     fns = [
-        'forward', 'put', 'get', 'pin', 'list', 'rm',
+        'forward', 'put', 'get', 'pin', 'list', 'rm', 'usage',
         'status', 'backends', 'start', 'stop',
     ]
 
@@ -178,6 +178,23 @@ class Mod:
         rows = conn.execute(q, params).fetchall()
         conn.close()
         return [dict(zip(cols, r)) for r in rows]
+
+    def usage(self, owner: str = None) -> dict:
+        """Bytes + object count stored by an owner (or globally if owner is None).
+
+        Sums the recorded sizes in the index. Note a CID written to `both`
+        backends is counted once per backend row, mirroring real pin cost.
+        """
+        conn = self._db()
+        if owner:
+            row = conn.execute(
+                'SELECT COALESCE(SUM(size),0), COUNT(*) FROM objects WHERE owner=?',
+                (owner,),
+            ).fetchone()
+        else:
+            row = conn.execute('SELECT COALESCE(SUM(size),0), COUNT(*) FROM objects').fetchone()
+        conn.close()
+        return {'owner': owner, 'bytes': int(row[0] or 0), 'objects': int(row[1] or 0)}
 
     def rm(self, cid: str) -> dict:
         conn = self._db()

@@ -48,7 +48,7 @@
         "restart_node",
         "install"
     ],
-    "schema": "QmRWe3xHqy9vv481ybphFyBKbKVuRN27DtauyZtmjV8DNQ",
+    "schema": "QmZFGjgyKaGDJq43HZ2Z2irkF2ckfGbajW4sd2cXMN9qrc",
     "endpoints": {
         "pin": {
             "method": "POST",

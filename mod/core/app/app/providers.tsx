@@ -20,7 +20,6 @@ import { ThemeProvider, useTheme } from '@/context/ThemeContext'
 import { SplitScreenControls } from '@/components/SplitScreenControls'
 import { MetaMaskProvider } from '@/wallet/MetaMaskProvider'
 import { ThemeInitializer } from '@/themes/ThemeInitializer'
-import { NavSidebar } from '@/wallet/sidebar/NavSidebar'
 import { TopBar } from '@/header/TopBar'
 import { EditSidebar, EDIT_SIDEBAR_WIDTH } from '@/mod/edit/EditSidebar'
 import { AgentPanel, AGENT_PANEL_WIDTH } from '@/agent/AgentPanel'
@@ -73,9 +72,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     : 'border-b-2 border-green-500/30'
 
   return (
-    <div className="flex h-screen transition-all duration-200" style={{ paddingTop: isHeaderCollapsed ? '6px' : '64px', paddingLeft: isHeaderCollapsed ? '0px' : isAgentSidebarOpen ? `calc(var(--sidebar-width, 64px) + ${AGENT_PANEL_WIDTH}px)` : 'var(--sidebar-width, 64px)', paddingRight: isEditSidebarOpen ? `${EDIT_SIDEBAR_WIDTH}px` : '0px', backgroundColor: 'var(--bg-primary)', transition: 'padding-top 0.2s ease, padding-left 0.2s ease, padding-right 0.2s ease' }}>
-      {/* Navigation sidebar */}
-      <NavSidebar />
+    <div className="flex h-screen transition-all duration-200" style={{ paddingTop: isHeaderCollapsed ? '6px' : '64px', paddingLeft: isHeaderCollapsed ? '0px' : isAgentSidebarOpen ? `calc(var(--sidebar-width, 0px) + ${AGENT_PANEL_WIDTH}px)` : 'var(--sidebar-width, 0px)', paddingRight: isEditSidebarOpen ? `${EDIT_SIDEBAR_WIDTH}px` : '0px', backgroundColor: 'var(--bg-primary)', transition: 'padding-top 0.2s ease, padding-left 0.2s ease, padding-right 0.2s ease' }}>
       {/* Top bar */}
       <TopBar />
       {/* Edit sidebar */}

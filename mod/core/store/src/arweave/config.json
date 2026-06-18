@@ -1,0 +1,89 @@
+{
+  "name": "arweave",
+  "version": "0.1.0",
+  "description": "Arweave storage and retrieval — public gateway reads + optional wallet uploads, with FastAPI server and minimal web app.",
+  "port": 50151,
+  "app_port": 50151,
+  "api_port": 50151,
+  "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
+  "fns": [
+    "forward",
+    "serve",
+    "kill",
+    "status",
+    "info",
+    "put",
+    "put_file",
+    "get",
+    "get_file",
+    "list",
+    "rm",
+    "tx",
+    "price",
+    "call"
+  ],
+  "endpoints": {
+    "/health": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Health check"
+    },
+    "/info": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Module info and configured backends"
+    },
+    "/status": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Backend connectivity status (Arweave gateway / wallet)"
+    },
+    "/put": {
+      "method": "POST",
+      "auth": false,
+      "docs": "Store data on Arweave (JSON body) or via multipart file upload",
+      "input": [
+        {"name": "data", "type": "any", "value": "_empty"}
+      ],
+      "output": {"txid": "str"}
+    },
+    "/get/{txid}": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Retrieve content from Arweave by tx id"
+    },
+    "/list": {
+      "method": "GET",
+      "auth": false,
+      "docs": "List stored tx ids from local index"
+    },
+    "/rm/{txid}": {
+      "method": "DELETE",
+      "auth": false,
+      "docs": "Remove a tx id from the local index (does not unpin remote)"
+    },
+    "/tx/{txid}": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Arweave tx record"
+    },
+    "/price/{num_bytes}": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Cost in winston to store given number of bytes"
+    },
+    "/network": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Gateway network info"
+    }
+  },
+  "env": {
+    "ARWEAVE_GATEWAY": "https://arweave.net (default)",
+    "ARWEAVE_WALLET": "Optional path to a wallet JSON file to enable uploads"
+  },
+  "urls": {
+    "api": "http://localhost:50151/api",
+    "app": "http://localhost:50151/"
+  }
+}

@@ -9,7 +9,7 @@ import mod as m
 
 class Store:
 
-    expose = ['get', 'put', 'ls', 'serve', 'app', 'api', 'backends']
+    expose = ['get', 'put', 'ls', 'serve', 'stop', 'app', 'api', 'backends']
 
     def __init__(self, path='~/.mod/store', password=None, filetype='json', private=False):
         self.path = self.abspath(path)
@@ -24,32 +24,41 @@ class Store:
     def _module_root(self):
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    def serve(self, no_app: bool = False, no_api: bool = False, **kw):
-        """Launch the FastAPI gateway + Next.js app for users to upload via MetaMask.
-        Returns the spawned process info (non-blocking)."""
+    def serve(self, no_app: bool = False, no_api: bool = False, prod: bool = False, **kw):
+        """Launch the gateway + app under pm2 (store-api / store-app).
+
+        Wraps serve.sh, which runs `pm2 start ecosystem.config.js`. Returns once
+        pm2 has registered the processes (pm2 itself daemonizes them)."""
         import subprocess
         script = os.path.join(self._module_root(), 'serve.sh')
         if not os.path.exists(script):
             return {'error': f'serve.sh not found at {script}'}
-        args = [script]
+        args = ['bash', script]
         if no_app:
             args.append('--no-app')
         if no_api:
             args.append('--no-api')
-        log_dir = os.environ.get('STORE_LOG_DIR', '/tmp/store')
-        os.makedirs(log_dir, exist_ok=True)
-        proc = subprocess.Popen(
-            args,
-            stdout=open(os.path.join(log_dir, 'serve.log'), 'a'),
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        if prod:
+            args.append('--prod')
+        try:
+            out = subprocess.run(args, capture_output=True, text=True, timeout=600)
+        except Exception as e:
+            return {'error': str(e)}
         return {
-            'pid': proc.pid,
+            'pm2': ['store-api', 'store-app'],
             'api': 'http://localhost:50150',
             'app': 'http://localhost:50151',
-            'log': os.path.join(log_dir, 'serve.log'),
+            'returncode': out.returncode,
+            'stdout': out.stdout[-2000:],
+            'stderr': out.stderr[-2000:],
         }
+
+    def stop(self, **kw):
+        """Stop the pm2-managed store processes."""
+        import subprocess
+        script = os.path.join(self._module_root(), 'serve.sh')
+        out = subprocess.run(['bash', script, 'stop'], capture_output=True, text=True)
+        return {'returncode': out.returncode, 'stdout': out.stdout, 'stderr': out.stderr}
 
     def app(self, **kw):
         """Launch only the Next.js app."""

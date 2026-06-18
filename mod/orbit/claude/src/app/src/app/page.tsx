@@ -172,15 +172,27 @@ const MODEL_OPTIONS = [
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", color: "#60a5fa" },
   { value: "claude-sonnet-4-5", label: "Sonnet 4.5", family: "sonnet", color: "#3b82f6" },
   { value: "claude-haiku-4-5",  label: "Haiku 4.5",  family: "haiku",  color: "#34d399" },
-  { value: "fable",             label: "Fable",      family: "fable",  color: "#f59e0b" },
 ];
 
 // Legacy aliases (saved by older builds / older jobs) → upgraded value.
+// `fable` is gated behind Mythos access and resolves to an unavailable model
+// (claude-fable-5), so any saved selection falls back to the default Opus.
 const MODEL_ALIAS_UPGRADE: Record<string, string> = {
   opus: "claude-opus-4-7",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5",
+  fable: "claude-opus-4-7",
+  "claude-fable-5": "claude-opus-4-7",
 };
+
+// Map any stored/legacy model string to a currently-selectable model value,
+// falling back to the default when it's unknown or gated. Mirrors the saved-
+// model restore guard so replays/edits never resurrect an unavailable model.
+function normalizeModelValue(m: string): string {
+  if (!m) return MODEL_OPTIONS[0].value;
+  const upgraded = MODEL_ALIAS_UPGRADE[m] || m;
+  return MODEL_OPTIONS.some(o => o.value === upgraded) ? upgraded : MODEL_OPTIONS[0].value;
+}
 
 // Pretty label for any model string (handles legacy aliases too).
 function modelLabel(m: string): string {
@@ -269,6 +281,11 @@ export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("claude-opus-4-7");
   const [agentType, setAgentType] = useState("default");
+  // Direct, savable system prompt sent verbatim as --append-system-prompt.
+  // Takes precedence over a selected personality when non-empty.
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [systemPromptSaved, setSystemPromptSaved] = useState(false);
   // The agent "engine" — i.e. which agent harness module drives the work.
   // Defaults to claude-code (this module); we expose the toggle so the same UI
   // can later swap in aider / codex / cursor without ripping out the panel.
@@ -559,6 +576,7 @@ export default function Home() {
   const [killResult, setKillResult] = useState<any>(null);
   const [killLoading, setKillLoading] = useState(false);
   const killInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
 
   const headerCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
@@ -776,13 +794,22 @@ export default function Home() {
     if (savedModel) {
       // Upgrade old family aliases (opus/sonnet/haiku) to the full model ID
       // so users don't get silently bumped to a different version on update.
-      const upgraded = MODEL_ALIAS_UPGRADE[savedModel] || savedModel;
+      let upgraded = MODEL_ALIAS_UPGRADE[savedModel] || savedModel;
+      // Drop any saved value that's no longer a selectable model (e.g. a model
+      // pulled for being gated/unavailable) so jobs never run with one.
+      if (!MODEL_OPTIONS.some(o => o.value === upgraded)) upgraded = MODEL_OPTIONS[0].value;
       setModel(upgraded);
       if (upgraded !== savedModel) safeSetItem("claude_jobs_model", upgraded);
     }
 
     const savedAgent = localStorage.getItem("claude_jobs_agent");
     if (savedAgent) setAgentType(savedAgent);
+
+    const savedSystemPrompt = localStorage.getItem("claude_system_prompt");
+    if (savedSystemPrompt) {
+      setSystemPrompt(savedSystemPrompt);
+      setSystemPromptOpen(true);
+    }
 
     const savedEngine = localStorage.getItem("claude_jobs_engine");
     if (savedEngine && ENGINE_OPTIONS.some(e => e.value === savedEngine && e.available)) {
@@ -1872,8 +1899,11 @@ export default function Home() {
       touchApiActivity();
       const body: any = { prompt: prompt.trim(), model };
 
-      // Send personality system prompt if active
-      if (activePersonality && activePersonality.prompt) {
+      // Direct system prompt wins; otherwise fall back to an active personality.
+      const directSystem = systemPrompt.trim();
+      if (directSystem) {
+        body.system_prompt = directSystem;
+      } else if (activePersonality && activePersonality.prompt) {
         body.system_prompt = activePersonality.prompt;
       }
       if (agentType && agentType !== "default") body.agent_type = agentType;
@@ -2244,8 +2274,13 @@ export default function Home() {
     if (!token) return;
     setSubmitting(true);
     try {
-      const body: any = { prompt: job.prompt, model: job.model };
+      const body: any = { prompt: job.prompt, model: normalizeModelValue(job.model) };
       if (job.work_dir) body.work_dir = job.work_dir;
+      // Apply whatever system prompt is currently configured (direct wins,
+      // else an active personality) so replays aren't bare.
+      const directSystem = systemPrompt.trim();
+      if (directSystem) body.system_prompt = directSystem;
+      else if (activePersonality && activePersonality.prompt) body.system_prompt = activePersonality.prompt;
       const res = await authFetch("/jobs", {
         method: "POST",
         body: JSON.stringify(body),
@@ -2260,6 +2295,30 @@ export default function Home() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Load a finished/failed task back into the composer so it can be tweaked and
+  // re-submitted as a NEW task (the original is left untouched). Mirrors the
+  // model-normalization guard so a stale/gated model never gets reloaded.
+  const editTask = (job: Job) => {
+    setPrompt(job.prompt || "");
+    if (job.model) setModel(normalizeModelValue(job.model));
+    if (job.work_dir) {
+      setWorkDir(job.work_dir);
+      setCreationMode("edit");
+    }
+    setSelectedJob(null);
+    setStreamOutput("");
+    setTimeout(() => composerInputRef.current?.focus(), 50);
+  };
+
+  // Persist the direct system prompt. Empty string clears the saved value.
+  const saveSystemPrompt = () => {
+    const v = systemPrompt.trim();
+    if (v) safeSetItem("claude_system_prompt", v);
+    else { try { localStorage.removeItem("claude_system_prompt"); } catch {} }
+    setSystemPromptSaved(true);
+    setTimeout(() => setSystemPromptSaved(false), 1500);
   };
 
   const togglePromptExpand = (jobId: string, e: React.MouseEvent) => {
@@ -5080,6 +5139,45 @@ export default function Home() {
                     )}
                     {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
                       <button
+                        onClick={(e) => rerunTask(selectedJobData, e)}
+                        disabled={submitting}
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring disabled:opacity-40"
+                        style={{
+                          color: activeModelChip.color,
+                          border: `1px solid ${activeModelChip.color}55`,
+                          background: `${activeModelChip.color}14`,
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = `${activeModelChip.color}28`)}
+                        onMouseLeave={e => (e.currentTarget.style.background = `${activeModelChip.color}14`)}
+                        title="Run this exact task again as a new job"
+                      >
+                        ↻ REPLAY
+                      </button>
+                    )}
+                    <button
+                      onClick={() => editTask(selectedJobData)}
+                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                      style={{
+                        color: "var(--text-secondary)",
+                        border: `1px solid ${subtleBorder}`,
+                        background: "var(--bg-secondary)",
+                        letterSpacing: "0.05em",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = "var(--text-primary)";
+                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = "var(--text-secondary)";
+                        e.currentTarget.style.borderColor = subtleBorder;
+                      }}
+                      title="Load this task into the composer to edit and re-submit"
+                    >
+                      ✎ EDIT
+                    </button>
+                    {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
+                      <button
                         onClick={() => deleteJob(selectedJobData.id)}
                         className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
                         style={{
@@ -5453,6 +5551,70 @@ export default function Home() {
             background: `linear-gradient(180deg, var(--bg-primary), ${tintBg})`,
           }}
         >
+          {/* ── Direct savable system prompt ─────────────────────────── */}
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSystemPromptOpen(o => !o)}
+                className="text-[10px] font-bold uppercase px-2 py-[3px] rounded focus-ring inline-flex items-center gap-1.5"
+                style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}
+                title="Set a system prompt sent with every task"
+              >
+                <span style={{ opacity: 0.7 }}>{systemPromptOpen ? "▾" : "▸"}</span>
+                SYSTEM PROMPT
+                {systemPrompt.trim() && (
+                  <span
+                    className="inline-block w-1.5 h-1.5 rounded-full"
+                    style={{ background: activeModelChip.color, boxShadow: `0 0 5px ${activeModelChip.color}` }}
+                    title="A system prompt is active"
+                  />
+                )}
+              </button>
+              {systemPromptOpen && (
+                <>
+                  <button
+                    onClick={saveSystemPrompt}
+                    className="text-[10px] font-bold uppercase px-2 py-[3px] rounded focus-ring"
+                    style={{
+                      color: systemPromptSaved ? "var(--crt-green)" : activeModelChip.color,
+                      border: `1px solid ${systemPromptSaved ? "var(--crt-green)" : activeModelChip.color}55`,
+                      background: `${systemPromptSaved ? "var(--crt-green)" : activeModelChip.color}14`,
+                      letterSpacing: "0.06em",
+                    }}
+                    title="Save this system prompt (persists across sessions)"
+                  >
+                    {systemPromptSaved ? "SAVED ✓" : "SAVE"}
+                  </button>
+                  {systemPrompt.trim() && (
+                    <button
+                      onClick={() => { setSystemPrompt(""); try { localStorage.removeItem("claude_system_prompt"); } catch {} }}
+                      className="text-[10px] font-bold uppercase px-2 py-[3px] rounded focus-ring"
+                      style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}
+                      title="Clear the system prompt"
+                    >
+                      CLEAR
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            {systemPromptOpen && (
+              <textarea
+                value={systemPrompt}
+                onChange={e => setSystemPrompt(e.target.value)}
+                placeholder="You are a senior Rust reviewer. Be terse. Cite file:line…"
+                rows={3}
+                className="w-full mt-1.5 px-3 py-2 rounded-lg outline-none text-[13px] resize-y"
+                style={{
+                  background: darkOverlay,
+                  border: `1px solid ${subtleBorder}`,
+                  color: "var(--text-primary)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  lineHeight: 1.5,
+                }}
+              />
+            )}
+          </div>
           <div
             className="flex gap-1.5 items-stretch rounded-xl"
             style={{
@@ -5466,6 +5628,7 @@ export default function Home() {
             }}
           >
             <input
+              ref={composerInputRef}
               type="text"
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
@@ -5681,14 +5844,26 @@ export default function Home() {
   };
 
   const renderAppTab = () => {
-    // Local gateway URL the user can type on a phone instead of the
-    // raw localhost:PORT. Caddy/routy proxy 3000 → the module's app.
-    // Hostname uses location.hostname so visiting from a phone on the
-    // same wifi (e.g. http://192.168.x.y:3000/claude) still shows the
-    // right address to copy.
-    const gatewayHost = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    // Gateway URL the user can copy/open for this agent. Caddy proxies the
+    // module path → the agent's app. Two cases:
+    //  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
+    //    explicit port): use the page origin verbatim — e.g.
+    //    https://modc2.com/claude. The :3000 gateway port is internal and
+    //    NOT publicly exposed, so appending it (the old behavior) produced a
+    //    dead "modc2.com:3000" link.
+    //  • LAN/dev (served on a non-standard port like :8823): the local
+    //    gateway listens on :3000, so point there — e.g.
+    //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
     const modName = selectedModule || "claude";
-    const gatewayUrl = `http://${gatewayHost}:3000/${modName}`;
+    const gatewayUrl = (() => {
+      if (typeof window === "undefined") return `http://localhost:3000/${modName}`;
+      const loc = window.location;
+      const behindPublicProxy =
+        loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
+      return behindPublicProxy
+        ? `${loc.origin}/${modName}`
+        : `http://${loc.hostname}:3000/${modName}`;
+    })();
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* URL strip — copyable, click-to-open in new tab. Shown above

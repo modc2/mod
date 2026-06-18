@@ -102,7 +102,9 @@ export default function StratPicker({ onStratChange }: StratPickerProps) {
       name: `Strat ${num}`,
       traders: [],
       backtestDays: 7,
-      rebalanceMinutes: 5 / 60,
+      // 1-minute poll floor — a sub-minute cadence × N traders trips
+      // Polymarket's data-api rate limit (429 / Cloudflare 1015).
+      rebalanceMinutes: 1,
       createdAt: now,
       updatedAt: now,
     };

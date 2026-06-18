@@ -55,7 +55,7 @@ async function getAppNamespace(): Promise<Record<string, AppEntry>> {
 
 // Main app's own /api/* routes — never proxy these to modules
 const RESERVED_API_ROUTES = new Set([
-  'proxy', 'logs', 'mods', 'mod-code', 'terminal',
+  'proxy', 'logs', 'mods', 'mod-code', 'terminal', 'contract-source',
 ])
 
 // Routes that belong to the main app — never proxy these

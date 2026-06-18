@@ -1,0 +1,42 @@
+[package]
+name = "taox-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "taox_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taox-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+anyhow = "1"
+thiserror = "2"
+
+parking_lot = "0.12"
+
+uuid = { version = "1", features = ["v4"] }
+hex = "0.4"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+dirs = "5"
+
+# Local deposit-key fallback (when operator env is unset).
+k256 = { version = "0.13", features = ["ecdsa"] }
+tiny-keccak = { version = "2", features = ["keccak"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+bs58 = "0.5"
+rand = "0.8"
