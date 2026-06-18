@@ -35,7 +35,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [objects, setObjects] = useState<StoredObject[]>([]);
-  const [backend, setBackend] = useState<"filecoin" | "hippius" | "both">("filecoin");
+  const [backend, setBackend] = useState<"localfs" | "filecoin" | "hippius" | "both">("localfs");
   const [file, setFile] = useState<File | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [serviceStatus, setServiceStatus] = useState<Record<string, unknown> | null>(null);
@@ -174,7 +174,7 @@ export default function Page() {
       <header className="header">
         <div>
           <span className="brand">store</span>
-          <span className="brand-sub">filecoin + hippius • mod protocol auth</span>
+          <span className="brand-sub">localfs + filecoin + hippius • mod protocol auth</span>
         </div>
         <div>
           {!hasWallet && <span className="muted">MetaMask not detected</span>}
@@ -241,6 +241,7 @@ export default function Page() {
               onChange={(e) => setBackend(e.target.value as never)}
               disabled={!!busy}
             >
+              <option value="localfs">localfs</option>
               <option value="filecoin">filecoin</option>
               <option value="hippius">hippius</option>
               <option value="both">both</option>

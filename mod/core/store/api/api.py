@@ -292,7 +292,7 @@ def whitelist_rm(address: str, authorization: Optional[str] = Header(default=Non
 @app.post('/put')
 async def put(
     file: UploadFile = File(...),
-    backend: str = Form('filecoin'),
+    backend: str = Form('localfs'),
     key: Optional[str] = Form(None),
     authorization: Optional[str] = Header(default=None),
 ):

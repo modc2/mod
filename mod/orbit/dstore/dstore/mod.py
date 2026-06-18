@@ -39,7 +39,9 @@ class Mod:
         'status', 'backends', 'start', 'stop',
     ]
 
-    BACKENDS = ['filecoin', 'hippius', 'both']
+    # 'localfs' is the zero-dependency default: content-addressed files on
+    # local disk (IPFS-compatible CIDs, no daemon). 'both' = filecoin+hippius.
+    BACKENDS = ['localfs', 'filecoin', 'hippius', 'both']
 
     def __init__(self, store_path: str = None, **kw):
         self.module_dir = DIR
@@ -48,6 +50,7 @@ class Mod:
         self.db_path = self.store / 'store.db'
         self._init_db()
         self.config = self._load_config()
+        self._localfs = None
         self._filecoin = None
         self._hippius = None
 
@@ -78,6 +81,11 @@ class Mod:
     def _db(self):
         return sqlite3.connect(str(self.db_path))
 
+    def localfs(self):
+        if self._localfs is None:
+            self._localfs = m.mod('localfs')()
+        return self._localfs
+
     def filecoin(self):
         if self._filecoin is None:
             self._filecoin = m.mod('filecoin')()
@@ -98,13 +106,21 @@ class Mod:
             return {'error': f'unknown action: {action}'}
         return fn(**kw)
 
-    def put(self, path: str, backend: str = 'filecoin', owner: str = None, key: str = None, **kw) -> dict:
+    def put(self, path: str, backend: str = 'localfs', owner: str = None, key: str = None, **kw) -> dict:
         """Upload to one backend or both. Returns CIDs."""
         backend = backend.lower()
         if backend not in self.BACKENDS:
             raise ValueError(f'backend must be one of {self.BACKENDS}, got {backend}')
 
         results = {}
+        if backend == 'localfs':
+            try:
+                r = self.localfs().fs.add_file(path)
+                cid, size = r['Hash'], r.get('Size')
+                results['localfs'] = {'cid': cid, 'size': size, 'backend': 'localfs'}
+                self._record(cid, 'localfs', owner, key or os.path.basename(path), size)
+            except Exception as e:
+                results['localfs'] = {'error': str(e)}
         if backend in ('filecoin', 'both'):
             try:
                 r = self.filecoin().put(path=path, owner=owner)
@@ -128,8 +144,17 @@ class Mod:
             conn = self._db()
             row = conn.execute('SELECT backend FROM objects WHERE cid=? ORDER BY timestamp DESC LIMIT 1', (cid,)).fetchone()
             conn.close()
-            backend = row[0] if row else 'filecoin'
+            backend = row[0] if row else 'localfs'
 
+        if backend == 'localfs':
+            try:
+                data = self.localfs().fs.get_file(cid)
+                if out:
+                    with open(out, 'wb') as f:
+                        f.write(data)
+                return {'backend': 'localfs', 'cid': cid, 'size': len(data), 'out': out}
+            except Exception as e:
+                return {'cid': cid, 'error': f'localfs: {e}'}
         if backend == 'filecoin':
             try:
                 return {'backend': 'filecoin', **self.filecoin().get(cid=cid, out=out)}
@@ -149,8 +174,10 @@ class Mod:
                     return {'cid': cid, 'error': f'both failed: hippius={e}; filecoin={e2}'}
         return {'cid': cid, 'error': f'unknown backend: {backend}'}
 
-    def pin(self, cid: str, backend: str = 'filecoin', owner: str = None) -> dict:
-        if backend == 'filecoin':
+    def pin(self, cid: str, backend: str = 'localfs', owner: str = None) -> dict:
+        if backend == 'localfs':
+            r = self._safe(lambda: self.localfs().pin(cid))
+        elif backend == 'filecoin':
             r = self.filecoin().pin(cid=cid, owner=owner)
         elif backend == 'hippius':
             r = self.hippius().pin(cid=cid, owner=owner)
@@ -207,7 +234,7 @@ class Mod:
         conn = self._db()
         n = conn.execute('SELECT COUNT(*) FROM objects').fetchone()[0]
         by_backend = {b: conn.execute('SELECT COUNT(*) FROM objects WHERE backend=?', (b,)).fetchone()[0]
-                      for b in ('filecoin', 'hippius')}
+                      for b in ('localfs', 'filecoin', 'hippius')}
         conn.close()
         return {
             'name': 'store',
@@ -215,6 +242,7 @@ class Mod:
             'by_backend': by_backend,
             'store': str(self.store),
             'backends': {
+                'localfs': self._safe(lambda: self.localfs().stats()),
                 'filecoin': self._safe(lambda: self.filecoin().status()),
                 'hippius': self._safe(lambda: self.hippius().status()),
             },

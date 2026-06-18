@@ -63,9 +63,10 @@
         }
     },
     "backends": [
+        "localfs",
         "filecoin",
         "hippius"
     ],
-    "schema": "QmexZ9L4dZXCrPsASR3vCT8xvp8f22zzGY8CFKTAcPW1iV",
+    "schema": "QmTrWcDeQDcyBiuRD3UA1af51UsFSYnky1WWPRkJWqjD4o",
     "gateway_port": 50151
 }
