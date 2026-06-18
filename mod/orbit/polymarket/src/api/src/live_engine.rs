@@ -16,7 +16,7 @@
 //! config is present (the engine "always runs in the background until the
 //! user stops it" — explicit STOP deletes the config file).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -29,8 +29,31 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::task::JoinHandle;
 
+use crate::order_place::{
+    place_order, ClobCreds, OrderSide, OrderTimeInForce, PlaceOrderArgs, PlaceOrderRequest,
+};
+use crate::signer::SignerStore;
+
 const PERSIST_DIR_NAME: &str = "polymarket-live-engine";
 const DATA_API: &str = "https://data-api.polymarket.com";
+const GAMMA_API: &str = "https://gamma-api.polymarket.com";
+
+// ─── Mirror sizing constants (mirror the browser copyEngine.ts) ─────────
+/// Polymarket's hard $1 minimum notional per order. A mirror smaller than
+/// this is clamped UP to the user's configured floor so it actually fills,
+/// rather than being dropped (matches "clamp sub-floor mirrors up to $1").
+const POLYMARKET_MIN_USD: f64 = 1.0;
+/// Polymarket's 5-share minimum per order.
+const POLYMARKET_MIN_SHARES: f64 = 5.0;
+/// Default proportional-sizing lookback window (days) for a trader's volume.
+const DEFAULT_BACKTEST_DAYS: u32 = 3;
+/// Bound on orders placed in a single cycle so one bursty cycle can't fan out
+/// into dozens of network round-trips (and dozens of fills) before the next.
+const MAX_ORDERS_PER_CYCLE: usize = 10;
+/// Spacing between successive order placements within a cycle.
+const ORDER_DELAY_MS: u64 = 300;
+/// Cap on the copied-id dedup set kept in state (bounded disk + memory).
+const COPIED_IDS_CAP: usize = 2000;
 /// Max trades held in the observed-trades ring buffer. Bounded so a long
 /// session doesn't grow state unbounded (memory + per-cycle disk writes).
 const OBSERVED_CAP: usize = 500;
@@ -84,11 +107,31 @@ pub struct EngineConfig {
     pub capital: f64,
     #[serde(rename = "intervalMs")]
     pub interval_ms: u64,
-    #[serde(rename = "minOrderSize")]
+    /// User-specified minimum order size in USDC. Any mirror whose proportional
+    /// notional lands below this (but whose leader trade still clears the CLOB
+    /// floor) is clamped UP to it so it fills instead of being skipped. Defaults
+    /// to Polymarket's $1 hard floor when the client omits it.
+    #[serde(rename = "minOrderSize", default = "default_min_order_size")]
     pub min_order_size: f64,
+    /// Optional per-order ceiling in USDC. `None` ⇒ no cap.
+    #[serde(rename = "maxOrderSize", default)]
+    pub max_order_size: Option<f64>,
     #[serde(rename = "maxSlippageBps", default)]
     pub max_slippage_bps: u32,
+    /// Proportional-sizing lookback window (days) — a trader's recent volume
+    /// over this window sets the copy ratio. Matches the browser/backtest.
+    #[serde(rename = "backtestDays", default = "default_backtest_days")]
+    pub backtest_days: u32,
+    /// Master switch for real order placement. `false` (default) = DRY RUN:
+    /// the engine computes and logs every mirror it *would* place but sends
+    /// nothing to the CLOB, so the user can verify sizing before risking USDC.
+    /// `true` = place real orders via the backend signer.
+    #[serde(rename = "autoExecute", default)]
+    pub auto_execute: bool,
 }
+
+fn default_min_order_size() -> f64 { POLYMARKET_MIN_USD }
+fn default_backtest_days() -> u32 { DEFAULT_BACKTEST_DAYS }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservedTrade {
@@ -102,6 +145,15 @@ pub struct ObservedTrade {
     pub size: f64,
     pub price: f64,
     pub notional: f64,
+    /// CLOB outcome-token id (the `asset` field from the data-api activity
+    /// item) — the exact token to trade, so no gamma token-id lookup is
+    /// needed. `#[serde(default)]` keeps old persisted state deserializable.
+    #[serde(rename = "tokenId", default)]
+    pub token_id: String,
+    /// Outcome label the leader traded (e.g. "Yes"/"No"/team name). Mirrored
+    /// verbatim — the token id already encodes the branch.
+    #[serde(default)]
+    pub outcome: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +199,11 @@ pub struct EngineState {
     /// the engine hasn't been able to reach.
     #[serde(rename = "traderLastSync", default)]
     pub trader_last_sync: HashMap<String, i64>,
+    /// Trade ids we've already placed a mirror for. Guards against
+    /// double-copying a leader trade that reappears across the cursor's 60s
+    /// overlap window. Bounded at `COPIED_IDS_CAP`.
+    #[serde(rename = "copiedIds", default)]
+    pub copied_ids: HashSet<String>,
 }
 
 impl EngineState {
@@ -165,6 +222,7 @@ impl EngineState {
             error: None,
             trader_cursors: HashMap::new(),
             trader_last_sync: HashMap::new(),
+            copied_ids: HashSet::new(),
         }
     }
 }
@@ -182,10 +240,15 @@ pub struct EngineRegistry {
     engines: DashMap<String, Arc<EngineHandle>>,
     http: reqwest::Client,
     disk_dir: PathBuf,
+    /// Per-EOA signing keys — the engine signs and places mirror orders
+    /// autonomously through these (no browser wallet needed).
+    signer_store: Arc<SignerStore>,
+    /// conditionId → negRisk flag, resolved once via gamma and reused.
+    neg_risk_cache: DashMap<String, bool>,
 }
 
 impl EngineRegistry {
-    pub fn new(http: reqwest::Client) -> Self {
+    pub fn new(http: reqwest::Client, signer_store: Arc<SignerStore>) -> Self {
         // Same POLYMARKET_DATA_DIR convention the signer store uses — a
         // single volume-mounted dir holds every persistence artifact so the
         // container can be recycled (or fully recreated) without losing
@@ -199,8 +262,59 @@ impl EngineRegistry {
             engines: DashMap::new(),
             http,
             disk_dir,
+            signer_store,
+            neg_risk_cache: DashMap::new(),
         };
         reg
+    }
+
+    /// Toggle real order placement on/off for a running session at runtime,
+    /// persisting the change so it survives a restart. Returns the new value,
+    /// or `None` if no session exists for this EOA. Because `EngineConfig`
+    /// lives behind an immutable `Arc` snapshot inside the spawned task, the
+    /// clean way to change it is to restart the session with the patched
+    /// config — `start()` already stops + replaces any existing engine and
+    /// preserves on-disk state (cursors, copied ids) across the swap.
+    pub fn set_auto_execute(self: &Arc<Self>, eoa: &str, on: bool) -> Option<bool> {
+        let mut cfg = self.config_of(eoa)?;
+        cfg.auto_execute = on;
+        self.start(cfg);
+        Some(on)
+    }
+
+    /// Resolve (and cache) the negRisk flag for a market via gamma. A wrong
+    /// value yields a CLOB "bad signature" rejection, so we resolve it rather
+    /// than guessing; defaults to `false` only when gamma is unreachable.
+    async fn resolve_neg_risk(&self, condition_id: &str) -> bool {
+        if condition_id.is_empty() {
+            return false;
+        }
+        if let Some(v) = self.neg_risk_cache.get(condition_id) {
+            return *v;
+        }
+        let url = format!("{}/markets?condition_id={}", GAMMA_API, condition_id);
+        let resolved = match self.http.get(&url).send().await {
+            Ok(resp) => {
+                let txt = resp.text().await.unwrap_or_default();
+                serde_json::from_str::<Value>(&txt)
+                    .ok()
+                    .and_then(|v| {
+                        let first = if v.is_array() { v.get(0).cloned() } else { Some(v) };
+                        first.and_then(|m| {
+                            m.get("negRisk")
+                                .or_else(|| m.get("neg_risk"))
+                                .and_then(|b| b.as_bool())
+                        })
+                    })
+                    .unwrap_or(false)
+            }
+            Err(e) => {
+                tracing::warn!(condition_id, error = %e, "negRisk resolve failed; defaulting false");
+                false
+            }
+        };
+        self.neg_risk_cache.insert(condition_id.to_string(), resolved);
+        resolved
     }
 
     fn path_for_config(&self, eoa: &str) -> PathBuf {
@@ -366,6 +480,10 @@ impl EngineRegistry {
             let mut trader_sync_updates: Vec<(String, i64)> = Vec::new();
             let mut cursor_updates: Vec<(String, i64)> = Vec::new();
             let mut errors: Vec<(String, String)> = Vec::new();
+            // Mirror candidates collected this cycle: (newly-observed BUY, copyRatio).
+            // Executed after the state commit so order-placement HTTP never runs
+            // under the state lock.
+            let mut mirror_candidates: Vec<(ObservedTrade, f64)> = Vec::new();
 
             // Snapshot cursors so we don't hold the RwLock across the HTTP fan-out.
             let (cursors, enabled_traders): (HashMap<String, i64>, Vec<TraderEntry>) = {
@@ -373,6 +491,17 @@ impl EngineRegistry {
                 let cursors = s.trader_cursors.clone();
                 (cursors, cfg.traders.iter().filter(|t| t.enabled).cloned().collect())
             };
+            // Sum of enabled weights — denominator for each trader's capital
+            // allocation. Guarded so a degenerate all-zero-weight config can't
+            // divide by zero.
+            let total_weight: f64 = enabled_traders
+                .iter()
+                .map(|t| t.weight)
+                .sum::<f64>()
+                .max(1e-9);
+            // Proportional-sizing window: a trader's volume over the last N days.
+            let window_cutoff_ms =
+                cycle_started_at - (cfg.backtest_days.max(1) as i64) * 86_400_000;
 
             for (idx, trader) in enabled_traders.iter().enumerate() {
                 if cancel.load(Ordering::Acquire) { break; }
@@ -388,11 +517,42 @@ impl EngineRegistry {
                 match fetch_recent_activity(&self.http, &trader.address).await {
                     Ok(items) => {
                         trader_sync_updates.push((key.clone(), chrono::Utc::now().timestamp_millis()));
+                        // Parse the trader's full recent activity once, then use
+                        // it both for the proportional copyRatio (volume over the
+                        // window) and for new-trade detection.
+                        let parsed: Vec<ObservedTrade> = items
+                            .iter()
+                            .filter_map(|v| parse_activity_trade(v, &trader.address))
+                            .collect();
+
+                        // copyRatio = (capital × weight/totalWeight) / traderVol,
+                        // where traderVol = max(buyVol, sellVol, 1) over the window.
+                        // Matches copyEngine.ts / the backtest tab exactly.
+                        let mut buy_vol = 0.0f64;
+                        let mut sell_vol = 0.0f64;
+                        for t in &parsed {
+                            if t.timestamp >= window_cutoff_ms {
+                                if t.side == "BUY" {
+                                    buy_vol += t.notional;
+                                } else if t.side == "SELL" {
+                                    sell_vol += t.notional;
+                                }
+                            }
+                        }
+                        let trader_vol = buy_vol.max(sell_vol).max(1.0);
+                        let capital_alloc = cfg.capital * (trader.weight / total_weight);
+                        let copy_ratio = capital_alloc / trader_vol;
+
                         let mut highest_ts = cursor;
-                        for v in items {
-                            let Some(t) = parse_activity_trade(&v, &trader.address) else { continue; };
+                        for t in parsed {
                             if t.timestamp <= cursor { continue; }
                             if t.timestamp > highest_ts { highest_ts = t.timestamp; }
+                            // v1 mirrors BUYs only — a SELL we don't hold would
+                            // just be rejected, and position-aware exits aren't
+                            // ported yet. SELLs are still recorded as observed.
+                            if t.side == "BUY" && !t.token_id.is_empty() {
+                                mirror_candidates.push((t.clone(), copy_ratio));
+                            }
                             new_observed.push(t);
                         }
                         if highest_ts > cursor {
@@ -468,6 +628,12 @@ impl EngineRegistry {
             // Persist snapshot so a restart restores state.
             self.persist_state(&cfg.eoa, &state.read());
 
+            // ── Mirror execution ──
+            // Place (or dry-run-log) a proportional order for each new BUY.
+            if !mirror_candidates.is_empty() {
+                self.execute_mirrors(&cfg, &state, &cancel, mirror_candidates).await;
+            }
+
             // Sleep until the next cycle, but break out early on cancel.
             // Polled sleep so cancel kicks in within ~200ms instead of waiting
             // for the full interval.
@@ -532,6 +698,8 @@ fn parse_activity_trade(v: &Value, trader: &str) -> Option<ObservedTrade> {
         size,
         price,
         notional: price * size,
+        token_id: v.get("asset").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+        outcome: v.get("outcome").and_then(|s| s.as_str()).unwrap_or("").to_string(),
     })
 }
 
