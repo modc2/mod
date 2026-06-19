@@ -5,10 +5,14 @@
 //! into a ring buffer, and stamps `last_cycle_at` / `cycle_count` so the
 //! browser (or any HTTP client) can observe progress via `GET /live/status`.
 //!
-//! **This pass is observe-only.** No orders are placed. Order placement
-//! integrates next sub-pass (4b) — the loop, state, persistence, and
-//! lifecycle controls all work in isolation now so we can verify them
-//! without burning real USDC.
+//! **Execution.** Each cycle, every newly-observed leader BUY becomes a
+//! proportionally-sized mirror order placed through the backend signer
+//! (`order_place::place_order`) — no browser wallet required. Sizing mirrors
+//! the frontend `copyEngine.ts` (capital × weight ÷ trader-volume, clamped up
+//! to the user's `minOrderSize` floor). Placement is gated by
+//! `EngineConfig.auto_execute`: while it's `false` (the default) the engine
+//! runs DRY RUN — it computes and logs every order it *would* place but sends
+//! nothing to the CLOB, so sizing can be verified before risking real USDC.
 //!
 //! **Persistence**: every cycle writes the latest state to disk, and the
 //! session config is written once on start. On API boot the registry
@@ -38,20 +42,7 @@ const PERSIST_DIR_NAME: &str = "polymarket-live-engine";
 const DATA_API: &str = "https://data-api.polymarket.com";
 const GAMMA_API: &str = "https://gamma-api.polymarket.com";
 
-// ─── Mirror sizing constants (mirror the browser copyEngine.ts) ─────────
-/// Polymarket's hard $1 minimum notional per order. A mirror smaller than
-/// this is clamped UP to the user's configured floor so it actually fills,
-/// rather than being dropped (matches "clamp sub-floor mirrors up to $1").
-const POLYMARKET_MIN_USD: f64 = 1.0;
-/// Polymarket's 5-share minimum per order.
-const POLYMARKET_MIN_SHARES: f64 = 5.0;
-/// Default proportional-sizing lookback window (days) for a trader's volume.
-const DEFAULT_BACKTEST_DAYS: u32 = 3;
-/// Bound on orders placed in a single cycle so one bursty cycle can't fan out
-/// into dozens of network round-trips (and dozens of fills) before the next.
-const MAX_ORDERS_PER_CYCLE: usize = 10;
-/// Spacing between successive order placements within a cycle.
-const ORDER_DELAY_MS: u64 = 300;
+// ─── Internal bounds (not strategy — pure memory/disk caps) ─────────────
 /// Cap on the copied-id dedup set kept in state (bounded disk + memory).
 const COPIED_IDS_CAP: usize = 2000;
 /// Max trades held in the observed-trades ring buffer. Bounded so a long
@@ -59,18 +50,33 @@ const COPIED_IDS_CAP: usize = 2000;
 const OBSERVED_CAP: usize = 500;
 /// Max log entries kept. Older entries fall off.
 const LOG_CAP: usize = 1000;
-/// Floor on the cycle interval. Polymarket's data-api sits behind Cloudflare,
-/// which returns HTTP 429 (error 1015) once sustained request-rate crosses a
-/// few req/s. A 5s cycle × N watched traders was firing ~5 req/s continuously
-/// and getting rate-limited on essentially every fetch → zero trades observed
-/// → zero copies. We clamp any configured interval up to this floor regardless
-/// of what the frontend persisted, so an old 5s config can't keep hammering.
-const MIN_INTERVAL_MS: u64 = 60_000;
-/// Spacing between successive per-trader `/activity` fetches inside one cycle.
-/// Without it, all N traders are polled back-to-back as a burst — enough to
-/// trip the Cloudflare per-second limit even at a slow cycle cadence. Spreading
-/// the requests keeps the instantaneous rate well under the threshold.
-const INTER_REQUEST_DELAY_MS: u64 = 400;
+
+// ─── Strat-supplied tunable defaults ────────────────────────────────────
+// Every knob below is owner-configurable through the strat (it travels on
+// `EngineConfig`, which the LIVE tab builds from the selected strat). These
+// `default_*` fns only supply a value when the strat omits the field, so old
+// configs and partial payloads keep working — nothing is hardcoded into the
+// engine's behavior.
+//
+/// Polymarket's hard $1 minimum notional per order (sizing floor default).
+fn default_min_order_size() -> f64 { 1.0 }
+/// Polymarket's 5-share minimum per order (sizing floor default).
+fn default_min_shares() -> f64 { 5.0 }
+/// Proportional-sizing lookback window (days) for a trader's volume.
+fn default_backtest_days() -> u32 { 3 }
+/// Orders placed per cycle before the rest defer to the next one — a fan-out
+/// backstop. Defaults to the strat's `maxPerCycle` notion.
+fn default_max_orders_per_cycle() -> usize { 10 }
+/// Spacing between successive order placements within a cycle (ms).
+fn default_order_delay_ms() -> u64 { 300 }
+/// Spacing between successive per-trader `/activity` fetches inside one cycle
+/// (ms). Spreads requests so we don't burst past Cloudflare's per-second limit.
+fn default_inter_request_delay_ms() -> u64 { 400 }
+/// Floor on the cycle interval (ms). Polymarket's data-api sits behind
+/// Cloudflare, which 429s once sustained rate crosses a few req/s; a too-small
+/// interval × N traders gets rate-limited into zero observations. The owner can
+/// lower this through the strat, but the default keeps a stale fast config safe.
+fn default_min_interval_ms() -> u64 { 60_000 }
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -107,21 +113,42 @@ pub struct EngineConfig {
     pub capital: f64,
     #[serde(rename = "intervalMs")]
     pub interval_ms: u64,
-    /// User-specified minimum order size in USDC. Any mirror whose proportional
-    /// notional lands below this (but whose leader trade still clears the CLOB
-    /// floor) is clamped UP to it so it fills instead of being skipped. Defaults
-    /// to Polymarket's $1 hard floor when the client omits it.
+    // ── Strat-supplied tunables (the LIVE tab fills these from the strat) ──
+    /// Owner's minimum order size in USDC (strat `minTrade`). A mirror whose
+    /// proportional notional lands below this — but whose leader trade still
+    /// clears the CLOB floor — is clamped UP to it so it fills instead of being
+    /// skipped. Defaults to Polymarket's $1 hard floor when omitted.
     #[serde(rename = "minOrderSize", default = "default_min_order_size")]
     pub min_order_size: f64,
-    /// Optional per-order ceiling in USDC. `None` ⇒ no cap.
+    /// Owner's per-order ceiling in USDC (strat `maxTrade`). `None` ⇒ no cap.
     #[serde(rename = "maxOrderSize", default)]
     pub max_order_size: Option<f64>,
+    /// Minimum shares per order used in the CLOB sizing floor (strat-supplied;
+    /// defaults to Polymarket's 5-share minimum).
+    #[serde(rename = "minShares", default = "default_min_shares")]
+    pub min_shares: f64,
     #[serde(rename = "maxSlippageBps", default)]
     pub max_slippage_bps: u32,
     /// Proportional-sizing lookback window (days) — a trader's recent volume
-    /// over this window sets the copy ratio. Matches the browser/backtest.
+    /// over this window sets the copy ratio (strat `backtestDays`).
     #[serde(rename = "backtestDays", default = "default_backtest_days")]
     pub backtest_days: u32,
+    /// Max mirror orders placed per cycle before the rest defer (strat
+    /// `maxPerCycle`). Caps fan-out so one bursty cycle can't fire dozens of
+    /// fills at once.
+    #[serde(rename = "maxOrdersPerCycle", default = "default_max_orders_per_cycle")]
+    pub max_orders_per_cycle: usize,
+    /// Spacing between successive order placements within a cycle (ms).
+    #[serde(rename = "orderDelayMs", default = "default_order_delay_ms")]
+    pub order_delay_ms: u64,
+    /// Spacing between successive per-trader activity fetches (ms) — rate-limit
+    /// protection the owner can tune through the strat.
+    #[serde(rename = "interRequestDelayMs", default = "default_inter_request_delay_ms")]
+    pub inter_request_delay_ms: u64,
+    /// Floor the effective poll interval is clamped up to (ms). Guards against a
+    /// too-fast cadence getting data-api 429s; owner-overridable via the strat.
+    #[serde(rename = "minIntervalMs", default = "default_min_interval_ms")]
+    pub min_interval_ms: u64,
     /// Master switch for real order placement. `false` (default) = DRY RUN:
     /// the engine computes and logs every mirror it *would* place but sends
     /// nothing to the CLOB, so the user can verify sizing before risking USDC.
@@ -129,9 +156,6 @@ pub struct EngineConfig {
     #[serde(rename = "autoExecute", default)]
     pub auto_execute: bool,
 }
-
-fn default_min_order_size() -> f64 { POLYMARKET_MIN_USD }
-fn default_backtest_days() -> u32 { DEFAULT_BACKTEST_DAYS }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObservedTrade {
@@ -178,9 +202,8 @@ pub struct EngineState {
     pub next_cycle_at: Option<i64>,
     #[serde(rename = "cycleCount")]
     pub cycle_count: u64,
-    /// Cumulative orders the engine has *attempted to place*. Currently always
-    /// 0 because Pass 4 is observe-only; field exists so the frontend can
-    /// continue using the same shape.
+    /// Cumulative mirror orders the engine has successfully placed (DRY RUN
+    /// placements don't count). Surfaced to the frontend live rail.
     #[serde(rename = "totalOrdersPlaced")]
     pub total_orders_placed: u64,
     #[serde(rename = "totalOrdersFailed")]
@@ -347,12 +370,8 @@ impl EngineRegistry {
             };
             tracing::info!("resuming live engine for {}", cfg.eoa);
             // Restore state if present, else start fresh.
-            let state_path = self.path_for_state(&cfg.eoa);
-            let restored_state = std::fs::read_to_string(&state_path)
-                .ok()
-                .and_then(|s| serde_json::from_str::<EngineState>(&s).ok())
-                .unwrap_or_else(EngineState::empty);
-            self.start_internal(cfg, Some(restored_state));
+            let restored_state = self.load_persisted_state(&cfg.eoa);
+            self.start_internal(cfg, restored_state);
         }
     }
 
@@ -370,6 +389,12 @@ impl EngineRegistry {
 
     /// Start an engine. If one already exists for this EOA, it's stopped
     /// and replaced (lets the user reconfigure mid-session without manual stop).
+    ///
+    /// Restores the EOA's persisted state across the swap so a reconfigure or
+    /// an auto-execute toggle does NOT wipe order counters, the copy log, or
+    /// `copied_ids`. Without this, every restart began from an empty state:
+    /// the UI showed 0 trades despite real fills, and the engine re-mirrored
+    /// trades it had already copied (cleared `copied_ids` → duplicate orders).
     pub fn start(self: &Arc<Self>, cfg: EngineConfig) {
         let lc = cfg.eoa.to_lowercase();
         if let Some((_, existing)) = self.engines.remove(&lc) {
@@ -379,7 +404,37 @@ impl EngineRegistry {
             }
         }
         self.persist_config(&cfg);
-        self.start_internal(cfg, None);
+        // Re-load whatever the engine last persisted (counters, log, copied
+        // ids, cursors). Falls back to a fresh state for a brand-new session.
+        let restored = self.load_persisted_state(&cfg.eoa);
+        self.start_internal(cfg, restored);
+    }
+
+    /// Read the persisted `EngineState` for an EOA from disk, if any.
+    fn load_persisted_state(&self, eoa: &str) -> Option<EngineState> {
+        let state_path = self.path_for_state(eoa);
+        std::fs::read_to_string(&state_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<EngineState>(&s).ok())
+    }
+
+    /// Read the persisted `EngineConfig` for an EOA from disk, if any.
+    fn load_persisted_config(&self, eoa: &str) -> Option<EngineConfig> {
+        let path = self.path_for_config(eoa);
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<EngineConfig>(&s).ok())
+    }
+
+    /// The `auto_execute` currently in effect for an EOA — from the running
+    /// session if one exists, else the last persisted config. `None` when
+    /// neither exists (a brand-new session, so the caller's own value stands).
+    /// Lets `/live/start` keep a live session's execution mode sticky across a
+    /// config re-post that omits the flag, instead of reverting to DRY RUN.
+    pub fn current_auto_execute(&self, eoa: &str) -> Option<bool> {
+        self.config_of(eoa)
+            .or_else(|| self.load_persisted_config(eoa))
+            .map(|c| c.auto_execute)
     }
 
     fn persist_config(&self, cfg: &EngineConfig) {
@@ -459,7 +514,7 @@ impl EngineRegistry {
         // Clamp the configured cadence up to the rate-limit floor. Old sessions
         // persisted a 5s interval that hammered the data-api into 429s; the floor
         // makes a stale config self-heal on resume without the user re-saving.
-        let effective_interval_ms = cfg.interval_ms.max(MIN_INTERVAL_MS);
+        let effective_interval_ms = cfg.interval_ms.max(cfg.min_interval_ms);
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         {
@@ -510,7 +565,7 @@ impl EngineRegistry {
                 // delay before the first request so a single-trader engine isn't
                 // needlessly slowed.
                 if idx > 0 {
-                    tokio::time::sleep(Duration::from_millis(INTER_REQUEST_DELAY_MS)).await;
+                    tokio::time::sleep(Duration::from_millis(cfg.inter_request_delay_ms)).await;
                 }
                 let key = trader.address.to_lowercase();
                 let cursor = *cursors.get(&key).unwrap_or(&(now_ms - cfg.interval_ms as i64));
@@ -653,6 +708,216 @@ impl EngineRegistry {
             s.next_cycle_at = None;
         }
         self.persist_state(&cfg.eoa, &state.read());
+    }
+
+    /// Place a proportional mirror BUY for each candidate, or — when
+    /// `auto_execute` is off — log the order it *would* place (DRY RUN) without
+    /// touching the CLOB. Runs outside the per-cycle state lock; each placement
+    /// is an independent network round-trip through the backend signer.
+    async fn execute_mirrors(
+        self: &Arc<Self>,
+        cfg: &EngineConfig,
+        state: &Arc<RwLock<EngineState>>,
+        cancel: &Arc<AtomicBool>,
+        candidates: Vec<(ObservedTrade, f64)>,
+    ) {
+        // All knobs come from the strat-supplied config — nothing hardcoded.
+        let user_floor = cfg.min_order_size;
+        let min_shares = cfg.min_shares;
+        let ceiling = cfg.max_order_size.unwrap_or(f64::INFINITY);
+        let mut placed_this_cycle = 0usize;
+
+        for (trade, copy_ratio) in candidates {
+            if cancel.load(Ordering::Acquire) { break; }
+            // Don't re-mirror a trade we've already acted on.
+            if state.read().copied_ids.contains(&trade.id) { continue; }
+
+            let (size, notional, price) = match plan_mirror(&trade, copy_ratio, user_floor, min_shares, ceiling) {
+                MirrorPlan::Skip(reason) => {
+                    self.log_and_persist(cfg, state, mk_log("SKIP", &trade.id, reason, Some(&trade.trader)));
+                    continue;
+                }
+                MirrorPlan::Place { size, notional, price } => (size, notional, price),
+            };
+
+            // DRY RUN: surface intent, place nothing, leave the trade un-copied
+            // so it isn't retroactively filled when auto_execute is later enabled.
+            if !cfg.auto_execute {
+                let msg = format!(
+                    "DRY RUN · would BUY {:.0} @ {:.0}¢ (${:.2}) · {} · token {}",
+                    size, price * 100.0, notional, trade.market, short_token(&trade.token_id),
+                );
+                tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, notional, "{}", msg);
+                self.log_and_persist(cfg, state, mk_log("DRY_RUN", &trade.id, msg, Some(&trade.trader)));
+                continue;
+            }
+
+            if placed_this_cycle >= cfg.max_orders_per_cycle {
+                self.log_and_persist(cfg, state, mk_log(
+                    "INFO",
+                    &format!("cap-{}", trade.id),
+                    format!("order cap {} reached this cycle — remaining mirrors deferred", cfg.max_orders_per_cycle),
+                    None,
+                ));
+                break;
+            }
+
+            // Real placement through the backend signer (no browser wallet).
+            let neg_risk = self.resolve_neg_risk(&trade.condition_id).await;
+            let req = PlaceOrderRequest {
+                eoa: cfg.eoa.clone(),
+                // place_order ignores creds (it mints backend-owned ones), but
+                // the field is required by the request shape.
+                creds: ClobCreds {
+                    api_key: String::new(),
+                    secret: String::new(),
+                    passphrase: String::new(),
+                },
+                args: PlaceOrderArgs {
+                    token_id: trade.token_id.clone(),
+                    side: OrderSide::Buy,
+                    price,
+                    size,
+                    fee_rate_bps: 0,
+                    expiration: 0,
+                    signature_type: 3,
+                    order_type: OrderTimeInForce::Gtc,
+                    neg_risk,
+                    maker: cfg.address.clone(),
+                },
+            };
+            placed_this_cycle += 1;
+
+            match place_order(&self.http, &self.signer_store, req).await {
+                Ok(resp) => {
+                    {
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        s.total_volume_mirrored += notional;
+                        insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        push_log(&mut s.log, mk_log(
+                            "COPY_BUY",
+                            &trade.id,
+                            format!("BUY {:.0} @ {:.0}¢ (${:.2}) · {}", size, price * 100.0, notional, trade.market),
+                            Some(&trade.trader),
+                        ));
+                    }
+                    tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, notional, response = %resp, "mirror order placed");
+                }
+                Err(e) => {
+                    {
+                        let mut s = state.write();
+                        s.total_orders_failed += 1;
+                        // Mark copied so a hard rejection isn't retried every cycle.
+                        insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        push_log(&mut s.log, mk_log(
+                            "ERROR",
+                            &trade.id,
+                            format!("ORDER_FAILED: {}", e),
+                            Some(&trade.trader),
+                        ));
+                    }
+                    tracing::warn!(eoa = %cfg.eoa, market = %trade.market, error = %e, "mirror order failed");
+                }
+            }
+            self.persist_state(&cfg.eoa, &state.read());
+            tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
+        }
+    }
+
+    fn log_and_persist(&self, cfg: &EngineConfig, state: &Arc<RwLock<EngineState>>, entry: LogEntry) {
+        {
+            let mut s = state.write();
+            push_log(&mut s.log, entry);
+        }
+        self.persist_state(&cfg.eoa, &state.read());
+    }
+}
+
+// ─── Mirror sizing ──────────────────────────────────────────────────────
+
+enum MirrorPlan {
+    Place { size: f64, notional: f64, price: f64 },
+    Skip(String),
+}
+
+/// Smallest mirror notional the CLOB accepts at this price — the larger of the
+/// owner's `min_order` floor and the `min_shares × price` floor. Matches
+/// copyEngine.ts `clobMinNotional`, but with both floors strat-supplied.
+fn clob_min_notional(price: f64, min_order: f64, min_shares: f64) -> f64 {
+    (min_shares * price.max(1e-9)).max(min_order)
+}
+
+/// Round a price to the 1¢ tick grid. Leader fills arrive with full f64
+/// precision which trips "Price breaks minimum tick size"; 2dp always lands
+/// on a tick. Matches copyEngine.ts `tickRoundPrice`.
+fn tick_round_price(p: f64) -> f64 {
+    if !p.is_finite() { return 0.0; }
+    (p * 100.0).round() / 100.0
+}
+
+/// Decide what to mirror for one leader BUY. `user_floor` is the user's
+/// configured minimum order (≥ $1); a proportional notional below the
+/// effective floor is clamped UP so it fills, unless the leader's own trade
+/// was sub-floor dust (then we skip rather than over-mirror). Mirrors the
+/// sizing in copyEngine.ts `executeCycle`.
+fn plan_mirror(
+    trade: &ObservedTrade,
+    copy_ratio: f64,
+    user_floor: f64,
+    min_shares: f64,
+    ceiling: f64,
+) -> MirrorPlan {
+    let pm_floor = clob_min_notional(trade.price, user_floor, min_shares);
+    if ceiling < pm_floor {
+        return MirrorPlan::Skip(format!(
+            "CEILING_BELOW_FLOOR · ${:.2} < CLOB min ${:.2}",
+            ceiling, pm_floor
+        ));
+    }
+    let raw = trade.notional * copy_ratio;
+    let min_notional = user_floor.max(pm_floor);
+    let notional = if raw < min_notional {
+        if trade.notional < pm_floor {
+            return MirrorPlan::Skip(format!(
+                "LEADER_DUST · leader ${:.2} < CLOB floor ${:.2}",
+                trade.notional, pm_floor
+            ));
+        }
+        // Clamp the sub-floor mirror UP to the floor so it actually fills.
+        min_notional.min(ceiling)
+    } else {
+        raw.min(ceiling)
+    };
+    let price = tick_round_price(trade.price);
+    // Whole shares on the 1¢ grid, with the strat's share floor as a backstop.
+    let size = (notional / trade.price.max(1e-9)).ceil().max(min_shares);
+    MirrorPlan::Place { size, notional, price }
+}
+
+fn insert_copied_id(set: &mut HashSet<String>, id: String) {
+    if set.len() >= COPIED_IDS_CAP {
+        // Cheap bound: clear when full. Worst case we briefly lose dedup
+        // history, but the per-trader cursor already prevents re-observing
+        // old trades, so a rare double-copy window is acceptable.
+        set.clear();
+    }
+    set.insert(id);
+}
+
+fn short_token(t: &str) -> String {
+    if t.len() <= 12 { t.to_string() } else { format!("{}…{}", &t[..6], &t[t.len() - 4..]) }
+}
+
+/// Build a `LogEntry` stamped at the current wall-clock ms.
+fn mk_log(kind: &str, id: &str, reason: String, trader: Option<&str>) -> LogEntry {
+    LogEntry {
+        id: format!("{}-{}", kind.to_lowercase(), id),
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        kind: kind.to_string(),
+        reason: Some(reason),
+        trader_address: trader.map(|t| t.to_string()),
+        trades_seen: None,
     }
 }
 

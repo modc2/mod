@@ -18,7 +18,11 @@ pub fn test_app() -> Router {
     let pipeline = Arc::new(PipelineState::new(http.clone()));
     let strat_store = Arc::new(polymarket_api::StratStore::new());
     let signer_store = Arc::new(polymarket_api::SignerStore::new());
-    let engines = Arc::new(polymarket_api::EngineRegistry::new(http.clone()));
+    let engines = Arc::new(polymarket_api::EngineRegistry::new(
+        http.clone(),
+        signer_store.clone(),
+    ));
+    let user_strats = Arc::new(polymarket_api::UserStratStore::new());
 
     let state = AppState {
         http,
@@ -27,6 +31,7 @@ pub fn test_app() -> Router {
         strat_store,
         signer_store,
         engines,
+        user_strats,
     };
 
     let cors = CorsLayer::new()

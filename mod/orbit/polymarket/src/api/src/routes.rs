@@ -49,6 +49,9 @@ pub fn router() -> Router<AppState> {
         .route("/live/start", post(live_start))
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
+        // POST /live/execution — body: {eoa, autoExecute}. Flips real order
+        // placement on/off for a running session (default off = DRY RUN).
+        .route("/live/execution", post(live_execution))
         // Recycle the api process — container runs with
         // restart: unless-stopped so Docker auto-respawns it. Useful when
         // an engine task is wedged or after a deploy; persisted live
@@ -125,8 +128,25 @@ struct SignOrderRequest {
 
 async fn live_start(
     State(state): State<AppState>,
-    Json(cfg): Json<crate::live_engine::EngineConfig>,
+    Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    // Did the caller explicitly send `autoExecute`? A bare config re-post /
+    // reconfigure from the UI omits it, and serde would then default it to
+    // false — silently reverting a live session to DRY RUN. Detect presence
+    // here so an omitted flag inherits the session's current mode instead.
+    let explicit_auto = body.get("autoExecute").is_some();
+    let mut cfg: crate::live_engine::EngineConfig = match serde_json::from_value(body) {
+        Ok(c) => c,
+        Err(e) => return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("invalid config: {}", e)})),
+        ).into_response(),
+    };
+    if !explicit_auto {
+        if let Some(prev) = state.engines.current_auto_execute(&cfg.eoa) {
+            cfg.auto_execute = prev;
+        }
+    }
     state.engines.start(cfg);
     Json(json!({"ok": true})).into_response()
 }
@@ -161,6 +181,31 @@ async fn live_status(
         }))
             .into_response(),
         None => Json(json!({"running": false})).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct LiveExecutionBody {
+    eoa: String,
+    #[serde(rename = "autoExecute")]
+    auto_execute: bool,
+}
+
+/// Toggle autonomous order placement for a live session. With `autoExecute`
+/// false (the default a session starts in) the engine runs DRY RUN: it logs
+/// every mirror it would place but sends nothing to the CLOB. Flipping this to
+/// true makes it place real orders via the backend signer.
+async fn live_execution(
+    State(state): State<AppState>,
+    Json(body): Json<LiveExecutionBody>,
+) -> impl IntoResponse {
+    match state.engines.set_auto_execute(&body.eoa, body.auto_execute) {
+        Some(v) => Json(json!({"ok": true, "autoExecute": v})).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"ok": false, "error": "no live session for eoa"})),
+        )
+            .into_response(),
     }
 }
 
