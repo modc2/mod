@@ -8,8 +8,9 @@ import { loadIndexes, getActiveIndexId, updateIndex } from "../lib/indexStore";
 import { getProxyAddress } from "../lib/polymarketProxy";
 import { USDC_E } from "../lib/polymarketContracts";
 import { networkById, withRpcFallback } from "../lib/networks";
-import type { SavedIndex } from "../lib/types";
+import type { SavedIndex, PolymarketTrade } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
+import { fetchWalletTradesUntil } from "../lib/polymarket";
 import WalletFundingPanel from "./WalletFundingPanel";
 import EnableTradingPanel from "./EnableTradingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
@@ -247,8 +248,42 @@ export default function LivePanel() {
   // `upstream` = raw trades observed from watched traders (real-time stream
   // of what they're doing, regardless of our mirror decisions). Defaults to
   // upstream so the panel is useful immediately even when no orders fire yet.
-  const [tradesFilter, setTradesFilter] = useState<"upstream" | "trades" | "all">("upstream");
+  const [tradesFilter, setTradesFilter] = useState<"upstream" | "trades" | "all" | "fills">("fills");
   const TRADES_PAGE_SIZE = 25;
+
+  // ── Actual on-chain fills (FILLS tab) ──────────────────────────
+  // The engine log (MY TRADES) is in-memory and resets when the session
+  // restarts; it also hides DRY_RUN decisions. The FILLS tab instead pulls
+  // the *ground-truth* fill history straight from Polymarket's data-api for
+  // the deposit wallet the engine trades through — so the user always sees
+  // every real buy/sell regardless of restarts or execution mode.
+  const [fills, setFills] = useState<PolymarketTrade[]>([]);
+  const [fillsLoading, setFillsLoading] = useState(false);
+  const [fillsError, setFillsError] = useState<string | null>(null);
+  const [fillsWallet, setFillsWallet] = useState<string | null>(null);
+
+  const loadFills = useCallback(async () => {
+    if (!auth.address) return;
+    setFillsLoading(true);
+    setFillsError(null);
+    try {
+      // Resolve the deposit wallet (where V2 trades actually land), then
+      // paginate its full activity history (cutoff 0 = all of it).
+      const info = await fetch(
+        `/api/polymarket/deposit-wallet/info?eoa=${auth.address}`,
+        { cache: "no-store" },
+      ).then((r) => (r.ok ? r.json() : null));
+      const wallet: string | undefined = info?.depositWallet;
+      if (!wallet) throw new Error("could not resolve deposit wallet");
+      setFillsWallet(wallet);
+      const trades = await fetchWalletTradesUntil(wallet, 0);
+      setFills(trades);
+    } catch (e) {
+      setFillsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFillsLoading(false);
+    }
+  }, [auth.address]);
 
   // ── Live-page tab nav ──
   // The LIVE view previously stacked 6+ panels vertically and overflowed
@@ -264,6 +299,15 @@ export default function LivePanel() {
   //   PARAMS — auto-trading config + signer + funding + checklist (ex-SETUP)
   type LiveTab = "pnl" | "trades" | "stats" | "wallet" | "params";
   const [liveTab, setLiveTab] = useState<LiveTab>("pnl");
+
+  // Fetch on-chain fills on first open of the FILLS tab; refresh every 60s
+  // while it stays open. Declared after `liveTab` to avoid a TDZ reference.
+  useEffect(() => {
+    if (liveTab !== "trades" || tradesFilter !== "fills") return;
+    void loadFills();
+    const t = setInterval(() => void loadFills(), 60_000);
+    return () => clearInterval(t);
+  }, [liveTab, tradesFilter, loadFills]);
 
   // Tick for countdown
   useEffect(() => {
@@ -1020,6 +1064,7 @@ export default function LivePanel() {
           keeps the panel a fixed height instead of growing across the page. */}
       {liveTab === "trades" && isLive && engineState && (() => {
         const isUpstream = tradesFilter === "upstream";
+        const isFills = tradesFilter === "fills";
         // UPSTREAM tab pulls from the engine's observed-trades ring buffer
         // (real-time mirror of what watched traders are doing); the other
         // tabs filter the engine log (copy decisions / cycle heartbeats).
@@ -1029,7 +1074,9 @@ export default function LivePanel() {
         // user saw "No copy events yet" while ORDERS=20F because failures
         // are tagged ERROR (and clamps are tagged BALANCE) — both hidden.
         // Cycle heartbeats stay hidden here; ALL surfaces those.
-        const items = isUpstream
+        const items = isFills
+          ? fills
+          : isUpstream
           ? engineState.observedTrades
           : engineState.log.filter((e) =>
               tradesFilter === "trades"
@@ -1065,10 +1112,12 @@ export default function LivePanel() {
         const pageEntries = sorted.slice(start, start + TRADES_PAGE_SIZE);
         const headerLabel =
           tradesFilter === "upstream" ? "TRADER TRADES" :
-          tradesFilter === "trades" ? "MY TRADES" : "ALL TRADES";
+          tradesFilter === "trades" ? "MY TRADES" :
+          tradesFilter === "fills" ? "MY FILLS" : "ALL TRADES";
         const countLabel =
           tradesFilter === "upstream" ? "from watched traders" :
-          tradesFilter === "trades" ? "decisions on my account" : "log entries";
+          tradesFilter === "trades" ? "decisions on my account" :
+          tradesFilter === "fills" ? "on-chain fills" : "log entries";
         return (
           <div className="pixel-panel border-2 border-pixel-border">
             <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
@@ -1100,6 +1149,17 @@ export default function LivePanel() {
                   MY TRADES
                 </button>
                 <button
+                  onClick={() => { setTradesFilter("fills"); setTradesPage(0); }}
+                  className={`pixel-btn text-[11px] px-2 py-0.5 ${
+                    tradesFilter === "fills"
+                      ? "border-green-400 text-green-400 bg-green-400/10"
+                      : "border-pixel-border text-pixel-gray hover:text-pixel-white"
+                  }`}
+                  title="Your ACTUAL on-chain fills from Polymarket (ground truth — survives restarts)"
+                >
+                  MY FILLS
+                </button>
+                <button
                   onClick={() => { setTradesFilter("all"); setTradesPage(0); }}
                   className={`pixel-btn text-[11px] px-2 py-0.5 ${
                     tradesFilter === "all"
@@ -1116,7 +1176,34 @@ export default function LivePanel() {
               {/* UPSTREAM rows look like the BACKTEST trade feed — trader,
                   side, market, notional. MIRROR/ALL rows use the existing
                   engine-log shape (with icons + reason text). */}
-              {isUpstream
+              {isFills
+                ? (pageEntries as PolymarketTrade[]).map((t) => (
+                    <div
+                      key={t.id}
+                      className="px-3 py-1 border-b border-pixel-border/20 text-[13px] font-mono hover:bg-pixel-white/5"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-pixel-gray shrink-0 w-[52px]">{formatTime(t.timestamp)}</span>
+                        <span className={`shrink-0 w-[36px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
+                          {t.side}
+                        </span>
+                        <span className="text-pixel-white truncate flex-1 min-w-0" title={t.market}>
+                          {t.market}
+                          {t.outcome ? <span className="text-pixel-gray-light"> · {t.outcome}</span> : null}
+                        </span>
+                        <span className="text-pixel-gray-light shrink-0 text-right tabular-nums" title="fill price">
+                          @{(t.price * 100).toFixed(0)}¢
+                        </span>
+                        <span className="text-pixel-gray-light shrink-0 w-[56px] text-right tabular-nums" title="shares">
+                          {t.size.toFixed(0)} sh
+                        </span>
+                        <span className="text-pixel-white shrink-0 w-[60px] text-right tabular-nums" title="notional (price × shares)">
+                          ${(t.price * t.size).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                : isUpstream
                 ? (pageEntries as ObservedTrade[]).map((t) => {
                     const outcome = outcomeById.get(t.id);
                     // Map outcome → visible badge + color + error reason.
@@ -1240,9 +1327,15 @@ export default function LivePanel() {
                   ))}
               {pageEntries.length === 0 && (
                 <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">
-                  {tradesFilter === "upstream"
-                    ? "Waiting for the next sync cycle to observe trades…"
-                    : `No ${countLabel} yet.`}
+                  {isFills
+                    ? fillsLoading
+                      ? "Loading on-chain fills…"
+                      : fillsError
+                        ? `Couldn't load fills: ${fillsError}`
+                        : "No on-chain fills yet."
+                    : tradesFilter === "upstream"
+                      ? "Waiting for the next sync cycle to observe trades…"
+                      : `No ${countLabel} yet.`}
                 </div>
               )}
             </div>
@@ -1277,7 +1370,7 @@ export default function LivePanel() {
       })()}
 
       {/* ── Empty state when live but no log ── */}
-      {liveTab === "trades" && isLive && engineState && engineState.log.length === 0 && (
+      {liveTab === "trades" && isLive && engineState && engineState.log.length === 0 && tradesFilter !== "fills" && (
         <div className="pixel-panel border-2 border-pixel-border px-3 py-4 text-center">
           <span className="text-[15px] text-pixel-gray">WAITING FOR FIRST CYCLE...</span>
         </div>

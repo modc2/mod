@@ -46,7 +46,7 @@ const HISTORY_KEY = "poly_portfolio_history_v1";
 // ~12h at 15s cadence. Faster cadence = livelier cash + position numbers
 // so a fill or withdrawal shows up within seconds instead of half a minute.
 const PORTFOLIO_HISTORY_CAP = 3000;
-const POLL_MS = 15_000;
+const POLL_MS = 30_000;
 
 function loadHistory(): Snapshot[] {
   try {
@@ -273,7 +273,26 @@ export default function PortfolioPanel() {
     }
 
     // 2) Positions for the deposit wallet — that's where trades land in V2.
+    // The data-api intermittently returns an EMPTY positions list under load
+    // (and the proxy can serve that empty as a cached HIT) — so a "successful"
+    // /positions call is NOT proof you hold nothing. We therefore treat the
+    // light /value endpoint as the authoritative TOTAL and only let the
+    // detailed list drive the total when the list actually has rows.
+    let valueTotal: number | null = null; // authoritative total from /value
+    let listOk = false;                    // /positions call succeeded (maybe empty)
     if (wallet) {
+      // 2a) Authoritative TOTAL positions value — one light call that tends to
+      // survive rate-limiting even when the heavier /positions list is empty.
+      try {
+        const vr = await fetch(`/api/polymarket?endpoint=value&user=${wallet}`, { cache: "no-store" });
+        if (vr.ok) {
+          const vj = await vr.json();
+          const v = Array.isArray(vj) ? Number(vj[0]?.value) : Number(vj?.value);
+          if (Number.isFinite(v)) valueTotal = v;
+        }
+      } catch { /* keep going; list below may still populate */ }
+
+      // 2b) Per-position breakdown for the list + pie (heavier; best-effort).
       try {
         const pos = await fetchPositions(wallet, { bypassCache: true });
         nextPositions = pos.map((p) => ({
@@ -287,29 +306,54 @@ export default function PortfolioPanel() {
           currentPrice: p.currentPrice,
           negRisk: p.negRisk,
         }));
-        nextPosVal = nextPositions.reduce((s, p) => s + p.value, 0);
+        listOk = true;
       } catch (e) {
         setLastError(`positions: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
-    setLiq(nextLiq);
-    setPosValue(nextPosVal);
-    setPositions(nextPositions);
+    // Resolve the headline total. Prefer the detailed sum ONLY when the list
+    // has rows; otherwise an empty/throttled list must NOT zero a real /value
+    // total (the phantom-$0 bug). Genuine zero = list returned empty AND /value
+    // also ~0.
+    const listSum = nextPositions.reduce((s, p) => s + p.value, 0);
+    let posValueOk = false;
+    if (listOk && nextPositions.length > 0) {
+      nextPosVal = listSum;
+      posValueOk = true;
+    } else if (valueTotal != null) {
+      nextPosVal = valueTotal;
+      posValueOk = true;
+    } else if (listOk) {
+      nextPosVal = 0; // empty list and no /value reading → truly flat
+      posValueOk = true;
+    }
 
-    // 3) Snapshot for the time-series view. De-dupe back-to-back identical
-    // snapshots (a paused engine shouldn't pollute the curve with thousands
-    // of flatlined points).
-    const snap: Snapshot = { t: Date.now(), liq: nextLiq, pos: nextPosVal };
-    setHistory((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && Math.abs(last.liq - snap.liq) < 0.001 && Math.abs(last.pos - snap.pos) < 0.001) {
-        return prev;
-      }
-      const next = [...prev, snap].slice(-PORTFOLIO_HISTORY_CAP);
-      saveHistory(next);
-      return next;
-    });
+    // Cash is a reliable on-chain RPC read, so always update it.
+    setLiq(nextLiq);
+    if (posValueOk) setPosValue(nextPosVal);
+    // Only replace the breakdown list when it has rows, or when /value confirms
+    // a genuine zero — so a stale-empty list never wipes a populated breakdown.
+    if (listOk && (nextPositions.length > 0 || (valueTotal != null && valueTotal < 0.01))) {
+      setPositions(nextPositions);
+    }
+
+    // 3) Snapshot for the time-series view — only on a real positions total, so
+    // a rate-limited tick can't punch a false $0 dip into the P&L curve.
+    // De-dupe back-to-back identical snapshots (a paused engine shouldn't
+    // pollute the curve with thousands of flatlined points).
+    if (posValueOk) {
+      const snap: Snapshot = { t: Date.now(), liq: nextLiq, pos: nextPosVal };
+      setHistory((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && Math.abs(last.liq - snap.liq) < 0.001 && Math.abs(last.pos - snap.pos) < 0.001) {
+          return prev;
+        }
+        const next = [...prev, snap].slice(-PORTFOLIO_HISTORY_CAP);
+        saveHistory(next);
+        return next;
+      });
+    }
   }, [eoa]);
 
   useEffect(() => {

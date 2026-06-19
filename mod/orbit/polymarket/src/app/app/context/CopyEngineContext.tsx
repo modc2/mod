@@ -74,6 +74,9 @@ export function getPersistedLive(): PersistedLive | null {
 
 async function backendStart(config: CopyEngineConfig): Promise<boolean> {
   try {
+    // Forward every strat-supplied tunable to the backend live engine.
+    // Undefined fields are omitted so the engine's own defaults apply — the
+    // engine hardcodes nothing, so whatever the strat sets is what runs.
     const body = {
       eoa: config.address,
       strategyId: config.strategyId,
@@ -87,6 +90,12 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
       intervalMs: config.intervalMs,
       minOrderSize: config.minOrderSize,
       maxSlippageBps: config.maxSlippageBps,
+      ...(config.maxOrderSize !== undefined && { maxOrderSize: config.maxOrderSize }),
+      ...(config.backtestDays !== undefined && { backtestDays: config.backtestDays }),
+      ...(config.minShares !== undefined && { minShares: config.minShares }),
+      // Strat's top-N per-cycle cap → engine's max orders per cycle.
+      ...(config.maxPerCycle !== undefined && { maxOrdersPerCycle: config.maxPerCycle }),
+      ...(config.autoExecute !== undefined && { autoExecute: config.autoExecute }),
     };
     const res = await fetch(`${API_URL}/live/start`, {
       method: "POST",
