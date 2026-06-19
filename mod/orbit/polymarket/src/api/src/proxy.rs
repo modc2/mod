@@ -86,9 +86,19 @@ pub async fn proxy_handler(
             match resp.json::<Value>().await {
                 Ok(data) => {
                     let ttl = ProxyCache::ttl_for_endpoint(&endpoint);
-                    state.proxy_cache.set(cache_key, data.clone(), ttl, &endpoint);
+                    // Don't cache empty-array responses. The data-api
+                    // intermittently returns [] for positions/activity/trades
+                    // under load, and caching that for the full TTL renders an
+                    // active wallet as empty (the phantom-$0 bug) until it
+                    // expires. Skipping the cache for empties means the next
+                    // request retries upstream, while the stale-on-error
+                    // branches below still serve the last NON-empty result.
+                    let is_empty_array = data.as_array().map(|a| a.is_empty()).unwrap_or(false);
+                    if !is_empty_array {
+                        state.proxy_cache.set(cache_key, data.clone(), ttl, &endpoint);
+                    }
                     let mut headers = HeaderMap::new();
-                    headers.insert("x-cache", "MISS".parse().unwrap());
+                    headers.insert("x-cache", if is_empty_array { "MISS-NOCACHE" } else { "MISS" }.parse().unwrap());
                     let max_age = ttl.as_secs();
                     headers.insert(
                         "cache-control",

@@ -32,7 +32,10 @@ async fn main() -> anyhow::Result<()> {
 
     let strat_store = Arc::new(StratStore::new());
     let signer_store = Arc::new(polymarket_api::SignerStore::new());
-    let engines = Arc::new(polymarket_api::EngineRegistry::new(http.clone()));
+    let engines = Arc::new(polymarket_api::EngineRegistry::new(
+        http.clone(),
+        signer_store.clone(),
+    ));
     // Resume any live sessions that were running before the previous restart.
     // resume_persisted scans the persist dir and re-spawns tokio tasks for
     // every <eoa>.config.json present (explicit STOP deletes those files).
@@ -49,17 +52,22 @@ async fn main() -> anyhow::Result<()> {
         user_strats,
     };
 
-    // Background warmup: traders pipeline. 60-second cadence pairs with the
-    // 60s cache TTL on activity/trades so the leaderboard is never more than
-    // ~1 minute behind real activity. Each cycle only re-fetches entries
-    // that have expired, so steady-state load remains proportional to the
-    // candidate pool size (default 2000 traders).
+    // Background warmup: traders pipeline. HOURLY cadence — re-warming the
+    // 1D/7D/14D/30D leaderboards (~6k traders) every minute was the dominant
+    // source of data-api rate-limiting (429s). The leaderboard is slow-moving
+    // (30d Sharpe barely shifts minute-to-minute), so a ~1h refresh is plenty;
+    // the live engine polls the user's tracked traders separately at 60s, so
+    // copy responsiveness is unaffected. Paired with the 1h `AGG_TTL` in
+    // cache.rs so warmed entries stay valid between cycles instead of expiring
+    // after 60s and triggering on-demand refetches. Each cycle still only
+    // re-fetches expired entries, so steady-state load stays proportional to
+    // the candidate pool size (default 2000 traders).
     let warmup_pipeline = pipeline.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         loop {
             warmup_pipeline.warmup_cycle().await;
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
     });
 

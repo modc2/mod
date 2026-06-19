@@ -194,7 +194,11 @@ impl ProxyCache {
 
 // ─── Pipeline Cache (Memory + Disk, hourly) ───
 
-const AGG_TTL: Duration = Duration::from_secs(60);
+// 1 hour — matches the hourly warmup cadence in main.rs. The aggregated
+// leaderboard (30d trader Sharpe/ROI) is slow-moving, so serving it from
+// cache for an hour avoids re-pulling ~6k traders from the data-api on every
+// on-demand request (the old 60s TTL was a major 429 source).
+const AGG_TTL: Duration = Duration::from_secs(3600);
 const DISK_MAX_AGE: Duration = Duration::from_secs(86400); // 24h — keep disk cache across restarts
 
 struct PipelineCacheEntry {
