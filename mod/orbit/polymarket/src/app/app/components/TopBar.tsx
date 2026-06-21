@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import ProfileMenu from "./ProfileMenu";
 import WalletChip from "./WalletChip";
@@ -10,15 +9,9 @@ import WalletChip from "./WalletChip";
 // URLs accept. Matching here lets the search box double as a "jump to trader"
 // teleport: type any 0x address + Enter and we route to the profile page.
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
-// Top bar intentionally minimal — the wallet chip's dot conveys CLOB / trading
-// readiness, and ProfileMenu (the right-side panel toggle) holds split-screen,
-// token gen, and other power-user controls.
-
-const NAV = [
-  { href: "/markets", label: "MARKETS" },
-  { href: "/traders", label: "TRADERS" },
-  { href: "/strats", label: "STRATS" },
-];
+// Top bar intentionally minimal — primary nav moved to the global LeftNav
+// rail; the wallet chip's dot conveys CLOB / trading readiness, and
+// ProfileMenu (the right-side panel toggle) holds split-screen + token gen.
 
 interface TopBarProps {
   showSearch?: boolean;
@@ -29,51 +22,16 @@ export default function TopBar({
   showSearch = true,
   searchPlaceholder = "SEARCH...",
 }: TopBarProps) {
-  const pathname = usePathname() || "";
   const router = useRouter();
   const { search, setSearch } = useFilters();
   const filterQs = useFilterParams();
   const isAddrSearch = ADDR_RE.test(search.trim());
 
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
-
-  const tabHref = (base: string) => {
-    if ((base === "/traders" || base === "/strats") && filterQs)
-      return `${base}?${filterQs}`;
-    return base;
-  };
-
   return (
-    <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-50">
+    <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-40">
       <div className="px-4 h-12 flex items-center gap-3">
-        {/* ── LEFT: logo + nav (markets/traders/etc) ── */}
-        <div className="flex items-center gap-0 shrink-0">
-          <Link href="/" className="flex items-center shrink-0 mr-2" title="POLYMARKET">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-pixel-white">
-              <path d="M12 2L22 12L12 22L2 12Z" stroke="currentColor" strokeWidth="2.5" fill="currentColor" fillOpacity="0.15"/>
-              <circle cx="12" cy="12" r="3" fill="currentColor"/>
-            </svg>
-          </Link>
-          <nav className="flex items-center">
-            {NAV.map((t) => {
-              const active = isActive(t.href);
-              return (
-                <Link
-                  key={t.href}
-                  href={tabHref(t.href)}
-                  className={`px-3 py-3 text-[15px] tracking-widest border-b-2 transition-all ${
-                    active
-                      ? "text-pixel-white border-pixel-white"
-                      : "text-pixel-gray border-transparent hover:text-pixel-white hover:border-pixel-border"
-                  }`}
-                >
-                  {t.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+        {/* Primary nav lives in the global left rail (LeftNav). The top bar
+            now carries only search + wallet so it stays compact. */}
 
         {/* ── CENTER: search ──
             Doubles as a "jump to trader" teleport — paste any 0x address +

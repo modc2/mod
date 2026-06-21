@@ -12,6 +12,10 @@
         "status",
         "build",
         "logs",
+        "test",
+        "build_cid",
+        "publish_build",
+        "build_onchain",
         "top_traders",
         "analyze_trader",
         "leaderboard",
@@ -69,13 +73,14 @@
     },
     "urls": {
         "api": "http://localhost:8919",
-        "app": "http://localhost:3919"
+        "app": "http://localhost:3919/hyperliquid",
+        "gateway": "http://localhost:3000/hyperliquid"
     },
     "layout": {
         "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
         "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
     },
-    "schema": "QmNVGwMj6uKQmZjxzYwa6jnmkWoqShkfUY25eyQa2gXBAD",
+    "schema": "QmZnGZRuW8MY2vGvAGGAThTUfGe2VbmZ6gMNoemeqMK6Lf",
     "gateway_port": 3919
 }

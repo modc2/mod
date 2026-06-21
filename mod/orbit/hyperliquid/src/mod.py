@@ -36,6 +36,16 @@ API_DIR = os.path.join(SRC_DIR, "api")
 APP_DIR = os.path.join(SRC_DIR, "app")
 
 
+def _has_docker() -> bool:
+    """Check if docker compose is available."""
+    try:
+        subprocess.run(["docker", "compose", "version"],
+                       capture_output=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
 class Hyperliquid(m.Mod):
     """Hyperliquid copy-trading + indexes orchestrator."""
 
@@ -46,7 +56,8 @@ class Hyperliquid(m.Mod):
     )
     fns = [
         "forward", "serve", "app", "api", "kill", "status",
-        "build", "logs",
+        "build", "logs", "test",
+        "build_cid", "publish_build", "build_onchain",
         # strategies (modular Python classes)
         "strat", "list_strats", "run_strat",
         # data passthroughs
@@ -108,6 +119,80 @@ class Hyperliquid(m.Mod):
         if os.path.exists(rel): return rel
         if os.path.exists(dbg): return dbg
         return ""
+
+    # ── docker lifecycle ──────────────────────────────────────────
+
+    def _docker_serve(self, gateway_port: int = 3000, build: bool = True) -> Dict[str, Any]:
+        """Start via docker compose."""
+        env = {**os.environ, "GATEWAY_PORT": str(gateway_port)}
+        cmd = ["docker", "compose", "up", "-d", "--build"] if build else \
+              ["docker", "compose", "up", "-d"]
+        proc = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, text=True, env=env)
+        ok = proc.returncode == 0
+        return {
+            "ok": ok,
+            "mode": "docker",
+            "gateway": f"http://localhost:{gateway_port}/hyperliquid",
+            "stderr_tail": proc.stderr[-2000:] if not ok else "",
+        }
+
+    def _docker_kill(self) -> Dict[str, Any]:
+        proc = subprocess.run(
+            ["docker", "compose", "down"],
+            cwd=ROOT_DIR, capture_output=True, text=True,
+        )
+        return {"ok": proc.returncode == 0, "mode": "docker", "action": "stopped"}
+
+    def _docker_status(self) -> Dict[str, Any]:
+        proc = subprocess.run(
+            ["docker", "compose", "ps", "--format", "json"],
+            cwd=ROOT_DIR, capture_output=True, text=True,
+        )
+        container = "stopped"
+        if proc.returncode == 0 and proc.stdout.strip():
+            try:
+                info = json.loads(proc.stdout.strip())
+                if isinstance(info, list):
+                    info = info[0] if info else {}
+                container = info.get("State", info.get("status", "unknown"))
+            except json.JSONDecodeError:
+                container = "running" if proc.stdout.strip() else "stopped"
+        out = {"module": "hyperliquid", "mode": "docker", "container": container}
+        try:
+            r = requests.get(f"{self.api_url}/status", timeout=2)
+            out["api_status"] = r.json() if r.ok else {"http": r.status_code}
+        except Exception as e:
+            out["api_status"] = {"error": str(e)}
+        return out
+
+    def _docker_logs(self, lines: int = 50) -> str:
+        proc = subprocess.run(
+            ["docker", "compose", "logs", "--tail", str(lines)],
+            cwd=ROOT_DIR, capture_output=True, text=True,
+        )
+        return proc.stdout or proc.stderr or "<no output>"
+
+    def _detect_mode(self) -> str:
+        """Resolve the live deployment mode: a running docker container wins,
+        then pm2-managed local processes, else local."""
+        try:
+            proc = subprocess.run(
+                ["docker", "compose", "ps", "--status", "running", "-q"],
+                cwd=ROOT_DIR, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return "docker"
+        except Exception:
+            pass
+        try:
+            pm2 = m.mod("pm.pm2")()
+            if pm2.exists("hyperliquid-api") or pm2.exists("hyperliquid-app"):
+                return "local"
+        except Exception:
+            pass
+        return "local"
+
+    # ── local lifecycle (pm2 / subprocess) ────────────────────────
 
     def api(self, port: Optional[int] = None, build: bool = True) -> Dict[str, Any]:
         """Start the Rust API under pm2."""
@@ -181,18 +266,78 @@ class Hyperliquid(m.Mod):
                     "port": port, "url": f"http://localhost:{port}",
                     "warn": f"pm2 unavailable ({e}); using subprocess"}
 
-    def serve(self, api_port: Optional[int] = None, app_port: Optional[int] = None,
+    def serve(self, mode=None, api_port: Optional[int] = None,
+              app_port: Optional[int] = None, gateway_port: int = 3000,
               dev: bool = True, build: bool = True, **kwargs) -> Dict[str, Any]:
-        """Start both api + app."""
+        """Start hyperliquid. mode='local' (pm2, default) or 'docker'."""
+        if mode is None:
+            mode = "local"
+
+        if mode == "docker":
+            result = self._docker_serve(gateway_port=gateway_port, build=build)
+            if result["ok"]:
+                self._register_gateway(self.api_port, self.app_port)
+            return result
+
+        # local mode (pm2)
+        api_port = api_port or self.api_port
+        app_port = app_port or self.app_port
+
         a = self.api(port=api_port, build=build)
         if not a.get("ok"):
-            return {"ok": False, "api": a}
+            return {"ok": False, "mode": "local", "api": a}
         # let the API come up before the Next dev server tries to proxy
         time.sleep(1.0)
         b = self.app(port=app_port, dev=dev)
-        return {"ok": a.get("ok") and b.get("ok"), "api": a, "app": b}
 
-    def kill(self, target: str = "all") -> Dict[str, Any]:
+        self._register_gateway(api_port, app_port)
+
+        return {"ok": a.get("ok") and b.get("ok"), "mode": "local", "api": a, "app": b}
+
+    def _register_gateway(self, api_port: int, app_port: int):
+        """Persist urls to config.json and register in the :3000 gateway app namespace."""
+        cfg_path = os.path.join(ROOT_DIR, "config.json")
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            cfg["urls"] = {
+                "api": f"http://localhost:{api_port}",
+                "app": f"http://localhost:{app_port}/hyperliquid",
+                "gateway": "http://localhost:3000/hyperliquid",
+            }
+            cfg["ports"] = {"api": api_port, "app": app_port}
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f, indent=4)
+                f.write("\n")
+        except Exception:
+            pass
+
+        # Gateway middleware routes /hyperliquid/* and /api/hyperliquid/* from
+        # the app_namespace registry — register the same way polymarket does.
+        try:
+            ns = m.mod("server.namespace")()
+            ns.reg_app(
+                "hyperliquid",
+                f"http://localhost:{app_port}",
+                api_url=f"http://localhost:{api_port}",
+            )
+        except Exception as e:
+            print(f"[hyperliquid] gateway registration failed: {e}")
+
+    def kill(self, target: str = "all", mode=None) -> Dict[str, Any]:
+        """Stop services. mode defaults to whatever is actually running."""
+        if mode is None:
+            mode = self._detect_mode()
+
+        if target == "all":
+            try:
+                m.mod("server.namespace")().dereg_app("hyperliquid")
+            except Exception:
+                pass
+
+        if mode == "docker":
+            return self._docker_kill()
+
         out: Dict[str, Any] = {}
         try:
             pm2 = m.mod("pm.pm2")()
@@ -202,11 +347,19 @@ class Hyperliquid(m.Mod):
                 pm2.kill("hyperliquid-app"); out["app"] = "stopped"
         except Exception as e:
             out["error"] = str(e)
+        out["mode"] = "local"
         return out
 
-    def status(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"module": "hyperliquid", "testnet": self.testnet,
-                               "api_url": self.api_url}
+    def status(self, mode=None) -> Dict[str, Any]:
+        """Service status. mode defaults to whatever is actually running."""
+        if mode is None:
+            mode = self._detect_mode()
+
+        if mode == "docker":
+            return self._docker_status()
+
+        out: Dict[str, Any] = {"module": "hyperliquid", "mode": "local",
+                               "testnet": self.testnet, "api_url": self.api_url}
         try:
             pm2 = m.mod("pm.pm2")()
             out["api"] = "running" if pm2.exists("hyperliquid-api") else "stopped"
@@ -220,7 +373,14 @@ class Hyperliquid(m.Mod):
             out["api_status"] = {"error": str(e)}
         return out
 
-    def logs(self, target: str = "api", lines: int = 100) -> str:
+    def logs(self, target: str = "api", lines: int = 100, mode=None) -> str:
+        """Fetch logs. mode defaults to whatever is actually running."""
+        if mode is None:
+            mode = self._detect_mode()
+
+        if mode == "docker":
+            return self._docker_logs(lines=lines)
+
         try:
             pm2 = m.mod("pm.pm2")()
             return pm2.logs(f"hyperliquid-{target}", lines=lines)
@@ -492,6 +652,164 @@ class Hyperliquid(m.Mod):
         """
         s = self.strat(name, **kwargs)
         return s.start(self, eoa)
+
+    # ── build CID + onchain publish ──────────────────────────────
+
+    # Folders that don't belong in the build hash — generated, vendored, or
+    # otherwise non-source. Keeps the CID stable across `npm install`,
+    # `cargo build`, and Next.js dev rebuilds.
+    _BUILD_IGNORE = [
+        "node_modules", "target", ".next", "__pycache__",
+        ".git", "artifacts", "cache",
+    ]
+
+    # Arbitrum One — hyperliquid's native settlement chain, so the same key
+    # the user funds for HL can record build provenance. Public RPC fallbacks.
+    _ARB_RPCS = [
+        "https://arbitrum.drpc.org",
+        "https://arbitrum-one-rpc.publicnode.com",
+        "https://arb1.arbitrum.io/rpc",
+    ]
+    _ARB_CHAIN_ID = 42161
+    _ARB_SCAN = "https://arbiscan.io/tx/"
+
+    def build_cid(self, mod: str = "hyperliquid") -> str:
+        """Localfs CID over the module's source files.
+
+        IPFS-compatible (CIDv0 Qm...) — recompute locally via
+        `m.mod('localfs')().cid(m.content('<mod>', ignore_folders=[...]))`
+        with the same ignore list.
+        """
+        lfs = m.mod("localfs")()
+        content = m.content(mod, ignore_folders=self._BUILD_IGNORE)
+        return lfs.cid(content)
+
+    def _arb_w3(self):
+        from web3 import Web3
+        last_err = None
+        for url in self._ARB_RPCS:
+            try:
+                w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 8}))
+                if w3.is_connected() and w3.eth.chain_id == self._ARB_CHAIN_ID:
+                    return w3, url
+            except Exception as e:
+                last_err = e
+        raise RuntimeError(f"no Arbitrum RPC reachable; last error: {last_err}")
+
+    def publish_build(self, mod: str = "hyperliquid", key: str = None,
+                      tag: str = "mod-cid:", dry_run: bool = False) -> Dict[str, Any]:
+        """Send an Arbitrum tx whose calldata records the build CID.
+
+        Self-transfer with `tag + cid` as calldata — no contract required.
+        The CID lands in the tx's `input` field, verifiable on Arbiscan.
+        Persists the result under `build_onchain` in config.json.
+        """
+        from web3 import Web3
+
+        cid = self.build_cid(mod=mod)
+        signer = m.key(key) if key else m.key()
+        addr = Web3.to_checksum_address(signer.address)
+        data = "0x" + (tag.encode() + cid.encode()).hex()
+
+        w3, rpc = self._arb_w3()
+        bal = w3.eth.get_balance(addr)
+
+        gas_price = int(w3.eth.gas_price * 12 / 10)
+        gas_limit = 21000 + 16 * len(tag + cid) + 4096  # padding for safety
+        cost = gas_price * gas_limit
+
+        if dry_run or bal < cost:
+            return {
+                "ok": False if bal < cost else True,
+                "dry_run": dry_run,
+                "cid": cid,
+                "mod": mod,
+                "from": addr,
+                "rpc": rpc,
+                "data": data,
+                "gas_price_gwei": float(w3.from_wei(gas_price, "gwei")),
+                "estimated_cost_eth": float(w3.from_wei(cost, "ether")),
+                "balance_eth": float(w3.from_wei(bal, "ether")),
+                "funded": bal >= cost,
+                "needed_eth": float(w3.from_wei(max(cost - bal, 0), "ether")),
+            }
+
+        nonce = w3.eth.get_transaction_count(addr)
+        tx = {
+            "to": addr,
+            "value": 0,
+            "data": data,
+            "nonce": nonce,
+            "gas": gas_limit,
+            "gasPrice": gas_price,
+            "chainId": self._ARB_CHAIN_ID,
+        }
+        signed = w3.eth.account.sign_transaction(tx, signer.private_key)
+        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        tx_hash = w3.eth.send_raw_transaction(raw)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+
+        thash = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+        record = {
+            "cid": cid,
+            "mod": mod,
+            "network": "arbitrum",
+            "chain_id": self._ARB_CHAIN_ID,
+            "tx_hash": thash,
+            "block": receipt.blockNumber,
+            "from": addr,
+            "to": addr,
+            "scan": self._ARB_SCAN + thash,
+            "at": int(time.time()),
+        }
+        self._save_build_onchain(record)
+        return {"ok": receipt.status == 1, **record}
+
+    def _save_build_onchain(self, record: Dict[str, Any]):
+        cfg_path = os.path.join(ROOT_DIR, "config.json")
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        cfg["build_onchain"] = record
+        with open(cfg_path, "w") as f:
+            json.dump(cfg, f, indent=4)
+            f.write("\n")
+
+    def build_onchain(self) -> Dict[str, Any]:
+        """Return the last published build record (cid, tx, arbiscan link)."""
+        cfg_path = os.path.join(ROOT_DIR, "config.json")
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            return cfg.get("build_onchain", {})
+        except Exception:
+            return {}
+
+    # ── test ──────────────────────────────────────────────────────
+
+    def test(self) -> Dict[str, Any]:
+        """Test the API by hitting key endpoints."""
+        results: Dict[str, Any] = {}
+
+        def _probe(name: str, path: str, timeout: float = 10):
+            try:
+                r = requests.get(f"{self.api_url}{path}", timeout=timeout)
+                results[name] = {"ok": r.ok, "status": r.status_code}
+            except Exception as e:
+                results[name] = {"ok": False, "error": str(e)}
+
+        _probe("status", "/status", timeout=5)
+        _probe("mids", "/mids")
+        _probe("meta", "/market/meta")
+        _probe("leaderboard", "/leaderboard", timeout=20)
+
+        passed = sum(1 for v in results.values() if v.get("ok"))
+        total = len(results)
+        results["summary"] = f"{passed}/{total} passed"
+        results["ok"] = passed == total
+        return results
 
     # ── mod-protocol forward ──
 

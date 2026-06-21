@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/claude";
 const CRED_URL = `${BASE_PATH}/api/credentials`;
+const OAUTH_URL = `${BASE_PATH}/api/credentials/oauth`;
 
 interface Status {
   loggedIn: boolean;
@@ -30,6 +31,13 @@ export default function AuthPage() {
   const [paste, setPaste] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // OAuth ("Log in with Claude") flow state. `pkce` holds the verifier+state we
+  // must echo back to complete the exchange; non-null means a login is pending.
+  const [pkce, setPkce] = useState<{ verifier: string; state: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,6 +76,52 @@ export default function AuthPage() {
       setMsg({ kind: "err", text: e?.message || "request failed" });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function startLogin() {
+    setOauthBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(OAUTH_URL, { cache: "no-store" });
+      const data = await r.json();
+      if (!r.ok || !data.url) {
+        setMsg({ kind: "err", text: data.error || "could not start login" });
+        return;
+      }
+      setPkce({ verifier: data.verifier, state: data.state });
+      setCode("");
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      setMsg({ kind: "err", text: e?.message || "request failed" });
+    } finally {
+      setOauthBusy(false);
+    }
+  }
+
+  async function completeLogin() {
+    if (!pkce || !code.trim()) return;
+    setOauthBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(OAUTH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim(), verifier: pkce.verifier, state: pkce.state }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        setMsg({ kind: "err", text: data.error || "login failed" });
+      } else {
+        setMsg({ kind: "ok", text: "Logged in — new jobs will use these credentials." });
+        setPkce(null);
+        setCode("");
+        await refresh();
+      }
+    } catch (e: any) {
+      setMsg({ kind: "err", text: e?.message || "request failed" });
+    } finally {
+      setOauthBusy(false);
     }
   }
 
@@ -111,8 +165,9 @@ export default function AuthPage() {
           </a>
         </div>
         <p style={{ color: "#8a8a93", fontSize: 14, marginTop: 0, marginBottom: 24 }}>
-          The job runner spawns the <code>claude</code> CLI with these credentials. Paste a working{" "}
-          <code>~/.claude/.credentials.json</code> here if jobs report “Not logged in”.
+          The job runner spawns the <code>claude</code> CLI with these credentials. Log in with your
+          Claude account below — no need to copy a <code>~/.claude/.credentials.json</code> from
+          another machine.
         </p>
 
         {/* status card */}
@@ -170,7 +225,133 @@ export default function AuthPage() {
           )}
         </div>
 
-        {/* paste box */}
+        {/* OAuth — "Log in with Claude" (primary path) */}
+        <div
+          style={{
+            border: "1px solid #26262e",
+            background: "#0d0d14",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          {!pkce ? (
+            <>
+              <button
+                onClick={startLogin}
+                disabled={oauthBusy}
+                style={{
+                  background: "#cc785c",
+                  color: "#07070d",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "11px 20px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: oauthBusy ? "default" : "pointer",
+                }}
+              >
+                {oauthBusy ? "Opening…" : "Log in with Claude"}
+              </button>
+              <p style={{ color: "#6f6f78", fontSize: 12.5, marginTop: 10, marginBottom: 0 }}>
+                Opens claude.ai to authorize. Use the same account whose subscription should run the
+                jobs.
+              </p>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: "#b5b5bd", marginBottom: 8 }}>
+                A claude.ai tab opened. After approving, copy the code it shows and paste it here:
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && completeLogin()}
+                  placeholder="paste authorization code"
+                  spellCheck={false}
+                  autoFocus
+                  style={{
+                    flex: 1,
+                    background: "#07070d",
+                    border: "1px solid #33333d",
+                    borderRadius: 8,
+                    color: "#e7e7ea",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontSize: 12.5,
+                    padding: "9px 12px",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  onClick={completeLogin}
+                  disabled={oauthBusy || !code.trim()}
+                  style={{
+                    background: code.trim() ? "#cc785c" : "#3a2c26",
+                    color: code.trim() ? "#07070d" : "#6f6f78",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "9px 18px",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: oauthBusy || !code.trim() ? "default" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {oauthBusy ? "Finishing…" : "Complete login"}
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setPkce(null);
+                  setCode("");
+                }}
+                style={{
+                  marginTop: 10,
+                  background: "transparent",
+                  border: "none",
+                  color: "#6f6f78",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                cancel
+              </button>
+            </>
+          )}
+        </div>
+
+        {msg && (
+          <div
+            style={{
+              marginBottom: 16,
+              fontSize: 13,
+              color: msg.kind === "ok" ? "#3ecf6b" : "#e0564b",
+            }}
+          >
+            {msg.text}
+          </div>
+        )}
+
+        {/* paste fallback — collapsed by default */}
+        <button
+          onClick={() => setShowPaste((s) => !s)}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#6f6f78",
+            fontSize: 12.5,
+            cursor: "pointer",
+            padding: 0,
+            marginBottom: showPaste ? 12 : 0,
+          }}
+        >
+          {showPaste ? "▾" : "▸"} Paste credentials manually instead
+        </button>
+
+        {showPaste && (
+        <>
         <label style={{ fontSize: 13, color: "#b5b5bd", display: "block", marginBottom: 8 }}>
           Paste credentials JSON
         </label>
@@ -198,19 +379,6 @@ export default function AuthPage() {
           <code style={{ color: "#cc785c" }}>cat ~/.claude/.credentials.json</code> and paste the output above.
         </p>
 
-        {msg && (
-          <div
-            style={{
-              marginTop: 4,
-              marginBottom: 12,
-              fontSize: 13,
-              color: msg.kind === "ok" ? "#3ecf6b" : "#e0564b",
-            }}
-          >
-            {msg.text}
-          </div>
-        )}
-
         <button
           onClick={save}
           disabled={saving || !paste.trim()}
@@ -228,6 +396,8 @@ export default function AuthPage() {
         >
           {saving ? "Saving…" : "Save credentials"}
         </button>
+        </>
+        )}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ import LivePanel from "./LivePanel";
 import StratPicker from "./StratPicker";
 import StratSourceViewer from "./StratSourceViewer";
 import WalletFundingPanel from "./WalletFundingPanel";
+import UserStratsPanel from "./UserStratsPanel";
 import WalletTokenPanel from "./WalletTokenPanel";
 import ThemeToggle from "./ThemeToggle";
 
@@ -480,6 +481,22 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     if (typeof window === "undefined") return;
     try { window.localStorage.setItem("stratPanelOpen", stratPanelOpen ? "1" : "0"); } catch {}
   }, [stratPanelOpen]);
+
+  // STRATEGY HUB top bar — collapsible block pinned at the top of the STRATS
+  // tab holding the publish/community/fork hub + the fund shortcut. Collapsed
+  // by default (most sessions are tuning/backtesting, not publishing); state
+  // persists so it stays the way the user left it.
+  const [hubBarOpen, setHubBarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("stratHubBarOpen") === "1";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try { window.localStorage.setItem("stratHubBarOpen", hubBarOpen ? "1" : "0"); } catch {}
+  }, [hubBarOpen]);
+  // Fund sub-section inside the hub bar — reveals WalletFundingPanel on demand
+  // so the bar stays compact until the user actually wants to add funds.
+  const [hubFundOpen, setHubFundOpen] = useState(false);
 
   // UTC clock tick
   useEffect(() => {
@@ -1912,11 +1929,47 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         </div>
       </div>
 
+      {/* ── Strategy Hub top bar (STRATS tab only, collapsed by default) ──
+          One pinned, collapsible block at the very top of the STRATS tab:
+          publish / community / fork (UserStratsPanel) + a FUND shortcut that
+          expands WalletFundingPanel in place. Keeps sharing + funding one
+          click away without pushing the leaderboard down when not in use. */}
+      {mode === "STRATS" && (
+        <div className="pixel-panel border-2 border-pixel-border">
+          <div className="flex items-center justify-between px-3 py-2">
+            <button
+              onClick={() => setHubBarOpen((v) => !v)}
+              className="flex items-center gap-2 text-left"
+            >
+              <span className="text-pixel-gray text-[14px]">{hubBarOpen ? "▾" : "▸"}</span>
+              <span
+                className="text-[14px] text-green-400 uppercase tracking-wider"
+                style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
+              >
+                Strategy Hub
+              </span>
+              <span className="text-[11px] text-pixel-gray hidden sm:inline">
+                publish · fork · fund
+              </span>
+            </button>
+            <button
+              onClick={() => { setHubBarOpen(true); setHubFundOpen((v) => !v); }}
+              className="pixel-btn text-[13px] px-3 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10"
+            >
+              {hubFundOpen ? "HIDE FUND" : "+ FUND"}
+            </button>
+          </div>
+          {hubBarOpen && (
+            <div className="px-3 pb-3 space-y-3 border-t border-pixel-border/40 pt-3">
+              {hubFundOpen && <WalletFundingPanel />}
+              <UserStratsPanel eoa={auth.address ?? undefined} />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Strat Leaderboard (full picker on STRATS tab only, collapsible) ── */}
       {mode === "STRATS" && <StratPicker onStratChange={() => setRefreshKey((v) => v + 1)} />}
-
-      {/* ── Wallet/funding (always visible on STRATS tab) ── */}
-      {mode === "STRATS" && <WalletFundingPanel />}
 
       {/* ── Strat source viewer (STRATS tab only) ──
           Read-only for built-in TS strats; editable for user-uploaded

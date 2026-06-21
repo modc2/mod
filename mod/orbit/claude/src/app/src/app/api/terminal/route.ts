@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
+import { verifySession } from "@/lib/terminalAuth";
 
 const execAsync = promisify(exec);
 
@@ -22,6 +23,15 @@ function expandHome(p: string): string {
 
 export async function POST(req: NextRequest) {
   try {
+    // Owner-only: this executes arbitrary shell as the host user. Require a
+    // valid session token minted by /api/terminal/auth (owner wallet signature).
+    if (!verifySession(req.headers.get("x-terminal-token"))) {
+      return NextResponse.json(
+        { ok: false, error: "unauthorized — authorize the terminal with the owner wallet" },
+        { status: 401 }
+      );
+    }
+
     const { cmd, cwd } = await req.json();
 
     if (typeof cmd !== "string" || !cmd.trim()) {

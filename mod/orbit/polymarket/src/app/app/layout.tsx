@@ -8,6 +8,7 @@ import { SplitProvider } from "./context/SplitContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
 import SidebarShell from "./components/SidebarShell";
 import SplitShell from "./components/SplitShell";
+import LeftNav from "./components/LeftNav";
 import MarketTicker from "./components/MarketTicker";
 import BuildBadge from "./components/BuildBadge";
 import LiveAutoResume from "./components/LiveAutoResume";
@@ -48,11 +49,18 @@ export default function RootLayout({
                   <div className="crt-overlay" />
                   <div className="crt-screen min-h-screen">
                     <MarketTicker />
-                    <SplitShell>
-                      <SidebarShell>
-                        <main>{children}</main>
-                      </SidebarShell>
-                    </SplitShell>
+                    {/* Global expandable left nav + page content. The rail is a
+                        flex sibling so content reflows when it expands. */}
+                    <div className="flex items-stretch">
+                      <LeftNav />
+                      <div className="flex-1 min-w-0">
+                        <SplitShell>
+                          <SidebarShell>
+                            <main>{children}</main>
+                          </SidebarShell>
+                        </SplitShell>
+                      </div>
+                    </div>
                     <BuildBadge />
                   </div>
                 </SplitProvider>

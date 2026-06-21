@@ -21,9 +21,23 @@ if [ -f "$CRED_SRC" ]; then
     # (that's how `claude login` writes it), which node can't read — every job
     # then fails with "Not logged in". Hand the real file to node so it can both
     # read the token and persist refreshed ones. The host runs claude as root,
-    # which ignores ownership, so this costs the host nothing. A host re-login
-    # resets it to root:0600, but this re-applies on the next container start.
+    # which ignores ownership, so this costs the host nothing.
     chown node:node "$CRED_SRC" 2>/dev/null || chmod 0644 "$CRED_SRC" 2>/dev/null || true
+    # A host re-login (or sync) rewrites the file as root:0600 mid-run, which
+    # silently locks node out again until a restart — the recurring "Not logged
+    # in" failure. Spawn a root-side guard that re-hands the file to node every
+    # few seconds so access self-heals without a restart. Backgrounded BEFORE the
+    # privilege drop so it keeps root euid (node can't chown a root-owned file);
+    # `exec runuser` later replaces this shell but leaves this child running.
+    (
+        while true; do
+            if [ -f "$CRED_SRC" ] && [ "$(stat -c %u "$CRED_SRC" 2>/dev/null)" != "1000" ]; then
+                chown node:node "$CRED_SRC" 2>/dev/null || chmod 0644 "$CRED_SRC" 2>/dev/null || true
+            fi
+            sleep 5
+        done
+    ) &
+    echo "credentials: ownership guard running (re-hands host file to node on change)"
     # When OAuth creds are present, unset any inherited ANTHROPIC_API_KEY so
     # claude doesn't prefer a stale/external key over the subscription token.
     unset ANTHROPIC_API_KEY

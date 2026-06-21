@@ -84,6 +84,16 @@ export default function WalletPanel() {
   const [pendingOp, setPendingOp] = useState<
     { prevBalance: string; label: string; startedAt: number } | null
   >(null);
+  // Collapsed by default — the header keeps the balance visible, and the
+  // deposit/withdraw forms (rarely needed once funded) fold away. Persisted
+  // so the choice sticks across reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("poly_wallet_collapsed") !== "false"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("poly_wallet_collapsed", String(collapsed)); } catch {}
+  }, [collapsed]);
 
   const eoa = auth.address;
 
@@ -329,11 +339,21 @@ export default function WalletPanel() {
 
   return (
     <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
-      {/* Header row: label + address + live balance */}
+      {/* Header row: collapse toggle + label + address + live balance */}
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs uppercase tracking-wide text-pixel-muted">
-          Trading Wallet
-        </span>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex items-center gap-1.5 hover:opacity-80"
+          title={collapsed ? "Expand deposit / withdraw" : "Collapse"}
+          aria-expanded={!collapsed}
+        >
+          <span className="text-pixel-muted text-[10px] w-2 inline-block">
+            {collapsed ? "▸" : "▾"}
+          </span>
+          <span className="text-xs uppercase tracking-wide text-pixel-muted">
+            Trading Wallet
+          </span>
+        </button>
         {info ? (
           <>
             <button
@@ -377,6 +397,8 @@ export default function WalletPanel() {
         )}
       </div>
 
+      {!collapsed && (
+        <>
       {!info?.deployed && info && (
         <div className="text-xs text-amber-400">
           Wallet not deployed on-chain yet — first trade attempt will
@@ -508,6 +530,8 @@ export default function WalletPanel() {
           </button>
         </div>
       </div>
+        </>
+      )}
 
       {status && (
         <div className="text-xs text-green-400 font-mono flex items-center gap-2">

@@ -78,10 +78,16 @@ pub fn router() -> Router<AppState> {
         // is a follow-up; the endpoints are here so the framework + UI
         // upload flow are ready ahead of the runtime hookup.
         .route("/user-strats", get(user_strats_list).post(user_strats_upload))
+        // Community gallery of public strats (shared by other traders).
+        .route("/user-strats/public", get(user_strats_public))
         // Template route MUST come before the `/:id/:kind` catch-all
         // below — axum matches in declaration order and otherwise this
         // resolves as `id=template, kind=<name>` and 400s on `kind`.
         .route("/user-strats/template/:name", get(user_strats_template))
+        // Sharing actions: flip a strat public/private; fork someone's strat
+        // into your own. Static second segments win over the `:kind` route.
+        .route("/user-strats/:id/publish", post(user_strats_publish))
+        .route("/user-strats/:id/fork", post(user_strats_fork))
         .route("/user-strats/:id/:kind", get(user_strats_read).delete(user_strats_delete))
         // Encrypted strat storage
         .merge(crate::strats::router())
@@ -840,10 +846,25 @@ struct UploadStratBody {
     kind: crate::user_strats::StratKind,
     /// Raw source text. UTF-8, ≤ 256 KiB — validated by the store.
     content: String,
+    // ── sharing metadata (all optional; legacy editor omits them) ──
+    owner: Option<String>,
+    title: Option<String>,
+    description: Option<String>,
+    public: Option<bool>,
 }
 
-async fn user_strats_list(State(state): State<AppState>) -> impl IntoResponse {
-    match state.user_strats.list() {
+/// `?owner=0x..` scopes the listing to one trader (their strats + legacy
+/// unclaimed uploads). Omitted → list everything (back-compat).
+#[derive(Deserialize)]
+struct OwnerQuery {
+    owner: Option<String>,
+}
+
+async fn user_strats_list(
+    State(state): State<AppState>,
+    Query(q): Query<OwnerQuery>,
+) -> impl IntoResponse {
+    match state.user_strats.list(q.owner.as_deref()) {
         Ok(items) => Json(json!({"strats": items})).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -852,15 +873,80 @@ async fn user_strats_list(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+/// Community gallery — every public strat. `?owner=` (the viewer) tags
+/// which entries are the viewer's own.
+async fn user_strats_public(
+    State(state): State<AppState>,
+    Query(q): Query<OwnerQuery>,
+) -> impl IntoResponse {
+    match state.user_strats.list_public(q.owner.as_deref()) {
+        Ok(items) => Json(json!({"strats": items})).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": format!("public: {}", e)})),
+        ).into_response(),
+    }
+}
+
 async fn user_strats_upload(
     State(state): State<AppState>,
     Json(req): Json<UploadStratBody>,
 ) -> impl IntoResponse {
-    match state.user_strats.upload(&req.id, req.kind, &req.content) {
+    let opts = crate::user_strats::UploadMeta {
+        owner: req.owner,
+        title: req.title,
+        description: req.description,
+        public: req.public,
+    };
+    match state.user_strats.upload(&req.id, req.kind, &req.content, &opts) {
         Ok(entry) => Json(entry).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("upload: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PublishBody {
+    owner: String,
+    public: bool,
+}
+
+/// Flip a strat's public visibility. Owner-gated.
+async fn user_strats_publish(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<PublishBody>,
+) -> impl IntoResponse {
+    match state.user_strats.set_public(&id, &req.owner, req.public) {
+        Ok(entry) => Json(entry).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("publish: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ForkBody {
+    /// New id for the forked copy (owned by `owner`).
+    #[serde(rename = "newId")]
+    new_id: String,
+    owner: String,
+}
+
+/// Fork an existing strat (`:id`) into `newId` owned by the caller.
+async fn user_strats_fork(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ForkBody>,
+) -> impl IntoResponse {
+    match state.user_strats.fork(&id, &req.new_id, &req.owner) {
+        Ok(entry) => Json(entry).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("fork: {}", e)})),
         ).into_response(),
     }
 }
@@ -887,8 +973,9 @@ async fn user_strats_read(
 async fn user_strats_delete(
     State(state): State<AppState>,
     axum::extract::Path(p): axum::extract::Path<UserStratParams>,
+    Query(q): Query<OwnerQuery>,
 ) -> impl IntoResponse {
-    match state.user_strats.delete(&p.id) {
+    match state.user_strats.delete(&p.id, q.owner.as_deref()) {
         Ok(()) => Json(json!({"ok": true})).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

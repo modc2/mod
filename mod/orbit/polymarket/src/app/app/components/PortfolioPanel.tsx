@@ -13,7 +13,7 @@
 // History persists across reloads — first time you open the panel after
 // 2 weeks of running you'll see the full 2-week curve.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { fetchPositions } from "../lib/polymarket";
 
@@ -239,7 +239,9 @@ function tickRound(p: number): number {
 
 export default function PortfolioPanel() {
   const { auth } = useAuth();
-  const [mode, setMode] = useState<Mode>("pie");
+  // Default to the over-time PnL curve (like the backtest's PnL curve) so the
+  // chart leads MY TRADES; PIE is a click away for the cash/positions split.
+  const [mode, setMode] = useState<Mode>("line");
   const [liq, setLiq] = useState(0);
   const [posValue, setPosValue] = useState(0);
   const [positions, setPositions] = useState<PositionLite[]>([]);
@@ -363,10 +365,6 @@ export default function PortfolioPanel() {
   }, [refresh]);
 
   const total = liq + posValue;
-  const topPositions = useMemo(
-    () => [...positions].sort((a, b) => b.value - a.value).slice(0, 4),
-    [positions],
-  );
 
   if (!auth.connected) return null;
 
@@ -410,13 +408,10 @@ export default function PortfolioPanel() {
         )}
       </div>
 
-      {/* Top positions list — only show when there's something to see. */}
-      {topPositions.length > 0 && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs uppercase tracking-wide text-pixel-muted">
-              Top Positions
-            </span>
+      {/* SELL ALL → CASH — the per-position "Top Positions" list was removed
+          for a sleeker panel; the bulk-liquidate action stays. */}
+      {posValue > 0 && (
+        <div className="flex justify-end">
             <button
               onClick={async () => {
                 if (!eoa) return;
@@ -498,21 +493,6 @@ export default function PortfolioPanel() {
             >
               {selling ? "SELLING…" : "SELL ALL → CASH"}
             </button>
-          </div>
-          <div className="space-y-1 text-xs">
-            {topPositions.map((p, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 border-b border-pixel-border/40 py-1 last:border-0">
-                <span className="truncate flex-1" title={p.market}>
-                  {p.market}
-                  <span className="text-pixel-muted ml-1">· {p.outcome}</span>
-                </span>
-                <span className="font-mono whitespace-nowrap">{fmtUsd(p.value)}</span>
-                <span className={`font-mono whitespace-nowrap text-[10px] ${p.pnlUsd >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {p.pnlUsd >= 0 ? "+" : ""}{fmtUsd(p.pnlUsd)}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

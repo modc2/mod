@@ -1,48 +1,93 @@
-# base
+# venice
 
-A minimal example mod showing the standard module structure.
+Venice AI gateway with **one multimodal chat** — text, image generation/editing,
+upscaling and video all happen in the same thread. A tool-calling text model
+orchestrates Venice's media endpoints and the results render inline. Two ways
+for a user to pay, both gated by **wallet (mod-protocol) auth**:
 
-## Structure
+1. **Bring your own key (BYOK)** — the user pastes their own Venice API key. It
+   is encrypted at rest and only ever used to serve that user's own requests.
+   Free to us.
+2. **Pay per message (x402)** — the user has no key, pays a small USDC amount
+   per request over the [x402](https://x402.org) protocol, and the backend
+   funds the actual Venice call with **our** key.
 
 ```
-base/
-├── base/
-│   └── mod.py    # Anchor file with Mod class
-└── README.md
+venice/
+├── venice/mod.py          # original Python SDK (forward/models/pricing/keys…)
+├── src/
+│   ├── api/               # Rust (axum) gateway  → :50880
+│   │   └── src/
+│   │       ├── auth.rs        # verify wallet-signed mod-protocol tokens (k256/EIP-191)
+│   │       ├── keystore.rs     # per-user BYOK keys, AES-256-GCM at rest
+│   │       ├── venice.rs       # proxy to api.venice.ai (models + streamed chat)
+│   │       ├── media.rs        # store/serve generated & uploaded media (/media/:id)
+│   │       ├── tools.rs        # image generate/edit/upscale + video tool executors
+│   │       ├── agent.rs        # tool-calling loop, streams SSE (status/media/message)
+│   │       ├── x402.rs         # 402 challenge + facilitator verify/settle
+│   │       └── routes.rs       # /health /models /me /key /chat /agent /media
+│   └── app/               # Next.js frontend → :3880, served under /venice
+├── ecosystem.config.js    # pm2: venice-api + venice-app
+└── start.sh
 ```
 
-## Usage
-
-```python
-import mod as m
-
-# Load and run
-base = m.mod('base')()
-result = base.forward(3, 4)  # 7
-```
+## Run
 
 ```bash
-# CLI
-m base forward a=3 b=4
+./start.sh                 # build + pm2 start (dev)
+# or
+pm2 start ecosystem.config.js
 ```
 
-## Creating a New Mod
+API on `:50880`, app on `:3880/venice`.
 
-Every mod follows this pattern:
+## Enabling the paid path
 
-1. Create a directory: `orbit/<name>/<name>/mod.py`
-2. Define a `Mod` class with a `description` and a `forward` method:
+The paid (backend-funded) path advertises itself only when **both** are set in
+the environment that launches the processes:
 
-```python
-class Mod:
-    description = """
-    What your mod does
-    """
+| env | meaning |
+| --- | --- |
+| `VENICE_API_KEY` | our Venice key, used to fund paid requests |
+| `VENICE_X402_RECEIVER` | 0x address that receives the USDC payments |
 
-    def forward(self, **kwargs):
-        """Entry point for the mod."""
-        # your logic here
-        return result
-```
+Optional knobs: `VENICE_X402_NETWORK` (`base` \| `base-sepolia`),
+`VENICE_X402_PRICE` (e.g. `0.01`), `VENICE_X402_FACILITATOR`,
+`VENICE_X402_ASSET`, `VENICE_MASTER_KEY` (pin the BYOK at-rest key; 64 hex
+chars), `VENICE_DATA_DIR` (persist the keystore), `VENICE_SESSION_TTL`.
 
-The `forward` method is the default entry point called when the mod is invoked. Additional methods can be called via `m.fn('name/method')()`.
+With only `VENICE_API_KEY` (no receiver) or neither, the gateway runs **BYOK
+only** — users must add their own key.
+
+## Auth model
+
+Clients sign a time-bounded `{data, time, key, signature}` envelope with their
+wallet (`personal_sign`) and send it as `Authorization: Bearer <token>`. The
+gateway recovers the signer address (secp256k1) and uses it as the per-user
+identity — no server-side sessions. This matches `mod/core/server/auth`; the
+Rust verifier in `auth.rs` is cross-checked against the Python implementation.
+
+## HTTP API
+
+| method | path | auth | body | description |
+| --- | --- | --- | --- | --- |
+| GET | `/health` | — | — | liveness |
+| GET | `/models` | — | — | Venice model list (public) |
+| GET | `/me` | Bearer | — | address, `has_key`, `paid_available`, price |
+| POST | `/key` | Bearer | `{key}` | store the caller's BYOK key |
+| DELETE | `/key` | Bearer | — | forget the caller's BYOK key |
+| POST | `/chat` | Bearer | OpenAI-style | raw chat completion passthrough; BYOK or x402-paid |
+| POST | `/agent` | Bearer | `{model, messages, attachments?}` | **multimodal turn** — tool-calling loop, streams SSE (`status`/`media`/`message`/`done`); BYOK or x402-paid |
+| POST | `/media` | Bearer | `{data}` | upload an image (base64/data-URL) → `media_id` for the agent to edit/animate |
+| GET | `/media/:id` | — | — | serve a stored image/video (capability URL) |
+
+### The agent loop
+
+`/agent` runs a bounded tool-calling loop: the orchestrator model may call
+`generate_image`, `edit_image`, `upscale_image`, or `generate_video` (Venice's
+`/image/*` and `/video/queue`+`/video/retrieve` endpoints). Each tool stores its
+output in the media store and feeds the `media_id` back so the model can chain
+steps (generate → upscale → animate). One resolved key (BYOK or one x402
+payment) funds **all** Venice calls in the turn. Video is async; the loop polls
+and streams `rendering video… Ns` status until the mp4 is ready
+(`VENICE_VIDEO_POLL_SECS`, default 300).

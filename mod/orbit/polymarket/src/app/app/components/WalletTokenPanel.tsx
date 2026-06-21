@@ -23,6 +23,16 @@ export default function WalletTokenPanel() {
   const [copied, setCopied] = useState<CopyTickState>({ address: false, token: false });
   const [revealToken, setRevealToken] = useState(false);
   const [proxy, setProxy] = useState<string | null>(null);
+  // Collapsed by default — the header keeps the at-a-glance state (WALLET ·
+  // CONNECTED · OWNER) visible while the address / token / pairing rows fold
+  // away for a clean, sleek strat view. Persisted across reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("poly_wallettoken_collapsed") !== "false"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("poly_wallettoken_collapsed", String(collapsed)); } catch {}
+  }, [collapsed]);
 
   // Resolve the user's Polymarket proxy address — used purely to confirm the
   // connected EOA owns it (drives the OWNER badge). Local computation, no
@@ -59,7 +69,16 @@ export default function WalletTokenPanel() {
 
   return (
     <div className="pixel-panel border-2 border-pixel-border">
-      <div className="px-3 py-1.5 border-b border-pixel-border/60 flex items-center gap-2 bg-pixel-black/40">
+      <div
+        onClick={() => setCollapsed((c) => !c)}
+        role="button"
+        aria-expanded={!collapsed}
+        title={collapsed ? "Expand wallet & session" : "Collapse"}
+        className="px-3 py-1.5 border-b border-pixel-border/60 flex items-center gap-2 bg-pixel-black/40 cursor-pointer select-none hover:bg-pixel-black/60"
+      >
+        <span className="text-pixel-gray text-[10px] w-2 inline-block shrink-0">
+          {collapsed ? "▸" : "▾"}
+        </span>
         <div
           className={`w-1.5 h-1.5 shrink-0 ${
             auth.authenticated ? "bg-green-400" : auth.connected ? "bg-amber-400" : "bg-pixel-gray"
@@ -83,8 +102,16 @@ export default function WalletTokenPanel() {
             OWNER
           </span>
         )}
+        {/* When collapsed, surface the short address on the right so the header
+            still tells you who's signed in at a glance. */}
+        {collapsed && auth.address && (
+          <span className="ml-auto font-mono text-[11px] text-pixel-gray/70 truncate">
+            {shortAddress(auth.address)}
+          </span>
+        )}
       </div>
 
+      {!collapsed && (
       <div className="px-3 py-2 space-y-2 bg-pixel-black/20">
         {/* ── Address row ── */}
         {auth.address ? (
@@ -224,6 +251,7 @@ export default function WalletTokenPanel() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

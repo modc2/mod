@@ -167,6 +167,7 @@ const STATUS_COLOR_LIGHT: Record<string, string> = {
 // --model flag (accepts both family aliases and full names like
 // claude-opus-4-7). Keep first item = current default Opus.
 const MODEL_OPTIONS = [
+  { value: "claude-opus-4-8",   label: "Opus 4.8",   family: "opus",   color: "#c4b5fd" },
   { value: "claude-opus-4-7",   label: "Opus 4.7",   family: "opus",   color: "#a78bfa" },
   { value: "claude-opus-4-6",   label: "Opus 4.6",   family: "opus",   color: "#9f7aea" },
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", color: "#60a5fa" },
@@ -175,14 +176,14 @@ const MODEL_OPTIONS = [
 ];
 
 // Legacy aliases (saved by older builds / older jobs) → upgraded value.
-// `fable` is gated behind Mythos access and resolves to an unavailable model
-// (claude-fable-5), so any saved selection falls back to the default Opus.
+// Family aliases resolve to the newest of that family; `fable` is gated behind
+// Mythos access (resolves to an unavailable model) so it falls back to Opus.
 const MODEL_ALIAS_UPGRADE: Record<string, string> = {
-  opus: "claude-opus-4-7",
+  opus: "claude-opus-4-8",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5",
-  fable: "claude-opus-4-7",
-  "claude-fable-5": "claude-opus-4-7",
+  fable: "claude-opus-4-8",
+  "claude-fable-5": "claude-opus-4-8",
 };
 
 // Map any stored/legacy model string to a currently-selectable model value,
@@ -279,7 +280,7 @@ export default function Home() {
   const [dragOverJobId, setDragOverJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("claude-opus-4-7");
+  const [model, setModel] = useState("claude-opus-4-8");
   const [agentType, setAgentType] = useState("default");
   // Direct, savable system prompt sent verbatim as --append-system-prompt.
   // Takes precedence over a selected personality when non-empty.
@@ -488,6 +489,12 @@ export default function Home() {
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [terminalRecallIdx, setTerminalRecallIdx] = useState<number | null>(null);
+  // Owner session token for the host shell — minted by /api/terminal/auth after
+  // the owner signs with their wallet. Without it the terminal route 401s.
+  const [terminalToken, setTerminalToken] = useState<string | null>(null);
+  const [terminalTokenExp, setTerminalTokenExp] = useState<number>(0);
+  const [terminalAuthing, setTerminalAuthing] = useState(false);
+  const [terminalAuthError, setTerminalAuthError] = useState<string | null>(null);
 
   // Top-of-panel tabs inside the AGENT sidebar — switch between agent
   // settings (engine/model/persona), version history, and the task list.
@@ -809,6 +816,16 @@ export default function Home() {
     if (savedSystemPrompt) {
       setSystemPrompt(savedSystemPrompt);
       setSystemPromptOpen(true);
+    }
+
+    const savedTermTok = localStorage.getItem("claude_terminal_token");
+    const savedTermExp = Number(localStorage.getItem("claude_terminal_token_exp") || "0");
+    if (savedTermTok && savedTermExp > Date.now()) {
+      setTerminalToken(savedTermTok);
+      setTerminalTokenExp(savedTermExp);
+    } else {
+      localStorage.removeItem("claude_terminal_token");
+      localStorage.removeItem("claude_terminal_token_exp");
     }
 
     const savedEngine = localStorage.getItem("claude_jobs_engine");
@@ -6123,6 +6140,68 @@ export default function Home() {
     );
   };
 
+  // Sign a message with the currently-connected wallet — mirrors connectWallet's
+  // per-type signing so terminal auth reuses the same key the owner signed in with.
+  const signTerminalMessage = async (msg: string): Promise<string> => {
+    if (!address) throw new Error("connect your wallet first");
+    if (walletType === "metamask" || walletType === "subwallet") {
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) throw new Error("no wallet provider found");
+      const provider =
+        walletType === "subwallet" && ethereum.providers
+          ? ethereum.providers.find((p: any) => p.isSubWallet) || ethereum
+          : ethereum;
+      return await provider.request({ method: "personal_sign", params: [msg, address] });
+    }
+    if (walletType === "local") {
+      const { ethers } = await import("ethers");
+      const seed = localStorage.getItem("claude_jobs_seed");
+      if (!seed) throw new Error("no local wallet seed found — reconnect");
+      return await ethers.Wallet.fromPhrase(seed).signMessage(msg);
+    }
+    throw new Error(`reconnect with MetaMask or a local wallet to authorize the terminal (current: ${walletType || "none"})`);
+  };
+
+  // Prove ownership by signing, then store the minted session token.
+  const authorizeTerminal = async () => {
+    if (!address) { setTerminalAuthError("connect your wallet first"); return; }
+    setTerminalAuthing(true);
+    setTerminalAuthError(null);
+    try {
+      const ts = Date.now();
+      const msg = [
+        "MOD Terminal Authorization",
+        `address: ${address.toLowerCase()}`,
+        `ts: ${ts}`,
+        "",
+        "Sign to use the owner terminal on this server. This is a free signature, not a transaction.",
+      ].join("\n");
+      const signature = await signTerminalMessage(msg);
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, ts, signature }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `auth failed (HTTP ${res.status})`);
+      setTerminalToken(data.token);
+      setTerminalTokenExp(data.expiresAt);
+      safeSetItem("claude_terminal_token", data.token);
+      safeSetItem("claude_terminal_token_exp", String(data.expiresAt));
+    } catch (e: any) {
+      setTerminalAuthError(e?.message || "authorization failed");
+    } finally {
+      setTerminalAuthing(false);
+    }
+  };
+
+  const clearTerminalAuth = () => {
+    setTerminalToken(null);
+    setTerminalTokenExp(0);
+    localStorage.removeItem("claude_terminal_token");
+    localStorage.removeItem("claude_terminal_token_exp");
+  };
+
   const runTerminalCommand = async (rawCmd: string) => {
     const cmd = rawCmd.trim();
     if (!cmd || terminalRunning) return;
@@ -6147,9 +6226,20 @@ export default function Home() {
     try {
       const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(terminalToken ? { "x-terminal-token": terminalToken } : {}),
+        },
         body: JSON.stringify({ cmd, cwd }),
       });
+      if (res.status === 401) {
+        // Session missing/expired — drop it so the gate prompts a re-sign.
+        clearTerminalAuth();
+        setTerminalAuthError("session expired — authorize again");
+        setTerminalHistory(h => h.filter(e => e.id !== id));
+        setTerminalRunning(false);
+        return;
+      }
       const data = await res.json();
       setTerminalHistory(h => h.map(e => e.id === id ? {
         ...e,
@@ -6175,6 +6265,8 @@ export default function Home() {
   const renderTerminalTab = () => {
     const cwd = selectedModuleInfo?.path || workDir || "~";
     const prompt = `${selectedModule || "shell"} $`;
+    const termAuthed = !!terminalToken && terminalTokenExp > Date.now();
+    const termHoursLeft = termAuthed ? Math.max(1, Math.round((terminalTokenExp - Date.now()) / 3600000)) : 0;
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -6196,15 +6288,25 @@ export default function Home() {
             <span
               className="text-[9px] px-1.5 py-0.5 rounded-sm uppercase font-bold"
               style={{
-                color: "var(--crt-amber)",
-                background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--crt-amber) 30%, transparent)",
+                color: termAuthed ? "var(--crt-green)" : "var(--crt-amber)",
+                background: `color-mix(in srgb, ${termAuthed ? "var(--crt-green)" : "var(--crt-amber)"} 10%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${termAuthed ? "var(--crt-green)" : "var(--crt-amber)"} 30%, transparent)`,
                 letterSpacing: "0.08em",
               }}
-              title="Visible to module owner only"
+              title={termAuthed ? `Owner session active — ~${termHoursLeft}h left` : "Owner-only — authorize with your wallet to run commands"}
             >
-              OWNER
+              {termAuthed ? `OWNER ${termHoursLeft}h` : "LOCKED"}
             </span>
+            {termAuthed && (
+              <button
+                onClick={clearTerminalAuth}
+                className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+                style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+                title="End the terminal session"
+              >
+                LOCK
+              </button>
+            )}
             <button
               onClick={() => { setTerminalHistory([]); setTerminalRecallIdx(null); }}
               className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
@@ -6259,7 +6361,34 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Input */}
+        {/* Authorize gate — shown until the owner has a valid session */}
+        {!termAuthed ? (
+          <div
+            className="border-t flex flex-col items-center justify-center gap-3 px-4 py-6 shrink-0"
+            style={{ borderColor: "var(--border-color)", background: "var(--bg-secondary, var(--bg-primary))" }}
+          >
+            <div className="text-[11px] text-center max-w-sm" style={{ color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+              This terminal runs shell commands on the host. Sign with the owner wallet to unlock it for ~24h.
+            </div>
+            <button
+              onClick={authorizeTerminal}
+              disabled={terminalAuthing || !address}
+              className="text-[11px] px-4 py-2 rounded-sm border uppercase font-bold transition-all"
+              style={{
+                borderColor: "color-mix(in srgb, var(--crt-blue) 55%, transparent)",
+                color: "var(--crt-blue)",
+                background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
+                opacity: terminalAuthing || !address ? 0.5 : 1,
+                letterSpacing: "0.08em",
+              }}
+            >
+              {terminalAuthing ? "SIGN IN WALLET…" : !address ? "CONNECT WALLET FIRST" : "▶ AUTHORIZE WITH WALLET"}
+            </button>
+            {terminalAuthError && (
+              <div className="text-[10px] text-center" style={{ color: "var(--crt-red)" }}>{terminalAuthError}</div>
+            )}
+          </div>
+        ) : (
         <form
           onSubmit={(ev) => { ev.preventDefault(); runTerminalCommand(terminalInput); }}
           className="border-t flex items-center gap-2 px-4 py-2 shrink-0"
@@ -6313,6 +6442,7 @@ export default function Home() {
             {terminalRunning ? "…" : "RUN"}
           </button>
         </form>
+        )}
       </div>
     );
   };
@@ -9358,56 +9488,6 @@ export default function Home() {
           </button>
         )}
         <div className="flex items-center gap-3">
-          {showBackendEditor ? (
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const url = backendInput.trim();
-                if (url) {
-                  setApiUrl(url);
-                  safeSetItem("claude_backend_url", url);
-                }
-                setShowBackendEditor(false);
-              }}
-            >
-              <span className="text-[13px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
-                BACKEND:
-              </span>
-              <input
-                autoFocus
-                className="text-[13px] bg-transparent border-b outline-none"
-                style={{
-                  color: "var(--accent-color)",
-                  borderColor: "var(--accent-color)",
-                  width: "220px",
-                  fontFamily: "inherit",
-                }}
-                value={backendInput}
-                onChange={(e) => setBackendInput(e.target.value)}
-                onBlur={() => setShowBackendEditor(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setShowBackendEditor(false);
-                }}
-                placeholder="http://localhost:8820"
-              />
-            </form>
-          ) : (
-            <span
-              className="text-[13px] cursor-pointer hover:opacity-70 transition-opacity"
-              style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-              onClick={() => {
-                setBackendInput(apiUrl);
-                setShowBackendEditor(true);
-              }}
-              title="Click to change backend URL"
-            >
-              BACKEND: {moduleApiUrl.replace(/^https?:\/\//, "")}
-            </span>
-          )}
-          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
-            │
-          </span>
           {/* Versions (mod-protocol snapshot/fork/restore) */}
           <button
             onClick={() => setShowVersions(true)}

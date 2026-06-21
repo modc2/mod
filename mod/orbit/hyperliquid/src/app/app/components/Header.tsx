@@ -29,16 +29,26 @@ export default function Header() {
   };
 
   return (
-    <header className="border-b border-border sticky top-0 z-20 bg-bg/95 backdrop-blur">
-      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-6">
-        <Link href="/" className="text-sm tracking-widest text-accent">HYPERLIQ•COPY</Link>
-        <nav className="flex gap-1">
+    <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-bg/70 backdrop-blur-xl">
+      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center gap-7">
+        <Link href="/" className="group flex items-center gap-2.5 shrink-0">
+          <span className="relative grid place-items-center h-7 w-7 rounded-md bg-accent-grad shadow-glow">
+            <span className="absolute inset-0 rounded-md bg-accent-grad blur-md opacity-50 group-hover:opacity-80 transition-opacity" />
+            <span className="relative text-bg font-display font-bold text-sm">H</span>
+          </span>
+          <span className="font-display font-bold text-[15px] tracking-tight text-gradient">
+            Hyperliquid
+          </span>
+        </Link>
+        <nav className="flex items-center gap-1">
           {NAV.map((n) => {
             const active = path === n.href || (n.href !== "/" && path?.startsWith(n.href));
             return (
               <Link key={n.href} href={n.href}
-                className={`text-[11px] uppercase tracking-wider px-3 py-1 rounded
-                  ${active ? "bg-panel2 text-accent" : "text-muted hover:text-ink"}`}>
+                className={`relative text-[11px] font-medium uppercase tracking-wider px-3 py-1.5 rounded-md transition-all duration-150
+                  ${active
+                    ? "text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgba(60,224,200,0.25)]"
+                    : "text-muted hover:text-ink hover:bg-white/[0.04]"}`}>
                 {n.label}
               </Link>
             );
@@ -48,7 +58,7 @@ export default function Header() {
           {editing ? (
             <>
               <input
-                className="input w-[26ch]"
+                className="input w-[26ch] font-mono"
                 placeholder="0x… wallet"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -60,7 +70,10 @@ export default function Header() {
             </>
           ) : address ? (
             <>
-              <span className="pill border-accent2/40 text-accent2">{shortAddr(address)}</span>
+              <span className="inline-flex items-center gap-1.5 pill border-accent/30 text-accent font-mono">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent live-dot" />
+                {shortAddr(address)}
+              </span>
               <button className="btn" onClick={() => { setDraft(address); setEditing(true); }}>change</button>
               <button className="btn-danger" onClick={() => setAddress(null)}>disconnect</button>
             </>

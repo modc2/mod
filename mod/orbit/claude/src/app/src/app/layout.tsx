@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import AuthBadge from "../components/AuthBadge";
 
 export const metadata: Metadata = {
   title: "Mod AI",
@@ -23,6 +24,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
+        <AuthBadge />
       </body>
     </html>
   );

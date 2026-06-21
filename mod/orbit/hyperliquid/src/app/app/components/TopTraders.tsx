@@ -147,37 +147,52 @@ export default function TopTraders() {
           <div className="label !mb-0 text-right">action</div>
         </div>
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
+        {loading && sorted.length === 0 &&
+          [...Array(6)].map((_, i) => (
+            <div key={i} className="grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-3 items-center table-row">
+              <div className="skeleton h-4 w-44" />
+              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+            </div>
+          ))}
         {!err && !loading && sorted.length === 0 && (
-          <div className="px-4 py-6 text-xs text-muted">no traders match the filters yet — try a wider pool or longer window.</div>
+          <div className="px-4 py-8 text-center text-xs text-muted">no traders match the filters yet — try a wider pool or longer window.</div>
         )}
-        {sorted.map((t) => (
+        {sorted.map((t, i) => {
+          const rank = i + 1;
+          const medal = rank === 1 ? "text-warn border-warn/40 shadow-glow"
+            : rank <= 3 ? "text-accent border-accent/40" : "text-dim border-white/[0.08]";
+          return (
           <div key={t.address}
-            className="grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-panel2/40">
+            className="group grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
             <div className="flex items-center gap-2 min-w-0">
-              <input type="checkbox" checked={picked.has(t.address)}
+              <span className={`grid place-items-center h-5 w-5 shrink-0 rounded-md border text-[10px] font-mono font-semibold ${medal}`}>
+                {rank}
+              </span>
+              <input type="checkbox" className="accent-accent" checked={picked.has(t.address)}
                 onChange={() => togglePick(t.address)} />
               <Link href={`/trader/${t.address}?days=${days}`}
-                className="text-accent2 hover:underline truncate">
+                className="font-mono text-accent2 hover:text-accent transition-colors truncate">
                 {shortAddr(t.address)}
               </Link>
               <div className="flex flex-wrap gap-1 max-w-[14ch]">
                 {t.coins.slice(0, 3).map((c) => (
-                  <span key={c} className="pill text-muted">{c}</span>
+                  <span key={c} className="pill">{c}</span>
                 ))}
               </div>
             </div>
-            <div className={`num text-right ${t.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(t.pnl)}</div>
-            <div className="num text-right">{fmtUsd(t.volume)}</div>
-            <div className="num text-right">{t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}</div>
-            <div className="num text-right">{t.trades}</div>
-            <div className="num text-right">{t.sharpe.toFixed(2)}</div>
+            <div className={`num text-right font-semibold ${t.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(t.pnl)}</div>
+            <div className="num text-right text-ink/90">{fmtUsd(t.volume)}</div>
+            <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}</div>
+            <div className="num text-right text-ink/90">{t.trades}</div>
+            <div className="num text-right text-ink/90">{t.sharpe.toFixed(2)}</div>
             <div className="text-right text-[11px] text-muted">{ago(t.last_active)}</div>
-            <div className="flex justify-end gap-1">
+            <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
               <Link href={`/trader/${t.address}?days=${days}`} className="btn">view</Link>
               <Link href={`/follows/new?leader=${t.address}`} className="btn-primary">copy</Link>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

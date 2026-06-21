@@ -17,13 +17,18 @@ import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
 import WalletPanel from "./WalletPanel";
 import PortfolioPanel from "./PortfolioPanel";
-import UserStratsPanel from "./UserStratsPanel";
 import StratParamsPanel from "./StratParamsPanel";
 import ThemeToggle from "./ThemeToggle";
 
 const ERC20_BAL_ABI = [
   "function balanceOf(address) view returns (uint256)",
 ];
+
+// A run of consecutive MY-FILLS rows (same market/outcome/side/price) merged
+// into one display row. `size`/`price*size` are the batched totals, `count`
+// is how many fills were merged, `firstTs` is the oldest fill's time (the
+// group's `timestamp` stays the newest).
+type BatchedFill = PolymarketTrade & { count: number; firstTs: number };
 
 // Live monitoring poll cadence — configurable per-strat via `livePollMinutes`.
 // Defaults to 1 minute. The BACKTEST tab has its own `rebalanceMinutes` field
@@ -247,9 +252,24 @@ export default function LivePanel() {
   const [tradesPage, setTradesPage] = useState(0);
   // `upstream` = raw trades observed from watched traders (real-time stream
   // of what they're doing, regardless of our mirror decisions). Defaults to
-  // upstream so the panel is useful immediately even when no orders fire yet.
-  const [tradesFilter, setTradesFilter] = useState<"upstream" | "trades" | "all" | "fills">("fills");
+  // upstream to match the default ALL TRADES tab (the watched-trader feed).
+  const [tradesFilter, setTradesFilter] = useState<"upstream" | "trades" | "all" | "fills">("upstream");
   const TRADES_PAGE_SIZE = 25;
+
+
+  // Two-tab split of the LIVE view:
+  //   "all"  — ALL TRADES: live feed of trades from the traders you follow
+  //            (the engine's upstream observed-trades ring buffer).
+  //   "mine" — MY TRADES: your portfolio + stats + your own fills/copies +
+  //            strat params + custom strats.
+  // The tab drives the execution-log filter (all→upstream feed, mine→my
+  // fills). Critical alert banners (CLOB creds, empty wallet) and the pinned
+  // trading-wallet panel stay outside the tabs so they're never hidden.
+  const [liveTab, setLiveTab] = useState<"all" | "mine" | "split">("all");
+  // SPLIT view shows the watched-trader feed and my-trades feed side by side,
+  // each with its own pagination so scrolling one doesn't move the other.
+  const [splitPageAll, setSplitPageAll] = useState(0);
+  const [splitPageMine, setSplitPageMine] = useState(0);
 
   // ── Actual on-chain fills (FILLS tab) ──────────────────────────
   // The engine log (MY TRADES) is in-memory and resets when the session
@@ -297,13 +317,14 @@ export default function LivePanel() {
   //   STATS  — balance/orders/volume/cycles/sync grid + last fetch + banners
   //   WALLET — trading wallet deposit/withdraw + V1 proxy
   //   PARAMS — auto-trading config + signer + funding + checklist (ex-SETUP)
-  type LiveTab = "pnl" | "trades" | "stats" | "wallet" | "params";
-  const [liveTab, setLiveTab] = useState<LiveTab>("pnl");
-
-  // Fetch on-chain fills on first open of the FILLS tab; refresh every 60s
-  // while it stays open. Declared after `liveTab` to avoid a TDZ reference.
+  // Fetch on-chain fills while the FILLS filter is selected on the MY TRADES
+  // tab; refresh every 60s. Skipped on ALL TRADES (which shows the upstream
+  // feed from engine state and needs no data-api call).
   useEffect(() => {
-    if (liveTab !== "trades" || tradesFilter !== "fills") return;
+    // Load fills for the MY FILLS filter, and always in SPLIT (the right
+    // column defaults to fills there).
+    const needFills = liveTab === "split" || (liveTab === "mine" && tradesFilter === "fills");
+    if (!needFills) return;
     void loadFills();
     const t = setInterval(() => void loadFills(), 60_000);
     return () => clearInterval(t);
@@ -484,7 +505,7 @@ export default function LivePanel() {
           bar so balance + funding is always one click away regardless
           of which tab is active. Engine spamming "wallet empty" errors
           every cycle was confusing — surface the fix inline. */}
-      {auth.connected && <WalletPanel />}
+      {auth.connected && <div id="live-wallet-panel"><WalletPanel /></div>}
 
       {/* ── Header ── */}
       <div className="pixel-panel border-2 border-pixel-border">
@@ -569,122 +590,56 @@ export default function LivePanel() {
         </div>
       </div>
 
-      {/* ── Sidebar layout ──
-          Vertical tab nav on the left, content panels stacked on the
-          right. Splits the LIVE page so the user never has to scroll
-          past one section to find another. Always-visible top control
-          bar (status + START/STOP/PAUSE) lives above so the engine can
-          be paused from any tab. */}
-      <div className="flex gap-3">
-      <nav className="w-44 shrink-0 flex flex-col gap-1.5 border-r border-pixel-border pr-2 self-start sticky top-2">
-        {/* Per-tab "task running" badges — small status chips that let the
-            user see at a glance what activity is happening on each tab
-            without flipping through them. Engine running = green dot on
-            every tab; counts surface trades/orders/balance inline. */}
-        {(() => {
-          const isRunning = isLive && status === "running";
-          const isPaused = isLive && status === "paused";
-          const isErrored = isLive && status === "error";
-          const dotCls = isRunning
-            ? "bg-green-400 animate-pulse"
-            : isPaused
-              ? "bg-amber-400"
-              : isErrored
-                ? "bg-red-400 animate-pulse"
-                : "";
-          const tradesCount = engineState?.observedTrades.length ?? 0;
-          const orderCount = engineState?.totalOrdersPlaced ?? 0;
-          const cycleCount = engineState?.cycleCount ?? 0;
-          const bal = engineState?.balance;
-          const items: { id: LiveTab; label: string; badge: ReactNode }[] = [
-            { id: "pnl",    label: "PNL",    badge: isLive ? <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} /> : null },
-            { id: "trades", label: "TRADES", badge: isLive ? (
-              <span className="flex items-center gap-1.5 shrink-0">
-                <span className={`w-2 h-2 rounded-full ${dotCls}`} />
-                {tradesCount > 0 && <span className="text-[11px] font-mono text-pixel-gray">{tradesCount}</span>}
-              </span>
-            ) : null },
-            { id: "stats",  label: "STATS",  badge: isLive ? (
-              <span className="flex items-center gap-1.5 shrink-0">
-                <span className={`w-2 h-2 rounded-full ${dotCls}`} />
-                {orderCount > 0 && <span className="text-[11px] font-mono text-pixel-gray">{orderCount}</span>}
-              </span>
-            ) : null },
-            { id: "wallet", label: "WALLET", badge: bal !== null && bal !== undefined ? (
-              <span className="text-[11px] font-mono text-pixel-gray shrink-0">${bal < 10 ? bal.toFixed(2) : Math.round(bal)}</span>
-            ) : null },
-            { id: "params", label: "PARAMS", badge: activeStrat ? (
-              <span className="text-[11px] font-mono text-pixel-gray shrink-0 truncate max-w-[60px]" title={activeStrat.name}>
-                {activeStrat.name}
-              </span>
-            ) : null },
-          ];
-          return (
-            <>
-              {items.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setLiveTab(t.id)}
-                  className={`text-left px-3 py-2.5 text-[14px] font-mono tracking-[0.18em] uppercase border-l-2 transition-colors flex items-center justify-between gap-2 ${
-                    liveTab === t.id
-                      ? "border-green-400 text-green-400 bg-green-400/5"
-                      : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
-                  }`}
-                >
-                  <span>{t.label}</span>
-                  {t.badge}
-                </button>
-              ))}
-              {/* Running summary — surfaces the active task at the bottom
-                  of the rail so it's visible no matter which tab is
-                  selected. */}
-              {isLive && (
-                <div className="mt-2 pt-2 border-t border-pixel-border/40 px-1">
-                  <div className="text-[10px] text-pixel-gray tracking-[0.18em] mb-1">RUNNING</div>
-                  <div className="flex items-center gap-1.5 text-[11px] font-mono">
-                    <span className={`w-2 h-2 rounded-full ${dotCls}`} />
-                    <span className={
-                      isRunning ? "text-green-400" :
-                      isPaused ? "text-amber-400" :
-                      isErrored ? "text-red-400" : "text-pixel-gray"
-                    }>
-                      {status.toUpperCase()}
-                    </span>
-                  </div>
-                  {activeStrat && (
-                    <div className="text-[10px] text-pixel-white font-mono mt-1 truncate" title={activeStrat.name}>
-                      {activeStrat.name}
-                    </div>
-                  )}
-                  {liveCapital > 0 && (
-                    <div className="text-[10px] text-pixel-gray font-mono mt-0.5">
-                      capital ${liveCapital < 10 ? liveCapital.toFixed(2) : Math.round(liveCapital).toLocaleString()}
-                    </div>
-                  )}
-                  {engineState && (
-                    <div className="text-[10px] text-pixel-gray font-mono mt-0.5">
-                      {cycleCount} cycle{cycleCount === 1 ? "" : "s"}
-                    </div>
-                  )}
-                  {engineState?.nextCycleAt && isRunning && (
-                    <div className="text-[10px] text-pixel-gray font-mono">
-                      next {formatCountdown(nextIn)}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          );
-        })()}
-      </nav>
-      <div className="flex-1 min-w-0 space-y-3">
+      {/* ── Two-tab layout ──
+          A horizontal tab bar splits the LIVE view into TRADES (portfolio +
+          stats + execution log) and PARAMS (preconditions + strat config +
+          custom strats + wallet help). The pinned trading-wallet panel and
+          the critical CLOB/funding alert banners live OUTSIDE the tabs so
+          they're visible no matter which tab is selected. */}
+      <div className="space-y-3">
 
-      {/* ── Preconditions ──
+      {/* ── Plots (pinned above the tabs) ──
+          The portfolio charts sit ABOVE the ALL TRADES / MY TRADES tab bar so
+          they're always over the trades regardless of which tab is selected.
+          The panel's own PIE / OVER TIME control toggles between charts. */}
+      {auth.connected && <PortfolioPanel />}
+
+      {auth.connected && (
+        <div className="flex border-b border-pixel-border">
+          {([["all", "ALL TRADES"], ["mine", "MY TRADES"], ["split", "SIDE-BY-SIDE"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => {
+                setLiveTab(id);
+                // Tab drives the log feed: ALL TRADES → upstream (watched
+                // traders), MY TRADES → my on-chain fills. SPLIT keeps the
+                // upstream feed on the left and a mine feed on the right, so
+                // coerce any "upstream" filter to a my-trades one (fills).
+                if (id === "all") setTradesFilter("upstream");
+                else if (id === "mine") setTradesFilter("fills");
+                else if (tradesFilter === "upstream") setTradesFilter("fills");
+                setTradesPage(0);
+                setSplitPageAll(0);
+                setSplitPageMine(0);
+              }}
+              className={`px-5 py-2 text-[13px] font-mono tracking-[0.18em] uppercase border-b-2 -mb-px transition-all duration-150 ${
+                liveTab === id
+                  ? "border-green-400 text-green-400 glow-green"
+                  : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Preconditions ── (PARAMS tab)
           Moved to the TOP so the user knows what's blocking GO LIVE before
           scrolling through funding panels. Compact pill row: each step is
           green-filled when satisfied, amber-outline when actionable, muted
           when stale. The summary count tells you "5/6 ready" at a glance. */}
-      {liveTab === "params" && !isLive && (() => {
+      {liveTab === "mine" && !isLive && (() => {
         const items = [
           { ok: hasWallet, label: "WALLET", action: null as null | { label: string; disabled: boolean; onClick: () => void } },
           {
@@ -794,7 +749,7 @@ export default function LivePanel() {
             </div>
           </div>
           <button
-            onClick={() => setLiveTab("wallet")}
+            onClick={() => document.getElementById("live-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded"
           >
             FUND NOW →
@@ -802,77 +757,8 @@ export default function LivePanel() {
         </div>
       )}
 
-      {/* ── WALLET tab help banner (collapsible) ──
-          Two wallet panels was confusing users — explain at the top
-          which is the right one to use and what the other is for. The
-          collapsed state persists across reloads so users who already
-          know the layout don't get the wall of text every time. */}
-      {liveTab === "wallet" && auth.connected && (() => {
-        const KEY = "poly_wallet_help_open";
-        const [open, setOpen] = [
-          (() => {
-            try { return localStorage.getItem(KEY) !== "0"; }
-            catch { return true; }
-          })(),
-          (next: boolean) => {
-            try { localStorage.setItem(KEY, next ? "1" : "0"); }
-            catch {}
-          },
-        ];
-        return (
-          <details
-            className="pixel-panel border-2 border-pixel-border px-3 py-2 text-xs"
-            open={open}
-            onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-          >
-            <summary className="cursor-pointer list-none flex items-center gap-2">
-              <span className="inline-block w-4 h-4 rounded-full bg-blue-500/20 border border-blue-400/60 text-blue-400 text-center leading-[14px] text-[10px]">
-                ?
-              </span>
-              <span className="text-pixel-white font-bold tracking-wide">
-                Which wallet do I use?
-              </span>
-              <span className="ml-auto text-[10px] text-pixel-muted">
-                click to {open ? "collapse" : "expand"}
-              </span>
-            </summary>
-            <div className="mt-2 space-y-2">
-              <div className="text-pixel-muted leading-relaxed">
-                <span className="text-green-400 font-bold">TRADING WALLET</span>
-                {" "}is where you put money to copy-trade. <b>This is the only
-                one you need.</b> Click DEPOSIT, send USDC.e from MetaMask,
-                engine starts trading.
-              </div>
-              <div className="text-pixel-muted leading-relaxed">
-                <span className="text-purple-400 font-bold">LEGACY PROXY</span>
-                {" "}is a wallet from Polymarket's old (V1) system.
-                <b> Ignore it unless you have leftover USDC sitting there.</b>
-                {" "}If you do, WITHDRAW it back to your MetaMask, then DEPOSIT
-                into TRADING WALLET above. The panel auto-hides once empty.
-              </div>
-              <div className="text-pixel-muted leading-relaxed">
-                <span className="text-amber-400 font-bold">WITHDRAW</span> from
-                TRADING WALLET sends USDC.e straight to your MetaMask address
-                — gasless, no popup. Use it any time to pull funds out.
-              </div>
-            </div>
-          </details>
-        );
-      })()}
-
-      {/* ── Legacy V1 Safe (proxy) ── (PARAMS + WALLET tabs)
-          Auto-hides itself when balance is 0 (see component). Lets
-          users with leftover V1 funds withdraw them out and re-deposit
-          into the V2 TRADING WALLET. */}
-      {(liveTab === "params" || liveTab === "wallet") && auth.connected && (
-        <PolymarketAccountPanel />
-      )}
-
-      {/* ── V2 deposit wallet (trading address) ── (WALLET tab) */}
-      {liveTab === "wallet" && auth.connected && <WalletPanel />}
-
-      {/* ── Portfolio: cash vs positions, pie + over-time ── (PNL tab) */}
-      {liveTab === "pnl" && auth.connected && <PortfolioPanel />}
+      {/* Portfolio plots are pinned ABOVE the tab bar (see top of the content
+          column) so they sit over the trades on every tab. */}
 
       {/* BackendSignerPanel removed — the V1 Safe-co-owner flow that
           panel managed isn't needed for V2 trading. The V2 deposit
@@ -881,24 +767,10 @@ export default function LivePanel() {
           authorized signer — no separate "TURN ON AUTO-TRADING" step
           to flip. Auto-trading is on by construction. */}
 
-      {/* ── Active strat params + watchlist ── (PARAMS tab)
-          Read-only mirror of what's set in the STRATS tab — capital,
-          min/max trade, poll cadence, the trader list with weights.
-          Lets the user sanity-check what's about to fire without
-          leaving the LIVE view. `stratTick` re-evaluates on each strat
-          edit elsewhere in the app. */}
-      {liveTab === "params" && auth.connected && <StratParamsPanel tick={stratTick} />}
-
-      {/* ── Custom strats: upload mod.py / mod.rs ── (PARAMS tab)
-          File-based strats stored on the persistent data volume. Engine
-          runtime loader is the next layer — this surfaces the upload /
-          list / delete plumbing so the framework is ready. */}
-      {liveTab === "params" && auth.connected && <UserStratsPanel />}
-
-      {/* ── Stats (when live) ── (STATS tab)
+      {/* ── Stats (when live) ── (MY TRADES tab)
           Card grid; LAST SYNC tracks the most recent successful Polymarket
           data-api pull, LAST FETCH surfaces the CYCLE_END summary. */}
-      {liveTab === "stats" && isLive && engineState && (
+      {liveTab === "mine" && isLive && engineState && (
         <div className="pixel-panel border-2 border-pixel-border p-2">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
             <StatCard
@@ -1062,7 +934,17 @@ export default function LivePanel() {
           "TRADES" view filters to just the entries you actually copy or skip,
           which is what the user usually wants when monitoring. Pagination
           keeps the panel a fixed height instead of growing across the page. */}
-      {liveTab === "trades" && isLive && engineState && (() => {
+      {(liveTab === "all" || liveTab === "mine" || liveTab === "split") && isLive && engineState && (() => {
+        // One feed renderer, parameterized so SPLIT can show two at once. The
+        // params shadow the outer tradesFilter/tradesPage/setTradesPage so the
+        // body below needs no rewrite; `setTradesFilter` stays the shared
+        // setter (filter buttons drive whichever feed shows them).
+        const renderFeed = (
+          tradesFilter: "upstream" | "trades" | "all" | "fills",
+          tradesPage: number,
+          setTradesPage: (v: number | ((p: number) => number)) => void,
+          showFilterButtons: boolean,
+        ) => {
         const isUpstream = tradesFilter === "upstream";
         const isFills = tradesFilter === "fills";
         // UPSTREAM tab pulls from the engine's observed-trades ring buffer
@@ -1105,11 +987,67 @@ export default function LivePanel() {
             }
           }
         }
+        // Join MY FILLS back to the EP score the engine ranked the copy by.
+        // Raw on-chain fills don't carry a score, so we index every observed
+        // BUY by market (conditionId) WITH its timestamp, then match each fill
+        // to the observed trade closest in time for that market — so a fill
+        // gets ITS score even when the same market was traded several times at
+        // different scores. "—" when no observed trade for that market remains
+        // in the live buffer.
+        const scoresByMarket = new Map<string, { ts: number; score: number }[]>();
+        for (const ot of engineState.observedTrades) {
+          if (ot.side !== "BUY") continue;
+          const k = ot.conditionId?.toLowerCase();
+          if (!k) continue;
+          const arr = scoresByMarket.get(k);
+          if (arr) arr.push({ ts: ot.timestamp, score: ot.score });
+          else scoresByMarket.set(k, [{ ts: ot.timestamp, score: ot.score }]);
+        }
+        const scoreForFill = (conditionId: string, ts: number): number | undefined => {
+          const arr = scoresByMarket.get((conditionId || "").toLowerCase());
+          if (!arr || arr.length === 0) return undefined;
+          let best = arr[0];
+          let bestDelta = Math.abs(arr[0].ts - ts);
+          for (const e of arr) {
+            const d = Math.abs(e.ts - ts);
+            if (d < bestDelta) { best = e; bestDelta = d; }
+          }
+          return best.score;
+        };
+
         const sorted = [...items].sort((a, b) => b.timestamp - a.timestamp);
-        const totalPages = Math.max(1, Math.ceil(sorted.length / TRADES_PAGE_SIZE));
+
+        // Batch MY FILLS: a single copy often fills in many tiny pieces (and
+        // the same mirror can be placed repeatedly), flooding the list with
+        // identical rows. Collapse consecutive fills that share market /
+        // outcome / side / price into one ×N row.
+        const displayItems = isFills
+          ? (() => {
+              const groups: BatchedFill[] = [];
+              for (const r of sorted as PolymarketTrade[]) {
+                const prev = groups[groups.length - 1];
+                if (
+                  prev &&
+                  prev.side === r.side &&
+                  prev.price === r.price &&
+                  (prev.conditionId || prev.market) === (r.conditionId || r.market) &&
+                  prev.outcome === r.outcome
+                ) {
+                  prev.size += r.size;        // sorted desc → keep newest ts on the group
+                  prev.count += 1;
+                  prev.firstTs = r.timestamp; // r is older; track span start
+                } else {
+                  groups.push({ ...r, count: 1, firstTs: r.timestamp });
+                }
+              }
+              return groups;
+            })()
+          : sorted;
+
+        const totalPages = Math.max(1, Math.ceil(displayItems.length / TRADES_PAGE_SIZE));
         const safePage = Math.min(tradesPage, totalPages - 1);
         const start = safePage * TRADES_PAGE_SIZE;
-        const pageEntries = sorted.slice(start, start + TRADES_PAGE_SIZE);
+        const pageEntries = displayItems.slice(start, start + TRADES_PAGE_SIZE);
         const headerLabel =
           tradesFilter === "upstream" ? "TRADER TRADES" :
           tradesFilter === "trades" ? "MY TRADES" :
@@ -1123,20 +1061,15 @@ export default function LivePanel() {
             <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
               <span className="text-[14px] text-pixel-gray tracking-wider shrink-0">{headerLabel}</span>
               <span className="text-[12px] text-pixel-gray font-mono shrink-0">
-                {sorted.length} {countLabel}
+                {isFills && displayItems.length !== sorted.length
+                  ? `${displayItems.length} trades · ${sorted.length} fills batched`
+                  : `${sorted.length} ${countLabel}`}
               </span>
+              {/* On ALL TRADES the feed is fixed to the watched-trader stream,
+                  so no filter buttons. On MY TRADES, let the user switch
+                  between copy decisions, on-chain fills, and the full log. */}
+              {showFilterButtons && (
               <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => { setTradesFilter("upstream"); setTradesPage(0); }}
-                  className={`pixel-btn text-[11px] px-2 py-0.5 ${
-                    tradesFilter === "upstream"
-                      ? "border-green-400 text-green-400 bg-green-400/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white"
-                  }`}
-                  title="Raw real-time trades from the traders you watch"
-                >
-                  TRADER TRADES
-                </button>
                 <button
                   onClick={() => { setTradesFilter("trades"); setTradesPage(0); }}
                   className={`pixel-btn text-[11px] px-2 py-0.5 ${
@@ -1168,28 +1101,42 @@ export default function LivePanel() {
                   }`}
                   title="Everything: trades, decisions, cycle heartbeats, errors"
                 >
-                  ALL TRADES
+                  ALL
                 </button>
               </div>
+              )}
             </div>
             <div className="max-h-[300px] overflow-y-auto">
               {/* UPSTREAM rows look like the BACKTEST trade feed — trader,
                   side, market, notional. MIRROR/ALL rows use the existing
                   engine-log shape (with icons + reason text). */}
               {isFills
-                ? (pageEntries as PolymarketTrade[]).map((t) => (
+                ? (pageEntries as BatchedFill[]).map((t) => (
                     <div
                       key={t.id}
                       className="px-3 py-1 border-b border-pixel-border/20 text-[13px] font-mono hover:bg-pixel-white/5"
                     >
                       <div className="flex items-start gap-2">
-                        <span className="text-pixel-gray shrink-0 w-[52px]">{formatTime(t.timestamp)}</span>
+                        <span
+                          className="text-pixel-gray shrink-0 w-[52px]"
+                          title={t.count > 1 ? `${t.count} fills batched · ${formatTime(t.firstTs)}–${formatTime(t.timestamp)}` : undefined}
+                        >
+                          {formatTime(t.timestamp)}
+                        </span>
                         <span className={`shrink-0 w-[36px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
                           {t.side}
                         </span>
                         <span className="text-pixel-white truncate flex-1 min-w-0" title={t.market}>
                           {t.market}
                           {t.outcome ? <span className="text-pixel-gray-light"> · {t.outcome}</span> : null}
+                          {t.count > 1 && (
+                            <span
+                              className="ml-1.5 text-[10px] text-amber-400 font-bold"
+                              title={`${t.count} fills batched into one row`}
+                            >
+                              ×{t.count}
+                            </span>
+                          )}
                         </span>
                         <span className="text-pixel-gray-light shrink-0 text-right tabular-nums" title="fill price">
                           @{(t.price * 100).toFixed(0)}¢
@@ -1200,6 +1147,38 @@ export default function LivePanel() {
                         <span className="text-pixel-white shrink-0 w-[60px] text-right tabular-nums" title="notional (price × shares)">
                           ${(t.price * t.size).toFixed(2)}
                         </span>
+                        {/* EP score the engine ranked this copy by, joined
+                            from the observed-trades buffer by market. SELLs and
+                            aged-out trades read "—". */}
+                        {(() => {
+                          const score = t.side === "SELL"
+                            ? undefined
+                            : scoreForFill(t.conditionId, t.timestamp);
+                          return (
+                            <span
+                              className={`shrink-0 w-[60px] text-right tabular-nums text-[12px] ${
+                                score === undefined
+                                  ? "text-pixel-gray"
+                                  : score > 5
+                                    ? "text-green-400"
+                                    : score > 1
+                                      ? "text-yellow-400"
+                                      : score > 0
+                                        ? "text-pixel-gray-light"
+                                        : "text-red-400/70"
+                              }`}
+                              title={
+                                t.side === "SELL"
+                                  ? "SELL — EP N/A (closes a position)"
+                                  : score === undefined
+                                    ? "Score N/A — originating trade aged out of the live buffer"
+                                    : `Expected profit $${score.toFixed(2)} = trader ROI × mirror notional`
+                              }
+                            >
+                              {score === undefined ? "—" : `$${score.toFixed(2)}`}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))
@@ -1316,6 +1295,23 @@ export default function LivePanel() {
                             {entry.side === "BUY" ? "-" : "+"}${entry.mirrorNotional.toFixed(2)}
                           </span>
                         )}
+                        {/* EP score the engine ranked this copy by. */}
+                        {entry.score !== undefined && entry.side !== "SELL" && (
+                          <span
+                            className={`ml-2 ${
+                              entry.score > 5
+                                ? "text-green-400"
+                                : entry.score > 1
+                                  ? "text-yellow-400"
+                                  : entry.score > 0
+                                    ? "text-pixel-gray-light"
+                                    : "text-red-400/70"
+                            }`}
+                            title="Expected profit the engine ranked this copy by (trader ROI × mirror notional)"
+                          >
+                            EP ${entry.score.toFixed(2)}
+                          </span>
+                        )}
                         {entry.reason && (
                           <span className="text-pixel-gray"> {entry.reason}</span>
                         )}
@@ -1342,7 +1338,7 @@ export default function LivePanel() {
             {totalPages > 1 && (
               <div className="px-3 py-1.5 border-t border-pixel-border/40 flex items-center justify-between">
                 <span className="text-[11px] text-pixel-gray font-mono">
-                  {start + 1}-{Math.min(start + TRADES_PAGE_SIZE, sorted.length)} of {sorted.length}
+                  {start + 1}-{Math.min(start + TRADES_PAGE_SIZE, displayItems.length)} of {displayItems.length}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
@@ -1367,17 +1363,107 @@ export default function LivePanel() {
             )}
           </div>
         );
+        }; // end renderFeed
+
+        // SPLIT: watched-trader feed (left) + my-trades feed (right), each
+        // with independent pagination. The right column keeps the MY
+        // TRADES/FILLS/ALL filter buttons; the left is fixed to upstream.
+        if (liveTab === "split") {
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 items-start">
+              {renderFeed("upstream", splitPageAll, setSplitPageAll, false)}
+              {renderFeed(tradesFilter === "upstream" ? "fills" : tradesFilter, splitPageMine, setSplitPageMine, true)}
+            </div>
+          );
+        }
+        return renderFeed(tradesFilter, tradesPage, setTradesPage, liveTab === "mine");
       })()}
 
       {/* ── Empty state when live but no log ── */}
-      {liveTab === "trades" && isLive && engineState && engineState.log.length === 0 && tradesFilter !== "fills" && (
+      {liveTab === "mine" && isLive && engineState && engineState.log.length === 0 && tradesFilter !== "fills" && (
         <div className="pixel-panel border-2 border-pixel-border px-3 py-4 text-center">
           <span className="text-[15px] text-pixel-gray">WAITING FOR FIRST CYCLE...</span>
         </div>
       )}
 
-      </div>{/* /flex-1 content area */}
-      </div>{/* /sidebar row */}
+      {/* ══ CONFIG ══ (MY TRADES tab)
+          Strat params, custom strats, and wallet admin moved BELOW the
+          plots + trades so the chart and execution feed lead the view. */}
+
+      {/* ── Active strat params + watchlist ──
+          Read-only mirror of what's set in the STRATS tab — capital,
+          min/max trade, poll cadence, the trader list with weights.
+          `stratTick` re-evaluates on each strat edit elsewhere in the app. */}
+      {liveTab === "mine" && auth.connected && <StratParamsPanel tick={stratTick} />}
+
+      {/* ── Custom strats / Strategy Hub moved to the STRATS tab top bar ──
+          (publish · fork · fund). See CopyIndex STRATS-mode hub bar. */}
+
+      {/* ── WALLET help banner (collapsible) ──
+          Explains which wallet to use. Collapsed state persists across
+          reloads so users who know the layout don't get the wall of text. */}
+      {liveTab === "mine" && auth.connected && (() => {
+        const KEY = "poly_wallet_help_open";
+        const [open, setOpen] = [
+          (() => {
+            try { return localStorage.getItem(KEY) !== "0"; }
+            catch { return true; }
+          })(),
+          (next: boolean) => {
+            try { localStorage.setItem(KEY, next ? "1" : "0"); }
+            catch {}
+          },
+        ];
+        return (
+          <details
+            className="pixel-panel border-2 border-pixel-border px-3 py-2 text-xs"
+            open={open}
+            onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer list-none flex items-center gap-2">
+              <span className="inline-block w-4 h-4 rounded-full bg-blue-500/20 border border-blue-400/60 text-blue-400 text-center leading-[14px] text-[10px]">
+                ?
+              </span>
+              <span className="text-pixel-white font-bold tracking-wide">
+                Which wallet do I use?
+              </span>
+              <span className="ml-auto text-[10px] text-pixel-muted">
+                click to {open ? "collapse" : "expand"}
+              </span>
+            </summary>
+            <div className="mt-2 space-y-2">
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-green-400 font-bold">TRADING WALLET</span>
+                {" "}is where you put money to copy-trade. <b>This is the only
+                one you need.</b> Click DEPOSIT, send USDC.e from MetaMask,
+                engine starts trading.
+              </div>
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-purple-400 font-bold">LEGACY PROXY</span>
+                {" "}is a wallet from Polymarket's old (V1) system.
+                <b> Ignore it unless you have leftover USDC sitting there.</b>
+                {" "}If you do, WITHDRAW it back to your MetaMask, then DEPOSIT
+                into TRADING WALLET above. The panel auto-hides once empty.
+              </div>
+              <div className="text-pixel-muted leading-relaxed">
+                <span className="text-amber-400 font-bold">WITHDRAW</span> from
+                TRADING WALLET sends USDC.e straight to your MetaMask address
+                — gasless, no popup. Use it any time to pull funds out.
+              </div>
+            </div>
+          </details>
+        );
+      })()}
+
+      {/* ── Legacy V1 Safe (proxy) ──
+          Auto-hides itself when balance is 0 (see component). Lets
+          users with leftover V1 funds withdraw them out and re-deposit
+          into the V2 TRADING WALLET. */}
+      {liveTab === "mine" && auth.connected && (
+        <PolymarketAccountPanel />
+      )}
+
+      </div>{/* /content column */}
     </div>
   );
 }
