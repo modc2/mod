@@ -397,11 +397,23 @@ async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
 
 // ── vaults ──
 
-async fn vaults(State(s): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    s.hl.vaults().await.map(Json).map_err(err500)
+#[derive(Deserialize)]
+struct VaultsQ { min_tvl: Option<f64>, pool: Option<usize> }
+async fn vaults(State(s): State<AppState>, Query(q): Query<VaultsQ>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let pool = q.pool.unwrap_or(300).clamp(1, 2000);
+    let vaults = crate::vaults::top_vaults(s.hl.clone(), q.min_tvl, pool)
+        .await.map_err(err500)?;
+    Ok(Json(json!({ "vaults": vaults })))
 }
-async fn vault_details(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    s.hl.vault_details(&a).await.map(Json).map_err(err500)
+
+#[derive(Deserialize)]
+struct VaultDetailQ { user: Option<String> }
+async fn vault_details(State(s): State<AppState>, Path(a): Path<String>, Query(q): Query<VaultDetailQ>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    s.hl.vault_details(&a, q.user.as_deref()).await.map(Json).map_err(err500)
 }
 async fn vault_perf(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     s.hl.vault_pnl(&a).await.map(Json).map_err(err500)

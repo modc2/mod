@@ -2,6 +2,8 @@
 
 export type TopTrader = {
   address: string;
+  roi: number;            // window return on equity, percent (ranking metric)
+  account_value: number;  // current account equity (USD)
   volume: number;
   pnl: number;
   win_rate: number;
@@ -131,8 +133,18 @@ export const autoIndex = (b: { days?: number; top?: number; min_per_day?: number
   );
 
 // ── vaults ──
-export const listVaults = () => j<any>(`/vaults`);
-export const vaultDetails = (addr: string) => j<any>(`/vaults/${addr}`);
+export type Vault = {
+  address: string;
+  name: string;
+  leader: string;
+  apr: number;       // percent
+  tvl: number;       // USD
+  age_days: number;
+};
+export const listVaults = (pool = 300, minTvl?: number) =>
+  j<{ vaults: Vault[] }>(`/vaults?pool=${pool}${minTvl != null ? `&min_tvl=${minTvl}` : ""}`);
+export const vaultDetails = (addr: string, user?: string) =>
+  j<any>(`/vaults/${addr}${user ? `?user=${user}` : ""}`);
 export const vaultPerf = (addr: string) => j<any>(`/vaults/${addr}/perf`);
 export const vaultIntent = (id: string, initial_usd: number) =>
   j<any>(`/indexes/${id}/vault/intent`, {

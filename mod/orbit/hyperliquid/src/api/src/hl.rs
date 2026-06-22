@@ -146,11 +146,33 @@ impl Client {
     }
 
     pub async fn vaults(&self) -> anyhow::Result<Value> {
-        self.info(json!({"type": "vaults"})).await
+        // The /info "vaults" type was retired (422s now); the public web UI
+        // pulls the full vault universe from the same stats CDN as the
+        // leaderboard. Each entry is { apr, pnls, summary:{ name, vaultAddress,
+        // leader, tvl, isClosed, relationship, createTimeMillis } }.
+        if let Some(v) = self.cache_get("vaults", Duration::from_secs(60)) {
+            return Ok(v);
+        }
+        let url = self.stats_url.replace("leaderboard", "vaults");
+        let r = self.http.get(&url).send().await?;
+        let status = r.status();
+        let txt = r.text().await?;
+        if !status.is_success() {
+            anyhow::bail!("vaults {} {}", status, txt);
+        }
+        let v: Value = serde_json::from_str(&txt).unwrap_or(Value::Null);
+        self.cache_put("vaults".into(), v.clone());
+        Ok(v)
     }
 
-    pub async fn vault_details(&self, addr: &str) -> anyhow::Result<Value> {
-        self.info(json!({"type": "vaultDetails", "vaultAddress": addr})).await
+    pub async fn vault_details(&self, addr: &str, user: Option<&str>) -> anyhow::Result<Value> {
+        // Passing `user` populates followerState / maxWithdrawable for that
+        // depositor, which the invest page needs to show "your position".
+        let mut body = json!({"type": "vaultDetails", "vaultAddress": addr});
+        if let Some(u) = user {
+            body.as_object_mut().unwrap().insert("user".into(), Value::String(u.to_string()));
+        }
+        self.info(body).await
     }
 
     pub async fn vault_pnl(&self, addr: &str) -> anyhow::Result<Value> {

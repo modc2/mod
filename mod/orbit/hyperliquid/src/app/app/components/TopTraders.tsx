@@ -4,20 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchTopTraders, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../lib/api";
 import Link from "next/link";
 
-type SortKey = "pnl" | "volume" | "win_rate" | "trades" | "sharpe";
+type SortKey = "roi" | "pnl" | "volume" | "win_rate" | "trades" | "sharpe";
 
-const DAY_OPTIONS = [1, 3, 7, 14, 30];
+// HL's native ROI windows are day / week / month — 1, 7, 30 days. Other values
+// would just bucket back to these, so we don't pretend to offer them.
+const DAY_OPTIONS = [1, 7, 30];
 const POOL_OPTIONS = [50, 150, 300, 600];
 
 export default function TopTraders() {
   const [days, setDays] = useState(7);
-  const [minPerDay, setMinPerDay] = useState(1);
   const [pool, setPool] = useState(50);
   const [seed, setSeed] = useState("");
   const [traders, setTraders] = useState<TopTrader[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("pnl");
+  const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -27,7 +28,8 @@ export default function TopTraders() {
     setLoading(true); setErr(null);
     try {
       const seedArr = seed.split(",").map((s) => s.trim()).filter(Boolean);
-      const res = await fetchTopTraders(days, minPerDay, pool, seedArr);
+      // Liveness filtering is server-side (traded in last 24h); no trades/day knob.
+      const res = await fetchTopTraders(days, 0, pool, seedArr);
       setTraders(res.traders ?? []);
       setUpdatedAt(Date.now());
     } catch (e: any) { setErr(e.message ?? String(e)); setTraders([]); }
@@ -35,7 +37,7 @@ export default function TopTraders() {
   };
 
   // Refetch when filters change.
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, minPerDay, pool]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, pool]);
 
   // Auto-refresh every 60s (matches the API-side cache TTL ceiling).
   useEffect(() => {
@@ -43,7 +45,7 @@ export default function TopTraders() {
     const id = setInterval(() => { if (!loading) load(); }, 60_000);
     return () => clearInterval(id);
     // eslint-disable-next-line
-  }, [autoRefresh, days, minPerDay, pool, seed, loading]);
+  }, [autoRefresh, days, pool, seed, loading]);
 
   const sorted = useMemo(() => {
     const arr = [...traders];
@@ -94,9 +96,8 @@ export default function TopTraders() {
           </div>
         </div>
         <div>
-          <div className="label">min trades / day</div>
-          <input className="input w-20 num" type="number" min={0} step={0.5}
-            value={minPerDay} onChange={(e) => setMinPerDay(Number(e.target.value))} />
+          <div className="label">activity</div>
+          <div className="btn border-accent/30 text-accent2 cursor-default">traded ≤24h</div>
         </div>
         <div>
           <div className="label">candidate pool</div>
@@ -136,8 +137,9 @@ export default function TopTraders() {
 
       {/* Table */}
       <div className="panel">
-        <div className="grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-2 border-b border-border">
+        <div className="grid grid-cols-[2.2fr_repeat(6,1fr)_2fr_1.6fr] gap-2 px-4 py-2 border-b border-border">
           <div className="label !mb-0">trader</div>
+          <div>{sortHeader("roi", "roi")}</div>
           <div>{sortHeader("pnl", "pnl")}</div>
           <div>{sortHeader("volume", "volume")}</div>
           <div>{sortHeader("win_rate", "win%")}</div>
@@ -149,9 +151,9 @@ export default function TopTraders() {
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
         {loading && sorted.length === 0 &&
           [...Array(6)].map((_, i) => (
-            <div key={i} className="grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-3 items-center table-row">
+            <div key={i} className="grid grid-cols-[2.2fr_repeat(6,1fr)_2fr_1.6fr] gap-2 px-4 py-3 items-center table-row">
               <div className="skeleton h-4 w-44" />
-              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+              {[...Array(8)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
             </div>
           ))}
         {!err && !loading && sorted.length === 0 && (
@@ -163,7 +165,7 @@ export default function TopTraders() {
             : rank <= 3 ? "text-accent border-accent/40" : "text-dim border-white/[0.08]";
           return (
           <div key={t.address}
-            className="group grid grid-cols-[2.2fr_repeat(5,1fr)_2fr_1.6fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
+            className="group grid grid-cols-[2.2fr_repeat(6,1fr)_2fr_1.6fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`grid place-items-center h-5 w-5 shrink-0 rounded-md border text-[10px] font-mono font-semibold ${medal}`}>
                 {rank}
@@ -180,12 +182,16 @@ export default function TopTraders() {
                 ))}
               </div>
             </div>
-            <div className={`num text-right font-semibold ${t.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(t.pnl)}</div>
-            <div className="num text-right text-ink/90">{fmtUsd(t.volume)}</div>
+            <div className={`num text-right font-semibold ${(t.roi ?? 0) >= 0 ? "text-win" : "text-loss"}`}
+              title={t.account_value > 0 ? `on ${fmtUsd(t.account_value)} equity` : undefined}>
+              {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
+            </div>
+            <div className={`num text-right ${t.pnl >= 0 ? "text-win/90" : "text-loss/90"}`}>{fmtPnl(t.pnl)}</div>
+            <div className="num text-right text-ink/90">{t.volume > 0 ? fmtUsd(t.volume) : "—"}</div>
             <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}</div>
-            <div className="num text-right text-ink/90">{t.trades}</div>
-            <div className="num text-right text-ink/90">{t.sharpe.toFixed(2)}</div>
-            <div className="text-right text-[11px] text-muted">{ago(t.last_active)}</div>
+            <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : t.trades}</div>
+            <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : t.sharpe.toFixed(2)}</div>
+            <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
             <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
               <Link href={`/trader/${t.address}?days=${days}`} className="btn">view</Link>
               <Link href={`/follows/new?leader=${t.address}`} className="btn-primary">copy</Link>

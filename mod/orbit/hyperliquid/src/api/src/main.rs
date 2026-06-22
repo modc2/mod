@@ -1,5 +1,6 @@
 mod hl;
 mod traders;
+mod vaults;
 mod copytrade;
 mod indexes;
 mod store;

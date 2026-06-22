@@ -62,6 +62,8 @@ impl ProgressTracker {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopTrader {
     pub address: String,
+    pub roi: f64,           // window return on equity, percent (the ranking metric)
+    pub account_value: f64, // current account equity (USD), for context / sizing ROI
     pub volume: f64,        // USD volume in window
     pub pnl: f64,           // closedPnl - fees, summed
     pub win_rate: f64,      // 0..100, -1 if no realised fills
@@ -85,16 +87,32 @@ fn window_for_days(days: u32) -> &'static str {
 /// When `/info` 429s on every candidate, we still want the UI to show
 /// SOMETHING — the leaderboard CDN already gives us pnl + vlm per window,
 /// so we synthesize a TopTrader directly from those.
+// Dust guard for ROI ranking. ROI rewards small accounts that got lucky
+// (a $50 account that doubles shows +100% ROI), which would otherwise crowd
+// out real, copyable traders. Require a minimum account equity so the board
+// is "top ROI among accounts worth copying", not "top ROI among dust".
+const MIN_ACCOUNT_VALUE: f64 = 1_000.0;
+
+// We render every selected row straight from the leaderboard (real ROI / PnL /
+// volume), and only hit /info for per-fill colour (win%, sharpe, trade count,
+// coins) on the top slice. HL 429s aggressive /info scans, so enriching all of
+// a 600-pool would take minutes; cap it so the board stays responsive. Rows
+// past the cap still show the scraped ROI/PnL/volume, just "—" for fill stats.
+const ENRICH_CAP: usize = 120;
+
 #[derive(Debug, Clone, Default)]
 struct LbRow {
-    pnl: f64,
-    vlm: f64,
-    last_active_ms: i64,
+    roi: f64,               // ranking-window ROI as a fraction (0.05 == +5%)
+    pnl: f64,               // ranking-window PnL (USD)
+    vlm: f64,               // ranking-window volume (USD)
+    day_vlm: f64,           // last-24h volume — our "traded recently" signal
+    account_value: f64,
 }
 
-// Parse the stats-CDN leaderboard, ranking candidates by the chosen window's
-// PnL so the cohort we score with fills actually reflects performance in
-// that window — not just the all-time top accounts.
+// Parse the stats-CDN leaderboard. We rank candidates by the chosen window's
+// ROI (HL publishes a time-weighted `roi` per window) and, separately, read the
+// "day" window's volume so we can keep only accounts that actually traded in
+// the last 24h. pnl/vlm/accountValue ride along for display.
 fn parse_lb_ranked(v: &Value, window: &str) -> Vec<(String, LbRow)> {
     let rows = v.get("leaderboardRows").and_then(|x| x.as_array());
     let mut scored: Vec<(String, LbRow)> = Vec::new();
@@ -103,28 +121,40 @@ fn parse_lb_ranked(v: &Value, window: &str) -> Vec<(String, LbRow)> {
             let addr = row.get("ethAddress").and_then(|x| x.as_str()).unwrap_or("");
             if !addr.starts_with("0x") || addr.len() != 42 { continue; }
             let mut data = LbRow::default();
+            data.account_value = row.get("accountValue").and_then(|x| x.as_str())
+                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
             let mut found = false;
             if let Some(perfs) = row.get("windowPerformances").and_then(|x| x.as_array()) {
                 for p in perfs {
-                    if let Some(pair) = p.as_array() {
-                        if pair.len() == 2 && pair[0].as_str() == Some(window) {
-                            let body = &pair[1];
-                            data.pnl = body.get("pnl").and_then(|x| x.as_str())
-                                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-                            data.vlm = body.get("vlm").and_then(|x| x.as_str())
-                                .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-                            found = true;
-                        }
+                    let Some(pair) = p.as_array() else { continue };
+                    if pair.len() != 2 { continue; }
+                    let name = pair[0].as_str().unwrap_or("");
+                    let body = &pair[1];
+                    let vlm = body.get("vlm").and_then(|x| x.as_str())
+                        .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    if name == "day" { data.day_vlm = vlm; }
+                    if name == window {
+                        data.roi = body.get("roi").and_then(|x| x.as_str())
+                            .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                        data.pnl = body.get("pnl").and_then(|x| x.as_str())
+                            .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                        data.vlm = vlm;
+                        found = true;
                     }
                 }
             }
-            if !found { data.pnl = f64::NEG_INFINITY; }
+            if !found { data.roi = f64::NEG_INFINITY; }
             scored.push((addr.to_lowercase(), data));
         }
     }
-    scored.sort_by(|a, b| b.1.pnl.partial_cmp(&a.1.pnl).unwrap_or(std::cmp::Ordering::Equal));
-    // Drop the sentinel -inf rows (no window data) before returning.
-    scored.retain(|(_, d)| d.pnl > f64::NEG_INFINITY);
+    scored.sort_by(|a, b| b.1.roi.partial_cmp(&a.1.roi).unwrap_or(std::cmp::Ordering::Equal));
+    // Keep accounts that (a) have ranking-window ROI data, (b) clear the dust
+    // floor, and (c) traded in the last 24h — day-window volume > 0 is the
+    // user-requested liveness gate. A dormant book is uncopyable no matter how
+    // good its trailing ROI looks.
+    scored.retain(|(_, d)| {
+        d.roi > f64::NEG_INFINITY && d.account_value >= MIN_ACCOUNT_VALUE && d.day_vlm > 0.0
+    });
     scored
 }
 
@@ -184,37 +214,40 @@ pub async fn top_traders(
 pub async fn top_traders_with_progress(
     hl: Arc<Client>,
     days: u32,
-    min_per_day: f64,
+    _min_per_day: f64,   // retired: liveness is now "traded in last 24h" (see parse_lb_ranked)
     pool: usize,
     extra_addrs: Vec<String>,
     progress: Option<Arc<ProgressTracker>>,
 ) -> anyhow::Result<Vec<TopTrader>> {
     let lb = hl.leaderboard().await.unwrap_or(Value::Null);
+    // Whole-universe leaderboard, ranked by ROI and already filtered to
+    // accounts that traded in the last 24h. This IS the source of truth for the
+    // board — every row's ROI/PnL/volume comes from here, so "top `pool`" means
+    // literally the top `pool` of the scrape, not a sample of whatever we could
+    // scan.
     let ranked = parse_lb_ranked(&lb, window_for_days(days));
-    // Keep the per-row data accessible by address for the fast-path
-    // fallback below. We also keep the ordered Vec<String> for the fills
-    // fan-out so the rest of the loop is unchanged.
-    let mut lb_by_addr: std::collections::HashMap<String, LbRow> =
+    let lb_by_addr: std::collections::HashMap<String, LbRow> =
         ranked.iter().cloned().collect();
     let mut addrs: Vec<String> = ranked.into_iter().map(|(a, _)| a).collect();
-    for a in extra_addrs {
-        if !addrs.contains(&a) {
-            addrs.push(a.clone());
-            lb_by_addr.entry(a).or_default();
-        }
-    }
     addrs.truncate(pool.max(1));
+    // Seed wallets are always included on top of the ranked pool.
+    for a in extra_addrs {
+        if !addrs.contains(&a) { addrs.push(a); }
+    }
 
     let cutoff_ms: i64 = chrono::Utc::now().timestamp_millis()
         - (days as i64) * 86_400_000;
-    let min_trades = ((days as f64) * min_per_day).ceil() as usize;
 
-    if let Some(p) = progress.as_ref() { p.start(days, addrs.len()); }
+    // Enrich only the top slice with per-fill stats (win%/sharpe/trades/coins).
+    let enrich: std::collections::HashSet<String> =
+        addrs.iter().take(ENRICH_CAP).cloned().collect();
+    if let Some(p) = progress.as_ref() { p.start(days, enrich.len()); }
     let counter = Arc::new(AtomicUsize::new(0));
 
     // Hyperliquid /info rate-limits aggressive parallel scans; cap concurrency
-    // so longer windows don't silently drop addresses to 429s.
-    let results: Vec<(String, Vec<Fill>)> = stream::iter(addrs.iter().cloned())
+    // so longer windows don't silently drop addresses to 429s. Rows that 429
+    // here aren't dropped — they just keep their leaderboard-only stats.
+    let scanned: Vec<(String, Vec<Fill>)> = stream::iter(enrich.iter().cloned())
         .map(|addr| {
             let hl = hl.clone();
             let progress = progress.clone();
@@ -232,62 +265,48 @@ pub async fn top_traders_with_progress(
                 r
             }
         })
-        // Down from 4 — HL's /info aggressively 429s above ~2 concurrent
-        // per-IP, and each 429 drops that candidate from the cohort
-        // (no fill data = no score). 2 keeps us under the throttle while
-        // the scan stays usable.
         .buffer_unordered(2)
         .collect()
         .await;
     if let Some(p) = progress.as_ref() { p.finish(); }
+    let fills_by_addr: std::collections::HashMap<String, Vec<Fill>> =
+        scanned.into_iter().collect();
 
-    let mut out = Vec::new();
-    let mut fill_scored = 0usize;
-    for (addr, fills) in results {
-        if fills.len() < min_trades.max(1) { continue; }
-        let (vol, pnl, wr, n, coins, sharpe, last) = score_fills(&fills, cutoff_ms);
-        if n == 0 { continue; }
-        fill_scored += 1;
-        out.push(TopTrader {
-            address: addr,
-            volume: vol, pnl, win_rate: wr,
-            trades: n, coins,
-            avg_trade_usd: if n == 0 { 0.0 } else { vol / n as f64 },
-            sharpe,
-            last_active: last,
-        });
-    }
-    // Fallback: if /info was rate-limited so hard that we couldn't score
-    // enough candidates (less than half of the requested pool), synthesize
-    // rows from the leaderboard CDN data we already have. PnL + volume
-    // come from the window, but per-fill stats (win_rate, sharpe, trades,
-    // coins) are unknown — sentinel as -1 / 0 / [] so the UI can render
-    // them as "—". Better to show partial data than an empty table.
-    let want_at_least = (pool / 2).max(1);
-    if fill_scored < want_at_least {
-        let have: std::collections::HashSet<String> =
-            out.iter().map(|t| t.address.clone()).collect();
-        for addr in &addrs {
-            if have.contains(addr) { continue; }
-            let row = lb_by_addr.get(addr).cloned().unwrap_or_default();
-            // Skip if the window had no PnL data at all (already filtered
-            // upstream, but keep the guard for the extra_addrs path).
-            if row.pnl == 0.0 && row.vlm == 0.0 { continue; }
-            out.push(TopTrader {
-                address: addr.clone(),
-                volume: row.vlm,
-                pnl: row.pnl,
-                win_rate: -1.0,   // unknown — UI renders "—"
-                trades: 0,
-                coins: Vec::new(),
-                avg_trade_usd: 0.0,
-                sharpe: 0.0,
-                last_active: row.last_active_ms,
-            });
-            if out.len() >= pool { break; }
+    // Build one row per selected address, straight from the leaderboard, and
+    // layer per-fill colour on top where we managed to scan it.
+    let mut out = Vec::with_capacity(addrs.len());
+    for addr in &addrs {
+        let row = lb_by_addr.get(addr).cloned().unwrap_or_default();
+        let mut t = TopTrader {
+            address: addr.clone(),
+            roi: row.roi * 100.0,          // HL's official window ROI (percent)
+            account_value: row.account_value,
+            volume: row.vlm,
+            pnl: row.pnl,
+            win_rate: -1.0,                // "—" until/unless fills enrich it
+            trades: 0,
+            coins: Vec::new(),
+            avg_trade_usd: 0.0,
+            sharpe: 0.0,
+            last_active: 0,                // 0 ⇒ UI shows "≤24h" (liveness gate)
+        };
+        if let Some(fills) = fills_by_addr.get(addr) {
+            if !fills.is_empty() {
+                let (vol, _pnl, wr, n, coins, sharpe, last) = score_fills(fills, cutoff_ms);
+                if n > 0 {
+                    t.win_rate = wr;
+                    t.trades = n;
+                    t.coins = coins;
+                    t.sharpe = sharpe;
+                    t.avg_trade_usd = vol / n as f64;
+                    t.last_active = last;
+                }
+            }
         }
+        out.push(t);
     }
-    out.sort_by(|a, b| b.pnl.partial_cmp(&a.pnl).unwrap_or(std::cmp::Ordering::Equal));
+    // Rank the board by ROI — the same metric we selected the cohort on.
+    out.sort_by(|a, b| b.roi.partial_cmp(&a.roi).unwrap_or(std::cmp::Ordering::Equal));
     Ok(out)
 }
 
@@ -300,11 +319,20 @@ pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<V
     let state = hl.user_state(addr).await.unwrap_or(Value::Null);
     let pnl_hist = hl.user_pnl(addr).await.unwrap_or(Value::Null);
     let open = hl.open_orders(addr).await.unwrap_or(Value::Null);
+    // Equity from the user's clearinghouse state, so ROI here matches the
+    // board's pnl/equity definition.
+    let account_value = state.get("marginSummary")
+        .and_then(|m| m.get("accountValue"))
+        .and_then(|x| x.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let roi = if account_value > 0.0 { pnl / account_value * 100.0 } else { 0.0 };
     Ok(serde_json::json!({
         "address": addr,
         "days": days,
         "summary": TopTrader {
             address: addr.to_string(),
+            roi, account_value,
             volume: vol, pnl, win_rate: wr, trades: n,
             coins, sharpe,
             avg_trade_usd: if n == 0 { 0.0 } else { vol / n as f64 },
