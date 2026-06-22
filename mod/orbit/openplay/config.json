@@ -1,0 +1,65 @@
+{
+    "name": "openplay",
+    "description": "Pickup sports across the city \u2014 create soccer/hockey/basketball games, invite & RSVP, recurring games, free by default with optional USDC/USDT on Base",
+    "version": "1.0.0",
+    "port": 50160,
+    "app_port": 50161,
+    "urls": {
+        "api": "http://localhost:50160",
+        "app": "http://localhost:50161"
+    },
+    "network": "mainnet",
+    "payments": {
+        "default_free": true,
+        "chain": "base",
+        "tokens": {
+            "base": {
+                "USDC": {
+                    "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "decimals": 6
+                },
+                "USDT": {
+                    "address": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                    "decimals": 6
+                }
+            },
+            "base-sepolia": {
+                "USDC": {
+                    "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+                    "decimals": 6
+                }
+            }
+        },
+        "facilitator": "https://x402.org/facilitator"
+    },
+    "fns": [
+        "forward",
+        "health",
+        "status",
+        "sports",
+        "venues",
+        "games",
+        "game",
+        "create_game",
+        "edit_game",
+        "cancel_game",
+        "set_cost",
+        "join",
+        "leave",
+        "invite",
+        "accept_invite",
+        "decline_invite",
+        "kick",
+        "payment_requirements",
+        "serve",
+        "kill",
+        "serve_api",
+        "kill_api",
+        "serve_app",
+        "kill_app",
+        "register",
+        "deregister"
+    ],
+    "gateway_port": 50161,
+    "schema": "QmVa43gd6ewY53Xs3nQXrVK7ETo57t196MfkEUBZg5i4R4"
+}
