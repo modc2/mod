@@ -442,8 +442,25 @@ impl ClaudeJobManager {
         let agent_type = req.agent_type;
         let system_prompt = req.system_prompt;
 
+        // ── Privilege drop for untrusted jobs ──────────────────────────────────
+        // The CLI runs with `--dangerously-skip-permissions`; `work_dir` is only a
+        // cwd, NOT a write boundary. Since the API now runs as root (pm2), a
+        // malicious NON-OWNER prompt could otherwise write absolute paths into the
+        // owner's modules. So any job from an authenticated non-owner is spawned
+        // under an unprivileged uid that has no write access to the root-owned
+        // module tree — kernel-enforced containment no prompt can escape. Owner &
+        // local-mode jobs are trusted and keep running as root.
+        let job_user = req.user_address.clone().unwrap_or_default();
+        let local_mode = std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1";
+        let sandbox: Option<(u32, u32)> =
+            if !job_user.is_empty() && !local_mode && !crate::auth::is_owner(&job_user) {
+                Some(sandbox_ids())
+            } else {
+                None
+            };
+
         tokio::spawn(async move {
-            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), store, streams, cancelled, tx).await;
+            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), sandbox, store, streams, cancelled, tx).await;
         });
 
         self.store.get(&id).unwrap_or(job)
@@ -522,6 +539,41 @@ fn expand_tilde(path: &str) -> String {
 
 // ── Process Runner ───────────────────────────────────────────────────
 
+/// Unprivileged (uid, gid) used to sandbox non-owner jobs. Defaults to
+/// `nobody`/`nogroup` (65534), overridable via CLAUDE_SANDBOX_UID / _GID so a
+/// deployment can dedicate a purpose-built user. A process running as this id
+/// cannot write the root-owned module tree, which is the whole point.
+fn sandbox_ids() -> (u32, u32) {
+    let uid = std::env::var("CLAUDE_SANDBOX_UID")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(65534);
+    let gid = std::env::var("CLAUDE_SANDBOX_GID")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(65534);
+    (uid, gid)
+}
+
+/// Best-effort recursive chown so the dropped-privilege child can actually write
+/// inside its own workspace (which we created as root). Bounded depth to avoid
+/// pathological trees; failures are non-fatal (the job just may not be able to
+/// write pre-existing files, never a security risk).
+fn chown_tree(path: &std::path::Path, uid: u32, gid: u32, depth: usize) {
+    use std::os::unix::fs::chown;
+    if depth > 64 {
+        return;
+    }
+    let _ = chown(path, Some(uid), Some(gid));
+    if path.is_dir() && !path.is_symlink() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                chown_tree(&entry.path(), uid, gid, depth + 1);
+            }
+        }
+    }
+}
+
 async fn run_claude_process(
     job_id: &str,
     prompt: &str,
@@ -530,6 +582,7 @@ async fn run_claude_process(
     claude_bin: &str,
     agent_type: Option<&str>,
     system_prompt: Option<&str>,
+    sandbox: Option<(u32, u32)>,
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
     cancelled: Arc<RwLock<HashSet<String>>>,
@@ -541,6 +594,12 @@ async fn run_claude_process(
         store.update_status(job_id, &JobStatus::Failed, Some(&err));
         tx.send(format!("[ERROR] {}\n", err)).ok();
         return;
+    }
+
+    // For a sandboxed (non-owner) job, hand its workspace to the unprivileged uid
+    // so the dropped-privilege child can write there — and nowhere root-owned.
+    if let Some((uid, gid)) = sandbox {
+        chown_tree(std::path::Path::new(work_dir), uid, gid, 0);
     }
 
     // Ensure /opt/homebrew/bin is in PATH for the child process
@@ -584,19 +643,68 @@ async fn run_claude_process(
     // explicitly so the child resolves the credentials file in the right place
     // even when the parent was spawned via runuser/su without env reset.
     let home = std::env::var("HOME").unwrap_or_default();
-    if !home.is_empty() {
-        cmd.env("HOME", &home);
-        let creds_path = format!("{}/.claude/.credentials.json", home);
-        if std::path::Path::new(&creds_path).exists() {
-            cmd.env_remove("ANTHROPIC_API_KEY");
+    match sandbox {
+        // Trusted (owner / local): prefer the OAuth subscription creds in root's
+        // HOME over any inherited ANTHROPIC_API_KEY.
+        None => {
+            if !home.is_empty() {
+                cmd.env("HOME", &home);
+                let creds_path = format!("{}/.claude/.credentials.json", home);
+                if std::path::Path::new(&creds_path).exists() {
+                    cmd.env_remove("ANTHROPIC_API_KEY");
+                }
+            }
+        }
+        // Sandboxed (non-owner): the dropped-privilege child cannot read root's
+        // 0600 credentials file, so point HOME at its own writable workspace and
+        // let it authenticate via the inherited ANTHROPIC_API_KEY (env survives
+        // setuid). As a fallback, forward the OAuth access token explicitly.
+        Some(_) => {
+            cmd.env("HOME", work_dir);
+            if std::env::var("ANTHROPIC_API_KEY").is_err() && !home.is_empty() {
+                let creds_path = format!("{}/.claude/.credentials.json", home);
+                if let Ok(raw) = std::fs::read_to_string(&creds_path) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        if let Some(tok) = v
+                            .get("claudeAiOauth")
+                            .and_then(|o| o.get("accessToken"))
+                            .and_then(|t| t.as_str())
+                        {
+                            cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
+                        }
+                    }
+                }
+            }
         }
     }
 
-    // Put child in its own process group so kill(-pid) works
+    // Put child in its own process group so kill(-pid) works; for sandboxed jobs,
+    // also irreversibly drop to the unprivileged uid/gid BEFORE exec so the CLI
+    // can never touch root-owned files no matter what the prompt asks.
     #[cfg(unix)]
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             libc::setsid();
+            if let Some((uid, gid)) = sandbox {
+                // Drop supplementary groups, then gid, then uid — order matters:
+                // once uid is dropped we can no longer change gid/groups.
+                if libc::setgroups(0, std::ptr::null()) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::setgid(gid as libc::gid_t) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::setuid(uid as libc::uid_t) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // Defense in depth: confirm privileges are truly gone.
+                if libc::setuid(0) == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "privilege drop failed: still able to regain root",
+                    ));
+                }
+            }
             Ok(())
         });
     }

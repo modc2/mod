@@ -1414,6 +1414,53 @@ class Mod:
 
     # ── serve ─────────────────────────────────────────────────────
 
+    def _serve_pm2(self, api_port, app_port, dev, results) -> bool:
+        """Launch claude-api + claude-app under pm2 (the root deployment path).
+
+        Returns True if pm2 is available and the start command succeeded, in
+        which case serve() skips the Popen fallback. Running under pm2 as root is
+        what gives the API filesystem access to edit sibling modules; every
+        cross-module mutation still demands a per-op sudo signature (sudo.rs).
+        """
+        import shutil
+        if not shutil.which('pm2'):
+            return False
+        module_dir = Path(self._module_dir())
+        eco = module_dir / 'ecosystem.config.js'
+        api_bin = module_dir / 'src' / 'api' / 'target' / 'release' / 'claude-jobs'
+        if not eco.exists():
+            return False
+        # Ensure the API binary exists (pm2 runs it directly — no build-on-start).
+        if not api_bin.exists():
+            print('[claude] building API binary for pm2…')
+            build = subprocess.run(
+                ['cargo', 'build', '--release'],
+                cwd=str(module_dir / 'src' / 'api'),
+                capture_output=True, text=True,
+            )
+            if build.returncode != 0 or not api_bin.exists():
+                print('[claude] API build failed — falling back to start.sh')
+                return False
+        env = os.environ.copy()
+        env['CLAUDE_MODE'] = 'dev' if dev else 'prod'
+        env['CLAUDE_API_PORT'] = str(api_port)
+        env['CLAUDE_APP_PORT'] = str(app_port)
+        # NOTE: deliberately NOT setting CLAUDE_JOBS_LOCAL — as root we must keep
+        # auth + the sudo gate on.
+        subprocess.run(['pm2', 'delete', 'claude-api', 'claude-app'],
+                       capture_output=True, text=True)
+        proc = subprocess.run(['pm2', 'start', str(eco)], cwd=str(module_dir),
+                              env=env, capture_output=True, text=True)
+        if proc.returncode != 0:
+            print(f'[claude] pm2 start failed: {proc.stderr[-300:]}')
+            return False
+        subprocess.run(['pm2', 'save'], capture_output=True, text=True)
+        results['api'] = f'http://localhost:{api_port}'
+        results['app'] = f'http://localhost:{app_port}'
+        results['pm2'] = True
+        print(f'[claude] pm2: claude-api :{api_port}  claude-app :{app_port}')
+        return True
+
     def serve(self, api_port=None, app_port=None, dev=True):
         """Start the claude API (Rust job server) and Next.js app.
 
@@ -1437,9 +1484,23 @@ class Mod:
         env_result = self.ensure_env(app_dir=str(app_dir), api_dir=str(api_dir))
         results['env'] = env_result
 
-        # ── API (Rust job server) ──
+        # App env reused by the pm2 launch and the Popen fallback/retry below.
+        app_env = os.environ.copy()
+        # Frontend talks to the core gateway at /api/claude, not the API directly.
+        # NEXT_PUBLIC_API_PORT is only used for in-app start/stop service mgmt.
+        app_env['NEXT_PUBLIC_BASE_PATH'] = '/claude'
+        app_env['NEXT_PUBLIC_API_PORT'] = str(api_port)
+        app_env['PORT'] = str(app_port)
+        app_cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
+
+        # ── Preferred path: pm2 as root (gives the API filesystem access to edit
+        #    sibling modules). Cross-module writes still require a per-op sudo
+        #    signature, enforced in the Rust API regardless of how it's launched.
+        launched_pm2 = self._serve_pm2(api_port, app_port, dev, results)
+
+        # ── API (Rust job server) — Popen fallback when pm2 is unavailable ──
         start_sh = api_dir / 'start.sh'
-        if start_sh.exists():
+        if not launched_pm2 and start_sh.exists():
             api_log = open(log_dir / 'api.log', 'w')
             subprocess.Popen(
                 ['bash', str(start_sh), str(api_port)],
@@ -1448,16 +1509,9 @@ class Mod:
             results['api'] = api_url
             results['api_log'] = str(log_dir / 'api.log')
 
-        # ── App (Next.js) ──
-        if (app_dir / 'package.json').exists():
-            app_env = os.environ.copy()
-            # Frontend talks to the core gateway at /api/claude, not the API directly.
-            # NEXT_PUBLIC_API_PORT is only used for in-app start/stop service mgmt.
-            app_env['NEXT_PUBLIC_BASE_PATH'] = '/claude'
-            app_env['NEXT_PUBLIC_API_PORT'] = str(api_port)
-            app_env['PORT'] = str(app_port)
+        # ── App (Next.js) — Popen fallback when pm2 is unavailable ──
+        if not launched_pm2 and (app_dir / 'package.json').exists():
             app_log = open(log_dir / 'app.log', 'w')
-            app_cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
             subprocess.Popen(
                 app_cmd, cwd=str(app_dir), env=app_env,
                 stdout=app_log, stderr=subprocess.STDOUT,

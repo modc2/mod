@@ -1,6 +1,6 @@
 {
     "name": "claude",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Programmable AI developer interface \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
     "port": 8820,
     "app_port": 8823,
@@ -60,7 +60,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmXnpST1aEaCK6uxcm14N9AV1eEHF7scWy7jeaNMqxpWuS",
+    "schema": "QmafHQNRd5NjjX6tk5XuLoBur62bVErZW7Jot4DMPYBizJ",
     "endpoints": {
         "/health": {
             "method": "GET",
@@ -131,7 +131,26 @@
         "/kill": {
             "method": "POST",
             "auth": true,
-            "docs": "Kill a process by PID or port (owner-only)"
+            "sudo": true,
+            "docs": "Kill a process by PID or port (owner-only; requires x-sudo signature bound to pid:/port:)"
+        },
+        "/files/write": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "cross-module",
+            "docs": "Write a file. Non-owners are confined to their workspace; owner writes OUTSIDE the claude module require an x-sudo signature bound to the path."
+        },
+        "/modules/{name}": {
+            "method": "DELETE",
+            "auth": true,
+            "sudo": "non-owned",
+            "docs": "Delete a module. Editing a module not personally owned by the caller requires an x-sudo signature from the owner key."
+        },
+        "/modules/{name}/restore": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "non-claude",
+            "docs": "Restore a module from a snapshot CID (owner-only; x-sudo required for modules other than claude)."
         },
         "/changelog": {
             "method": "GET",

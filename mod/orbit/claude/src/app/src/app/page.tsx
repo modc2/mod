@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { VersionsPanel } from "../components/VersionsPanel";
 
 const WalletModal = dynamic(() => import("../components/WalletModal"), { ssr: false });
+const SudoModal = dynamic(() => import("../components/SudoModal"), { ssr: false });
 
 import {
   getNetworkName,
@@ -383,6 +384,12 @@ export default function Home() {
   const isRightDragging = useRef(false);
   const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
   const [loadingTokenStats, setLoadingTokenStats] = useState(false);
+
+  // Sudo authorization modal (privileged cross-module ops)
+  const [sudoReq, setSudoReq] = useState<{ action: string; target: string } | null>(null);
+  const [sudoStatus, setSudoStatus] = useState<"review" | "signing" | "success" | "error">("review");
+  const [sudoError, setSudoError] = useState<string | null>(null);
+  const sudoResolver = useRef<{ resolve: (t: string) => void; reject: (e: any) => void } | null>(null);
 
   // Wallet modal
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -1457,23 +1464,24 @@ export default function Home() {
     if (!viewingFile || !token) return;
     setSavingFile(true);
     try {
-      const res = await authFetch("/files/write", {
-        method: "POST",
-        body: JSON.stringify({ path: viewingFile, content: editBuffer }),
-      });
+      // Editing a module OTHER than claude is privileged: authFetchSudo signs a
+      // fresh owner authorization bound to this exact path and retries if the
+      // server demands it. Saving inside claude itself needs no extra step.
+      const body = JSON.stringify({ path: viewingFile, content: editBuffer });
+      const res = await authFetchSudo("/files/write", { method: "POST", body });
       if (res.ok) {
         setViewingFileContent(editBuffer);
         setEditingFile(false);
       } else {
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({} as any));
         setError(data.error || "Failed to save file");
       }
-    } catch {
-      setError("Error saving file");
+    } catch (e: any) {
+      setError(e?.message || "Error saving file");
     } finally {
       setSavingFile(false);
     }
-  }, [viewingFile, editBuffer, token, authFetch]);
+  }, [viewingFile, editBuffer, token, authFetch, address, walletType]);
 
   // Navigate file tree to show the parent folder of a file and expand all ancestor dirs
   const navigateToFile = useCallback(async (filePath: string) => {
@@ -2066,7 +2074,7 @@ export default function Home() {
   const renameModule = async (oldName: string, newName: string) => {
     if (!token || !newName.trim()) return;
     try {
-      const res = await authFetch(`/modules/${encodeURIComponent(oldName)}/rename`, {
+      const res = await authFetchSudo(`/modules/${encodeURIComponent(oldName)}/rename`, {
         method: "PUT",
         body: JSON.stringify({ new_name: newName.trim() }),
       });
@@ -2092,7 +2100,7 @@ export default function Home() {
   const deleteModule = async (name: string) => {
     if (!token) return;
     try {
-      const res = await authFetch(`/modules/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const res = await authFetchSudo(`/modules/${encodeURIComponent(name)}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: "Delete failed" }));
         setError(data.error || "DELETE FAILED");
@@ -6162,6 +6170,99 @@ export default function Home() {
     throw new Error(`reconnect with MetaMask or a local wallet to authorize the terminal (current: ${walletType || "none"})`);
   };
 
+  // ── Sudo authorization ────────────────────────────────────────────────
+  // Privileged cross-module operations (editing/deleting modules OTHER than
+  // claude) require a *fresh* owner signature bound to the exact (action, target)
+  // — verified once and replay-rejected server-side (src/api/src/sudo.rs). This
+  // builds the byte-for-byte message the Rust side reconstructs.
+  const buildSudoMessage = (action: string, target: string, time: number, nonce: string): string =>
+    [
+      "MOD Claude Sudo Authorization",
+      `action: ${action}`,
+      `target: ${target}`,
+      `time: ${time}`,
+      `nonce: ${nonce}`,
+      "",
+      "Authorizing a privileged cross-module operation as the owner. Free signature, not a transaction.",
+    ].join("\n");
+
+  const base64UrlEncode = (s: string): string =>
+    btoa(unescape(encodeURIComponent(s)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+  // Sign one privileged operation and return the base64url `x-sudo` token. Throws
+  // if the connected wallet can't sign (e.g. a read-only session).
+  const mintSudoToken = async (action: string, target: string): Promise<string> => {
+    if (!address) throw new Error("connect the owner wallet to authorize this");
+    const time = Math.floor(Date.now() / 1000);
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const signature = await signTerminalMessage(buildSudoMessage(action, target, time, nonce));
+    return base64UrlEncode(JSON.stringify({ action, target, time, nonce, key: address, signature }));
+  };
+
+  // Open the Sudo Authorization sheet and resolve with a signed x-sudo token once
+  // the owner approves (or reject if they cancel). The signing itself happens in
+  // confirmSudo so the modal can show signing / success / error states.
+  const requestSudo = (action: string, target: string): Promise<string> =>
+    new Promise<string>((resolve, reject) => {
+      sudoResolver.current = { resolve, reject };
+      setSudoError(null);
+      setSudoStatus("review");
+      setSudoReq({ action, target });
+    });
+
+  const confirmSudo = async () => {
+    if (!sudoReq) return;
+    setSudoStatus("signing");
+    setSudoError(null);
+    try {
+      const tok = await mintSudoToken(sudoReq.action, sudoReq.target);
+      setSudoStatus("success");
+      sudoResolver.current?.resolve(tok);
+      sudoResolver.current = null;
+      // Let the "Authorized" checkmark breathe, then close.
+      setTimeout(() => setSudoReq(null), 620);
+    } catch (e: any) {
+      setSudoStatus("error");
+      setSudoError(e?.message || "Signature was rejected");
+    }
+  };
+
+  const cancelSudo = () => {
+    sudoResolver.current?.reject(new Error("sudo cancelled"));
+    sudoResolver.current = null;
+    setSudoReq(null);
+  };
+
+  // authFetch that handles the privileged path: if the server replies
+  // 401 { sudo_required }, raise the Sudo Authorization sheet, get a fresh owner
+  // signature bound to the exact (action, target), and retry once. If the owner
+  // cancels, the original 401 is returned so the caller surfaces the reason.
+  const authFetchSudo = async (
+    path: string,
+    opts: RequestInit = {},
+    timeoutMs?: number,
+  ): Promise<Response> => {
+    const res = await authFetch(path, opts, timeoutMs);
+    if (res.status !== 401) return res;
+    const data = await res.clone().json().catch(() => ({} as any));
+    if (!data?.sudo_required) return res;
+    try {
+      const sudoTok = await requestSudo(data.action || "write", data.target || path);
+      return await authFetch(
+        path,
+        { ...opts, headers: { ...(opts.headers as Record<string, string>), "x-sudo": sudoTok } },
+        timeoutMs,
+      );
+    } catch {
+      return res; // cancelled — let the caller show the server's sudo_required message
+    }
+  };
+
   // Prove ownership by signing, then store the minted session token.
   const authorizeTerminal = async () => {
     if (!address) { setTerminalAuthError("connect your wallet first"); return; }
@@ -9647,6 +9748,19 @@ export default function Home() {
         />
       )}
 
+      {/* Sudo Authorization — privileged cross-module operations */}
+      {sudoReq && (
+        <SudoModal
+          open={!!sudoReq}
+          action={sudoReq.action}
+          target={sudoReq.target}
+          status={sudoStatus}
+          error={sudoError}
+          signerLabel={address ? `${address.slice(0, 6)}…${address.slice(-4)}` : null}
+          onAuthorize={confirmSudo}
+          onCancel={cancelSudo}
+        />
+      )}
 
     </div>
   );

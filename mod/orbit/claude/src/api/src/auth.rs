@@ -500,7 +500,7 @@ pub fn run_gate_command(address: &str) -> bool {
 
 // ── Ethereum Signature Recovery ──────────────────────────────────────
 
-fn recover_eth_address(message: &str, signature: &str) -> Result<String, String> {
+pub fn recover_eth_address(message: &str, signature: &str) -> Result<String, String> {
     // Strip 0x prefix
     let sig_hex = signature.strip_prefix("0x").unwrap_or(signature);
     let sig_bytes = hex::decode(sig_hex).map_err(|e| format!("Bad hex: {}", e))?;

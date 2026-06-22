@@ -2,6 +2,7 @@
 
 use crate::auth;
 use crate::jobs::{ClaudeJobManager, SubmitRequest};
+use crate::sudo;
 use crate::userspace;
 use crate::snapshots::{
     append_version, default_store, read_versions, restore_into, snapshot_dir, VersionRecord,
@@ -26,6 +27,66 @@ use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
 type AppState = Arc<ClaudeJobManager>;
+
+fn local_mode() -> bool {
+    std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1"
+}
+
+/// The claude module's own directory on the host: `$HOME/mod/mod/orbit/claude`.
+/// Writes inside it are "self-edits" and stay on the normal owner gate; anything
+/// outside it touches OTHER modules / the system and requires a sudo signature.
+fn claude_module_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(home)
+        .join("mod")
+        .join("mod")
+        .join("orbit")
+        .join("claude")
+}
+
+/// True if `path` resolves to somewhere inside the claude module's own directory.
+/// Canonicalizes the nearest existing ancestor so a not-yet-created file still
+/// classifies correctly.
+fn is_within_claude_dir(path: &std::path::Path) -> bool {
+    let base = std::fs::canonicalize(claude_module_dir()).unwrap_or_else(|_| claude_module_dir());
+    let mut probe = path.to_path_buf();
+    let canon = loop {
+        if let Ok(c) = std::fs::canonicalize(&probe) {
+            break c;
+        }
+        match probe.parent() {
+            Some(p) if p != probe => probe = p.to_path_buf(),
+            _ => break path.to_path_buf(),
+        }
+    };
+    canon.starts_with(&base)
+}
+
+/// Reject a privileged request that lacks a valid sudo signature for `(action, target)`.
+/// Returns `Some(response)` to short-circuit with 401, or `None` to proceed. Local mode
+/// (host CLI, no auth) is fully trusted and bypasses the sudo requirement.
+fn sudo_gate(
+    headers: &axum::http::HeaderMap,
+    action: &str,
+    target: &str,
+) -> Option<axum::response::Response> {
+    if local_mode() {
+        return None;
+    }
+    match sudo::verify_sudo(headers, action, target) {
+        Ok(addr) => {
+            println!("✓ sudo authorized: {} {} (by {})", action, target, addr);
+            None
+        }
+        Err(e) => Some(
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e, "sudo_required": true, "action": action, "target": target })),
+            )
+                .into_response(),
+        ),
+    }
+}
 
 pub async fn serve(manager: AppState, port: u16) {
     let cors = CorsLayer::new()
@@ -1138,6 +1199,16 @@ async fn delete_module(
             .into_response();
     }
 
+    // Deleting a module the caller does NOT personally own (the system owner's
+    // modules, or unowned repo modules) is a privileged cross-module operation —
+    // require a fresh sudo signature from the owner key. A real module-owner may
+    // still delete their own module under the per-module check above.
+    if name != "claude" && !is_mod_owner {
+        if let Some(denied) = sudo_gate(&headers, "delete", &name) {
+            return denied;
+        }
+    }
+
     // Delete the module directory
     match std::fs::remove_dir_all(&module_path) {
         Ok(_) => Json(json!({ "success": true, "deleted": name })).into_response(),
@@ -1249,6 +1320,13 @@ async fn rename_module(
             Json(json!({ "error": "You can only rename modules you own" })),
         )
             .into_response();
+    }
+
+    // Renaming a module the caller does not personally own is privileged.
+    if name != "claude" && !is_mod_owner {
+        if let Some(denied) = sudo_gate(&headers, "rename", &name) {
+            return denied;
+        }
     }
 
     // Build new path in the same category directory
@@ -1689,6 +1767,15 @@ async fn file_write(
                 Json(json!({ "error": "Owner-only: core/ and orbit/ writes require the configured owner" })),
             ).into_response();
         }
+
+        // Cross-module guard: writing anywhere OUTSIDE claude's own module dir
+        // edits another module / the system and needs a fresh, replay-protected
+        // sudo signature from the owner key bound to this exact path.
+        if !is_within_claude_dir(file_path) {
+            if let Some(denied) = sudo_gate(&headers, "write", &body.path) {
+                return denied;
+            }
+        }
     }
 
     // Create parent dirs if needed
@@ -1755,6 +1842,17 @@ async fn kill_process(
                 )
                     .into_response();
             }
+        }
+
+        // Killing host processes is a privileged system op — require a fresh sudo
+        // signature bound to the exact pid/port target.
+        let target = match (body.pid, body.port) {
+            (Some(pid), _) => format!("pid:{}", pid),
+            (None, Some(port)) => format!("port:{}", port),
+            _ => "unspecified".to_string(),
+        };
+        if let Some(denied) = sudo_gate(&headers, "kill", &target) {
+            return denied;
         }
     }
 
@@ -2160,6 +2258,16 @@ async fn restore_module(
         )
             .into_response();
     }
+    // Restore overwrites a module's files from an arbitrary snapshot CID — a
+    // powerful tampering primitive. Only the system owner (or local mode) may do
+    // it, and never a plain authenticated user.
+    if !local_mode && !auth::is_owner(&caller) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Owner-only: restoring a module requires the configured owner" })),
+        )
+            .into_response();
+    }
     let Some(root) = module_root_for(&name) else {
         return (
             StatusCode::NOT_FOUND,
@@ -2167,6 +2275,13 @@ async fn restore_module(
         )
             .into_response();
     };
+    // Restoring overwrites a module's files from a snapshot — privileged when it
+    // targets a module other than claude itself, so require a fresh sudo signature.
+    if name != "claude" {
+        if let Some(denied) = sudo_gate(&headers, "restore", &name) {
+            return denied;
+        }
+    }
     // Auto-snapshot current state first so the rollback is itself reversible.
     let store = default_store();
     if let Ok((auto_cid, _)) = snapshot_dir(&root, &store) {

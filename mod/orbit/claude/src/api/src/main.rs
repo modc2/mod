@@ -9,6 +9,7 @@ mod jobs;
 mod api;
 mod snapshots;
 mod userspace;
+mod sudo;
 
 use std::path::PathBuf;
 use std::sync::Arc;

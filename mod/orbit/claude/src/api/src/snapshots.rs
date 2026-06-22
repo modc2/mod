@@ -207,14 +207,30 @@ pub fn restore_into(target: &Path, cid: &str, store: &Store) -> Result<usize, St
         .map_err(|e| format!("manifest parse: {e}"))?;
     std::fs::create_dir_all(target).map_err(|e| format!("mkdir target: {e}"))?;
     let mut written = 0usize;
+    let target_canon = std::fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     for entry in &manifest.files {
-        if entry.path.contains("..") {
-            return Err(format!("path traversal in manifest: {}", entry.path));
+        // Reject anything that could escape `target`: parent-dir traversal,
+        // absolute paths (Path::join("/x") silently discards the base), and
+        // Windows-style roots. Belt-and-suspenders against a crafted manifest.
+        let rel = Path::new(&entry.path);
+        let escapes = entry.path.contains("..")
+            || rel.is_absolute()
+            || rel
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)));
+        if escapes {
+            return Err(format!("unsafe path in manifest: {}", entry.path));
         }
         let bytes = store.get(&entry.cid)?;
         let dst = target.join(&entry.path);
+        // Final guard: the resolved parent must stay inside target.
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+            if let Ok(parent_canon) = std::fs::canonicalize(parent) {
+                if !parent_canon.starts_with(&target_canon) {
+                    return Err(format!("path escapes target: {}", entry.path));
+                }
+            }
         }
         std::fs::write(&dst, &bytes).map_err(|e| format!("write {}: {e}", dst.display()))?;
         #[cfg(unix)]
