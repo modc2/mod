@@ -1,6 +1,6 @@
 {
     "name": "openhouse",
-    "description": "Collective asset ownership platform \u2014 fractional property ownership via smart contracts",
+    "description": "Rent-to-own, on-chain \u2014 every rent payment becomes principal toward owning the home; ownership redistributed quarterly",
     "version": "2.0.0",
     "port": 50130,
     "app_port": 50131,
@@ -38,6 +38,7 @@
         "transfer_authority",
         "toggle_active",
         "balance",
+        "source",
         "compile",
         "deploy",
         "serve",
@@ -45,8 +46,10 @@
         "serve_api",
         "kill_api",
         "serve_app",
-        "kill_app"
+        "kill_app",
+        "register",
+        "deregister"
     ],
-    "schema": "QmUdjNFSYkWRa3WzorTp8ifG42NMCembJ43pFWJTknubjA",
+    "schema": "QmTsRVJMfLYkcymvnwm93DtVzzohTqYqwMkCDezZbaKbPS",
     "gateway_port": 50131
 }

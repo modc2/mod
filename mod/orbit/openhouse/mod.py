@@ -26,7 +26,7 @@ import mod as m
 
 
 class Mod:
-    description = "Collective asset ownership platform — fractional property ownership via smart contracts."
+    description = "Rent-to-own, on-chain — every rent payment becomes principal toward owning the home; ownership redistributed quarterly."
 
     def __init__(self, config=None):
         self.module_dir = Path(__file__).parent
@@ -113,19 +113,21 @@ class Mod:
         total_contributed = sum(float(s.get('contribution', 0)) for s in shareholders.values())
         total_dividends = sum(float(d.get('total_amount', 0)) for d in dividends)
 
-        prop = props.get('default', {})
-        total_shares = int(prop.get('total_shares', 1000))
+        prop = props.get('default')
+        deployed = bool(prop)
+        total_shares = int(prop.get('total_shares', 0)) if deployed else 0
 
         return {
+            'deployed': deployed,
             'shareholders': len(shareholders),
             'total_shares': total_shares,
             'shares_sold': total_shares_sold,
-            'available_shares': total_shares - total_shares_sold,
+            'available_shares': max(total_shares - total_shares_sold, 0),
             'total_contributed': total_contributed,
             'total_dividends_distributed': total_dividends,
             'dividend_count': len(dividends),
             'contract': self.contract_address or 'not deployed',
-            'is_active': prop.get('is_active', True),
+            'is_active': prop.get('is_active', False) if deployed else False,
         }
 
     # ━━ Property ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -133,16 +135,24 @@ class Mod:
     def property(self):
         """Get property details."""
         props = self._load_properties()
-        prop = props.get('default', {
-            'description': 'No property configured',
-            'total_shares': 1000,
-            'share_price': '0.1',
-            'is_active': True,
-            'status': 'pending',
-        })
+        prop = props.get('default')
+        if not prop:
+            # Nothing deployed yet — report honest emptiness, no invented numbers.
+            return {
+                'deployed': False,
+                'description': '',
+                'total_shares': 0,
+                'share_price': '0',
+                'available_shares': 0,
+                'is_active': False,
+                'status': 'not_deployed',
+                'contract': self.contract_address,
+            }
+        prop = dict(prop)
+        prop['deployed'] = True
         shareholders = self._load_shareholders()
         total_sold = sum(int(s.get('shares', 0)) for s in shareholders.values())
-        prop['available_shares'] = int(prop.get('total_shares', 1000)) - total_sold
+        prop['available_shares'] = max(int(prop.get('total_shares', 0)) - total_sold, 0)
         prop['contract'] = self.contract_address
         return prop
 
@@ -396,6 +406,42 @@ class Mod:
             'contract': self.contract_address or 'pending deployment',
         }
 
+    # ━━ Source ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # Whitelisted, human-meaningful source files surfaced to the app.
+    _SOURCE_FILES = [
+        ('contracts/OpenHouse.sol', 'solidity',
+         'The on-chain contract: shares, pro-rata dividends, governance.'),
+        ('mod.py', 'python',
+         'Module logic — shares, dividends, governance, serving.'),
+        ('api/api.py', 'python',
+         'FastAPI REST surface over the module.'),
+    ]
+
+    def source(self):
+        """Return the real, on-disk source for the contract + backend.
+
+        Reads whitelisted files only — never an arbitrary path.
+        """
+        out = []
+        for rel, lang, desc in self._SOURCE_FILES:
+            p = self.module_dir / rel
+            if not p.exists():
+                continue
+            try:
+                content = p.read_text()
+            except Exception as e:
+                content = f'// could not read {rel}: {e}'
+            out.append({
+                'name': rel,
+                'language': lang,
+                'description': desc,
+                'lines': content.count('\n') + 1,
+                'bytes': len(content.encode('utf-8')),
+                'content': content,
+            })
+        return out
+
     # ━━ Serve / Kill ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def serve(self, port=None, app_port=None, dev=True):
@@ -488,13 +534,54 @@ class Mod:
 
         results['dev'] = dev
 
-        try:
-            ns = m.mod('server.namespace')()
-            ns.reg_app('openhouse', f'http://localhost:{app_port}', owner='')
-        except Exception:
-            pass
+        # Register with the mod protocol so the gateway routes
+        # modc2.com/openhouse → this app (and /openhouse/api → this API).
+        results['registration'] = self.register(
+            app_url=f'http://localhost:{app_port}',
+            api_url=f'http://localhost:{self.port}',
+            owner=os.environ.get('OPENHOUSE_OWNER', ''),
+        )
 
         return results
+
+    # ━━ Mod-protocol registration ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def register(self, app_url=None, api_url=None, owner=None,
+                 gateway='https://modc2.com'):
+        """Register openhouse with the mod gateway.
+
+        Uses the ``server.namespace`` registry the same way every other
+        module does, so the gateway routes ``/openhouse`` → this app and
+        ``/openhouse/api`` → this API. Returns the public URL on success.
+
+        Args:
+            app_url:  loopback URL the gateway proxies for the Next.js app
+            api_url:  loopback URL the gateway proxies for the FastAPI API
+            owner:    wallet address that owns this app registration
+            gateway:  public gateway base (default https://modc2.com)
+        """
+        app_url = app_url or f'http://localhost:{self.app_port}'
+        api_url = api_url or f'http://localhost:{self.port}'
+        try:
+            ns = m.mod('server.namespace')()
+            ns.reg('openhouse', app_url)
+            ns.reg_app('openhouse', app_url, owner=owner or '',
+                       port=self.app_port, api_url=api_url)
+            public = f"{gateway.rstrip('/')}/openhouse"
+            print(f"openhouse registered → {public}  (app: {app_url}, api: {api_url})")
+            return {'ok': True, 'gateway': public, 'app': app_url, 'api': api_url}
+        except Exception as e:
+            print(f"openhouse: gateway registration failed: {e}")
+            return {'ok': False, 'error': str(e), 'app': app_url, 'api': api_url}
+
+    def deregister(self):
+        """Remove openhouse from the mod gateway registry."""
+        try:
+            ns = m.mod('server.namespace')()
+            ns.dereg_app('openhouse')
+            return {'ok': True, 'deregistered': 'openhouse'}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def kill_app(self):
         """Stop openhouse.api and openhouse.app PM2 processes."""
@@ -556,6 +643,7 @@ class Mod:
             'transfer_authority': lambda: self.transfer_authority(kwargs.get('new_authority', '')),
             'toggle_active': lambda: self.toggle_active(),
             'balance': lambda: self.balance(),
+            'source': lambda: self.source(),
             'compile': lambda: self.compile(),
             'deploy': lambda: self.deploy(
                 network=kwargs.get('network', 'testnet'),
@@ -580,6 +668,13 @@ class Mod:
                 dev=kwargs.get('dev', True),
             ),
             'kill_app': lambda: self.kill_app(),
+            'register': lambda: self.register(
+                app_url=kwargs.get('app_url'),
+                api_url=kwargs.get('api_url'),
+                owner=kwargs.get('owner'),
+                gateway=kwargs.get('gateway', 'https://modc2.com'),
+            ),
+            'deregister': lambda: self.deregister(),
         }
 
         if not action or action not in actions:

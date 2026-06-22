@@ -170,6 +170,17 @@ def toggle_active():
     return get_openhouse().toggle_active()
 
 
+# ── Source ──────────────────────────────────────────────────────
+
+@app.get("/source")
+def source():
+    return get_openhouse().source()
+
+@app.get("/code")
+def code():
+    return get_openhouse().source()
+
+
 # ── Contract ops ────────────────────────────────────────────────
 
 @app.post("/compile")
