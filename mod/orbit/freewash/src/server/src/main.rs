@@ -23,9 +23,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Request, State},
-    http::Uri,
-    middleware::{self, Next},
+    extract::State,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -80,14 +78,23 @@ async fn main() {
         counter: Arc::new(AtomicU64::new(0)),
     };
 
-    let app = Router::new()
+    // The game routes + static file serving. `with_state` bakes in the shared
+    // relay/roster state and turns this into a `Router<()>`.
+    let game = Router::new()
         .route("/ws", get(ws_handler))
         .route("/mp.json", get(mp_json))
         .route("/players.json", get(players_json))
         .fallback_service(ServeDir::new(&web_dir).append_index_html_on_directories(true))
-        .layer(middleware::from_fn(strip_freewash))
-        .layer(CorsLayer::permissive())
         .with_state(state);
+
+    // Serve the same app at the root (local play) AND under `/freewash`
+    // (so it works behind the gateway, which proxies `modc2.com/freewash/*`).
+    // `nest` strips the `/freewash` prefix *before* routing, which a plain
+    // `layer` middleware cannot do — layers run after the route is matched.
+    let app = Router::new()
+        .nest("/freewash", game.clone())
+        .merge(game)
+        .layer(CorsLayer::permissive());
 
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
@@ -97,27 +104,6 @@ async fn main() {
         .unwrap_or_else(|e| panic!("freewash-server: cannot bind {addr}: {e}"));
     println!("freewash-server listening on http://{addr}  (multiplayer relay at /ws)");
     axum::serve(listener, app).await.unwrap();
-}
-
-/// When the gateway proxies `modc2.com/freewash/*`, requests arrive with a
-/// `/freewash` prefix. Strip it so the same routes/static files match whether
-/// we're hit directly (local play) or through the gateway.
-async fn strip_freewash(mut req: Request, next: Next) -> Response {
-    let uri = req.uri().clone();
-    let path = uri.path();
-    if let Some(rest) = path.strip_prefix("/freewash") {
-        if rest.is_empty() || rest.starts_with('/') {
-            let rest = if rest.is_empty() { "/" } else { rest };
-            let pq = match uri.query() {
-                Some(q) => format!("{rest}?{q}"),
-                None => rest.to_string(),
-            };
-            if let Ok(new_uri) = pq.parse::<Uri>() {
-                *req.uri_mut() = new_uri;
-            }
-        }
-    }
-    next.run(req).await
 }
 
 /// Multiplayer discovery: tells the browser to open a same-origin websocket at

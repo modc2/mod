@@ -49,7 +49,18 @@
   .hidden { opacity:0 !important; pointer-events:none !important; }
   #toast { position:fixed; left:50%; bottom:42px; transform:translateX(-50%); background:rgba(10,14,20,.7); border:1px solid rgba(255,255,255,.12); padding:9px 18px; border-radius:999px; font-size:13px; opacity:0; transition:opacity .35s ease; pointer-events:none; }
   #toast.show { opacity:1; }
-  @media (max-width:560px){ #help{ display:none; } }
+  /* Players roster — who's really in the park right now */
+  #players { left:16px; bottom:16px; min-width:172px; max-width:230px; }
+  #players .ptitle { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; opacity:.65; margin-bottom:8px; display:flex; align-items:center; gap:7px; }
+  #players .ptitle .live { width:8px; height:8px; border-radius:50%; background:#18a0a0; box-shadow:0 0 9px #18a0a0; }
+  #players ul { list-style:none; max-height:34vh; overflow-y:auto; }
+  #players li { font-size:13px; padding:3px 0; display:flex; align-items:center; gap:8px; opacity:.94; }
+  #players li .dot { width:8px; height:8px; border-radius:50%; background:#18a0a0; box-shadow:0 0 8px #18a0a0; flex:none; }
+  #players li.you .dot { background:#fcd34d; box-shadow:0 0 8px #fcd34d; }
+  #players li.you b { color:#fcd34d; }
+  #players li small { opacity:.55; font-weight:400; }
+  #players .empty { font-size:12px; opacity:.5; }
+  @media (max-width:560px){ #help{ display:none; } #players{ left:10px; bottom:10px; min-width:0; } }
 </style>
 <script type="importmap">
 {
@@ -84,6 +95,11 @@
     <div class="row"><span>Free camera</span><b><kbd>C</kbd></b></div>
     <div class="hint">Others online show up as teal avatars when multiplayer connects · drum circle is SE of the fountain 🥁</div>
     <div class="hint">Click the scene to capture the mouse · <kbd>Esc</kbd> to release · <kbd>H</kbd> hides this</div>
+  </div>
+
+  <div id="players" class="panel hidden">
+    <div class="ptitle"><span class="live"></span>In the park · <span id="pcount">0</span></div>
+    <ul id="plist"><li class="empty">connecting…</li></ul>
   </div>
 </div>
 
@@ -1174,8 +1190,43 @@ updateModeUI();
 // crowd. Either way the park feels alive.
 // ---------------------------------------------------------------------------
 const remotes = new Map();
-const net = { ws:null, id:null, connected:false, t:0 };
+const net = { ws:null, id:null, name:null, connected:false, t:0 };
 let mpAnnounced = false;
+
+// --- live roster of real players (id -> name), rendered in the HUD ----------
+const roster = new Map();
+const plistEl = document.getElementById('plist');
+const pcountEl = document.getElementById('pcount');
+const playersPanel = document.getElementById('players');
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function setRoster(list){ roster.clear(); (list||[]).forEach(p => roster.set(p.id, p.name)); renderPlayers(); }
+function renderPlayers(){
+  playersPanel.classList.remove('hidden');
+  pcountEl.textContent = roster.size || (net.connected ? 1 : 0);
+  if (!roster.size){ plistEl.innerHTML = `<li class="empty">${net.connected ? 'just you here' : 'connecting…'}</li>`; return; }
+  const rows = [...roster.entries()].sort((a,b)=>a[0]-b[0]).map(([id,name])=>{
+    const me = id === net.id;
+    return `<li class="${me?'you':''}"><span class="dot"></span><b>${escapeHtml(name)}</b>${me?' <small>(you)</small>':''}</li>`;
+  });
+  plistEl.innerHTML = rows.join('');
+}
+
+// floating name tag that hovers over a remote avatar
+function makeNameTag(text){
+  const pad = 10, fs = 30;
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = `600 ${fs}px ui-sans-serif,system-ui,sans-serif`;
+  const w = Math.ceil(m.measureText(text).width) + pad*2, h = 48;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.font = `600 ${fs}px ui-sans-serif,system-ui,sans-serif`; x.textAlign='center'; x.textBaseline='middle';
+  x.fillStyle = 'rgba(10,14,20,.72)'; x.fillRect(0, 7, w, h-14);
+  x.fillStyle = '#bdeef0'; x.fillText(text, w/2, h/2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:t, transparent:true, depthWrite:false, depthTest:false }));
+  s.scale.set(w/h*0.6, 0.6, 1); s.position.y = 2.55; s.renderOrder = 12;
+  return s;
+}
 
 let mpExtra = [];   // candidate(s) discovered from mp.json
 function mpCandidates(){
@@ -1183,21 +1234,26 @@ function mpCandidates(){
   const q = new URLSearchParams(location.search).get('ws');
   if (q) list.push(q);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const host = location.hostname || '127.0.0.1';
-  const httpPort = location.port ? parseInt(location.port) : (location.protocol==='https:'?443:80);
-  list.push(`${proto}://${host}:${httpPort+1}`);             // direct: http port + 1
+  const host = location.host || '127.0.0.1';                  // includes :port
   const base = location.pathname.replace(/\/[^/]*$/, '');
-  if (base) list.push(`${proto}://${host}${base}/ws`);       // gateway-proxied guess
+  list.push(`${proto}://${host}${base}/ws`);                  // same-origin relay
+  const hn = location.hostname || '127.0.0.1';
+  const httpPort = location.port ? parseInt(location.port) : (location.protocol==='https:'?443:80);
+  list.push(`${proto}://${hn}:${httpPort+1}`);                // legacy: http port + 1
   return [...new Set(list)];
 }
-// ask the server which port the relay actually bound to, then connect
+// ask the Rust backend where the relay lives, then connect
 async function mpInit(){
   try {
     const r = await fetch('mp.json', { cache:'no-store' });
     if (r.ok){
       const j = await r.json();
-      if (j.ws_port){
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      if (j.ws_path){                                          // same-origin path on the Rust server
+        const base = location.pathname.replace(/\/[^/]*$/, '');
+        const path = j.ws_path.startsWith('/') ? base + j.ws_path : j.ws_path;
+        mpExtra = [`${proto}://${location.host}${path}`];
+      } else if (j.ws_port){                                   // legacy two-port relay
         mpExtra = [`${proto}://${j.host || location.hostname}:${j.ws_port}`];
       }
     }
@@ -1206,7 +1262,7 @@ async function mpInit(){
 }
 function mpConnect(i=0){
   const cands = mpCandidates();
-  if (i >= cands.length) return;
+  if (i >= cands.length){ setTimeout(()=>mpInit(), 4000); return; } // keep trying
   let ws;
   try { ws = new WebSocket(cands[i]); } catch(e){ return mpConnect(i+1); }
   let opened = false;
@@ -1214,16 +1270,30 @@ function mpConnect(i=0){
     if (!mpAnnounced){ toast('🌐 multiplayer connected — real people are here'); mpAnnounced = true; } };
   ws.onmessage = ev => {
     let d; try { d = JSON.parse(ev.data); } catch { return; }
-    if (d.type === 'welcome') net.id = d.id;
-    else if (d.type === 'state' && d.id !== net.id) upsertRemote(d);
-    else if (d.type === 'leave') removeRemote(d.id);
+    if (d.type === 'welcome'){ net.id = d.id; net.name = d.name; setRoster(d.players); }
+    else if (d.type === 'roster'){ setRoster(d.players); }
+    else if (d.type === 'join'){ if (d.id !== net.id){ roster.set(d.id, d.name); renderPlayers(); toast(`👋 ${d.name} entered the park`); } }
+    else if (d.type === 'state' && d.id !== net.id){ if (d.name && !roster.has(d.id)){ roster.set(d.id, d.name); renderPlayers(); } upsertRemote(d); }
+    else if (d.type === 'leave'){ removeRemote(d.id); roster.delete(d.id); renderPlayers(); }
   };
-  ws.onclose = () => { net.connected = false; if (!opened) mpConnect(i+1); };
+  ws.onclose = () => {
+    net.connected = false;
+    if (!opened){ mpConnect(i+1); return; }
+    // we were connected and dropped — clear avatars/roster and retry from scratch
+    for (const id of [...remotes.keys()]) removeRemote(id);
+    roster.clear(); renderPlayers();
+    setTimeout(()=>mpInit(), 2500);
+  };
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 function upsertRemote(d){
   let r = remotes.get(d.id);
-  if (!r){ r = makePerson({ shirt: 0x18a0a0 }); r.position.set(d.x, 0, d.z); remotes.set(d.id, r); }
+  if (!r){
+    r = makePerson({ shirt: 0x18a0a0 });
+    r.position.set(d.x, 0, d.z);
+    r.add(makeNameTag(d.name || roster.get(d.id) || 'player'));
+    remotes.set(d.id, r);
+  }
   r.userData.net = { x:d.x, z:d.z, ry:d.ry||0, skating:d.sk, push:d.push };
   r.userData.netTime = performance.now();
 }
