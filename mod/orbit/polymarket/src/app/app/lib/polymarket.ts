@@ -539,6 +539,7 @@ export async function fetchTopTraders(
     marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
     recentTrades: Number(t.recentTrades || 0),
     trades24h: Number(t.trades24h || 0),
+    lastTradeTs: typeof t.lastTradeTs === "number" ? t.lastTradeTs : undefined,
     pnlCurve: Array.isArray(t.pnlCurve) ? (t.pnlCurve as number[]) : undefined,
   }));
 }

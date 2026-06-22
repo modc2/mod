@@ -483,12 +483,12 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   }, [stratPanelOpen]);
 
   // STRATEGY HUB top bar — collapsible block pinned at the top of the STRATS
-  // tab holding the publish/community/fork hub + the fund shortcut. Collapsed
-  // by default (most sessions are tuning/backtesting, not publishing); state
-  // persists so it stays the way the user left it.
+  // tab holding the publish/community/fork hub + the fund shortcut. Open by
+  // default so the hub is visible out of the box; state persists so it stays
+  // the way the user left it (explicitly collapsed → stored "0").
   const [hubBarOpen, setHubBarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("stratHubBarOpen") === "1";
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("stratHubBarOpen") !== "0";
   });
   useEffect(() => {
     if (typeof window === "undefined") return;

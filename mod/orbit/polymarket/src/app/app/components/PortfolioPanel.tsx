@@ -13,7 +13,7 @@
 // History persists across reloads — first time you open the panel after
 // 2 weeks of running you'll see the full 2-week curve.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { fetchPositions } from "../lib/polymarket";
 
@@ -237,7 +237,7 @@ function tickRound(p: number): number {
   return Math.round(clamped * 100) / 100;
 }
 
-export default function PortfolioPanel() {
+export default function PortfolioPanel({ strategyId }: { strategyId?: string }) {
   const { auth } = useAuth();
   // Default to the over-time PnL curve (like the backtest's PnL curve) so the
   // chart leads MY TRADES; PIE is a click away for the cash/positions split.
@@ -366,6 +366,32 @@ export default function PortfolioPanel() {
 
   const total = liq + posValue;
 
+  // ── Rotation queue ──
+  // Mirror the live engine's forward-EP ranking so the user can see which
+  // positions get sold first when cash is freed to fund a new buy. Forward
+  // EP = max(0, entryEP − realized P&L) — the engine sorts ascending and
+  // rotates the cheapest out first. Positions the engine didn't open (no
+  // stored entry) have forward EP 0 → "free" to rotate. Read straight from
+  // the engine's persisted ledger so this never drifts from the real logic.
+  const rotationQueue = useMemo(() => {
+    let ledger: Record<string, { entryEP: number; mirrorNotional: number }> = {};
+    if (strategyId) {
+      try {
+        const raw = localStorage.getItem(`poly_copy_positionep_${strategyId}`);
+        if (raw) ledger = JSON.parse(raw) || {};
+      } catch {}
+    }
+    return positions
+      .filter((p) => p.size > 0)
+      .map((p) => {
+        const key = `${p.conditionId.toLowerCase()}:${(p.outcome || "Yes").toLowerCase()}`;
+        const stored = ledger[key];
+        const forwardEP = stored ? Math.max(0, stored.entryEP - p.pnlUsd) : 0;
+        return { ...p, forwardEP, tracked: !!stored };
+      })
+      .sort((a, b) => a.forwardEP - b.forwardEP || b.pnlUsd - a.pnlUsd);
+  }, [positions, strategyId]);
+
   if (!auth.connected) return null;
 
   return (
@@ -407,6 +433,68 @@ export default function PortfolioPanel() {
           <LineChart history={history} />
         )}
       </div>
+
+      {/* ROTATION QUEUE — per-position forward-EP, in the exact order the live
+          engine sells to fund new buys (cheapest forward EP first). Lets the
+          user see at a glance which holdings are about to be replaced. */}
+      {rotationQueue.length > 0 && (
+        <div className="bg-pixel-bg border border-pixel-border rounded">
+          <div className="px-2 py-1 border-b border-pixel-border flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-pixel-muted">
+              Rotation queue · sold first to fund new buys
+            </span>
+            <span className="text-[10px] text-pixel-muted" title="Forward expected profit = entry EP − realized P&L. Lower = rotated out sooner.">
+              FWD EP
+            </span>
+          </div>
+          <div className="max-h-[180px] overflow-y-auto">
+            {rotationQueue.map((p, i) => (
+              <div
+                key={`${p.conditionId}-${p.outcome}-${i}`}
+                className="flex items-center gap-2 px-2 py-1 text-[11px] font-mono border-b border-pixel-border/30 last:border-b-0"
+              >
+                <span
+                  className={`shrink-0 w-[16px] text-center ${i === 0 ? "text-red-400 font-bold" : "text-pixel-muted"}`}
+                  title={i === 0 ? "Next to be sold when cash is freed" : `#${i + 1} in rotation order`}
+                >
+                  {i === 0 ? "▸" : i + 1}
+                </span>
+                <span className="truncate flex-1 min-w-0 text-pixel-white" title={p.market}>
+                  {p.market}
+                  <span className="text-pixel-muted"> · {p.outcome}</span>
+                </span>
+                <span className="shrink-0 w-[52px] text-right text-pixel-muted" title="position value">
+                  {fmtUsd(p.value)}
+                </span>
+                <span
+                  className={`shrink-0 w-[56px] text-right ${p.pnlUsd >= 0 ? "text-green-400/80" : "text-red-400/80"}`}
+                  title="unrealized P&L"
+                >
+                  {p.pnlUsd >= 0 ? "+" : ""}{p.pnlUsd.toFixed(2)}
+                </span>
+                <span
+                  className={`shrink-0 w-[48px] text-right ${
+                    !p.tracked
+                      ? "text-pixel-muted"
+                      : p.forwardEP > 5
+                        ? "text-green-400"
+                        : p.forwardEP > 1
+                          ? "text-yellow-400"
+                          : "text-pixel-gray-light"
+                  }`}
+                  title={
+                    p.tracked
+                      ? `Forward expected profit $${p.forwardEP.toFixed(2)} (entry EP − realized P&L). The engine sells the lowest first to fund higher-EP buys.`
+                      : "Not opened by the copy engine — no entry EP, treated as freely rotatable (sold first)."
+                  }
+                >
+                  {p.tracked ? `$${p.forwardEP.toFixed(2)}` : "free"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* SELL ALL → CASH — the per-position "Top Positions" list was removed
           for a sleeker panel; the bulk-liquidate action stays. */}

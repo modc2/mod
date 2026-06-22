@@ -18,7 +18,13 @@
   --border-strong: rgba(255, 255, 255, 0.18);
   --panel-from: #141414;
   --panel-to: #0e0e0e;
-  --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* Layered depth: a hairline top highlight (light from above), a tight
+     contact shadow, and a soft ambient cast. Reads as a milled object
+     floating a few mm off the canvas rather than a flat card. */
+  --panel-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.045) inset,
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 16px 40px -16px rgba(0, 0, 0, 0.7);
   --input-bg: #0a0a0a;
   --input-bg-focus: #0d0d0d;
   --btn-bg: rgba(255, 255, 255, 0.02);
@@ -56,6 +62,12 @@
   --radius:    10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
+
+  /* Signature accent system — emerald primary, sky secondary, violet for the
+     surreal background aurora. RGB channels so we can compose any opacity. */
+  --accent:   74 222 128;   /* emerald */
+  --accent-2: 125 211 252;  /* sky      */
+  --accent-3: 167 139 250;  /* violet   */
 }
 
 [data-theme="light"] {
@@ -97,6 +109,17 @@
   --pixel-gray-light: #9ca3af;
 }
 
+/* Light mode wants a cooler, fainter atmosphere — the dark-mode accent suns
+   read muddy over near-white, so dial them down to a clean haze. */
+[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 820px at 8% -12%, rgba(var(--accent) / 0.05), transparent 60%),
+    radial-gradient(1100px 760px at 112% 6%, rgba(var(--accent-2) / 0.06), transparent 58%),
+    radial-gradient(1200px 1000px at 50% 124%, rgba(var(--accent-3) / 0.045), transparent 62%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) var(--scroll-track);
@@ -113,7 +136,15 @@
 
 body {
   color: var(--fg);
-  background: var(--bg);
+  /* Atmosphere — three faint accent suns layered over the near-black canvas,
+     pinned (background-attachment: fixed) so they read as deep space the
+     content drifts over rather than wallpaper that scrolls with it. */
+  background:
+    radial-gradient(1200px 820px at 8% -12%, rgba(var(--accent) / 0.07), transparent 60%),
+    radial-gradient(1100px 760px at 112% 6%, rgba(var(--accent-2) / 0.055), transparent 58%),
+    radial-gradient(1200px 1000px at 50% 124%, rgba(var(--accent-3) / 0.06), transparent 62%),
+    var(--bg);
+  background-attachment: fixed;
   /* Vibey modern stack — Inter for body, JetBrains Mono for numerics.
      Default weight bumped to 500 so labels read with confidence; component
      overrides (700 on headers, 600 on buttons) build on top. */
@@ -140,15 +171,40 @@ code, kbd, pre, samp {
   letter-spacing: -0.01em;
 }
 
-/* Subtle ambient vignette — replaces the heavy Game Boy scanline overlay. */
+/* Ambient aurora + film grain — a living wash of light that slowly breathes
+   over the whole screen. Subtle enough to never fight the content, present
+   enough that the UI feels alive instead of printed. */
 .crt-overlay {
   pointer-events: none;
   position: fixed;
   inset: 0;
   z-index: 9999;
   background:
-    radial-gradient(ellipse at top, rgba(74, 222, 128, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at bottom, rgba(125, 211, 252, 0.03) 0%, transparent 55%);
+    radial-gradient(60% 50% at 18% 0%, rgba(var(--accent) / 0.06) 0%, transparent 60%),
+    radial-gradient(55% 45% at 100% 12%, rgba(var(--accent-2) / 0.05) 0%, transparent 60%),
+    radial-gradient(70% 60% at 50% 116%, rgba(var(--accent-3) / 0.05) 0%, transparent 62%);
+  will-change: transform, opacity;
+  animation: aurora-breathe 26s ease-in-out infinite;
+}
+/* Fine matte grain — the difference between "screen" and "object". Tiled
+   fractal noise at a whisper of opacity so gradients never band. */
+.crt-overlay::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/></svg>");
+  opacity: 0.022;
+  mix-blend-mode: overlay;
+}
+@keyframes aurora-breathe {
+  0%, 100% { opacity: 0.75; transform: translate3d(0, 0, 0) scale(1); }
+  50%      { opacity: 1;    transform: translate3d(0, -1.4%, 0) scale(1.06); }
+}
+[data-theme="light"] .crt-overlay { opacity: 0.7; }
+[data-theme="light"] .crt-overlay::after { mix-blend-mode: multiply; opacity: 0.015; }
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-overlay { animation: none; }
 }
 
 /* Universal rounding sweep — every native control + bordered div picks up the
@@ -230,18 +286,30 @@ input[type="radio"] {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.05s, box-shadow 0.15s;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease;
   background: var(--btn-bg);
   color: var(--fg);
 }
 .pixel-btn:hover {
   background: var(--btn-bg-hover);
   border-color: var(--border-strong);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.5);
 }
 .pixel-btn:active {
-  transform: translateY(1px);
+  transform: translateY(0);
   background: var(--btn-bg-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) inset;
+  transition-duration: 0.05s;
+}
+.pixel-btn:focus-visible {
+  outline: none;
+  border-color: rgba(var(--accent) / 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--accent) / 0.18);
 }
 
 /* Vibey rounded input */
@@ -402,7 +470,11 @@ input[type="radio"] {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: var(--radius-lg);
   padding: 20px;
-  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s, background 0.2s;
+  transition:
+    border-color 0.25s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s ease,
+    background 0.25s ease;
   position: relative;
   overflow: hidden;
 }
@@ -560,6 +632,51 @@ input[type="radio"] {
       #fff 6px, #fff 8px
     );
   height: 4px;
+}
+
+/* ── Premium utilities ─────────────────────────────────────────────
+   Opt-in classes for signature moments — gradient wordmarks, accent glow
+   rings, and a tactile hover-lift for interactive surfaces. */
+
+/* Liquid-metal gradient text for headlines / brand marks. Pair with
+   font-display for the full effect. */
+.text-gradient {
+  background-image: linear-gradient(
+    100deg,
+    rgb(var(--accent)) 0%,
+    rgb(var(--accent-2)) 45%,
+    rgb(var(--accent-3)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-size: 200% auto;
+  animation: sheen 6s linear infinite;
+}
+@keyframes sheen {
+  to { background-position: 200% center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-gradient { animation: none; }
+}
+
+/* Soft emerald halo for hero elements. */
+.glow-emerald {
+  box-shadow:
+    0 0 0 1px rgba(var(--accent) / 0.18),
+    0 0 28px -4px rgba(var(--accent) / 0.35);
+}
+
+/* Tactile lift — for clickable panels/tiles that aren't .market-card. */
+.u-lift {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s ease,
+    border-color 0.28s ease;
+}
+.u-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.75);
 }
 
 /* ── Light-mode brand-color overrides ──────────────────────────────

@@ -602,7 +602,7 @@ export default function LivePanel() {
           The portfolio charts sit ABOVE the ALL TRADES / MY TRADES tab bar so
           they're always over the trades regardless of which tab is selected.
           The panel's own PIE / OVER TIME control toggles between charts. */}
-      {auth.connected && <PortfolioPanel />}
+      {auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
 
       {auth.connected && (
         <div className="flex border-b border-pixel-border">

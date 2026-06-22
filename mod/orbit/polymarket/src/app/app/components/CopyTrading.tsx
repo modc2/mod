@@ -233,6 +233,12 @@ export default function CopyTrading({
   // of "don't pick inactive traders"). Lives outside FiltersContext because
   // trades24h ships per-row and filtering is pure client-side.
   const [minTrades24h, setMinTrades24h] = useState("1");
+  // LAST TRADE ≤ HRS — drops traders whose most recent trade is older than
+  // this many hours. Defaults to "24" so the leaderboard only surfaces traders
+  // active in the last day out of the box. Like minTrades24h it's a pure
+  // client-side filter on the per-row `lastTradeTs` (unix seconds); blank/0
+  // disables it. Lives outside FiltersContext for the same reason.
+  const [maxLastTradeHrs, setMaxLastTradeHrs] = useState("24");
   const [stratAddrs, setStratAddrs] = useState<Set<string>>(new Set());
   const [stratName, setStratName] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -576,7 +582,8 @@ export default function CopyTrading({
     // doesn't know about trades24h, so the only way to honor it is to filter
     // the in-memory streamed dataset.
     const needs24hFilter = minTrades24h !== "" && Number(minTrades24h) > 0;
-    if (cacheWarm && !stratFilter && !needs24hFilter) return null;
+    const needsRecencyFilter = maxLastTradeHrs !== "" && Number(maxLastTradeHrs) > 0;
+    if (cacheWarm && !stratFilter && !needs24hFilter && !needsRecencyFilter) return null;
     if (!stratFilter && streamedAll.length === 0) return null;
 
     // When STRAT is on, anchor the list to the strat's address set so traders
@@ -612,6 +619,12 @@ export default function CopyTrading({
       // dormants don't surface even when their week-long stats look great.
       const m24 = Number(minTrades24h);
       if (minTrades24h !== "" && Number.isFinite(m24) && (t.trades24h ?? 0) < m24) return false;
+      // Recency floor — drop traders whose last trade is older than N hours.
+      // Missing lastTradeTs = unknown/dormant → hidden while the filter is on.
+      const mlh = Number(maxLastTradeHrs);
+      if (maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0) {
+        if (!t.lastTradeTs || Date.now() / 1000 - t.lastTradeTs > mlh * 3600) return false;
+      }
       const mbv = Number(minBuyVolume);
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
@@ -634,7 +647,7 @@ export default function CopyTrading({
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, minVolume, minPnl,
-      minTrades, minTrades24h, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
+      minTrades, minTrades24h, maxLastTradeHrs, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -705,13 +718,18 @@ export default function CopyTrading({
     // client-side filter on a 50-row page is cheap enough to ship today.
     const m24 = Number(minTrades24h);
     const apply24h = minTrades24h !== "" && Number.isFinite(m24) && m24 > 0;
+    const mlh = Number(maxLastTradeHrs);
+    const applyRecency = maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0;
     let list = sortedTraders;
     if (apply24h) {
       list = list.filter((t) => (t.trades24h ?? 0) >= m24);
     }
+    if (applyRecency) {
+      list = list.filter((t) => !!t.lastTradeTs && Date.now() / 1000 - t.lastTradeTs <= mlh * 3600);
+    }
     if (!stratFilter || stratAddrs.size === 0) return list;
     return list.filter(t => stratAddrs.has(t.address.toLowerCase()));
-  }, [sortedTraders, stratFilter, stratAddrs, minTrades24h]);
+  }, [sortedTraders, stratFilter, stratAddrs, minTrades24h, maxLastTradeHrs]);
 
   // Pre-lowercase the selected set so the ✓ / + ADD toggle compares
   // case-insensitively — different code paths persist addresses in mixed cases.
@@ -759,22 +777,15 @@ export default function CopyTrading({
   const pagePnl = traders.reduce((s, t) => s + t.pnl, 0);
   const pageVol = traders.reduce((s, t) => s + t.volume, 0);
 
-  // Staleness banner — full-width warning stripe when the leaderboard data
-  // is older than 10 min. The small "sync 5m ago" chip in the header is
-  // easy to miss; this makes it unmissable so the user doesn't trade on a
-  // stale ranking. Three states:
-  //   • fresh (<10min): hidden
-  //   • stale (≥10min) + auto-sync running: green "SYNCING IN PROGRESS"
-  //   • stale (≥10min) + no sync yet: amber/red "STALE DATA" + SYNC NOW
-  // The auto-refresh effect above triggers loadStream when staleness crosses
-  // the same 10min threshold, so the "stale, not syncing" window is at most
-  // a 30s tick — but we still render it correctly during that gap.
+  // Staleness signal lives on the header's color-coded "sync {age}" chip
+  // (green <5min → amber <30min → red) plus the always-present ↻ SYNC button,
+  // so we don't duplicate it with a separate STALE DATA stripe. The only
+  // full-width banner we keep is the transient AUTO-SYNCING notice, which
+  // explains why a fresh pull kicked off after the data went stale.
   const staleStamp = syncedAt ?? lastUpdated;
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
   const isStale = staleStamp != null && staleAgeMs >= 10 * 60_000;
   const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
-  const showStaleBanner = isStale && !showSyncingBanner;
-  const staleSeverity = staleAgeMs >= 30 * 60_000 ? "red" : "amber";
 
   return (
     <div className="space-y-3">
@@ -785,32 +796,6 @@ export default function CopyTrading({
           <span className="text-pixel-gray-light shrink-0">leaderboard was {formatAgo(staleAgeMs)} stale</span>
         </div>
       )}
-      {showStaleBanner && (
-        <div
-          className={`pixel-panel px-4 py-2 border-2 flex items-center gap-3 font-mono text-[13px] ${
-            staleSeverity === "red"
-              ? "border-red-400 bg-red-400/10 text-red-400"
-              : "border-amber-400 bg-amber-400/10 text-amber-400"
-          }`}
-        >
-          <span className="tracking-wider shrink-0">STALE DATA</span>
-          <span className="shrink-0">
-            Leaderboard last synced {formatAgo(staleAgeMs)} — trade decisions may be based on old rankings.
-          </span>
-          <button
-            onClick={() => { void loadStream({ force: true }); }}
-            className={`ml-auto pixel-btn text-[12px] px-2 py-0.5 shrink-0 ${
-              staleSeverity === "red"
-                ? "border-red-400 text-red-400 hover:bg-red-400/20"
-                : "border-amber-400 text-amber-400 hover:bg-amber-400/20"
-            }`}
-            title="Force a fresh pull from Polymarket"
-          >
-            ↻ SYNC NOW
-          </button>
-        </div>
-      )}
-
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
         <div className="flex items-center gap-3 flex-wrap">
@@ -967,6 +952,9 @@ export default function CopyTrading({
                 // filter, blank = no filter. Defaults to 1 so dormants are
                 // hidden out of the box (user explicitly asked to not see them).
                 { label: "MIN TRADES 24H", value: minTrades24h, onChange: onDec(setMinTrades24h), ph: "1" },
+                // Recency floor — hide traders whose last trade is older than
+                // this many hours. Defaults to 24h; blank/0 disables.
+                { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: "24" },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1000,7 +988,7 @@ export default function CopyTrading({
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
-              <button onClick={() => { setDaysAgo(""); setCategory(""); setMinTrades(""); setMinTrades24h("1"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
+              <button onClick={() => { setDaysAgo(""); setCategory(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
                 className="pixel-btn text-[12px] px-3 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-red-400 hover:text-red-400 transition-colors">
                 RESET ALL
               </button>

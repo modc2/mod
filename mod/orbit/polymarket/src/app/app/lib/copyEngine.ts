@@ -1036,12 +1036,33 @@ export class CopyEngine {
             type: "BALANCE",
             reason: `Balance $${effective.toFixed(2)} < 5% gate · best pending BUY EP $${bestCandidate.ep.toFixed(2)} ("${bestCandidate.market}") → rotating lower-EP positions to free ~$${fundingNeeded.toFixed(2)}`,
           });
-          const { sold, freedUsd } = await this.freeLiquidity({
+          let { sold, freedUsd } = await this.freeLiquidity({
             maxToSell: 3,
             reasonPrefix: "EP ROTATION",
             targetEP: bestCandidate.ep,
             fundingNeededUsd: fundingNeeded,
           });
+          // EP rotation can hold EVERY position when they all out-rank the new
+          // buy by the churn guard — which used to strand us at
+          // INSUFFICIENT_BALANCE even while sitting on sellable positions.
+          // Don't stall: fall back to plainly freeing cash (winners first, then
+          // the worst loser) so the fresh signal still gets funded.
+          if (sold === 0) {
+            this.addLog({
+              id: uid(),
+              timestamp: Date.now(),
+              type: "BALANCE",
+              reason: `No position cheaper than the new buy's EP — force-freeing ~$${fundingNeeded.toFixed(2)} to fund it anyway`,
+            });
+            const fb = await this.freeLiquidity({
+              maxToSell: 3,
+              reasonPrefix: "FORCE FREE",
+              fundingNeededUsd: fundingNeeded,
+              sellLosersIfNoWinners: true,
+            });
+            sold += fb.sold;
+            freedUsd += fb.freedUsd;
+          }
           if (sold > 0) {
             freedAnything = true;
             // Re-check the V2 deposit wallet balance — the SELL settles
@@ -1066,18 +1087,17 @@ export class CopyEngine {
               reason: `Freed $${freedUsd.toFixed(2)} · wallet now $${onchainProxyBal.toFixed(2)} → continuing cycle`,
             });
             // If the freed amount lifts us above the gate, fall through to
-            // the normal BUY pipeline. Otherwise still error out — the
-            // next cycle will try another sell.
+            // the normal BUY pipeline. Otherwise skip this cycle's buys — the
+            // next cycle will sell more to keep closing the gap.
             if (newEffective >= this.config.capital * 0.05) {
               // Continue normal processing
             } else {
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
-                type: "ERROR",
-                reason: `Still below gate after freeing $${freedUsd.toFixed(2)} — next cycle will free more.`,
+                type: "BALANCE",
+                reason: `Freed $${freedUsd.toFixed(2)} but still below gate — next cycle frees more.`,
               });
-              this.setState({ error: "INSUFFICIENT_BALANCE" });
               return;
             }
           }
@@ -1090,20 +1110,18 @@ export class CopyEngine {
             : proxy;
           const need = this.config.capital * 0.05;
           const reason = !hasHighConvictionCandidate
-            ? `Balance $${effective.toFixed(2)} < 5% gate; no positive-EP BUY candidates → idling without freeing liquidity. Will retry next cycle.`
-            : `Balance $${effective.toFixed(2)} < 5% gate and every open position has higher forward EP than the best pending buy ($${bestCandidate!.ep.toFixed(2)}) — holding rather than rotating into a worse trade. Trading wallet ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)}); open the TRADING WALLET panel and DEPOSIT to add fresh capital.`;
+            ? `Balance $${effective.toFixed(2)} < 5% gate; no positive-EP BUY candidates → idling. Will retry next cycle.`
+            : `Balance $${effective.toFixed(2)} < 5% gate and nothing sellable to free cash (no open positions, or sells rejected). Trading wallet ${proxyShort} has $${onchainProxyBal.toFixed(2)} (need ≥$${need.toFixed(2)}); open the TRADING WALLET panel and DEPOSIT to add fresh capital.`;
           this.addLog({
             id: uid(),
             timestamp: Date.now(),
-            type: hasHighConvictionCandidate ? "ERROR" : "BALANCE",
+            type: "BALANCE",
             reason,
           });
-          // Don't transition to status="error" for the no-candidate case
-          // — we want the engine to keep polling. Only real funding gaps
-          // (with a candidate present) escalate to an error state.
-          if (hasHighConvictionCandidate) {
-            this.setState({ error: "INSUFFICIENT_BALANCE" });
-          }
+          // Keep polling rather than freezing on an error state. When there's
+          // a candidate we already tried to sell positions to fund it above;
+          // reaching here means there was simply nothing to sell this cycle.
+          // A later sell fill or a fresh deposit lets the next cycle proceed.
           return;
         }
       }

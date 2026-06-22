@@ -127,7 +127,7 @@ export default function LeftNav() {
           <circle cx="12" cy="12" r="3" fill="currentColor" />
         </svg>
         {expanded && (
-          <span className="text-[13px] font-bold tracking-[0.2em] whitespace-nowrap glow-green text-green-400">
+          <span className="font-display text-[14px] font-bold tracking-[0.22em] whitespace-nowrap text-gradient">
             SPB
           </span>
         )}
