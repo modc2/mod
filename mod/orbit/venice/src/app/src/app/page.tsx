@@ -227,11 +227,12 @@ export default function Page() {
     !!token && !!prompt.trim() && !!model && (mode === "byok" ? me?.has_key : me?.paid_available);
 
   return (
+    <div className="stage">
     <div className="wrap">
       <header className="header">
         <div>
           <span className="brand">venice</span>
-          <span className="brand-sub">one chat · text, images & video · bring your own key or pay per turn</span>
+          <span className="brand-sub">a generative atelier — text, image &amp; video conjured in a single thread</span>
         </div>
         <div className="row">
           {!wallet && <span className="muted">no wallet detected</span>}
@@ -253,10 +254,10 @@ export default function Page() {
 
       {!token && (
         <div className="panel">
-          <p className="muted" style={{ margin: 0 }}>
-            Sign in with your wallet, then chat in one place — ask for text, generate or edit images,
-            and make videos, all in the same thread. Add your own Venice key (you pay Venice directly)
-            or pay per turn in USDC and we fund it with our key.
+          <p className="lead">
+            Sign in with your wallet, then summon anything in one conversation —
+            <span className="accent"> words, images, moving pictures</span>, all in the same breath.
+            Bring your own Venice key and pay Venice directly, or pay per turn in USDC and we cover the call.
           </p>
         </div>
       )}
@@ -317,10 +318,21 @@ export default function Page() {
 
             <div className="thread" ref={threadRef}>
               {thread.length === 0 && (
-                <p className="muted" style={{ margin: "8px 4px" }}>
-                  Try: “draw a neon cyberpunk fox”, “make it a 16:9 wallpaper and upscale it”,
-                  or attach a photo and say “animate this into a 5s video”.
-                </p>
+                <div className="empty">
+                  <div className="empty-title">what shall we dream up?</div>
+                  <div className="prompts">
+                    {[
+                      "draw a neon cyberpunk fox",
+                      "a Murano-glass koi, then upscale it 2×",
+                      "a melting clock over the Venetian lagoon, Dalí style",
+                      "animate a paper crane unfolding into flight, 5s",
+                    ].map((p) => (
+                      <button key={p} className="prompt-chip" onClick={() => setPrompt(p)} disabled={!!busy}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
               {thread.map((m, i) => (
                 <div key={i} className={`msg ${m.role}`}>
@@ -340,7 +352,7 @@ export default function Page() {
                     </div>
                   )}
                   {m.role === "assistant" && !m.text && m.media.length === 0 && status && (
-                    <div className="msg-text muted">⟳ {status}</div>
+                    <div className="thinking"><span className="orb" />{status}</div>
                   )}
                 </div>
               ))}
@@ -374,10 +386,11 @@ export default function Page() {
                 {mode === "paid" ? `Pay & send` : "Send"}
               </button>
             </div>
-            {status && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>⟳ {status}</div>}
+            {status && <div className="thinking fineprint" style={{ marginTop: 10 }}><span className="orb" />{status}</div>}
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }
