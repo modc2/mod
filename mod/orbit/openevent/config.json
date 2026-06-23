@@ -1,0 +1,57 @@
+{
+    "name": "openevent",
+    "description": "Cross-platform events aggregator \u2014 one live feed of what's on near you (Luma/Eventbrite/Meetup) and one composer to broadcast an event to every platform at once",
+    "version": "1.0.0",
+    "port": 50170,
+    "app_port": 50171,
+    "urls": {
+        "api": "http://localhost:50170",
+        "app": "http://localhost:50171"
+    },
+    "network": "mainnet",
+    "default_city": "sf",
+    "cache_ttl": 600,
+    "platforms": {
+        "luma": {
+            "discover": "live",
+            "publish": "assisted"
+        },
+        "eventbrite": {
+            "discover": "best-effort",
+            "publish": "api (BYOK token)"
+        },
+        "meetup": {
+            "discover": "best-effort",
+            "publish": "assisted"
+        }
+    },
+    "fns": [
+        "forward",
+        "health",
+        "status",
+        "platforms",
+        "cities",
+        "discover",
+        "connect",
+        "disconnect",
+        "connections",
+        "create_event",
+        "broadcast",
+        "draft_for",
+        "event",
+        "my_events",
+        "delete_event",
+        "verify_sudo",
+        "admin_delete_event",
+        "serve",
+        "kill",
+        "serve_api",
+        "kill_api",
+        "serve_app",
+        "kill_app",
+        "register",
+        "deregister"
+    ],
+    "gateway_port": 50171,
+    "schema": "QmS4zRCnbkSLzavurVqnFjvJF9rZX8vPLNK8jmi671grU2"
+}
