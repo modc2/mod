@@ -43,7 +43,12 @@ export type GameDetail = Occurrence & {
   waitlist_players?: any[]
   invited: string[]
   upcoming: string[]
+  links: GameLink[]
+  chat_count: number
 }
+
+export type GameLink = { label: string; url: string }
+export type ChatMessage = { id: string; handle: string; text: string; ts: number }
 
 export type Sport = { key: string; label: string; emoji: string; color: string }
 export type Venue = { id: string; builtin: boolean; name: string; city: string; neighborhood: string; lat: number; lng: number; sports: string[] }

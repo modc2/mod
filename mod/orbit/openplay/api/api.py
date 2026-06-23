@@ -64,6 +64,7 @@ class CreateGame(BaseModel):
     cost: Optional[Cost] = None
     notes: str = ""
     admin_wallet: str = ""
+    links: Optional[List[Dict[str, str]]] = None
 
 
 class JoinReq(BaseModel):
@@ -151,6 +152,11 @@ class SudoDeleteVenue(BaseModel):
 class EditReq(BaseModel):
     admin_key: str
     fields: Dict[str, Any] = {}
+
+
+class ChatReq(BaseModel):
+    handle: str
+    text: str
 
 
 def _check(result):
@@ -263,6 +269,17 @@ def decline(game_id: str, req: DeclineReq):
 @app.post("/game/{game_id}/kick")
 def kick(game_id: str, req: KickReq):
     return _check(op().kick(game_id, req.admin_key, req.handle, occ=req.occ, series=req.series))
+
+
+# ── Game chat ───────────────────────────────────────────────────
+@app.get("/game/{game_id}/messages")
+def messages(game_id: str, since: int = 0):
+    return _check(op().messages(game_id, since=since))
+
+
+@app.post("/game/{game_id}/messages")
+def post_message(game_id: str, req: ChatReq):
+    return _check(op().post_message(game_id, req.handle, req.text))
 
 
 # ── Module admin (sudo) ─────────────────────────────────────────

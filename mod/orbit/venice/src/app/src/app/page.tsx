@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildModToken,
+  buildLocalModToken,
+  clearLocalIdentity,
   connectWallet,
+  getOrCreateLocalIdentity,
+  hasLocalIdentity,
   hasWallet,
   shortAddress,
 } from "@/lib/wallet";
@@ -12,14 +16,18 @@ import { makePaidFetch } from "@/lib/x402";
 
 const TOKEN_KEY = "venice:token";
 const ADDR_KEY = "venice:addr";
+const IDKIND_KEY = "venice:idkind";
 
 type Mode = "byok" | "paid";
+type IdKind = "wallet" | "local";
 type ChatMsg = { role: "user" | "assistant"; text: string; media: MediaOut[] };
 
 export default function Page() {
   const [wallet, setWallet] = useState(false);
+  const [hasLocal, setHasLocal] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [address, setAddress] = useState<string | null>(null);
+  const [idKind, setIdKind] = useState<IdKind | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +51,8 @@ export default function Page() {
 
   useEffect(() => {
     setWallet(hasWallet());
+    setHasLocal(hasLocalIdentity());
+    const savedKind = localStorage.getItem(IDKIND_KEY) as IdKind | null;
     const t = localStorage.getItem(TOKEN_KEY);
     const a = localStorage.getItem(ADDR_KEY);
     if (t && a) {
@@ -51,13 +61,19 @@ export default function Page() {
         .then((r) => {
           setToken(t);
           setAddress(r.address);
+          setIdKind(savedKind);
           setMe(r);
           setMode(r.has_key ? "byok" : r.paid_available ? "paid" : "byok");
         })
         .catch(() => {
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(ADDR_KEY);
+          // A local identity holds its own key, so it can silently re-auth
+          // (mint a fresh token) without prompting — unlike a wallet.
+          if (savedKind === "local" && hasLocalIdentity()) signInLocal(true);
         });
+    } else if (savedKind === "local" && hasLocalIdentity()) {
+      signInLocal(true);
     }
     api
       .models()
@@ -85,6 +101,19 @@ export default function Page() {
     }
   }, []);
 
+  // Persist a verified session and reflect it in state.
+  const applySession = (t: string, r: MeResponse, kind: IdKind) => {
+    localStorage.setItem(TOKEN_KEY, t);
+    localStorage.setItem(ADDR_KEY, r.address);
+    localStorage.setItem(IDKIND_KEY, kind);
+    setToken(t);
+    setAddress(r.address);
+    setIdKind(kind);
+    setMe(r);
+    setMode(r.has_key ? "byok" : r.paid_available ? "paid" : "byok");
+  };
+
+  // Sign in with a real wallet (MetaMask) — links this session to your address.
   const signIn = async () => {
     setError(null);
     setOk(null);
@@ -95,12 +124,7 @@ export default function Page() {
       const t = await buildModToken(addr);
       setBusy("verifying…");
       const r = await api.me(t);
-      localStorage.setItem(TOKEN_KEY, t);
-      localStorage.setItem(ADDR_KEY, r.address);
-      setToken(t);
-      setAddress(r.address);
-      setMe(r);
-      setMode(r.has_key ? "byok" : r.paid_available ? "paid" : "byok");
+      applySession(t, r, "wallet");
       setOk(`signed in as ${shortAddress(r.address)}`);
     } catch (e) {
       setError((e as Error).message);
@@ -109,14 +133,47 @@ export default function Page() {
     }
   };
 
+  // Sign in with a browser-local keypair — an anonymous pseudonym with no link
+  // to any wallet. `silent` re-auths an existing identity without UI noise.
+  async function signInLocal(silent = false) {
+    if (!silent) {
+      setError(null);
+      setOk(null);
+      setBusy("creating anonymous identity…");
+    }
+    try {
+      const id = getOrCreateLocalIdentity();
+      setHasLocal(true);
+      const t = await buildLocalModToken(id);
+      const r = await api.me(t);
+      applySession(t, r, "local");
+      if (!silent) setOk(`anonymous — ${shortAddress(r.address)} (key never leaves this browser)`);
+    } catch (e) {
+      if (!silent) setError((e as Error).message);
+    } finally {
+      if (!silent) setBusy(null);
+    }
+  }
+
   const signOut = () => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ADDR_KEY);
+    localStorage.removeItem(IDKIND_KEY);
     setToken(null);
     setAddress(null);
+    setIdKind(null);
     setMe(null);
     setThread([]);
     setAttachments([]);
+  };
+
+  // Destroy the anonymous identity itself (not just the session): wipes the
+  // local private key, orphaning whatever Venice key was stored under it.
+  const forgetIdentity = () => {
+    clearLocalIdentity();
+    setHasLocal(false);
+    signOut();
+    setOk("anonymous identity erased from this browser");
   };
 
   const saveKey = async () => {
@@ -235,14 +292,31 @@ export default function Page() {
           <span className="brand-sub">a generative atelier — text, image &amp; video conjured in a single thread</span>
         </div>
         <div className="row">
-          {!wallet && <span className="muted">no wallet detected</span>}
-          {wallet && !token && (
-            <button className="primary" onClick={signIn} disabled={!!busy}>Sign in with wallet</button>
+          {!token && (
+            <>
+              {wallet && (
+                <button className="primary" onClick={signIn} disabled={!!busy}>
+                  Sign in with wallet
+                </button>
+              )}
+              <button
+                className={wallet ? "ghost" : "primary"}
+                onClick={() => signInLocal()}
+                disabled={!!busy}
+                title="Generate a keypair in this browser — no wallet, no identity revealed"
+              >
+                {hasLocal ? "Resume anonymous" : "Use anonymously"}
+              </button>
+            </>
           )}
           {token && address && (
             <>
-              <span className="pill brand">mod-auth</span>
-              <span className="mono">{shortAddress(address)}</span>
+              <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
+                {idKind === "local" ? "anonymous" : "mod-auth"}
+              </span>
+              <span className="mono" title={idKind === "local" ? "browser-local pseudonym" : "wallet address"}>
+                {shortAddress(address)}
+              </span>
               <button className="ghost" onClick={signOut}>Sign out</button>
             </>
           )}
@@ -255,9 +329,15 @@ export default function Page() {
       {!token && (
         <div className="panel">
           <p className="lead">
-            Sign in with your wallet, then summon anything in one conversation —
-            <span className="accent"> words, images, moving pictures</span>, all in the same breath.
-            Bring your own Venice key and pay Venice directly, or pay per turn in USDC and we cover the call.
+            Edit your photos and summon images &amp; video in one conversation —
+            <span className="accent"> attach a picture, describe the change</span>, Venice does the rest.
+            Bring your own Venice key (encrypted at rest, used only for your calls), or pay per turn in USDC.
+          </p>
+          <p className="lead" style={{ marginTop: 10 }}>
+            Two ways to sign in. <strong>Wallet</strong> ties the session to your address. Or go
+            <span className="accent"> anonymous</span>: a keypair is minted right here in your browser —
+            no wallet, no email, no identity revealed. Each anonymous identity carries its own Venice key;
+            the private key never leaves this device, and <em>Forget identity</em> erases it.
           </p>
         </div>
       )}
@@ -267,6 +347,9 @@ export default function Page() {
           <div className="panel">
             <h2 className="panel-title">Access</h2>
             <div className="row">
+              <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
+                {idKind === "local" ? "anonymous identity (this browser)" : "wallet identity"}
+              </span>
               <span className={`pill ${me?.has_key ? "ok" : ""}`}>
                 {me?.has_key ? "✓ your key on file (BYOK)" : "no key on file"}
               </span>
@@ -294,6 +377,14 @@ export default function Page() {
                 </>
               )}
             </div>
+            {idKind === "local" && (
+              <p className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                Your private key lives only in this browser — clearing site data or other devices won&apos;t see it.
+                <button className="ghost" style={{ marginLeft: 8 }} onClick={forgetIdentity} disabled={!!busy}>
+                  Forget identity
+                </button>
+              </p>
+            )}
           </div>
 
           <div className="panel">

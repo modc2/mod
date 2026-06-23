@@ -2,6 +2,7 @@
     "name": "agent",
     "version": "3.1.0",
     "description": "Autonomous coding agent. 21 skills for software engineering. Claude module interface with owner permissions and portal sandboxing.",
+    "owner": "0x7d7c323496eD80E16d47b036607c586fB33dd123",
     "fns": [
         "forward",
         "run_skill",
@@ -14,7 +15,7 @@
         "is_owner",
         "allowed_paths_for"
     ],
-    "schema": "QmVrHteC6oUSFP96YQwtCMbePNuGzj2mpm29WJbG3hmSaN",
+    "schema": "QmdxuzmsrCbR7YvnNzss6NpW5dH36CZQhd6E83bCpoBVdF",
     "skills": [
         "bash",
         "read",

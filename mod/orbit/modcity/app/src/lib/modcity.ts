@@ -36,6 +36,37 @@ export interface StyleSpec {
   carbon_mult: number
 }
 
+// A designable, shareable façade panel — distinct from a module/room.
+// Carries a full prefab fabrication spec (real mm dims, assembly, RSI, weight).
+export interface PanelSpec {
+  id: string
+  name: string
+  kind: 'solid' | 'window' | 'curtain' | 'louver'
+  color: string
+  frame: string
+  glazing: number      // 0–1 glazed fraction
+  win_cols: number
+  win_rows: number
+  material: string     // wood | metal | concrete | glass | composite
+  reveal: boolean      // horizontal cladding board lines
+  // ── prefab fabrication spec ──
+  width_mm: number
+  height_mm: number
+  thickness_mm: number
+  weight_kg: number
+  assembly: string
+  r_value: number      // RSI
+  connection: string
+  fab_notes: string
+  price: number
+  carbon_kg: number
+  lead_days: number
+  custom?: boolean
+  public?: boolean
+  owner?: string
+  mine?: boolean
+}
+
 export interface ComplianceRule { value: number | string; limit: number | string; ok: boolean }
 export interface Compliance {
   ok: boolean
@@ -44,6 +75,11 @@ export interface Compliance {
   carbon?: ComplianceRule
   occupancy?: ComplianceRule
   lot?: ComplianceRule
+  // ── laneway / ADU code envelope ──
+  height_m?: ComplianceRule
+  storeys?: ComplianceRule
+  gfa?: ComplianceRule
+  footprint?: ComplianceRule
 }
 
 export interface Constraints {
@@ -53,6 +89,22 @@ export interface Constraints {
   max_budget?: number
   max_carbon_kg?: number
   min_occupancy?: number
+  code?: string            // laneway/ADU jurisdiction preset id
+  skin?: string            // active façade panel id (building skin)
+}
+
+// Canadian laneway / ADU building-code preset (mirror of mod.py LANEWAY_CODES)
+export interface CodeSpec {
+  id: string
+  name: string
+  region: string
+  note: string
+  source: string | null
+  max_height_m: number | null
+  max_storeys: number | null
+  max_gfa_m2: number | null
+  max_footprint_m2: number | null
+  recommend: { lot_w: number; lot_d: number; max_floors: number } | null
 }
 
 export interface Estimate {
@@ -70,6 +122,8 @@ export interface Estimate {
   green_modules: number
   net_positive_energy: boolean
   footprint_cells?: number
+  height_m?: number
+  footprint_m2?: number
   compliance?: Compliance
 }
 
@@ -101,6 +155,7 @@ export interface PortableDoc {
   cells: Cell[]
   constraints: Constraints | null
   bricks: Record<string, ModuleSpec>
+  panels?: Record<string, PanelSpec>
   by?: string
   cid?: string
 }
@@ -154,6 +209,75 @@ export const FALLBACK_CATALOG: ModuleSpec[] = RAW.map((r) => ({
   footprint_m2: 9, edge_m: 3,
 }))
 
+// Built-in façade panels (mirror of mod.py PANELS) — shown instantly / offline.
+export const FALLBACK_PANELS: PanelSpec[] = [
+  { id: 'clt_solid', name: 'CLT Solid Wall', kind: 'solid', color: '#caa472', frame: '#7a5a3c', glazing: 0, win_cols: 0, win_rows: 0, material: 'wood', reveal: true, width_mm: 3000, height_mm: 3000, thickness_mm: 120, weight_kg: 850, assembly: 'CLT (cross-laminated timber)', r_value: 3.5, connection: 'screwed (self-tapping)', fab_notes: '5-ply CLT, CNC-routed service chases, factory-sealed.', price: 4200, carbon_kg: 520, lead_days: 18 },
+  { id: 'sip_window', name: 'SIP Window Wall', kind: 'window', color: '#e7e2d8', frame: '#3a3a3a', glazing: 0.35, win_cols: 2, win_rows: 2, material: 'composite', reveal: false, width_mm: 3000, height_mm: 3000, thickness_mm: 200, weight_kg: 210, assembly: 'SIP (structural insulated panel)', r_value: 5.0, connection: 'screwed + spline', fab_notes: 'OSB/EPS/OSB core, factory-glazed triple-pane units, taped seams.', price: 3800, carbon_kg: 410, lead_days: 14 },
+  { id: 'curtain_glass', name: 'Unitised Curtain Wall', kind: 'curtain', color: '#9fc4d4', frame: '#2b3138', glazing: 0.95, win_cols: 2, win_rows: 3, material: 'glass', reveal: false, width_mm: 3000, height_mm: 3000, thickness_mm: 60, weight_kg: 180, assembly: 'Unitised aluminium curtain wall', r_value: 0.7, connection: 'stack-joint clip', fab_notes: 'Factory-assembled stick units, low-e double glazing, drained/pressure-equalised.', price: 5600, carbon_kg: 720, lead_days: 24 },
+  { id: 'precast_concrete', name: 'Precast Concrete', kind: 'solid', color: '#b9bcc2', frame: '#7e8186', glazing: 0.12, win_cols: 1, win_rows: 1, material: 'concrete', reveal: true, width_mm: 3000, height_mm: 3000, thickness_mm: 150, weight_kg: 1100, assembly: 'Precast concrete sandwich', r_value: 2.0, connection: 'bolted (cast-in ferrules)', fab_notes: 'Insulated wythe, form-liner reveal pattern, lifting anchors cast in.', price: 4900, carbon_kg: 1450, lead_days: 20 },
+  { id: 'steel_louver', name: 'Steel Louver Screen', kind: 'louver', color: '#5b6066', frame: '#33373c', glazing: 0, win_cols: 0, win_rows: 0, material: 'metal', reveal: false, width_mm: 3000, height_mm: 3000, thickness_mm: 80, weight_kg: 140, assembly: 'Steel-stud + perforated/louvered metal', r_value: 1.0, connection: 'bolted', fab_notes: 'Solar-shading screen, powder-coated, ventilated rainscreen cavity.', price: 3100, carbon_kg: 380, lead_days: 12 },
+  { id: 'timber_board', name: 'Timber Board Clad', kind: 'window', color: '#a8753f', frame: '#5c3d22', glazing: 0.2, win_cols: 1, win_rows: 1, material: 'wood', reveal: true, width_mm: 3000, height_mm: 3000, thickness_mm: 180, weight_kg: 190, assembly: 'Steel-stud + charred-timber rainscreen', r_value: 4.2, connection: 'screwed (clip rail)', fab_notes: 'Shou-sugi-ban board-on-board, ventilated cavity, factory-finished.', price: 3500, carbon_kg: 300, lead_days: 15 },
+]
+export const PANEL_INDEX_FALLBACK: Record<string, PanelSpec> = Object.fromEntries(FALLBACK_PANELS.map((p) => [p.id, p]))
+
+// ── Prefab fabrication schedule (panel takeoff) ──────────────────
+// Decomposes a building into the discrete factory-built panels a prefab shop
+// fabricates: floor/roof cassettes + each exposed wall/curtain panel (party
+// walls culled, exactly as rendered). Every row is a standard 3 m module panel
+// with real mm dims, assembly, openings and weight — i.e. a factory cut sheet.
+export interface FabRow {
+  ref: string; element: string; cell: string; level: number; face: string
+  width_mm: number; height_mm: number; thickness_mm: number; area_m2: number
+  assembly: string; material: string; glazing_pct: number; openings: number; weight_kg: number
+}
+const FLOOR_CASSETTE = { assembly: 'CLT floor cassette', material: 'wood', thickness_mm: 200, weight_kg: 1200 }
+const ROOF_CASSETTE = { assembly: 'CLT roof cassette + membrane', material: 'wood', thickness_mm: 240, weight_kg: 1000 }
+
+export function buildFabSchedule(cells: Cell[], catalog: ModuleSpec[], skin?: PanelSpec): FabRow[] {
+  const byId = Object.fromEntries(catalog.map((m) => [m.id, m]))
+  const occ = new Map<string, string[]>(cells.map((c) => [`${c.x},${c.z}`, c.stack]))
+  const specAt = (x: number, z: number, l: number) => byId[(occ.get(`${x},${z}`) || [])[l]]
+  const isOpen = (s?: ModuleSpec) => !s || s.id === 'garden' || (s.category === 'outdoor' && !s.glass)
+  const wall = skin && skin.kind !== 'curtain' ? skin : PANEL_INDEX_FALLBACK['clt_solid']
+  const curtain = skin && skin.kind === 'curtain' ? skin : PANEL_INDEX_FALLBACK['curtain_glass']
+  const rows: FabRow[] = []
+  let n = 0
+  const ref = (p: string) => `${p}-${String(++n).padStart(3, '0')}`
+  for (const c of cells) {
+    c.stack.forEach((id, level) => {
+      const spec = byId[id]; if (!spec) return
+      const open = spec.id === 'garden' || (spec.category === 'outdoor' && !spec.glass)
+      rows.push({ ref: ref('FLR'), element: 'Floor cassette', cell: `${c.x},${c.z}`, level, face: '—', width_mm: 3000, height_mm: 3000, thickness_mm: FLOOR_CASSETTE.thickness_mm, area_m2: 9, assembly: FLOOR_CASSETTE.assembly, material: FLOOR_CASSETTE.material, glazing_pct: 0, openings: 0, weight_kg: FLOOR_CASSETTE.weight_kg })
+      if (!open) {
+        const glass = spec.glass
+        for (const [dx, dz, f] of [[1, 0, '+X'], [-1, 0, '-X'], [0, 1, '+Z'], [0, -1, '-Z']] as const) {
+          if (!isOpen(specAt(c.x + dx, c.z + dz, level))) continue
+          const pn = glass ? curtain : wall
+          const openings = pn.kind === 'window' ? pn.win_cols * pn.win_rows : (pn.kind === 'curtain' ? 1 : 0)
+          rows.push({ ref: ref(glass ? 'CW' : 'WAL'), element: glass ? 'Curtain-wall panel' : 'Wall panel', cell: `${c.x},${c.z}`, level, face: f, width_mm: pn.width_mm, height_mm: pn.height_mm, thickness_mm: pn.thickness_mm, area_m2: Math.round(pn.width_mm * pn.height_mm / 1e6 * 10) / 10, assembly: pn.assembly, material: pn.material, glazing_pct: Math.round(pn.glazing * 100), openings, weight_kg: pn.weight_kg })
+        }
+        if (level === c.stack.length - 1 && id !== 'cornice') {
+          rows.push({ ref: ref('ROF'), element: 'Roof cassette', cell: `${c.x},${c.z}`, level, face: 'top', width_mm: 3000, height_mm: 3000, thickness_mm: ROOF_CASSETTE.thickness_mm, area_m2: 9, assembly: ROOF_CASSETTE.assembly, material: ROOF_CASSETTE.material, glazing_pct: 0, openings: 0, weight_kg: ROOF_CASSETTE.weight_kg })
+        }
+      }
+    })
+  }
+  return rows
+}
+
+export function fabScheduleCSV(rows: FabRow[], meta?: { name?: string; skin?: string }): string {
+  const head = ['Ref', 'Element', 'Cell', 'Level', 'Face', 'Width_mm', 'Height_mm', 'Thickness_mm', 'Area_m2', 'Assembly', 'Material', 'Glazing_%', 'Openings', 'Weight_kg']
+  const lines: string[] = []
+  if (meta?.name) lines.push(`# ModCity fabrication schedule — ${meta.name}${meta.skin ? ` · skin: ${meta.skin}` : ''}`)
+  lines.push(head.join(','))
+  for (const r of rows) lines.push([r.ref, r.element, r.cell, r.level, r.face, r.width_mm, r.height_mm, r.thickness_mm, r.area_m2, `"${r.assembly}"`, r.material, r.glazing_pct, r.openings, r.weight_kg].join(','))
+  const totW = rows.reduce((s, r) => s + r.weight_kg, 0)
+  const totA = Math.round(rows.reduce((s, r) => s + r.area_m2, 0) * 10) / 10
+  lines.push('')
+  lines.push(`# ${rows.length} panels · ${totA} m² total panel area · ${totW} kg total fabricated weight (standard 3000mm module grid)`)
+  return lines.join('\n')
+}
+
 export const FALLBACK_STYLES: StyleSpec[] = [
   { id: 'brownstone', name: 'NYC Brownstone', material: 'stone', vibe: 'Sandstone row houses, iron stoops, parlor windows. Pure New York.', accent: '#8a5a3c', sky: '#d9c7b0', price_mult: 1.1, carbon_mult: 0.9, palette: { warm: '#9c6b46', service: '#7a5a48', steel: '#3a3330', neutral: '#c9b9a3', glass: '#b8c4c0', concrete: '#6b5444', accent: '#8a5a3c', green: '#6e7a52', work: '#a8835c', stone: '#7a4a2b' } },
   { id: 'bauhaus', name: 'Bauhaus', material: 'matte', vibe: 'Primary colours, honest geometry, form follows function.', accent: '#e63946', sky: '#f1faee', price_mult: 1.0, carbon_mult: 1.0, palette: { warm: '#f4a261', service: '#457b9d', steel: '#457b9d', neutral: '#e9ecef', glass: '#a8dadc', concrete: '#adb5bd', accent: '#e63946', green: '#80b918', work: '#ffd166', stone: '#cbb799' } },
@@ -195,6 +319,8 @@ export function localEstimate(cells: Cell[], style: StyleSpec, catalog: ModuleSp
     lead_time_days: flat.length ? lead + assembly : 0, occupancy: occ,
     solar_modules: solar, green_modules: green, net_positive_energy: solar > 0,
     footprint_cells: footprint,
+    height_m: Math.round(floors * 3 * 10) / 10,
+    footprint_m2: Math.round(footprint * 9 * 10) / 10,
   }
   if (constraints) est.compliance = checkConstraints(est, constraints, maxAx, maxAz)
   return est
@@ -213,8 +339,71 @@ export function checkConstraints(est: Estimate, c: Constraints, maxAx = 0, maxAz
     const fits = maxAx <= Math.floor(c.lot_w / 2) && maxAz <= Math.floor(c.lot_d / 2)
     add('lot', `${maxAx * 2 + 1}×${maxAz * 2 + 1}`, `${c.lot_w}×${c.lot_d}`, fits)
   }
+  // laneway / ADU code envelope
+  const code = c.code ? CODE_INDEX[c.code] : undefined
+  if (code) {
+    const h = est.height_m ?? 0, fp = est.footprint_m2 ?? 0
+    if (code.max_height_m != null) add('height_m', h, code.max_height_m, h <= code.max_height_m)
+    if (code.max_storeys != null) add('storeys', est.floors, code.max_storeys, est.floors <= code.max_storeys)
+    if (code.max_gfa_m2 != null) add('gfa', est.floor_area_m2, code.max_gfa_m2, est.floor_area_m2 <= code.max_gfa_m2)
+    if (code.max_footprint_m2 != null) add('footprint', fp, code.max_footprint_m2, fp <= code.max_footprint_m2)
+  }
   return out
 }
+
+// ── Canadian laneway / ADU code presets (mirror of mod.py LANEWAY_CODES) ──
+export const CODES: CodeSpec[] = [
+  { id: 'none', name: 'Freeform (no code)', region: '—', note: 'No building-code envelope applied.', source: null,
+    max_height_m: null, max_storeys: null, max_gfa_m2: null, max_footprint_m2: null, recommend: null },
+  { id: 'nbc_part9', name: 'NBC Part 9 — Houses & Small Buildings', region: 'Canada (national model code)',
+    max_height_m: null, max_storeys: 3, max_gfa_m2: null, max_footprint_m2: 600,
+    recommend: { lot_w: 3, lot_d: 4, max_floors: 2 },
+    note: 'Part 9 scope: ≤3 storeys AND ≤600 m² building area (Group C residential). Every detached ADU sits well inside it. Provinces add energy tiers — BC Step Code is Step 3 now, Step 5 (net-zero-ready) by 2032.',
+    source: 'https://nrc.canada.ca/en/certifications-evaluations-standards/codes-canada/codes-canada-publications/national-building-code-canada-2020' },
+  { id: 'cmhc_adu', name: 'CMHC Housing Design Catalogue — ADU', region: 'Canada (pre-approved catalogue)',
+    max_height_m: 8.5, max_storeys: 2, max_gfa_m2: 128, max_footprint_m2: null,
+    recommend: { lot_w: 3, lot_d: 4, max_floors: 2 },
+    note: 'Free national catalogue of ~50 standardized, near-permit-ready designs incl. detached ADUs (studio–2-bed, 1–2 storey, ≈46–128 m²). 14+ municipalities pre-review them to fast-track approvals. An architect must still adapt to the site.',
+    source: 'https://www.housingcatalogue.cmhc-schl.gc.ca/' },
+  { id: 'van_laneway', name: 'Vancouver — Laneway House (R1-1)', region: 'Vancouver, BC',
+    max_height_m: 8.5, max_storeys: 2, max_gfa_m2: 186, max_footprint_m2: null,
+    recommend: { lot_w: 3, lot_d: 4, max_floors: 2 },
+    note: 'Zoning By-law §11. Floor area = lesser of 0.25×site area or 186 m² (FSR raised 0.16→0.25 in 2025). 2-storey form ≤8.5 m; 1½-storey ≤~6.7 m by roof pitch. Site coverage ≤50% (whole parcel), 4.9 m separation, no parking required. Verify §11.',
+    source: 'https://bylaws.vancouver.ca/zoning/zoning-by-law-section-11.pdf' },
+  { id: 'to_laneway', name: 'Toronto — Laneway Suite', region: 'Toronto, ON',
+    max_height_m: 6.3, max_storeys: 2, max_gfa_m2: null, max_footprint_m2: 60,
+    recommend: { lot_w: 3, lot_d: 4, max_floors: 2 },
+    note: 'Zoning By-law 569-2013 Ch.150.8: lot must abut a public lane. Footprint ≤60 m² (≤10 m deep × 8 m wide); height 4.0 m at 5–7.5 m separation, 6.3 m beyond; GFA < main house; ancillary coverage ≤30%. O.Reg 462/24 cuts separation to 4.0 m for ≤4 m units & drops the angular plane.',
+    source: 'https://www.toronto.ca/zoning/bylaw_amendments/ZBL_NewProvision_Chapter150_8.htm' },
+  { id: 'to_garden', name: 'Toronto — Garden Suite', region: 'Toronto, ON',
+    max_height_m: 6.0, max_storeys: 2, max_gfa_m2: null, max_footprint_m2: 60,
+    recommend: { lot_w: 3, lot_d: 3, max_floors: 2 },
+    note: 'Zoning By-law 569-2013 Ch.150.7 (as-of-right 2022, lots WITHOUT lane access). Footprint = lesser of 0.40×rear-yard or 60 m²; height 4.0 m within 7.5 m separation, 6.0 m beyond; GFA < main house; ancillary coverage ≤20%. O.Reg 462/24 overlay applies.',
+    source: 'https://www.toronto.ca/zoning/bylaw_amendments/ZBL_NewProvision_Chapter150_7.htm' },
+]
+export const CODE_INDEX: Record<string, CodeSpec> = Object.fromEntries(CODES.map((c) => [c.id, c]))
+
+// Pre-approved-style laneway templates (mirror of mod.py LANEWAY_TEMPLATES) —
+// instant-load compositions that already fit their code envelope.
+export interface LanewayTemplate { id: string; name: string; style: string; code: string; description: string; constraints: Constraints; cells: Cell[] }
+export const LANEWAY_TEMPLATES: LanewayTemplate[] = [
+  { id: 'dsn_lane_studio', name: 'Studio Laneway · 1-storey', style: 'scandi', code: 'van_laneway',
+    description: '388 sq ft single-storey laneway studio. Vancouver-compliant.',
+    constraints: { code: 'van_laneway', lot_w: 3, lot_d: 3, max_floors: 2 },
+    cells: [{ x: 0, z: 0, stack: ['living'] }, { x: 1, z: 0, stack: ['kitchen'] },
+            { x: 0, z: 1, stack: ['studio'] }, { x: 1, z: 1, stack: ['bath'] }] },
+  { id: 'dsn_lane_onebed', name: 'One-Bed Laneway · 1½-storey', style: 'scandi', code: 'cmhc_adu',
+    description: '775 sq ft 1-bed over two levels with solar roof. CMHC-catalogue style.',
+    constraints: { code: 'cmhc_adu', lot_w: 3, lot_d: 3, max_floors: 2 },
+    cells: [{ x: 0, z: 0, stack: ['living', 'bedroom'] }, { x: 1, z: 0, stack: ['kitchen', 'bath'] },
+            { x: 0, z: 1, stack: ['bath', 'office'] }, { x: 1, z: 1, stack: ['stair', 'solar'] }] },
+  { id: 'dsn_lane_twobed', name: 'Two-Bed Laneway · 2-storey', style: 'scandi', code: 'to_laneway',
+    description: '969 sq ft 2-bed laneway suite with rear green deck. Toronto envelope.',
+    constraints: { code: 'to_laneway', lot_w: 3, lot_d: 5, max_floors: 2 },
+    cells: [{ x: 0, z: 0, stack: ['living', 'bedroom'] }, { x: 1, z: 0, stack: ['kitchen', 'bedroom'] },
+            { x: 0, z: 1, stack: ['bath', 'bath'] }, { x: 1, z: 1, stack: ['stair', 'office'] },
+            { x: 0, z: 2, stack: ['garden'] }, { x: 1, z: 2, stack: ['garden'] }] },
+]
 
 export const MANIFESTO = `Housing got slow, expensive, and ugly because we build every home from scratch, on site, by hand. ModCity treats buildings the way software treats components: a small library of standardized, factory-built panel modules — floors, walls, curtain-wall glazing — that assemble panel by panel into real architecture, then re-skin into any style you want. Forge your own panels, share them, remix anyone's building. Same panels. Infinite cities.`
 

@@ -41,6 +41,56 @@ import mod as m
 # ━━ Prefab spec ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 UNIT_M = 3.0
 UNIT_AREA_M2 = UNIT_M * UNIT_M
+FLOOR_H_M = UNIT_M                  # one stacked module ≈ one storey ≈ 3 m
+
+# ━━ Canadian laneway / ADU code presets ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Building-envelope limits for accessory dwelling units (laneway houses,
+# garden suites). Selecting one flags whether a design fits a municipality's
+# *as-of-right* — no rezoning, expedited-permit — path. These are PROGRAM
+# TYPICALS for massing guidance; absolute floor-area caps usually scale with
+# lot size / FSR, so always confirm the exact figures with the authority
+# having jurisdiction (AHJ). `recommend` seeds the grid lot + floor caps.
+#   max_height_m / max_storeys / max_gfa_m2 / max_footprint_m2 are the checks
+#   the grid can derive cleanly. (Lot *coverage* and angular planes are measured
+#   against the full parcel / setbacks, which this massing tool doesn't model —
+#   captured in `note` instead.) Figures current to 2025; verify with the AHJ.
+LANEWAY_CODES: List[Dict[str, Any]] = [
+    {"id": "none", "name": "Freeform (no code)", "region": "—",
+     "note": "No building-code envelope applied.", "source": None,
+     "max_height_m": None, "max_storeys": None, "max_gfa_m2": None,
+     "max_footprint_m2": None, "recommend": None},
+    {"id": "nbc_part9", "name": "NBC Part 9 — Houses & Small Buildings",
+     "region": "Canada (national model code)",
+     "max_height_m": None, "max_storeys": 3, "max_gfa_m2": None, "max_footprint_m2": 600,
+     "recommend": {"lot_w": 3, "lot_d": 4, "max_floors": 2},
+     "note": "Part 9 scope: ≤3 storeys AND ≤600 m² building area (Group C residential). Every detached ADU sits well inside it. Provinces add energy tiers — BC Energy Step Code is Step 3 now, Step 5 (net-zero-ready) by 2032.",
+     "source": "https://nrc.canada.ca/en/certifications-evaluations-standards/codes-canada/codes-canada-publications/national-building-code-canada-2020"},
+    {"id": "cmhc_adu", "name": "CMHC Housing Design Catalogue — ADU",
+     "region": "Canada (pre-approved catalogue)",
+     "max_height_m": 8.5, "max_storeys": 2, "max_gfa_m2": 128, "max_footprint_m2": None,
+     "recommend": {"lot_w": 3, "lot_d": 4, "max_floors": 2},
+     "note": "Free national catalogue of ~50 standardized, near-permit-ready designs incl. detached ADUs (studio–2-bed, 1–2 storey, ≈46–128 m²). 14+ municipalities (Vancouver, Toronto, Ottawa…) pre-review them to fast-track approvals. An architect must still adapt to the site.",
+     "source": "https://www.housingcatalogue.cmhc-schl.gc.ca/"},
+    {"id": "van_laneway", "name": "Vancouver — Laneway House (R1-1)",
+     "region": "Vancouver, BC",
+     "max_height_m": 8.5, "max_storeys": 2, "max_gfa_m2": 186, "max_footprint_m2": None,
+     "recommend": {"lot_w": 3, "lot_d": 4, "max_floors": 2},
+     "note": "Zoning By-law §11. Floor area = lesser of 0.25×site area or 186 m² (FSR raised 0.16→0.25 in 2025). 2-storey form ≤8.5 m; 1½-storey ≤~6.7 m by roof pitch. Site coverage ≤50% (whole parcel), 4.9 m separation, no parking required. Verify §11.",
+     "source": "https://bylaws.vancouver.ca/zoning/zoning-by-law-section-11.pdf"},
+    {"id": "to_laneway", "name": "Toronto — Laneway Suite",
+     "region": "Toronto, ON",
+     "max_height_m": 6.3, "max_storeys": 2, "max_gfa_m2": None, "max_footprint_m2": 60,
+     "recommend": {"lot_w": 3, "lot_d": 4, "max_floors": 2},
+     "note": "Zoning By-law 569-2013 Ch.150.8: lot must abut a public lane. Footprint ≤60 m² (≤10 m deep × 8 m wide); height 4.0 m at 5–7.5 m separation, 6.3 m beyond; GFA < main house; ancillary coverage ≤30%. O.Reg 462/24 cuts separation to 4.0 m for ≤4 m units & drops the angular plane.",
+     "source": "https://www.toronto.ca/zoning/bylaw_amendments/ZBL_NewProvision_Chapter150_8.htm"},
+    {"id": "to_garden", "name": "Toronto — Garden Suite",
+     "region": "Toronto, ON",
+     "max_height_m": 6.0, "max_storeys": 2, "max_gfa_m2": None, "max_footprint_m2": 60,
+     "recommend": {"lot_w": 3, "lot_d": 3, "max_floors": 2},
+     "note": "Zoning By-law 569-2013 Ch.150.7 (as-of-right 2022, lots WITHOUT lane access). Footprint = lesser of 0.40×rear-yard or 60 m²; height 4.0 m within 7.5 m separation, 6.0 m beyond; GFA < main house; ancillary coverage ≤20%. O.Reg 462/24 overlay applies.",
+     "source": "https://www.toronto.ca/zoning/bylaw_amendments/ZBL_NewProvision_Chapter150_7.htm"},
+]
+_CODE_INDEX = {c["id"]: c for c in LANEWAY_CODES}
 
 CATALOG: List[Dict[str, Any]] = [
     # id          name              category    tone        price   carbon  lead  glass  blurb
@@ -62,6 +112,64 @@ CATALOG: List[Dict[str, Any]] = [
     ("bay",       "Bay Window",     "living",    "warm",     21000,  2200,   24,  False, "Projecting three-sided bay — the brownstone's signature face."),
     ("cornice",   "Cornice Roof",   "roof",      "stone",    16000,  1100,   18,  False, "Ornamented sheet-metal cornice. Crowns the row in true NY style."),
 ]
+
+# ━━ Panels — designable, shareable façade elements ━━━━━━━━━━━━━━━━
+# A *panel* is the prefab cladding/wall element that skins a module face
+# (distinct from a module/room, which is the stackable 3 m unit). Each panel
+# carries a full FABRICATION SPEC so a prefab factory can build it directly:
+# real mm dimensions, assembly type, thermal value (RSI), weight and
+# connection. Anyone can forge a panel and publish it to the shared library.
+PANEL_FIELDS_DOC = "kind=solid|window|curtain|louver ; glazing 0–1 ; win_cols/rows window grid"
+PANELS: List[Dict[str, Any]] = [
+    {"id": "clt_solid", "name": "CLT Solid Wall", "kind": "solid",
+     "color": "#caa472", "frame": "#7a5a3c", "glazing": 0.0, "win_cols": 0, "win_rows": 0,
+     "material": "wood", "reveal": True,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 120, "weight_kg": 850,
+     "assembly": "CLT (cross-laminated timber)", "r_value": 3.5, "connection": "screwed (self-tapping)",
+     "fab_notes": "5-ply CLT, CNC-routed service chases, factory-sealed.",
+     "price": 4200, "carbon_kg": 520, "lead_days": 18},
+    {"id": "sip_window", "name": "SIP Window Wall", "kind": "window",
+     "color": "#e7e2d8", "frame": "#3a3a3a", "glazing": 0.35, "win_cols": 2, "win_rows": 2,
+     "material": "composite", "reveal": False,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 200, "weight_kg": 210,
+     "assembly": "SIP (structural insulated panel)", "r_value": 5.0, "connection": "screwed + spline",
+     "fab_notes": "OSB/EPS/OSB core, factory-glazed triple-pane units, taped seams.",
+     "price": 3800, "carbon_kg": 410, "lead_days": 14},
+    {"id": "curtain_glass", "name": "Unitised Curtain Wall", "kind": "curtain",
+     "color": "#9fc4d4", "frame": "#2b3138", "glazing": 0.95, "win_cols": 2, "win_rows": 3,
+     "material": "glass", "reveal": False,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 60, "weight_kg": 180,
+     "assembly": "Unitised aluminium curtain wall", "r_value": 0.7, "connection": "stack-joint clip",
+     "fab_notes": "Factory-assembled stick units, low-e double glazing, drained/pressure-equalised.",
+     "price": 5600, "carbon_kg": 720, "lead_days": 24},
+    {"id": "precast_concrete", "name": "Precast Concrete", "kind": "solid",
+     "color": "#b9bcc2", "frame": "#7e8186", "glazing": 0.12, "win_cols": 1, "win_rows": 1,
+     "material": "concrete", "reveal": True,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 150, "weight_kg": 1100,
+     "assembly": "Precast concrete sandwich", "r_value": 2.0, "connection": "bolted (cast-in ferrules)",
+     "fab_notes": "Insulated wythe, form-liner reveal pattern, lifting anchors cast in.",
+     "price": 4900, "carbon_kg": 1450, "lead_days": 20},
+    {"id": "steel_louver", "name": "Steel Louver Screen", "kind": "louver",
+     "color": "#5b6066", "frame": "#33373c", "glazing": 0.0, "win_cols": 0, "win_rows": 0,
+     "material": "metal", "reveal": False,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 80, "weight_kg": 140,
+     "assembly": "Steel-stud + perforated/louvered metal", "r_value": 1.0, "connection": "bolted",
+     "fab_notes": "Solar-shading screen, powder-coated, ventilated rainscreen cavity.",
+     "price": 3100, "carbon_kg": 380, "lead_days": 12},
+    {"id": "timber_board", "name": "Timber Board Clad", "kind": "window",
+     "color": "#a8753f", "frame": "#5c3d22", "glazing": 0.2, "win_cols": 1, "win_rows": 1,
+     "material": "wood", "reveal": True,
+     "width_mm": 3000, "height_mm": 3000, "thickness_mm": 180, "weight_kg": 190,
+     "assembly": "Steel-stud + charred-timber rainscreen", "r_value": 4.2, "connection": "screwed (clip rail)",
+     "fab_notes": "Shou-sugi-ban board-on-board, ventilated cavity, factory-finished.",
+     "price": 3500, "carbon_kg": 300, "lead_days": 15},
+]
+_PANEL_INDEX = {p["id"]: p for p in PANELS}
+
+def _panel_dict(p, **extra):
+    d = {"custom": False, "public": True, "owner": "modcity"}
+    d.update(p); d.update(extra)
+    return d
 
 STYLES: List[Dict[str, Any]] = [
     {"id": "bauhaus", "name": "Bauhaus", "material": "matte",
@@ -181,6 +289,39 @@ SEED_DESIGNS = [
 ]
 
 
+# Pre-approved-style LANEWAY templates — ready compositions that already fit
+# the matching code envelope, mirroring the CMHC catalogue / municipal "as-of-
+# right" fast track. Each carries its own constraints (code + lot + floors) so
+# its compliance is green out of the box; load → tweak → save.
+LANEWAY_TEMPLATES = [
+    {"id": "dsn_lane_studio", "name": "Studio Laneway · 1-storey", "style": "scandi",
+     "laneway": True, "code": "van_laneway",
+     "description": "388 sq ft single-storey laneway studio — living, galley kitchen, bath, sleeping nook. Vancouver-compliant.",
+     "constraints": {"code": "van_laneway", "lot_w": 3, "lot_d": 3, "max_floors": 2},
+     "cells": [
+         {"x": 0, "z": 0, "stack": ["living"]}, {"x": 1, "z": 0, "stack": ["kitchen"]},
+         {"x": 0, "z": 1, "stack": ["studio"]}, {"x": 1, "z": 1, "stack": ["bath"]},
+     ]},
+    {"id": "dsn_lane_onebed", "name": "One-Bed Laneway · 1½-storey", "style": "scandi",
+     "laneway": True, "code": "cmhc_adu",
+     "description": "775 sq ft 1-bed over two levels — ground living/kitchen, upper bedroom + work loft, solar roof. CMHC-catalogue style.",
+     "constraints": {"code": "cmhc_adu", "lot_w": 3, "lot_d": 3, "max_floors": 2},
+     "cells": [
+         {"x": 0, "z": 0, "stack": ["living", "bedroom"]}, {"x": 1, "z": 0, "stack": ["kitchen", "bath"]},
+         {"x": 0, "z": 1, "stack": ["bath", "office"]}, {"x": 1, "z": 1, "stack": ["stair", "solar"]},
+     ]},
+    {"id": "dsn_lane_twobed", "name": "Two-Bed Laneway · 2-storey", "style": "scandi",
+     "laneway": True, "code": "to_laneway",
+     "description": "969 sq ft 2-bed laneway suite — full ground floor + two bedrooms up, rear green deck. Toronto laneway-suite envelope.",
+     "constraints": {"code": "to_laneway", "lot_w": 3, "lot_d": 5, "max_floors": 2},
+     "cells": [
+         {"x": 0, "z": 0, "stack": ["living", "bedroom"]}, {"x": 1, "z": 0, "stack": ["kitchen", "bedroom"]},
+         {"x": 0, "z": 1, "stack": ["bath", "bath"]}, {"x": 1, "z": 1, "stack": ["stair", "office"]},
+         {"x": 0, "z": 2, "stack": ["garden"]}, {"x": 1, "z": 2, "stack": ["garden"]},
+     ]},
+]
+
+
 class Mod:
     description = "Modular housing & cities — forge prefab bricks, snap buildings like LEGO, in any architecture style."
 
@@ -193,6 +334,7 @@ class Mod:
         self.designs_path = self.store_dir / 'designs.json'
         self.cities_path = self.store_dir / 'cities.json'
         self.bricks_path = self.store_dir / 'bricks.json'
+        self.panels_path = self.store_dir / 'panels.json'
 
         self.port = int(self.config.get('port', 50140))
         self.app_port = int(self.config.get('app_port', 50141))
@@ -227,6 +369,8 @@ class Mod:
     def _save_cities(self, d): self._save_json(self.cities_path, d)
     def _load_bricks(self): return self._load_json(self.bricks_path, {})
     def _save_bricks(self, d): self._save_json(self.bricks_path, d)
+    def _load_panels(self): return self._load_json(self.panels_path, {})
+    def _save_panels(self, d): self._save_json(self.panels_path, d)
 
     # ━━ localfs — content-addressed building storage (modular) ━━━
     # Buildings are saved/loaded through the `localfs` mod (IPFS-style CIDs)
@@ -255,6 +399,15 @@ class Mod:
         custom = self._load_bricks()
         return {bid: custom[bid] for bid in ids if bid in custom}
 
+    def _referenced_panels(self, constraints):
+        """Custom façade panel referenced as the building's skin — bundled so an
+        export renders identically on anyone's node."""
+        skin = (constraints or {}).get('skin')
+        if not skin:
+            return {}
+        custom = self._load_panels()
+        return {skin: custom[skin]} if skin in custom else {}
+
     def _portable(self, rec):
         """The self-contained, shareable building document."""
         return {
@@ -262,6 +415,7 @@ class Mod:
             'name': rec.get('name'), 'style': rec.get('style'),
             'cells': rec.get('cells', []), 'constraints': rec.get('constraints'),
             'bricks': self._referenced_bricks(rec.get('cells')),
+            'panels': self._referenced_panels(rec.get('constraints')),
             'by': rec.get('owner', ''), 'forked_from': rec.get('forked_from'),
             'created': rec.get('created'), 'updated': rec.get('updated'),
         }
@@ -336,6 +490,17 @@ class Mod:
                     spec.setdefault('custom', True)
                     store[bid] = spec
             self._save_bricks(store)
+        # bring along any bundled custom façade panel (the building's skin)
+        bundled_panels = doc.get('panels') or {}
+        if bundled_panels:
+            pstore = self._load_panels()
+            for pid, spec in bundled_panels.items():
+                if pid not in pstore and isinstance(spec, dict):
+                    spec = dict(spec); spec['id'] = pid
+                    spec['owner'] = owner or spec.get('owner', '')
+                    spec['public'] = False; spec.setdefault('custom', True)
+                    pstore[pid] = spec
+            self._save_panels(pstore)
         return self.save_design(
             name=name or doc.get('name') or 'Imported building', owner=owner,
             cells=doc.get('cells', []), style=doc.get('style', _DEFAULT_STYLE),
@@ -442,11 +607,108 @@ class Mod:
         self._save_bricks(store)
         return {'deleted': brick_id}
 
+    # ━━ Panels — designable, shareable façade elements ━━━━━━━━━━━━
+    def _panel_index(self):
+        """Built-ins + owner's + public custom panels, keyed by id."""
+        idx = {p['id']: _panel_dict(p) for p in PANELS}
+        for pid, p in self._load_panels().items():
+            idx[pid] = p
+        return idx
+
+    def panel_catalog(self, owner: str = None):
+        idx = {p['id']: _panel_dict(p) for p in PANELS}
+        for pid, p in self._load_panels().items():
+            if p.get('public') or (owner and p.get('owner') == owner):
+                p = dict(p)
+                p['mine'] = bool(owner and p.get('owner') == owner)
+                idx[pid] = p
+        return list(idx.values())
+
+    def panels(self, owner: str = None, include_public: bool = True, limit: int = 200):
+        out = []
+        for p in self._load_panels().values():
+            mine = owner and p.get('owner') == owner
+            if mine or (include_public and p.get('public')):
+                p = dict(p); p['mine'] = bool(mine)
+                out.append(p)
+        out.sort(key=lambda p: p.get('updated', 0), reverse=True)
+        return out[:int(limit)]
+
+    def panel(self, panel_id: str):
+        return self._panel_index().get(panel_id) or {'error': f'unknown panel: {panel_id}'}
+
+    def _panel_id(self, name, owner):
+        return 'pnl_' + hashlib.sha256(f"{name}|{owner}|{time.time()}".encode()).hexdigest()[:10]
+
+    def create_panel(self, name: str = '', kind: str = 'solid', color: str = '#caa472',
+                     frame: str = '#5c3d22', glazing: float = 0.2, win_cols: int = 1,
+                     win_rows: int = 1, material: str = 'wood', reveal: bool = False,
+                     width_mm: int = 3000, height_mm: int = 3000, thickness_mm: int = 180,
+                     weight_kg: float = 200, assembly: str = 'Steel-stud + rainscreen',
+                     r_value: float = 4.0, connection: str = 'screwed', fab_notes: str = '',
+                     price: float = 3500, carbon_kg: float = 350, lead_days: int = 15,
+                     owner: str = '', public: bool = False, panel_id: str = None):
+        """Forge a custom façade panel. PRIVATE BY DEFAULT (``public=False``).
+        Carries a full prefab fabrication spec so a factory can build it."""
+        name = (name or '').strip() or 'Custom Panel'
+        if kind not in ('solid', 'window', 'curtain', 'louver'):
+            kind = 'solid'
+        store = self._load_panels()
+        pid = panel_id or self._panel_id(name, owner)
+        now = int(time.time())
+        rec = {
+            'id': pid, 'name': name, 'kind': kind,
+            'color': color, 'frame': frame,
+            'glazing': max(0.0, min(1.0, float(glazing))),
+            'win_cols': max(0, int(win_cols)), 'win_rows': max(0, int(win_rows)),
+            'material': material, 'reveal': bool(reveal),
+            'width_mm': int(width_mm), 'height_mm': int(height_mm), 'thickness_mm': int(thickness_mm),
+            'weight_kg': round(float(weight_kg), 1), 'assembly': assembly,
+            'r_value': round(float(r_value), 2), 'connection': connection,
+            'fab_notes': fab_notes,
+            'price': max(0, round(float(price))), 'carbon_kg': max(0, round(float(carbon_kg))),
+            'lead_days': max(1, int(lead_days)),
+            'custom': True, 'public': bool(public), 'owner': owner,
+            'created': store.get(pid, {}).get('created', now), 'updated': now,
+        }
+        store[pid] = rec
+        self._save_panels(store)
+        return rec
+
+    def publish_panel(self, panel_id: str, owner: str = None, public: bool = True):
+        store = self._load_panels()
+        p = store.get(panel_id)
+        if not p:
+            return {'error': f'unknown panel: {panel_id}'}
+        if owner and p.get('owner') and p['owner'] != owner:
+            return {'error': 'not your panel'}
+        p['public'] = bool(public); p['updated'] = int(time.time())
+        self._save_panels(store)
+        return p
+
+    def delete_panel(self, panel_id: str, owner: str = None):
+        store = self._load_panels()
+        p = store.get(panel_id)
+        if not p:
+            return {'error': f'unknown panel: {panel_id}'}
+        if owner and p.get('owner') and p['owner'] != owner:
+            return {'error': 'not your panel'}
+        del store[panel_id]
+        self._save_panels(store)
+        return {'deleted': panel_id}
+
     # ━━ Styles ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def styles(self): return STYLES
 
     def style(self, style_id: str):
         return _STYLE_INDEX.get(style_id) or {'error': f'unknown style: {style_id}'}
+
+    def codes(self):
+        """Laneway / ADU building-code presets (Canadian)."""
+        return LANEWAY_CODES
+
+    def code(self, code_id: str):
+        return _CODE_INDEX.get(code_id) or {'error': f'unknown code: {code_id}'}
 
     # ━━ Composition / estimator ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def estimate(self, modules: List[str] = None, style: str = _DEFAULT_STYLE,
@@ -495,6 +757,8 @@ class Mod:
             'embodied_carbon_kg': carbon, 'lead_time_days': (lead + assembly) if specs else 0,
             'occupancy': occ, 'solar_modules': solar, 'green_modules': green,
             'net_positive_energy': solar > 0, 'footprint_cells': footprint_cells,
+            'height_m': round(floors * FLOOR_H_M, 1),
+            'footprint_m2': round(footprint_cells * UNIT_AREA_M2, 1),
         }
         if constraints:
             result['compliance'] = self._check(result, constraints, max_ax, max_az)
@@ -524,6 +788,22 @@ class Mod:
             half_w, half_d = lw // 2, ld // 2
             fits = max_ax <= half_w and max_az <= half_d
             rules['lot'] = {'value': f'{max_ax*2+1}×{max_az*2+1}', 'limit': f'{lw}×{ld}', 'ok': fits}
+
+        # ── laneway / ADU code envelope ──────────────────────────
+        code = _CODE_INDEX.get(c.get('code'))
+        if code:
+            if code.get('max_height_m'):
+                rules['height_m'] = rule(est['height_m'], code['max_height_m'],
+                                         est['height_m'] <= code['max_height_m'])
+            if code.get('max_storeys'):
+                rules['storeys'] = rule(est['floors'], code['max_storeys'],
+                                        est['floors'] <= code['max_storeys'])
+            if code.get('max_gfa_m2'):
+                rules['gfa'] = rule(est['floor_area_m2'], code['max_gfa_m2'],
+                                    est['floor_area_m2'] <= code['max_gfa_m2'])
+            if code.get('max_footprint_m2'):
+                rules['footprint'] = rule(est['footprint_m2'], code['max_footprint_m2'],
+                                          est['footprint_m2'] <= code['max_footprint_m2'])
 
         rules['ok'] = all(r.get('ok', True) for k, r in rules.items() if k != 'ok')
         return rules
@@ -725,31 +1005,35 @@ class Mod:
 
     # ━━ Seeding ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def seed_examples(self):
-        """Idempotently install the featured public example designs."""
+        """Idempotently install the featured public example designs +
+        the pre-approved laneway/ADU templates."""
         designs = self._load_designs()
         added = []
-        for s in SEED_DESIGNS:
+        for s in SEED_DESIGNS + LANEWAY_TEMPLATES:
+            constraints = s.get('constraints')
+            laneway = s.get('laneway', False)
             if s['id'] in designs:
-                # keep cells/style fresh if we edit the seeds in code
+                # keep cells/style/constraints fresh if we edit the seeds in code
                 rec = designs[s['id']]
                 rec.update({'name': s['name'], 'style': s['style'],
                             'description': s['description'], 'cells': s['cells'],
+                            'constraints': constraints, 'laneway': laneway,
                             'public': True, 'featured': True, 'owner': 'modcity'})
-                if not rec.get('cid'):
-                    rec['cid'] = self._store_blob(rec)
+                rec['cid'] = self._store_blob(rec)
                 continue
             now = int(time.time())
             rec = {
                 'id': s['id'], 'name': s['name'], 'owner': 'modcity',
                 'description': s['description'], 'style': s['style'], 'cells': s['cells'],
-                'public': True, 'featured': True, 'constraints': None, 'copies': 0,
+                'public': True, 'featured': True, 'constraints': constraints,
+                'laneway': laneway, 'copies': 0,
                 'forked_from': None, 'created': now, 'updated': now,
             }
             rec['cid'] = self._store_blob(rec)
             designs[s['id']] = rec
             added.append(s['id'])
         self._save_designs(designs)
-        return {'seeded': added, 'total_featured': len(SEED_DESIGNS)}
+        return {'seeded': added, 'total_featured': len(SEED_DESIGNS) + len(LANEWAY_TEMPLATES)}
 
     # ━━ Health / status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def health(self):
@@ -911,6 +1195,8 @@ class Mod:
             'module_detail': lambda: self.module_detail(kwargs.get('module_id', '')),
             'styles': lambda: self.styles(),
             'style': lambda: self.style(kwargs.get('style_id', '')),
+            'codes': lambda: self.codes(),
+            'code': lambda: self.code(kwargs.get('code_id', '')),
             'create_brick': lambda: self.create_brick(
                 name=kwargs.get('name', ''), category=kwargs.get('category', 'living'),
                 color=kwargs.get('color', '#f4a261'), price=kwargs.get('price', 18000),
@@ -926,6 +1212,29 @@ class Mod:
                                                         owner=kwargs.get('owner'),
                                                         public=_b(kwargs.get('public', True))),
             'delete_brick': lambda: self.delete_brick(kwargs.get('brick_id', ''),
+                                                      owner=kwargs.get('owner')),
+            'panel_catalog': lambda: self.panel_catalog(owner=kwargs.get('owner')),
+            'panels': lambda: self.panels(owner=kwargs.get('owner'),
+                                          include_public=_b(kwargs.get('include_public', True)),
+                                          limit=int(kwargs.get('limit', 200))),
+            'panel': lambda: self.panel(kwargs.get('panel_id', '')),
+            'create_panel': lambda: self.create_panel(
+                name=kwargs.get('name', ''), kind=kwargs.get('kind', 'solid'),
+                color=kwargs.get('color', '#caa472'), frame=kwargs.get('frame', '#5c3d22'),
+                glazing=kwargs.get('glazing', 0.2), win_cols=kwargs.get('win_cols', 1),
+                win_rows=kwargs.get('win_rows', 1), material=kwargs.get('material', 'wood'),
+                reveal=_b(kwargs.get('reveal', False)), width_mm=kwargs.get('width_mm', 3000),
+                height_mm=kwargs.get('height_mm', 3000), thickness_mm=kwargs.get('thickness_mm', 180),
+                weight_kg=kwargs.get('weight_kg', 200), assembly=kwargs.get('assembly', 'Steel-stud + rainscreen'),
+                r_value=kwargs.get('r_value', 4.0), connection=kwargs.get('connection', 'screwed'),
+                fab_notes=kwargs.get('fab_notes', ''), price=kwargs.get('price', 3500),
+                carbon_kg=kwargs.get('carbon_kg', 350), lead_days=kwargs.get('lead_days', 15),
+                owner=kwargs.get('owner', ''), public=_b(kwargs.get('public', False)),
+                panel_id=kwargs.get('panel_id')),
+            'publish_panel': lambda: self.publish_panel(kwargs.get('panel_id', ''),
+                                                        owner=kwargs.get('owner'),
+                                                        public=_b(kwargs.get('public', True))),
+            'delete_panel': lambda: self.delete_panel(kwargs.get('panel_id', ''),
                                                       owner=kwargs.get('owner')),
             'estimate': lambda: self.estimate(modules=_j(kwargs.get('modules')),
                                               style=kwargs.get('style', _DEFAULT_STYLE),

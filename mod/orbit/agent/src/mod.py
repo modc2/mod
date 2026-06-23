@@ -276,16 +276,47 @@ RULES:
             try:
                 step = json.loads(raw)
             except json.JSONDecodeError:
-                if m:
-                    fixed = m.tool('fix_json')(raw)
-                    step = json.loads(fixed) if isinstance(fixed, str) else fixed
-                else:
-                    raise
-            if 'tool' in step and 'params' in step:
+                step = self._repair_json(raw)
+            if isinstance(step, dict) and 'tool' in step and 'params' in step:
                 return step
         except Exception as e:
             print(f"Step parse error: {e}")
         return None
+
+    def _repair_json(self, raw: str) -> Optional[dict]:
+        """Best-effort repair of slightly-malformed step JSON from the model.
+
+        Tries an optional `fix_json` tool if one is installed, then falls back to
+        dependency-free fixes (strip code fences, drop trailing commas). Returns
+        None if it still can't parse — the step is then skipped, not crashed on.
+        """
+        # optional external repair tool, only if it actually exists
+        if m is not None:
+            try:
+                fix = m.tool('fix_json')
+            except Exception:
+                fix = None
+            if fix is not None:
+                try:
+                    fixed = fix(raw)
+                    return json.loads(fixed) if isinstance(fixed, str) else fixed
+                except Exception:
+                    pass
+        # dependency-free fallbacks
+        s = raw.strip()
+        if s.startswith('```'):
+            s = s.split('```', 2)[1] if '```' in s[3:] else s.strip('`')
+            s = s.split('\n', 1)[-1] if s.lower().startswith('json') else s
+        # keep only the outermost {...}
+        if '{' in s and '}' in s:
+            s = s[s.index('{'): s.rindex('}') + 1]
+        # drop trailing commas before } or ]
+        import re
+        s = re.sub(r',\s*([}\]])', r'\1', s)
+        try:
+            return json.loads(s)
+        except Exception:
+            return None
 
     def run_plan(self, plan: List[Dict[str, Any]], safety: bool = False) -> List[Dict[str, Any]]:
         """Execute parsed steps using skills. Enforces path sandboxing via _allowed_paths."""
@@ -357,8 +388,16 @@ class Mod(Agent):
         # ── permissions (Claude module pattern) ──
         self.key = m.key(key) if m else None
         self.auth = m.mod('auth.base')() if m else None
-        self._owner = (self.key.address.lower() if self.key else
-                       svc_config.get('owner'))
+        # Owner resolution (claude pattern): an explicit owner in config.json or
+        # ~/.mod/agent/owner.json is AUTHORITATIVE and is read independently of
+        # whether the framework `m` import succeeded. This prevents a fail-open
+        # gate when the module is served without the framework on PYTHONPATH
+        # (m=None -> no key -> previously owner=None -> is_owner() True for all).
+        # The server's own key is only a fallback for unconfigured local/dev use.
+        owner = svc_config.get('owner') or self._load_owner_file()
+        if not owner and self.key:
+            owner = self.key.address
+        self._owner = owner.lower() if owner else None
         self._mods_root = (m.paths['orbit']['mods']
                            if m and hasattr(m, 'paths') else
                            str(self.module_dir.parent / 'registry' / 'mods'))
@@ -366,7 +405,14 @@ class Mod(Agent):
         # ── access control (gate) ──
         # public: anyone can call these
         # admin: owner + granted users only
-        self._acl_path = self.module_dir / '.acl.json'
+        # ACL is private auth state — keep it OFF-tree under ~/.mod/agent/,
+        # never in the committed module dir (matches the claude module).
+        state_dir = Path.home() / '.mod' / 'agent'
+        try:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            self._acl_path = state_dir / 'acl.json'
+        except Exception:
+            self._acl_path = self.module_dir / '.acl.json'
         self._acl = self._load_acl()
         self._public_actions = {'status', 'health', 'skills', 'schema',
                                 'agents', 'agent', 'chains', 'agent_cids',
@@ -376,6 +422,17 @@ class Mod(Agent):
                                'agent_save', 'agent_install'}
 
     # ── permissions (Claude module interface) ────────────────────────────
+
+    def _load_owner_file(self):
+        """Read owner from ~/.mod/agent/owner.json (claude-style, import-independent)."""
+        try:
+            p = Path.home() / '.mod' / 'agent' / 'owner.json'
+            if p.exists():
+                with open(p) as f:
+                    return json.load(f).get('owner')
+        except Exception:
+            pass
+        return None
 
     def _resolve_address(self, key=None) -> str:
         """Resolve a key/address/token to a verified address string."""

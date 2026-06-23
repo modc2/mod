@@ -61,11 +61,26 @@ only** — users must add their own key.
 
 ## Auth model
 
-Clients sign a time-bounded `{data, time, key, signature}` envelope with their
-wallet (`personal_sign`) and send it as `Authorization: Bearer <token>`. The
-gateway recovers the signer address (secp256k1) and uses it as the per-user
-identity — no server-side sessions. This matches `mod/core/server/auth`; the
-Rust verifier in `auth.rs` is cross-checked against the Python implementation.
+Clients sign a time-bounded `{data, time, key, signature}` envelope and send it
+as `Authorization: Bearer <token>`. The gateway recovers the signer address
+(secp256k1) and uses it as the per-user identity — no server-side sessions. This
+matches `mod/core/server/auth`; the Rust verifier in `auth.rs` is cross-checked
+against the Python implementation.
+
+The signer can be **either** identity, and the gateway can't tell them apart —
+it only ever sees the recovered address:
+
+- **Wallet** — MetaMask `personal_sign`. The identity *is* your real on-chain
+  address: convenient, but every edit is linked to your wallet.
+- **Local derivation (anonymous)** — the browser mints a random secp256k1
+  keypair (viem `generatePrivateKey`), keeps it in `localStorage`, and signs the
+  same EIP-191 envelope itself (`buildLocalModToken` in `app/src/lib/wallet.ts`).
+  The address is a throwaway pseudonym with no link to any wallet or chain; the
+  private key never leaves the device. Each anonymous identity stores its own
+  Venice key under its pseudonym. *Forget identity* wipes the key and orphans the
+  server-side BYOK entry. For the privacy-maximalist: edit photos under an
+  identity that reveals nothing about you. Because the browser holds the key, an
+  anonymous session re-authenticates silently on reload (no signing prompt).
 
 ## HTTP API
 

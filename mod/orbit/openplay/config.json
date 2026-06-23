@@ -53,6 +53,8 @@
         "accept_invite",
         "decline_invite",
         "kick",
+        "messages",
+        "post_message",
         "payment_requirements",
         "verify_sudo",
         "admin_delete_game",
@@ -68,5 +70,5 @@
         "deregister"
     ],
     "gateway_port": 50161,
-    "schema": "QmP2SjE38hPktpqBB2obR4tTGfyVzyMVfC4rGLHpqn5hDc"
+    "schema": "QmPN7g1vWCP8ej3D1ifXCLZo4DNuUxdVKzoLknGRmbETVK"
 }

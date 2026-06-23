@@ -73,6 +73,31 @@ class BrickRequest(BaseModel):
     public: bool = False
     brick_id: Optional[str] = None
 
+class PanelRequest(BaseModel):
+    name: str = ""
+    kind: str = "solid"
+    color: str = "#caa472"
+    frame: str = "#5c3d22"
+    glazing: float = 0.2
+    win_cols: int = 1
+    win_rows: int = 1
+    material: str = "wood"
+    reveal: bool = False
+    width_mm: int = 3000
+    height_mm: int = 3000
+    thickness_mm: int = 180
+    weight_kg: float = 200
+    assembly: str = "Steel-stud + rainscreen"
+    r_value: float = 4.0
+    connection: str = "screwed"
+    fab_notes: str = ""
+    price: float = 3500
+    carbon_kg: float = 350
+    lead_days: int = 15
+    owner: str = ""
+    public: bool = False
+    panel_id: Optional[str] = None
+
 class PublishRequest(BaseModel):
     owner: Optional[str] = None
     public: bool = True
@@ -116,6 +141,10 @@ def module_detail(module_id: str): return _guard(mc().module_detail(module_id))
 def styles(): return mc().styles()
 @app.get("/style/{style_id}")
 def style(style_id: str): return _guard(mc().style(style_id))
+@app.get("/codes")
+def codes(): return mc().codes()
+@app.get("/code/{code_id}")
+def code(code_id: str): return _guard(mc().code(code_id))
 
 
 # ── Bricks (the forge + community library) ──────────────────────
@@ -140,6 +169,35 @@ def publish_brick(brick_id: str, req: PublishRequest):
 @app.delete("/brick/{brick_id}")
 def delete_brick(brick_id: str, owner: Optional[str] = None):
     return _guard(mc().delete_brick(brick_id, owner=owner))
+
+
+# ── Panels (designable, shareable façade elements + prefab spec) ──
+@app.get("/panel_catalog")
+def panel_catalog(owner: Optional[str] = None): return mc().panel_catalog(owner=owner)
+@app.get("/panels")
+def panels(owner: Optional[str] = None, include_public: bool = True, limit: int = 200):
+    return mc().panels(owner=owner, include_public=include_public, limit=limit)
+@app.get("/panel/{panel_id}")
+def panel(panel_id: str): return _guard(mc().panel(panel_id))
+
+@app.post("/panel")
+def create_panel(req: PanelRequest):
+    return _guard(mc().create_panel(
+        name=req.name, kind=req.kind, color=req.color, frame=req.frame, glazing=req.glazing,
+        win_cols=req.win_cols, win_rows=req.win_rows, material=req.material, reveal=req.reveal,
+        width_mm=req.width_mm, height_mm=req.height_mm, thickness_mm=req.thickness_mm,
+        weight_kg=req.weight_kg, assembly=req.assembly, r_value=req.r_value,
+        connection=req.connection, fab_notes=req.fab_notes, price=req.price,
+        carbon_kg=req.carbon_kg, lead_days=req.lead_days, owner=req.owner,
+        public=req.public, panel_id=req.panel_id))
+
+@app.post("/panel/{panel_id}/publish")
+def publish_panel(panel_id: str, req: PublishRequest):
+    return _guard(mc().publish_panel(panel_id, owner=req.owner, public=req.public))
+
+@app.delete("/panel/{panel_id}")
+def delete_panel(panel_id: str, owner: Optional[str] = None):
+    return _guard(mc().delete_panel(panel_id, owner=owner))
 
 
 # ── Estimator (with constraints/compliance) ─────────────────────

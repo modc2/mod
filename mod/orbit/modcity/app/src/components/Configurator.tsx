@@ -7,8 +7,9 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import {
-  ModuleSpec, StyleSpec, Cell, Estimate, Constraints, PortableDoc,
-  localEstimate, api, ownerId,
+  ModuleSpec, StyleSpec, Cell, Estimate, Constraints, PortableDoc, PanelSpec,
+  localEstimate, api, ownerId, CODES, CODE_INDEX, LANEWAY_TEMPLATES,
+  FALLBACK_PANELS, PANEL_INDEX_FALLBACK, buildFabSchedule, fabScheduleCSV,
 } from '@/lib/modcity'
 
 const STEP = 3
@@ -57,6 +58,18 @@ export default function Configurator({
     return out
   }, [catalog, localBricks])
 
+  // ── façade panels (designable, shareable) ──
+  const [remotePanels, setRemotePanels] = useState<PanelSpec[]>([])
+  const [localPanels, setLocalPanels] = useState<PanelSpec[]>([])
+  const mergedPanels = useMemo(() => {
+    const seen = new Set<string>(); const out: PanelSpec[] = []
+    for (const p of [...FALLBACK_PANELS, ...remotePanels, ...localPanels]) { if (!seen.has(p.id)) { seen.add(p.id); out.push(p) } }
+    return out
+  }, [remotePanels, localPanels])
+  useEffect(() => {
+    api('panel_catalog' + (owner ? `?owner=${owner}` : '')).then((p) => Array.isArray(p) && setRemotePanels(p)).catch(() => {})
+  }, [owner])
+
   const [selected, setSelected] = useState('parlor')
   const [styleId, setStyleId] = useState('brownstone')
   const [tab, setTab] = useState<'all' | 'mine' | 'community'>('all')
@@ -70,8 +83,17 @@ export default function Configurator({
   const [showDesigner, setShowDesigner] = useState(false)
   const [showSave, setShowSave] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [showPanels, setShowPanels] = useState(false)
+  const [panelTab, setPanelTab] = useState<'all' | 'mine' | 'community'>('all')
+  const [showPanelDesigner, setShowPanelDesigner] = useState(false)
 
   const style = useMemo(() => styles.find((s) => s.id === styleId) || styles[0], [styles, styleId])
+  const activePanel = useMemo(() => {
+    const id = constraints.skin
+    if (!id || id === 'none') return undefined
+    return mergedPanels.find((p) => p.id === id) || PANEL_INDEX_FALLBACK[id]
+  }, [constraints.skin, mergedPanels])
   const selectedRef = useRef(selected); selectedRef.current = selected
   const constraintsRef = useRef(constraints); constraintsRef.current = constraints
   const fileRef = useRef<HTMLInputElement>(null)
@@ -215,30 +237,11 @@ export default function Configurator({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // faint neighbouring city blocks → urban context (built once)
+  // surrounding buildings removed — focus is the single building on its lot
   function buildContext() {
     const t = three.current; if (!t.context) return
     const ctx = t.context
     while (ctx.children.length) { const c = ctx.children.pop(); c.geometry?.dispose?.(); c.material?.dispose?.() }
-    const rand = (i: number) => ((Math.sin(i * 127.1) * 43758.5) % 1 + 1) % 1
-    let i = 0
-    // a recessive distant skyline ring — far enough back to never crowd the lot
-    for (let gx = -9; gx <= 9; gx++) {
-      for (let gz = -9; gz <= 9; gz++) {
-        const r = Math.max(Math.abs(gx), Math.abs(gz))
-        if (r < 5 || r > 9) continue
-        i++
-        if (rand(i) < 0.55) continue
-        const hgt = 1 + Math.floor(rand(i * 3) * 4)
-        const box = new THREE.Mesh(
-          new THREE.BoxGeometry(STEP * 0.9, hgt * STEP, STEP * 0.9),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.62, 0.06, 0.1 + rand(i * 7) * 0.04), roughness: 1 }),
-        )
-        box.position.set(gx * STEP, (hgt * STEP) / 2, gz * STEP)
-        box.castShadow = true; box.receiveShadow = true
-        ctx.add(box)
-      }
-    }
   }
 
   // pad / street rebuilt when the lot changes
@@ -263,20 +266,15 @@ export default function Configurator({
     g.add(grid)
   }
 
-  // ── panel facade: glazing punched into an exposed wall panel ──
-  // (full curtain-wall faces are handled inline in the rebuild loop)
-  function addWindow(group: THREE.Group, spec: ModuleSpec, isX: boolean, sign: number, glazeMat: THREE.Material) {
-    const T = PANEL_T
-    const tall = spec.id === 'parlor' || spec.id === 'bay'
-    const commerce = spec.category === 'commerce'
-    const ww = commerce ? BRICK * 0.84 : tall ? BRICK * 0.5 : BRICK * 0.62
-    const wh = commerce ? BRICK * 0.5 : tall ? BRICK * 0.62 : BRICK * 0.42
-    const wy = commerce ? -BRICK * 0.16 : 0
-    const off = (BRICK / 2) * sign + sign * 0.012   // sit just proud of the wall panel
-    const geo = isX ? new THREE.BoxGeometry(T * 0.6, wh, ww) : new THREE.BoxGeometry(ww, wh, T * 0.6)
-    const pane = new THREE.Mesh(geo, glazeMat)
-    pane.position.set(isX ? off : 0, wy, isX ? 0 : off)
-    group.add(pane)
+  // surface finish (roughness/metalness) for a panel material
+  function matProps(material: string) {
+    switch (material) {
+      case 'glass': return { rough: 0.12, metal: 0.25 }
+      case 'metal': return { rough: 0.4, metal: 0.7 }
+      case 'concrete': return { rough: 0.95, metal: 0.04 }
+      case 'wood': return { rough: 0.72, metal: 0.02 }
+      default: return { rough: 0.6, metal: 0.1 }   // composite
+    }
   }
 
   // ── rebuild panels + restyle ──────────────────────────────────
@@ -303,7 +301,58 @@ export default function Configurator({
     const faceOpen = (cx: number, cz: number, level: number) => isOpenSpec(specAt(cx, cz, level))
 
     const half = BRICK / 2
+    const PW = BRICK * 0.98, PH = BRICK * 0.96, T = PANEL_T
 
+    // detailed exposed-face builder — driven by the active façade panel (skin)
+    // or a style-default. Adds cladding + window grid w/ frames & sills, curtain
+    // mullions, louver slats, board reveals, and a ground entry door.
+    type FaceOpts = {
+      kind: 'solid' | 'window' | 'curtain' | 'louver'
+      glazing: number; winC: number; winR: number; reveal: boolean; isEntry: boolean
+      cladMat: THREE.Material; glazeMat: THREE.Material; frameMat: THREE.Material
+    }
+    const buildFace = (g: THREE.Group, d: { isX: boolean; sign: number }, o: FaceOpts) => {
+      const isX = d.isX, sign = d.sign, off = half * sign
+      const pos = (u: number, v: number, dep: number): [number, number, number] =>
+        isX ? [off + sign * dep, v, u] : [u, v, off + sign * dep]
+      const box = (w: number, h: number, th: number) =>
+        isX ? new THREE.BoxGeometry(th, h, w) : new THREE.BoxGeometry(w, h, th)
+      const add = (geo: THREE.BufferGeometry, mat: THREE.Material, u: number, v: number, dep: number, shadow = false) => {
+        const m = new THREE.Mesh(geo, mat); m.position.set(...pos(u, v, dep)); if (shadow) { m.castShadow = true; m.receiveShadow = true } g.add(m); return m
+      }
+      if (o.kind === 'curtain') {
+        add(box(PW, PH, T), o.glazeMat, 0, 0, 0, true)
+        const cols = Math.max(1, o.winC), rows = Math.max(1, o.winR)
+        for (let i = 1; i < cols; i++) add(box(0.06, PH, T * 1.6), o.frameMat, (i / cols - 0.5) * PW, 0, 0.02)
+        for (let j = 1; j < rows; j++) add(box(PW, 0.06, T * 1.6), o.frameMat, 0, (j / rows - 0.5) * PH, 0.02)
+        return
+      }
+      add(box(PW, PH, T), o.cladMat, 0, 0, 0, true)   // cladding
+      if (o.reveal) for (let r = 1; r <= 3; r++) add(box(PW, 0.04, T * 0.5), o.frameMat, 0, PH * (r / 4 - 0.5), T * 0.5)
+      if (o.kind === 'louver') {
+        for (let r = 0; r < 6; r++) add(box(PW * 0.94, PH * 0.085, T * 0.9), o.frameMat, 0, PH * ((r + 0.5) / 6 - 0.5), T * 0.6)
+        return
+      }
+      if (o.glazing > 0 && o.winC > 0 && o.winR > 0 && o.kind !== 'solid') {
+        const cols = o.winC, rows = o.winR
+        const cellW = (PW * 0.84) / cols, cellH = (PH * 0.82) / rows
+        const winW = cellW * 0.74, winH = cellH * (0.5 + o.glazing * 0.45)
+        for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+          const u = (-(cols - 1) / 2 + i) * cellW
+          const v = (-(rows - 1) / 2 + j) * cellH + (o.isEntry ? PH * 0.14 : 0)
+          add(box(winW + 0.12, winH + 0.12, T * 0.4), o.frameMat, u, v, T * 0.25)  // frame
+          add(box(winW, winH, T * 0.5), o.glazeMat, u, v, T * 0.45)                 // glazing
+          add(box(winW + 0.18, 0.07, T * 1.2), o.frameMat, u, v - winH / 2 - 0.06, T * 0.5)  // sill
+        }
+      }
+      if (o.isEntry) {
+        const dh = PH * 0.6, dw = Math.min(PW * 0.4, 1.1)
+        add(box(dw + 0.16, dh + 0.12, T * 0.5), o.frameMat, 0, -(PH - dh) / 2, T * 0.3)  // door frame
+        add(box(dw, dh, T * 0.6), o.glazeMat, 0, -(PH - dh) / 2, T * 0.5, true)          // door leaf
+      }
+    }
+
+    let entryDone = false
     cellsRef.current.forEach((stack, k) => {
       const [x, z] = k.split(',').map(Number)
       stack.forEach((id, level) => {
@@ -332,23 +381,33 @@ export default function Configurator({
             shrub.castShadow = true; g.add(shrub)
           }
         } else {
-          // ── panelised module: floor slab + exposed wall panels + frame ──
-          const wallMat = new THREE.MeshStandardMaterial({
-            color: base, roughness: style.material === 'concrete' ? 0.95 : 0.7,
-            metalness: neon ? 0.3 : 0.04,
-            emissive: neon ? base.clone().multiplyScalar(0.35) : new THREE.Color(0x000000),
+          // ── panelised module: floor slab + detailed façade panels ──
+          const skin = activePanel
+          const winCat = WINDOW_CATS.has(spec.category)
+          const tall = spec.id === 'parlor' || spec.id === 'bay' || spec.category === 'commerce'
+          const faceKind: 'solid' | 'window' | 'curtain' | 'louver' =
+            glass ? 'curtain' : skin ? skin.kind : winCat ? 'window' : 'solid'
+          const glazing = glass ? 0.92 : skin ? skin.glazing : winCat ? (tall ? 0.5 : 0.32) : 0
+          const winC = skin ? Math.max(1, skin.win_cols || 1) : spec.category === 'commerce' ? 1 : 2
+          const winR = skin ? Math.max(1, skin.win_rows || 1) : 1
+          const reveal = skin ? skin.reveal : style.material === 'concrete' || style.material === 'stone'
+          const mp = matProps(skin ? skin.material : style.material === 'neon' ? 'metal' : style.material)
+          const cladColor = skin ? new THREE.Color(skin.color) : base
+          const frameColor = skin ? new THREE.Color(skin.frame) : base.clone().multiplyScalar(neon ? 1 : 0.55)
+
+          const cladMat = new THREE.MeshStandardMaterial({
+            color: cladColor, roughness: mp.rough, metalness: mp.metal,
+            emissive: neon ? cladColor.clone().multiplyScalar(0.3) : new THREE.Color(0x000000),
           })
           const glazeMat = new THREE.MeshStandardMaterial({
             color: neon ? new THREE.Color(style.accent) : new THREE.Color(0x121821),
-            emissive: neon ? new THREE.Color(style.accent).multiplyScalar(0.8) : new THREE.Color(0x0a0d12),
-            emissiveIntensity: neon ? 1.0 : 0.3, roughness: 0.12, metalness: 0.25,
+            emissive: neon ? new THREE.Color(style.accent).multiplyScalar(0.8) : new THREE.Color(0x0a1018),
+            emissiveIntensity: neon ? 1.0 : 0.28, roughness: 0.1, metalness: 0.3,
             transparent: true, opacity: neon ? 0.9 : 0.82,
           })
-          const frameMat = new THREE.MeshStandardMaterial({
-            color: base.clone().multiplyScalar(neon ? 1 : 0.55), roughness: 0.5, metalness: 0.35,
-          })
+          const frameMat = new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.5, metalness: 0.4 })
 
-          // floor slab (every module) + roof slab on the topmost module
+          // floor slab (every module) + roof slab + parapet coping on top
           const slab = new THREE.Mesh(new THREE.BoxGeometry(BRICK, 0.16, BRICK),
             new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(0.78), roughness: 0.85 }))
           slab.position.y = -half + 0.08; slab.castShadow = slab.receiveShadow = true; g.add(slab)
@@ -356,32 +415,23 @@ export default function Configurator({
             const roof = new THREE.Mesh(new THREE.BoxGeometry(BRICK, 0.14, BRICK),
               new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(0.68), roughness: 0.9 }))
             roof.position.y = half - 0.07; roof.castShadow = roof.receiveShadow = true; g.add(roof)
+            // parapet coping ring
+            for (const [w, dpt, ox, oz] of [[BRICK + 0.1, 0.12, 0, half], [BRICK + 0.1, 0.12, 0, -half], [0.12, BRICK + 0.1, half, 0], [0.12, BRICK + 0.1, -half, 0]] as const) {
+              const cope = new THREE.Mesh(new THREE.BoxGeometry(w, 0.16, dpt), frameMat)
+              cope.position.set(ox, half + 0.06, oz); cope.castShadow = true; g.add(cope)
+            }
           }
 
-          const PW = BRICK * 0.98, PH = BRICK * 0.96
           const dirs = [
             { dx: 1, dz: 0, isX: true, sign: 1 }, { dx: -1, dz: 0, isX: true, sign: -1 },
             { dx: 0, dz: 1, isX: false, sign: 1 }, { dx: 0, dz: -1, isX: false, sign: -1 },
           ]
           for (const d of dirs) {
             if (!faceOpen(x + d.dx, z + d.dz, level)) continue   // interior face → shared party wall, skip
-            const off = half * d.sign
-            const geo = d.isX ? new THREE.BoxGeometry(PANEL_T, PH, PW) : new THREE.BoxGeometry(PW, PH, PANEL_T)
-            if (glass) {
-              // curtain-wall panel + a pair of vertical mullions
-              const pane = new THREE.Mesh(geo, glazeMat)
-              pane.position.set(d.isX ? off : 0, 0, d.isX ? 0 : off); pane.castShadow = true; g.add(pane)
-              for (const m of [-0.32, 0.32]) {
-                const mg = d.isX ? new THREE.BoxGeometry(PANEL_T * 1.4, PH, 0.07) : new THREE.BoxGeometry(0.07, PH, PANEL_T * 1.4)
-                const mull = new THREE.Mesh(mg, frameMat)
-                mull.position.set(d.isX ? off : m * PW, 0, d.isX ? m * PW : off); g.add(mull)
-              }
-            } else {
-              const wall = new THREE.Mesh(geo, wallMat)
-              wall.position.set(d.isX ? off : 0, 0, d.isX ? 0 : off)
-              wall.castShadow = wall.receiveShadow = true; g.add(wall)
-              if (WINDOW_CATS.has(spec.category)) addWindow(g, spec, d.isX, d.sign, glazeMat)
-            }
+            // one entry door on the building, on a camera-facing ground face
+            const isEntry = !entryDone && level === 0 && faceKind !== 'curtain' && (d.sign === 1)
+            if (isEntry) entryDone = true
+            buildFace(g, d, { kind: faceKind, glazing, winC, winR, reveal, isEntry, cladMat, glazeMat, frameMat })
           }
 
           // corner posts only where the corner is exposed → framed prefab read
@@ -419,7 +469,7 @@ export default function Configurator({
 
     setStats(localEstimate(serialize(), style, mergedCatalog, constraints))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, style, mergedCatalog])
+  }, [tick, style, mergedCatalog, activePanel])
 
   // recompute compliance when constraints change (also clamp out-of-lot cells)
   useEffect(() => {
@@ -455,6 +505,10 @@ export default function Configurator({
     if (extra.length) setLocalBricks((prev) => {
       const ids = new Set(prev.map((b) => b.id)); return [...prev, ...extra.filter((b) => !ids.has(b.id))]
     })
+    const exPanels = Object.values(doc.panels || {})
+    if (exPanels.length) setLocalPanels((prev) => {
+      const ids = new Set(prev.map((p) => p.id)); return [...prev, ...exPanels.filter((p) => !ids.has(p.id))]
+    })
     cellsRef.current = new Map((doc.cells || []).map((c) => [key(c.x, c.z), [...c.stack]]))
     historyRef.current = []
     if (doc.style) setStyleId(doc.style)
@@ -472,6 +526,17 @@ export default function Configurator({
     setTick((t) => t + 1)
   }, [])
   const clear = useCallback(() => { cellsRef.current.clear(); historyRef.current = []; setTick((t) => t + 1); flash('Cleared the lot') }, [flash])
+
+  // load a pre-approved laneway template (instant, offline) → private draft
+  const loadTemplate = useCallback((tpl: typeof LANEWAY_TEMPLATES[number]) => {
+    cellsRef.current = new Map(tpl.cells.map((c) => [key(c.x, c.z), [...c.stack]]))
+    historyRef.current = []
+    setStyleId(tpl.style)
+    setConstraints((c) => ({ ...c, lot_w: 5, lot_d: 5, max_floors: 8, ...tpl.constraints }))
+    setShowTemplates(false)
+    setTick((t) => t + 1)
+    flash(`Loaded “${tpl.name}” — your private draft. Edit & Save (private by default).`)
+  }, [flash])
 
   const surprise = useCallback(() => {
     cellsRef.current.clear(); historyRef.current = []
@@ -503,6 +568,22 @@ export default function Configurator({
     } catch (e: any) { flash('Forge failed: ' + (e?.message || 'error')) }
   }, [owner, onBrickCreated, flash])
 
+  // set the active façade panel (building skin); persisted via constraints.skin
+  const setSkin = useCallback((id?: string) => {
+    setConstraints((c) => ({ ...c, skin: id }))
+  }, [])
+
+  // forge a custom façade panel → private by default, optional publish
+  const createPanel = useCallback(async (draft: any) => {
+    try {
+      const p: PanelSpec = await api('panel', { method: 'POST', body: { ...draft, owner } })
+      setLocalPanels((prev) => [p, ...prev.filter((x) => x.id !== p.id)])
+      setConstraints((c) => ({ ...c, skin: p.id }))
+      setShowPanelDesigner(false)
+      flash(`Forged panel “${p.name}”${draft.public ? ' — shared' : ' — private'} & applied`)
+    } catch (e: any) { flash('Panel forge failed: ' + (e?.message || 'error')) }
+  }, [owner, flash])
+
   // save
   const doSave = useCallback(async (name: string, isPublic: boolean, desc: string) => {
     const cells = serialize()
@@ -517,27 +598,32 @@ export default function Configurator({
   // ── export the building mesh to a production 3D format ────────
   // glTF/GLB is the de-facto interchange format (Blender, Unreal, Unity,
   // Spline, three.js); OBJ/STL are universal fallbacks for CAD / printing.
-  const exportModel = useCallback((format: 'glb' | 'obj' | 'stl') => {
+  const exportModel = useCallback((format: 'glb' | 'obj' | 'stl' | 'fab') => {
     const grp: THREE.Group | undefined = three.current.bricks
     if (!grp || grp.children.length === 0) { flash('Place some panels first'); return }
     setShowExport(false)
     const fname = 'modcity-building'
-    const dl = (data: BlobPart, ext: string, mime: string) => {
+    const dl = (data: BlobPart, ext: string, mime: string, msg: string) => {
       const url = URL.createObjectURL(new Blob([data], { type: mime }))
       const a = document.createElement('a'); a.href = url; a.download = `${fname}.${ext}`; a.click()
-      URL.revokeObjectURL(url); flash(`Exported ${ext.toUpperCase()} — open in Blender / Unreal / any DCC tool`)
+      URL.revokeObjectURL(url); flash(msg)
     }
     try {
       if (format === 'glb') {
-        new GLTFExporter().parse(grp, (res) => dl(res as ArrayBuffer, 'glb', 'model/gltf-binary'),
+        new GLTFExporter().parse(grp, (res) => dl(res as ArrayBuffer, 'glb', 'model/gltf-binary', 'Exported GLB — open in Blender / Unreal / any DCC tool'),
           () => flash('GLB export failed'), { binary: true })
       } else if (format === 'obj') {
-        dl(new OBJExporter().parse(grp), 'obj', 'text/plain')
+        dl(new OBJExporter().parse(grp), 'obj', 'text/plain', 'Exported OBJ')
+      } else if (format === 'stl') {
+        dl(new STLExporter().parse(grp, { binary: false }) as unknown as string, 'stl', 'model/stl', 'Exported STL')
       } else {
-        dl(new STLExporter().parse(grp, { binary: false }) as unknown as string, 'stl', 'model/stl')
+        // prefab fabrication schedule — the factory panel takeoff
+        const rows = buildFabSchedule(serialize(), mergedCatalog, activePanel)
+        const csv = fabScheduleCSV(rows, { name: 'ModCity building', skin: activePanel?.name })
+        dl(csv, 'fab.csv', 'text/csv', `Exported fab schedule — ${rows.length} prefab panels`)
       }
     } catch (e: any) { flash('Export failed: ' + (e?.message || 'error')) }
-  }, [flash])
+  }, [flash, serialize, mergedCatalog, activePanel])
 
   // import a .modcity.json file
   const onImportFile = useCallback((file: File) => {
@@ -560,7 +646,14 @@ export default function Configurator({
     return mergedCatalog
   }, [mergedCatalog, tab, owner])
 
+  const visiblePanels = useMemo(() => {
+    if (panelTab === 'mine') return mergedPanels.filter((p) => p.custom && (p.mine || p.owner === owner))
+    if (panelTab === 'community') return mergedPanels.filter((p) => p.custom && p.public && p.owner !== owner)
+    return mergedPanels
+  }, [mergedPanels, panelTab, owner])
+
   const comp = stats?.compliance
+  const activeCode = constraints.code && constraints.code !== 'none' ? CODE_INDEX[constraints.code] : undefined
   const swatchOf = (m: ModuleSpec) => m.color || style.palette[m.tone] || style.accent
 
   return (
@@ -579,7 +672,7 @@ export default function Configurator({
             <span className="text-2xl font-semibold tracking-tight">{fmtUSD(stats.price_usd)}</span>
             <span className="text-[10px] text-white/40">${fmt(stats.price_per_m2)}/m²</span>
           </div>
-          <Row l="Panels" v={`${stats.module_count}`} />
+          <Row l="Modules" v={`${stats.module_count}`} />
           <Row l="Floors" v={`${stats.floors}`} />
           <Row l="Floor area" v={`${fmt(stats.floor_area_m2)} m²`} />
           <Row l="Sleeps" v={`${stats.occupancy}`} />
@@ -594,6 +687,23 @@ export default function Configurator({
                   <span className="font-mono">{typeof comp[k]!.value === 'number' && k === 'budget' ? fmtUSD(comp[k]!.value as number) : comp[k]!.value}/{typeof comp[k]!.limit === 'number' && k === 'budget' ? fmtUSD(comp[k]!.limit as number) : comp[k]!.limit}</span>
                 </div>
               ))}
+            </div>
+          )}
+          {activeCode && (
+            <div className="mt-2 pt-2 border-t border-white/10">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] uppercase tracking-[0.2em] text-white/40">{activeCode.region}</span>
+                <span className={`text-[9px] font-semibold px-1.5 rounded ${comp?.ok ? 'bg-emerald-400/20 text-emerald-200' : 'bg-rose-400/20 text-rose-200'}`}>{comp?.ok ? 'AS-OF-RIGHT' : 'OVER ENVELOPE'}</span>
+              </div>
+              {([['height_m', 'Height', 'm'], ['storeys', 'Storeys', ''], ['gfa', 'Floor area', 'm²'], ['footprint', 'Footprint', 'm²']] as const).map(([k, lbl, unit]) => comp?.[k] && (
+                <div key={k} className={`flex items-center justify-between text-[10px] ${comp[k]!.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  <span>{comp[k]!.ok ? '✓' : '✕'} {lbl}</span>
+                  <span className="font-mono">{comp[k]!.value}/{comp[k]!.limit}{unit}</span>
+                </div>
+              ))}
+              {activeCode.source && (
+                <a href={activeCode.source} target="_blank" rel="noreferrer" className="block mt-1 text-[9px] text-cyan-300/80 hover:text-cyan-200 truncate">code reference ↗</a>
+              )}
             </div>
           )}
           {stats.net_positive_energy && (
@@ -613,7 +723,7 @@ export default function Configurator({
         <div className="flex-1 overflow-auto pr-1 flex flex-col gap-1.5">
           {visibleBricks.length === 0 && (
             <div className="text-[11px] text-white/40 p-3 text-center">
-              {tab === 'mine' ? 'No panels yet — forge one ↓' : 'No shared panels yet.'}
+              {tab === 'mine' ? 'No modules yet — forge one ↓' : 'No shared modules yet.'}
             </div>
           )}
           {visibleBricks.map((mdl) => (
@@ -631,7 +741,7 @@ export default function Configurator({
           ))}
         </div>
         <button onClick={() => setShowDesigner(true)}
-          className="mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-cyan-400/90 to-purple-400/90 text-black hover:from-cyan-300 hover:to-purple-300 transition">✎ Forge a panel</button>
+          className="mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-cyan-400/90 to-purple-400/90 text-black hover:from-cyan-300 hover:to-purple-300 transition">✎ Forge a module</button>
       </div>
 
       {/* params panel */}
@@ -641,6 +751,18 @@ export default function Configurator({
             <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Parameters & constraints</div>
             <button onClick={() => setShowParams(false)} className="text-white/40 hover:text-white text-xs">✕</button>
           </div>
+          <label className="block text-[11px] text-white/60 mb-2">Building code / ADU envelope
+            <select value={constraints.code || 'none'}
+              onChange={(e) => {
+                const id = e.target.value
+                const cd = CODE_INDEX[id]
+                setConstraints((c) => ({ ...c, code: id, ...(cd?.recommend || {}) }))
+              }}
+              className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-[12px] outline-none focus:border-cyan-400">
+              {CODES.map((cd) => <option key={cd.id} value={cd.id} className="bg-[#13131c]">{cd.name}</option>)}
+            </select>
+          </label>
+          {activeCode && <p className="text-[9px] text-cyan-200/70 mb-2 leading-snug">{activeCode.note}</p>}
           <NumRow label="Lot width" value={constraints.lot_w} min={1} max={9} onChange={(v) => setConstraints((c) => ({ ...c, lot_w: v }))} />
           <NumRow label="Lot depth" value={constraints.lot_d} min={1} max={9} onChange={(v) => setConstraints((c) => ({ ...c, lot_d: v }))} />
           <NumRow label="Max floors" value={constraints.max_floors} min={1} max={HARD_MAX} onChange={(v) => setConstraints((c) => ({ ...c, max_floors: v }))} />
@@ -661,6 +783,60 @@ export default function Configurator({
           ))}
         </div>
         <div className="flex flex-wrap items-center justify-center gap-1.5">
+          <div className="relative">
+            <Btn onClick={() => setShowTemplates((v) => !v)} active={showTemplates}>🏠 Laneway</Btn>
+            {showTemplates && (
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[230px] bg-[#13131c] border border-white/15 rounded-xl p-1.5 shadow-xl z-30">
+                <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 px-2 pt-1 pb-1.5">pre-approved ADU templates</div>
+                {LANEWAY_TEMPLATES.map((tpl) => (
+                  <button key={tpl.id} onClick={() => loadTemplate(tpl)}
+                    className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10 transition">
+                    <span className="block text-[12px] font-medium text-white">{tpl.name}</span>
+                    <span className="block text-[9px] text-white/40">{CODE_INDEX[tpl.code]?.region} · {tpl.description}</span>
+                  </button>
+                ))}
+                <div className="text-[9px] text-white/35 px-2 pt-1.5 pb-1 leading-snug">Loads as your private draft — fits the code envelope out of the box.</div>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <Btn onClick={() => setShowPanels((v) => !v)} active={showPanels}>▦ Panels</Btn>
+            {showPanels && (
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[260px] bg-[#13131c] border border-white/15 rounded-xl p-2 shadow-xl z-30">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[9px] uppercase tracking-[0.18em] text-white/40">façade panel · building skin</span>
+                </div>
+                <div className="flex gap-1 mb-1.5">
+                  {(['all', 'mine', 'community'] as const).map((tb) => (
+                    <button key={tb} onClick={() => setPanelTab(tb)}
+                      className={`flex-1 text-[10px] py-1 rounded-md capitalize border transition ${panelTab === tb ? 'bg-white/15 border-white/40 text-white' : 'bg-black/40 border-white/10 text-white/55 hover:bg-white/10'}`}>{tb}</button>
+                  ))}
+                </div>
+                <div className="max-h-[230px] overflow-auto flex flex-col gap-1">
+                  <button onClick={() => setSkin(undefined)}
+                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left border ${!constraints.skin ? 'bg-white/15 border-white/40' : 'bg-black/40 border-white/10 hover:bg-white/10'}`}>
+                    <span className="w-5 h-5 rounded-[5px] shrink-0 border border-black/30" style={{ background: `linear-gradient(135deg, ${style.accent}, #222)` }} />
+                    <span className="text-[11px] font-medium text-white">Style default</span>
+                  </button>
+                  {visiblePanels.map((pn) => (
+                    <button key={pn.id} onClick={() => setSkin(pn.id)} title={pn.fab_notes}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left border ${constraints.skin === pn.id ? 'bg-white/15 border-white/40' : 'bg-black/40 border-white/10 hover:bg-white/10'}`}>
+                      <span className="w-5 h-5 rounded-[5px] shrink-0 border border-black/30" style={{ background: pn.color }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1">
+                          <span className="block text-[11px] font-medium text-white truncate">{pn.name}</span>
+                          {pn.custom && <span className="text-[8px] px-1 rounded bg-cyan-400/20 text-cyan-200">{pn.mine || pn.owner === owner ? 'mine' : 'shared'}</span>}
+                        </span>
+                        <span className="block text-[9px] text-white/40 truncate">{pn.assembly} · {pn.thickness_mm}mm · RSI {pn.r_value}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { setShowPanels(false); setShowPanelDesigner(true) }}
+                  className="w-full mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-amber-300/90 to-cyan-300/90 text-black hover:from-amber-200 hover:to-cyan-200 transition">✎ Forge a panel</button>
+              </div>
+            )}
+          </div>
           <Btn onClick={() => setAutoRotate((v) => !v)} active={autoRotate}>⟳ {autoRotate ? 'Spinning' : 'Rotate'}</Btn>
           <Btn onClick={() => setShowParams((v) => !v)} active={showParams}>⚙ Parameters</Btn>
           <Btn onClick={undo}>↩ Undo</Btn>
@@ -670,9 +846,9 @@ export default function Configurator({
           <div className="relative">
             <Btn onClick={() => setShowExport((v) => !v)} active={showExport}>⬚ Export 3D</Btn>
             {showExport && (
-              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[188px] bg-[#13131c] border border-white/15 rounded-xl p-1.5 shadow-xl z-30">
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[210px] bg-[#13131c] border border-white/15 rounded-xl p-1.5 shadow-xl z-30">
                 <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 px-2 pt-1 pb-1.5">production 3D formats</div>
-                {([['glb', 'glTF / GLB', 'Blender · Unreal · Unity'], ['obj', 'OBJ + mesh', 'universal DCC / CAD'], ['stl', 'STL', '3D print / mesh']] as const).map(([f, t, d]) => (
+                {([['glb', 'glTF / GLB', 'Blender · Unreal · Unity'], ['obj', 'OBJ + mesh', 'universal DCC / CAD'], ['stl', 'STL', '3D print / mesh'], ['fab', 'Fab schedule (CSV)', 'prefab factory panel takeoff']] as const).map(([f, t, d]) => (
                   <button key={f} onClick={() => exportModel(f)}
                     className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10 transition">
                     <span className="block text-[12px] font-medium text-white">{t}</span>
@@ -696,6 +872,7 @@ export default function Configurator({
 
       {showDesigner && <BrickDesigner style={style} onClose={() => setShowDesigner(false)} onCreate={createBrick} />}
       {showSave && <SaveModal onClose={() => setShowSave(false)} onSave={doSave} flash={flash} />}
+      {showPanelDesigner && <PanelDesigner onClose={() => setShowPanelDesigner(false)} onCreate={createPanel} />}
     </div>
   )
 }
@@ -797,6 +974,110 @@ function Field({ label, value, step, onChange }: { label: string; value: number;
       <input type="number" value={value} step={step} onChange={(e) => onChange(Number(e.target.value))}
         className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-cyan-400" />
     </label>
+  )
+}
+
+/* ── Panel forge modal (designable, shareable façade + prefab spec) ── */
+const PANEL_KINDS = ['solid', 'window', 'curtain', 'louver'] as const
+const PANEL_MATERIALS = ['wood', 'metal', 'concrete', 'glass', 'composite']
+const PANEL_ASSEMBLIES = ['CLT (cross-laminated timber)', 'SIP (structural insulated panel)', 'Unitised aluminium curtain wall', 'Precast concrete sandwich', 'Steel-stud + rainscreen', 'Mass-timber + timber clad']
+function PanelDesigner({ onClose, onCreate }: { onClose: () => void; onCreate: (d: any) => void }) {
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState<typeof PANEL_KINDS[number]>('window')
+  const [color, setColor] = useState('#caa472')
+  const [frame, setFrame] = useState('#5c3d22')
+  const [glazing, setGlazing] = useState(0.35)
+  const [winCols, setWinCols] = useState(2)
+  const [winRows, setWinRows] = useState(2)
+  const [material, setMaterial] = useState('wood')
+  const [reveal, setReveal] = useState(true)
+  const [assembly, setAssembly] = useState(PANEL_ASSEMBLIES[0])
+  const [thickness, setThickness] = useState(180)
+  const [weight, setWeight] = useState(200)
+  const [rValue, setRValue] = useState(4.0)
+  const [connection, setConnection] = useState('screwed (clip rail)')
+  const [fabNotes, setFabNotes] = useState('')
+  const [price, setPrice] = useState(3500)
+  const [carbon, setCarbon] = useState(350)
+  const [lead, setLead] = useState(15)
+  const [isPublic, setIsPublic] = useState(false)
+  return (
+    <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={onClose}>
+      <div className="w-full max-w-lg bg-[#13131c] rounded-2xl border border-white/10 p-6 text-white max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold">✎ Forge a façade panel</h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white">✕</button>
+        </div>
+        <div className="flex gap-4 mb-3">
+          <div className="w-20 h-20 rounded-xl shrink-0 border border-white/15 grid place-items-center" style={{ background: color }}>
+            {kind !== 'solid' && <span className="w-9 h-9 rounded" style={{ background: kind === 'curtain' ? '#0a1018cc' : '#121821cc', border: `2px solid ${frame}` }} />}
+          </div>
+          <div className="flex-1">
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Panel name (e.g. Charred Cedar 2×2)"
+              className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2 text-sm mb-2 focus:border-amber-400 outline-none" />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[11px] text-white/60">Type
+                <select value={kind} onChange={(e) => setKind(e.target.value as any)} className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-sm capitalize outline-none">
+                  {PANEL_KINDS.map((k) => <option key={k} value={k} className="bg-[#13131c]">{k}</option>)}
+                </select>
+              </label>
+              <label className="text-[11px] text-white/60">Material
+                <select value={material} onChange={(e) => setMaterial(e.target.value)} className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-sm capitalize outline-none">
+                  {PANEL_MATERIALS.map((mt) => <option key={mt} value={mt} className="bg-[#13131c]">{mt}</option>)}
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-1.5 mb-3 flex-wrap items-center">
+          <span className="text-[10px] text-white/50">Cladding</span>
+          {PRESET_COLORS.map((c) => <button key={c} onClick={() => setColor(c)} className={`w-6 h-6 rounded-md border ${color === c ? 'border-white' : 'border-black/30'}`} style={{ background: c }} />)}
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="w-6 h-6 rounded-md bg-transparent border border-white/20 cursor-pointer" />
+          <span className="text-[10px] text-white/50 ml-2">Frame</span>
+          <input type="color" value={frame} onChange={(e) => setFrame(e.target.value)} className="w-6 h-6 rounded-md bg-transparent border border-white/20 cursor-pointer" />
+        </div>
+        {kind !== 'solid' && kind !== 'louver' && (
+          <div className="grid grid-cols-3 gap-2 mb-3 items-end">
+            <label className="text-[11px] text-white/60 col-span-1">Glazing {Math.round(glazing * 100)}%
+              <input type="range" min={0} max={1} step={0.05} value={glazing} onChange={(e) => setGlazing(Number(e.target.value))} className="w-full mt-1 accent-cyan-400" />
+            </label>
+            <Field label="Window cols" value={winCols} step={1} onChange={setWinCols} />
+            <Field label="Window rows" value={winRows} step={1} onChange={setWinRows} />
+          </div>
+        )}
+        <label className="flex items-center gap-2 text-[12px] mb-3"><input type="checkbox" checked={reveal} onChange={(e) => setReveal(e.target.checked)} className="accent-amber-400" /> Cladding reveals (board lines)</label>
+
+        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-300/70 mb-2">Prefab fabrication spec</div>
+        <label className="text-[11px] text-white/60 block mb-2">Assembly
+          <select value={assembly} onChange={(e) => setAssembly(e.target.value)} className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-sm outline-none">
+            {PANEL_ASSEMBLIES.map((a) => <option key={a} value={a} className="bg-[#13131c]">{a}</option>)}
+          </select>
+        </label>
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <Field label="Thickness (mm)" value={thickness} step={10} onChange={setThickness} />
+          <Field label="Weight (kg)" value={weight} step={10} onChange={setWeight} />
+          <Field label="R-value (RSI)" value={rValue} step={0.1} onChange={setRValue} />
+        </div>
+        <label className="text-[11px] text-white/60 block mb-2">Connection
+          <input value={connection} onChange={(e) => setConnection(e.target.value)} placeholder="e.g. bolted (cast-in ferrules)"
+            className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-amber-400" />
+        </label>
+        <label className="text-[11px] text-white/60 block mb-3">Fabrication notes
+          <input value={fabNotes} onChange={(e) => setFabNotes(e.target.value)} placeholder="factory notes — glazing, sealing, finish…"
+            className="w-full mt-1 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-[12px] outline-none focus:border-amber-400" />
+        </label>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <Field label="Price ($)" value={price} step={100} onChange={setPrice} />
+          <Field label="Carbon (kg)" value={carbon} step={50} onChange={setCarbon} />
+          <Field label="Lead (days)" value={lead} step={1} onChange={setLead} />
+        </div>
+        <label className="flex items-center gap-2 text-[12px] mb-4"><input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="accent-amber-400" /> Share publicly to the panel library (off = private)</label>
+        <button disabled={!name.trim()} onClick={() => onCreate({ name, kind, color, frame, glazing, win_cols: winCols, win_rows: winRows, material, reveal, thickness_mm: thickness, weight_kg: weight, r_value: rValue, connection, assembly, fab_notes: fabNotes, price, carbon_kg: carbon, lead_days: lead, public: isPublic })}
+          className="w-full py-2.5 rounded-lg font-semibold text-black bg-gradient-to-r from-amber-300 to-cyan-300 disabled:opacity-40 hover:from-amber-200 hover:to-cyan-200 transition">
+          {isPublic ? 'Forge & publish panel' : 'Forge panel (private)'}
+        </button>
+      </div>
+    </div>
   )
 }
 

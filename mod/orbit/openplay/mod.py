@@ -494,6 +494,8 @@ class Mod:
             "waitlist": bucket.get("waitlist", []),
             "invited": sorted(set(invited)),
             "upcoming": [self._occ_key(t) for t in self._occurrences(game)],
+            "links": game.get("links", []),
+            "chat_count": len(game.get("chat", [])),
         })
         return detail
 
@@ -502,7 +504,7 @@ class Mod:
                     city: str = None, venue: str = "", neighborhood: str = "",
                     lat: float = None, lng: float = None, duration_min: int = 60,
                     capacity: int = 10, recurrence: dict = None, cost: dict = None,
-                    notes: str = "", admin_wallet: str = "") -> Dict[str, Any]:
+                    notes: str = "", admin_wallet: str = "", links: list = None) -> Dict[str, Any]:
         """Create a game (one-off or recurring). Returns the game + a one-time admin_key."""
         sport = (sport or "").lower()
         if sport not in SPORTS:
@@ -544,6 +546,7 @@ class Mod:
             "recurrence": rec,
             "cost": cost,
             "notes": (notes or "").strip(),
+            "links": self._normalize_links(links),
             "admin": admin.strip(),
             "admin_wallet": (admin_wallet or "").strip(),
             "admin_key": admin_key,
@@ -551,11 +554,37 @@ class Mod:
             "created_at": int(time.time()),
             "roster": [],
             "rsvps": {},
+            "chat": [],
         }
         self._save_games(games)
         detail = self.game(gid)
         detail["admin_key"] = admin_key  # surfaced once, to the creator only
         return detail
+
+    def _normalize_links(self, links) -> List[Dict[str, str]]:
+        """Group/chat links an organizer pins to a game (Telegram, WhatsApp, …)."""
+        out: List[Dict[str, str]] = []
+        for l in (links or []):
+            if not isinstance(l, dict):
+                continue
+            url = (l.get("url") or "").strip()
+            if not url or not url.lower().startswith(("http://", "https://")):
+                continue
+            label = (l.get("label") or "").strip()
+            if not label:
+                low = url.lower()
+                if "t.me" in low or "telegram" in low:
+                    label = "Telegram"
+                elif "whatsapp" in low or "wa.me" in low:
+                    label = "WhatsApp"
+                elif "discord" in low:
+                    label = "Discord"
+                elif "signal" in low:
+                    label = "Signal"
+                else:
+                    label = "Group chat"
+            out.append({"label": label[:24], "url": url[:400]})
+        return out[:6]
 
     def _normalize_recurrence(self, recurrence) -> Dict[str, Any]:
         if not recurrence:
@@ -612,6 +641,8 @@ class Mod:
         for k, v in fields.items():
             if k in editable:
                 game[k] = v
+        if "links" in fields:
+            game["links"] = self._normalize_links(fields["links"])
         if "recurrence" in fields:
             rec = self._normalize_recurrence(fields["recurrence"])
             if rec.get("error"):
@@ -800,6 +831,59 @@ class Mod:
         self._save_games(games)
         return {"ok": True, "kicked": handle, **self.game(game_id, occ_key)}
 
+    # ━━ Game chat ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    def _is_member(self, game, handle) -> bool:
+        """A game's chat is for its crew: the organizer, the standing roster, or
+        anyone who has RSVP'd (going or waitlisted) to any occurrence."""
+        h = (handle or "").strip()
+        if not h:
+            return False
+        if h == game.get("admin", "") or h in game.get("roster", []):
+            return True
+        for bucket in (game.get("rsvps") or {}).values():
+            if any(p.get("handle") == h for p in bucket.get("players", [])):
+                return True
+            if any(p.get("handle") == h for p in bucket.get("waitlist", [])):
+                return True
+        return False
+
+    def messages(self, game_id: str, since: int = 0) -> Dict[str, Any]:
+        """Read a game's chat. since=unix-ts returns only newer messages (polling)."""
+        game = self._load_games().get(game_id)
+        if not game:
+            return {"error": "game not found"}
+        chat = game.get("chat", [])
+        try:
+            since = int(since)
+        except (TypeError, ValueError):
+            since = 0
+        if since:
+            chat = [m for m in chat if int(m.get("ts", 0)) > since]
+        return {"messages": chat, "count": len(game.get("chat", []))}
+
+    def post_message(self, game_id: str, handle: str, text: str) -> Dict[str, Any]:
+        """Post to a game's chat. Only the crew (see _is_member) can post."""
+        handle = (handle or "").strip()
+        text = (text or "").strip()
+        if not handle:
+            return {"error": "set your name first"}
+        if not text:
+            return {"error": "say something"}
+        games = self._load_games()
+        game = games.get(game_id)
+        if not game or game.get("status") == "cancelled":
+            return {"error": "game not found"}
+        if not self._is_member(game, handle):
+            return {"error": "join the game to chat with the crew"}
+        chat = game.setdefault("chat", [])
+        msg = {"id": secrets.token_hex(4), "handle": handle,
+               "text": text[:1000], "ts": int(time.time())}
+        chat.append(msg)
+        if len(chat) > 200:
+            del chat[:-200]
+        self._save_games(games)
+        return {"ok": True, "message": msg}
+
     # ━━ Payments ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def _payment_requirements(self, game) -> Dict[str, Any]:
         cost = game.get("cost") or {}
@@ -965,6 +1049,9 @@ class Mod:
             "accept_invite": lambda: self.accept_invite(**kwargs),
             "decline_invite": lambda: self.decline_invite(**kwargs),
             "kick": lambda: self.kick(**kwargs),
+            "messages": lambda: self.messages(kwargs.get("game_id", ""), since=kwargs.get("since", 0)),
+            "post_message": lambda: self.post_message(
+                kwargs.get("game_id", ""), kwargs.get("handle", ""), kwargs.get("text", "")),
             "payment_requirements": lambda: self.payment_requirements(kwargs.get("game_id", "")),
             "serve": lambda: self.serve(app_port=kwargs.get("app_port"), dev=kwargs.get("dev", True)),
             "kill": lambda: self.kill(),
