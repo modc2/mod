@@ -15,6 +15,7 @@ import {
   CubeTransparentIcon,
   ArrowUpRightIcon,
   PlusCircleIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -250,6 +251,10 @@ function ProtocolInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/admin"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[10px] font-bold uppercase tracking-wider hover:bg-teal-500/20 transition-all">
+              <ShieldCheckIcon className="w-3.5 h-3.5" /> Owner
+            </Link>
             {block !== null && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />

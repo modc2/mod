@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { toast } from 'react-toastify'
-import { api, Occurrence, GameDetail, Sport, Venue } from '@/lib/api'
+import { api, Occurrence, GameDetail, Sport, Venue, City } from '@/lib/api'
 
 // ── local identity + admin-key vault (this browser only) ───────────
 const LS_HANDLE = 'openplay.handle'
@@ -36,6 +36,9 @@ type Stats = { games: number; upcoming: number; players_going: number; by_sport:
 export default function Page() {
   const [sports, setSports] = useState<Sport[]>([])
   const [venues, setVenues] = useState<Venue[]>([])
+  const [cities, setCities] = useState<City[]>([])
+  const [city, setCity] = useState<string>('')
+  const [tab, setTab] = useState<'explore' | 'search'>('explore')
   const [games, setGames] = useState<Occurrence[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [filter, setFilter] = useState<string>('all')
@@ -52,6 +55,7 @@ export default function Page() {
   const mapElRef = useRef<HTMLDivElement>(null)
 
   const sportMeta = useMemo(() => Object.fromEntries(sports.map(s => [s.key, s])), [sports])
+  const activeCity = useMemo(() => cities.find(c => c.key === city), [cities, city])
 
   useEffect(() => {
     setHandle(localStorage.getItem(LS_HANDLE) || '')
@@ -59,20 +63,28 @@ export default function Page() {
     setKeys(loadKeys())
   }, [])
 
+  // jump straight into a city so the board is never empty on arrival
+  const pickCity = useCallback((key: string) => { setCity(key); setTab('explore') }, [])
+
   const refresh = useCallback(async () => {
+    if (!city) return
     try {
-      const [g, s] = await Promise.all([
-        api(filter === 'all' ? 'games' : `games?sport=${filter}`),
-        api('status'),
-      ])
+      const q = new URLSearchParams({ city })
+      if (filter !== 'all') q.set('sport', filter)
+      const [g, s] = await Promise.all([api(`games?${q.toString()}`), api('status')])
       setGames(g); setStats(s)
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
-  }, [filter])
+  }, [filter, city])
 
   useEffect(() => {
     api('sports').then(setSports).catch(() => {})
     api('venues').then(setVenues).catch(() => {})
+    api('cities').then((cs: City[]) => {
+      setCities(cs)
+      const def = cs.find(c => c.default) || cs[0]
+      if (def) setCity(def.key)
+    }).catch(() => {})
   }, [])
   useEffect(() => { refresh() }, [refresh])
   useEffect(() => { const t = setInterval(refresh, 20000); return () => clearInterval(t) }, [refresh])
@@ -124,6 +136,12 @@ export default function Page() {
 
   useEffect(() => { if (mapReady) renderPins() }, [renderPins, mapReady])
 
+  // recenter the map on the active city
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !activeCity || activeCity.lat == null || activeCity.lng == null) return
+    mapRef.current.setView([activeCity.lat, activeCity.lng], activeCity.zoom || 12)
+  }, [activeCity, mapReady])
+
   function saveHandle(v: string) { setHandle(v); localStorage.setItem(LS_HANDLE, v) }
   function saveWallet(v: string) { setWallet(v); localStorage.setItem(LS_WALLET, v) }
 
@@ -136,6 +154,10 @@ export default function Page() {
       <nav className="nav">
         <div className="wrap" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 22px' }}>
           <span className="brand">Open<span className="play">Play</span></span>
+          <div className="tabs">
+            <button className={`tab ${tab === 'explore' ? 'active' : ''}`} onClick={() => setTab('explore')}>🧭 Explore</button>
+            <button className={`tab ${tab === 'search' ? 'active' : ''}`} onClick={() => setTab('search')}>🔎 Search</button>
+          </div>
           <div style={{ flex: 1 }} />
           <input className="input nav-name" placeholder="your name" value={handle} onChange={e => saveHandle(e.target.value)} />
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Create game</button>
@@ -152,10 +174,10 @@ export default function Page() {
         ))}
         <div className="wrap" style={{ position: 'relative' }}>
           <div className="hero-eyebrow">a city playing in the open</div>
-          <h1>Every pickup game,<br />on one <span className="play">board.</span></h1>
+          <h1>Games happening in<br /><span className="play">{activeCity?.label || 'your city'}</span>.</h1>
           <p className="hero-sub">
-            Soccer, hockey, basketball — <b>the whole city in one place.</b> Spin up a game,
-            invite your crew, run it every week. <b>Free to play.</b> No more fifteen group chats.
+            Soccer, hockey, basketball — <b>pick your city and jump in.</b> Spin up a game,
+            invite your crew, run it every week. <b>Free to play.</b>
           </p>
           <div className="ticker">
             <div className="stat">
@@ -175,47 +197,60 @@ export default function Page() {
       </section>
 
       <div className="wrap" style={{ paddingBottom: 70 }}>
-        {/* Sport filter */}
-        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginBottom: 22 }}>
-          <button className={`chip ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>✦ All sports</button>
-          {sports.map(s => (
-            <button key={s.key} className={`chip ${filter === s.key ? 'active' : ''}`} onClick={() => setFilter(s.key)}>
-              {s.emoji} {s.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="op-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.05fr)', gap: 22, alignItems: 'start' }}>
-          {/* Map */}
-          <div className="card map-card map-frame" style={{ height: 560, position: 'sticky', top: 78 }}>
-            <div className="map-label">↳ the city, right now</div>
-            <div className="map-overlay" />
-            <div className="map-glow" />
-            <div id="map" ref={mapElRef} />
-          </div>
-
-          {/* Feed */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
-              <h2 className="section-title">What&rsquo;s on</h2>
-              <span className="muted" style={{ fontSize: 13 }}>{games.length} game{games.length !== 1 ? 's' : ''} upcoming</span>
+        {tab === 'search' && <CitySearch cities={cities} active={city} onPick={pickCity} />}
+        {/* Explore stays mounted (display toggled) so the Leaflet map survives tab switches */}
+        <div style={{ display: tab === 'explore' ? 'block' : 'none' }}>
+            {/* City + sport filter */}
+            <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
+              <button className="chip active" onClick={() => setTab('search')}>
+                📍 {activeCity?.label || 'Pick a city'} ▾
+              </button>
+              <span className="muted" style={{ fontSize: 13 }}>{activeCity?.venues ?? 0} venue{activeCity?.venues !== 1 ? 's' : ''}</span>
             </div>
-            {loading && <div className="muted">Reading the city…</div>}
-            {!loading && games.length === 0 && (
-              <div className="card empty">
-                <div className="big">🌆</div>
-                <div className="font-display" style={{ fontSize: 22, marginBottom: 6 }}>The city&rsquo;s quiet.</div>
-                <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>Be the one who starts something. Drop a game, share the board.</div>
-                <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Start the first game</button>
-              </div>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-              {games.map((g, i) => (
-                <GameCard key={`${g.game_id}@${g.occ}`} g={g} sport={sportMeta[g.sport]} idx={i}
-                          onOpen={() => setDetail({ gameId: g.game_id, occ: g.occ })} />
+            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap', marginBottom: 22 }}>
+              <button className={`chip ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>✦ All sports</button>
+              {sports.map(s => (
+                <button key={s.key} className={`chip ${filter === s.key ? 'active' : ''}`} onClick={() => setFilter(s.key)}>
+                  {s.emoji} {s.label}
+                </button>
               ))}
             </div>
-          </div>
+
+            <div className="op-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.05fr)', gap: 22, alignItems: 'start' }}>
+              {/* Map */}
+              <div className="card map-card map-frame" style={{ height: 560, position: 'sticky', top: 78 }}>
+                <div className="map-label">↳ {activeCity?.label || 'the city'}, right now</div>
+                <div className="map-overlay" />
+                <div className="map-glow" />
+                <div id="map" ref={mapElRef} />
+              </div>
+
+              {/* Feed */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+                  <h2 className="section-title">What&rsquo;s on</h2>
+                  <span className="muted" style={{ fontSize: 13 }}>{games.length} game{games.length !== 1 ? 's' : ''} upcoming</span>
+                </div>
+                {loading && <div className="muted">Reading the city…</div>}
+                {!loading && games.length === 0 && (
+                  <div className="card empty">
+                    <div className="big">🌆</div>
+                    <div className="font-display" style={{ fontSize: 22, marginBottom: 6 }}>It&rsquo;s quiet in {activeCity?.label || 'this city'}.</div>
+                    <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>Be the one who starts something — or search another city.</div>
+                    <div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Start the first game</button>
+                      <button className="btn" onClick={() => setTab('search')}>🔎 Search another city</button>
+                    </div>
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+                  {games.map((g, i) => (
+                    <GameCard key={`${g.game_id}@${g.occ}`} g={g} sport={sportMeta[g.sport]} idx={i}
+                              onOpen={() => setDetail({ gameId: g.game_id, occ: g.occ })} />
+                  ))}
+                </div>
+              </div>
+            </div>
         </div>
       </div>
 
@@ -231,6 +266,49 @@ export default function Page() {
           onClose={() => setDetail(null)} onChanged={refresh} />
       )}
     </main>
+  )
+}
+
+// ── City search (typeahead) ──────────────────────────────────────
+function CitySearch({ cities, active, onPick }: {
+  cities: City[]; active: string; onPick: (key: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const ql = q.trim().toLowerCase()
+  const matches = cities.filter(c =>
+    !ql || c.label.toLowerCase().includes(ql) || (c.country || '').toLowerCase().includes(ql) || c.key.includes(ql)
+  )
+  return (
+    <div style={{ maxWidth: 620, margin: '0 auto' }}>
+      <h2 className="section-title" style={{ marginBottom: 14 }}>Where do you want to play?</h2>
+      <input
+        className="input"
+        autoFocus
+        placeholder="Search for your city…"
+        value={q}
+        onChange={e => setQ(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && matches.length) onPick(matches[0].key) }}
+        style={{ fontSize: 17, padding: '14px 16px' }}
+      />
+      <div className="suggest-list" style={{ marginTop: 12 }}>
+        {matches.length === 0 && (
+          <div className="muted" style={{ padding: '14px 4px', fontSize: 14 }}>
+            No cities match “{q}”. You can still create a game anywhere — it’ll appear on the closest board.
+          </div>
+        )}
+        {matches.map(c => (
+          <button key={c.key} className={`suggest ${c.key === active ? 'active' : ''}`} onClick={() => onPick(c.key)}>
+            <span className="suggest-pin">📍</span>
+            <span style={{ flex: 1, textAlign: 'left' }}>
+              <span style={{ fontWeight: 700 }}>{c.label}</span>
+              {c.country && <span className="muted" style={{ marginLeft: 8, fontSize: 13 }}>{c.country}</span>}
+            </span>
+            <span className="muted" style={{ fontSize: 12.5 }}>{c.venues} venue{c.venues !== 1 ? 's' : ''}</span>
+            {c.key === active && <span style={{ marginLeft: 12, fontSize: 12, color: '#7df0c4', fontWeight: 700 }}>● viewing</span>}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 

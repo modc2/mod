@@ -133,7 +133,7 @@ export function ownerId(): string {
 const RAW: any[] = [
   ['studio', 'Studio Cube', 'living', 'warm', 18000, 2100, 21, false, 'A complete micro-home: bed, nook, storage. The atom of ModCity.'],
   ['bedroom', 'Bedroom Bay', 'living', 'warm', 16000, 1900, 21, false, 'Quiet sleeping module with a full-height window.'],
-  ['living', 'Living Hall', 'living', 'warm', 20000, 2300, 24, false, 'Open lounge brick — the social heart of any stack.'],
+  ['living', 'Living Hall', 'living', 'warm', 20000, 2300, 24, false, 'Open lounge module — the social heart of any stack.'],
   ['kitchen', 'Galley Kitchen', 'service', 'steel', 22000, 2600, 28, false, 'Plug-and-play kitchen: pre-plumbed, appliances pre-fit.'],
   ['bath', 'Wet Core', 'service', 'steel', 14000, 1700, 18, false, 'Bathroom + utility riser. Snap it anywhere; pipes self-align.'],
   ['office', 'Work Pod', 'work', 'neutral', 17000, 1800, 21, false, 'Acoustically isolated home-office or maker space.'],
@@ -142,7 +142,7 @@ const RAW: any[] = [
   ['solar', 'Solar Roof', 'roof', 'accent', 15000, 900, 16, false, 'Caps a stack: PV roof + rainwater catch. Net-positive energy.'],
   ['garden', 'Garden Deck', 'outdoor', 'green', 9000, 400, 12, false, 'Open-air terrace / green roof. Plant it, live on it.'],
   ['mezz', 'Mezzanine', 'living', 'warm', 19000, 2150, 24, false, 'Split-level loft insert — doubles usable area in a tall bay.'],
-  ['retail', 'Ground Retail', 'commerce', 'neutral', 21000, 2400, 26, true, 'Shopfront / café brick for the street level of a block.'],
+  ['retail', 'Ground Retail', 'commerce', 'neutral', 21000, 2400, 26, true, 'Shopfront / café module for the street level of a block.'],
   ['stoop', 'Stoop & Entry', 'structure', 'stone', 13000, 1400, 14, false, 'The classic NYC stoop: raised entry over a garden level.'],
   ['parlor', 'Parlor Floor', 'living', 'warm', 23000, 2400, 26, false, 'High-ceiling parlor with floor-to-ceiling brownstone windows.'],
   ['bay', 'Bay Window', 'living', 'warm', 21000, 2200, 24, false, 'Projecting three-sided bay — the brownstone signature face.'],
@@ -216,13 +216,13 @@ export function checkConstraints(est: Estimate, c: Constraints, maxAx = 0, maxAz
   return out
 }
 
-export const MANIFESTO = `Housing got slow, expensive, and ugly because we build every home from scratch, on site, by hand. ModCity treats buildings the way software treats components: a small library of standardized, factory-built modules that snap together on a grid like LEGO — then re-skin into any architecture style you want. Forge your own bricks, share them, remix anyone's building. Same bricks. Infinite cities.`
+export const MANIFESTO = `Housing got slow, expensive, and ugly because we build every home from scratch, on site, by hand. ModCity treats buildings the way software treats components: a small library of standardized, factory-built panel modules — floors, walls, curtain-wall glazing — that assemble panel by panel into real architecture, then re-skin into any style you want. Forge your own panels, share them, remix anyone's building. Same panels. Infinite cities.`
 
 export const SECTIONS = [
-  { k: 'Prefab as a protocol', t: 'Snap-together bricks, one footprint.', b: 'Every ModCity module is an identical 3×3×3 m unit — studios, kitchens, glass atriums, solar roofs, plus true NYC-brownstone parts: stoops, parlor floors, bay windows, cornices. Anything snaps to anything, and price, carbon and lead time are transparent on every brick.' },
-  { k: 'Forge your own', t: 'Build your own LEGO. Share it.', b: 'Design a custom brick — colour, programme, price, embodied carbon — and it drops straight into your palette. Keep it private, or publish it to the community library so anyone can build with your piece.' },
+  { k: 'Prefab as a protocol', t: 'Panelised modules, one footprint.', b: 'Every ModCity module is an identical 3×3×3 m panel assembly — floor slab, exposed wall and curtain-wall panels, framed corners — for studios, kitchens, glass atriums, solar roofs, plus true NYC-brownstone parts: stoops, parlor floors, bay windows, cornices. Adjacent modules share party walls, so a stack reads as a real building, not stacked toy cubes. Price, carbon and lead time are transparent on every panel.' },
+  { k: 'Forge your own', t: 'Design your own panel. Share it.', b: 'Design a custom panel module — colour, programme, price, embodied carbon — and it drops straight into your palette. Keep it private, or publish it to the community library so anyone can build with your piece.' },
   { k: 'Style is a layer', t: 'Brownstone today. Neo-Tokyo tomorrow.', b: 'Geometry and style are separated. The same stack re-skins instantly across nine architectures. A West Village row becomes a neon Hudson Yards spire with one tap — and the cost re-prices itself.' },
   { k: 'Private by default', t: 'Yours until you say so.', b: 'Every building you save is private. Publish to put it in the shared city, export it as a portable file, or share its content-addressed CID — and anyone can copy-and-remix it into their own.' },
   { k: 'Set the rules', t: 'Parameters & constraints, enforced live.', b: 'Set a lot size, a height cap, a budget and a carbon ceiling. The builder fences you to the lot, caps your floors, and the spec panel turns red the moment you bust a constraint — real developer pro-forma, in your browser.' },
-  { k: 'Content-addressed', t: 'Buildings travel as CIDs.', b: 'Saving a building writes a self-contained, IPFS-style document — bundled custom bricks included — through the localfs module. The CID is the building: load it on any node, anywhere, and it renders identically.' },
+  { k: 'Content-addressed', t: 'Buildings travel as CIDs.', b: 'Saving a building writes a self-contained, IPFS-style document — bundled custom panels included — through the localfs module. The CID is the building: load it on any node, anywhere, and it renders identically.' },
 ]

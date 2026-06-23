@@ -8,8 +8,9 @@ import { useEmbedded } from "../lib/embedded";
 /**
  * Slim live-price tape that sits above the top bar.
  *
- * - Polls the top markets every 8s (paused while tab is hidden).
- * - Computes Δ vs the previous poll and colors the chip green/red.
+ * - Streams the top markets' prices over the CLOB websocket (paused while the
+ *   tab is hidden); the market list itself refreshes slowly over REST.
+ * - Computes Δ vs the previous streamed price and colors the chip green/red.
  * - Marquee-scrolls horizontally; pauses on hover so users can click an entry.
  */
 export default function MarketTicker() {
@@ -18,7 +19,6 @@ export default function MarketTicker() {
   const { markets, prevPrices, loading, error } = useLiveMarkets({
     limit: 24,
     order: "volume",
-    intervalMs: 8000,
   });
 
   // Embedded panes skip the ticker — it eats vertical space and the user

@@ -9,7 +9,7 @@ import { useWallet } from "../lib/wallet";
 const NAV = [
   { href: "/", label: "Traders" },
   { href: "/vaults", label: "Vaults" },
-  { href: "/indexes", label: "Indexes" },
+  { href: "/strats", label: "Strats" },
   { href: "/follows", label: "My Follows" },
   { href: "/signals", label: "Signals" },
   { href: "/live", label: "Live" },

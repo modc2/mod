@@ -4,8 +4,8 @@ import Header from "./components/Header";
 import { WalletProvider } from "./lib/wallet";
 
 export const metadata: Metadata = {
-  title: "Hyperliquid · Copy & Indexes",
-  description: "Copy traders by N-day performance and build vault-backed indexes on Hyperliquid",
+  title: "Hyperliquid · Copy, Strats & Vaults",
+  description: "Copy top traders by ROI, build community strats, and invest in vaults on Hyperliquid",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -36,24 +36,50 @@ SPORTS = {
     "football": {"label": "Football", "emoji": "\U0001f3c8", "color": "#a78bfa"},
 }
 
-# Curated, real NYC pickup spots — suggestions so a game lands on the map with
-# correct coordinates. Not games; just venue presets.
+# Cities you can play in. Toronto is the default. Each has a map center + zoom.
+# Adding a city here (or via the UI's "add a spot") makes it selectable.
+CITIES = [
+    {"key": "toronto", "label": "Toronto", "country": "Canada", "lat": 43.6532, "lng": -79.3832, "zoom": 12},
+    {"key": "nyc", "label": "New York", "country": "USA", "lat": 40.7128, "lng": -74.0060, "zoom": 12},
+    {"key": "vancouver", "label": "Vancouver", "country": "Canada", "lat": 49.2827, "lng": -123.1207, "zoom": 12},
+    {"key": "london", "label": "London", "country": "UK", "lat": 51.5072, "lng": -0.1276, "zoom": 12},
+    {"key": "la", "label": "Los Angeles", "country": "USA", "lat": 34.0522, "lng": -118.2437, "zoom": 11},
+    {"key": "chicago", "label": "Chicago", "country": "USA", "lat": 41.8781, "lng": -87.6298, "zoom": 11},
+]
+
+# Curated, real pickup spots per city — suggestions so a game lands on the map
+# with correct coordinates. Not games; just venue presets. Users add their own
+# via add_venue() (persisted to ~/.openplay/venues.json) for any city.
 VENUES = [
-    {"name": "West 4th Street Courts (The Cage)", "neighborhood": "Greenwich Village", "lat": 40.7314, "lng": -74.0027, "sports": ["basketball"]},
-    {"name": "Pier 40", "neighborhood": "Hudson River Park", "lat": 40.7297, "lng": -74.0110, "sports": ["soccer", "football"]},
-    {"name": "Chelsea Park", "neighborhood": "Chelsea", "lat": 40.7506, "lng": -74.0021, "sports": ["basketball", "soccer"]},
-    {"name": "Sky Rink at Chelsea Piers", "neighborhood": "Chelsea", "lat": 40.7480, "lng": -74.0095, "sports": ["hockey"]},
-    {"name": "Lasker Rink (Central Park)", "neighborhood": "Harlem", "lat": 40.7967, "lng": -73.9573, "sports": ["hockey"]},
-    {"name": "Riverside Park Soccer Fields", "neighborhood": "Upper West Side", "lat": 40.8030, "lng": -73.9720, "sports": ["soccer"]},
-    {"name": "Tompkins Square Park", "neighborhood": "East Village", "lat": 40.7265, "lng": -73.9815, "sports": ["basketball"]},
-    {"name": "McCarren Park", "neighborhood": "Williamsburg, Brooklyn", "lat": 40.7204, "lng": -73.9520, "sports": ["soccer", "volleyball"]},
-    {"name": "Rucker Park", "neighborhood": "Harlem", "lat": 40.8296, "lng": -73.9365, "sports": ["basketball"]},
-    {"name": "Brooklyn Bridge Park Pier 5", "neighborhood": "Brooklyn Heights", "lat": 40.6975, "lng": -73.9990, "sports": ["soccer", "football"]},
-    {"name": "Pier 2 Roller Rink", "neighborhood": "Brooklyn Heights", "lat": 40.6986, "lng": -73.9999, "sports": ["hockey", "basketball"]},
-    {"name": "East River Park Track", "neighborhood": "Lower East Side", "lat": 40.7170, "lng": -73.9740, "sports": ["soccer", "football"]},
+    # ── Toronto (default) ──
+    {"city": "toronto", "name": "Trinity Bellwoods Park", "neighborhood": "Trinity Bellwoods", "lat": 43.6469, "lng": -79.4131, "sports": ["soccer", "basketball"]},
+    {"city": "toronto", "name": "Christie Pits Park", "neighborhood": "Christie Pits", "lat": 43.6645, "lng": -79.4205, "sports": ["soccer", "basketball"]},
+    {"city": "toronto", "name": "Regent Park Athletic Grounds", "neighborhood": "Regent Park", "lat": 43.6605, "lng": -79.3625, "sports": ["soccer", "basketball"]},
+    {"city": "toronto", "name": "Moss Park", "neighborhood": "Moss Park", "lat": 43.6545, "lng": -79.3700, "sports": ["basketball"]},
+    {"city": "toronto", "name": "Greenwood Park Rink", "neighborhood": "Leslieville", "lat": 43.6679, "lng": -79.3265, "sports": ["hockey"]},
+    {"city": "toronto", "name": "Dufferin Grove Park Rink", "neighborhood": "Dufferin Grove", "lat": 43.6573, "lng": -79.4326, "sports": ["hockey", "soccer"]},
+    {"city": "toronto", "name": "Withrow Park Rink", "neighborhood": "Riverdale", "lat": 43.6766, "lng": -79.3490, "sports": ["hockey"]},
+    {"city": "toronto", "name": "The Bentway Skate Trail", "neighborhood": "Fort York", "lat": 43.6377, "lng": -79.4035, "sports": ["hockey"]},
+    {"city": "toronto", "name": "High Park", "neighborhood": "High Park", "lat": 43.6465, "lng": -79.4637, "sports": ["soccer", "tennis"]},
+    {"city": "toronto", "name": "Riverdale Park East", "neighborhood": "Riverdale", "lat": 43.6694, "lng": -79.3559, "sports": ["soccer", "football"]},
+    {"city": "toronto", "name": "Sir Winston Churchill Park Tennis", "neighborhood": "Casa Loma", "lat": 43.6810, "lng": -79.4015, "sports": ["tennis"]},
+    {"city": "toronto", "name": "Stan Wadlow Park", "neighborhood": "East York", "lat": 43.6917, "lng": -79.3110, "sports": ["soccer", "football"]},
+    {"city": "toronto", "name": "Wallace Emerson Park", "neighborhood": "Dovercourt", "lat": 43.6640, "lng": -79.4420, "sports": ["basketball", "hockey"]},
+    # ── New York ──
+    {"city": "nyc", "name": "West 4th Street Courts (The Cage)", "neighborhood": "Greenwich Village", "lat": 40.7314, "lng": -74.0027, "sports": ["basketball"]},
+    {"city": "nyc", "name": "Pier 40", "neighborhood": "Hudson River Park", "lat": 40.7297, "lng": -74.0110, "sports": ["soccer", "football"]},
+    {"city": "nyc", "name": "Chelsea Park", "neighborhood": "Chelsea", "lat": 40.7506, "lng": -74.0021, "sports": ["basketball", "soccer"]},
+    {"city": "nyc", "name": "Sky Rink at Chelsea Piers", "neighborhood": "Chelsea", "lat": 40.7480, "lng": -74.0095, "sports": ["hockey"]},
+    {"city": "nyc", "name": "Lasker Rink (Central Park)", "neighborhood": "Harlem", "lat": 40.7967, "lng": -73.9573, "sports": ["hockey"]},
+    {"city": "nyc", "name": "Riverside Park Soccer Fields", "neighborhood": "Upper West Side", "lat": 40.8030, "lng": -73.9720, "sports": ["soccer"]},
+    {"city": "nyc", "name": "Tompkins Square Park", "neighborhood": "East Village", "lat": 40.7265, "lng": -73.9815, "sports": ["basketball"]},
+    {"city": "nyc", "name": "McCarren Park", "neighborhood": "Williamsburg, Brooklyn", "lat": 40.7204, "lng": -73.9520, "sports": ["soccer", "volleyball"]},
+    {"city": "nyc", "name": "Rucker Park", "neighborhood": "Harlem", "lat": 40.8296, "lng": -73.9365, "sports": ["basketball"]},
+    {"city": "nyc", "name": "Brooklyn Bridge Park Pier 5", "neighborhood": "Brooklyn Heights", "lat": 40.6975, "lng": -73.9990, "sports": ["soccer", "football"]},
 ]
 
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_CITY_KEYS = {c["key"] for c in CITIES}
 
 
 class Mod:
@@ -68,9 +94,12 @@ class Mod:
         self.store_dir = Path(os.path.expanduser("~/.openplay"))
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.games_path = self.store_dir / "games.json"
+        self.venues_path = self.store_dir / "venues.json"   # custom venues + hidden presets
+        self.admin_path = self.store_dir / "admin.json"     # off-chain module-admin secret
 
         self.port = int(self.config.get("port", 50150))
         self.app_port = int(self.config.get("app_port", 50151))
+        self.default_city = self.config.get("default_city", "toronto")
         self.payments = self.config.get("payments", {})
         self.chain = self.payments.get("chain", "base")
 
@@ -82,6 +111,19 @@ class Mod:
         return {}
 
     # ━━ Storage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    def _load_json(self, path, default=None):
+        p = Path(path)
+        if p.exists():
+            with open(p) as f:
+                return json.load(f)
+        return default if default is not None else {}
+
+    def _save_json(self, path, data):
+        tmp = Path(path).with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        tmp.replace(path)
+
     def _load_games(self) -> Dict[str, Any]:
         if self.games_path.exists():
             with open(self.games_path) as f:
@@ -118,8 +160,176 @@ class Mod:
     def sports(self):
         return [{"key": k, **v} for k, v in SPORTS.items()]
 
-    def venues(self):
-        return VENUES
+    # ━━ Cities & venues ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    def cities(self):
+        """Selectable cities (default first). Includes a live venue count."""
+        all_venues = self._all_venues()
+        counts: Dict[str, int] = {}
+        for v in all_venues:
+            counts[v.get("city", "")] = counts.get(v.get("city", ""), 0) + 1
+        out = []
+        for c in CITIES:
+            out.append({**c, "venues": counts.get(c["key"], 0),
+                        "default": c["key"] == self.default_city})
+        # surface ad-hoc cities that only exist in custom venues
+        known = {c["key"] for c in CITIES}
+        for city, n in counts.items():
+            if city and city not in known:
+                out.append({"key": city, "label": city.title(), "country": "",
+                            "lat": None, "lng": None, "zoom": 12, "venues": n, "default": False})
+        return out
+
+    def _venue_store(self):
+        return self._load_json(self.venues_path, {"custom": [], "hidden": []})
+
+    def _all_venues(self):
+        store = self._venue_store()
+        hidden = set(store.get("hidden", []))
+        out = []
+        for v in VENUES:
+            if v["name"] in hidden:
+                continue
+            out.append({"id": "preset:" + v["name"], "builtin": True, **v})
+        for v in store.get("custom", []):
+            if v.get("name") in hidden:
+                continue
+            out.append({"builtin": False, **v})
+        return out
+
+    def venues(self, city: str = None):
+        """Venue presets for a city (built-in + user-added). Omit city for all."""
+        vs = self._all_venues()
+        if city:
+            vs = [v for v in vs if v.get("city") == city]
+        return vs
+
+    def add_venue(self, name: str, lat: float, lng: float, city: str = None,
+                  neighborhood: str = "", sports: list = None) -> Dict[str, Any]:
+        """Add a reusable venue/spot (anyone can). Persisted for everyone."""
+        name = (name or "").strip()
+        if not name:
+            return {"error": "venue name required"}
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            return {"error": "valid lat/lng required (tap the map to place it)"}
+        city = (city or self.default_city)
+        sports = [s for s in (sports or []) if s in SPORTS] or list(SPORTS)[:3]
+        store = self._venue_store()
+        for v in store.get("custom", []):
+            if v["name"].lower() == name.lower() and v.get("city") == city:
+                return {"error": "a spot with that name already exists in this city"}
+        venue = {"id": "v_" + secrets.token_hex(4), "name": name, "city": city,
+                 "neighborhood": neighborhood.strip(), "lat": lat, "lng": lng,
+                 "sports": sports, "added_by": "user", "added_at": int(time.time())}
+        store.setdefault("custom", []).append(venue)
+        self._save_json(self.venues_path, store)
+        return {"ok": True, **venue}
+
+    # ━━ Module-admin (sudo) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # The module owner holds a single off-chain secret that grants god-mode over
+    # every game/player/venue. It is read from $OPENPLAY_ADMIN_KEY or generated
+    # once into ~/.openplay/admin.json (chmod 600). Lives off-chain, never in
+    # committed config. Passing it where a per-game admin_key is expected also
+    # works, so the owner has organizer rights on every game.
+    def _admin_secret(self) -> str:
+        env = os.environ.get("OPENPLAY_ADMIN_KEY")
+        if env:
+            return env
+        data = self._load_json(self.admin_path, {})
+        if not data.get("secret"):
+            data = {"secret": secrets.token_urlsafe(24), "created": int(time.time())}
+            self._save_json(self.admin_path, data)
+            try:
+                os.chmod(self.admin_path, 0o600)
+            except OSError:
+                pass
+        return data["secret"]
+
+    def _is_sudo(self, token) -> bool:
+        import hmac
+        return bool(token) and hmac.compare_digest(str(token), self._admin_secret())
+
+    def verify_sudo(self, admin_secret: str) -> Dict[str, Any]:
+        """Check a module-admin secret (used by the UI to unlock owner mode)."""
+        return {"sudo": self._is_sudo(admin_secret)}
+
+    def _sudo_guard(self, admin_secret):
+        if not self._is_sudo(admin_secret):
+            return {"error": "module-admin secret required"}
+        return None
+
+    def admin_delete_game(self, admin_secret: str, game_id: str) -> Dict[str, Any]:
+        """Hard-delete any game/series (owner only)."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        games = self._load_games()
+        if game_id not in games:
+            return {"error": "game not found"}
+        games.pop(game_id)
+        self._save_games(games)
+        return {"ok": True, "deleted_game": game_id}
+
+    def admin_remove_player(self, admin_secret: str, handle: str,
+                            game_id: str = None, occ: str = None) -> Dict[str, Any]:
+        """Remove a player from one game, or purge a handle from EVERY game (owner only)."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        if not handle:
+            return {"error": "handle required"}
+        games = self._load_games()
+        touched = 0
+
+        def scrub(bucket):
+            n = 0
+            for fld in ("players", "waitlist"):
+                kept = [p for p in bucket.get(fld, []) if p.get("handle") != handle]
+                n += len(bucket.get(fld, [])) - len(kept)
+                bucket[fld] = kept
+            for fld in ("invited", "declined"):
+                bucket[fld] = [h for h in bucket.get(fld, []) if h != handle]
+            return n
+
+        targets = [game_id] if game_id else list(games.keys())
+        for gid in targets:
+            game = games.get(gid)
+            if not game:
+                continue
+            game["roster"] = [h for h in game.get("roster", []) if h != handle]
+            buckets = ([self._occ_mut(game, occ)] if (game_id and occ)
+                       else list((game.get("rsvps") or {}).values()))
+            for b in buckets:
+                touched += scrub(b)
+        self._save_games(games)
+        return {"ok": True, "removed_handle": handle, "entries_removed": touched,
+                "scope": "game" if game_id else "all_games"}
+
+    def admin_delete_venue(self, admin_secret: str, venue_id: str = None,
+                           name: str = None) -> Dict[str, Any]:
+        """Delete a custom venue, or hide a built-in preset (owner only)."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        store = self._venue_store()
+        # custom venue by id
+        if venue_id and not venue_id.startswith("preset:"):
+            before = len(store.get("custom", []))
+            store["custom"] = [v for v in store.get("custom", []) if v.get("id") != venue_id]
+            if len(store["custom"]) < before:
+                self._save_json(self.venues_path, store)
+                return {"ok": True, "deleted_venue": venue_id}
+        # built-in preset (or custom by name) → hide it
+        target = name or (venue_id[len("preset:"):] if venue_id and venue_id.startswith("preset:") else None)
+        if target:
+            store.setdefault("hidden", [])
+            if target not in store["hidden"]:
+                store["hidden"].append(target)
+            store["custom"] = [v for v in store.get("custom", []) if v.get("name") != target]
+            self._save_json(self.venues_path, store)
+            return {"ok": True, "hidden_venue": target}
+        return {"error": "venue_id or name required"}
 
     # ━━ Recurrence ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     @staticmethod
@@ -223,6 +433,7 @@ class Mod:
             "occ_ts": int(ts),
             "sport": game["sport"],
             "title": game["title"],
+            "city": game.get("city", self.default_city),
             "venue": game.get("venue", ""),
             "neighborhood": game.get("neighborhood", ""),
             "lat": game.get("lat"),
@@ -242,13 +453,15 @@ class Mod:
             "status": game.get("status", "open"),
         }
 
-    def games(self, sport: Optional[str] = None) -> List[Dict[str, Any]]:
-        """All upcoming occurrences across the city, soonest first."""
+    def games(self, sport: Optional[str] = None, city: Optional[str] = None) -> List[Dict[str, Any]]:
+        """All upcoming occurrences, soonest first. Filter by sport and/or city."""
         out: List[Dict[str, Any]] = []
         for game in self._load_games().values():
             if game.get("status") == "cancelled":
                 continue
             if sport and game.get("sport") != sport:
+                continue
+            if city and game.get("city", self.default_city) != city:
                 continue
             for ts in self._occurrences(game):
                 out.append(self._summarize(game, ts))
@@ -286,10 +499,10 @@ class Mod:
 
     # ━━ Create / edit ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def create_game(self, sport: str, title: str, starts_at: int, admin: str,
-                    venue: str = "", neighborhood: str = "", lat: float = None,
-                    lng: float = None, duration_min: int = 60, capacity: int = 10,
-                    recurrence: dict = None, cost: dict = None, notes: str = "",
-                    admin_wallet: str = "") -> Dict[str, Any]:
+                    city: str = None, venue: str = "", neighborhood: str = "",
+                    lat: float = None, lng: float = None, duration_min: int = 60,
+                    capacity: int = 10, recurrence: dict = None, cost: dict = None,
+                    notes: str = "", admin_wallet: str = "") -> Dict[str, Any]:
         """Create a game (one-off or recurring). Returns the game + a one-time admin_key."""
         sport = (sport or "").lower()
         if sport not in SPORTS:
@@ -320,6 +533,7 @@ class Mod:
             "id": gid,
             "sport": sport,
             "title": title.strip(),
+            "city": (city or self.default_city),
             "venue": venue.strip(),
             "neighborhood": neighborhood.strip(),
             "lat": float(lat) if lat is not None else None,
@@ -380,9 +594,10 @@ class Mod:
         return {"amount": amount, "currency": currency, "chain": chain, "receiver": receiver}
 
     def _auth(self, game, admin_key) -> Optional[Dict[str, str]]:
-        if not admin_key or admin_key != game.get("admin_key"):
-            return {"error": "admin_key required (only the game organizer can do that)"}
-        return None
+        # the per-game organizer key OR the module-admin secret (god-mode) passes
+        if admin_key and (admin_key == game.get("admin_key") or self._is_sudo(admin_key)):
+            return None
+        return {"error": "admin_key required (only the game organizer can do that)"}
 
     def edit_game(self, game_id: str, admin_key: str, **fields) -> Dict[str, Any]:
         games = self._load_games()
@@ -722,8 +937,22 @@ class Mod:
             "health": lambda: self.health(),
             "status": lambda: self.status(),
             "sports": lambda: self.sports(),
-            "venues": lambda: self.venues(),
-            "games": lambda: self.games(sport=kwargs.get("sport")),
+            "cities": lambda: self.cities(),
+            "venues": lambda: self.venues(city=kwargs.get("city")),
+            "add_venue": lambda: self.add_venue(
+                kwargs.get("name", ""), kwargs.get("lat"), kwargs.get("lng"),
+                city=kwargs.get("city"), neighborhood=kwargs.get("neighborhood", ""),
+                sports=kwargs.get("sports")),
+            "games": lambda: self.games(sport=kwargs.get("sport"), city=kwargs.get("city")),
+            "verify_sudo": lambda: self.verify_sudo(kwargs.get("admin_secret", "")),
+            "admin_delete_game": lambda: self.admin_delete_game(
+                kwargs.get("admin_secret", ""), kwargs.get("game_id", "")),
+            "admin_remove_player": lambda: self.admin_remove_player(
+                kwargs.get("admin_secret", ""), kwargs.get("handle", ""),
+                game_id=kwargs.get("game_id"), occ=kwargs.get("occ")),
+            "admin_delete_venue": lambda: self.admin_delete_venue(
+                kwargs.get("admin_secret", ""), venue_id=kwargs.get("venue_id"),
+                name=kwargs.get("name")),
             "game": lambda: self.game(kwargs.get("game_id", ""), kwargs.get("occ")),
             "create_game": lambda: self.create_game(**kwargs),
             "edit_game": lambda: self.edit_game(**kwargs),

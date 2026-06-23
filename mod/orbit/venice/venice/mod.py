@@ -45,7 +45,7 @@ class Mod:
         url='https://api.venice.ai/api/v1',
         timeout=None,
         prompt=None,
-        model='kimi-2.6',
+        model='zai-org-glm-5',
         max_retries=10,
         path='~/.mod/model/venice',
         key=None,

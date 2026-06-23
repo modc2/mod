@@ -9,7 +9,7 @@ import {
 } from "../../lib/api";
 import { useWallet } from "../../lib/wallet";
 
-export default function IndexDetail() {
+export default function StratDetail() {
   const { id } = useParams<{ id: string }>();
   const { address } = useWallet();
   const [idx, setIdx] = useState<Index | null>(null);
@@ -38,9 +38,9 @@ export default function IndexDetail() {
   useEffect(() => { load(); }, [load]);
 
   const onDelete = async () => {
-    if (!confirm("delete this index?")) return;
+    if (!confirm("delete this strat?")) return;
     await deleteIndex(id);
-    window.location.href = "/indexes";
+    window.location.href = "/strats";
   };
 
   const buildVaultIntent = async () => {
@@ -65,21 +65,22 @@ export default function IndexDetail() {
   };
 
   if (loading) return <div className="text-xs text-muted">loading…</div>;
-  if (!idx) return <div className="text-xs text-loss">index not found</div>;
+  if (!idx) return <div className="text-xs text-loss">strat not found</div>;
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <Link href="/indexes" className="text-[11px] text-muted hover:text-ink">← indexes</Link>
-          <h1 className="text-xl text-ink mt-1">{idx.name}</h1>
-          <div className="text-[11px] text-muted">
-            owner {shortAddr(idx.owner)} · {idx.legs.length} legs · created {ago(idx.created_ms)}
+          <Link href="/strats" className="text-[11px] text-muted hover:text-ink">← strats</Link>
+          <h1 className="font-display font-bold text-2xl tracking-tight text-ink mt-1">{idx.name}</h1>
+          <div className="text-[10px] uppercase tracking-wider text-muted">
+            by {shortAddr(idx.owner)} · {idx.legs.length} traders · created {ago(idx.created_ms)}
           </div>
         </div>
-        {isOwner && (
-          <button className="btn-danger" onClick={onDelete}>delete</button>
-        )}
+        <div className="flex gap-2 shrink-0">
+          <Link href={`/strats/new?fork=${idx.id}`} className="btn-primary">fork this strat</Link>
+          {isOwner && <button className="btn-danger" onClick={onDelete}>delete</button>}
+        </div>
       </div>
 
       {idx.description && (
@@ -91,15 +92,15 @@ export default function IndexDetail() {
         <Tile label={`weighted pnl (${perf?.days || days}d)`}
           value={fmtPnl(perf?.weighted_pnl ?? 0)}
           tone={(perf?.weighted_pnl ?? 0) >= 0 ? "win" : "loss"} />
-        <Tile label="raw pnl (sum legs)" value={fmtPnl(perf?.total_pnl ?? 0)} />
-        <Tile label="legs" value={`${idx.legs.length}`} />
+        <Tile label="raw pnl (sum traders)" value={fmtPnl(perf?.total_pnl ?? 0)} />
+        <Tile label="traders" value={`${idx.legs.length}`} />
       </div>
 
       <div className="panel">
         <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-wider text-muted">leg performance</span>
+          <span className="text-[11px] uppercase tracking-wider text-muted">trader performance</span>
           <div className="flex gap-1">
-            {[1,3,7,14,30].map((d) =>
+            {[1,7,30].map((d) =>
               <button key={d} onClick={() => reload(d)}
                 className={`btn ${perf?.days === d ? "border-accent text-accent" : ""}`}>{d}d</button>
             )}
@@ -132,7 +133,7 @@ export default function IndexDetail() {
           <div>
             <h2 className="text-base text-ink">private vault</h2>
             <p className="text-[11px] text-muted">
-              An on-chain Hyperliquid vault that mirrors this index. Only you (the owner) can deposit/withdraw.
+              An on-chain Hyperliquid vault that mirrors this strat. Only you (the owner) can deposit/withdraw.
             </p>
           </div>
           {idx.vault_address && (

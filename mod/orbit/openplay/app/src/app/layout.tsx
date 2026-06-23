@@ -5,10 +5,10 @@ import { Providers } from './providers'
 export const metadata: Metadata = {
   metadataBase: new URL('https://modc2.com/openplay'),
   title: 'OpenPlay — Pickup games across the city',
-  description: 'Soccer, hockey, basketball. See every pickup game in the city in one place. Free to play. Create a game, invite your crew, run it weekly.',
+  description: 'Soccer, hockey, basketball. Search your city and jump straight into the games happening near you. Free to play. Create a game, invite your crew, run it weekly.',
   openGraph: {
     title: 'OpenPlay — Pickup games across the city',
-    description: 'One board for every pickup game in the city. Free by default. Ditch the dozen WhatsApp groups.',
+    description: 'Search your city and start exploring pickup games near you. Free by default. Ditch the dozen WhatsApp groups.',
   },
 }
 

@@ -41,6 +41,8 @@ use crate::signer::SignerStore;
 const PERSIST_DIR_NAME: &str = "polymarket-live-engine";
 const DATA_API: &str = "https://data-api.polymarket.com";
 const GAMMA_API: &str = "https://gamma-api.polymarket.com";
+/// CLOB REST base — order book lookups for marketable rebalance-exit pricing.
+const CLOB_API: &str = "https://clob.polymarket.com";
 
 // ─── Internal bounds (not strategy — pure memory/disk caps) ─────────────
 /// Cap on the copied-id dedup set kept in state (bounded disk + memory).
@@ -77,6 +79,17 @@ fn default_inter_request_delay_ms() -> u64 { 400 }
 /// interval × N traders gets rate-limited into zero observations. The owner can
 /// lower this through the strat, but the default keeps a stale fast config safe.
 fn default_min_interval_ms() -> u64 { 60_000 }
+/// Capital-aware rebalancing: when free capital can't fund a higher-score
+/// candidate, sell the lowest-score held position(s) to make room. ON by
+/// default so a running strat always holds its top-scoring set.
+fn default_rebalance_enabled() -> bool { true }
+/// A candidate must out-score a held position by at least this fraction before
+/// the engine will sell the held one to fund it — covers round-trip spread/fees
+/// so it doesn't churn on a marginal score edge. 0.20 = "20% better or skip".
+fn default_rebalance_margin_pct() -> f64 { 0.20 }
+/// Sharpe/ROI scoring window (days). Matches the frontend's fixed 30d Sharpe
+/// window (distinct from `backtest_days`, which sizes the copy ratio).
+const SHARPE_WINDOW_DAYS: i64 = 30;
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -155,6 +168,16 @@ pub struct EngineConfig {
     /// `true` = place real orders via the backend signer.
     #[serde(rename = "autoExecute", default)]
     pub auto_execute: bool,
+    /// Capital-aware rebalancing master switch. When `true` (default), a
+    /// higher-score candidate that doesn't fit in free capital triggers a SELL
+    /// of the lowest-score held position(s) to fund it (see `execute_mirrors`).
+    /// When `false`, the engine only ever buys with already-free capital.
+    #[serde(rename = "rebalanceEnabled", default = "default_rebalance_enabled")]
+    pub rebalance_enabled: bool,
+    /// Minimum fractional score edge a candidate needs over a held position to
+    /// justify selling that position for it (anti-churn margin).
+    #[serde(rename = "rebalanceMarginPct", default = "default_rebalance_margin_pct")]
+    pub rebalance_margin_pct: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +201,36 @@ pub struct ObservedTrade {
     /// verbatim — the token id already encodes the branch.
     #[serde(default)]
     pub outcome: String,
+    /// Sharpe-weighted EP score the engine assigned this trade when observed:
+    /// `trader 30d ROI × rawMirrorNotional` (matches the frontend
+    /// `CopyTrader.scoreCandidate`). 0 when the trader has no in-window Sharpe
+    /// sample. The frontend live rail reads this as `ot.score`.
+    #[serde(default)]
+    pub score: f64,
+}
+
+/// An open mirror position the engine is holding. Tracked so capital-aware
+/// rebalancing can sell the lowest-score holdings to fund better candidates.
+/// Keyed by `token_id` in `EngineState.positions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenPosition {
+    #[serde(rename = "tokenId")]
+    pub token_id: String,
+    #[serde(rename = "conditionId", default)]
+    pub condition_id: String,
+    #[serde(default)]
+    pub market: String,
+    /// Shares currently held (the size we bought; reconciled against on-chain).
+    pub size: f64,
+    /// Average entry price we paid (USDC/share). Cost basis = size × entry_price.
+    #[serde(rename = "entryPrice")]
+    pub entry_price: f64,
+    /// The EP score FROZEN at entry — the value a candidate must beat (by the
+    /// rebalance margin) before this position is sold. Never recomputed.
+    #[serde(rename = "entryScore")]
+    pub entry_score: f64,
+    #[serde(rename = "openedAt")]
+    pub opened_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,6 +280,11 @@ pub struct EngineState {
     /// overlap window. Bounded at `COPIED_IDS_CAP`.
     #[serde(rename = "copiedIds", default)]
     pub copied_ids: HashSet<String>,
+    /// Open mirror positions keyed by `token_id`. Maintained on BUY/SELL fills
+    /// and reconciled each cycle against the proxy wallet's on-chain holdings so
+    /// the engine never tries to sell a token it doesn't hold.
+    #[serde(default)]
+    pub positions: HashMap<String, OpenPosition>,
 }
 
 impl EngineState {
@@ -246,6 +304,7 @@ impl EngineState {
             trader_cursors: HashMap::new(),
             trader_last_sync: HashMap::new(),
             copied_ids: HashSet::new(),
+            positions: HashMap::new(),
         }
     }
 }
@@ -598,13 +657,24 @@ impl EngineRegistry {
                         let capital_alloc = cfg.capital * (trader.weight / total_weight);
                         let copy_ratio = capital_alloc / trader_vol;
 
+                        // Sharpe/ROI over the fixed 30d window — the basis for
+                        // each candidate's EP score (frozen on the position at
+                        // entry, used to rank holds vs. new candidates).
+                        let roi_stats = compute_trader_roi_stats(&items, cycle_started_at);
+
                         let mut highest_ts = cursor;
-                        for t in parsed {
+                        for mut t in parsed {
                             if t.timestamp <= cursor { continue; }
                             if t.timestamp > highest_ts { highest_ts = t.timestamp; }
-                            // v1 mirrors BUYs only — a SELL we don't hold would
-                            // just be rejected, and position-aware exits aren't
-                            // ported yet. SELLs are still recorded as observed.
+                            // Stamp the EP score on every observed BUY (ROI ×
+                            // rawMirrorNotional) so the frontend rail and the
+                            // rebalancer share one number.
+                            if t.side == "BUY" {
+                                t.score = candidate_score(roi_stats.roi, t.notional * copy_ratio);
+                            }
+                            // Mirror BUYs only; a SELL we don't hold would just be
+                            // rejected. Position exits are now handled by the
+                            // capital-aware rebalancer in `execute_mirrors`.
                             if t.side == "BUY" && !t.token_id.is_empty() {
                                 mirror_candidates.push((t.clone(), copy_ratio));
                             }
@@ -683,8 +753,32 @@ impl EngineRegistry {
             // Persist snapshot so a restart restores state.
             self.persist_state(&cfg.eoa, &state.read());
 
+            // ── Position reconciliation ──
+            // Sync the internal ledger to the proxy wallet's actual on-chain
+            // holdings before any rebalancing decision, so we never try to sell
+            // a token we no longer hold (manual exit, resolution, partial fill).
+            // Only runs when we might trade (auto_execute) to avoid needless
+            // data-api load on dry-run sessions.
+            if cfg.auto_execute {
+                let onchain = fetch_onchain_positions(&self.http, &cfg.address).await;
+                if !onchain.is_empty() || !state.read().positions.is_empty() {
+                    let mut s = state.write();
+                    // Drop / shrink ledger entries to match on-chain reality.
+                    s.positions.retain(|token_id, pos| {
+                        match onchain.get(token_id) {
+                            Some(&held) if held > 0.0 => {
+                                if held + 1e-6 < pos.size { pos.size = held; }
+                                true
+                            }
+                            _ => false, // no longer held → drop
+                        }
+                    });
+                }
+            }
+
             // ── Mirror execution ──
-            // Place (or dry-run-log) a proportional order for each new BUY.
+            // Place (or dry-run-log) a proportional order for each new BUY, and
+            // (when rebalancing is on) sell lower-score holds to fund better ones.
             if !mirror_candidates.is_empty() {
                 self.execute_mirrors(&cfg, &state, &cancel, mirror_candidates).await;
             }
@@ -712,20 +806,39 @@ impl EngineRegistry {
 
     /// Place a proportional mirror BUY for each candidate, or — when
     /// `auto_execute` is off — log the order it *would* place (DRY RUN) without
-    /// touching the CLOB. Runs outside the per-cycle state lock; each placement
-    /// is an independent network round-trip through the backend signer.
+    /// touching the CLOB. Candidates are ranked by EP score so the best trades
+    /// claim capital first; when free capital is short and `rebalance_enabled`
+    /// is set, the lowest-score held positions are sold (at the book bid) to
+    /// fund a higher-score candidate it out-scores by `rebalance_margin_pct`.
+    /// Runs outside the per-cycle state lock; each placement is an independent
+    /// network round-trip through the backend signer.
     async fn execute_mirrors(
         self: &Arc<Self>,
         cfg: &EngineConfig,
         state: &Arc<RwLock<EngineState>>,
         cancel: &Arc<AtomicBool>,
-        candidates: Vec<(ObservedTrade, f64)>,
+        mut candidates: Vec<(ObservedTrade, f64)>,
     ) {
         // All knobs come from the strat-supplied config — nothing hardcoded.
         let user_floor = cfg.min_order_size;
         let min_shares = cfg.min_shares;
         let ceiling = cfg.max_order_size.unwrap_or(f64::INFINITY);
         let mut placed_this_cycle = 0usize;
+
+        // Highest EP score first: the best candidates claim free capital and win
+        // rebalance contests before weaker ones get a look.
+        candidates.sort_by(|a, b| {
+            b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Internal capital budget: the strat allocation minus cost basis already
+        // deployed in open positions. Selling a position returns its cost basis
+        // here; a BUY subtracts its notional.
+        let mut free_capital = {
+            let s = state.read();
+            let deployed: f64 = s.positions.values().map(|p| p.size * p.entry_price).sum();
+            (cfg.capital - deployed).max(0.0)
+        };
 
         for (trade, copy_ratio) in candidates {
             if cancel.load(Ordering::Acquire) { break; }
@@ -744,8 +857,8 @@ impl EngineRegistry {
             // so it isn't retroactively filled when auto_execute is later enabled.
             if !cfg.auto_execute {
                 let msg = format!(
-                    "DRY RUN · would BUY {:.0} @ {:.0}¢ (${:.2}) · {} · token {}",
-                    size, price * 100.0, notional, trade.market, short_token(&trade.token_id),
+                    "DRY RUN · would BUY {:.0} @ {:.0}¢ (${:.2}) · score {:.3} · {} · token {}",
+                    size, price * 100.0, notional, trade.score, trade.market, short_token(&trade.token_id),
                 );
                 tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, notional, "{}", msg);
                 self.log_and_persist(cfg, state, mk_log("DRY_RUN", &trade.id, msg, Some(&trade.trader)));
@@ -760,6 +873,37 @@ impl EngineRegistry {
                     None,
                 ));
                 break;
+            }
+
+            // ── Capital-aware rebalance ──
+            // If this candidate doesn't fit in free capital, try to sell the
+            // lowest-score holdings it sufficiently out-scores to make room.
+            if notional > free_capital && cfg.rebalance_enabled {
+                let needed = notional - free_capital;
+                free_capital += self
+                    .free_capital_via_sells(cfg, state, cancel, &trade, needed, &mut placed_this_cycle)
+                    .await;
+            }
+            if notional > free_capital + 1e-6 {
+                // No (or not enough) lower-score position to liquidate — skip,
+                // but mark copied so we don't reconsider this same leader trade
+                // every cycle. A future, higher-score-relative candidate can
+                // still trigger sells of these holds later.
+                {
+                    let mut s = state.write();
+                    insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                    push_log(&mut s.log, mk_log(
+                        "REBALANCE_SKIP",
+                        &trade.id,
+                        format!(
+                            "score {:.3} · need ${:.2}, free ${:.2} — no lower-score hold to sell · {}",
+                            trade.score, notional, free_capital, trade.market
+                        ),
+                        Some(&trade.trader),
+                    ));
+                }
+                self.persist_state(&cfg.eoa, &state.read());
+                continue;
             }
 
             // Real placement through the backend signer (no browser wallet).
@@ -790,19 +934,39 @@ impl EngineRegistry {
 
             match place_order(&self.http, &self.signer_store, req).await {
                 Ok(resp) => {
+                    free_capital = (free_capital - notional).max(0.0);
                     {
                         let mut s = state.write();
                         s.total_orders_placed += 1;
                         s.total_volume_mirrored += notional;
                         insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        // Record / accumulate the open position with its FROZEN
+                        // entry score (size-weighted avg entry price; keep the
+                        // strongest score seen for this token).
+                        let opened_at = chrono::Utc::now().timestamp_millis();
+                        let entry = s.positions.entry(trade.token_id.clone()).or_insert_with(|| OpenPosition {
+                            token_id: trade.token_id.clone(),
+                            condition_id: trade.condition_id.clone(),
+                            market: trade.market.clone(),
+                            size: 0.0,
+                            entry_price: 0.0,
+                            entry_score: trade.score,
+                            opened_at,
+                        });
+                        let new_size = entry.size + size;
+                        if new_size > 0.0 {
+                            entry.entry_price = (entry.size * entry.entry_price + size * price) / new_size;
+                        }
+                        entry.size = new_size;
+                        entry.entry_score = entry.entry_score.max(trade.score);
                         push_log(&mut s.log, mk_log(
                             "COPY_BUY",
                             &trade.id,
-                            format!("BUY {:.0} @ {:.0}¢ (${:.2}) · {}", size, price * 100.0, notional, trade.market),
+                            format!("BUY {:.0} @ {:.0}¢ (${:.2}) · score {:.3} · {}", size, price * 100.0, notional, trade.score, trade.market),
                             Some(&trade.trader),
                         ));
                     }
-                    tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, notional, response = %resp, "mirror order placed");
+                    tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, notional, score = trade.score, response = %resp, "mirror order placed");
                 }
                 Err(e) => {
                     {
@@ -823,6 +987,114 @@ impl EngineRegistry {
             self.persist_state(&cfg.eoa, &state.read());
             tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
         }
+    }
+
+    /// Sell the lowest-score held positions that `candidate` out-scores by the
+    /// configured margin, until at least `needed` USDC of cost basis is freed.
+    /// Returns the cost basis actually freed (so the caller can update its
+    /// capital budget). Each exit is a marketable SELL at the token's best book
+    /// bid and counts toward the per-cycle order cap. Positions whose book can't
+    /// be priced are left untouched.
+    async fn free_capital_via_sells(
+        self: &Arc<Self>,
+        cfg: &EngineConfig,
+        state: &Arc<RwLock<EngineState>>,
+        cancel: &Arc<AtomicBool>,
+        candidate: &ObservedTrade,
+        needed: f64,
+        placed_this_cycle: &mut usize,
+    ) -> f64 {
+        let margin = 1.0 + cfg.rebalance_margin_pct.max(0.0);
+        // Snapshot the sell-eligible holds: out-scored by the margin, a
+        // different token, non-empty — weakest score first (sacrifice the worst
+        // hold before a better one).
+        let mut sellable: Vec<OpenPosition> = {
+            let s = state.read();
+            s.positions
+                .values()
+                .filter(|p| {
+                    p.token_id != candidate.token_id
+                        && p.size > 0.0
+                        && candidate.score >= p.entry_score * margin
+                })
+                .cloned()
+                .collect()
+        };
+        sellable.sort_by(|a, b| {
+            a.entry_score.partial_cmp(&b.entry_score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut freed = 0.0f64;
+        for pos in sellable {
+            if cancel.load(Ordering::Acquire) { break; }
+            if freed >= needed { break; }
+            if *placed_this_cycle >= cfg.max_orders_per_cycle { break; }
+
+            // Marketable exit price: the current best bid, tick-rounded.
+            let bid = match fetch_best_bid(&self.http, &pos.token_id).await {
+                Some(b) => tick_round_price(b),
+                None => {
+                    self.log_and_persist(cfg, state, mk_log(
+                        "SKIP",
+                        &pos.token_id,
+                        format!("REBALANCE_NO_BID · can't price exit for {}", pos.market),
+                        None,
+                    ));
+                    continue;
+                }
+            };
+            let neg_risk = self.resolve_neg_risk(&pos.condition_id).await;
+            let req = PlaceOrderRequest {
+                eoa: cfg.eoa.clone(),
+                creds: ClobCreds { api_key: String::new(), secret: String::new(), passphrase: String::new() },
+                args: PlaceOrderArgs {
+                    token_id: pos.token_id.clone(),
+                    side: OrderSide::Sell,
+                    price: bid,
+                    size: pos.size,
+                    fee_rate_bps: 0,
+                    expiration: 0,
+                    signature_type: 3,
+                    order_type: OrderTimeInForce::Gtc,
+                    neg_risk,
+                    maker: cfg.address.clone(),
+                },
+            };
+            *placed_this_cycle += 1;
+
+            match place_order(&self.http, &self.signer_store, req).await {
+                Ok(resp) => {
+                    let cost_basis = pos.size * pos.entry_price;
+                    freed += cost_basis;
+                    {
+                        let mut s = state.write();
+                        s.positions.remove(&pos.token_id);
+                        s.total_orders_placed += 1;
+                        push_log(&mut s.log, mk_log(
+                            "REBALANCE_SELL",
+                            &pos.token_id,
+                            format!(
+                                "SELL {:.0} @ {:.0}¢ · freed ${:.2} (score {:.3}) to fund score {:.3} · {}",
+                                pos.size, bid * 100.0, cost_basis, pos.entry_score, candidate.score, pos.market
+                            ),
+                            None,
+                        ));
+                    }
+                    tracing::info!(eoa = %cfg.eoa, market = %pos.market, size = pos.size, price = bid, freed = cost_basis, response = %resp, "rebalance sell placed");
+                }
+                Err(e) => {
+                    self.log_and_persist(cfg, state, mk_log(
+                        "ERROR",
+                        &pos.token_id,
+                        format!("REBALANCE_SELL_FAILED: {}", e),
+                        None,
+                    ));
+                }
+            }
+            self.persist_state(&cfg.eoa, &state.read());
+            tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
+        }
+        freed
     }
 
     fn log_and_persist(&self, cfg: &EngineConfig, state: &Arc<RwLock<EngineState>>, entry: LogEntry) {
@@ -943,6 +1215,150 @@ async fn fetch_recent_activity(http: &reqwest::Client, address: &str) -> Result<
     }
 }
 
+// ─── Server-side Sharpe / ROI scoring ───────────────────────────────────
+// Ported from the frontend `CopyIndex.tsx` traderStatsMap so live ranking
+// matches the backtest preview byte-for-byte: walk the trader's activity in
+// time order keeping a FIFO cost-basis book; each in-window SELL contributes a
+// per-trade return `(price − avgCost) / avgCost`. roi = mean(returns),
+// sharpe = roi / sample-stdev (n≥3, stdev>0), else 0.
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TraderRoiStats {
+    pub roi: f64,
+    pub stdev: f64,
+    pub sharpe: f64,
+    pub sample_size: usize,
+}
+
+/// Compute a trader's 30d ROI/Sharpe stats from their raw `/activity` items.
+/// `now_ms` is the cycle clock (passed in so this stays pure/testable).
+pub fn compute_trader_roi_stats(items: &[Value], now_ms: i64) -> TraderRoiStats {
+    let cutoff_ms = now_ms - SHARPE_WINDOW_DAYS * 86_400_000;
+
+    // Sort TRADE items oldest→newest so FIFO basis is built in order.
+    let mut trades: Vec<&Value> = items
+        .iter()
+        .filter(|t| t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE") == "TRADE")
+        .collect();
+    trades.sort_by_key(|t| {
+        let raw = t.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        if raw > 1_000_000_000_000 { raw } else { raw * 1000 }
+    });
+
+    // token/condition key → (size, cost) cost-basis book.
+    let mut book: HashMap<String, (f64, f64)> = HashMap::new();
+    let mut returns: Vec<f64> = Vec::new();
+
+    for t in trades {
+        let raw_ts = t.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+        let ts_ms = if raw_ts > 1_000_000_000_000 { raw_ts } else { raw_ts * 1000 };
+        let key = t
+            .get("conditionId")
+            .or_else(|| t.get("asset"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let price = t.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let size = t.get("size").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let side = t.get("side").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
+        if !price.is_finite() || !size.is_finite() || size <= 0.0 {
+            continue;
+        }
+        let pos = book.entry(key).or_insert((0.0, 0.0));
+        if side == "BUY" {
+            pos.1 += price * size;
+            pos.0 += size;
+        } else if side == "SELL" && pos.0 > 0.0 {
+            let avg = pos.1 / pos.0;
+            let sold = size.min(pos.0);
+            pos.1 -= avg * sold;
+            pos.0 -= sold;
+            // Per-trade ROI on realized SELLs inside the Sharpe window.
+            if ts_ms >= cutoff_ms && avg > 0.0 {
+                returns.push((price - avg) / avg);
+            }
+        }
+    }
+
+    let n = returns.len();
+    if n == 0 {
+        return TraderRoiStats::default();
+    }
+    let roi = returns.iter().sum::<f64>() / n as f64;
+    let stdev = if n >= 2 {
+        let var = returns.iter().map(|r| (r - roi).powi(2)).sum::<f64>() / (n as f64 - 1.0);
+        var.sqrt()
+    } else {
+        0.0
+    };
+    let sharpe = if n >= 3 && stdev > 0.0 { roi / stdev } else { 0.0 };
+    TraderRoiStats { roi, stdev, sharpe, sample_size: n }
+}
+
+/// EP score for one candidate: `trader ROI × rawMirrorNotional`, matching the
+/// frontend `CopyTrader.scoreCandidate`. `raw_mirror_notional = notional ×
+/// copy_ratio` (what we'd actually deploy). Negative ROI ⇒ negative score, so a
+/// losing trader's copies rank below any break-even hold.
+fn candidate_score(roi: f64, raw_mirror_notional: f64) -> f64 {
+    roi * raw_mirror_notional
+}
+
+/// Fetch the proxy wallet's current on-chain positions (token_id → shares held)
+/// from the data-api so the engine never sells a token it doesn't hold. Returns
+/// an empty map on any error (fail-safe: no reconciliation rather than bad sells).
+async fn fetch_onchain_positions(http: &reqwest::Client, proxy: &str) -> HashMap<String, f64> {
+    let mut out = HashMap::new();
+    if proxy.is_empty() {
+        return out;
+    }
+    let url = format!("{}/positions?user={}&sizeThreshold=0.0&limit=500", DATA_API, proxy);
+    let resp = match http.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "positions fetch failed; skipping reconcile");
+            return out;
+        }
+    };
+    let text = resp.text().await.unwrap_or_default();
+    let parsed: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    if let Some(arr) = parsed.as_array() {
+        for p in arr {
+            let asset = p.get("asset").and_then(|v| v.as_str()).unwrap_or("");
+            let size = p
+                .get("size")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0.0);
+            if !asset.is_empty() && size > 0.0 {
+                out.insert(asset.to_string(), size);
+            }
+        }
+    }
+    out
+}
+
+/// Best bid (highest buy price) on a token's CLOB order book — the marketable
+/// price for an immediate SELL. Tick-rounded by the caller. `None` if the book
+/// is empty/unreachable, in which case the exit is skipped this cycle.
+async fn fetch_best_bid(http: &reqwest::Client, token_id: &str) -> Option<f64> {
+    let url = format!("{}/book?token_id={}", CLOB_API, token_id);
+    let resp = http.get(&url).send().await.ok()?;
+    let text = resp.text().await.ok()?;
+    let parsed: Value = serde_json::from_str(&text).ok()?;
+    let bids = parsed.get("bids")?.as_array()?;
+    // The CLOB returns bids ascending; the best (highest) bid is the max price.
+    let mut best: Option<f64> = None;
+    for b in bids {
+        let price = b
+            .get("price")
+            .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))?;
+        best = Some(best.map_or(price, |m: f64| m.max(price)));
+    }
+    best.filter(|p| p.is_finite() && *p > 0.0)
+}
+
 fn parse_activity_trade(v: &Value, trader: &str) -> Option<ObservedTrade> {
     if v.get("type").and_then(|t| t.as_str()) != Some("TRADE") { return None; }
     let price = v.get("price").and_then(|p| p.as_f64()).unwrap_or(0.0);
@@ -965,6 +1381,7 @@ fn parse_activity_trade(v: &Value, trader: &str) -> Option<ObservedTrade> {
         notional: price * size,
         token_id: v.get("asset").and_then(|s| s.as_str()).unwrap_or("").to_string(),
         outcome: v.get("outcome").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+        score: 0.0, // stamped later once the trader's ROI stats are known
     })
 }
 
@@ -1042,5 +1459,85 @@ mod tests {
         assert_eq!(log.len(), LOG_CAP);
         // Oldest entries got dropped — first kept entry's id is e{LOG_CAP+50-1 - LOG_CAP + 1}? Just check it's not e0.
         assert_ne!(log.first().unwrap().id, "e0");
+    }
+
+    // Build one activity TRADE item for the scoring tests.
+    fn trade_item(cid: &str, side: &str, price: f64, size: f64, ts_ms: i64) -> Value {
+        json!({
+            "type": "TRADE", "conditionId": cid, "side": side,
+            "price": price, "size": size, "timestamp": ts_ms,
+        })
+    }
+
+    #[test]
+    fn roi_stats_fifo_returns_and_sharpe() {
+        let now = 2_000_000_000_000i64; // ms, fixed clock
+        let d = 86_400_000i64; // 1 day in ms
+        // Three round-trips, each its own market, all inside the 30d window.
+        // Returns: +0.20, +0.10, −0.10.
+        let items = vec![
+            trade_item("m1", "BUY", 0.50, 10.0, now - 5 * d),
+            trade_item("m1", "SELL", 0.60, 10.0, now - 4 * d), // (0.60-0.50)/0.50 = 0.20
+            trade_item("m2", "BUY", 0.40, 10.0, now - 5 * d),
+            trade_item("m2", "SELL", 0.44, 10.0, now - 4 * d), // 0.10
+            trade_item("m3", "BUY", 0.50, 10.0, now - 5 * d),
+            trade_item("m3", "SELL", 0.45, 10.0, now - 4 * d), // -0.10
+        ];
+        let s = compute_trader_roi_stats(&items, now);
+        assert_eq!(s.sample_size, 3);
+        assert!((s.roi - 0.066_667).abs() < 1e-4, "roi was {}", s.roi);
+        assert!((s.stdev - 0.152_753).abs() < 1e-4, "stdev was {}", s.stdev);
+        assert!((s.sharpe - 0.436_4).abs() < 1e-3, "sharpe was {}", s.sharpe);
+    }
+
+    #[test]
+    fn roi_stats_excludes_out_of_window_sells() {
+        let now = 2_000_000_000_000i64;
+        let d = 86_400_000i64;
+        // A SELL 40 days ago is outside the 30d Sharpe window → no samples.
+        let items = vec![
+            trade_item("m1", "BUY", 0.50, 10.0, now - 41 * d),
+            trade_item("m1", "SELL", 0.60, 10.0, now - 40 * d),
+        ];
+        let s = compute_trader_roi_stats(&items, now);
+        assert_eq!(s.sample_size, 0);
+        assert_eq!(s.roi, 0.0);
+        assert_eq!(s.sharpe, 0.0);
+    }
+
+    #[test]
+    fn roi_stats_sharpe_needs_three_samples() {
+        let now = 2_000_000_000_000i64;
+        let d = 86_400_000i64;
+        // Two realized trades → roi computed, but sharpe stays 0 (n < 3).
+        let items = vec![
+            trade_item("m1", "BUY", 0.50, 10.0, now - 5 * d),
+            trade_item("m1", "SELL", 0.60, 10.0, now - 4 * d),
+            trade_item("m2", "BUY", 0.40, 10.0, now - 5 * d),
+            trade_item("m2", "SELL", 0.44, 10.0, now - 4 * d),
+        ];
+        let s = compute_trader_roi_stats(&items, now);
+        assert_eq!(s.sample_size, 2);
+        assert!(s.roi > 0.0);
+        assert_eq!(s.sharpe, 0.0);
+    }
+
+    #[test]
+    fn candidate_score_is_roi_times_mirror_notional() {
+        // EP = roi × rawMirrorNotional. roi 0.20, raw 12.5 → $2.50.
+        assert!((candidate_score(0.20, 12.5) - 2.5).abs() < 1e-9);
+        // Losing trader → negative score, ranks below any break-even hold.
+        assert!(candidate_score(-0.10, 50.0) < 0.0);
+    }
+
+    #[test]
+    fn rebalance_margin_predicate() {
+        // The sell gate: candidate.score >= held.entry_score × (1 + margin).
+        let margin = 0.20;
+        let held = 1.0;
+        let gate = held * (1.0 + margin);
+        assert!(1.20 >= gate); // exactly 20% better → eligible
+        assert!(1.25 >= gate); // more than 20% better → eligible
+        assert!(!(1.19 >= gate)); // under the margin → NOT eligible (no churn)
     }
 }

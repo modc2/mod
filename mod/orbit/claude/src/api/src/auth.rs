@@ -134,10 +134,19 @@ pub async fn verify(
                 && !read_whitelist().iter().any(|w| w == &addr)
                 && !run_gate_command(&addr)
             {
+                // Echo the verified signer + configured owner so a wrong active
+                // MetaMask account is obvious. Log it too — this path was silent.
+                eprintln!(
+                    "✗ Sign-in denied: signer {} is not owner ({}), not whitelisted, no gate matched",
+                    addr, owner
+                );
                 return Err((
                     StatusCode::FORBIDDEN,
                     Json(serde_json::json!({
-                        "error": "Sign-in not permitted: address is not the owner, not whitelisted, and no gate matched"
+                        "error": format!(
+                            "Sign-in not permitted: signed-in address {} is not the owner ({}), not whitelisted, and no gate matched. Check which account is active in your wallet.",
+                            addr, owner
+                        )
                     })),
                 ));
             }

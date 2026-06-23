@@ -7,7 +7,7 @@
   "icon": "V",
   "color": "#b91c1c",
   "provider": "venice",
-  "default_model": "kimi-2.6",
+  "default_model": "zai-org-glm-5",
   "urls": {
     "api": "http://localhost:50880",
     "app": "http://localhost:3880/venice",

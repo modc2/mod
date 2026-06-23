@@ -77,9 +77,9 @@ export default function TopTraders() {
   );
 
   const indexBuildHref = useMemo(() => {
-    if (picked.size === 0) return "/indexes/new";
+    if (picked.size === 0) return "/strats/new";
     const seedQ = Array.from(picked).join(",");
-    return `/indexes/new?seed=${encodeURIComponent(seedQ)}&days=${days}`;
+    return `/strats/new?seed=${encodeURIComponent(seedQ)}&days=${days}`;
   }, [picked, days]);
 
   return (
@@ -130,7 +130,7 @@ export default function TopTraders() {
       {picked.size > 0 && (
         <div className="panel p-3 flex items-center gap-3">
           <span className="text-xs text-accent2">{picked.size} selected</span>
-          <Link href={indexBuildHref} className="btn-primary">build index from selection</Link>
+          <Link href={indexBuildHref} className="btn-primary">build strat from selection</Link>
           <button className="btn" onClick={() => setPicked(new Set())}>clear</button>
         </div>
       )}

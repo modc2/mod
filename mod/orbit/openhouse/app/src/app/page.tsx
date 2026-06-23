@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import { toast } from 'react-toastify'
 import {
@@ -210,8 +211,17 @@ function EquitySimulator() {
   const [apy, setApy] = useState(5)           // lowfi APY, %
   const monthsToOwn = Math.max(1, Math.ceil(price / monthly))
   const [month, setMonth] = useState(18)
+  const [full, setFull] = useState(false)
 
   useEffect(() => { setMonth(m => Math.min(m, monthsToOwn)) }, [monthsToOwn])
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false) }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
+  }, [full])
 
   const principalPaid = Math.min(month * monthly, price)
   const ownPct = price > 0 ? (principalPaid / price) * 100 : 0
@@ -230,18 +240,25 @@ function EquitySimulator() {
   const filled = Math.round(ownPct)
   const owned = ownPct >= 100
 
-  return (
-    <div className="glass rounded-3xl p-6 md:p-9 border-[#e8c07d]/15">
+  const stats = [
+    { v: `${principalPaid.toFixed(1)} Ξ`, c: 'text-white', k: 'principal paid' },
+    { v: `${remaining.toFixed(1)} Ξ`, c: 'text-emerald-400', k: 'left to own' },
+    { v: `${monthsToOwn} mo`, c: 'text-[#e8c07d]', k: 'to own outright' },
+    { v: `${yieldEarned.toFixed(2)} Ξ`, c: 'text-[#ff3d81]', k: "owner's lowfi yield" },
+  ]
+
+  const panel = (big: boolean) => (
+    <>
       <div className="flex flex-wrap items-end gap-4 mb-7">
         <SimField label="Home price" value={price} set={setPrice} min={1} max={100000} step={1} unit="Ξ" />
         <SimField label="Monthly payment" value={monthly} set={setMonthly} min={0.01} max={10000} step={0.1} unit="Ξ" />
         <SimField label="lowfi APY" value={apy} set={setApy} min={0} max={50} step={0.5} unit="%" />
       </div>
 
-      <div className="grid md:grid-cols-[1.3fr_1fr] gap-7 items-center">
+      <div className={`grid gap-7 items-center ${big ? 'lg:grid-cols-[1.6fr_1fr]' : 'md:grid-cols-[1.3fr_1fr]'}`}>
         {/* Brick wall */}
         <div>
-          <div className="grid grid-cols-10 gap-1.5 mb-4">
+          <div className={`grid grid-cols-10 mb-4 ${big ? 'gap-2 md:gap-2.5' : 'gap-1.5'}`}>
             {Array.from({ length: 100 }, (_, i) => (
               <div key={i} className="aspect-[3/2] rounded-[3px] transition-all duration-300"
                 style={{
@@ -264,33 +281,62 @@ function EquitySimulator() {
         {/* Live readout */}
         <div className="space-y-4">
           <div>
-            <div className="headline text-6xl text-gold-grad leading-none">{ownPct.toFixed(1)}<span className="text-3xl">%</span></div>
+            <div className={`headline text-gold-grad leading-none ${big ? 'text-7xl md:text-8xl' : 'text-6xl'}`}>{ownPct.toFixed(1)}<span className={big ? 'text-4xl' : 'text-3xl'}>%</span></div>
             <div className="text-[11px] uppercase tracking-widest text-white/40 font-bold mt-1">{owned ? 'The house is yours' : 'of the home is yours'}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-              <div className="text-sm font-bold text-white tabular-nums">{principalPaid.toFixed(1)} Ξ</div>
-              <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">principal paid</div>
-            </div>
-            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-              <div className="text-sm font-bold text-emerald-400 tabular-nums">{remaining.toFixed(1)} Ξ</div>
-              <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">left to own</div>
-            </div>
-            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-              <div className="text-sm font-bold text-[#e8c07d] tabular-nums">{monthsToOwn} mo</div>
-              <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">to own outright</div>
-            </div>
-            <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3">
-              <div className="text-sm font-bold text-[#ff3d81] tabular-nums">{yieldEarned.toFixed(2)} Ξ</div>
-              <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">owner's lowfi yield</div>
-            </div>
+            {stats.map((s, i) => (
+              <div key={i} className={`rounded-xl bg-white/[0.03] border border-white/[0.06] ${big ? 'p-4' : 'p-3'}`}>
+                <div className={`font-bold tabular-nums ${s.c} ${big ? 'text-xl' : 'text-sm'}`}>{s.v}</div>
+                <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">{s.k}</div>
+              </div>
+            ))}
           </div>
           <p className="text-[10px] text-white/25 leading-relaxed">
             Illustrative projection from your inputs — not live data or financial advice. Real stakes come straight from the contract.
           </p>
         </div>
       </div>
-    </div>
+    </>
+  )
+
+  return (
+    <>
+      <div className="glass rounded-3xl p-6 md:p-9 border-[#e8c07d]/15 relative">
+        <button onClick={() => setFull(true)}
+          className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-[#e8c07d] hover:border-[#e8c07d]/40 transition-colors">
+          ⤢ Expand
+        </button>
+        {panel(false)}
+      </div>
+
+      {full && createPortal(
+        <div className="fixed inset-0 z-[100] bg-[#050507]/95 backdrop-blur-2xl overflow-y-auto grain" onClick={() => setFull(false)}>
+          <div className="aurora" />
+          <div className="relative min-h-full flex flex-col">
+            <div className="flex items-center justify-between px-5 md:px-8 h-16 border-b border-white/10 sticky top-0 bg-[#050507]/70 backdrop-blur-xl z-10">
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-xs">⌂</span>
+                <span className="font-display font-extrabold text-white text-sm">Rent-to-own builder</span>
+              </div>
+              <button onClick={() => setFull(false)}
+                className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/15 text-[11px] font-bold uppercase tracking-widest text-white/60 hover:text-white hover:border-white/30 transition-colors">
+                Close ✕ <span className="text-white/30 normal-case tracking-normal">Esc</span>
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center p-5 md:p-12" onClick={e => e.stopPropagation()}>
+              <div className="w-full max-w-6xl">
+                <div className="text-center mb-10">
+                  <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-3">Builder · Fullscreen</div>
+                  <h3 className="headline text-4xl md:text-6xl text-white">Build your path to ownership.</h3>
+                </div>
+                {panel(true)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

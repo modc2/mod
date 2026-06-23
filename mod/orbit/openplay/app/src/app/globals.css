@@ -134,6 +134,29 @@ a { color: inherit; text-decoration: none; }
 .brand { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 21px; letter-spacing: -.03em; }
 .brand .play { background: linear-gradient(115deg, var(--d2), var(--d4)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
+/* ── top tabs (Explore / Search) ──────────────────────────────── */
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 13px; background: var(--glass); border: 1px solid var(--line); }
+.tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 15px; border-radius: 10px; border: none; background: none;
+  color: var(--muted); font-weight: 700; font-size: 13.5px; cursor: pointer;
+  transition: all .2s var(--ease); font-family: inherit;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: linear-gradient(120deg, var(--d3), var(--d4)); color: #fff; box-shadow: 0 6px 18px -8px rgba(124, 92, 255, .7); }
+
+/* ── city search suggestions ──────────────────────────────────── */
+.suggest-list { display: flex; flex-direction: column; gap: 8px; }
+.suggest {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 16px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--glass); color: var(--text); cursor: pointer;
+  transition: all .2s var(--ease); font-family: inherit; font-size: 15px;
+}
+.suggest:hover { border-color: var(--line-2); background: var(--glass-2); transform: translateY(-1px); }
+.suggest.active { border-color: color-mix(in srgb, var(--d3) 55%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--d3) 35%, transparent) inset; }
+.suggest-pin { font-size: 17px; }
+
 /* ── buttons ───────────────────────────────────────────────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;

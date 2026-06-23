@@ -2,7 +2,7 @@
 //   claude-api : Rust axum job server + privileged module editor on :8820
 //   claude-app : Next.js terminal UI on :8823, served under /claude
 //
-// Launch:  pm2 start ecosystem.config.js   (or ./serve.sh, which builds first)
+// Launch:  pm2 start ecosystem.config.js   (or ./start.sh, which builds first)
 //
 // ── Why pm2 as ROOT (not docker) ────────────────────────────────────────────
 // The docker deployment ran the API as uid-1000 `node`, sandboxed inside the

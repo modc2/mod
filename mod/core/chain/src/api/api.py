@@ -532,6 +532,132 @@ async def registry_register(req: RegReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Owner Console (admin) ───────────────────────────────────────────────────
+#
+# Owner-only operations across the protocol contracts. Every action can be
+# either executed directly (signed by the active deployer key) or encoded into
+# calldata for a Safe multisig to execute once it owns the contracts.
+
+# Module key (lowercased config name) -> display name. Only owner-managed
+# protocol contracts are surfaced here.
+ADMIN_MODULES = [
+    ("tokengate", "TokenGate"),
+    ("manualpriceoracle", "ManualPriceOracle"),
+    ("market", "Market"),
+    ("treasury", "Treasury"),
+    ("bloctime", "BlocTime"),
+    ("perms", "Perms"),
+]
+
+ZERO_ADDR = "0x0000000000000000000000000000000000000000"
+
+
+@app.get("/admin/owners")
+async def admin_owners(network: str = "testnet", key: Optional[str] = None):
+    """Owner status of every owner-managed protocol contract on a network.
+
+    Returns each contract's address + current owner, whether the active account
+    is that owner, and whether ownership has been renounced (ownerless).
+    """
+    chain = get_chain(network, key)
+    try:
+        account = chain.account.address
+    except Exception:
+        account = None
+    deployment = chain.config.get("deployments", {}).get(network, {})
+    out = []
+    for modkey, dispname in ADMIN_MODULES:
+        contract = chain.contracts.get(modkey)
+        if not contract:
+            continue
+        owner = chain.admin_owner(modkey)
+        owner = owner if owner else None
+        ownerless = owner is None or owner.lower() == ZERO_ADDR
+        out.append({
+            "key": modkey,
+            "name": dispname,
+            "address": contract.address,
+            "owner": owner,
+            "ownerless": ownerless,
+            "is_owner": bool(owner and account and owner.lower() == account.lower()),
+        })
+    return {
+        "contracts": out,
+        "account": account,
+        "deployer": deployment.get("deployer"),
+        "chainId": deployment.get("chainId"),
+        "network": network,
+    }
+
+
+class AdminReq(BaseModel):
+    contract: str
+    method: str
+    args: list = []
+    value: str = "0"
+    network: str = "testnet"
+    key: Optional[str] = None
+
+
+@app.post("/admin/encode")
+async def admin_encode(req: AdminReq):
+    """Encode an owner call into {to, data, value} for Safe multisig execution."""
+    chain = get_chain(req.network)
+    try:
+        return chain.admin_encode(req.contract, req.method, req.args, req.value)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/admin/send")
+async def admin_send(req: AdminReq):
+    """Execute an owner call directly, signed by the active deployer key."""
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.admin_send(req.contract, req.method, req.args, req.value)
+        return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class TransferAllReq(BaseModel):
+    to: str
+    network: str = "testnet"
+    key: Optional[str] = None
+
+@app.post("/admin/transfer-all")
+async def admin_transfer_all(req: TransferAllReq):
+    """Transfer ownership of every owner-managed contract to a new owner.
+
+    Intended for handing the whole protocol to a Safe multisig in one step.
+    Only contracts the active account currently owns are transferred; the rest
+    are reported as skipped. Direct-signed (the current owner must sign).
+    """
+    chain = get_chain(req.network, req.key)
+    try:
+        account = chain.account.address
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    results = []
+    for modkey, dispname in ADMIN_MODULES:
+        contract = chain.contracts.get(modkey)
+        if not contract:
+            continue
+        owner = chain.admin_owner(modkey)
+        if not owner or owner.lower() == ZERO_ADDR:
+            results.append({"contract": dispname, "status": "skipped", "reason": "ownerless"})
+            continue
+        if owner.lower() != account.lower():
+            results.append({"contract": dispname, "status": "skipped", "reason": "not owner"})
+            continue
+        try:
+            chain.admin_send(modkey, "transferOwnership", [req.to])
+            results.append({"contract": dispname, "status": "transferred", "to": req.to})
+        except Exception as e:
+            results.append({"contract": dispname, "status": "failed", "reason": str(e)})
+    return {"results": results, "to": req.to}
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -547,5 +673,6 @@ async def info():
             "credit", "transfer", "tokens",
             "contracts/source", "contracts/mods",
             "registry/mods", "registry/register", "bloctime/owner",
+            "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",
         ],
     }

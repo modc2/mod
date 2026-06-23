@@ -1,90 +1,93 @@
 {
     "name": "dev",
-    "version": "0.1.0",
-    "description": "Unified developer console \u2014 switches between claude and codex orchestrators, prompts for API keys with wallet-signature encryption, bundles tree as one CID",
+    "version": "0.2.0",
+    "description": "Modular OpenAI-standard multi-provider LLM gateway \u2014 Rust (axum) backend + Next.js app. Each provider (venice, openrouter, codex, claude, \u2026) is one OpenAI-compatible template; add your own at runtime. BYOK or backend key, SSE streaming, wallet (mod protocol) auth.",
     "port": 8870,
     "app_port": 8871,
     "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
     "icon": "D",
-    "color": "#f59e0b",
-    "image": "https://cdn.simpleicons.org/dev-dot-to/ffffff",
+    "color": "#6366f1",
+    "image": "https://api.iconify.design/mdi:hub.svg?color=%23ffffff",
     "providers": {
-        "claude": {
-            "module": "claude",
-            "api": "http://claude:8820",
-            "app_base": "/claude",
-            "env_key": "ANTHROPIC_API_KEY"
+        "venice": {
+            "label": "Venice",
+            "base_url": "https://api.venice.ai/api/v1",
+            "backend_env": "VENICE_API_KEY",
+            "default_model": "zai-org-glm-5",
+            "icon": "V",
+            "color": "#b91c1c",
+            "byok": true
+        },
+        "openrouter": {
+            "label": "OpenRouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "backend_env": "OPENROUTER_API_KEY",
+            "default_model": "openai/gpt-4o-mini",
+            "icon": "O",
+            "color": "#6467f2",
+            "byok": true
         },
         "codex": {
-            "module": "codex",
-            "api": "http://codex:8830",
-            "app_base": "/codex",
-            "env_key": "OPENAI_API_KEY"
-        }
-    },
-    "fns": [
-        "forward",
-        "info",
-        "serve",
-        "bundle",
-        "register",
-        "providers",
-        "health"
-    ],
-    "schema": "QmQv56C6wgQc6tR9LVx8MWT2ksQ6rEDQprMgckFzLsKgzV",
-    "endpoints": {
-        "/health": {
-            "method": "GET",
-            "auth": false,
-            "docs": "Health check"
+            "label": "OpenAI",
+            "base_url": "https://api.openai.com/v1",
+            "backend_env": "OPENAI_API_KEY",
+            "default_model": "gpt-4o-mini",
+            "icon": "C",
+            "color": "#10a37f",
+            "byok": true
         },
-        "/config": {
-            "method": "GET",
-            "auth": false,
-            "docs": "Get module config.json"
-        },
-        "/providers": {
-            "method": "GET",
-            "auth": false,
-            "docs": "List available providers (claude, codex)"
-        },
-        "/key/{provider}": {
-            "method": [
-                "POST",
-                "GET"
-            ],
-            "auth": true,
-            "docs": "Submit or fetch encrypted API key ciphertext for a provider"
-        },
-        "/proxy/{provider}/{path:path}": {
-            "method": [
-                "GET",
-                "POST",
-                "DELETE"
-            ],
-            "auth": true,
-            "docs": "Proxy requests to the named provider backend"
-        },
-        "/bundle": {
-            "method": "POST",
-            "auth": true,
-            "docs": "Snapshot dev+claude+codex tree to localfs, return single CID (owner-only)"
-        },
-        "/register": {
-            "method": "POST",
-            "auth": true,
-            "docs": "Register bundle CID on the mod protocol on-chain registry (owner-only)"
+        "claude": {
+            "label": "Claude",
+            "base_url": "https://api.anthropic.com/v1",
+            "backend_env": "ANTHROPIC_API_KEY",
+            "default_model": "claude-sonnet-4-6",
+            "icon": "A",
+            "color": "#d97757",
+            "byok": true
         }
     },
     "urls": {
         "api": "http://localhost:8870",
-        "app": "http://localhost:8871"
+        "app": "http://localhost:8871/dev",
+        "gateway": "http://localhost:3000/dev"
     },
-    "bundled_at": 1779310362,
-    "bundle_modules": {
-        "dev": "QmWcZK8hdrLr7jKnoRbCLn2ES55ipaP9ePptJadDsy4xQG",
-        "claude": "QmZaCj1HVr3EKKGmvNTNehUHexusMG24nhNLHPM5oz56eV",
-        "codex": "QmVUdvHtVk7wT5dcWV4Smqk9utYx4WewoayVpBQjeVBEww"
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "docs": "Liveness probe"
+        },
+        "/providers": {
+            "method": "GET",
+            "docs": "List configured providers (public, no secrets)"
+        },
+        "/providers/{name}/models": {
+            "method": "GET",
+            "docs": "Proxy a provider's model list (Bearer token)"
+        },
+        "/me": {
+            "method": "GET",
+            "docs": "Caller identity + per-provider key status (Bearer token)"
+        },
+        "/key/{provider}": {
+            "method": "POST",
+            "docs": "Store caller's BYOK key for a provider (Bearer token)"
+        },
+        "/chat/{provider}": {
+            "method": "POST",
+            "docs": "OpenAI-style chat completion, SSE streaming (Bearer token)"
+        }
     },
-    "gateway_port": 8871
+    "fns": [
+        "forward",
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill",
+        "status",
+        "health",
+        "providers",
+        "register",
+        "deregister"
+    ],
+    "schema": "QmQv56C6wgQc6tR9LVx8MWT2ksQ6rEDQprMgckFzLsKgzV"
 }

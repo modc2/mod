@@ -3,13 +3,17 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import {
   ModuleSpec, StyleSpec, Cell, Estimate, Constraints, PortableDoc,
   localEstimate, api, ownerId,
 } from '@/lib/modcity'
 
 const STEP = 3
-const BRICK = 2.86
+const BRICK = 2.86      // module footprint / floor-to-floor height (m)
+const PANEL_T = 0.12    // thickness of a wall / floor / curtain-wall panel
 const HARD_MAX = 14
 const CATEGORIES = ['living', 'service', 'work', 'commerce', 'outdoor', 'light', 'structure', 'roof']
 const PRESET_COLORS = ['#9c6b46', '#e63946', '#f4a261', '#457b9d', '#00f5d4', '#c77dff', '#80b918', '#ffd166', '#e9ecef', '#3a3330']
@@ -65,6 +69,7 @@ export default function Configurator({
   const [showParams, setShowParams] = useState(false)
   const [showDesigner, setShowDesigner] = useState(false)
   const [showSave, setShowSave] = useState(false)
+  const [showExport, setShowExport] = useState(false)
 
   const style = useMemo(() => styles.find((s) => s.id === styleId) || styles[0], [styles, styleId])
   const selectedRef = useRef(selected); selectedRef.current = selected
@@ -98,7 +103,7 @@ export default function Configurator({
     const scene = new THREE.Scene()
     const W = mount.clientWidth, H = mount.clientHeight
     const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 1000)
-    camera.position.set(20, 17, 24)
+    camera.position.set(15, 12, 18)
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(W, H)
@@ -110,7 +115,7 @@ export default function Configurator({
     controls.enableDamping = true; controls.dampingFactor = 0.08
     controls.minDistance = 9; controls.maxDistance = 70
     controls.maxPolarAngle = Math.PI / 2.04
-    controls.target.set(0, 4, 0)
+    controls.target.set(0, 5, 0)
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x444455, 0.85); scene.add(hemi)
     const sun = new THREE.DirectionalLight(0xffffff, 1.5)
@@ -215,19 +220,19 @@ export default function Configurator({
     const t = three.current; if (!t.context) return
     const ctx = t.context
     while (ctx.children.length) { const c = ctx.children.pop(); c.geometry?.dispose?.(); c.material?.dispose?.() }
-    const ring = [-5, -4, -3, 3, 4, 5]
     const rand = (i: number) => ((Math.sin(i * 127.1) * 43758.5) % 1 + 1) % 1
     let i = 0
-    for (let gx = -6; gx <= 6; gx++) {
-      for (let gz = -6; gz <= 6; gz++) {
-        if (Math.abs(gx) <= 2 && Math.abs(gz) <= 2) continue
-        if (!ring.includes(gx) && !ring.includes(gz)) continue
+    // a recessive distant skyline ring — far enough back to never crowd the lot
+    for (let gx = -9; gx <= 9; gx++) {
+      for (let gz = -9; gz <= 9; gz++) {
+        const r = Math.max(Math.abs(gx), Math.abs(gz))
+        if (r < 5 || r > 9) continue
         i++
-        if (rand(i) < 0.45) continue
-        const hgt = 2 + Math.floor(rand(i * 3) * 6)
+        if (rand(i) < 0.55) continue
+        const hgt = 1 + Math.floor(rand(i * 3) * 4)
         const box = new THREE.Mesh(
-          new THREE.BoxGeometry(STEP * 0.92, hgt * STEP, STEP * 0.92),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.62, 0.05, 0.16 + rand(i * 7) * 0.06), roughness: 1 }),
+          new THREE.BoxGeometry(STEP * 0.9, hgt * STEP, STEP * 0.9),
+          new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.62, 0.06, 0.1 + rand(i * 7) * 0.04), roughness: 1 }),
         )
         box.position.set(gx * STEP, (hgt * STEP) / 2, gz * STEP)
         box.castShadow = true; box.receiveShadow = true
@@ -258,51 +263,23 @@ export default function Configurator({
     g.add(grid)
   }
 
-  // ── window / facade detail ────────────────────────────────────
-  function addFacade(group: THREE.Group, spec: ModuleSpec, baseColor: THREE.Color, style: StyleSpec, neon: boolean) {
-    const cat = spec.category
-    const glassWin = new THREE.MeshStandardMaterial({
-      color: neon ? new THREE.Color(style.accent) : new THREE.Color(0x10151c),
-      emissive: neon ? new THREE.Color(style.accent).multiplyScalar(0.9) : new THREE.Color(0x0a0d12),
-      emissiveIntensity: neon ? 1.1 : 0.25, roughness: 0.15, metalness: 0.2,
-      transparent: true, opacity: neon ? 0.92 : 0.85,
-    })
-    const faces: Array<[number, number, number, number]> = [
-      [0, BRICK / 2 + 0.02, 0, 0], [0, -BRICK / 2 - 0.02, Math.PI, 0],
-      [BRICK / 2 + 0.02, 0, 0, Math.PI / 2], [-BRICK / 2 - 0.02, 0, 0, -Math.PI / 2],
-    ]
-    function pane(w: number, h: number, off: [number, number, number, number]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), glassWin)
-      const [ox, oz, , ry] = off
-      // off encodes either z-face (ox=0) or x-face; reuse positions
-      m.position.set(off[0], off[1], off[2])
-      m.rotation.y = ry
-      return m
-    }
-    if (cat === 'commerce') {
-      // big storefront glazing, lower third
-      for (const f of [faces[0], faces[1]]) {
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(BRICK * 0.82, BRICK * 0.5), glassWin)
-        m.position.set(f[0], -BRICK * 0.18, f[2]); m.rotation.y = f[3]; group.add(m)
-      }
-    } else if (WINDOW_CATS.has(cat)) {
-      const tall = spec.id === 'parlor' || spec.id === 'bay'
-      const w = tall ? BRICK * 0.3 : BRICK * 0.28
-      const h = tall ? BRICK * 0.66 : BRICK * 0.4
-      const xs = tall ? [0] : [-BRICK * 0.22, BRICK * 0.22]
-      for (const f of faces) {
-        for (const sx of xs) {
-          const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), glassWin)
-          if (f[3] === 0) { m.position.set(sx, 0, f[2]) }
-          else if (f[3] === Math.PI) { m.position.set(-sx, 0, f[2]); m.rotation.y = Math.PI }
-          else { m.position.set(f[0], 0, sx); m.rotation.y = f[3] }
-          group.add(m)
-        }
-      }
-    }
+  // ── panel facade: glazing punched into an exposed wall panel ──
+  // (full curtain-wall faces are handled inline in the rebuild loop)
+  function addWindow(group: THREE.Group, spec: ModuleSpec, isX: boolean, sign: number, glazeMat: THREE.Material) {
+    const T = PANEL_T
+    const tall = spec.id === 'parlor' || spec.id === 'bay'
+    const commerce = spec.category === 'commerce'
+    const ww = commerce ? BRICK * 0.84 : tall ? BRICK * 0.5 : BRICK * 0.62
+    const wh = commerce ? BRICK * 0.5 : tall ? BRICK * 0.62 : BRICK * 0.42
+    const wy = commerce ? -BRICK * 0.16 : 0
+    const off = (BRICK / 2) * sign + sign * 0.012   // sit just proud of the wall panel
+    const geo = isX ? new THREE.BoxGeometry(T * 0.6, wh, ww) : new THREE.BoxGeometry(ww, wh, T * 0.6)
+    const pane = new THREE.Mesh(geo, glazeMat)
+    pane.position.set(isX ? off : 0, wy, isX ? 0 : off)
+    group.add(pane)
   }
 
-  // ── rebuild bricks + restyle ──────────────────────────────────
+  // ── rebuild panels + restyle ──────────────────────────────────
   useEffect(() => {
     const t = three.current; if (!t.scene) return
     const byId = Object.fromEntries(mergedCatalog.map((m) => [m.id, m]))
@@ -317,6 +294,16 @@ export default function Configurator({
     bricks.traverse((o: any) => { if (o.isMesh || o.isLineSegments) { o.geometry?.dispose?.(); if (Array.isArray(o.material)) o.material.forEach((m: any) => m.dispose()); else o.material?.dispose?.() } })
     while (bricks.children.length) bricks.remove(bricks.children[0])
 
+    // neighbour lookup so panels are only built on EXPOSED faces — adjacent
+    // modules share a party wall (no double wall), which reads as real architecture.
+    const specAt = (cx: number, cz: number, level: number): ModuleSpec | undefined =>
+      byId[(cellsRef.current.get(key(cx, cz)) || [])[level]]
+    const isOpenSpec = (s?: ModuleSpec) =>
+      !s || s.id === 'garden' || (s.category === 'outdoor' && !(s.glass || style.material === 'glass'))
+    const faceOpen = (cx: number, cz: number, level: number) => isOpenSpec(specAt(cx, cz, level))
+
+    const half = BRICK / 2
+
     cellsRef.current.forEach((stack, k) => {
       const [x, z] = k.split(',').map(Number)
       stack.forEach((id, level) => {
@@ -325,7 +312,8 @@ export default function Configurator({
         const base = new THREE.Color(spec.color || style.palette[spec.tone] || style.accent)
         base.multiplyScalar(1 - Math.min(level, 6) * 0.012)   // subtle vertical shade
         const glass = spec.glass || style.material === 'glass'
-        const y = level * STEP + BRICK / 2
+        const isTop = level === stack.length - 1
+        const y = level * STEP + half
         const g = new THREE.Group(); g.position.set(x * STEP, y, z * STEP)
 
         const isGarden = spec.id === 'garden' || (spec.category === 'outdoor' && !glass)
@@ -333,29 +321,75 @@ export default function Configurator({
           // open deck: slab + railing + shrubs
           const slab = new THREE.Mesh(new THREE.BoxGeometry(BRICK, 0.4, BRICK),
             new THREE.MeshStandardMaterial({ color: base, roughness: 0.9 }))
-          slab.position.y = -BRICK / 2 + 0.2; slab.castShadow = slab.receiveShadow = true; g.add(slab)
+          slab.position.y = -half + 0.2; slab.castShadow = slab.receiveShadow = true; g.add(slab)
           const rail = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(BRICK, BRICK * 0.5, BRICK)),
             new THREE.LineBasicMaterial({ color: new THREE.Color(style.accent), transparent: true, opacity: 0.6 }))
           rail.position.y = -BRICK * 0.25; g.add(rail)
           for (let s = 0; s < 4; s++) {
             const shrub = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6),
               new THREE.MeshStandardMaterial({ color: 0x4c8c3f, roughness: 1 }))
-            shrub.position.set((s % 2 ? 0.7 : -0.7), -BRICK / 2 + 0.7, (s < 2 ? 0.7 : -0.7))
+            shrub.position.set((s % 2 ? 0.7 : -0.7), -half + 0.7, (s < 2 ? 0.7 : -0.7))
             shrub.castShadow = true; g.add(shrub)
           }
         } else {
-          const mat = new THREE.MeshStandardMaterial({
-            color: base, roughness: glass ? 0.12 : (style.material === 'concrete' ? 0.95 : 0.66),
-            metalness: neon ? 0.35 : (glass ? 0.1 : 0.04),
-            transparent: glass, opacity: glass ? 0.4 : 1,
-            emissive: neon ? base.clone().multiplyScalar(0.4) : new THREE.Color(0x000000),
+          // ── panelised module: floor slab + exposed wall panels + frame ──
+          const wallMat = new THREE.MeshStandardMaterial({
+            color: base, roughness: style.material === 'concrete' ? 0.95 : 0.7,
+            metalness: neon ? 0.3 : 0.04,
+            emissive: neon ? base.clone().multiplyScalar(0.35) : new THREE.Color(0x000000),
           })
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(BRICK, BRICK, BRICK), mat)
-          mesh.castShadow = mesh.receiveShadow = true; g.add(mesh)
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(BRICK, BRICK, BRICK)),
-            new THREE.LineBasicMaterial({ color: neon ? new THREE.Color(style.accent) : base.clone().multiplyScalar(0.5), transparent: true, opacity: neon ? 0.95 : 0.5 }))
-          g.add(edges)
-          if (!glass) addFacade(g, spec, base, style, neon)
+          const glazeMat = new THREE.MeshStandardMaterial({
+            color: neon ? new THREE.Color(style.accent) : new THREE.Color(0x121821),
+            emissive: neon ? new THREE.Color(style.accent).multiplyScalar(0.8) : new THREE.Color(0x0a0d12),
+            emissiveIntensity: neon ? 1.0 : 0.3, roughness: 0.12, metalness: 0.25,
+            transparent: true, opacity: neon ? 0.9 : 0.82,
+          })
+          const frameMat = new THREE.MeshStandardMaterial({
+            color: base.clone().multiplyScalar(neon ? 1 : 0.55), roughness: 0.5, metalness: 0.35,
+          })
+
+          // floor slab (every module) + roof slab on the topmost module
+          const slab = new THREE.Mesh(new THREE.BoxGeometry(BRICK, 0.16, BRICK),
+            new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(0.78), roughness: 0.85 }))
+          slab.position.y = -half + 0.08; slab.castShadow = slab.receiveShadow = true; g.add(slab)
+          if (isTop && id !== 'cornice') {
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(BRICK, 0.14, BRICK),
+              new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(0.68), roughness: 0.9 }))
+            roof.position.y = half - 0.07; roof.castShadow = roof.receiveShadow = true; g.add(roof)
+          }
+
+          const PW = BRICK * 0.98, PH = BRICK * 0.96
+          const dirs = [
+            { dx: 1, dz: 0, isX: true, sign: 1 }, { dx: -1, dz: 0, isX: true, sign: -1 },
+            { dx: 0, dz: 1, isX: false, sign: 1 }, { dx: 0, dz: -1, isX: false, sign: -1 },
+          ]
+          for (const d of dirs) {
+            if (!faceOpen(x + d.dx, z + d.dz, level)) continue   // interior face → shared party wall, skip
+            const off = half * d.sign
+            const geo = d.isX ? new THREE.BoxGeometry(PANEL_T, PH, PW) : new THREE.BoxGeometry(PW, PH, PANEL_T)
+            if (glass) {
+              // curtain-wall panel + a pair of vertical mullions
+              const pane = new THREE.Mesh(geo, glazeMat)
+              pane.position.set(d.isX ? off : 0, 0, d.isX ? 0 : off); pane.castShadow = true; g.add(pane)
+              for (const m of [-0.32, 0.32]) {
+                const mg = d.isX ? new THREE.BoxGeometry(PANEL_T * 1.4, PH, 0.07) : new THREE.BoxGeometry(0.07, PH, PANEL_T * 1.4)
+                const mull = new THREE.Mesh(mg, frameMat)
+                mull.position.set(d.isX ? off : m * PW, 0, d.isX ? m * PW : off); g.add(mull)
+              }
+            } else {
+              const wall = new THREE.Mesh(geo, wallMat)
+              wall.position.set(d.isX ? off : 0, 0, d.isX ? 0 : off)
+              wall.castShadow = wall.receiveShadow = true; g.add(wall)
+              if (WINDOW_CATS.has(spec.category)) addWindow(g, spec, d.isX, d.sign, glazeMat)
+            }
+          }
+
+          // corner posts only where the corner is exposed → framed prefab read
+          for (const sx of [1, -1]) for (const sz of [1, -1]) {
+            if (!(faceOpen(x + sx, z, level) || faceOpen(x, z + sz, level))) continue
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, BRICK, 0.14), frameMat)
+            post.position.set(sx * half, 0, sz * half); post.castShadow = true; g.add(post)
+          }
         }
 
         // roof + ground details
@@ -472,13 +506,38 @@ export default function Configurator({
   // save
   const doSave = useCallback(async (name: string, isPublic: boolean, desc: string) => {
     const cells = serialize()
-    if (!cells.length) { flash('Place some bricks first'); return null }
+    if (!cells.length) { flash('Place some panels first'); return null }
     try {
       const d = await api('design', { method: 'POST', body: { name, owner, cells, style: styleId, public: isPublic, description: desc, constraints } })
       onSaved?.()
       return d
     } catch (e: any) { flash('Save failed: ' + (e?.message || 'error')); return null }
   }, [serialize, owner, styleId, constraints, onSaved, flash])
+
+  // ── export the building mesh to a production 3D format ────────
+  // glTF/GLB is the de-facto interchange format (Blender, Unreal, Unity,
+  // Spline, three.js); OBJ/STL are universal fallbacks for CAD / printing.
+  const exportModel = useCallback((format: 'glb' | 'obj' | 'stl') => {
+    const grp: THREE.Group | undefined = three.current.bricks
+    if (!grp || grp.children.length === 0) { flash('Place some panels first'); return }
+    setShowExport(false)
+    const fname = 'modcity-building'
+    const dl = (data: BlobPart, ext: string, mime: string) => {
+      const url = URL.createObjectURL(new Blob([data], { type: mime }))
+      const a = document.createElement('a'); a.href = url; a.download = `${fname}.${ext}`; a.click()
+      URL.revokeObjectURL(url); flash(`Exported ${ext.toUpperCase()} — open in Blender / Unreal / any DCC tool`)
+    }
+    try {
+      if (format === 'glb') {
+        new GLTFExporter().parse(grp, (res) => dl(res as ArrayBuffer, 'glb', 'model/gltf-binary'),
+          () => flash('GLB export failed'), { binary: true })
+      } else if (format === 'obj') {
+        dl(new OBJExporter().parse(grp), 'obj', 'text/plain')
+      } else {
+        dl(new STLExporter().parse(grp, { binary: false }) as unknown as string, 'stl', 'model/stl')
+      }
+    } catch (e: any) { flash('Export failed: ' + (e?.message || 'error')) }
+  }, [flash])
 
   // import a .modcity.json file
   const onImportFile = useCallback((file: File) => {
@@ -509,7 +568,7 @@ export default function Configurator({
       <div ref={mountRef} className="absolute inset-0" />
 
       <div className="absolute top-3 left-1/2 -translate-x-1/2 text-[11px] tracking-wide text-white/55 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full border border-white/10 pointer-events-none">
-        click the lot to stack&nbsp;·&nbsp;right-click to remove&nbsp;·&nbsp;drag to orbit
+        click the lot to stack panels&nbsp;·&nbsp;right-click to remove&nbsp;·&nbsp;drag to orbit
       </div>
 
       {/* HUD */}
@@ -520,7 +579,7 @@ export default function Configurator({
             <span className="text-2xl font-semibold tracking-tight">{fmtUSD(stats.price_usd)}</span>
             <span className="text-[10px] text-white/40">${fmt(stats.price_per_m2)}/m²</span>
           </div>
-          <Row l="Bricks" v={`${stats.module_count}`} />
+          <Row l="Panels" v={`${stats.module_count}`} />
           <Row l="Floors" v={`${stats.floors}`} />
           <Row l="Floor area" v={`${fmt(stats.floor_area_m2)} m²`} />
           <Row l="Sleeps" v={`${stats.occupancy}`} />
@@ -554,7 +613,7 @@ export default function Configurator({
         <div className="flex-1 overflow-auto pr-1 flex flex-col gap-1.5">
           {visibleBricks.length === 0 && (
             <div className="text-[11px] text-white/40 p-3 text-center">
-              {tab === 'mine' ? 'No bricks yet — forge one ↓' : 'No shared bricks yet.'}
+              {tab === 'mine' ? 'No panels yet — forge one ↓' : 'No shared panels yet.'}
             </div>
           )}
           {visibleBricks.map((mdl) => (
@@ -572,7 +631,7 @@ export default function Configurator({
           ))}
         </div>
         <button onClick={() => setShowDesigner(true)}
-          className="mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-cyan-400/90 to-purple-400/90 text-black hover:from-cyan-300 hover:to-purple-300 transition">✎ Forge a brick</button>
+          className="mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-cyan-400/90 to-purple-400/90 text-black hover:from-cyan-300 hover:to-purple-300 transition">✎ Forge a panel</button>
       </div>
 
       {/* params panel */}
@@ -608,6 +667,21 @@ export default function Configurator({
           <Btn onClick={clear}>✕ Clear</Btn>
           <Btn onClick={surprise}>✦ Surprise</Btn>
           <Btn onClick={() => fileRef.current?.click()}>⤓ Import</Btn>
+          <div className="relative">
+            <Btn onClick={() => setShowExport((v) => !v)} active={showExport}>⬚ Export 3D</Btn>
+            {showExport && (
+              <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 w-[188px] bg-[#13131c] border border-white/15 rounded-xl p-1.5 shadow-xl z-30">
+                <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 px-2 pt-1 pb-1.5">production 3D formats</div>
+                {([['glb', 'glTF / GLB', 'Blender · Unreal · Unity'], ['obj', 'OBJ + mesh', 'universal DCC / CAD'], ['stl', 'STL', '3D print / mesh']] as const).map(([f, t, d]) => (
+                  <button key={f} onClick={() => exportModel(f)}
+                    className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/10 transition">
+                    <span className="block text-[12px] font-medium text-white">{t}</span>
+                    <span className="block text-[9px] text-white/40">{d}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={() => setShowSave(true)}
             className="px-4 py-1.5 rounded-lg text-[12px] font-semibold text-black bg-gradient-to-r from-emerald-300 to-cyan-300 hover:from-emerald-200 hover:to-cyan-200 transition-all shadow-lg shadow-cyan-500/20">⬇ Save & share</button>
         </div>
@@ -679,13 +753,13 @@ function BrickDesigner({ style, onClose, onCreate }: { style: StyleSpec; onClose
     <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={onClose}>
       <div className="w-full max-w-md bg-[#13131c] rounded-2xl border border-white/10 p-6 text-white" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold">✎ Forge a brick</h3>
+          <h3 className="text-lg font-bold">✎ Forge a panel</h3>
           <button onClick={onClose} className="text-white/40 hover:text-white">✕</button>
         </div>
         <div className="flex gap-4 mb-4">
           <div className="w-20 h-20 rounded-xl shrink-0 border border-white/15 shadow-inner" style={{ background: color, opacity: glass ? 0.55 : 1 }} />
           <div className="flex-1">
-            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Brick name (e.g. Sky Pool)"
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Panel name (e.g. Sky Pool)"
               className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2 text-sm mb-2 focus:border-cyan-400 outline-none" />
             <input value={blurb} onChange={(e) => setBlurb(e.target.value)} placeholder="One-line description"
               className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-1.5 text-[12px] outline-none focus:border-cyan-400" />

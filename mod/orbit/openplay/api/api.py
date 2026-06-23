@@ -53,6 +53,7 @@ class CreateGame(BaseModel):
     title: str
     starts_at: int
     admin: str
+    city: Optional[str] = None
     venue: str = ""
     neighborhood: str = ""
     lat: Optional[float] = None
@@ -116,6 +117,37 @@ class CancelReq(BaseModel):
     occ: Optional[str] = None
 
 
+class AddVenue(BaseModel):
+    name: str
+    lat: float
+    lng: float
+    city: Optional[str] = None
+    neighborhood: str = ""
+    sports: Optional[List[str]] = None
+
+
+class SudoReq(BaseModel):
+    admin_secret: str
+
+
+class SudoDeleteGame(BaseModel):
+    admin_secret: str
+    game_id: str
+
+
+class SudoRemovePlayer(BaseModel):
+    admin_secret: str
+    handle: str
+    game_id: Optional[str] = None
+    occ: Optional[str] = None
+
+
+class SudoDeleteVenue(BaseModel):
+    admin_secret: str
+    venue_id: Optional[str] = None
+    name: Optional[str] = None
+
+
 class EditReq(BaseModel):
     admin_key: str
     fields: Dict[str, Any] = {}
@@ -148,14 +180,25 @@ def sports():
     return op().sports()
 
 
+@app.get("/cities")
+def cities():
+    return op().cities()
+
+
 @app.get("/venues")
-def venues():
-    return op().venues()
+def venues(city: Optional[str] = None):
+    return op().venues(city=city)
+
+
+@app.post("/venues")
+def add_venue(req: AddVenue):
+    return _check(op().add_venue(req.name, req.lat, req.lng, city=req.city,
+                                 neighborhood=req.neighborhood, sports=req.sports))
 
 
 @app.get("/games")
-def games(sport: Optional[str] = None):
-    return op().games(sport=sport)
+def games(sport: Optional[str] = None, city: Optional[str] = None):
+    return op().games(sport=sport, city=city)
 
 
 @app.get("/game/{game_id}")
@@ -220,6 +263,28 @@ def decline(game_id: str, req: DeclineReq):
 @app.post("/game/{game_id}/kick")
 def kick(game_id: str, req: KickReq):
     return _check(op().kick(game_id, req.admin_key, req.handle, occ=req.occ, series=req.series))
+
+
+# ── Module admin (sudo) ─────────────────────────────────────────
+@app.post("/admin/verify")
+def admin_verify(req: SudoReq):
+    return op().verify_sudo(req.admin_secret)
+
+
+@app.post("/admin/delete_game")
+def admin_delete_game(req: SudoDeleteGame):
+    return _check(op().admin_delete_game(req.admin_secret, req.game_id))
+
+
+@app.post("/admin/remove_player")
+def admin_remove_player(req: SudoRemovePlayer):
+    return _check(op().admin_remove_player(req.admin_secret, req.handle,
+                                           game_id=req.game_id, occ=req.occ))
+
+
+@app.post("/admin/delete_venue")
+def admin_delete_venue(req: SudoDeleteVenue):
+    return _check(op().admin_delete_venue(req.admin_secret, venue_id=req.venue_id, name=req.name))
 
 
 # ── Generic forward ─────────────────────────────────────────────

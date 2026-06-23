@@ -18,6 +18,7 @@ import {
   CommandLineIcon,
   WalletIcon,
   DocumentTextIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -303,6 +304,10 @@ function ChainHubInner() {
             <a href="/protocol"
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 transition-all">
               <WalletIcon className="w-3.5 h-3.5" /> Protocol App
+            </a>
+            <a href="/admin"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[10px] font-bold uppercase tracking-wider hover:bg-teal-500/20 transition-all">
+              <ShieldCheckIcon className="w-3.5 h-3.5" /> Owner Console
             </a>
             {/* Live block */}
             {chainData.blockNumber && (

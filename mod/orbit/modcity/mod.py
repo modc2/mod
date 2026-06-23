@@ -731,17 +731,22 @@ class Mod:
         for s in SEED_DESIGNS:
             if s['id'] in designs:
                 # keep cells/style fresh if we edit the seeds in code
-                designs[s['id']].update({'name': s['name'], 'style': s['style'],
-                                         'description': s['description'], 'cells': s['cells'],
-                                         'public': True, 'featured': True, 'owner': 'modcity'})
+                rec = designs[s['id']]
+                rec.update({'name': s['name'], 'style': s['style'],
+                            'description': s['description'], 'cells': s['cells'],
+                            'public': True, 'featured': True, 'owner': 'modcity'})
+                if not rec.get('cid'):
+                    rec['cid'] = self._store_blob(rec)
                 continue
             now = int(time.time())
-            designs[s['id']] = {
+            rec = {
                 'id': s['id'], 'name': s['name'], 'owner': 'modcity',
                 'description': s['description'], 'style': s['style'], 'cells': s['cells'],
                 'public': True, 'featured': True, 'constraints': None, 'copies': 0,
                 'forked_from': None, 'created': now, 'updated': now,
             }
+            rec['cid'] = self._store_blob(rec)
+            designs[s['id']] = rec
             added.append(s['id'])
         self._save_designs(designs)
         return {'seeded': added, 'total_featured': len(SEED_DESIGNS)}

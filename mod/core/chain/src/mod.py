@@ -835,6 +835,104 @@ class Mod:
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
         return self.w3.eth.wait_for_transaction_receipt(tx_hash)
 
+    # ==================== ADMIN / OWNER FUNCTIONS ====================
+    #
+    # Generic owner-operation surface used by the Owner Console (/admin in the
+    # app). Supports two modes for every owner-only call:
+    #   - admin_send:   sign & broadcast with the active deployer key (direct).
+    #   - admin_encode: return {to, data, value} calldata WITHOUT touching the
+    #                   chain, so the call can be wrapped into a Safe multisig
+    #                   batch (Safe Transaction Builder JSON) and executed by the
+    #                   multisig once it owns the contracts.
+
+    ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
+    def _abi_inputs(self, contract, function: str):
+        """Return the ABI input descriptors for a function, or None."""
+        for item in getattr(contract, 'abi', []) or []:
+            if item.get('type') == 'function' and item.get('name') == function:
+                return item.get('inputs', [])
+        return None
+
+    def _coerce(self, value, inp: dict):
+        """Coerce a JSON-supplied value into the Solidity type from the ABI.
+
+        Handles arrays, structs (tuple/tuple[]), uint/int (accepts strings to
+        survive JS number-precision limits), address checksumming, bool, bytes.
+        """
+        t = inp.get('type', '')
+        if t.endswith('[]'):
+            base = {**inp, 'type': t[:-2]}
+            return [self._coerce(v, base) for v in (value or [])]
+        if t.startswith('tuple'):
+            comps = inp.get('components', []) or []
+            if isinstance(value, dict):
+                return tuple(self._coerce(value.get(c['name']), c) for c in comps)
+            return tuple(self._coerce(v, c) for v, c in zip(value, comps))
+        if t.startswith(('uint', 'int')):
+            return int(value)
+        if t == 'address':
+            return Web3.to_checksum_address(value)
+        if t == 'bool':
+            return value if isinstance(value, bool) else str(value).lower() in ('true', '1', 'yes')
+        if t.startswith('bytes'):
+            if isinstance(value, str) and value.startswith('0x'):
+                return bytes.fromhex(value[2:])
+            return value
+        return value
+
+    def _coerce_args(self, contract, function: str, args: list):
+        inputs = self._abi_inputs(contract, function)
+        args = list(args or [])
+        if inputs is None or len(inputs) != len(args):
+            return args
+        return [self._coerce(a, i) for i, a in zip(inputs, args)]
+
+    def admin_owner(self, module: str):
+        """Read the current owner() of a module's contract (None if absent)."""
+        contract = self.contracts.get(module)
+        if not contract:
+            return None
+        try:
+            return contract.functions.owner().call()
+        except Exception:
+            return None
+
+    def admin_encode(self, module: str, function: str, args: list = None,
+                     value=0) -> Dict[str, Any]:
+        """Build calldata for an owner call without broadcasting (Safe export)."""
+        contract = self.contracts.get(module)
+        if not contract:
+            raise ValueError(f'{module} contract not loaded')
+        coerced = self._coerce_args(contract, function, args)
+        fn = getattr(contract.functions, function)(*coerced)
+        try:
+            data = fn._encode_transaction_data()
+        except Exception:
+            try:
+                data = contract.encode_abi(abi_element_identifier=function, args=coerced)
+            except TypeError:
+                data = contract.encodeABI(fn_name=function, args=coerced)
+        return {'to': contract.address, 'data': data, 'value': str(int(value))}
+
+    def admin_send(self, module: str, function: str, args: list = None,
+                   value=0) -> Dict[str, Any]:
+        """Sign & broadcast an owner call with the active deployer key."""
+        contract = self.contracts.get(module)
+        if not contract:
+            raise ValueError(f'{module} contract not loaded')
+        coerced = self._coerce_args(contract, function, args)
+        txp = {
+            'from': self.account.address,
+            'nonce': self.w3.eth.get_transaction_count(self.account.address),
+        }
+        if int(value or 0):
+            txp['value'] = int(value)
+        tx = getattr(contract.functions, function)(*coerced).build_transaction(txp)
+        signed = self.w3.eth.account.sign_transaction(tx, self.account.key)
+        tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        return self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
     def is_ecdsa(self, address: str) -> bool:
         """Check if address is an ECDSA address."""
         if not Web3.is_address(address):

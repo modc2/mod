@@ -1052,12 +1052,23 @@ export default function Home() {
     }
   }, [apiUrl, token]);
 
-  // Check owner status when address changes
+  // Reflect the configured owner (config.json, exposed via the API /owner
+  // endpoint) and treat the connected wallet as owner only when it matches.
   useEffect(() => {
-    // Everyone is an owner
-    setIsOwner(true);
-    setOwnerAddress(address);
-  }, [address]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/owner`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const owner = data?.owner ? String(data.owner).toLowerCase() : null;
+        if (cancelled) return;
+        setOwnerAddress(owner);
+        setIsOwner(!!(owner && address && address.toLowerCase() === owner));
+      } catch { /* keep previous owner state on transient errors */ }
+    })();
+    return () => { cancelled = true; };
+  }, [address, apiUrl]);
 
   // ── Auth ──────────────────────────────────────────────────────────
 
@@ -6981,6 +6992,7 @@ export default function Home() {
                         onStart={() => startProcess("api")}
                         onStop={() => stopProcess("api")}
                         onRestart={() => restartProcess("api")}
+                        onClickUrl={() => setSidebarView("api")}
                       />
                     )}
                     {info?.app_url && (
@@ -7876,6 +7888,61 @@ export default function Home() {
     );
   };
 
+  // Combined APP / API tab — a single tab that hosts both the live app
+  // (iframe) and the API explorer, with a segmented toggle to flip
+  // between them. `sidebarView` ("app" | "api") doubles as the toggle
+  // state so deep-links and the service-tile URL clicks still land on
+  // the right sub-view. The toggle only appears when the module has
+  // both an app and an api; otherwise we render whichever exists.
+  const renderAppApiTab = () => {
+    const hasApp = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
+    const hasApi = !!(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints);
+    const sub: "app" | "api" = !hasApp ? "api" : !hasApi ? "app" : (sidebarView === "api" ? "api" : "app");
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {hasApp && hasApi && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 shrink-0"
+            style={{
+              borderBottom: "1px solid var(--border-color)",
+              background: "linear-gradient(180deg, var(--bg-tint), transparent)",
+            }}
+          >
+            <div className="inline-flex rounded-md overflow-hidden" style={{ border: "1px solid var(--border-color)" }}>
+              {([
+                { k: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" },
+                { k: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" },
+              ]).map((s, i) => {
+                const active = sub === s.k;
+                return (
+                  <button
+                    key={s.k}
+                    onClick={() => setSidebarView(s.k)}
+                    className="text-[11px] font-bold uppercase tracking-wider px-3.5 py-1.5 flex items-center gap-1.5 transition-all"
+                    style={{
+                      color: active ? s.color : "var(--text-tertiary)",
+                      background: active ? `color-mix(in srgb, ${s.color} 12%, transparent)` : "transparent",
+                      opacity: active ? 1 : 0.55,
+                      borderLeft: i === 0 ? "none" : "1px solid var(--border-color)",
+                    }}
+                    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.color = s.color; } }}
+                    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.color = "var(--text-tertiary)"; } }}
+                  >
+                    <span className="text-[12px]">{s.icon}</span>
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          {sub === "api" ? renderApiTab() : renderAppTab()}
+        </div>
+      </div>
+    );
+  };
+
   // ═══════════════════════════════════════════════════════════════════
   // DASHBOARD
   // ═══════════════════════════════════════════════════════════════════
@@ -8421,17 +8488,32 @@ export default function Home() {
           <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
           {([
             { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
-            ...(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir ? [{ key: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" }] : []),
-            ...(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints ? [{ key: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" }] : []),
+            // APP + API live under one merged tab; the tab content has a
+            // segmented toggle to flip between the live app and the API
+            // explorer. `activeKeys` keeps it highlighted for either
+            // sub-view; `target` is the sub-view it opens on click.
+            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir || selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints)
+              ? [{
+                  key: "app" as const,
+                  label: (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
+                    ? ((selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints) ? "APP / API" : "APP")
+                    : "API",
+                  icon: "◈",
+                  color: "var(--crt-green)",
+                  activeKeys: ["app", "api"],
+                  target: (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir) ? "app" : "api",
+                }]
+              : []),
             { key: "files" as const, label: "FILES", icon: "◇", color: "var(--text-primary)" },
             { key: "versions" as const, label: "VERSIONS", icon: "⌬", color: "var(--crt-purple, #c084fc)" },
             ...(isOwner ? [{ key: "terminal" as const, label: "TERMINAL", icon: "▶_", color: "var(--crt-blue)" }] : []),
           ]).map((tab) => {
-            const isActive = sidebarView === tab.key;
+            const t = tab as any;
+            const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
             return (
               <button
                 key={tab.key}
-                onClick={() => setSidebarView(tab.key)}
+                onClick={() => setSidebarView(t.target || tab.key)}
                 className="text-[15px] font-bold transition-all px-3 py-2 font-code flex items-center gap-1.5 relative"
                 style={{
                   letterSpacing: "0.02em",
@@ -8721,13 +8803,9 @@ export default function Home() {
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderProfileTab()}
               </div>
-            ) : sidebarView === "api" ? (
+            ) : (sidebarView === "api" || sidebarView === "app") ? (
               <div className="flex-1 flex flex-col overflow-hidden">
-                {renderApiTab()}
-              </div>
-            ) : sidebarView === "app" ? (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {renderAppTab()}
+                {renderAppApiTab()}
               </div>
             ) : sidebarView === "logs" ? (
               <div className="flex-1 flex flex-col overflow-hidden">

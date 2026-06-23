@@ -18,6 +18,7 @@ export type Occurrence = {
   occ_ts: number
   sport: string
   title: string
+  city: string
   venue: string
   neighborhood: string
   lat: number | null
@@ -45,4 +46,5 @@ export type GameDetail = Occurrence & {
 }
 
 export type Sport = { key: string; label: string; emoji: string; color: string }
-export type Venue = { name: string; neighborhood: string; lat: number; lng: number; sports: string[] }
+export type Venue = { id: string; builtin: boolean; name: string; city: string; neighborhood: string; lat: number; lng: number; sports: string[] }
+export type City = { key: string; label: string; country: string; lat: number | null; lng: number | null; zoom: number; venues: number; default: boolean }

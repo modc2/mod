@@ -352,12 +352,46 @@ async fn order_place_handler(
 ) -> impl IntoResponse {
     match crate::order_place::place_order(&state.http, &state.signer_store, req).await {
         Ok(resp) => Json(resp).into_response(),
-        Err(e) => (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": format!("place order: {}", e)})),
-        )
-            .into_response(),
+        Err(e) => {
+            // `place_order` surfaces an upstream CLOB rejection as
+            // "CLOB /order HTTP <status>: <body>". A client-side rejection
+            // (e.g. 400 "not enough balance") must NOT be flattened into a 502:
+            // doing so makes proxies (Cloudflare) serve an opaque HTML error
+            // page and hides the real, actionable reason from the UI. Forward
+            // the true status + a clean message instead.
+            let (code, error) = classify_place_error(&e.to_string());
+            (code, Json(json!({ "error": error }))).into_response()
+        }
     }
+}
+
+/// Map a `place_order` error string to an HTTP status + human message.
+/// Recognizes the "CLOB /order HTTP <status>: <body>" shape and forwards the
+/// upstream status for 4xx (client) errors; anything else stays a 502.
+fn classify_place_error(msg: &str) -> (StatusCode, String) {
+    // Insufficient on-chain balance/allowance is the single most common cause —
+    // give it a crisp, actionable message regardless of the wrapping.
+    if msg.contains("not enough balance") || msg.contains("balance is not enough") {
+        return (
+            StatusCode::PAYMENT_REQUIRED, // 402 — funding required
+            "Insufficient balance/allowance: the trading wallet has no USDC. \
+             Fund the backend deposit wallet with USDC on Polygon (and approve \
+             the CLOB allowance) before placing orders."
+                .to_string(),
+        );
+    }
+    // Generic upstream status forwarding: "... HTTP <code>: <body>".
+    if let Some(idx) = msg.find("HTTP ") {
+        let tail = &msg[idx + 5..];
+        let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(code) = digits.parse::<u16>() {
+            if (400..500).contains(&code) {
+                let status = StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST);
+                return (status, format!("Order rejected by venue: {}", msg));
+            }
+        }
+    }
+    (StatusCode::BAD_GATEWAY, format!("place order: {}", msg))
 }
 
 async fn signer_sign_order(

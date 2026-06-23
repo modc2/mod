@@ -9,6 +9,7 @@
         "app": "http://localhost:50161"
     },
     "network": "mainnet",
+    "default_city": "toronto",
     "payments": {
         "default_free": true,
         "chain": "base",
@@ -37,7 +38,9 @@
         "health",
         "status",
         "sports",
+        "cities",
         "venues",
+        "add_venue",
         "games",
         "game",
         "create_game",
@@ -51,6 +54,10 @@
         "decline_invite",
         "kick",
         "payment_requirements",
+        "verify_sudo",
+        "admin_delete_game",
+        "admin_remove_player",
+        "admin_delete_venue",
         "serve",
         "kill",
         "serve_api",
@@ -61,5 +68,5 @@
         "deregister"
     ],
     "gateway_port": 50161,
-    "schema": "QmVa43gd6ewY53Xs3nQXrVK7ETo57t196MfkEUBZg5i4R4"
+    "schema": "QmP2SjE38hPktpqBB2obR4tTGfyVzyMVfC4rGLHpqn5hDc"
 }

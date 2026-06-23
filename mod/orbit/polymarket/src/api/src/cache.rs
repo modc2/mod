@@ -21,6 +21,14 @@ pub struct ProxyCache {
     disk_dir: PathBuf,
 }
 
+/// Freshness window for trader activity/trades (seconds). Matches the hourly
+/// warmup cadence in main.rs and `AGG_TTL` below: warmed entries stay valid for
+/// the full hour instead of expiring early and forcing an on-demand data-api
+/// refetch (the dominant 429 source). The live copy engine does NOT use this
+/// cache — it fetches data-api directly at its own 60s cadence — so copy
+/// responsiveness is unaffected by this window.
+const FRESHNESS_TTL_SECS: u64 = 3600;
+
 /// Endpoints whose responses get persisted to disk (trader + historical data).
 /// These survive server restarts and are never re-fetched from Polymarket
 /// once cached.
@@ -68,7 +76,7 @@ impl ProxyCache {
                 // Match the same freshness rule the writer uses — disk-loaded
                 // trader entries also expire after 1h so they re-fetch.
                 let ttl = if Self::is_freshness_critical(endpoint) {
-                    Duration::from_secs(60)
+                    Duration::from_secs(FRESHNESS_TTL_SECS)
                 } else {
                     Duration::from_secs(86400)
                 };
@@ -84,10 +92,10 @@ impl ProxyCache {
     }
 
     /// Trader trade/activity endpoints persist to disk (survive restarts) but
-    /// memory-cache for only 1 hour, not 24h. Without this an entry written at
-    /// 9 AM serves stale "no recent trades" responses until 9 AM the next day,
-    /// which hides newly-active traders from the leaderboard. Markets/holders/
-    /// historical data still cache for 24h — those don't churn meaningfully.
+    /// memory-cache for only `FRESHNESS_TTL_SECS` (1h), not 24h. This bounds how
+    /// stale a trader's activity can get while still letting it survive between
+    /// hourly warmup cycles. Markets/holders/historical data still cache for 24h
+    /// — those don't churn meaningfully.
     fn is_freshness_critical(endpoint: &str) -> bool {
         let ep = endpoint.to_lowercase();
         ep.starts_with("activity") || ep.starts_with("trades")
@@ -95,11 +103,11 @@ impl ProxyCache {
 
     pub fn set(&self, key: String, data: Value, ttl: Duration, endpoint: &str) {
         let persist = Self::is_persistent(endpoint);
-        // Trader trade/activity entries get a 1-hour memory TTL so the next
-        // warmup tick re-fetches them — without this, a 9 AM cache hides
-        // dormant→active transitions until 9 AM the next day.
+        // Trader trade/activity entries get a 1-hour memory TTL (matching the
+        // hourly warmup) so on-demand browse requests hit the warmed cache
+        // instead of refetching data-api every minute.
         let mem_ttl = if Self::is_freshness_critical(endpoint) {
-            Duration::from_secs(60)
+            Duration::from_secs(FRESHNESS_TTL_SECS)
         } else if persist {
             Duration::from_secs(86400)
         } else {
@@ -168,17 +176,18 @@ impl ProxyCache {
     fn load_from_disk(&self, key: &str) -> Option<Value> {
         let path = self.disk_path(key);
         if !path.exists() { return None; }
-        // Freshness gate: trader activity/trades on disk older than 1h are
-        // considered stale. Without this, a 48h-old cache file gets loaded
-        // as if fresh and propagates "0 trades in last 24h" everywhere.
-        // The endpoint prefix lives in the filename (proxy_endpoint_<ep>_…).
+        // Freshness gate: trader activity/trades on disk older than the
+        // freshness window (1h) are considered stale. Without this, a 48h-old
+        // cache file gets loaded as if fresh and propagates "0 trades in last
+        // 24h" everywhere. The endpoint prefix lives in the filename
+        // (proxy_endpoint_<ep>_…).
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let is_freshness_critical = name.contains("endpoint_activity")
             || name.contains("endpoint_trades");
         if is_freshness_critical {
             if let Ok(meta) = std::fs::metadata(&path) {
                 if let Ok(modified) = meta.modified() {
-                    if modified.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(60) {
+                    if modified.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(FRESHNESS_TTL_SECS) {
                         // Delete the stale file so next save_to_disk doesn't
                         // bump mtime on a stale payload by accident.
                         let _ = std::fs::remove_file(&path);

@@ -1,10 +1,10 @@
 {
     "name": "claude",
     "version": "2.1.0",
-    "description": "Programmable AI developer interface \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "description": "Programmable AI developer interface — Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
     "port": 8820,
     "app_port": 8823,
-    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
     "chain_network": "testnet",
     "bloctime_gate": true,
     "bloctime_ttl": 60,
