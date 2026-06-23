@@ -343,6 +343,15 @@ modc2.com {
     handle @zcash_app {
         reverse_proxy zcash:3930
     }
+    @web_api path /api/web /api/web/*
+    handle @web_api {
+        uri strip_prefix /api/web
+        reverse_proxy {$PM2_HOST:localhost}:50420
+    }
+    @web_app path /web /web/*
+    handle @web_app {
+        reverse_proxy {$PM2_HOST:localhost}:3420
+    }
     @main_api path /api /api/*
     handle @main_api {
         uri strip_prefix /api

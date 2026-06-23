@@ -1,0 +1,31 @@
+[package]
+name = "mod-api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mod-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization — preserve_order so the catalog reflects config.json key order.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# Error handling + logging
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# State
+parking_lot = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
