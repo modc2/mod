@@ -50,6 +50,25 @@ without `.git`), or a bare name (assumed under `modc2`).
 Each commit comes back as
 `{repo, branch, sha, full_sha, author, date, message, url, new}`.
 
+## Web app
+
+A zero-dependency web UI (no npm/build step) serves the feed at a single port,
+with a JSON API alongside it:
+
+```bash
+m updates/serve                 # background; → http://localhost:50180
+m updates/serve port=50180 background=False   # run in the foreground
+m updates/kill                  # stop it
+```
+
+The page shows the merged commit feed (mod `dev` by default), repo filter pills,
+an **NEW** badge on unseen commits, a "track owner/repo" box, and a "mark read"
+button; it auto-refreshes every 60s.
+
+JSON API (same port): `GET /api/updates?n=&repo=`, `GET /api/commits?repo=&branch=&n=`,
+`GET /api/repos`, `GET /api/poll`, `GET /api/info`, `POST /api/track {repo,branch}`,
+`POST /api/untrack {repo}`, `POST /api/set_branch {repo,branch}`.
+
 ## Continuous monitoring
 
 `poll` is designed to be run on a schedule — pair it with the `loop` skill, e.g.

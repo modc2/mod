@@ -26,6 +26,12 @@ m updates/poll                             # only NEW commits since last poll
 - `poll` — returns only commits new since the last poll (for cron/`loop`).
 - `track`/`attach`, `untrack`/`detach`, `set_branch`, `repos`, `info`.
 
+## Web app
+Zero-dep UI + JSON API on one port: `m updates/serve` → http://localhost:50180
+(feed with NEW badges, repo filter pills, track box, mark-read; auto-refresh 60s).
+`m updates/kill` to stop. API: `/api/updates`, `/api/commits`, `/api/repos`,
+`/api/poll`, `POST /api/track|untrack|set_branch`.
+
 ## Notes
 - `repo` = `owner/repo`, a GitHub URL, or a bare name (assumed `modc2/…`).
 - Data: GitHub REST API (set `$GITHUB_TOKEN`/`$GH_TOKEN` for higher limits / private

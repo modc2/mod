@@ -6,6 +6,8 @@
     "fns": [
         "forward",
         "info",
+        "serve",
+        "kill",
         "updates",
         "show",
         "commits",
