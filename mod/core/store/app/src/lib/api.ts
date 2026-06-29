@@ -46,6 +46,56 @@ export interface StoredObject {
   scheme?: string;
   url?: string | null;
   shared_via?: string;
+  semhash?: string | null;
+  distance?: number | null;
+  similarity?: number | null;
+}
+
+export interface Ticket {
+  code: string;
+  cid: string;
+  backend: string | null;
+  expires: number;
+  expires_in: number;
+}
+
+export interface PinInfo {
+  cid: string;
+  backend: string;
+  owner: string;
+  created: number;
+  size?: number | null;
+  key?: string | null;
+  visibility?: string;
+}
+
+export interface Preview {
+  cid: string;
+  size?: number;
+  truncated?: boolean;
+  preview_bytes?: number;
+  is_text?: boolean;
+  text?: string | null;
+  external?: boolean;
+  url?: string | null;
+}
+
+export interface ObjectInfo {
+  cid: string;
+  owner: string | null;
+  stored_at: number | null;
+  key: string | null;
+  size: number | null;
+  backends: string[];
+  scheme: string;
+  visibility: string;
+  semhash: string | null;
+  external_url: string | null;
+  pinned: boolean;
+  is_owner: boolean;
+  grants: Grant[];
+  pools: { id: string; name: string; owner: string; members: { address: string; role: string; expires_in: number | null; expired: boolean }[] }[];
+  you_can_read?: boolean;
 }
 
 export interface Grant {
@@ -176,6 +226,59 @@ export const api = {
       await fetch(`${BASE}/shared`, { headers: authHeaders(token) })
     );
   },
+  async search(
+    token: string,
+    params: { q?: string; semantic_q?: string; backend?: string; scheme?: string; visibility?: string; scope?: string } = {}
+  ) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => v && qs.append(k, String(v)));
+    return json<{ count: number; objects: StoredObject[] }>(
+      await fetch(`${BASE}/search?${qs.toString()}`, { headers: authHeaders(token) })
+    );
+  },
+  async preview(token: string, cid: string, maxBytes = 65536) {
+    return json<Preview>(
+      await fetch(`${BASE}/preview?cid=${encodeURIComponent(cid)}&max_bytes=${maxBytes}`, {
+        headers: authHeaders(token),
+      })
+    );
+  },
+  async objectInfo(token: string, cid: string) {
+    return json<ObjectInfo>(
+      await fetch(`${BASE}/object?cid=${encodeURIComponent(cid)}`, { headers: authHeaders(token) })
+    );
+  },
+
+  // ── pins ──
+  async pins(token: string) {
+    return json<{ owner: string; pins: PinInfo[] }>(
+      await fetch(`${BASE}/pins`, { headers: authHeaders(token) })
+    );
+  },
+  async unpin(token: string, cid: string, backend?: string) {
+    const q = backend ? `&backend=${backend}` : "";
+    return json<Record<string, unknown>>(
+      await fetch(`${BASE}/pin?cid=${encodeURIComponent(cid)}${q}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      })
+    );
+  },
+
+  // ── one-time access tickets ──
+  async createTicket(token: string, cid: string, ttl_seconds = 10, backend?: string) {
+    return json<Ticket>(
+      await fetch(`${BASE}/tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ cid, ttl_seconds, backend }),
+      })
+    );
+  },
+  ticketUrl(code: string) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${BASE}/ticket/${code}`;
+  },
 
   // ── grants ──
   async grants(token: string) {
@@ -218,6 +321,11 @@ export const api = {
   },
   async pool(token: string, id: string) {
     return json<PoolDetail>(await fetch(`${BASE}/pools/${id}`, { headers: authHeaders(token) }));
+  },
+  async deletePool(token: string, id: string) {
+    return json<{ deleted: string }>(
+      await fetch(`${BASE}/pools/${id}`, { method: "DELETE", headers: authHeaders(token) })
+    );
   },
   async addMember(
     token: string,

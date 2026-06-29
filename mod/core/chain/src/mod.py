@@ -1157,19 +1157,28 @@ class Mod:
             'governance_token': snap['governance_token'],
             'tokens': snap['tokens'],
         }
-        path = m.abspath('~/.mod/chain/pool_epochs.json')
-        epochs = m.get(path, [])
-        if not isinstance(epochs, list):
-            epochs = []
+        epochs = self.pool_epochs(limit=10_000)
         epochs.append(epoch)
         epochs = epochs[-200:]  # cap history
-        m.put(path, epochs)
+        path = self._pool_epochs_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump(epochs, f)
         return epoch
+
+    def _pool_epochs_path(self) -> str:
+        return os.path.expanduser('~/.mod/chain/pool_epochs.json')
 
     def pool_epochs(self, limit: int = 12) -> List[Dict[str, Any]]:
         """Return the most recent weekly pool snapshots (newest last)."""
-        path = m.abspath('~/.mod/chain/pool_epochs.json')
-        epochs = m.get(path, [])
+        path = self._pool_epochs_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path) as f:
+                epochs = json.load(f)
+        except Exception:
+            return []
         if not isinstance(epochs, list):
             return []
         return epochs[-int(limit):]
@@ -1195,6 +1204,12 @@ class Mod:
         params = {
             'from': self.account.address,
             'nonce': self.w3.eth.get_transaction_count(self.account.address, 'pending'),
+            # Explicit gas limit so build_transaction skips eth_estimateGas, which
+            # is unreliable on load-balanced public RPCs (a lagging backend can
+            # see a freshly-funded account as empty → "gas required exceeds
+            # allowance (0)"). Our calls (approve/fundTreasury/registerMod/…) are
+            # all well under this ceiling; unused gas isn't charged under 1559.
+            'gas': 500000,
         }
         params.update(self._gas_fees())
         tx = getattr(contract.functions, function)(*args).build_transaction(params)

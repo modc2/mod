@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, gatewayUrl, type Module } from "@/lib/api";
 import { Nav, Footer } from "../../components/Chrome";
 import Explorer from "../../components/Explorer";
+import RegisterPanel from "../../components/RegisterPanel";
 
 function hueFromName(name: string): string {
   let h = 0;
@@ -18,6 +19,12 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
   const [m, setM] = useState<Module | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+
+  const reload = () =>
+    api
+      .mod(params.name)
+      .then((mod) => setM(mod))
+      .catch((e) => setErr(String(e)));
 
   useEffect(() => {
     let alive = true;
@@ -165,6 +172,14 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {!m.registered && (
+                  <RegisterPanel
+                    name={m.name}
+                    schema={m.schema}
+                    onRegistered={reload}
+                  />
                 )}
 
                 <div className="panel">

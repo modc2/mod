@@ -98,11 +98,20 @@ m store/stop                      # pm2 stop
 | POST   | `/put`       | ✓ wl | multipart upload (form: `file, backend, key, public, pool`) |
 | POST   | `/register`  | ✓ wl | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
 | GET    | `/get`       | opt  | retrieve by CID; private objects need `?token=` or Bearer |
+| GET    | `/preview`   | opt  | peek content: truncated text + `size`/`truncated` flag |
+| GET    | `/object`    | opt  | full info: stored when/by-whom, backends, visibility, semhash, **who has access** |
 | POST   | `/publish`   | owner| flip an object private⇄public `{cid, public}` |
 | POST   | `/pin`       | ✓ wl | pin a CID on a backend |
-| GET    | `/list`      | ✓    | list caller's objects (+`visibility/scheme/url`) |
+| GET    | `/pins`      | ✓    | list the caller's pinned objects |
+| DELETE | `/pin`       | ✓ wl | unpin `?cid=…[&backend=…]` |
+| GET    | `/list`      | ✓    | list caller's objects (+`visibility/scheme/url/semhash`) |
+| GET    | `/search`    | ✓    | filter by `q`/backend/scheme/visibility; rank by `semantic_q` |
 | GET    | `/shared`    | ✓    | objects shared **with** caller (grants + pools) |
 | DELETE | `/rm`        | ✓ wl | remove an index record |
+| DELETE | `/pools/{id}`| owner| delete a pool (members + objects) |
+| POST   | `/tickets`   | ✓    | mint single-use short-TTL fetch ticket `{cid, ttl_seconds=10}` |
+| GET    | `/tickets`   | ✓    | the caller's active (unused, unexpired) tickets |
+| GET    | `/ticket/{code}` | — | redeem → serve the object **exactly once** (anti-replay) |
 | POST   | `/grants`    | ✓    | grant timed access `{grantee, cid?, scope, ttl_seconds?}` |
 | GET    | `/grants`    | ✓    | grants I made + grants made to me |
 | DELETE | `/grants/{id}` | ✓  | revoke a grant |
@@ -147,6 +156,38 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
   other system as a first-class store object (listable, shareable, poolable)
   without uploading bytes; `/get` redirects to its gateway `url`. Schemes are
   inferred (`ipfs`/`arweave`/`s3`/…) but never enforced.
+
+## Search, semantic hash, tickets & object info
+
+- **Search** — `GET /search?q=…` filters the caller's objects (and, with
+  `scope=shared|all`, those shared with them) by CID/key substring plus exact
+  `backend`/`scheme`/`visibility`. `GET /search?semantic_q=…` ranks results by
+  **semantic similarity** (see below), nearest first, attaching `distance` +
+  `similarity` to each.
+- **1-bit semantic encoder** (`api/semantic.py`) — a fully **local**, pure-stdlib
+  SimHash / random-hyperplane LSH. Every stored object gets a binary semantic
+  hash (a 64-bit latent vector, shown as 16 hex chars). Cosine-similar content →
+  small **Hamming distance**, so semantic / near-duplicate search is just
+  `popcount(a ^ b)` — fast to scan and LSH-bandable. No model download, no
+  network; the interface would let a heavier local embedder slot in later.
+- **One-time access tickets** (`POST /tickets`, default `ttl_seconds=10`) — a
+  single-use, short-TTL capability for one fetch of a CID (even a private one).
+  The QR/link works **once** and only within the window; the claim is atomic
+  (`UPDATE … WHERE claimed=0`, rowcount-checked) so a captured ticket can never
+  be replayed — even by two requests racing in parallel.
+- **Object info** — `GET /object?cid=…` returns when it was stored, who stored
+  it, backends, visibility, pinned state, the semantic hash, and (for the owner)
+  the full access roster: every active grant (grantee/scope/expiry) and every
+  pool it lives in. Non-owners only learn whether *they* can read it.
+- **Pin management** — `GET /pins` lists your pins; `POST /pin` pins (and tracks)
+  a CID; `DELETE /pin?cid=…` unpins.
+- **Content viewer** — `GET /preview?cid=…&max_bytes=…` returns up to N bytes
+  (text decoded when possible) plus the full size and a `truncated` flag, so the
+  app can show huge content truncated and offer "copy all".
+
+The app surfaces all of this: instant CID/name search + a 🧠 semantic toggle, a
+per-object content viewer (truncate + copy-all), a 📱 one-time-ticket QR for
+phone hand-off, an object-info panel, a fetch-by-CID box, and a pins tab.
 
 ## On-chain (BlocTime + chain Registry)
 

@@ -87,9 +87,11 @@ class Mod:
     # --- claims -------------------------------------------------------------
 
     def _validate_top(self, name: str):
-        name = name.lower()
+        # Validate the RAW name: the on-chain Namespace hashes keccak(bytes(name))
+        # case-sensitively, so names must already be canonical lowercase (we
+        # reject rather than silently normalize, to stay consistent on/off chain).
         assert '.' not in name, 'top-level claim only (use mint_sub for subdomains)'
-        assert NAME_RE.match(name), f'invalid name: {name}'
+        assert NAME_RE.match(name), f'invalid name (lowercase a-z/0-9/-, no leading -): {name!r}'
         return name
 
     def claim(self, name: str, amount: int, lock: int, key=None, onchain=False) -> dict:
@@ -168,9 +170,8 @@ class Mod:
     def mint_sub(self, parent: str, label: str, mod: str = None, cid: str = None, key=None) -> dict:
         """Mint/repoint a parent-delegated subdomain `label`.`parent`. Provide
         either a module to publish, or an existing cid."""
+        assert NAME_RE.match(label), f'invalid label (lowercase a-z/0-9/-, no leading -): {label!r}'
         parent = parent.lower()
-        label = label.lower()
-        assert NAME_RE.match(label), f'invalid label: {label}'
         idx = self._load()
         p = idx.get(parent)
         addr = self._addr(key)
@@ -224,11 +225,18 @@ class Mod:
         return self.info()
 
     def test(self, verbose=True):
-        """Run the pytest suite (m webchain/test)."""
+        """Run the pytest suite (m webchain/test).
+
+        Runs from the framework root so the local `mod.py` doesn't shadow the
+        `mod` package on sys.path.
+        """
         import subprocess
+        import sys
         here = os.path.dirname(os.path.abspath(__file__))
-        args = ['-m', 'pytest', os.path.join(here, 'tests'), '-v' if verbose else '-q']
-        return subprocess.run([__import__('sys').executable, *args], cwd=here).returncode
+        root = list(m.__path__)[0]
+        rel = os.path.relpath(os.path.join(here, 'tests'), root)
+        args = ['-m', 'pytest', rel, '-v' if verbose else '-q']
+        return subprocess.run([sys.executable, *args], cwd=root).returncode
 
     def info(self) -> dict:
         idx = self._load()

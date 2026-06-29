@@ -176,3 +176,54 @@ textarea {
 .modal-body { padding: 20px; }
 .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
 @media (max-width: 640px) { .modal-grid { grid-template-columns: 1fr; } }
+
+/* header cleanup */
+.brand-block { display: flex; flex-direction: column; gap: 2px; }
+.brand-sub { margin-left: 0; font-size: 12px; }
+.identity { display: flex; align-items: center; }
+.id-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid #262626; border-radius: 999px; padding: 4px 6px 4px 12px; background: #141414;
+}
+.id-addr { font-size: 13px; }
+.id-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+.id-chip .dot.ok { background: #34d399; box-shadow: 0 0 6px #34d39988; }
+.id-chip .dot.warn { background: #fbbf24; }
+button.ghost { background: transparent; border: none; padding: 4px 6px; border-radius: 6px; }
+button.ghost:hover:not(:disabled) { background: #222; }
+
+/* search */
+.search-row input { min-width: 220px; }
+.pill.sim { background: #1e3a8a55; color: #93c5fd; }
+
+/* object actions */
+.object-card.compact { padding: 12px 0; }
+.actions { gap: 8px; flex-wrap: wrap; }
+.actions a, .actions button { font-size: 12px; padding: 5px 10px; }
+.btn-link { display: inline-block; padding: 5px 10px; border: 1px solid #333; border-radius: 4px; font-size: 12px; }
+.btn-link[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+
+/* semantic hash chip */
+.sem-chip {
+  align-self: flex-start; font-size: 11px; padding: 3px 8px; background: #11161f;
+  border: 1px solid #1e293b; border-radius: 6px; color: #93c5fd; text-align: left;
+}
+.sem-chip .mono { letter-spacing: 0.04em; }
+
+/* content viewer */
+.content-view {
+  margin: 12px 0 0 0; padding: 14px; background: #0c0c0c; border: 1px solid #222;
+  border-radius: 6px; max-height: 50vh; overflow: auto; white-space: pre-wrap;
+  word-break: break-word; font-size: 12.5px;
+}
+.img-wrap { margin-top: 12px; text-align: center; }
+.img-wrap img { max-width: 100%; max-height: 50vh; border-radius: 6px; }
+
+/* info grid */
+.info-grid {
+  display: grid; grid-template-columns: 130px 1fr; gap: 8px 16px; align-items: baseline;
+  font-size: 13px; margin-top: 8px;
+}
+.info-grid > span:nth-child(odd) { text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; }
+
+.expired-txt { color: #fca5a5; }

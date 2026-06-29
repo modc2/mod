@@ -5,6 +5,7 @@ import { api, type Graph, type Info, type Module, type Registry } from "@/lib/ap
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
 import DepGraph from "./components/DepGraph";
+import PoolWidget from "./components/PoolWidget";
 
 const LOGO = ` _____ _______ ______
 |     |       |      \\
@@ -92,6 +93,10 @@ export default function Home() {
           </span>
         </div>
       </header>
+
+      <section className="wrap">
+        <PoolWidget />
+      </section>
 
       <section className="wrap" id="ecosystem">
         <div className="explorer-toolbar">

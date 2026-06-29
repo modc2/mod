@@ -1,0 +1,23 @@
+{
+    "name": "updates",
+    "version": "0.1.0",
+    "description": "GitHub commit-feed monitor. Tracks the mod repo (modc2/mod) and shows its dev-branch commit history by default, and can attach any other GitHub repo into one aggregated updates feed that flags commits new since you last looked. Uses the GitHub REST API (optionally authenticated via $GITHUB_TOKEN) with a local `git log` fallback for the checked-out repo.",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "updates",
+        "show",
+        "commits",
+        "history",
+        "poll",
+        "track",
+        "attach",
+        "untrack",
+        "detach",
+        "set_branch",
+        "repos"
+    ],
+    "key": "updates",
+    "schema": "QmbtX5yPGCEQhcRiwTVk82kBLwCTc1X5g7s1AhkkarPNy3"
+}

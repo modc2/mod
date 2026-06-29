@@ -354,6 +354,15 @@ export default function Home() {
   // no edges as isolated nodes.
   const [hubGraphMode, setHubGraphMode] = useState(false);
   const [autoRestartAfterEdit, setAutoRestartAfterEdit] = useState(true);
+  // ── Add-Module modal: import a fresh module from a GitHub repo or a
+  //    snapshot CID (POST /modules/import). ───────────────────────────
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSource, setAddSource] = useState<"github" | "cid">("github");
+  const [addUrl, setAddUrl] = useState("");
+  const [addCid, setAddCid] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [restartNotice, setRestartNotice] = useState<string | null>(null);
   const prevJobStatusRef = useRef<Record<string, string>>({});
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
@@ -2473,6 +2482,70 @@ export default function Home() {
     } catch { /* ignore */ }
     finally { setLoadingConfig(false); }
   }, [anchorDir, apiUrl]);
+
+  // Derive a sensible default module name from a git URL's last path
+  // segment (".git" stripped) so the user rarely has to type one.
+  const deriveNameFromUrl = (url: string): string => {
+    try {
+      const tail = url.trim().replace(/\/+$/, "").split("/").pop() || "";
+      return tail.replace(/\.git$/i, "").toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "");
+    } catch { return ""; }
+  };
+
+  // Import a brand-new module from a GitHub repo or a snapshot CID, then
+  // refresh the catalog and jump straight into the new module.
+  const submitAddModule = useCallback(async () => {
+    setAddError(null);
+    const name = (addName.trim() || (addSource === "github" ? deriveNameFromUrl(addUrl) : "")).trim();
+    if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+      setAddError("Enter a module name (letters, numbers, - or _).");
+      return;
+    }
+    if (addSource === "github" && !/^https?:\/\//i.test(addUrl.trim())) {
+      setAddError("Enter an http(s) git URL.");
+      return;
+    }
+    if (addSource === "cid" && !addCid.trim()) {
+      setAddError("Enter a snapshot CID.");
+      return;
+    }
+    setAddBusy(true);
+    try {
+      const body: Record<string, string> = { source: addSource, name };
+      if (addSource === "github") body.url = addUrl.trim();
+      else body.cid = addCid.trim();
+      // git clone can be slow — give it a generous timeout.
+      const res = await authFetch("/modules/import", { method: "POST", body: JSON.stringify(body) }, 200000);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        setAddError(data?.error || `Import failed (HTTP ${res.status})`);
+        setAddBusy(false);
+        return;
+      }
+      // Success — close the modal, reset its fields, refresh the catalog.
+      setAddOpen(false);
+      setAddUrl(""); setAddCid(""); setAddName(""); setAddError(null);
+      await fetchModules("");
+      // Open the freshly imported module.
+      const opened = (data.module as string) || name;
+      const m = {
+        name: opened,
+        path: (data.path as string) || "",
+        category: (data.category as string) || "orbit",
+        description: "",
+      } as typeof moduleList[0];
+      resetModuleState(m);
+      setSelectedModule(opened);
+      setSelectedModuleInfo(m);
+      setWorkDir(m.path);
+      fetchModuleConfig(opened);
+      setSidebarView("overview");
+    } catch (e: any) {
+      setAddError(e?.message === "NOT AUTHENTICATED" ? "Sign in to import a module." : (e?.message || "Import failed"));
+    } finally {
+      setAddBusy(false);
+    }
+  }, [addName, addSource, addUrl, addCid, authFetch, fetchModules, resetModuleState, fetchModuleConfig]);
 
   // Fetch direct config from /config endpoint on mount
   const fetchDirectConfig = useCallback(async () => {
@@ -7350,6 +7423,21 @@ export default function Home() {
           <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
             {mods.length} modules · <span className="text-crt-green">{onlineCount} online</span>
           </span>
+          <button
+            onClick={() => { setAddError(null); setAddOpen(true); }}
+            className="flex items-center gap-1.5 text-[11px] font-code px-3 py-1.5 rounded-md transition-all font-bold"
+            style={{
+              color: "#fff",
+              background: "linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)))",
+              boxShadow: "0 2px 12px color-mix(in srgb, var(--accent-color) 35%, transparent)",
+              letterSpacing: "0.03em",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(1.1)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; e.currentTarget.style.transform = "none"; }}
+            title="Import a module from a GitHub repo or a snapshot CID"
+          >
+            <span style={{ fontSize: "13px", lineHeight: 1 }}>＋</span> ADD MODULE
+          </button>
           <input
             type="text"
             value={hubSearch}
@@ -7436,6 +7524,21 @@ export default function Home() {
               className="grid gap-3"
               style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
             >
+              <button
+                onClick={() => { setAddError(null); setAddOpen(true); }}
+                className="text-left rounded p-3 transition-all flex flex-col items-center justify-center gap-1.5 group min-h-[104px]"
+                style={{
+                  border: "1px dashed color-mix(in srgb, var(--accent-color) 40%, transparent)",
+                  background: "color-mix(in srgb, var(--accent-color) 4%, transparent)",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent-color)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 9%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent-color) 40%, transparent)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 4%, transparent)"; }}
+                title="Import from GitHub or a snapshot CID"
+              >
+                <span className="text-[24px] leading-none" style={{ color: "var(--accent-color)" }}>＋</span>
+                <span className="text-[12px] font-code font-bold" style={{ color: "var(--accent-color)" }}>Add a module</span>
+                <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)" }}>GitHub · CID</span>
+              </button>
               {mods.map((m) => {
                 const live = liveOf(m.name);
                 const isSel = m.name === selectedModule;
@@ -7488,6 +7591,161 @@ export default function Home() {
               })}
             </div>
           )}
+        </div>
+        {addOpen && renderAddModuleModal()}
+      </div>
+    );
+  };
+
+  // ── Add-Module modal ─────────────────────────────────────────────────
+  // A sleek glass sheet for importing a fresh module straight from a
+  // GitHub repo (shallow clone) or a snapshot CID (shared blob store).
+  const renderAddModuleModal = () => {
+    const sources: Array<{ k: "github" | "cid"; label: string; glyph: string; hint: string }> = [
+      { k: "github", label: "GitHub", glyph: "⎇", hint: "Clone a public git repo" },
+      { k: "cid", label: "CID / Snapshot", glyph: "◈", hint: "Restore from a snapshot CID" },
+    ];
+    const derived = addSource === "github" ? deriveNameFromUrl(addUrl) : "";
+    return (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }}
+        onClick={() => !addBusy && setAddOpen(false)}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-[460px] rounded-2xl overflow-hidden flex flex-col"
+          style={{
+            background: "var(--glass-bg-strong, var(--bg-secondary))",
+            border: "1px solid var(--glass-border-strong, var(--border-color-strong))",
+            boxShadow: "var(--shadow-lg)",
+            backdropFilter: "blur(24px) saturate(160%)",
+            WebkitBackdropFilter: "blur(24px) saturate(160%)",
+          }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-5 py-3.5"
+            style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--accent-color) 6%, transparent)" }}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-[16px]" style={{ color: "var(--accent-color)" }}>＋</span>
+              <span className="text-[14px] font-bold font-code" style={{ color: "var(--text-primary)", letterSpacing: "0.02em" }}>Add a module</span>
+            </div>
+            <button
+              onClick={() => !addBusy && setAddOpen(false)}
+              className="text-[18px] leading-none transition-opacity hover:opacity-100"
+              style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
+              title="Close"
+            >×</button>
+          </div>
+
+          <div className="p-5 flex flex-col gap-4">
+            {/* Source selector */}
+            <div className="grid grid-cols-2 gap-2">
+              {sources.map((s) => {
+                const on = addSource === s.k;
+                return (
+                  <button
+                    key={s.k}
+                    onClick={() => { setAddSource(s.k); setAddError(null); }}
+                    className="flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-lg transition-all text-left"
+                    style={{
+                      border: `1px solid ${on ? "var(--accent-color)" : "var(--border-color)"}`,
+                      background: on ? "color-mix(in srgb, var(--accent-color) 10%, transparent)" : "transparent",
+                    }}
+                  >
+                    <span className="text-[12px] font-bold font-code flex items-center gap-1.5" style={{ color: on ? "var(--accent-color)" : "var(--text-secondary)" }}>
+                      <span style={{ fontSize: "13px" }}>{s.glyph}</span> {s.label}
+                    </span>
+                    <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)" }}>{s.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Source-specific input */}
+            {addSource === "github" ? (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>Repository URL</span>
+                <input
+                  autoFocus
+                  type="text"
+                  value={addUrl}
+                  onChange={(e) => setAddUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                  placeholder="https://github.com/owner/repo"
+                  className="px-3 py-2 rounded-lg bg-transparent font-code outline-none text-[12px]"
+                  style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+                />
+              </label>
+            ) : (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>Snapshot CID</span>
+                <input
+                  autoFocus
+                  type="text"
+                  value={addCid}
+                  onChange={(e) => setAddCid(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                  placeholder="content id of a module snapshot"
+                  className="px-3 py-2 rounded-lg bg-transparent font-mono outline-none text-[12px]"
+                  style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+                />
+              </label>
+            )}
+
+            {/* Module name */}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>
+                Module name {derived && !addName.trim() && <span style={{ opacity: 0.7 }}>· defaults to “{derived}”</span>}
+              </span>
+              <input
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                placeholder={derived || "my-module"}
+                className="px-3 py-2 rounded-lg bg-transparent font-code outline-none text-[12px]"
+                style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+              />
+            </label>
+
+            {!isOwner && (
+              <div className="text-[10px] font-code leading-snug px-2.5 py-1.5 rounded" style={{ color: "var(--text-tertiary)", background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, transparent)" }}>
+                As a non-owner your module is imported into your personal <span className="font-bold">portal/</span> namespace.
+              </div>
+            )}
+
+            {addError && (
+              <div className="text-[11px] font-code leading-snug px-2.5 py-2 rounded" style={{ color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)" }}>
+                {addError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => !addBusy && setAddOpen(false)}
+                className="text-[12px] font-code px-3.5 py-2 rounded-lg transition-colors"
+                style={{ color: "var(--text-secondary)", border: "1px solid var(--border-color)" }}
+              >Cancel</button>
+              <button
+                onClick={() => submitAddModule()}
+                disabled={addBusy}
+                className="text-[12px] font-code font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-2"
+                style={{
+                  color: "#fff",
+                  background: addBusy ? "var(--text-tertiary)" : "linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)))",
+                  boxShadow: addBusy ? "none" : "0 2px 12px color-mix(in srgb, var(--accent-color) 35%, transparent)",
+                  opacity: addBusy ? 0.7 : 1,
+                  cursor: addBusy ? "wait" : "pointer",
+                }}
+              >
+                {addBusy ? (<><span className="led-pulse">●</span> Importing…</>) : (<>＋ Import</>)}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
