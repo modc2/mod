@@ -1,0 +1,24 @@
+{
+    "name": "webchain",
+    "version": "0.1.0",
+    "description": "Staketime-priority namespace: claim names by locking stake (weight = tokens x lock-blocks), point them at code/sites stored on the localfs CID store, and resolve {name} / {sub}.{name} subdomains on chain. Highest staketime holds the name (preemption); parent owners delegate subdomains.",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "claim",
+        "release",
+        "publish",
+        "set_content",
+        "mint_sub",
+        "resolve",
+        "site",
+        "fetch",
+        "names",
+        "staketime",
+        "weight",
+        "test"
+    ],
+    "key": "webchain",
+    "schema": "QmQfFvwjtro61cCQvvk8iR9XbBUEpWBeAtXowa8MsXwKhQ"
+}

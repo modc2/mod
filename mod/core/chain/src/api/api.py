@@ -515,6 +515,21 @@ async def registry_mods(address: Optional[str] = None, network: str = "testnet")
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/registry/all")
+async def registry_all(network: str = "testnet"):
+    """List every mod registered in the on-chain Registry, across all owners.
+
+    This is the global view consumed by the web catalog to mark which modules
+    are registered on-chain. Returns name, owner, id, and data (CID) per mod.
+    """
+    chain = get_chain(network)
+    try:
+        mods = chain.allmods()
+        return {"network": network, "count": len(mods), "mods": _serialize(mods)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class RegReq(BaseModel):
     name: str
     data: Optional[str] = None
@@ -528,6 +543,110 @@ async def registry_register(req: RegReq):
     try:
         result = chain.reg(req.name, req.data)
         return {"result": _serialize(result)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Gated registration + MOD mint (BlocTime or pay $1 → pool) ────────────────
+
+class GatedRegReq(BaseModel):
+    name: str
+    data: str                     # registry payload (e.g. the module's schema CID)
+    key: Optional[str] = None
+    pay: bool = False             # if no BlocTime, confirm the $1 charge
+    payment_token: str = "usdc"
+    network: str = "testnet"
+
+
+@app.post("/register")
+async def register(req: GatedRegReq):
+    """Register a module on-chain, gated on BlocTime.
+
+    Holds BlocTime → registers free. No BlocTime + pay=false → returns
+    {status:'payment_required'} so the UI can confirm. No BlocTime + pay=true →
+    mints $1 of MOD (the $1 funds the weekly pool) then registers.
+    """
+    chain = get_chain(req.network, req.key)
+    try:
+        result = chain.register(req.name, data=req.data, pay=req.pay,
+                                payment_token=req.payment_token)
+        return _serialize(result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class MintReq(BaseModel):
+    usd: float = 1.0
+    payment_token: str = "usdc"
+    network: str = "testnet"
+    key: Optional[str] = None
+
+
+@app.post("/mint")
+async def mint(req: MintReq):
+    """Mint MOD for `usd` dollars; the payment is deposited into the reward pool
+    distributed to BlocTime holders."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return {"result": _serialize(chain.mint(req.payment_token, req.usd))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Reward pool (weekly distribution to BlocTime holders) ────────────────────
+
+@app.get("/pool")
+async def pool(network: str = "testnet"):
+    """Current reward-pool state: size, governance token (BlocTime), holders."""
+    chain = get_chain(network)
+    try:
+        return _serialize(chain.pool())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/pool/claimable")
+async def pool_claimable(address: Optional[str] = None, network: str = "testnet"):
+    """What an address can claim from the pool right now (by BlocTime share)."""
+    chain = get_chain(network)
+    try:
+        return _serialize(chain.pool_claimable(address))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class ClaimReq(BaseModel):
+    token: Optional[str] = None   # token symbol/address; None = claim all
+    network: str = "testnet"
+    key: Optional[str] = None
+
+
+@app.post("/pool/claim")
+async def pool_claim(req: ClaimReq):
+    """Claim the caller's share of the pool (one token, or all)."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return _serialize(chain.pool_claim(req.token))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/pool/epochs")
+async def pool_epochs(limit: int = 12, network: str = "testnet"):
+    """Recent weekly pool snapshots recorded by the keeper."""
+    chain = get_chain(network)
+    try:
+        return {"epochs": _serialize(chain.pool_epochs(limit))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/pool/snapshot")
+async def pool_snapshot(req: NetworkReq):
+    """Record a weekly pool snapshot (called by the scheduled keeper)."""
+    chain = get_chain(req.network)
+    try:
+        return _serialize(chain.pool_snapshot())
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -672,7 +791,9 @@ async def info():
             "wallet", "balances", "stake", "unstake", "stakes",
             "credit", "transfer", "tokens",
             "contracts/source", "contracts/mods",
-            "registry/mods", "registry/register", "bloctime/owner",
+            "registry/mods", "registry/all", "registry/register", "bloctime/owner",
+            "register", "mint", "pool", "pool/claimable", "pool/claim",
+            "pool/epochs", "pool/snapshot",
             "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",
         ],
     }

@@ -14,11 +14,44 @@ export type Module = {
   app_port: number | null;
   fns: string[];
   fn_count: number;
+  deps: string[];
   has_rust: boolean;
   has_app: boolean;
   mount: string;
   schema: string | null;
   config: Record<string, unknown>;
+  /** True when the chain module reports this module in the on-chain Registry. */
+  registered?: boolean;
+};
+
+export type RegEntry = {
+  id: unknown;
+  owner: string;
+  name: string;
+  data: string;
+};
+
+export type Registry = {
+  available: boolean;
+  source: string;
+  network: string;
+  mods: RegEntry[];
+};
+
+export type GraphNode = {
+  name: string;
+  icon: string | null;
+  color: string | null;
+  dep_count: number;
+  registered: boolean;
+};
+
+export type GraphEdge = { from: string; to: string };
+
+export type Graph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  chain_available: boolean;
 };
 
 export type Stats = {
@@ -71,6 +104,8 @@ export const api = {
     get<FileContent>(
       `/mods/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`,
     ),
+  registry: () => get<Registry>("/registry"),
+  graph: () => get<Graph>("/graph"),
 };
 
 // Public gateway URL for a module's live app. Behind the modc2.com proxy the

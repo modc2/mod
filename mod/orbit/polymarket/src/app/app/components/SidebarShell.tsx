@@ -2,13 +2,20 @@
 
 import { ReactNode } from "react";
 import { useSidebar, SIDEBAR_DEFAULT } from "../context/SidebarContext";
-import { useFilters } from "../context/FiltersContext";
-import CopyIndex from "./CopyIndex";
 import WalletChip from "./WalletChip";
+import WalletTokenPanel from "./WalletTokenPanel";
+import PreconditionChecklist from "./PreconditionChecklist";
 
+/// Right-docked sidebar that owns the "who am I / am I ready" block:
+/// the signed-in account (WalletChip), the full wallet + token + QR pairing
+/// panel (WalletTokenPanel), and the go-live CHECKLIST (PreconditionChecklist).
+/// These used to sit in a wide top bar above the strats page; pinning them to
+/// the side keeps them visible while the main column scrolls the trade feed.
+///
+/// When undocked it renders children verbatim (zero layout impact). The
+/// docked/undocked toggle + persisted width live in SidebarContext.
 export default function SidebarShell({ children }: { children: ReactNode }) {
   const { docked, width, hydrated, setWidth, setDocked, startDrag } = useSidebar();
-  const { search } = useFilters();
 
   if (!hydrated) return <>{children}</>;
   if (!docked) return <>{children}</>;
@@ -28,16 +35,29 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
       />
       <aside
         style={{ width }}
-        className="shrink-0 border-l-2 border-pixel-border bg-pixel-black/60 overflow-y-auto"
+        className="shrink-0 border-l-2 border-pixel-border bg-pixel-black/60 overflow-y-auto sticky top-12 self-start max-h-[calc(100vh-3rem)]"
       >
         <div className="p-2 space-y-2">
-          {/* User / wallet info lives here (moved out of the top bar): signed-in
-              account, CLOB status, wallet switch + sign-out, add-person. */}
+          {/* Account row: signed-in wallet, CLOB status dot, switch + sign-out,
+              add-person. Header carries a close button that undocks. */}
           <div className="flex items-center justify-between gap-2 pb-2 border-b border-pixel-border/60">
             <span className="text-[10px] text-pixel-gray tracking-[0.18em]">ACCOUNT</span>
-            <WalletChip />
+            <div className="flex items-center gap-2">
+              <WalletChip />
+              <button
+                onClick={() => setDocked(false)}
+                className="pixel-btn text-[13px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white shrink-0"
+                title="Hide sidebar"
+              >
+                X
+              </button>
+            </div>
           </div>
-          <CopyIndex searchFilter={search} compact onClose={() => setDocked(false)} />
+          {/* Full wallet + token + sign-in-QR pairing panel. */}
+          <WalletTokenPanel />
+          {/* Go-live preflight: WALLET · CLOB · STRATEGY · TRADERS · INTERVAL ·
+              CAPITAL with a progress bar. */}
+          <PreconditionChecklist />
         </div>
       </aside>
     </div>

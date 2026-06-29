@@ -99,7 +99,7 @@
 
 \begin{abstract}
 \noindent
-The MOD protocol today registers each orbit module as an independent on-chain row keyed by an IPFS CID. With 200+ modules and projected growth into the tens of thousands as autonomous agents publish their own, the linear per-module storage and gas cost becomes the binding constraint on ecosystem scale. We propose replacing the per-module hash table with a single 32-byte Merkle root anchored on-chain. The full tree---containing module metadata, code CIDs, owner addresses, prices, and version history---lives entirely off-chain in IPFS-backed mirrors. Authenticity is preserved by Merkle inclusion proofs; updates are batched into a single root-rotation transaction; reads are free. We show that this design reduces per-module on-chain storage from $\approx 5$ slots ($\approx 100{,}000$ gas amortised) to $O(1/N)$, reduces a publish operation from $\approx 80{,}000$ gas to a marginal cost approaching the cost of a single SSTORE shared across $N$ updates, and makes the registry compatible with permissionless off-chain indexers without trust assumptions. The trade-off is a one-block latency between local commit and global root rotation, which is acceptable for a developer-tools registry.
+The MOD protocol today registers each orbit module as an independent on-chain row keyed by an IPFS CID. With 200+ modules and projected growth into the tens of thousands as autonomous agents publish their own, the linear per-module storage and gas cost becomes the binding constraint on ecosystem scale. We propose replacing the per-module hash table with a single 32-byte Merkle root anchored on-chain. The full tree---containing module metadata, code CIDs, owner addresses, prices, and version history---lives entirely off-chain in IPFS-backed mirrors. Authenticity is preserved by Merkle inclusion proofs; updates are batched into a single root-rotation transaction; reads are free. We show that this design reduces per-module on-chain storage from $\approx 5$ slots ($\approx 100{,}000$ gas amortised) to $O(1/N)$, reduces a publish operation from $\approx 80{,}000$ gas to a marginal cost approaching the cost of a single SSTORE shared across $N$ updates, and makes the registry compatible with permissionless off-chain indexers without trust assumptions. The trade-off is a one-block latency between local commit and global root rotation, which is acceptable for a developer-tools registry. Part~II then documents the rest of the protocol the registry serves: the \emph{module} as the unit of definition; a single reusable Nix environment and shared supervisor that run every module without per-module containers; a federated gateway with scale-to-zero execution; and one shared identity module with an owner/peer authorization model that keeps access control off-chain while the public tree carries only public facts.
 \end{abstract}
 
 \vfill
@@ -107,6 +107,8 @@ The MOD protocol today registers each orbit module as an independent on-chain ro
 
 \tableofcontents
 \newpage
+
+\part{The Registry Protocol}
 
 \section{Motivation}
 
@@ -434,6 +436,120 @@ m.fn('whitepaper/tree_root')()                  # current root
 m.fn('whitepaper/tree_proof')(name='agent')     # Merkle proof for a leaf
 m.fn('whitepaper/tree_verify')(leaf, proof)     # client-side verify
 \end{lstlisting}
+
+\part{System Architecture}
+
+The preceding sections specify the \emph{registry} layer---how module records are
+committed and proven at scale. This part documents the rest of the MOD protocol:
+the unit it registers (the \emph{module}), the runtime that executes modules, the
+gateway that exposes them, and the auth system that governs who may act. Together
+these constitute the full protocol: a way to define, share, run, and reach any
+tool as a first-class, owner-controlled module.
+
+\section{The Module Abstraction}
+
+The protocol's unit is the \emph{module}: a directory under \texttt{mod/orbit/}
+(applications) or \texttt{mod/core/} (shared infrastructure), self-describing via
+\texttt{config.json}:
+
+\begin{lstlisting}[style=python]
+{ "name": "claude", "owner": "0x..", "port": 8820, "app_port": 8823,
+  "urls": { "api": "...", "app": "..." } }
+\end{lstlisting}
+
+A module may ship any combination of implementations behind one identity: a Python
+class (\texttt{mod.py}, invoked as \texttt{m <module>/<fn>}), a compiled service
+API (Rust), and a web app (Next.js). The protocol treats these uniformly---it
+cares about a module's \emph{name}, \emph{owner}, and \emph{endpoints}, not its
+language. Cross-cutting capabilities (auth, process management, environment,
+registry) are themselves modules under \texttt{core/} and are reused rather than
+re-implemented; this is what makes the system modular all the way down.
+
+\section{Runtime and Environment}
+
+\subsection{One environment, defined once}
+
+Historically each module shipped its own \texttt{Dockerfile}, re-deriving Node,
+Python, Rust, and a reverse proxy per image. The protocol replaces this with a
+single reusable environment, \texttt{core/nix} (``modenv''), pinned via a Nix
+flake. \texttt{packages.nix} is the single source of truth---language toolchains
+and the system tools the fleet needs, but \emph{not} application libraries (those
+stay with \texttt{pip}/\texttt{npm}/\texttt{cargo}), keeping the shared layer
+small. A module opts in by shipping a two-line flake that reuses
+\texttt{modenv.lib.mkShell}; otherwise it inherits the shared environment. This is
+to environments what a shared base supervisor is to processes: define once, use
+everywhere.
+
+\subsection{Supervision: core/pm}
+
+Process supervision is unified in \texttt{core/pm}, which launches every service
+inside its \emph{nix image}---the module's own flake if present, else the shared
+\texttt{core/nix}. The mechanism imports the image's environment and then
+\texttt{exec}s the real server, so the supervisor tracks the actual process:
+
+\begin{lstlisting}[style=python]
+cd <service dir>
+eval "$(nix print-dev-env <image>)"   # import the pinned toolchain
+exec bash start.sh                     # become the server; supervisor tracks it
+\end{lstlisting}
+
+The supervisor backend (today \texttt{pm2}) is pluggable. The result is
+hermetic, reproducible execution without per-module containers: the apt-based
+image becomes a pinned Nix image, and the supervisor is shared.
+
+\section{Gateway and On-Demand Execution}
+
+\subsection{Federated front door}
+
+All traffic enters through a single gateway (\texttt{modc2.com}). Some modules are
+routed directly by host rules; the remainder are federated through a portal that
+maps \texttt{/\{mod\}} and \texttt{/api/\{mod\}} to each module's registered
+\texttt{app}/\texttt{api} endpoints, resolved from the registry's app namespace.
+A request thus reaches a module by \emph{name}, independent of where it runs.
+
+\subsection{Scale-to-zero}
+
+An \emph{activator} sits in front of the local fleet. It stops any module idle
+beyond a threshold with no active connections, and \emph{wakes} a stopped module
+on the next request---starting its supervised processes, waiting for the port,
+then proxying---so a slept module costs nothing yet remains reachable. Because the
+host owns the machine, manual control is authoritative over the automation:
+modules may be \emph{disabled} (kept down; the activator refuses to wake them) or
+\emph{pinned} (never slept), via host-local overrides. This gives the ecosystem
+the elasticity of serverless execution over a fleet of long-lived modules.
+
+\section{Identity and Authorization}
+
+\subsection{Shared identity}
+
+Identity is one shared module, \texttt{core/server/auth} (\texttt{m.mod('auth')}),
+used uniformly across the orbit. It mints and verifies signed tokens and recovers
+the signing address from a signature, so ``who is calling'' is answered the same
+way everywhere---no module rolls its own scheme. The on-chain registry's
+ownership proofs and this off-chain session identity share the same key material.
+
+\subsection{The owner/peer model}
+
+Authorization is a two-tier model layered on that identity:
+
+\begin{itemize}
+    \item \textbf{Owner.} The address in a module's \texttt{config.json}
+    (optionally extended to on-chain holders). The owner has authority over the
+    module---and, for the host operator, over the module tree
+    (\texttt{mod/mod}). Owner-only powers (process control, deletion, managing the
+    sign-in list) never widen beyond this.
+    \item \textbf{Peer.} Every other authenticated identity. A peer is confined to
+    its own off-chain workspace, \texttt{\textasciitilde/.mod/peers/<addr>/}, and
+    its jobs are privilege-dropped---kernel-enforced containment that no prompt or
+    path can escape. A peer can build and run \emph{their} modules without ever
+    reaching the owner's tree.
+\end{itemize}
+
+An optional off-chain whitelist gates \emph{sign-in} but confers no ownership; a
+whitelisted address is still a peer for editing. All such private authorization
+state lives off-chain (under \texttt{\textasciitilde/.mod/}), never in the
+committed, publicly mirrored registry---so the public tree of Part~I carries only
+public facts, while access control stays private to the host.
 
 \section{Migration Path}
 

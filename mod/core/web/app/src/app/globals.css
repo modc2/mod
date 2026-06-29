@@ -873,10 +873,258 @@ a {
   background: #fff;
 }
 
+/* ── Explorer landing (default view) ────────────────────────────────────── */
+
+.explorer-hero {
+  padding: 56px 0 34px;
+  text-align: center;
+}
+.explorer-hero h1 {
+  font-size: clamp(34px, 5.5vw, 60px);
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  font-weight: 720;
+  margin: 0 auto 16px;
+}
+.explorer-hero p.lede {
+  font-size: clamp(15px, 1.9vw, 19px);
+  color: var(--ink-dim);
+  max-width: 56ch;
+  margin: 0 auto;
+}
+.hero-chips {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 26px;
+}
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+.hero-chip b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.onchain-chip {
+  border-color: rgba(84, 230, 224, 0.3);
+}
+.chain-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: 2px;
+}
+.chain-dot.up {
+  background: var(--accent-3);
+  box-shadow: 0 0 8px rgba(84, 230, 224, 0.7);
+}
+.chain-dot.down {
+  background: #ff7a7a;
+}
+
+/* ── Explorer toolbar (search + filters + view toggle) ──────────────────── */
+
+.explorer-toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.explorer-toolbar .search {
+  flex: 1;
+  min-width: 240px;
+  margin-bottom: 0;
+}
+.toolbar-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.chip-toggle {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  color: var(--ink-dim);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.chip-toggle:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+.chip-toggle.active {
+  color: var(--accent-3);
+  border-color: rgba(84, 230, 224, 0.45);
+  background: rgba(84, 230, 224, 0.08);
+}
+.chip-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-soft);
+}
+.view-toggle button {
+  appearance: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 16px;
+  transition: color 0.18s, background 0.18s;
+}
+.view-toggle button:hover {
+  color: var(--ink-dim);
+}
+.view-toggle button.active {
+  color: var(--ink);
+  background: rgba(124, 139, 255, 0.16);
+}
+
+.chain-note {
+  border: 1px solid rgba(255, 122, 122, 0.25);
+  background: rgba(255, 122, 122, 0.06);
+  color: var(--ink-dim);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  font-size: 13px;
+  margin-bottom: 22px;
+}
+
+/* ── On-chain badge + deps tag on cards ─────────────────────────────────── */
+
+.card .onchain {
+  margin-left: auto;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--accent-3);
+  border: 1px solid rgba(84, 230, 224, 0.32);
+  background: rgba(84, 230, 224, 0.07);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.tag.deps {
+  color: var(--accent);
+  border-color: rgba(124, 139, 255, 0.3);
+}
+
+/* ── Dependency graph ───────────────────────────────────────────────────── */
+
+.depgraph {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.depgraph-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+}
+.depedge {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  transition: opacity 0.2s;
+}
+.depnode {
+  transition: opacity 0.2s;
+}
+.depnode-dot {
+  stroke: rgba(6, 7, 10, 0.85);
+  stroke-width: 2;
+}
+.depnode:hover .depnode-dot {
+  stroke: var(--ink);
+}
+.depnode-ring {
+  fill: none;
+  stroke: var(--accent-3);
+  stroke-width: 1.6;
+  opacity: 0.8;
+}
+.depnode-glyph {
+  fill: #06070a;
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 14px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.depnode-label {
+  fill: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.depgraph-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding: 12px 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.depgraph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.depgraph-legend .lg-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.depgraph-legend .lg-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.6px solid var(--accent-3);
+}
+.depgraph-legend .lg-arrow {
+  color: var(--accent);
+  font-style: normal;
+}
+.depgraph-legend .lg-hint {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
 @media (max-width: 760px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .nav-links { gap: 16px; }
   .nav-links .hide-sm { display: none; }
   .explorer { grid-template-columns: 1fr; }
   .explorer-tree { max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
+  .explorer-toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar-controls { justify-content: space-between; }
 }

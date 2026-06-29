@@ -22,6 +22,15 @@ const CACHE_TTL = 5000
 
 const API_URL = process.env.API_URL_INTERNAL || 'http://localhost:8000'
 
+// Scale-to-zero: these modules are routed through the activator (:9000) instead
+// of straight to their port, so a slept module cold-starts on demand. Must match
+// the activator's ACTIVATOR_MANAGED set. Modules NOT listed here keep routing
+// directly to their registered url/api_url (unchanged behavior).
+const ACTIVATOR_URL = 'http://localhost:9000'
+const ACTIVATOR_MODS = new Set([
+  'openplay', 'modcity', 'openevent', 'neartensor', 'whitepaper',
+])
+
 async function getAppNamespace(): Promise<Record<string, AppEntry>> {
   const now = Date.now()
   if (now - lastFetch < CACHE_TTL && Object.keys(appNamespaceCache).length > 0) {
@@ -86,6 +95,11 @@ export async function middleware(request: NextRequest) {
     // Next.js own API routes — let Next.js handle them
     if (RESERVED_API_ROUTES.has(modName)) return NextResponse.next()
 
+    // Scale-to-zero modules → through the activator (wakes the api on demand).
+    if (ACTIVATOR_MODS.has(modName)) {
+      return NextResponse.rewrite(new URL(`${ACTIVATOR_URL}${pathname}${request.nextUrl.search}`))
+    }
+
     // Check if first segment is a registered module
     const namespace = await getAppNamespace()
     const entry = namespace[modName]
@@ -106,6 +120,11 @@ export async function middleware(request: NextRequest) {
   const firstSegment = segments[0]
   if (MAIN_APP_ROUTES.has(firstSegment) || firstSegment.startsWith('_')) {
     return NextResponse.next()
+  }
+
+  // Scale-to-zero modules → through the activator (wakes the app on demand).
+  if (ACTIVATOR_MODS.has(firstSegment)) {
+    return NextResponse.rewrite(new URL(`${ACTIVATOR_URL}${pathname}${request.nextUrl.search}`))
   }
 
   const namespace = await getAppNamespace()

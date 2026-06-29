@@ -35,7 +35,7 @@ class Mod:
     description = "Unified decentralized storage over filecoin + hippius backends."
 
     fns = [
-        'forward', 'put', 'get', 'pin', 'list', 'rm', 'usage',
+        'forward', 'put', 'register', 'get', 'pin', 'list', 'rm', 'usage',
         'status', 'backends', 'start', 'stop',
     ]
 
@@ -137,6 +137,21 @@ class Mod:
                 results['hippius'] = {'error': str(e)}
 
         return {'owner': owner, 'backend': backend, 'results': results}
+
+    def register(self, cid: str, backend: str = 'external', owner: str = None,
+                 key: str = None, size: int = 0, scheme: str = None, url: str = None) -> dict:
+        """Index a CID that lives in *some other* system without uploading bytes.
+
+        The store is CID-agnostic: an object can be a native localfs/filecoin/
+        hippius CID, or any external identifier (arweave tx, ipfs from another
+        node, s3 key, …). `register` makes such a reference a first-class object
+        — listable, shareable, poolable — resolved via `url`/scheme rather than
+        a local backend. `meta` carries the scheme + gateway url.
+        """
+        meta = {'scheme': scheme, 'url': url, 'external': backend == 'external'}
+        self._record(cid, backend, owner, key, int(size or 0), meta=meta)
+        return {'cid': cid, 'backend': backend, 'owner': owner, 'key': key,
+                'scheme': scheme, 'url': url, 'registered': True}
 
     def get(self, cid: str, backend: str = None, out: str = None) -> dict:
         """Retrieve a CID. If backend unspecified, infers from local index, else tries both."""

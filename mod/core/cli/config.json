@@ -1,0 +1,6 @@
+{
+    "name": "cli",
+    "description": "Forward the function to the mod and function, with token auth and tx saving.",
+    "version": "0.1.0",
+    "schema": "QmVM8vDYsh4Qk2jFugEeQY3iibvFNyu6KMbN8UdybHxTzG"
+}

@@ -66,7 +66,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 // genuine, sustained outage (or a real HTTP error) makes it out of here.
 async function polyApi(endpoint: string, params: Record<string, string> = {}): Promise<unknown> {
   const qs = new URLSearchParams({ endpoint, ...params });
-  const url = `${API_URL}?${qs.toString()}`;
+  // NOTE the slash before `?`. The gateway route strips the `/api/polymarket`
+  // prefix; without a trailing slash the upstream request line has an empty
+  // path and Caddy/Cloudflare reject it with a 400. `/api/polymarket/?…` →
+  // strips to `/?…` → valid. (Direct localhost:50091 tolerates both.)
+  const url = `${API_URL}/?${qs.toString()}`;
   const ATTEMPTS = 3;
   let lastErr: unknown;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
@@ -359,6 +363,48 @@ export async function fetchMarketTrades(
   }));
   if (result.length > 0) setMarketCache(cacheKey, result as unknown as unknown[]);
   return result;
+}
+
+// ── Global live trades feed ─────────────────────────────────────
+// data-api `/trades` — every recent fill across Polymarket (not market- or
+// user-scoped). Powers the sidebar TRADES view: a live tape of who's trading
+// what, right now.
+export interface GlobalTrade {
+  id: string;
+  trader: string;      // proxy wallet address
+  pseudonym: string;   // Polymarket display handle
+  market: string;      // market title
+  slug: string;
+  conditionId: string;
+  outcome: string;     // e.g. "Yes" / "Up"
+  side: "BUY" | "SELL";
+  price: number;       // 0..1
+  size: number;        // shares
+  timestamp: number;   // ms
+}
+
+export async function fetchGlobalTrades(limit = 100): Promise<GlobalTrade[]> {
+  const raw = await polyApi("trades", { limit: String(limit), takerOnly: "false" }) as unknown;
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr
+    .map((t: Record<string, unknown>) => {
+      const tsRaw = Number(t.timestamp || 0);
+      const timestamp = tsRaw > 1e12 ? tsRaw : tsRaw * 1000;
+      return {
+        id: String(t.transactionHash || `${t.proxyWallet}-${t.timestamp}-${t.asset}`),
+        trader: String(t.proxyWallet || ""),
+        pseudonym: String(t.pseudonym || t.name || ""),
+        market: String(t.title || t.slug || ""),
+        slug: String(t.slug || ""),
+        conditionId: String(t.conditionId || ""),
+        outcome: String(t.outcome || ""),
+        side: String(t.side || "BUY").toUpperCase() === "SELL" ? ("SELL" as const) : ("BUY" as const),
+        price: Number(t.price || 0),
+        size: Number(t.size || 0),
+        timestamp,
+      };
+    })
+    .filter((t) => t.timestamp > 0 && t.size > 0);
 }
 
 /** Bucket market trades into time intervals for volume bars.

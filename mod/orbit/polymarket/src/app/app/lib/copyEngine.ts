@@ -1627,8 +1627,10 @@ export class CopyEngine {
 
     // Try fetching market data from API
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
-      const res = await fetch(`${API_URL}?endpoint=markets&condition_id=${conditionId}`);
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+      // Trailing slash before `?` — the gateway strips the /api/polymarket
+      // prefix and rejects an empty upstream path with 400 otherwise.
+      const res = await fetch(`${API_URL}/?endpoint=markets&condition_id=${conditionId}`);
       if (!res.ok) return null;
       const data = await res.json();
       const markets = Array.isArray(data) ? data : [data];

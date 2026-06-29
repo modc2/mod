@@ -43,8 +43,19 @@
         "/search": {
             "method": "GET",
             "docs": "Filter the catalog by ?q="
+        },
+        "/registry": {
+            "method": "GET",
+            "docs": "On-chain Registry view via the chain module (which modules are registered)"
+        },
+        "/graph": {
+            "method": "GET",
+            "docs": "Module dependency graph (nodes + edges from each module's deps)"
         }
     },
+    "deps": [
+        "chain"
+    ],
     "fns": [
         "info",
         "health",
@@ -53,7 +64,9 @@
         "tree",
         "file",
         "stats",
-        "search"
+        "search",
+        "registry",
+        "graph"
     ],
     "schema": "QmWZLYz5QyunRkJBgbUVLfVUwfp3RyJNp8eF27ZAxTBfTv"
 }

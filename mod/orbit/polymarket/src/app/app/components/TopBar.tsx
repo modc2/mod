@@ -29,22 +29,12 @@ export default function TopBar({
   return (
     <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-40">
       <div className="px-4 h-12 flex items-center gap-3">
-        {/* Primary nav lives in the global left rail (LeftNav). The top bar
-            now carries only wallet + search so it stays compact. */}
-
-        {/* ── LEFT: wallet/account chip (with trading-ready dot + switcher).
-            This is the sign-in / account UI. ── */}
-        <div className="shrink-0 flex items-center gap-2">
-          <WalletChip />
-        </div>
-
-        {/* ── CENTER: search ──
-            Doubles as a "jump to trader" teleport — paste any 0x address +
-            press Enter (or click ↵) and we route straight to the trader page
-            instead of filtering the current list. */}
+        {/* The header is just the query — the search box (also a "jump to
+            trader" teleport: paste any 0x address + Enter) fills the bar, and
+            sign-in (the wallet chip) sits in the top-right corner. */}
         {showSearch ? (
-          <div className="flex-1 flex justify-center">
-            <div className="relative w-full max-w-[480px]">
+          <div className="flex-1 min-w-0">
+            <div className="relative w-full max-w-[620px]">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-pixel-gray pointer-events-none">/</span>
               <input
                 type="text"
@@ -88,6 +78,10 @@ export default function TopBar({
         ) : (
           <div className="flex-1" />
         )}
+        {/* ── Sign in — top-right corner ── */}
+        <div className="shrink-0">
+          <WalletChip />
+        </div>
       </div>
     </header>
   );

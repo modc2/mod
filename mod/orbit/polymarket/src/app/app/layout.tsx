@@ -7,6 +7,7 @@ import { SidebarProvider } from "./context/SidebarContext";
 import { SplitProvider } from "./context/SplitContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
 import SplitShell from "./components/SplitShell";
+import SidebarShell from "./components/SidebarShell";
 import LeftNav from "./components/LeftNav";
 import MarketTicker from "./components/MarketTicker";
 import BuildBadge from "./components/BuildBadge";
@@ -53,9 +54,11 @@ export default function RootLayout({
                     <div className="flex items-stretch">
                       <LeftNav />
                       <div className="flex-1 min-w-0">
-                        <SplitShell>
-                          <main>{children}</main>
-                        </SplitShell>
+                        <SidebarShell>
+                          <SplitShell>
+                            <main>{children}</main>
+                          </SplitShell>
+                        </SidebarShell>
                       </div>
                     </div>
                     <BuildBadge />

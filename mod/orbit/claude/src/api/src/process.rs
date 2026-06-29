@@ -111,6 +111,132 @@ pub fn list(backend: Backend, module_dir: &Path, module_name: &str, config: &Val
     }
 }
 
+/// Recent log output for a module's processes, keyed by process name (which
+/// contains "api"/"app" so the UI can route each into the right tab). Each value
+/// is the tail of that process's stdout, with any non-empty stderr tail prepended
+/// — surfacing crash/restart causes, which is the whole point of the LOGS view.
+pub fn logs(
+    backend: Backend,
+    module_dir: &Path,
+    module_name: &str,
+    lines: usize,
+) -> Result<serde_json::Map<String, Value>, String> {
+    match backend {
+        Backend::Pm2 => pm2_logs(module_dir, lines),
+        Backend::Systemd => Ok(systemd_logs(module_name, lines)),
+        // Bare processes have no supervisor capturing output to a known file.
+        Backend::Generic => Ok(serde_json::Map::new()),
+    }
+}
+
+/// Read the last `lines` lines of a file, bounded to the trailing ~512 KB so a
+/// huge log never blows memory. Missing/unreadable files yield an empty string.
+fn tail_file(path: &str, lines: usize) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    if path.is_empty() {
+        return String::new();
+    }
+    let p = Path::new(path);
+    let len = match std::fs::metadata(p) {
+        Ok(m) => m.len(),
+        Err(_) => return String::new(),
+    };
+    let mut f = match std::fs::File::open(p) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let cap: u64 = 512 * 1024;
+    let start = len.saturating_sub(cap);
+    if start > 0 {
+        let _ = f.seek(SeekFrom::Start(start));
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return String::new();
+    }
+    let s = String::from_utf8_lossy(&buf);
+    let all: Vec<&str> = s.lines().collect();
+    let take = all.len().min(lines);
+    all[all.len() - take..].join("\n")
+}
+
+/// pm2 records each process's stdout/stderr file paths in `pm2 jlist`. Resolve the
+/// module's procs (same matching as `pm2_list`) and tail their log files.
+fn pm2_logs(module_dir: &Path, lines: usize) -> Result<serde_json::Map<String, Value>, String> {
+    let pm2 = match find_pm2() {
+        Some(p) => p,
+        None => return Err("pm2 not found on host".to_string()),
+    };
+    let out = Command::new(&pm2)
+        .arg("jlist")
+        .output()
+        .map_err(|e| format!("pm2 jlist failed: {}", e))?;
+    let list: Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("pm2 jlist parse failed: {}", e))?;
+    let canon = std::fs::canonicalize(module_dir).unwrap_or_else(|_| module_dir.to_path_buf());
+    let canon_s = canon.to_string_lossy().to_string();
+    let prefix = format!("{}/", canon_s);
+    let inside = |s: &str| !s.is_empty() && (s == canon_s || s.starts_with(&prefix));
+
+    let mut map = serde_json::Map::new();
+    if let Some(arr) = list.as_array() {
+        for p in arr {
+            let env = p.get("pm2_env");
+            let cwd = env.and_then(|e| e.get("pm_cwd")).and_then(|v| v.as_str()).unwrap_or("");
+            let exec = env.and_then(|e| e.get("pm_exec_path")).and_then(|v| v.as_str()).unwrap_or("");
+            let arg_hit = env
+                .and_then(|e| e.get("args"))
+                .and_then(|v| v.as_array())
+                .map(|args| args.iter().filter_map(|a| a.as_str()).any(&inside))
+                .unwrap_or(false);
+            if !(inside(cwd) || inside(exec) || arg_hit) {
+                continue;
+            }
+            let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("proc").to_string();
+            let out_path = env.and_then(|e| e.get("pm_out_log_path")).and_then(|v| v.as_str()).unwrap_or("");
+            let err_path = env.and_then(|e| e.get("pm_err_log_path")).and_then(|v| v.as_str()).unwrap_or("");
+            let restarts = env.and_then(|e| e.get("restart_time")).and_then(|v| v.as_i64()).unwrap_or(0);
+            let status = env.and_then(|e| e.get("status")).and_then(|v| v.as_str()).unwrap_or("unknown");
+
+            let err_tail = tail_file(err_path, lines);
+            let out_tail = tail_file(out_path, lines);
+            let mut text = format!("══ pm2: {} · {} · {} restart(s) ══\n", name, status, restarts);
+            if !err_tail.trim().is_empty() {
+                text.push_str("\n── stderr ──\n");
+                text.push_str(&err_tail);
+                text.push('\n');
+            }
+            text.push_str("\n── stdout ──\n");
+            if out_tail.trim().is_empty() {
+                text.push_str("(no stdout captured yet)");
+            } else {
+                text.push_str(&out_tail);
+            }
+            map.insert(name, Value::String(text));
+        }
+    }
+    Ok(map)
+}
+
+/// systemd journal tail per candidate unit, keyed by unit name.
+fn systemd_logs(module_name: &str, lines: usize) -> serde_json::Map<String, Value> {
+    let mut map = serde_json::Map::new();
+    for unit in systemd_units(module_name) {
+        let out = Command::new("journalctl")
+            .args(["-u", &unit, "-n", &lines.to_string(), "--no-pager", "-o", "short"])
+            .output();
+        if let Ok(o) = out {
+            let mut s = String::from_utf8_lossy(&o.stdout).to_string();
+            let err = String::from_utf8_lossy(&o.stderr);
+            if !err.trim().is_empty() {
+                s.push_str(&err);
+            }
+            map.insert(unit, Value::String(s));
+        }
+    }
+    map
+}
+
 /// Perform `action` (stop|start|restart) on the given procs. Returns (ok, log).
 pub fn act(
     backend: Backend,

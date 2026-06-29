@@ -139,6 +139,12 @@ class Registry:
             local_tree = m.tree(orbit='orbit', depth=2)
             owner_key = self.key_address()
             for mod_name, mod_path in local_tree.items():
+                # Skip stale entries: the tree cache can outlive a deleted module
+                # (rm_mod's cache invalidation key differs from this read's), so a
+                # just-removed module would otherwise still be listed. Verify the
+                # path still exists on disk before surfacing it.
+                if mod_path and not os.path.exists(mod_path):
+                    continue
                 # Include top-level modules always; include qualified (dotted) names only when searching
                 if mod_name.lower() not in registered_names and ('.' not in mod_name or search is not None):
                     local_entries.append((mod_name, owner_key, mod_path))
@@ -370,7 +376,7 @@ class Registry:
     def reg_git(self, url: str, name=None, key=None, comment=None, token=None) -> Dict[str, Any]:
         """Register a module from a git URL."""
         if token:
-            verified_data = m.mod('auth.base')().verify(token)
+            verified_data = m.mod('auth')().verify(token)
             key = verified_data['key']
         else:
             key = self.key_address(key)
@@ -475,7 +481,7 @@ class Registry:
     def reg(self, mod: Union[str, dict] = 'store', key=None, comment=None, public=True, token=None, name=None) -> Dict[str, Any]:
         """Register or update a module in the store."""
         if token:
-            key = key or m.mod('auth.base')().verify(token)['key']
+            key = key or m.mod('auth')().verify(token)['key']
         if isinstance(mod, str) and self.is_cid_url(mod):
             return self.reg_cid(mod, key=key, name=name, comment=comment)
         elif isinstance(mod, str) and self.is_git_url(mod):

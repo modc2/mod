@@ -1,0 +1,13 @@
+{
+    "name": "nix",
+    "description": "modenv \u2014 reusable nix environment shared across all mods (node + python + rust + gateway tools), like pm2 is the shared supervisor",
+    "type": "env",
+    "shells": [
+        "default",
+        "full",
+        "node",
+        "python",
+        "rust"
+    ],
+    "schema": "QmfGQFcfmPLh3a6qTB1BQfZzkt1T6thTMrcsQENB3EkZhz"
+}

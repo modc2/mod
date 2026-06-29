@@ -33,6 +33,9 @@ pub struct Module {
     pub fns: Vec<String>,
     /// Number of exposed functions (cheap sort/sizing key for the UI).
     pub fn_count: usize,
+    /// Other modules this one depends on (from the config `deps` array). Backs
+    /// the dependency-link graph in the explorer.
+    pub deps: Vec<String>,
     /// True if the module ships a Rust API (heuristic: has a Cargo.toml).
     pub has_rust: bool,
     /// True if the module ships a Next/Node app (heuristic: has app + package.json).
@@ -101,8 +104,14 @@ impl Catalog {
         for root in &self.roots {
             scan_into(root, &mut modules);
         }
-        // Stable ordering by name; if a name appears in two roots, keep one.
-        modules.sort_by(|a, b| a.name.cmp(&b.name));
+        // Order by name, then by completeness (richest first) so that when a
+        // name appears in two roots — e.g. a bare stub in orbit alongside the
+        // real module in core — dedup keeps the fully-described one.
+        modules.sort_by(|a, b| {
+            a.name
+                .cmp(&b.name)
+                .then(completeness(b).cmp(&completeness(a)))
+        });
         modules.dedup_by(|a, b| a.name == b.name);
         *self.snapshot.write() = Some(Snapshot {
             modules: modules.clone(),
@@ -311,6 +320,32 @@ fn read_file_sandboxed(module_dir: &Path, rel: &str) -> Result<FileContent, File
     })
 }
 
+/// A rough "how fully described is this module" score, used to break ties when
+/// the same name appears in more than one root. A bare auto-generated stub
+/// (just a name) scores low; a real module with a description, functions, ports
+/// and deps scores high, so dedup keeps the real one.
+fn completeness(m: &Module) -> i32 {
+    let mut s = 0;
+    if !m.description.is_empty() {
+        s += 2;
+    }
+    if m.version != "0.0.0" {
+        s += 1;
+    }
+    s += m.fn_count as i32;
+    s += m.deps.len() as i32;
+    if m.port.is_some() {
+        s += 1;
+    }
+    if m.app_port.is_some() {
+        s += 1;
+    }
+    if m.icon.is_some() {
+        s += 1;
+    }
+    s
+}
+
 /// Walk one root and append a [`Module`] for every `<name>/config.json`.
 fn scan_into(root: &Path, modules: &mut Vec<Module>) {
     let entries = match std::fs::read_dir(root) {
@@ -388,6 +423,17 @@ fn parse_module(dir: &Path, cfg_path: &Path) -> Option<Module> {
         .unwrap_or_default();
     let fn_count = fns.len();
 
+    let deps: Vec<String> = obj
+        .get("deps")
+        .or_else(|| obj.get("dependencies"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let has_rust = dir.join("Cargo.toml").exists()
         || dir.join("src/api/Cargo.toml").exists()
         || description.to_lowercase().contains("rust");
@@ -408,6 +454,7 @@ fn parse_module(dir: &Path, cfg_path: &Path) -> Option<Module> {
         app_port,
         fns,
         fn_count,
+        deps,
         has_rust,
         has_app,
         mount,

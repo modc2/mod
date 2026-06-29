@@ -9,4 +9,11 @@ cd "$DIR"
 
 export NEXT_PUBLIC_API_URL="http://localhost:$API_PORT"
 export NEXT_PUBLIC_BASE_PATH="/polymarket"
-exec npx next dev -p "$PORT"
+# Production mode (next start), NOT dev: `next dev` exposes an HMR websocket that
+# crashes with an uncaughtException (WS_ERR_EXPECTED_MASK) when internet scanners
+# send unmasked frames → endless pm2 restart loop (saw 33k). Prod has no HMR
+# socket. Build on first run / when .next is missing.
+if [ ! -f "$DIR/.next/BUILD_ID" ]; then
+  npx next build
+fi
+exec npx next start -p "$PORT"

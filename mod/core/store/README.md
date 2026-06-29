@@ -1,9 +1,29 @@
 # mod store
 
 The mod **store** module: a local key-value store **and** an app for
-decentralized storage via the `filecoin` and `hippius` orbit modules, gated
-by the mod **protocol auth system** (wallet-signed tokens), a per-address
+decentralized storage via the `localfs`, `filecoin` and `hippius` backends,
+gated by the mod **protocol auth system** (wallet-signed tokens), a per-address
 **whitelist**, and per-user **storage quotas**. Runs under **pm2**.
+
+On top of storage it adds a full **access model**:
+
+- **Private-by-default + publish** — every object is private to its owner until
+  explicitly made public.
+- **Timed access grants** — give any address time-bounded read or read+write
+  access to one object or your whole set; it auto-expires.
+- **Data pools** — named shared spaces; every member gets mutual read access to
+  objects pooled in, with roles (owner/editor/viewer) and optional timed
+  membership.
+- **QR auth handoff** — move a signed-in session from computer to phone by
+  scanning a one-time, short-TTL QR — no wallet needed on the second device.
+- **CID-agnostic** — objects can be native localfs/filecoin/hippius CIDs **or**
+  references to any external system (arweave tx, ipfs from another node, s3 key,
+  …) registered with an optional gateway URL.
+- **File / text / image input** — store an uploaded file, pasted text, or a
+  captured photo; all are content-addressed the same way.
+
+Access state lives OFF-CHAIN in `~/.mod/store/` (`access.db` for grants / pools
+/ handoffs / per-object ACL; never committed).
 
 ```
 mod/core/store/
@@ -75,13 +95,86 @@ m store/stop                      # pm2 stop
 | GET    | `/whitelist` | —    | owner + allowed uploader addresses |
 | POST   | `/whitelist` | owner| add an address `{address}` |
 | DELETE | `/whitelist` | owner| remove an address `?address=0x…` |
-| POST   | `/put`       | ✓ wl | multipart upload (form: file, backend, key) |
-| GET    | `/get`       | —    | retrieve by CID |
+| POST   | `/put`       | ✓ wl | multipart upload (form: `file, backend, key, public, pool`) |
+| POST   | `/register`  | ✓ wl | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
+| GET    | `/get`       | opt  | retrieve by CID; private objects need `?token=` or Bearer |
+| POST   | `/publish`   | owner| flip an object private⇄public `{cid, public}` |
 | POST   | `/pin`       | ✓ wl | pin a CID on a backend |
-| GET    | `/list`      | ✓    | list caller's objects |
+| GET    | `/list`      | ✓    | list caller's objects (+`visibility/scheme/url`) |
+| GET    | `/shared`    | ✓    | objects shared **with** caller (grants + pools) |
 | DELETE | `/rm`        | ✓ wl | remove an index record |
+| POST   | `/grants`    | ✓    | grant timed access `{grantee, cid?, scope, ttl_seconds?}` |
+| GET    | `/grants`    | ✓    | grants I made + grants made to me |
+| DELETE | `/grants/{id}` | ✓  | revoke a grant |
+| POST   | `/pools`     | ✓ wl | create a pool `{name, description?}` |
+| GET    | `/pools`     | ✓    | pools I own or belong to |
+| GET    | `/pools/{id}`| member| pool members + objects |
+| POST   | `/pools/{id}/members` | owner/editor | add a member `{address, role?, ttl_seconds?}` |
+| DELETE | `/pools/{id}/members` | owner/self | remove a member `?address=0x…` |
+| POST   | `/pools/{id}/objects` | owner/editor | pool an object `{cid, backend?, key?}` |
+| DELETE | `/pools/{id}/objects` | owner/editor | unpool an object `?cid=…` |
+| POST   | `/handoff`   | ✓    | mint a one-time code carrying my session token `{ttl_seconds?}` |
+| GET    | `/handoff/{code}` | — | claim → token (single use, short TTL) |
 
-`✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership.
+`✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership;
+`opt` = optional token (anonymous allowed for public objects).
+
+## Access model (grants · pools · QR handoff · CID-agnostic)
+
+Private auth/access state lives under `~/.mod/store/` (never committed):
+
+| File | What |
+|------|------|
+| `owner.json` / `whitelist.json` / `quotas.json` | admin, uploaders, per-user byte limits |
+| `access.db` (SQLite) | per-object ACL, timed grants, pools + members + objects, QR handoff codes |
+
+- **Visibility** — uploads are **private** by default (`public=true` to open, or
+  `POST /publish` later). Unknown CIDs (stored before this layer existed) are
+  treated as public for back-compat. `/get` of a private object requires the
+  owner, a live grant, or shared pool membership; pass the token as a Bearer
+  header **or** `?token=` so a scanned QR / plain link can authenticate.
+- **Grants** — `POST /grants {grantee, cid, scope:"read"|"write", ttl_seconds}`.
+  Omit `cid` (or use `"*"`) to share your whole object set. Grants auto-expire
+  and are listed/revoked via `GET`/`DELETE /grants`.
+- **Pools** — `POST /pools` then add members and objects. Every live member can
+  read every pooled object — mutual access. Membership can be time-boxed
+  (`ttl_seconds`); access lapses automatically when it expires.
+- **QR auth handoff** — on the desktop, `POST /handoff` mints a one-time code;
+  the app shows it as a QR pointing at `…/store/?claim=<code>`. The phone scans,
+  the app calls `GET /handoff/{code}` to claim the token, and is signed in — no
+  MetaMask on the phone. Codes are single-use and expire in ~3 min.
+- **CID-agnostic** — `POST /register {cid, url, scheme?}` indexes a CID from any
+  other system as a first-class store object (listable, shareable, poolable)
+  without uploading bytes; `/get` redirects to its gateway `url`. Schemes are
+  inferred (`ipfs`/`arweave`/`s3`/…) but never enforced.
+
+## On-chain (BlocTime + chain Registry)
+
+The store integrates with the `chain` core module (same pattern as `claude`):
+
+- **BlocTime-gated access** — a staked **BlocTime holder** is authorized to store
+  as if on the whitelist, so access can be earned on-chain without the owner
+  editing `~/.mod/store/whitelist.json`. Cached briefly; every RPC failure
+  degrades to "not a holder" so the request path never blocks on chain issues.
+  `GET /me` reports `bloctime` + `via: config|bloctime|open`.
+- **Registry registration** — the module registers itself (`name → data`) in the
+  chain mod's permissionless Registry for protocol discovery.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET  | `/onchain` | — | network, BlocTime gate, Registry registration state |
+| GET  | `/onchain/bloctime` | ✓ | caller's BlocTime balance + holder flag |
+| POST | `/onchain/register` | owner | register in the chain Registry (spends gas) |
+
+```bash
+m store/onchain                  # registration + gate status
+m store/register_onchain         # register (idempotent; skips if data matches)
+```
+
+Config (`config.json`): `bloctime_gate` (default `true`), `chain_network`
+(`testnet`), `bloctime_ttl` (cache secs), `onchain_registry` (auto-register on
+startup, default `false` to avoid unprompted gas). Env overrides:
+`STORE_BLOCTIME_GATE`, `STORE_CHAIN_NETWORK`.
 
 ## Protocol auth flow
 

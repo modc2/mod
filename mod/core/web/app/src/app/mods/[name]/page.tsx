@@ -52,7 +52,14 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
               </span>
               <div>
                 <h1>{m.name}</h1>
-                <div className="ver">v{m.version}</div>
+                <div className="ver">
+                  v{m.version}
+                  {m.registered && (
+                    <span className="onchain" style={{ marginLeft: 10 }}>
+                      ⛓ on-chain
+                    </span>
+                  )}
+                </div>
               </div>
               {m.has_app && (
                 <a
@@ -126,7 +133,26 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
                       <div className="v">{m.schema}</div>
                     </div>
                   )}
+                  <div className="kv">
+                    <div className="k">On-chain</div>
+                    <div className="v">
+                      {m.registered ? "registered" : "not registered"}
+                    </div>
+                  </div>
                 </div>
+
+                {m.deps && m.deps.length > 0 && (
+                  <div className="panel">
+                    <h3>depends on {m.deps.length} module(s)</h3>
+                    <div className="fn-list">
+                      {m.deps.map((d) => (
+                        <Link className="fn-chip" href={`/mods/${d}`} key={d}>
+                          ↳ {d}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {m.fns.length > 0 && (
                   <div className="panel">

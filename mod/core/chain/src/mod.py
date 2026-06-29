@@ -41,6 +41,120 @@ class Mod:
                  'registry', 'treasury', 'market', 'debit', 'perms',
                  'safe', 'bridge']
 
+    # Built-in ABIs for stable core contracts. Used as a fallback when the
+    # compiled artifact / pinned IPFS ABI isn't available in a checkout, so the
+    # contracts can still be read/written (e.g. by the web catalog and the
+    # register/mint/pool flow) without a full contract build. Keyed by the
+    # `contract` name used in config deployments. Only the functions the Python
+    # layer actually calls are declared.
+    BUILTIN_ABIS = {
+        'Registry': [
+            {'inputs': [], 'name': 'nextModId',
+             'outputs': [{'type': 'uint256', 'name': ''}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'}], 'name': 'getMod',
+             'outputs': [{'type': 'address', 'name': 'owner'},
+                         {'type': 'string', 'name': 'name'},
+                         {'type': 'string', 'name': 'data'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'user'}], 'name': 'getUserMods',
+             'outputs': [{'type': 'uint256[]', 'name': ''}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'creator'},
+                        {'type': 'string', 'name': 'name'}], 'name': 'isNameTaken',
+             'outputs': [{'type': 'bool', 'name': ''}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'string', 'name': 'name'},
+                        {'type': 'string', 'name': 'data'}], 'name': 'registerMod',
+             'outputs': [{'type': 'uint256', 'name': ''}],
+             'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'modId'},
+                        {'type': 'string', 'name': 'data'}], 'name': 'updateMod',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'modId'}], 'name': 'removeMod',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+        ],
+        # Generic ERC20 — covers USDC/USDT/NativeToken (config `contract`: Token).
+        'Token': [
+            {'inputs': [{'type': 'address', 'name': 'a'}], 'name': 'balanceOf',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'totalSupply', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'decimals', 'outputs': [{'type': 'uint8'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'symbol', 'outputs': [{'type': 'string'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'owner'},
+                        {'type': 'address', 'name': 'spender'}], 'name': 'allowance',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'spender'},
+                        {'type': 'uint256', 'name': 'amount'}], 'name': 'approve',
+             'outputs': [{'type': 'bool'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+        ],
+        'BlocTime': [
+            {'inputs': [{'type': 'address', 'name': 'a'}], 'name': 'balanceOf',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'totalSupply', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'symbol', 'outputs': [{'type': 'string'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'decimals', 'outputs': [{'type': 'uint8'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'user'}], 'name': 'getUserStakeIds',
+             'outputs': [{'type': 'uint256[]'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'user'},
+                        {'type': 'uint256', 'name': 'stakeId'}], 'name': 'getStakePosition',
+             'outputs': [{'type': 'uint256'}, {'type': 'uint256'}, {'type': 'uint256'},
+                         {'type': 'uint256'}, {'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'user'}], 'name': 'getStakeInfo',
+             'outputs': [{'type': 'uint256'}, {'type': 'uint256'}, {'type': 'uint256'},
+                         {'type': 'uint256'}, {'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+        ],
+        'TokenGate': [
+            {'inputs': [], 'name': 'getTokenList', 'outputs': [{'type': 'address[]'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'token'}], 'name': 'isTokenWhitelisted',
+             'outputs': [{'type': 'bool'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'token'}], 'name': 'getTokenPrice',
+             'outputs': [{'type': 'uint256', 'name': 'price'}, {'type': 'uint8', 'name': 'decimals'},
+                         {'type': 'uint256', 'name': 'timestamp'}],
+             'stateMutability': 'view', 'type': 'function'},
+        ],
+        'Market': [
+            {'inputs': [{'type': 'address', 'name': 'paymentToken'},
+                        {'type': 'uint256', 'name': 'paymentAmount'}], 'name': 'mint',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [], 'name': 'treasury', 'outputs': [{'type': 'address'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'creditFeeBps', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'decimals', 'outputs': [{'type': 'uint8'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'symbol', 'outputs': [{'type': 'string'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'a'}], 'name': 'balanceOf',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+        ],
+        'Treasury': [
+            {'inputs': [], 'name': 'governanceToken', 'outputs': [{'type': 'address'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'ownerPercentage', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [], 'name': 'getTreasuryTokens', 'outputs': [{'type': 'address[]'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'holder'},
+                        {'type': 'address', 'name': 'token'}], 'name': 'getClaimableAmount',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'token'}], 'name': 'withdrawToken',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'token'},
+                        {'type': 'uint256', 'name': 'amount'}], 'name': 'fundTreasury',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+        ],
+    }
+
     def __init__(self, network: str = 'testnet', key='test'):
         self.network = network
         self.rpc_url = self.network2url.get(network, network)
@@ -663,7 +777,12 @@ class Mod:
             try:
                 abi = self.ipfs.get(abimap.get(info['contract']))
                 if abi is None:
-                    m.print(f'ABI not found for {name} at {info.get("abi")}', color='red')
+                    # Fall back to a built-in ABI for stable core contracts so
+                    # the contract still loads without a compiled artifact.
+                    abi = self.BUILTIN_ABIS.get(info['contract'])
+                    if abi is None:
+                        m.print(f'ABI not found for {name} at {info.get("abi")}', color='red')
+                        continue
                 self.contracts[name.lower()] = self.w3.eth.contract(
                     address=self.checksum(address),
                     abi=abi
@@ -772,6 +891,43 @@ class Mod:
 
     # ==================== MARKET FUNCTIONS ====================
 
+    def mint(self, payment_token: str = 'usdc', usd: float = 1.0) -> Dict[str, Any]:
+        """Mint MOD by paying `usd` dollars of a whitelisted stablecoin, with the
+        FULL payment routed into the reward pool that is distributed to BlocTime
+        holders. This is the paid path to register a module when the caller holds
+        no BlocTime.
+
+        Implementation note: the deployed Market predates a payment→treasury
+        `mint()` (its `credit` keeps the principal in the Market as backing), so
+        to honor "the $1 is placed in the pool" we deposit the payment directly
+        into the Treasury via `fundTreasury`. The Treasury's governance token is
+        BlocTime, so the deposit is claimable pro-rata by BlocTime holders.
+
+        Approves the Treasury to pull the payment (only if needed) then funds it.
+        """
+        treasury = self.contracts.get('treasury')
+        if not treasury:
+            raise ValueError('Treasury contract not loaded')
+        key = payment_token.lower()
+        cfg = self.contracts_config().get(key)
+        if not cfg:
+            raise ValueError(f'Unknown payment token: {payment_token}')
+        token = self.contracts.get(key)
+        if not token:
+            raise ValueError(f'{payment_token} token contract not loaded')
+        token_addr = self.checksum(cfg['address'])
+
+        # Stablecoins price at $1, so $usd ≈ usd * 10**tokenDecimals smallest units.
+        decimals = token.functions.decimals().call()
+        amount = int(round(usd * (10 ** decimals)))
+        if amount <= 0:
+            raise ValueError('Payment amount too small')
+
+        allowance = token.functions.allowance(self.account.address, treasury.address).call()
+        if allowance < amount:
+            self.send_tx(key, 'approve', [treasury.address, amount])
+        return self.send_tx('treasury', 'fundTreasury', [token_addr, amount])
+
     def credit(self, stable_amount: str, payment_token: int = 'usdt') -> Dict[str, Any]:
         """Buy stable tokens with whitelisted payment token."""
         market = self.contracts.get('market')
@@ -821,19 +977,242 @@ class Mod:
             return self.update(name, data)
         return self.send_tx('registry', 'registerMod', [name, data])
 
+    def reg_direct(self, name: str, data: str) -> Dict[str, Any]:
+        """Register/update a mod by name + data WITHOUT consulting the api module.
+
+        The on-chain Registry requires non-empty data, so callers must pass the
+        module's CID/manifest reference. Used by the gated [`register`] flow so
+        any catalog module can be registered straight from its name + schema CID.
+        """
+        if not name or not data:
+            raise ValueError('register requires both name and data (e.g. the schema CID)')
+        if self.mod_exists(name):
+            return self.send_tx('registry', 'updateMod', [self.name2id(name), data])
+        return self.send_tx('registry', 'registerMod', [name, data])
+
+    def register(self, name: str, data: str = None, key=None,
+                 pay: bool = False, payment_token: str = 'usdc') -> Dict[str, Any]:
+        """Gated registration: register a module on-chain if the signer holds
+        BlocTime; otherwise require a $1 MOD mint (which funds the weekly pool).
+
+        - Holds BlocTime  → registers for free.
+        - No BlocTime, pay=False → returns {status:'payment_required', ...} so the
+          caller can confirm the $1 charge.
+        - No BlocTime, pay=True  → mints $1 of MOD (payment → pool) then registers.
+
+        `data` is the registry payload (the module's CID/manifest); required.
+        `key` optionally switches the signing identity for this call.
+        """
+        if key:
+            self.set_key(key)
+        address = self.account.address
+        bloctime = self.bloctime_balance(address)
+        has_bloctime = bloctime > 0
+
+        if not has_bloctime and not pay:
+            return {
+                'status': 'payment_required',
+                'address': address,
+                'bloctime': bloctime,
+                'price_usd': 1.0,
+                'payment_token': payment_token,
+                'reason': 'No BlocTime held. Mint $1 of MOD to register; the $1 '
+                          'funds the weekly pool paid out to BlocTime holders.',
+            }
+
+        mint_receipt = None
+        if not has_bloctime:
+            mint_receipt = self.mint(payment_token, 1.0)
+
+        reg_receipt = self.reg_direct(name, data)
+        return {
+            'status': 'registered',
+            'name': name,
+            'address': address,
+            'bloctime': self.bloctime_balance(address),
+            'paid': not has_bloctime,
+            'mint': mint_receipt,
+            'register': reg_receipt,
+        }
+
+    # ==================== POOL (weekly distribution) ====================
+
+    def pool(self) -> Dict[str, Any]:
+        """Current state of the reward pool: the Treasury balance (funded by $1
+        MOD mints) that is distributed to BlocTime holders, plus the governance
+        token and total BlocTime outstanding. Stablecoin balances are summed as
+        the pool's USD value (stables price at $1)."""
+        treasury = self.contracts.get('treasury')
+        bloctime = self.contracts.get('bloctime')
+        if not treasury:
+            raise ValueError('Treasury contract not loaded')
+        gov = treasury.functions.governanceToken().call()
+        owner_pct = treasury.functions.ownerPercentage().call()
+        try:
+            token_addrs = treasury.functions.getTreasuryTokens().call()
+        except Exception:
+            token_addrs = self.tokens()
+        tokens = []
+        pool_usd = 0.0
+        for addr in token_addrs:
+            tok = self._erc20(addr)
+            try:
+                bal = tok.functions.balanceOf(treasury.address).call()
+                dec = tok.functions.decimals().call()
+                sym = tok.functions.symbol().call()
+            except Exception:
+                continue
+            human = bal / (10 ** dec)
+            pool_usd += human  # stables ≈ $1
+            tokens.append({'address': addr, 'symbol': sym, 'balance': bal,
+                           'decimals': dec, 'human': human})
+        total_bloctime = 0
+        if bloctime:
+            try:
+                total_bloctime = bloctime.functions.totalSupply().call()
+            except Exception:
+                pass
+        return {
+            'governance_token': gov,
+            'owner_percentage_bps': owner_pct,
+            'distributable_bps': 10000 - owner_pct,
+            'total_bloctime': total_bloctime,
+            'pool_usd': pool_usd,
+            'tokens': tokens,
+        }
+
+    def pool_claimable(self, address: Optional[str] = None) -> Dict[str, Any]:
+        """Per-token amount the given address (a BlocTime holder) can claim now
+        from the pool, by its proportional BlocTime share."""
+        treasury = self.contracts.get('treasury')
+        if not treasury:
+            raise ValueError('Treasury contract not loaded')
+        if address and not self.is_address(address):
+            address = m.key(address).address
+        addr = self.checksum(address or self.account.address)
+        try:
+            token_addrs = treasury.functions.getTreasuryTokens().call()
+        except Exception:
+            token_addrs = self.tokens()
+        out = []
+        total_usd = 0.0
+        for taddr in token_addrs:
+            try:
+                amount = treasury.functions.getClaimableAmount(addr, taddr).call()
+            except Exception:
+                continue
+            tok = self._erc20(taddr)
+            try:
+                dec = tok.functions.decimals().call()
+                sym = tok.functions.symbol().call()
+            except Exception:
+                dec, sym = 18, '?'
+            human = amount / (10 ** dec)
+            total_usd += human
+            out.append({'address': taddr, 'symbol': sym, 'amount': amount,
+                        'decimals': dec, 'human': human})
+        return {'address': addr, 'bloctime': self.bloctime_balance(addr),
+                'claimable_usd': total_usd, 'tokens': out}
+
+    def pool_claim(self, token: str = None, key=None) -> Dict[str, Any]:
+        """Claim the caller's share of the pool for one token (or every token
+        with a positive claimable balance)."""
+        if key:
+            self.set_key(key)
+        treasury = self.contracts.get('treasury')
+        if not treasury:
+            raise ValueError('Treasury contract not loaded')
+        addr = self.account.address
+        # Resolve a token symbol/name to its address if needed.
+        targets = []
+        if token:
+            cfg = self.contracts_config().get(token.lower())
+            targets = [self.checksum(cfg['address'])] if cfg else [self.checksum(token)]
+        else:
+            claim = self.pool_claimable(addr)
+            targets = [t['address'] for t in claim['tokens'] if t['amount'] > 0]
+        receipts = []
+        for taddr in targets:
+            try:
+                receipts.append({'token': taddr,
+                                 'receipt': self.send_tx('treasury', 'withdrawToken', [taddr])})
+            except Exception as e:
+                receipts.append({'token': taddr, 'error': str(e)})
+        return {'address': addr, 'claims': receipts}
+
+    def pool_snapshot(self) -> Dict[str, Any]:
+        """Record a point-in-time snapshot of the pool for the weekly epoch log
+        (off-chain, under ~/.mod/chain). Distribution itself is pull-based —
+        holders claim their share — so this captures the pool size + total
+        BlocTime at the moment the weekly keeper runs, for display/audit."""
+        snap = self.pool()
+        block = self.w3.eth.block_number
+        ts = self.w3.eth.get_block(block).timestamp
+        epoch = {
+            'block': block,
+            'timestamp': ts,
+            'network': self.network,
+            'pool_usd': snap['pool_usd'],
+            'total_bloctime': snap['total_bloctime'],
+            'governance_token': snap['governance_token'],
+            'tokens': snap['tokens'],
+        }
+        path = m.abspath('~/.mod/chain/pool_epochs.json')
+        epochs = m.get(path, [])
+        if not isinstance(epochs, list):
+            epochs = []
+        epochs.append(epoch)
+        epochs = epochs[-200:]  # cap history
+        m.put(path, epochs)
+        return epoch
+
+    def pool_epochs(self, limit: int = 12) -> List[Dict[str, Any]]:
+        """Return the most recent weekly pool snapshots (newest last)."""
+        path = m.abspath('~/.mod/chain/pool_epochs.json')
+        epochs = m.get(path, [])
+        if not isinstance(epochs, list):
+            return []
+        return epochs[-int(limit):]
+
+    def _erc20(self, address: str):
+        """A bare ERC20 handle (balanceOf/decimals/symbol/totalSupply) for any
+        token address, using the built-in Token ABI."""
+        return self.w3.eth.contract(address=self.checksum(address),
+                                     abi=self.BUILTIN_ABIS['Token'])
+
     def send_tx(self, module, function, args: list) -> Dict[str, Any]:
-        """Send a transaction to a contract function."""
+        """Send a transaction to a contract function.
+
+        Uses the *pending* nonce and explicit EIP-1559 gas (priority fee +
+        headroom over base fee) so that sequential calls in a single flow
+        (e.g. approve → fundTreasury → registerMod) don't collide and aren't
+        rejected as "replacement transaction underpriced" on busy public RPCs.
+        """
         contract = self.contracts.get(module)
         if not contract:
             raise ValueError(f'{module} contract not loaded')
 
-        tx = getattr(contract.functions, function)(*args).build_transaction({
+        params = {
             'from': self.account.address,
-            'nonce': self.w3.eth.get_transaction_count(self.account.address)
-        })
+            'nonce': self.w3.eth.get_transaction_count(self.account.address, 'pending'),
+        }
+        params.update(self._gas_fees())
+        tx = getattr(contract.functions, function)(*args).build_transaction(params)
         signed = self.w3.eth.account.sign_transaction(tx, self.account.key)
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
         return self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
+    def _gas_fees(self) -> Dict[str, int]:
+        """EIP-1559 fee fields: 2 gwei priority + 2× base-fee headroom. Falls
+        back to an empty dict (node defaults) if the chain isn't 1559-capable."""
+        try:
+            base = self.w3.eth.get_block('latest').get('baseFeePerGas')
+            if base is None:
+                return {}
+            priority = self.w3.to_wei(2, 'gwei')
+            return {'maxPriorityFeePerGas': priority, 'maxFeePerGas': base * 2 + priority}
+        except Exception:
+            return {}
 
     # ==================== ADMIN / OWNER FUNCTIONS ====================
     #
@@ -1433,6 +1812,33 @@ class Mod:
     def mymods(self):
         """Get all mods for the connected user from registry."""
         return self.mods(address=self.account.address)
+
+    def allmods(self, keys=['id', 'owner', 'name', 'data'], block: int = None):
+        """Enumerate every mod in the Registry, across all owners.
+
+        Walks ids 1..nextModId-1 and reads each one, skipping slots that have
+        been removed (owner == zero address). This is the global view the
+        catalog needs to know which modules are registered on-chain, regardless
+        of who registered them.
+
+        Args:
+            keys: Fields to include in each mod dict.
+            block: Block number to query at (default: latest).
+        """
+        registry = self.contracts.get('registry')
+        if not registry:
+            raise ValueError('Registry contract not loaded')
+        call_kwargs = {'block_identifier': block} if block else {}
+        next_id = registry.functions.nextModId().call(**call_kwargs)
+        zero = '0x0000000000000000000000000000000000000000'
+        mods = []
+        for mod_id in range(1, next_id):
+            _mod = self.get_mod(mod_id, block=block)
+            if not _mod.get('owner') or _mod['owner'].lower() == zero:
+                continue  # removed slot
+            _mod['id'] = mod_id
+            mods.append({k: _mod[k] for k in keys})
+        return mods
 
     # ==================== BLOCK INFO ====================
 

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# actl — host control for the on-demand module activator.
+#
+#   actl status                 # show every managed module's state
+#   actl disable <mod>          # turn OFF and keep it off (no auto-wake)
+#   actl enable  <mod>          # allow on-demand again
+#   actl pin     <mod>          # keep ALWAYS ON (never auto-sleep)
+#   actl unpin   <mod>          # allow auto-sleep again
+#   actl sleep   <mod>          # stop now (still wakes on next request)
+#   actl wake    <mod>          # start now
+#
+# The host owns this machine: disable/pin are authoritative over the automation.
+set -euo pipefail
+A="${ACTIVATOR_URL:-http://localhost:9000}"
+cmd="${1:-status}"; mod="${2:-}"
+
+case "$cmd" in
+  status|state)
+    curl -s "$A/_activator/state" | python3 -m json.tool ;;
+  disable|enable|pin|unpin|sleep|wake)
+    [ -n "$mod" ] || { echo "usage: actl $cmd <module>" >&2; exit 1; }
+    curl -s -X POST "$A/_activator/control" -H 'content-type: application/json' \
+      -d "{\"module\":\"$mod\",\"action\":\"$cmd\"}" | python3 -m json.tool ;;
+  *)
+    echo "usage: actl {status|disable|enable|pin|unpin|sleep|wake} [module]" >&2; exit 1 ;;
+esac

@@ -1,0 +1,6 @@
+{
+    "name": "appify",
+    "description": "appify - turn any folder into a mod server + app Usage: import mod as m appify = m.mod('appify')() # scaffold a full mod+server+app from any folder appify.forward('/path/to/my/project') # just generat",
+    "version": "0.1.0",
+    "schema": "QmPVGBdjyqo7GkcM6MD9F5HDvfmCnx9j3o6kP8X6CS4Wiz"
+}

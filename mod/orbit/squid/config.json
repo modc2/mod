@@ -1,0 +1,6 @@
+{
+    "name": "squid",
+    "description": "Subsquid / SQD Network connector. Query on-chain data (logs, transactions, traces) via Subsquid archives. Free, no API key required. Supports all major EVM chains. Data sources: 1. Subsquid Archives \u2014",
+    "version": "0.1.0",
+    "schema": "QmcXgx16UkX2tkhL9vKddnAVT6tWFKMEQpBGeKhowTD5cZ"
+}

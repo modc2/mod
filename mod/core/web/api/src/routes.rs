@@ -15,10 +15,12 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::catalog::Catalog;
+use crate::chain::ChainClient;
 
 #[derive(Clone)]
 pub struct AppState {
     pub catalog: Arc<Catalog>,
+    pub chain: Arc<ChainClient>,
     pub version: &'static str,
 }
 
@@ -33,6 +35,8 @@ pub fn router(state: AppState) -> Router {
         .route("/mods/:name/file", get(mod_file))
         .route("/stats", get(stats))
         .route("/search", get(search))
+        .route("/registry", get(registry))
+        .route("/graph", get(graph))
         .with_state(state)
 }
 
@@ -77,8 +81,31 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     })
 }
 
+/// Serialize a module to JSON and stamp on whether it's registered on-chain,
+/// so the explorer can badge it without a second round-trip per card.
+fn module_json(
+    module: &crate::catalog::Module,
+    registered: &std::collections::HashSet<String>,
+) -> serde_json::Value {
+    let mut v = serde_json::to_value(module).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(
+            "registered".into(),
+            serde_json::Value::Bool(registered.contains(&module.name.to_lowercase())),
+        );
+    }
+    v
+}
+
 async fn list_mods(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.catalog.modules())
+    let registered = state.chain.registered_names().await;
+    let mods: Vec<_> = state
+        .catalog
+        .modules()
+        .iter()
+        .map(|m| module_json(m, &registered))
+        .collect();
+    Json(mods)
 }
 
 async fn get_mod(
@@ -86,13 +113,60 @@ async fn get_mod(
     Path(name): Path<String>,
 ) -> impl IntoResponse {
     match state.catalog.get(&name) {
-        Some(module) => Json(module).into_response(),
+        Some(module) => {
+            let registered = state.chain.registered_names().await;
+            Json(module_json(&module, &registered)).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "module not found", "name": name })),
         )
             .into_response(),
     }
+}
+
+/// The on-chain registry view — which modules the chain module reports as
+/// registered, and whether chain was reachable at all.
+async fn registry(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.chain.registry().await)
+}
+
+/// Dependency graph: every module as a node, every declared dep as an edge.
+/// Edges are kept only when their target is a known module so the graph stays
+/// connected and renderable. Nodes carry enough to render without a join.
+async fn graph(State(state): State<AppState>) -> impl IntoResponse {
+    let modules = state.catalog.modules();
+    let registered = state.chain.registered_names().await;
+    let known: std::collections::HashSet<String> =
+        modules.iter().map(|m| m.name.clone()).collect();
+
+    let nodes: Vec<serde_json::Value> = modules
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "name": m.name,
+                "icon": m.icon,
+                "color": m.color,
+                "dep_count": m.deps.iter().filter(|d| known.contains(*d)).count(),
+                "registered": registered.contains(&m.name.to_lowercase()),
+            })
+        })
+        .collect();
+
+    let mut edges: Vec<serde_json::Value> = Vec::new();
+    for m in &modules {
+        for dep in &m.deps {
+            if known.contains(dep) {
+                edges.push(serde_json::json!({ "from": m.name, "to": dep }));
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+        "chain_available": state.chain.registry().await.available,
+    }))
 }
 
 /// Source tree for a module — backs the explorer's file browser.
@@ -153,5 +227,12 @@ async fn search(
     State(state): State<AppState>,
     Query(params): Query<SearchParams>,
 ) -> impl IntoResponse {
-    Json(state.catalog.search(&params.q))
+    let registered = state.chain.registered_names().await;
+    let mods: Vec<_> = state
+        .catalog
+        .search(&params.q)
+        .iter()
+        .map(|m| module_json(m, &registered))
+        .collect();
+    Json(mods)
 }

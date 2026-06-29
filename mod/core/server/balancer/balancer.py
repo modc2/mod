@@ -46,7 +46,7 @@ class Balancer:
         self.store = m.mod('store')(path)
         self.namespace = m.mod('server.namespace')()
         self.client = m.mod('client')()
-        self.auth = m.mod('auth.base')()
+        self.auth = m.mod('auth')()
         self._rr_counters = {}  # round-robin counters per group
         self._sessions = {}     # {user_key: last_seen_timestamp}
         self._sessions_lock = threading.Lock()

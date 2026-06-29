@@ -1,66 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Info, type Module } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { api, type Graph, type Info, type Module, type Registry } from "@/lib/api";
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
+import DepGraph from "./components/DepGraph";
 
 const LOGO = ` _____ _______ ______
 |     |       |      \\
 | | | |   -   |   -  |
 |_|_|_|_______|______/`;
 
-// Count-up animation that respects reduced-motion and only runs once visible.
-function useCountUp(target: number, run: boolean, ms = 1100) {
-  const [val, setVal] = useState(0);
-  const started = useRef(false);
-  useEffect(() => {
-    if (!run || started.current) return;
-    started.current = true;
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      setVal(target);
-      return;
-    }
-    const t0 = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const p = Math.min((now - t0) / ms, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setVal(Math.round(target * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, run, ms]);
-  return val;
-}
-
-function Stat({ value, label, run }: { value: number; label: string; run: boolean }) {
-  const v = useCountUp(value, run);
-  return (
-    <div className="stat">
-      <div className="num">{v.toLocaleString()}</div>
-      <div className="label">{label}</div>
-    </div>
-  );
-}
+type View = "grid" | "graph";
 
 export default function Home() {
   const [info, setInfo] = useState<Info | null>(null);
   const [mods, setMods] = useState<Module[] | null>(null);
+  const [registry, setRegistry] = useState<Registry | null>(null);
+  const [graph, setGraph] = useState<Graph | null>(null);
+  const [view, setView] = useState<View>("grid");
   const [q, setQ] = useState("");
+  const [onchainOnly, setOnchainOnly] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.info(), api.mods()])
-      .then(([i, m]) => {
+    Promise.all([api.info(), api.mods(), api.registry(), api.graph()])
+      .then(([i, m, r, g]) => {
         if (!alive) return;
         setInfo(i);
         setMods(m);
+        setRegistry(r);
+        setGraph(g);
       })
       .catch((e) => alive && setErr(String(e)));
     return () => {
@@ -71,105 +42,107 @@ export default function Home() {
   const filtered = useMemo(() => {
     if (!mods) return [];
     const s = q.trim().toLowerCase();
-    if (!s) return mods;
-    return mods.filter(
-      (m) =>
+    return mods.filter((m) => {
+      if (onchainOnly && !m.registered) return false;
+      if (!s) return true;
+      return (
         m.name.toLowerCase().includes(s) ||
         m.description.toLowerCase().includes(s) ||
-        m.fns.some((f) => f.toLowerCase().includes(s)),
-    );
-  }, [mods, q]);
+        m.fns.some((f) => f.toLowerCase().includes(s)) ||
+        m.deps.some((d) => d.toLowerCase().includes(s))
+      );
+    });
+  }, [mods, q, onchainOnly]);
 
-  const stats = info?.stats ?? { modules: 0, functions: 0, rust_apis: 0, apps: 0 };
+  const onchainCount = useMemo(
+    () => (mods ? mods.filter((m) => m.registered).length : 0),
+    [mods],
+  );
   const ready = !!info;
+  const chainUp = registry?.available ?? false;
 
   return (
     <>
       <Nav />
 
-      <header className="hero wrap">
+      <header className="explorer-hero wrap">
         <pre className="hero-ascii">{LOGO}</pre>
         <div className="badge">
           <span className="dot" />
-          {ready
-            ? `${stats.modules} modules live in orbit`
-            : "connecting to orbit…"}
+          {ready ? `${mods?.length ?? 0} modules in orbit` : "connecting to orbit…"}
         </div>
         <h1>
-          A modular runtime for <span className="grad-text">on-chain</span>{" "}
-          software.
+          The <span className="grad-text">module</span> explorer.
         </h1>
         <p className="lede">
-          Write a module. Register it on-chain. Set a price. Get paid every time
-          someone calls it. One protocol, {stats.modules || "many"} modules,
-          composable end to end.
+          Every module in the mod protocol — searchable, with its on-chain
+          registration status and the dependency links between them.
         </p>
-        <div className="cta-row">
-          <a className="btn btn-primary" href="#ecosystem">
-            Explore the ecosystem
-          </a>
-          <a
-            className="btn btn-ghost"
-            href="https://github.com/modc2/mod"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Read the docs ↗
-          </a>
-        </div>
 
-        <div className="flow">
-          <span className="step">write code</span>
-          <span className="arrow">→</span>
-          <span className="step">register on-chain</span>
-          <span className="arrow">→</span>
-          <span className="step">users call it</span>
-          <span className="arrow">→</span>
-          <span className="step grad-text">you get paid</span>
+        <div className="hero-chips">
+          <span className="hero-chip">
+            <b>{mods?.length ?? 0}</b> modules
+          </span>
+          <span className="hero-chip">
+            <b>{info?.stats.functions ?? 0}</b> functions
+          </span>
+          <span className="hero-chip onchain-chip" title={chainUp ? `chain · ${registry?.network}` : "chain module unreachable"}>
+            ⛓ <b>{onchainCount}</b> on-chain
+            <i className={`chain-dot ${chainUp ? "up" : "down"}`} />
+          </span>
         </div>
       </header>
 
-      <section className="wrap">
-        <div className="stats">
-          <Stat value={stats.modules} label="Modules" run={ready} />
-          <Stat value={stats.functions} label="Functions" run={ready} />
-          <Stat value={stats.rust_apis} label="Rust APIs" run={ready} />
-          <Stat value={stats.apps} label="Apps" run={ready} />
-        </div>
-      </section>
-
       <section className="wrap" id="ecosystem">
-        <div className="section-head">
-          <div>
-            <div className="eyebrow">The orbit</div>
-            <h2>Every module, live.</h2>
+        <div className="explorer-toolbar">
+          <div className="search">
+            <span className="icon">⌕</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search modules, descriptions, functions, deps…"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <span className="count">
+              {mods ? `${filtered.length}/${mods.length}` : ""}
+            </span>
           </div>
-          <p className="sub">
-            Each card is a real directory in the monorepo — its config, its
-            functions, its ports. Search across names, descriptions, and exposed
-            functions.
-          </p>
+
+          <div className="toolbar-controls">
+            <button
+              className={`chip-toggle ${onchainOnly ? "active" : ""}`}
+              onClick={() => setOnchainOnly((v) => !v)}
+              title="Show only modules registered on-chain"
+              disabled={!chainUp}
+            >
+              ⛓ on-chain only
+            </button>
+            <div className="view-toggle">
+              <button
+                className={view === "grid" ? "active" : ""}
+                onClick={() => setView("grid")}
+              >
+                ▦ Grid
+              </button>
+              <button
+                className={view === "graph" ? "active" : ""}
+                onClick={() => setView("graph")}
+              >
+                ⌗ Graph
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="search">
-          <span className="icon">⌕</span>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search modules, descriptions, functions…"
-            spellCheck={false}
-            autoComplete="off"
-          />
-          <span className="count">
-            {mods ? `${filtered.length}/${mods.length}` : ""}
-          </span>
-        </div>
-
-        {err && (
-          <div className="empty">
-            couldn’t reach mod-api · {err}
+        {!chainUp && registry && (
+          <div className="chain-note">
+            chain module unreachable — on-chain registration status unavailable.
+            Modules still listed from the on-disk catalog.
           </div>
         )}
+
+        {err && <div className="empty">couldn’t reach mod-api · {err}</div>}
 
         {!mods && !err && (
           <div className="grid">
@@ -179,16 +152,23 @@ export default function Home() {
           </div>
         )}
 
-        {mods && filtered.length === 0 && (
-          <div className="empty">no modules match “{q}”</div>
+        {view === "grid" && mods && filtered.length === 0 && (
+          <div className="empty">
+            no modules match {onchainOnly ? "the on-chain filter" : `“${q}”`}
+          </div>
         )}
 
-        {mods && filtered.length > 0 && (
+        {view === "grid" && mods && filtered.length > 0 && (
           <div className="grid">
             {filtered.map((m, i) => (
               <ModuleCard m={m} index={i} key={m.name} />
             ))}
           </div>
+        )}
+
+        {view === "graph" && graph && <DepGraph graph={graph} />}
+        {view === "graph" && !graph && !err && (
+          <div className="skel" style={{ height: 560 }} />
         )}
       </section>
 

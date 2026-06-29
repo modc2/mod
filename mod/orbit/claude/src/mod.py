@@ -42,7 +42,10 @@ class Mod:
                  key=None, default_path: str = None,
                  idle_timeout: int = None, **kwargs):
         self.key = m.key(key)
-        self.auth = m.mod('auth.base')()
+        # Shared auth system — every module uses the same `server.auth` for
+        # identity (token mint / verify / address recovery) so auth is modular
+        # and consistent across the orbit, not reimplemented per module.
+        self.auth = m.mod('server.auth')()
         cfg = self._load_config()
         servers = cfg.get('servers', {})
         name = cfg.get('name', 'claude')

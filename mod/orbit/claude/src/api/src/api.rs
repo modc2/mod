@@ -114,7 +114,9 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/modules/:name/snapshot", post(snapshot_module))
             .route("/modules/:name/fork", post(fork_module))
             .route("/modules/:name/restore", post(restore_module))
+            .route("/modules/import", post(import_module))
             .route("/modules/:name/process", post(module_process))
+            .route("/modules/:name/logs", post(module_logs))
             .route("/files/write", post(file_write))
             .route("/kill", post(kill_process))
             .route("/whitelist", post(add_to_whitelist))
@@ -2129,6 +2131,68 @@ async fn module_process(
         .into_response()
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LogsRequest {
+    /// How many trailing lines of each stream to return. Defaults to 200, capped
+    /// at 2000 so a runaway request can't tail an unbounded file.
+    lines: Option<usize>,
+}
+
+/// Tail the pm2 (or systemd) logs for a module's processes. Read-only, but logs
+/// can leak secrets, so it is owner-gated exactly like `module_process`.
+async fn module_logs(
+    headers: axum::http::HeaderMap,
+    State(_mgr): State<AppState>,
+    Path(name): Path<String>,
+    Json(body): Json<LogsRequest>,
+) -> impl IntoResponse {
+    if !local_mode() {
+        let auth_header = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        match auth::extract_address_from_header(auth_header) {
+            Ok(addr) if auth::is_owner(&addr) => {}
+            Ok(_) => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "Owner-only: only the host can read module logs" })),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response();
+            }
+        }
+    }
+
+    let lines = body.lines.unwrap_or(200).min(2000);
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let candidates = [
+        format!("{}/mod/mod/orbit/{}", home, name),
+        format!("{}/mod/mod/core/{}", home, name),
+    ];
+    let module_path = match candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_dir()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("Module '{}' not found", name) })),
+            )
+                .into_response();
+        }
+    };
+
+    let config = read_module_config(&module_path, &name);
+    let backend = process::select(&module_path, &config, &name);
+
+    match process::logs(backend, &module_path, &name, lines) {
+        Ok(map) => Json(serde_json::Value::Object(map)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 // ── Snapshots / Versions / Fork / Restore ────────────────────────────
 //
 // Content-addressed via the Store enum (default: LocalFs). Any future backend
@@ -2552,6 +2616,264 @@ async fn restore_module(
             "registry_cid": registry_cid,
             "registry_prev": registry_prev,
             "registry_error": registry_err,
+        })),
+    )
+        .into_response()
+}
+
+// ── Import a brand-new module from a GitHub repo or a snapshot CID ──────
+//
+// Two deterministic, no-AI paths for getting code onto disk as a fresh
+// module (contrast with the agent-job "BUILD" flow which asks Claude to
+// write files):
+//   • source="github": shallow `git clone` the repo into the module dir,
+//     then strip `.git` so it joins the mono-repo cleanly.
+//   • source="cid": materialize a claude snapshot CID out of the shared
+//     blob store via `restore_into` — the same primitive `fork_module`
+//     uses, just into a user-named module instead of a portal fork.
+//
+// Owners drop modules straight into orbit/ (or core/, owner-only). A
+// non-owner authed caller is sandboxed into orbit/portal/<addr>/ exactly
+// like a fork, so they can never clobber a first-class module.
+#[derive(Deserialize)]
+struct ImportBody {
+    source: String,
+    name: String,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    cid: Option<String>,
+    #[serde(default)]
+    category: Option<String>,
+}
+
+// A module name becomes a directory and a registry key, so keep it to a
+// conservative slug — no separators, traversal, or shell-hostile chars.
+fn valid_module_slug(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+// Accept http(s) git URLs. The leading scheme guard also stops a
+// `-`-prefixed value from being read by git as a flag (args are passed as
+// a vec, so there's no shell — only argv injection to worry about).
+fn is_safe_clone_url(u: &str) -> bool {
+    let u = u.trim();
+    if !(u.starts_with("https://") || u.starts_with("http://")) {
+        return false;
+    }
+    if u.len() > 512 || u.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    true
+}
+
+async fn import_module(
+    headers: axum::http::HeaderMap,
+    Json(body): Json<ImportBody>,
+) -> impl IntoResponse {
+    let caller = auth::extract_address_from_headers(&headers).unwrap_or_default();
+    let local_mode = std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1";
+    if caller.is_empty() && !local_mode {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "auth required to import a module" })),
+        )
+            .into_response();
+    }
+
+    let source = body.source.trim().to_lowercase();
+    let name = body.name.trim().to_string();
+    if !valid_module_slug(&name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "module name must be 1–64 chars of [a-zA-Z0-9_-]" })),
+        )
+            .into_response();
+    }
+
+    let is_owner = local_mode || auth::is_owner(&caller);
+    let category = body
+        .category
+        .as_deref()
+        .unwrap_or("orbit")
+        .trim()
+        .to_lowercase();
+    if category != "orbit" && category != "core" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "category must be 'orbit' or 'core'" })),
+        )
+            .into_response();
+    }
+    if category == "core" && !is_owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "core modules are owner-only" })),
+        )
+            .into_response();
+    }
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    // Owners land in the first-class tree; everyone else is namespaced into a
+    // per-address portal so an untrusted import can never shadow a real module.
+    let (module_id, dest) = if is_owner {
+        (
+            name.clone(),
+            std::path::PathBuf::from(format!("{home}/mod/mod/{category}/{name}")),
+        )
+    } else {
+        let owner = caller.to_lowercase();
+        (
+            format!("portal/{owner}/{name}"),
+            std::path::PathBuf::from(format!("{home}/mod/mod/orbit/portal/{owner}/{name}")),
+        )
+    };
+
+    if dest.exists() {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": format!("module already exists at {}", dest.display()) })),
+        )
+            .into_response();
+    }
+
+    // ── source-specific materialization ────────────────────────────────
+    let (file_count, origin): (usize, serde_json::Value) = match source.as_str() {
+        "github" | "git" => {
+            let url = body.url.clone().unwrap_or_default();
+            if !is_safe_clone_url(&url) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "url must be an http(s) git URL" })),
+                )
+                    .into_response();
+            }
+            if let Some(parent) = dest.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("mkdir parent: {e}") })),
+                    )
+                        .into_response();
+                }
+            }
+            let dest_str = dest.to_string_lossy().to_string();
+            let clone = tokio::time::timeout(
+                std::time::Duration::from_secs(180),
+                tokio::process::Command::new("git")
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .args(["clone", "--depth", "1", url.trim(), &dest_str])
+                    .output(),
+            )
+            .await;
+            match clone {
+                Ok(Ok(out)) if out.status.success() => {}
+                Ok(Ok(out)) => {
+                    let _ = std::fs::remove_dir_all(&dest);
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": format!("git clone failed: {}", stderr.trim()) })),
+                    )
+                        .into_response();
+                }
+                Ok(Err(e)) => {
+                    let _ = std::fs::remove_dir_all(&dest);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("git not available: {e}") })),
+                    )
+                        .into_response();
+                }
+                Err(_) => {
+                    let _ = std::fs::remove_dir_all(&dest);
+                    return (
+                        StatusCode::GATEWAY_TIMEOUT,
+                        Json(json!({ "error": "git clone timed out after 180s" })),
+                    )
+                        .into_response();
+                }
+            }
+            // Detach from the upstream repo so it lives inside the mono-repo.
+            let _ = std::fs::remove_dir_all(dest.join(".git"));
+            let count = std::fs::read_dir(&dest).map(|d| d.count()).unwrap_or(0);
+            (count, json!({ "source": "github", "url": url }))
+        }
+        "cid" | "snapshot" => {
+            let cid = body.cid.clone().unwrap_or_default();
+            let store = default_store();
+            match restore_into(&dest, &cid, &store) {
+                Ok(n) => (n, json!({ "source": "cid", "cid": cid, "store": store.name() })),
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&dest);
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": format!("could not restore snapshot: {e}"),
+                            "hint": "only snapshot CIDs present in the shared blob store can be imported",
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("unknown source '{other}'; use 'github' or 'cid'") })),
+            )
+                .into_response();
+        }
+    };
+
+    // Seed version history + the global registry so the freshly-imported
+    // module shows up like any other (best-effort — a registry hiccup must
+    // not fail an import whose files already landed).
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let store = default_store();
+    let snap_cid = snapshot_dir(&dest, &store).ok().map(|(c, _)| c);
+    let msg = format!("imported via {source}");
+    let (registry_cid, registry_prev, registry_err) =
+        match mod_protocol_register(&module_id, &msg).await {
+            Ok(r) => (r.cid, r.prev, None),
+            Err(e) => (None, None, Some(e)),
+        };
+    if let Some(cid) = snap_cid.clone() {
+        let _ = append_version(
+            &module_id,
+            VersionRecord {
+                cid,
+                message: msg,
+                author: caller.clone(),
+                timestamp: ts,
+                parent: None,
+                registry_cid: registry_cid.clone(),
+                registry_prev: registry_prev.clone(),
+                action: Some("import".to_string()),
+            },
+        );
+    }
+
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "ok": true,
+            "module": module_id,
+            "name": name,
+            "path": dest.display().to_string(),
+            "category": if is_owner { category } else { "portal".to_string() },
+            "file_count": file_count,
+            "snapshot_cid": snap_cid,
+            "registry_cid": registry_cid,
+            "registry_prev": registry_prev,
+            "registry_error": registry_err,
+            "origin": origin,
         })),
     )
         .into_response()

@@ -1,0 +1,7 @@
+{
+    "name": "pm",
+    "description": "Core process manager \u2014 supervises module processes via pm2, each launched inside its nix image (module flake.nix or shared core/nix)",
+    "type": "process-manager",
+    "backend": "pm2",
+    "schema": "QmZ2BeqxdZc2SjYEjdMBcd9r11jCcaWvKCM6gu8NwatGr1"
+}

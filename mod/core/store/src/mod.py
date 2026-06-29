@@ -9,7 +9,8 @@ import mod as m
 
 class Store:
 
-    expose = ['get', 'put', 'ls', 'serve', 'stop', 'app', 'api', 'backends']
+    expose = ['get', 'put', 'ls', 'serve', 'stop', 'app', 'api', 'backends',
+              'register_onchain', 'onchain']
 
     def __init__(self, path='~/.mod/store', password=None, filetype='json', private=False):
         self.path = self.abspath(path)
@@ -76,6 +77,42 @@ class Store:
             'hippius': 'm store.hippius/* — Substrate node + S3 gateway (proxies orbit/hippius)',
             'unified': 'm dstore/* — filecoin + hippius with SIWE auth',
         }
+
+    # ── on-chain (chain mod: BlocTime + Registry) ────────────────────
+
+    def _onchain(self):
+        """Build the OnChain helper from config.json (lazy chain mod inside)."""
+        import sys
+        root = self._module_root()
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from api.onchain import OnChain
+        cfg = {}
+        cfg_path = os.path.join(root, 'config.json')
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        return OnChain(
+            network=cfg.get('chain_network', 'testnet'),
+            gate=cfg.get('bloctime_gate', True),
+            ttl=int(cfg.get('bloctime_ttl', 60)),
+            name='store',
+        ), cfg
+
+    def register_onchain(self, data: str = None, force: bool = False, **kw):
+        """Register the store module in the chain mod's on-chain Registry.
+
+        `m store/register_onchain` — permissionless per-creator; skips the tx if
+        already registered with identical data. Spends gas, so it is never
+        automatic unless config `onchain_registry` is true."""
+        oc, cfg = self._onchain()
+        data = data or cfg.get('schema') or cfg.get('urls', {}).get('app') or 'store'
+        return oc.register(data=data, force=force)
+
+    def onchain(self, **kw):
+        """Report on-chain status (Registry registration + BlocTime gate)."""
+        oc, _ = self._onchain()
+        return oc.status()
 
     # ── path helpers ─────────────────────────────────────────────────
 

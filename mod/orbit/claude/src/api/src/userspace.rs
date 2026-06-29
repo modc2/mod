@@ -169,3 +169,84 @@ pub fn display_path(caller_addr: &str, p: &Path) -> String {
     }
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A real, canonicalized temp dir to act as a confinement root.
+    fn tmp_base(tag: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("modtest_{}_{}", std::process::id(), tag));
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::canonicalize(&p).unwrap()
+    }
+
+    #[test]
+    fn confine_allows_relative_inside() {
+        let base = tmp_base("rel");
+        let r = confine(&base, "sub/file.txt").unwrap();
+        assert!(r.starts_with(&base), "{r:?} not under {base:?}");
+        assert!(r.ends_with("sub/file.txt"));
+    }
+
+    #[test]
+    fn confine_dot_resolves_to_base() {
+        let base = tmp_base("dot");
+        assert_eq!(confine(&base, ".").unwrap(), base);
+    }
+
+    #[test]
+    fn confine_rejects_parentdir_escape() {
+        let base = tmp_base("esc");
+        // Any `..` component is refused up front — the core boundary guarantee.
+        assert!(confine(&base, "../outside").is_err());
+        assert!(confine(&base, "a/../../b").is_err());
+        assert!(confine(&base, "..").is_err());
+    }
+
+    #[test]
+    fn confine_rejects_absolute_outside() {
+        let base = tmp_base("abs");
+        assert!(confine(&base, "/etc/passwd").is_err());
+        assert!(confine(&base, "/tmp/definitely-not-under-base").is_err());
+    }
+
+    #[test]
+    fn confine_allows_absolute_inside() {
+        let base = tmp_base("absin");
+        let inside = base.join("x").join("y");
+        let r = confine(&base, inside.to_str().unwrap()).unwrap();
+        assert!(r.starts_with(&base));
+    }
+
+    #[test]
+    fn confine_blocks_symlink_escape() {
+        // A symlink inside base pointing outside must not let writes escape.
+        let base = tmp_base("sym");
+        let outside = tmp_base("sym_target");
+        let link = base.join("escape");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        // Resolving a path *through* the symlink escapes base → rejected.
+        let r = confine(&base, "escape/pwned.txt");
+        assert!(r.is_err(), "symlink escape was allowed: {r:?}");
+    }
+
+    #[test]
+    fn peer_root_is_lowercased_under_mod_peers() {
+        let r = peer_root("0xABCdef00");
+        assert!(r.to_string_lossy().ends_with(".mod/peers/0xabcdef00"), "{r:?}");
+    }
+
+    #[test]
+    fn mod_root_is_module_tree() {
+        assert!(mod_root().ends_with("mod/mod"), "{:?}", mod_root());
+    }
+
+    #[test]
+    fn empty_caller_is_unconfined_host() {
+        // Local/trusted CLI (empty caller) keeps full-host semantics.
+        let r = resolve_path("", "/etc/hosts").unwrap();
+        assert_eq!(r, PathBuf::from("/etc/hosts"));
+    }
+}

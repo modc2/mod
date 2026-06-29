@@ -405,7 +405,7 @@ class Mod(Agent):
 
         # ── permissions (Claude module pattern) ──
         self.key = m.key(key) if m else None
-        self.auth = m.mod('auth.base')() if m else None
+        self.auth = m.mod('auth')() if m else None
         # Owner resolution (claude pattern): an explicit owner in config.json or
         # ~/.mod/agent/owner.json is AUTHORITATIVE and is read independently of
         # whether the framework `m` import succeeded. This prevents a fail-open

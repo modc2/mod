@@ -290,7 +290,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       // 2a) Authoritative TOTAL positions value — one light call that tends to
       // survive rate-limiting even when the heavier /positions list is empty.
       try {
-        const vr = await fetch(`/api/polymarket?endpoint=value&user=${wallet}`, { cache: "no-store" });
+        const vr = await fetch(`/api/polymarket/?endpoint=value&user=${wallet}`, { cache: "no-store" });
         if (vr.ok) {
           const vj = await vr.json();
           const v = Array.isArray(vj) ? Number(vj[0]?.value) : Number(vj?.value);

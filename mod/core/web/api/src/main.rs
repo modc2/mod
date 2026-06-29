@@ -5,6 +5,7 @@
 //! `/api/web` and back the Next.js app mounted at `/web`.
 
 mod catalog;
+mod chain;
 mod routes;
 
 use std::net::SocketAddr;
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use catalog::Catalog;
+use chain::ChainClient;
 use routes::AppState;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -34,8 +36,12 @@ async fn main() -> anyhow::Result<()> {
     let n = catalog.modules().len();
     tracing::info!("catalog warm: {n} modules");
 
+    let chain = Arc::new(ChainClient::from_env());
+    tracing::info!("chain hub: registry source configured");
+
     let state = AppState {
         catalog,
+        chain,
         version: VERSION,
     };
 

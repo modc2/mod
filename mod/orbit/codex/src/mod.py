@@ -40,7 +40,7 @@ class Mod:
                  key=None, default_path: str = None,
                  idle_timeout: int = None, **kwargs):
         self.key = m.key(key)
-        self.auth = m.mod('auth.base')()
+        self.auth = m.mod('auth')()
         cfg = self._load_config()
         servers = cfg.get('servers', {})
         name = cfg.get('name', 'codex')

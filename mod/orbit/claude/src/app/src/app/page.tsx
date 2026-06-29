@@ -2493,6 +2493,16 @@ export default function Home() {
     fetchModules();
   }, [fetchModules]);
 
+  // The HUB grid renders from `moduleList` — the same state the header
+  // module-search box narrows via fetchModules(query). Without this, a prior
+  // header search (e.g. "polymarket") leaves moduleList = [that one match],
+  // so opening the hub shows a single card while its own filter box is empty.
+  // Reload the unfiltered list every time the hub opens so it always shows
+  // every module; the hub's own `hubSearch` box does any in-view filtering.
+  useEffect(() => {
+    if (sidebarView === "hub") fetchModules("");
+  }, [sidebarView, fetchModules]);
+
   // Auto-select default module and keep selectedModuleInfo in sync with moduleList
   useEffect(() => {
     if (selectedModule && moduleList.length > 0) {
@@ -2711,17 +2721,19 @@ export default function Home() {
     if (!selectedModule || !token) return;
     setModuleLogsLoading(true);
     try {
-      const res = await authFetch("/forward", {
+      const res = await authFetch(`/modules/${selectedModule}/logs`, {
         method: "POST",
-        body: JSON.stringify({ fn: "app_logs", name: selectedModule, lines: 200 }),
+        body: JSON.stringify({ lines: 200 }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && typeof data === "object" && !data.error) {
-          setModuleLogs(typeof data === "string" ? { stdout: data } : data);
-        }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && typeof data === "object" && !data.error) {
+        setModuleLogs(typeof data === "string" ? { stdout: data } : data);
+      } else {
+        setModuleLogs({ error: data?.error || `Failed to load logs (HTTP ${res.status})` });
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      setModuleLogs({ error: e instanceof Error ? e.message : "Failed to load logs" });
+    }
     setModuleLogsLoading(false);
   }, [selectedModule, token, authFetch]);
 
@@ -9137,24 +9149,20 @@ export default function Home() {
                 onClick={(e) => {
                   e.stopPropagation();
                   // No session yet — this chip reads "SIGN IN" and toggles the
-                  // connect-wallet drawer instead of the profile dropdown.
+                  // connect-wallet drawer.
                   if (!token) {
                     setSignInOpen(o => !o);
                     return;
                   }
-                  // For the owner, this single chip is also the identity chip, so
-                  // open the dropdown (it carries both owner-panel + wallet tabs).
-                  if (!isOwner && address && address !== "local" && walletType) {
-                    setAccountTab("wallet");
-                    setShowOwnerSidebar(o => !o);
-                  } else {
-                    setProfileMenuOpen(o => !o);
-                  }
+                  // Unified entry point for owner AND user: one click opens the
+                  // merged account panel already expanded — no intermediate
+                  // dropdown (its actions all live inside the panel now).
+                  setShowOwnerSidebar(o => !o);
                 }}
                 className="text-[12px] font-bold font-mono px-2 py-1 transition-all flex items-center gap-1.5"
                 style={isOwner ? {
                   color: "var(--crt-green)",
-                  background: profileMenuOpen
+                  background: showOwnerSidebar
                     ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
                     : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
                   border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
@@ -9162,17 +9170,14 @@ export default function Home() {
                   letterSpacing: "0.02em",
                 } : {
                   color: "var(--crt-green)",
-                  opacity: ((showOwnerSidebar && accountTab === "wallet") || profileMenuOpen) ? 1 : 0.5,
+                  opacity: showOwnerSidebar ? 1 : 0.5,
                   borderRadius: 4,
-                  background: ((showOwnerSidebar && accountTab === "wallet") || profileMenuOpen) ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                  background: showOwnerSidebar ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
                 }}
-                title={isOwner
-                  ? (profileMenuOpen ? "Close menu" : "Owner — open menu")
-                  : (address && address !== "local" && walletType
-                    ? ((showOwnerSidebar && accountTab === "wallet") ? "Close wallet panel" : "Open wallet panel")
-                    : (address ? `Profile: ${address}` : "Sign in"))}
-                aria-expanded={isOwner ? profileMenuOpen : (address && address !== "local" && walletType ? (showOwnerSidebar && accountTab === "wallet") : profileMenuOpen)}
-                aria-haspopup={isOwner || !(address && address !== "local" && walletType) ? "menu" : undefined}
+                title={token
+                  ? (showOwnerSidebar ? "Close account panel" : "Open account panel")
+                  : "Sign in"}
+                aria-expanded={showOwnerSidebar}
               >
                 {isOwner && (
                   <span
@@ -9183,9 +9188,7 @@ export default function Home() {
                 {isOwner && <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>}
                 {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
                 <span className="text-[9px]" style={{ opacity: 0.6 }}>
-                  {!isOwner && address && address !== "local" && walletType
-                    ? ((showOwnerSidebar && accountTab === "wallet") ? "◨" : "◧")
-                    : (profileMenuOpen ? "▴" : "▾")}
+                  {showOwnerSidebar ? "◨" : "◧"}
                 </span>
               </button>
               {profileMenuOpen && (

@@ -19,6 +19,18 @@ export default function PreconditionChecklist() {
   const [tick, setTick] = useState(0);
   const [mounted, setMounted] = useState(false);
 
+  // Collapsed by default — the header keeps the at-a-glance state (ratio +
+  // progress bar) visible while the per-step pill chips fold away for a clean
+  // sidebar. Mirrors WalletTokenPanel's collapse pattern. Persisted across
+  // reloads.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("poly_checklist_collapsed") !== "false"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("poly_checklist_collapsed", String(collapsed)); } catch {}
+  }, [collapsed]);
+
   // Re-read the active strat from localStorage on a slow interval so edits in
   // CopyIndex propagate up here without a full page reload.
   useEffect(() => {
@@ -80,8 +92,19 @@ export default function PreconditionChecklist() {
   const pct = (completed / total) * 100;
 
   return (
-    <div className="pixel-panel px-3 py-2 mb-4">
-      <div className="flex items-center gap-3 flex-wrap">
+    <div className="pixel-panel border-2 border-pixel-border">
+      {/* Clickable header — folds the per-step pill chips away while keeping
+          the ratio + progress bar visible at a glance. */}
+      <div
+        onClick={() => setCollapsed((c) => !c)}
+        role="button"
+        aria-expanded={!collapsed}
+        title={collapsed ? "Expand go-live checklist" : "Collapse"}
+        className="px-3 py-1.5 flex items-center gap-3 bg-pixel-black/40 cursor-pointer select-none hover:bg-pixel-black/60"
+      >
+        <span className="text-pixel-gray text-[10px] w-2 inline-block shrink-0">
+          {collapsed ? "▸" : "▾"}
+        </span>
         <span className="text-[12px] text-pixel-gray tracking-[0.18em] shrink-0">
           CHECKLIST
         </span>
@@ -94,7 +117,7 @@ export default function PreconditionChecklist() {
         </span>
         {/* Thin progress bar — same color as the ratio label so the eye
             picks up completion state without reading the digits. */}
-        <div className="flex-1 min-w-[80px] h-1 bg-pixel-border/40 overflow-hidden rounded-sm">
+        <div className="flex-1 min-w-[60px] h-1 bg-pixel-border/40 overflow-hidden rounded-sm">
           <div
             className={`h-full transition-all duration-300 ${
               allDone ? "bg-green-400" : "bg-amber-400/70"
@@ -102,36 +125,41 @@ export default function PreconditionChecklist() {
             style={{ width: `${pct}%` }}
           />
         </div>
-        {/* Pill chips, one per step. Flex-wraps cleanly on any screen
-            width so we never get the 2-line truncation the old 3-col
-            grid produced. */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {items.map((item) => (
-            <span
-              key={item.label}
-              title={item.desc}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-mono tracking-wider border whitespace-nowrap ${
-                item.ok
-                  ? "border-green-400/60 text-green-400 bg-green-400/10"
-                  : "border-pixel-border/60 text-pixel-gray bg-pixel-black/40"
-              }`}
-            >
-              <span className="text-[10px]">{item.ok ? "✓" : "○"}</span>
-              <span>{item.label}</span>
-              {item.action && (
-                <button
-                  onClick={item.action.onClick}
-                  disabled={item.action.disabled}
-                  className="ml-0.5 text-[10px] font-mono text-amber-400 hover:text-amber-300 disabled:opacity-50 disabled:cursor-not-allowed underline-offset-2 hover:underline"
-                  title="Sign a MetaMask message to derive your Polymarket CLOB API key"
-                >
-                  {item.action.label}
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
       </div>
+
+      {!collapsed && (
+        <div className="px-3 py-2 border-t border-pixel-border/60 bg-pixel-black/20">
+          {/* Pill chips, one per step. Flex-wraps cleanly on any screen
+              width so we never get the 2-line truncation the old 3-col
+              grid produced. */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {items.map((item) => (
+              <span
+                key={item.label}
+                title={item.desc}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-mono tracking-wider border whitespace-nowrap ${
+                  item.ok
+                    ? "border-green-400/60 text-green-400 bg-green-400/10"
+                    : "border-pixel-border/60 text-pixel-gray bg-pixel-black/40"
+                }`}
+              >
+                <span className="text-[10px]">{item.ok ? "✓" : "○"}</span>
+                <span>{item.label}</span>
+                {item.action && (
+                  <button
+                    onClick={item.action.onClick}
+                    disabled={item.action.disabled}
+                    className="ml-0.5 text-[10px] font-mono text-amber-400 hover:text-amber-300 disabled:opacity-50 disabled:cursor-not-allowed underline-offset-2 hover:underline"
+                    title="Sign a MetaMask message to derive your Polymarket CLOB API key"
+                  >
+                    {item.action.label}
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

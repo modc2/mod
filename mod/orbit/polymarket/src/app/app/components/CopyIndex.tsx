@@ -372,6 +372,10 @@ interface CopyIndexProps {
   searchFilter: string;
   compact?: boolean;
   onClose?: () => void;
+  /// When the right sidebar is docked it owns the account / wallet / token
+  /// block, so the inline KEY+TOKEN row and WalletTokenPanel are suppressed
+  /// here to avoid rendering them twice. The STRAT summary + tabs stay.
+  hideWalletHeader?: boolean;
 }
 
 // Labeled input/select group used across the backtest controls. Renders a
@@ -400,7 +404,7 @@ function Field({
   );
 }
 
-export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexProps) {
+export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHeader }: CopyIndexProps) {
   const router = useRouter();
   const filterQs = useFilterParams({ excludeSearch: true });
   const { localToken, auth } = useAuth();
@@ -487,7 +491,11 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // rather than the strategy-management screen. The LIVE tab is itself
   // disabled until a watchlist exists, so first-time-no-strat users still
   // see STRATS through the disabled-tab fallback in the tabs render block.
-  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE">("LIVE");
+  // Land on STRATS — it always has content (build/browse a strat), unlike LIVE
+  // which is blank until a wallet's connected and an engine is running. The
+  // LIVE tab badges itself RUNNING so a live session is still obvious at a
+  // glance from here.
+  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE">("STRATS");
 
   // STRAT panel collapsed state — params live above the BACKTEST/LIVE
   // mode-content so the user can tweak window/capital/sample/poll-every
@@ -1670,7 +1678,10 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Key + token row — KEY is the connected wallet's 0x address (the
             identity that signs the CLOB EIP-712 auth + is recovered by the
-            backend), TOKEN is the local strat-encryption preview. */}
+            backend), TOKEN is the local strat-encryption preview.
+            Suppressed when the docked sidebar owns the account block. */}
+        {!hideWalletHeader && (
+        <>
         <div className="flex items-center justify-between gap-2">
           {auth.address || localToken ? (
             <div className="flex items-center gap-3 text-[16px] font-mono min-w-0 flex-1">
@@ -1712,6 +1723,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
             current view. Mirrors the wallet-chip popover (CONNECTED · OWNER
             · COPY · SIGN OUT) and adds full-token reveal + sign-in QR. */}
         <WalletTokenPanel />
+        </>
+        )}
         {/* ── STRAT params panel (above tabs) ──
             Visible on STRATS, BACKTEST, and LIVE so the user can tweak
             window / capital / trade size / poll-every from any view
@@ -2012,17 +2025,17 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                 key={t.id}
                 onClick={() => setMode(t.id)}
                 disabled={t.disabled}
-                style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.08em" }}
-                className={`relative text-[18px] px-6 py-3 transition-all uppercase flex items-center gap-2 ${
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
+                className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
                   active
-                    ? "text-green-400"
-                    : "text-pixel-gray hover:text-pixel-white"
+                    ? "text-green-400 bg-green-400/[0.08]"
+                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
                 } disabled:opacity-30 disabled:cursor-not-allowed`}
               >
                 {t.label}
                 {showRunning && (
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 border tracking-wider rounded-sm ${runningTone}`}
+                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
                     title={`Live engine ${engineState?.status ?? "running"}`}
                   >
                     {engineState?.status === "paused" ? "PAUSED" :
@@ -2030,8 +2043,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                   </span>
                 )}
                 <span
-                  className={`absolute left-2 right-2 -bottom-0.5 h-[3px] transition-all ${
-                    active ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-transparent"
+                  className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
+                    active ? "bg-green-400 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
                   }`}
                 />
               </button>
@@ -2047,12 +2060,18 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
           now folded into one tab so it isn't crowding the strat editor. */}
       {mode === "HUB" && (
         <div className="pixel-panel border-2 border-pixel-border">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-pixel-border/40">
-            <span
-              className="text-[14px] text-green-400 uppercase tracking-wider"
-              style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
-            >
-              Strategy Hub
+          <div className="flex items-center justify-between px-4 py-3 border-b border-pixel-border/40">
+            <span className="flex items-center gap-2.5">
+              <span className="w-[3px] h-4 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
+              <span
+                className="text-[14px] font-bold text-pixel-white uppercase tracking-[0.18em]"
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
+              >
+                Strategy Hub
+              </span>
+              <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
+                publish · fork · fund
+              </span>
             </span>
             <button
               onClick={() => setHubFundOpen((v) => !v)}
@@ -2061,7 +2080,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               {hubFundOpen ? "HIDE FUND" : "+ FUND"}
             </button>
           </div>
-          <div className="px-3 pb-3 space-y-3 pt-3">
+          <div className="px-4 pb-4 space-y-3 pt-4">
             {hubFundOpen && <WalletFundingPanel />}
             <UserStratsPanel eoa={auth.address ?? undefined} />
           </div>
@@ -2102,22 +2121,24 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         <div className="pixel-panel border-2 border-pixel-border">
           <button
             onClick={() => setBrowseOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-3 py-2 text-left"
+            className="w-full flex items-center justify-between px-4 py-3 text-left group/bt"
           >
-            <span className="flex items-center gap-2">
-              <span className="text-pixel-gray text-[14px]">{browseOpen ? "▾" : "▸"}</span>
+            <span className="flex items-center gap-2.5">
+              <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${browseOpen ? "rotate-90" : ""}`}>▸</span>
               <span
-                className="text-[14px] text-green-400 uppercase tracking-wider"
-                style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
+                className="text-[14px] font-bold text-pixel-white uppercase tracking-[0.18em] group-hover/bt:text-green-400 transition-colors"
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
               >
                 Browse Traders
               </span>
-              <span className="text-[11px] text-pixel-gray hidden sm:inline">
-                leaderboard · click to add to strat
+              <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
+                leaderboard · click a trader to add
               </span>
             </span>
             {allTraderAddrs.length > 0 && (
-              <span className="text-[12px] text-pixel-gray font-mono">{allTraderAddrs.length} in strat</span>
+              <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
+                {allTraderAddrs.length} in strat
+              </span>
             )}
           </button>
           {browseOpen && (

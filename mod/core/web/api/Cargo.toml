@@ -25,6 +25,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # State
 parking_lot = "0.12"
 
+# HTTP client — used to query the chain module's hub API for the on-chain
+# registry. Plain HTTP only (the chain hub is a same-host localhost service),
+# so TLS is disabled to keep the build dependency-light.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

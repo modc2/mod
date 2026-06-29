@@ -1,0 +1,6 @@
+{
+    "name": "config",
+    "description": "Config \u2014 drop-in Munch replacement with clean repr. >>> c = Config(mod='/Users/broski/mod/mod', lib='/Users/broski/mod', ... orbit=dict(orbit='/mod/orbit', core='/mod/core', local='.')) >>> print(c) m",
+    "version": "0.1.0",
+    "schema": "QmZ9qof7sBCAvP5DJfCHPazoTs4HKMKigRHvFFTUAfaEv9"
+}
