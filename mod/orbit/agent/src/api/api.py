@@ -46,6 +46,7 @@ class ForwardRequest(BaseModel):
 class RunRequest(BaseModel):
     query: str
     model: str = "anthropic/claude-sonnet-4-5-20250929"
+    provider: Optional[str] = None
     steps: int = 10
     skills: Optional[List[str]] = None
     temperature: float = 0.0
@@ -137,6 +138,20 @@ def list_skills():
 @app.get("/schema")
 def get_schema():
     return get_mod().skill_schema()
+
+@app.get("/providers")
+def list_providers():
+    """List LLM providers with their selectable models and default model."""
+    mod = get_mod()
+    providers = []
+    for key in mod.PROVIDERS:
+        default_model = mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), '')
+        providers.append({
+            "key": key,
+            "models": mod.MODELS.get(key, []),
+            "default_model": default_model,
+        })
+    return {"providers": providers, "default": "openrouter"}
 
 @app.post("/skills/run")
 def run_skill(req: SkillRunRequest):
@@ -268,6 +283,7 @@ def run_agent(req: RunRequest):
                     key=req.key,
                     query=step_query,
                     model=req.model,
+                    provider=req.provider,
                     steps=req.steps,
                     agent_type=step_agent,
                     temperature=req.temperature,
@@ -290,6 +306,7 @@ def run_agent(req: RunRequest):
             key=req.key,
             query=req.query,
             model=req.model,
+            provider=req.provider,
             steps=req.steps,
             skills=req.skills,
             agent_type=resolved_agent,

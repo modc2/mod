@@ -9,7 +9,7 @@
 // read from this registry, so a single change re-points everything —
 // live trading, backtest preview, log score-breakdowns — all at once.
 
-import { Strat } from "./base";
+import { Strat, TradeFilters } from "./base";
 import { CopyTrader, CopyTraderOpts } from "./copytrader";
 
 export type StratName = "copytrader";
@@ -18,6 +18,12 @@ export type StratName = "copytrader";
     constructor. Each strat picks the fields it cares about. */
 export interface StratFactoryOpts {
   maxPerCycle?: number;
+  /** Free-text market-topic filter — restricts the strat to markets whose
+      title matches the query (e.g. "price of bitcoin"). */
+  marketQuery?: string;
+  /** Semantic per-trade filters (side / price band / size band / category),
+      AND-ed with `marketQuery` in the strat's `shouldMirror`. */
+  tradeFilters?: TradeFilters;
   // Add per-strat tunables here as new strats land (e.g. `kellyFraction`,
   // `momentumLookbackMinutes`, etc.). Keep the type unioned with the
   // strat-specific opts so the engine doesn't need to know which fields
@@ -27,6 +33,8 @@ export interface StratFactoryOpts {
 const FACTORIES: Record<StratName, (opts: StratFactoryOpts) => Strat> = {
   copytrader: (opts) => new CopyTrader({
     maxPerCycle: opts.maxPerCycle,
+    marketQuery: opts.marketQuery,
+    tradeFilters: opts.tradeFilters,
   } as CopyTraderOpts),
 };
 

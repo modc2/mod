@@ -3,18 +3,10 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { toast } from 'react-toastify'
 import { api, Occurrence, GameDetail, GameLink, ChatMessage, Sport, Venue, City } from '@/lib/api'
-
-// ── local identity + admin-key vault (this browser only) ───────────
-const LS_HANDLE = 'openplay.handle'
-const LS_WALLET = 'openplay.wallet'
-const LS_KEYS = 'openplay.adminkeys'
-
-function loadKeys(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(LS_KEYS) || '{}') } catch { return {} }
-}
-function saveKey(gameId: string, key: string) {
-  const k = loadKeys(); k[gameId] = key; localStorage.setItem(LS_KEYS, JSON.stringify(k))
-}
+import {
+  Account, loadAccount, clearAccount, signIn, signInWithKey,
+  changePassword, rotateFresh, loadKeys, saveKey, shortAddr,
+} from '@/lib/account'
 
 const SPORT_COLORS: Record<string, string> = {
   soccer: '#34e0a1', basketball: '#ff8a3d', hockey: '#5ec8ff',
@@ -49,18 +41,31 @@ export default function Page() {
   const [venues, setVenues] = useState<Venue[]>([])
   const [cities, setCities] = useState<City[]>([])
   const [city, setCity] = useState<string>('')
-  const [view, setView] = useState<'board' | 'about'>('board')
+  const [view, setView] = useState<'board' | 'mine' | 'about'>('board')
   const [cityOpen, setCityOpen] = useState(false)
+  const [myNonce, setMyNonce] = useState(0)
   const [games, setGames] = useState<Occurrence[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [filter, setFilter] = useState<string>('all')
-  const [handle, setHandle] = useState('')
-  const [wallet, setWallet] = useState('')
+  const [account, setAccount] = useState<Account | null>(null)
+  const [showAuth, setShowAuth] = useState(false)
+  const [showAccount, setShowAccount] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [detail, setDetail] = useState<{ gameId: string; occ: string } | null>(null)
   const [keys, setKeys] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [mapReady, setMapReady] = useState(false)
+
+  // identity = your claimed name + its key (see lib/account). The name is your
+  // handle everywhere; the address auto-fills the wallet for paid games.
+  const handle = account?.name || ''
+  const wallet = account?.address || ''
+  const signedIn = !!account
+  // open a flow that needs an identity — prompt sign-in first if signed out
+  const requireAuth = useCallback((cb: () => void) => {
+    if (account) cb(); else setShowAuth(true)
+  }, [account])
+  const openCreate = useCallback(() => requireAuth(() => setShowCreate(true)), [requireAuth])
 
   const mapRef = useRef<any>(null)
   const layerRef = useRef<any>(null)
@@ -70,8 +75,7 @@ export default function Page() {
   const activeCity = useMemo(() => cities.find(c => c.key === city), [cities, city])
 
   useEffect(() => {
-    setHandle(localStorage.getItem(LS_HANDLE) || '')
-    setWallet(localStorage.getItem(LS_WALLET) || '')
+    setAccount(loadAccount())
     setKeys(loadKeys())
   }, [])
 
@@ -153,8 +157,6 @@ export default function Page() {
     mapRef.current.setView([activeCity.lat, activeCity.lng], activeCity.zoom || 12)
   }, [activeCity, mapReady])
 
-  function saveHandle(v: string) { setHandle(v); localStorage.setItem(LS_HANDLE, v) }
-
   const sportsLive = stats ? Object.keys(stats.by_sport).length : 0
   const glyphs = ['⚽', '🏀', '🏒', '🎾', '🏐', '🏈']
 
@@ -168,6 +170,7 @@ export default function Page() {
           </button>
           <div className="tabs">
             <button className={`tab ${view === 'board' ? 'active' : ''}`} onClick={() => setView('board')}>🗺 Board</button>
+            <button className={`tab ${view === 'mine' ? 'active' : ''}`} onClick={() => setView('mine')}>🎟 My games</button>
             <button className={`tab ${view === 'about' ? 'active' : ''}`} onClick={() => setView('about')}>✦ About</button>
           </div>
 
@@ -193,13 +196,25 @@ export default function Page() {
           )}
 
           <div className="nav-spacer" />
-          <input className="input nav-name" placeholder="your name" value={handle} onChange={e => saveHandle(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Create game</button>
+          {signedIn ? (
+            <button className="who" onClick={() => setShowAccount(true)} title="Your account">
+              <span className="who-dot" />
+              <span className="who-name">{handle}</span>
+              <span className="who-addr">{shortAddr(wallet)}</span>
+            </button>
+          ) : (
+            <button className="btn" onClick={() => setShowAuth(true)}>↪ Sign in</button>
+          )}
+          <button className="btn btn-primary" onClick={openCreate}>+ Create game</button>
         </div>
       </nav>
 
       {view === 'about' ? (
-        <About stats={stats} cities={cities} onStart={() => { setView('board'); setShowCreate(true) }} onBrowse={() => setView('board')} />
+        <About stats={stats} cities={cities} onStart={() => { setView('board'); openCreate() }} onBrowse={() => setView('board')} />
+      ) : view === 'mine' ? (
+        <MyGames handle={handle} signedIn={signedIn} adminKeys={Object.keys(keys)} sportMeta={sportMeta} nonce={myNonce}
+          onOpen={(gameId, occ) => setDetail({ gameId, occ })}
+          onCreate={openCreate} onSignIn={() => setShowAuth(true)} onBrowse={() => setView('board')} />
       ) : (
         <>
           {/* Hero */}
@@ -269,7 +284,7 @@ export default function Page() {
                     <div className="font-display" style={{ fontSize: 22, marginBottom: 6 }}>It&rsquo;s quiet in {activeCity?.label || 'this city'}.</div>
                     <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>Be the one who starts something — or switch city.</div>
                     <div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}>
-                      <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Start the first game</button>
+                      <button className="btn btn-primary" onClick={openCreate}>+ Start the first game</button>
                       <button className="btn" onClick={() => setCityOpen(true)}>📍 Switch city</button>
                     </div>
                   </div>
@@ -289,13 +304,29 @@ export default function Page() {
       {showCreate && (
         <CreateModal sports={sports} venues={venues} handle={handle} wallet={wallet}
           onClose={() => setShowCreate(false)}
-          onCreated={(gid, key) => { saveKey(gid, key); setKeys(loadKeys()); setShowCreate(false); refresh() }} />
+          onCreated={(gid, key) => { setKeys(saveKey(gid, key)); setShowCreate(false); refresh(); setMyNonce(n => n + 1) }} />
       )}
 
       {detail && (
         <DetailModal gameId={detail.gameId} occ={detail.occ} handle={handle} wallet={wallet}
-          adminKey={keys[detail.gameId]} sportMeta={sportMeta}
-          onClose={() => setDetail(null)} onChanged={refresh} />
+          adminKey={keys[detail.gameId]} sportMeta={sportMeta} onRequireAuth={() => setShowAuth(true)}
+          onClose={() => setDetail(null)} onChanged={() => { refresh(); setMyNonce(n => n + 1) }} />
+      )}
+
+      {showAuth && (
+        <AuthModal
+          onClose={() => setShowAuth(false)}
+          onDone={(a, created) => {
+            setAccount(a); setShowAuth(false)
+            toast.success(created ? `Welcome, ${a.name} — your name is yours.` : `Signed in as ${a.name}.`)
+          }} />
+      )}
+
+      {showAccount && account && (
+        <AccountPanel account={account}
+          onClose={() => setShowAccount(false)}
+          onUpdate={(a) => setAccount(a)}
+          onSignOut={() => { clearAccount(); setAccount(null); setShowAccount(false); toast.info('Signed out on this device. Your name & key are safe — sign back in any time.') }} />
       )}
     </main>
   )
@@ -399,6 +430,92 @@ function About({ stats, cities, onStart, onBrowse }: {
         OpenPlay is a mod on the open protocol — your name and games live in your browser and on an
         open board, not locked in someone’s app. Go play. 🟢
       </p>
+    </div>
+  )
+}
+
+// ── My games (hosting + playing) ──────────────────────────────────
+function MyGames({ handle, signedIn, adminKeys, sportMeta, nonce, onOpen, onCreate, onSignIn, onBrowse }: {
+  handle: string; signedIn: boolean; adminKeys: string[]; sportMeta: Record<string, Sport>; nonce: number
+  onOpen: (gameId: string, occ: string) => void; onCreate: () => void; onSignIn: () => void; onBrowse: () => void
+}) {
+  const [hosting, setHosting] = useState<Occurrence[]>([])
+  const [playing, setPlaying] = useState<Occurrence[]>([])
+  const [loading, setLoading] = useState(true)
+  const me = handle.trim()
+  const keyStr = adminKeys.join(',')
+
+  useEffect(() => {
+    let cancelled = false
+    if (!me && adminKeys.length === 0) { setHosting([]); setPlaying([]); setLoading(false); return }
+    setLoading(true)
+    api('my_games', { method: 'POST', body: { handle: me, game_ids: adminKeys } })
+      .then((d: { hosting: Occurrence[]; playing: Occurrence[] }) => {
+        if (cancelled) return
+        setHosting(d.hosting || []); setPlaying(d.playing || [])
+      })
+      .catch((e: any) => { if (!cancelled) toast.error(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, keyStr, nonce])
+
+  if (!signedIn && adminKeys.length === 0) {
+    return (
+      <div className="wrap" style={{ paddingTop: 60, paddingBottom: 90 }}>
+        <div className="card empty" style={{ maxWidth: 560, margin: '0 auto' }}>
+          <div className="big">🎟</div>
+          <div className="font-display" style={{ fontSize: 24, marginBottom: 6 }}>Your games live here.</div>
+          <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>
+            Sign in with a name &amp; password — then the games you host and the ones you’ve joined
+            follow you to any device.
+          </div>
+          <div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={onSignIn}>↪ Sign in</button>
+            <button className="btn" onClick={onBrowse}>🗺 Browse the board</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const Section = ({ title, sub, list, emptyText }: { title: string; sub: string; list: Occurrence[]; emptyText: string }) => (
+    <div style={{ marginBottom: 34 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
+        <h2 className="section-title">{title}</h2>
+        <span className="muted" style={{ fontSize: 13 }}>{sub}</span>
+      </div>
+      {list.length === 0
+        ? <div className="muted" style={{ fontSize: 14.5 }}>{emptyText}</div>
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+            {list.map((g, i) => (
+              <GameCard key={`${g.game_id}@${g.occ}`} g={g} sport={sportMeta[g.sport]} idx={i}
+                onOpen={() => onOpen(g.game_id, g.occ)} />
+            ))}
+          </div>}
+    </div>
+  )
+
+  return (
+    <div className="wrap mygames" style={{ paddingTop: 48, paddingBottom: 90 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
+        <div>
+          <div className="hero-eyebrow">your corner of the city</div>
+          <h1 className="font-display" style={{ fontSize: 'clamp(32px,6vw,58px)', letterSpacing: '-.03em', lineHeight: .95 }}>
+            {me ? <>Hey <span className="play">{me}</span>.</> : 'My games.'}
+          </h1>
+        </div>
+        <button className="btn btn-primary" style={{ padding: '12px 22px' }} onClick={onCreate}>+ Create a game</button>
+      </div>
+
+      {loading ? <div className="muted">Finding your games…</div> : (
+        <>
+          <Section title="Hosting" sub={`${hosting.length} you organize`} list={hosting}
+            emptyText="You’re not hosting anything yet — spin one up and it’ll appear here." />
+          <Section title="Playing" sub={`${playing.length} you’ve joined`} list={playing}
+            emptyText={me ? 'You haven’t joined a game yet — find one on the board.' : 'Set your name to track games you join.'} />
+        </>
+      )}
     </div>
   )
 }
@@ -555,7 +672,11 @@ function CreateModal({ sports, venues, handle, wallet, onClose, onCreated }: {
           </div>
         )}
 
-        <Field label="Organizer (you)"><input className="input" value={admin} onChange={e => setAdmin(e.target.value)} placeholder="your name" /></Field>
+        <Field label="Organizer (you)">
+          <div className="input locked" title="You're signed in — this is your name">
+            <span className="who-dot" style={{ width: 8, height: 8 }} /> {admin || 'Sign in first'}
+          </div>
+        </Field>
 
         <div className="divider" />
         <div className="label">Group chat links <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>— optional, pinned to the game</span></div>
@@ -595,9 +716,9 @@ function CreateModal({ sports, venues, handle, wallet, onClose, onCreated }: {
 }
 
 // ── Detail modal ─────────────────────────────────────────────────
-function DetailModal({ gameId, occ, handle, wallet, adminKey, sportMeta, onClose, onChanged }: {
+function DetailModal({ gameId, occ, handle, wallet, adminKey, sportMeta, onRequireAuth, onClose, onChanged }: {
   gameId: string; occ: string; handle: string; wallet: string; adminKey?: string
-  sportMeta: Record<string, Sport>; onClose: () => void; onChanged: () => void
+  sportMeta: Record<string, Sport>; onRequireAuth: () => void; onClose: () => void; onChanged: () => void
 }) {
   const [g, setG] = useState<GameDetail | null>(null)
   const [curOcc, setCurOcc] = useState(occ)
@@ -621,7 +742,7 @@ function DetailModal({ gameId, occ, handle, wallet, adminKey, sportMeta, onClose
   const canChat = !!me && (amIn || isOrganizer || isAdmin)
 
   async function act(path: string, body: any, ok?: string) {
-    if (!me) return toast.error('Set your name first (top right)')
+    if (!me) { onRequireAuth(); return }
     setBusy(true)
     try {
       const res = await api(`game/${gameId}/${path}`, { method: 'POST', body: { ...body, occ: curOcc } })
@@ -737,7 +858,7 @@ function DetailModal({ gameId, occ, handle, wallet, adminKey, sportMeta, onClose
           {!amIn && !payInfo && (
             <button className="btn btn-primary" disabled={busy} style={{ padding: '11px 22px' }}
               onClick={() => act(amInvited ? 'accept' : 'join', { handle: me, wallet }, 'You’re in!')}>
-              {g.free ? (amInvited ? 'Accept & join' : 'Join game') : `Join · ${g.cost?.amount} ${g.cost?.currency}`}
+              {!me ? 'Sign in to join' : g.free ? (amInvited ? 'Accept & join' : 'Join game') : `Join · ${g.cost?.amount} ${g.cost?.currency}`}
             </button>
           )}
           {amIn && <button className="btn btn-danger" disabled={busy} onClick={() => act('leave', { handle: me }, 'You left')}>Leave</button>}
@@ -862,9 +983,205 @@ function ChatPanel({ gameId, me, canChat, chatCount }: {
         </div>
       ) : (
         <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>
-          {me ? 'Join the game to chat with the crew.' : 'Set your name (top right) and join to chat with the crew.'}
+          {me ? 'Join the game to chat with the crew.' : 'Sign in (top right) and join to chat with the crew.'}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Sign in / create account ──────────────────────────────────────
+// Name + password → a key derived in your browser (scrypt). Same name+password
+// regenerates the same key anywhere, so it's a real sign-in. The name is then
+// claimed by proving control of the key — one name, one key, no impersonation.
+function AuthModal({ onClose, onDone }: {
+  onClose: () => void; onDone: (account: Account, created: boolean) => void
+}) {
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [avail, setAvail] = useState<null | { exists: boolean }>(null)
+  const [keyMode, setKeyMode] = useState(false)
+  const [privKey, setPrivKey] = useState('')
+
+  // live availability hint as you type the name
+  useEffect(() => {
+    const n = name.trim()
+    if (n.length < 2) { setAvail(null); return }
+    let cancelled = false
+    const t = setTimeout(() => {
+      api(`account/${encodeURIComponent(n)}`)
+        .then((d: any) => { if (!cancelled) setAvail({ exists: !!d.exists }) })
+        .catch(() => { if (!cancelled) setAvail(null) })
+    }, 350)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [name])
+
+  async function submit() {
+    setBusy(true)
+    try {
+      const { account, created } = await signIn(name, password)
+      onDone(account, created)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setBusy(false) }
+  }
+  async function submitKey() {
+    setBusy(true)
+    try { onDone(await signInWithKey(name, privKey), false) }
+    catch (e: any) { toast.error(e.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <h2 className="font-display" style={{ fontSize: 24 }}>Sign in to Open<span className="play">Play</span></h2>
+          <button className="btn btn-sm" onClick={onClose}>✕</button>
+        </div>
+        <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.5, marginBottom: 18 }}>
+          Pick a name and a password — your browser turns them into a private key. The same name &amp;
+          password sign you in on any device. We only ever store your name ↔ public key, never the password.
+        </p>
+
+        {!keyMode ? (
+          <>
+            <Field label="Your name">
+              <input className="input" value={name} autoFocus placeholder="e.g. alex, court_king, the_keeper"
+                onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (document.getElementById('op-pw') as HTMLInputElement)?.focus() }} />
+            </Field>
+            {avail && (
+              <div className="muted" style={{ fontSize: 12.5, marginTop: -7, marginBottom: 12 }}>
+                {avail.exists
+                  ? <>● <b style={{ color: '#ffd27a' }}>Taken</b> — if it’s yours, enter your password to sign in.</>
+                  : <>✓ <b style={{ color: '#7ee0b0' }}>Available</b> — you’ll claim this name.</>}
+              </div>
+            )}
+            <Field label="Password">
+              <div style={{ position: 'relative' }}>
+                <input id="op-pw" className="input" type={showPw ? 'text' : 'password'} value={password}
+                  placeholder="generates your key" onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && name.trim() && password) submit() }} />
+                <button type="button" className="pw-eye" onClick={() => setShowPw(s => !s)} tabIndex={-1}>{showPw ? '🙈' : '👁'}</button>
+              </div>
+            </Field>
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }} disabled={busy || !name.trim() || !password} onClick={submit}>
+              {busy ? 'Working…' : avail?.exists ? 'Sign in' : 'Create my account'}
+            </button>
+            <div className="muted" style={{ fontSize: 12, marginTop: 14, textAlign: 'center' }}>
+              <button className="linklike" onClick={() => setKeyMode(true)}>Have a private key? Sign in with it →</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Field label="Your name"><input className="input" value={name} placeholder="the name this key owns" onChange={e => setName(e.target.value)} /></Field>
+            <Field label="Private key"><input className="input" value={privKey} placeholder="0x…" onChange={e => setPrivKey(e.target.value)} /></Field>
+            <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }} disabled={busy || !name.trim() || !privKey.trim()} onClick={submitKey}>
+              {busy ? 'Working…' : 'Sign in with key'}
+            </button>
+            <div className="muted" style={{ fontSize: 12, marginTop: 14, textAlign: 'center' }}>
+              <button className="linklike" onClick={() => setKeyMode(false)}>← Back to name &amp; password</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Account panel — rotate the key, reveal it, sign out ───────────
+function AccountPanel({ account, onClose, onUpdate, onSignOut }: {
+  account: Account; onClose: () => void; onUpdate: (a: Account) => void; onSignOut: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
+  const [newPw, setNewPw] = useState('')
+  const [reveal, setReveal] = useState(false)
+
+  async function copy(text: string, what: string) {
+    try { await navigator.clipboard.writeText(text); toast.success(`${what} copied`) } catch { toast.error('Copy failed — select it by hand') }
+  }
+  async function doChangePw() {
+    if (!newPw) return toast.error('Enter a new password')
+    setBusy(true)
+    try {
+      const a = await changePassword(account, newPw)
+      onUpdate(a); setPwOpen(false); setNewPw('')
+      toast.success('Key rotated — sign in with your new password from now on.')
+    } catch (e: any) { toast.error(e.message) }
+    finally { setBusy(false) }
+  }
+  async function doRotateFresh() {
+    if (!confirm('Generate a brand-new key for this name? Your current key stops working. You should back up the new key afterwards.')) return
+    setBusy(true)
+    try {
+      const a = await rotateFresh(account)
+      onUpdate(a); setReveal(true)
+      toast.success('Rotated to a fresh key — back it up below.')
+    } catch (e: any) { toast.error(e.message) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 className="font-display" style={{ fontSize: 24 }}>Your account</h2>
+          <button className="btn btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+            <span className="who-dot" style={{ width: 12, height: 12 }} />
+            <div style={{ minWidth: 0 }}>
+              <div className="font-display" style={{ fontSize: 20, lineHeight: 1.1 }}>{account.name}</div>
+              <button className="addr-copy" onClick={() => copy(account.address, 'Address')} title="Copy address">
+                {shortAddr(account.address)} ⧉
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 7, marginTop: 12, flexWrap: 'wrap' }}>
+            {account.derived
+              ? <span className="badge badge-free">🔑 password-backed</span>
+              : <span className="badge badge-paid">⚠ one-off key — back it up</span>}
+            {(account.rotations ?? 0) > 0 && <span className="badge">↻ rotated ×{account.rotations}</span>}
+          </div>
+        </div>
+
+        {/* Change password (re-derives a new key, stays recoverable) */}
+        {!pwOpen ? (
+          <button className="btn" style={{ width: '100%', marginBottom: 9 }} onClick={() => setPwOpen(true)}>🔑 Change password</button>
+        ) : (
+          <div className="card" style={{ marginBottom: 9 }}>
+            <div className="label" style={{ marginBottom: 8 }}>New password</div>
+            <input className="input" type="password" value={newPw} autoFocus placeholder="new password → new key"
+              onChange={e => setNewPw(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') doChangePw() }} style={{ marginBottom: 9 }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary btn-sm" disabled={busy || !newPw} onClick={doChangePw}>Rotate key</button>
+              <button className="btn btn-sm" onClick={() => { setPwOpen(false); setNewPw('') }}>Cancel</button>
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 9 }}>Keeps your name; your old password stops working.</div>
+          </div>
+        )}
+
+        <button className="btn" style={{ width: '100%', marginBottom: 9 }} disabled={busy} onClick={doRotateFresh}>♻ Rotate to a fresh key</button>
+
+        <button className="btn" style={{ width: '100%', marginBottom: 9 }} onClick={() => setReveal(r => !r)}>
+          {reveal ? '🙈 Hide private key' : '👁 Reveal private key'}
+        </button>
+        {reveal && (
+          <div className="card" style={{ marginBottom: 9, borderColor: 'rgba(255,90,110,.35)' }}>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 7 }}>
+              Anyone with this key controls your name. Never share it. {account.derived && 'You can also just re-derive it from your password.'}
+            </div>
+            <div className="keybox" onClick={() => copy(account.privateKey, 'Private key')}>{account.privateKey} ⧉</div>
+          </div>
+        )}
+
+        <div className="divider" />
+        <button className="btn btn-danger" style={{ width: '100%' }} onClick={onSignOut}>Sign out on this device</button>
+      </div>
     </div>
   )
 }

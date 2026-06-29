@@ -109,3 +109,6 @@ export function clobMinNotional(price: number): number {
 
 // Re-exports so a strat file only has to `import from "./base"`.
 export type { PolymarketTrade, TraderRoiStats, IndexTrader };
+export type { TradeFilters } from "../types";
+export { marketMatchesQuery } from "../marketQuery";
+export { tradeMatchesFilters, tradeFiltersActive, describeTradeFilters } from "../tradeFilters";

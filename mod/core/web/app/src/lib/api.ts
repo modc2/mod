@@ -37,6 +37,21 @@ export type Info = {
   stats: Stats;
 };
 
+export type TreeNode = {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  children?: TreeNode[];
+};
+
+export type FileContent = {
+  path: string;
+  content: string;
+  lines: number;
+  bytes: number;
+  truncated: boolean;
+};
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -48,4 +63,27 @@ export const api = {
   mods: () => get<Module[]>("/mods"),
   mod: (name: string) => get<Module>(`/mods/${encodeURIComponent(name)}`),
   stats: () => get<Stats>("/stats"),
+  tree: (name: string) =>
+    get<{ name: string; tree: TreeNode[] }>(
+      `/mods/${encodeURIComponent(name)}/tree`,
+    ),
+  file: (name: string, path: string) =>
+    get<FileContent>(
+      `/mods/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`,
+    ),
 };
+
+// Public gateway URL for a module's live app. Behind the modc2.com proxy the
+// app sits at `<origin>/<name>`; running locally it's on the :3000 gateway.
+export function gatewayUrl(name: string): string {
+  if (typeof window === "undefined") return `/${name}`;
+  const loc = window.location;
+  const behindProxy =
+    loc.protocol === "https:" ||
+    loc.port === "" ||
+    loc.port === "80" ||
+    loc.port === "443";
+  return behindProxy
+    ? `${loc.origin}/${name}`
+    : `http://${loc.hostname}:3000/${name}`;
+}

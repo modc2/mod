@@ -42,6 +42,10 @@
         "venues",
         "add_venue",
         "games",
+        "my_games",
+        "account",
+        "register_account",
+        "rotate_account",
         "game",
         "create_game",
         "edit_game",
@@ -70,5 +74,5 @@
         "deregister"
     ],
     "gateway_port": 50161,
-    "schema": "QmPN7g1vWCP8ej3D1ifXCLZo4DNuUxdVKzoLknGRmbETVK"
+    "schema": "QmXtxjksBW6FjfU5oSMZDL6XyoTJvHNbaPCE26dUB5U5Bp"
 }

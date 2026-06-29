@@ -20,10 +20,13 @@ import {
   Strat,
   TraderTrade,
   TraderRoiStats,
+  TradeFilters,
   SizeConstraints,
   CandidateDecision,
   tickRoundPrice,
   clobMinNotional,
+  marketMatchesQuery,
+  tradeMatchesFilters,
 } from "./base";
 
 export interface CopyTraderOpts {
@@ -36,6 +39,17 @@ export interface CopyTraderOpts {
   /** Minimum 30d closed-trade count before a trader's Sharpe is trusted.
       Below this the score = 0 and the engine skips with NO_SHARPE. */
   minSampleSize?: number;
+  /** Free-text market-topic filter (e.g. "bitcoin", "price of bitcoin"). When
+      set, the strat only mirrors trades in markets whose title matches the
+      query — keeps a strat focused on one theme instead of copying every fill
+      a watched trader makes. Empty/undefined ⇒ copy all markets. */
+  marketQuery?: string;
+  /** Semantic per-trade filters (side / leader price band / leader size band /
+      category). AND-ed with `marketQuery` in `shouldMirror`. This is what lets
+      two strats on the SAME traders copy different slices — entries vs exits,
+      longshots vs favorites, conviction-sized only, one category, etc.
+      Empty/undefined ⇒ no per-trade gating beyond `marketQuery`. */
+  tradeFilters?: TradeFilters;
 }
 
 export class CopyTrader implements Strat {
@@ -44,11 +58,15 @@ export class CopyTrader implements Strat {
   private readonly _maxPerCycle: number;
   private readonly slippageBps: number;
   private readonly minSampleSize: number;
+  private readonly marketQuery: string;
+  private readonly tradeFilters: TradeFilters;
 
   constructor(opts: CopyTraderOpts = {}) {
     this._maxPerCycle = opts.maxPerCycle ?? 3;
     this.slippageBps = opts.slippageBps ?? 300;
     this.minSampleSize = opts.minSampleSize ?? 3;
+    this.marketQuery = opts.marketQuery ?? "";
+    this.tradeFilters = opts.tradeFilters ?? {};
   }
 
   // ── Per-cycle cap ──────────────────────────────────────────────
@@ -58,10 +76,19 @@ export class CopyTrader implements Strat {
   }
 
   // ── Pre-filter ────────────────────────────────────────────────
-  // Override to skip by market, outcome, time-of-day, etc.
+  // Two gates, AND-ed:
+  //   1. market-topic query — the trade's market title must match `marketQuery`
+  //      (all query tokens present). No query ⇒ passes.
+  //   2. semantic trade filters — side / leader price band / leader size band /
+  //      category, per `tradeFilters`. Unset dimensions are no-ops.
+  // Together they let two strats on the same traders copy different slices of
+  // the flow. Override to add more dimensions (time-of-day, outcome, …).
 
-  shouldMirror(_trade: TraderTrade): boolean {
-    return true;
+  shouldMirror(trade: TraderTrade): boolean {
+    return (
+      marketMatchesQuery(trade.market, this.marketQuery) &&
+      tradeMatchesFilters(trade, this.tradeFilters)
+    );
   }
 
   // ── Ranking ────────────────────────────────────────────────────

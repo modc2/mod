@@ -45,6 +45,14 @@ interface WalletModalProps {
   onClose: () => void;
   onDisconnect: () => void;
   inline?: boolean;
+  /** When true the component's own balance/address/close header is omitted —
+      used when the wallet UI is embedded inside another panel (e.g. the merged
+      account sidebar) that already supplies a header. */
+  embedded?: boolean;
+  /** When true the component renders at its natural content height with no
+      internal scroll/`h-full`, so it can flow inside a parent's single scroll
+      container (e.g. the merged account sidebar). */
+  flow?: boolean;
   isOwner?: boolean;
   ownerAddress?: string | null;
   onNetworkChange?: () => void;
@@ -56,6 +64,8 @@ export default function WalletModal({
   onClose,
   onDisconnect,
   inline = false,
+  embedded = false,
+  flow = false,
   isOwner = false,
   ownerAddress = null,
   onNetworkChange,
@@ -366,8 +376,10 @@ export default function WalletModal({
   };
 
   const content = (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Header: Balance + Address + Copy + Close */}
+    <div className={flow ? "flex flex-col" : "h-full flex flex-col overflow-hidden"}>
+      {/* Header: Balance + Address + Copy + Close — omitted when embedded
+          inside the merged account sidebar, which supplies its own header. */}
+      {!embedded && (
       <div
         className="flex items-center justify-between px-5 py-3 shrink-0"
         style={{
@@ -450,6 +462,7 @@ export default function WalletModal({
           </button>
         </div>
       </div>
+      )}
 
       {/* Tabs */}
       <div
@@ -483,7 +496,7 @@ export default function WalletModal({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className={flow ? "p-3" : "flex-1 overflow-y-auto p-3"}>
         {loading && (
           <div className="text-center py-16">
             <div className="inline-flex items-center gap-3">

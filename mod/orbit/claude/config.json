@@ -1,7 +1,7 @@
 {
     "name": "claude",
     "version": "2.1.0",
-    "description": "Programmable AI developer interface — Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "description": "Programmable AI developer interface \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
     "port": 8820,
     "app_port": 8823,
     "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
@@ -11,6 +11,10 @@
     "onchain_registry": false,
     "icon": "C",
     "color": "#cc785c",
+    "deps": [
+        "chain",
+        "store"
+    ],
     "fns": [
         "forward",
         "ask",
@@ -32,6 +36,11 @@
         "cancel",
         "kill",
         "kill_port",
+        "module_process",
+        "module_status",
+        "restart_module",
+        "stop_module",
+        "start_module",
         "delete_job",
         "tail",
         "snapshot",
@@ -43,6 +52,11 @@
         "set_owner",
         "is_owner",
         "is_bloctime_owner",
+        "is_trusted",
+        "is_whitelisted",
+        "editors",
+        "add_editor",
+        "remove_editor",
         "register_onchain",
         "health",
         "modules",
@@ -60,7 +74,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmafHQNRd5NjjX6tk5XuLoBur62bVErZW7Jot4DMPYBizJ",
+    "schema": "QmSzDH7arNpARheT4V881VYziuwVjqJW66MNQnd7K9JGqi",
     "endpoints": {
         "/health": {
             "method": "GET",
@@ -134,11 +148,17 @@
             "sudo": true,
             "docs": "Kill a process by PID or port (owner-only; requires x-sudo signature bound to pid:/port:)"
         },
+        "/modules/{name}/process": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "cross-module",
+            "docs": "Manage a module's processes \u2014 body {action: status|stop|start|restart, target?: api|app}. Backend is pluggable per module (pm2|systemd|generic) via MOD_PM env or the target module's config.json `process_manager` field (default: auto-detect). Modules shipping a flake.nix/shell.nix get self-launched commands nix-wrapped. Owner-only; status is read-only, and mutating actions on a module other than claude require an x-sudo signature bound to process:{name}. Response includes the resolved `backend` and `nix_env`."
+        },
         "/files/write": {
             "method": "POST",
             "auth": true,
             "sudo": "cross-module",
-            "docs": "Write a file. Non-owners are confined to their workspace; owner writes OUTSIDE the claude module require an x-sudo signature bound to the path."
+            "docs": "Write a file. Untrusted callers are confined to their workspace; trusted callers (owner + whitelisted editors) may write anywhere under ~/mod (incl. core/+orbit/) with just their bearer session \u2014 no per-write sudo."
         },
         "/modules/{name}": {
             "method": "DELETE",
@@ -151,6 +171,19 @@
             "auth": true,
             "sudo": "non-claude",
             "docs": "Restore a module from a snapshot CID (owner-only; x-sudo required for modules other than claude)."
+        },
+        "/whitelist": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "GET: false, POST: true",
+            "docs": "List edit-whitelist (GET, public) or add an address (POST, owner-only). Whitelisted addresses are trusted editors: owner-level EDIT access to the orbit (host filesystem, unsandboxed jobs, core/+orbit/ writes), but NOT owner-only powers (whitelist mgmt, set_owner, kill, delete/rename/restore). Stored off-tree in ~/.mod/claude/whitelist.json."
+        },
+        "/whitelist/{address}": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Remove an address from the edit whitelist (owner-only)."
         },
         "/changelog": {
             "method": "GET",

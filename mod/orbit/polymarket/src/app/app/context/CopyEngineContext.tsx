@@ -96,6 +96,11 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
       // Strat's top-N per-cycle cap → engine's max orders per cycle.
       ...(config.maxPerCycle !== undefined && { maxOrdersPerCycle: config.maxPerCycle }),
       ...(config.autoExecute !== undefined && { autoExecute: config.autoExecute }),
+      // Market-topic filter — backend only mirrors trades in matching markets.
+      ...(config.marketQuery && { marketQuery: config.marketQuery }),
+      // Semantic per-trade filters (side / price band / size band / category).
+      // Omitted when empty so the backend's no-op defaults apply.
+      ...(config.tradeFilters && { tradeFilters: config.tradeFilters }),
     };
     const res = await fetch(`${API_URL}/live/start`, {
       method: "POST",

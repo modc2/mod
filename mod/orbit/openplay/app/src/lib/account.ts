@@ -1,23 +1,25 @@
-import { Wallet } from 'ethers'
+import { Wallet, scryptSync, toUtf8Bytes } from 'ethers'
+import { api } from './api'
 
-const K_ACCT = 'openplay.acct'
-const K_SUDO = 'openplay.sudo'
-const K_KEYS = 'openplay.adminkeys'
-const K_CITY = 'openplay.city'
-
-// Identity = an email label backed by a locally-generated Ethereum key.
-// The key lives only in this browser; it's the user's wallet (receive/spend)
-// and can be revealed/exported to load into MetaMask etc.
+// ── Identity ──────────────────────────────────────────────────────
+// You sign in with a NAME + PASSWORD. The browser deterministically derives
+// an Ethereum keypair from them (scrypt) — the password never leaves this
+// device. The name is then *claimed* on the server by proving control of the
+// key (a signature), so one name maps to exactly one key and can't be
+// impersonated. The same name+password regenerates the same key anywhere, so
+// it's a real sign-in, not just local storage. You can rotate the key any time
+// (new password, or a brand-new key) while keeping your name — authorised by a
+// signature from your current key.
 export type Account = {
-  email: string
-  handle: string
-  address: string
-  privateKey: string
-  mnemonic?: string
+  name: string          // claimed display name (unique, case-insensitive)
+  address: string       // public address others can pay you at
+  privateKey: string    // lives only in this browser
+  derived: boolean      // true: reproducible from name+password; false: a one-off key (back it up!)
+  rotations?: number
 }
 
-// ── quota-safe storage (localStorage on modc2.com is shared across modules
-//    and can be full → never let a write crash the app) ──────────────
+// ── quota-safe storage (modc2.com shares ONE localStorage across modules,
+//    so a write can throw if the origin is full → never let it crash us) ──
 const mem: Record<string, string> = {}
 export function safeGet(k: string): string | null {
   try { const v = localStorage.getItem(k); if (v != null) return v } catch {}
@@ -35,42 +37,115 @@ export function safeDel(k: string) {
   try { localStorage.removeItem(k) } catch {}
 }
 
-// ── account ──────────────────────────────────────────────────────
+const K_ACCT = 'openplay.acct'
+const K_KEYS = 'openplay.adminkeys'
+const K_SUDO = 'openplay.sudo'
+const K_CITY = 'openplay.city'
+
+// ── name normalisation (must match the server's _name_key / _valid_name) ──
+export function normName(name: string): string { return (name || '').trim().replace(/\s+/g, ' ') }
+function nameKey(name: string): string { return normName(name).toLowerCase() }
+export function nameError(name: string): string | null {
+  const d = normName(name)
+  if (d.length < 2 || d.length > 32) return 'Name must be 2–32 characters.'
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(d)) return 'Name has invalid characters.'
+  return null
+}
+
+// ── deterministic key derivation (scrypt: name is the salt) ──────────
+export function deriveWallet(name: string, password: string): Wallet {
+  const salt = toUtf8Bytes('openplay/acct/v1/' + nameKey(name))
+  const dk = scryptSync(toUtf8Bytes(password), salt, 16384, 8, 1, 32) // 0x-prefixed 32-byte hex
+  return new Wallet(dk)
+}
+
+// ── canonical signed messages — MUST byte-match the server (mod.py) ──
+function claimMessage(name: string, address: string, ts: number) {
+  return `OpenPlay — claim identity\nName: ${name}\nKey: ${address}\nTime: ${ts}`
+}
+function rotateMessage(name: string, newAddress: string, ts: number) {
+  return `OpenPlay — rotate key\nName: ${name}\nNew key: ${newAddress}\nTime: ${ts}`
+}
+function nowTs() { return Math.floor(Date.now() / 1000) }
+
+// ── persistence ──────────────────────────────────────────────────
 export function loadAccount(): Account | null {
   const raw = safeGet(K_ACCT); if (!raw) return null
-  try { return JSON.parse(raw) } catch { return null }
+  try { const a = JSON.parse(raw); return a && a.privateKey ? a : null } catch { return null }
 }
 export function saveAccount(a: Account): boolean { return safeSet(K_ACCT, JSON.stringify(a)) }
 export function clearAccount() { safeDel(K_ACCT) }
 
-export function createAccount(email: string, handle?: string): Account {
-  const w = Wallet.createRandom()
-  const a: Account = {
-    email: email.trim(),
-    handle: (handle || email.split('@')[0] || 'player').trim(),
-    address: w.address, privateKey: w.privateKey, mnemonic: w.mnemonic?.phrase,
+// ── sign in: claim a new name, or unlock the one that's yours ────────
+// Throws a friendly Error if the name is someone else's / the password is wrong.
+export async function signIn(name: string, password: string): Promise<{ account: Account; created: boolean }> {
+  const disp = normName(name)
+  const nameErr = nameError(disp); if (nameErr) throw new Error(nameErr)
+  if (!password) throw new Error('Enter a password.')
+  const w = deriveWallet(disp, password)
+
+  // If the name exists but resolves to a different key, it's either taken by
+  // someone else or the password is wrong — same signal, friendly message.
+  const info = await api(`account/${encodeURIComponent(disp)}`)
+  if (info.exists && (info.address || '').toLowerCase() !== w.address.toLowerCase()) {
+    throw new Error(`“${disp}” is taken, or that password doesn’t match it.`)
   }
-  saveAccount(a); return a
+
+  const ts = nowTs()
+  const signature = await w.signMessage(claimMessage(disp, w.address, ts))
+  const res = await api('account/register', { method: 'POST', body: { name: disp, address: w.address, signature, ts } })
+  const account: Account = { name: res.name || disp, address: w.address, privateKey: w.privateKey, derived: true, rotations: 0 }
+  saveAccount(account)
+  return { account, created: !!res.claimed }
 }
 
-// load an existing key (private key 0x… or 12/24-word mnemonic) "to spend"
-export function importAccount(email: string, secret: string, handle?: string): Account {
-  secret = secret.trim()
-  const w: any = secret.includes(' ') ? Wallet.fromPhrase(secret) : new Wallet(secret)
-  const a: Account = {
-    email: email.trim(),
-    handle: (handle || email.split('@')[0] || 'player').trim(),
-    address: w.address, privateKey: w.privateKey, mnemonic: w.mnemonic?.phrase,
+// ── sign in with a raw private key (e.g. a rotated one-off key) ──────
+export async function signInWithKey(name: string, privateKey: string): Promise<Account> {
+  const disp = normName(name)
+  const nameErr = nameError(disp); if (nameErr) throw new Error(nameErr)
+  let w: Wallet
+  try { w = new Wallet(privateKey.trim()) } catch { throw new Error('That doesn’t look like a valid private key.') }
+  const info = await api(`account/${encodeURIComponent(disp)}`)
+  if (info.exists && (info.address || '').toLowerCase() !== w.address.toLowerCase()) {
+    throw new Error(`That key doesn’t own “${disp}”.`)
   }
-  saveAccount(a); return a
+  const ts = nowTs()
+  const signature = await w.signMessage(claimMessage(disp, w.address, ts))
+  const res = await api('account/register', { method: 'POST', body: { name: disp, address: w.address, signature, ts } })
+  const account: Account = { name: res.name || disp, address: w.address, privateKey: w.privateKey, derived: false, rotations: info.rotations || 0 }
+  saveAccount(account)
+  return account
+}
+
+// ── rotate the key (keep the name); signed by the CURRENT key ────────
+async function rotateTo(acct: Account, next: Wallet, derived: boolean): Promise<Account> {
+  const cur = new Wallet(acct.privateKey)
+  const ts = nowTs()
+  const signature = await cur.signMessage(rotateMessage(acct.name, next.address, ts))
+  const res = await api('account/rotate', { method: 'POST', body: { name: acct.name, new_address: next.address, signature, ts } })
+  const updated: Account = { name: acct.name, address: next.address, privateKey: next.privateKey, derived, rotations: res.rotations ?? (acct.rotations || 0) + 1 }
+  saveAccount(updated)
+  return updated
+}
+
+// change password → re-derive a new key from the new password (stays recoverable)
+export function changePassword(acct: Account, newPassword: string): Promise<Account> {
+  if (!newPassword) return Promise.reject(new Error('Enter a new password.'))
+  return rotateTo(acct, deriveWallet(acct.name, newPassword), true)
+}
+
+// rotate to a brand-new random key (not tied to a password — back it up!)
+export function rotateFresh(acct: Account): Promise<Account> {
+  return rotateTo(acct, Wallet.createRandom(), false)
 }
 
 // ── per-game organizer keys ──────────────────────────────────────
 export function loadKeys(): Record<string, string> {
   try { return JSON.parse(safeGet(K_KEYS) || '{}') } catch { return {} }
 }
-export function saveKey(id: string, key: string) {
-  const k = loadKeys(); k[id] = key; safeSet(K_KEYS, JSON.stringify(k))
+export function saveKey(id: string, key: string): Record<string, string> {
+  const k = loadKeys(); k[id] = key; safeSet(K_KEYS, JSON.stringify(k)); return k
 }
 
 // ── module-admin (owner) secret ──────────────────────────────────

@@ -98,6 +98,17 @@ class PanelRequest(BaseModel):
     public: bool = False
     panel_id: Optional[str] = None
 
+class AuditRequest(BaseModel):
+    design_id: Optional[str] = None
+    cells: Optional[List[Dict[str, Any]]] = None
+    style: str = "brownstone"
+    constraints: Optional[Dict[str, Any]] = None
+    name: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    persist: bool = True
+
 class PublishRequest(BaseModel):
     owner: Optional[str] = None
     public: bool = True
@@ -205,6 +216,18 @@ def delete_panel(panel_id: str, owner: Optional[str] = None):
 def estimate(req: EstimateRequest):
     return mc().estimate(modules=req.modules, style=req.style,
                          cells=req.cells, constraints=req.constraints)
+
+
+# ── Audit agent (pluggable: rules / Venice / Claude / any) ───────
+@app.get("/audit/providers")
+def audit_providers(): return mc().audit_providers()
+
+@app.post("/audit")
+def audit(req: AuditRequest):
+    return _guard(mc().audit(
+        design_id=req.design_id, cells=req.cells, style=req.style,
+        constraints=req.constraints, name=req.name, provider=req.provider,
+        model=req.model, api_key=req.api_key, persist=req.persist))
 
 
 # ── Designs (private by default) ────────────────────────────────

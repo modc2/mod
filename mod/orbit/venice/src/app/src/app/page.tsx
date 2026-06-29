@@ -9,6 +9,7 @@ import {
   getOrCreateLocalIdentity,
   hasLocalIdentity,
   hasWallet,
+  safeSetItem,
   shortAddress,
 } from "@/lib/wallet";
 import { api, MediaOut, MeResponse, VeniceModel, mediaUrl } from "@/lib/api";
@@ -101,16 +102,20 @@ export default function Page() {
     }
   }, []);
 
-  // Persist a verified session and reflect it in state.
-  const applySession = (t: string, r: MeResponse, kind: IdKind) => {
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(ADDR_KEY, r.address);
-    localStorage.setItem(IDKIND_KEY, kind);
+  // Apply a verified session. State first (so sign-in always succeeds), then
+  // persist best-effort — a full origin (shared across all modc2.com modules)
+  // must not break auth. Returns true iff the session was persisted for reload.
+  const applySession = (t: string, r: MeResponse, kind: IdKind): boolean => {
     setToken(t);
     setAddress(r.address);
     setIdKind(kind);
     setMe(r);
     setMode(r.has_key ? "byok" : r.paid_available ? "paid" : "byok");
+    return (
+      safeSetItem(TOKEN_KEY, t) &&
+      safeSetItem(ADDR_KEY, r.address) &&
+      safeSetItem(IDKIND_KEY, kind)
+    );
   };
 
   // Sign in with a real wallet (MetaMask) — links this session to your address.
@@ -124,8 +129,12 @@ export default function Page() {
       const t = await buildModToken(addr);
       setBusy("verifying…");
       const r = await api.me(t);
-      applySession(t, r, "wallet");
-      setOk(`signed in as ${shortAddress(r.address)}`);
+      const persisted = applySession(t, r, "wallet");
+      setOk(
+        persisted
+          ? `signed in as ${shortAddress(r.address)}`
+          : `signed in as ${shortAddress(r.address)} — browser storage is full, so you'll need to sign in again after a reload`
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -143,11 +152,16 @@ export default function Page() {
     }
     try {
       const id = getOrCreateLocalIdentity();
-      setHasLocal(true);
+      setHasLocal(hasLocalIdentity());
       const t = await buildLocalModToken(id);
       const r = await api.me(t);
-      applySession(t, r, "local");
-      if (!silent) setOk(`anonymous — ${shortAddress(r.address)} (key never leaves this browser)`);
+      const persisted = applySession(t, r, "local");
+      if (!silent)
+        setOk(
+          persisted
+            ? `anonymous — ${shortAddress(r.address)} (key never leaves this browser)`
+            : `anonymous — ${shortAddress(r.address)}, but browser storage is full: this identity is in-memory only and will be lost on reload`
+        );
     } catch (e) {
       if (!silent) setError((e as Error).message);
     } finally {

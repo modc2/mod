@@ -178,6 +178,13 @@ pub struct EngineConfig {
     /// justify selling that position for it (anti-churn margin).
     #[serde(rename = "rebalanceMarginPct", default = "default_rebalance_margin_pct")]
     pub rebalance_margin_pct: f64,
+    /// Free-text market-topic filter (e.g. "price of bitcoin"). When set, the
+    /// engine only mirrors leader BUYs whose market title matches the query —
+    /// keeps a strat focused instead of copying every fill a watched trader
+    /// makes. Trades in non-matching markets are still observed (visible in the
+    /// log/rail) but never produce a mirror order. Empty/None ⇒ all markets.
+    #[serde(rename = "marketQuery", default)]
+    pub market_query: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,6 +314,87 @@ impl EngineState {
             positions: HashMap::new(),
         }
     }
+}
+
+// ─── Liquidation ("flatten everything") ────────────────────────────────
+
+/// One position's outcome in a liquidation pass.
+#[derive(Debug, Clone, Serialize)]
+pub struct LiquidationLeg {
+    #[serde(rename = "tokenId")]
+    pub token_id: String,
+    pub market: String,
+    pub size: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price: Option<f64>,
+    /// "placed" | "skipped" | "failed"
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Summary of a full-liquidation pass for one account.
+#[derive(Debug, Clone, Serialize)]
+pub struct LiquidationResult {
+    pub eoa: String,
+    #[serde(rename = "depositWallet")]
+    pub deposit_wallet: String,
+    pub positions: usize,
+    pub placed: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub legs: Vec<LiquidationLeg>,
+}
+
+/// One sellable on-chain holding (deposit-wallet CTF balance).
+struct HeldPosition {
+    token_id: String,
+    size: f64,
+    condition_id: String,
+    market: String,
+}
+
+/// All current positions held by `wallet`, read from the data-api. Unlike
+/// `fetch_onchain_positions` this also carries the `conditionId` (needed to
+/// resolve negRisk before signing) and the market title (for logs).
+async fn fetch_held_positions(http: &reqwest::Client, wallet: &str) -> Vec<HeldPosition> {
+    let mut out = Vec::new();
+    if wallet.is_empty() {
+        return out;
+    }
+    let url = format!("{}/positions?user={}&sizeThreshold=0.0&limit=500", DATA_API, wallet);
+    let resp = match http.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "liquidate: positions fetch failed");
+            return out;
+        }
+    };
+    let text = resp.text().await.unwrap_or_default();
+    let parsed: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return out,
+    };
+    if let Some(arr) = parsed.as_array() {
+        for p in arr {
+            let token_id = p.get("asset").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let size = p
+                .get("size")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0.0);
+            let condition_id = p
+                .get("conditionId")
+                .or_else(|| p.get("condition_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let market = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !token_id.is_empty() && size > 0.0 {
+                out.push(HeldPosition { token_id, size, condition_id, market });
+            }
+        }
+    }
+    out
 }
 
 // ─── Handle / Registry ─────────────────────────────────────────────────
@@ -444,6 +532,186 @@ impl EngineRegistry {
         self.engines
             .get(&eoa.to_lowercase())
             .map(|h| h.config.clone())
+    }
+
+    /// Every EOA with a persisted session on disk. Used by the scheduled
+    /// liquidation task to flatten all known accounts.
+    pub fn persisted_eoas(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&self.disk_dir) {
+            for entry in rd.flatten() {
+                if let Some(name) = entry.path().file_name().and_then(|n| n.to_str()) {
+                    if let Some(eoa) = name.strip_suffix(".config.json") {
+                        out.push(eoa.to_string());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Sell EVERY position the account currently holds at the marketable
+    /// (best-bid, tick-rounded) price — a full "flatten". Positions live on
+    /// the V2 *deposit wallet* (CREATE2 from the backend signer EOA), not the
+    /// user's EOA, so we derive that address and read its on-chain holdings
+    /// directly rather than trusting the engine's tracked `positions` (which
+    /// only cover what THIS engine bought). Places real orders regardless of
+    /// the session's `auto_execute` flag — liquidation is an explicit command,
+    /// not copy-trading. SELLs need no USDC, only the held tokens, so the
+    /// "insufficient balance" path never applies here.
+    pub async fn liquidate_all(self: &Arc<Self>, eoa: &str) -> Result<LiquidationResult> {
+        let backend_addr = self.signer_store.signer_address(eoa)?;
+        let deposit_wallet = crate::deposit_wallet::derive_deposit_wallet(&backend_addr)?;
+        let held = fetch_held_positions(&self.http, &deposit_wallet).await;
+
+        let mut result = LiquidationResult {
+            eoa: eoa.to_lowercase(),
+            deposit_wallet: deposit_wallet.clone(),
+            positions: held.len(),
+            placed: 0,
+            skipped: 0,
+            failed: 0,
+            legs: Vec::with_capacity(held.len()),
+        };
+        if held.is_empty() {
+            tracing::info!(eoa = %eoa, wallet = %deposit_wallet, "liquidate: nothing to sell");
+            return Ok(result);
+        }
+
+        let handle = self.engines.get(&eoa.to_lowercase()).map(|h| h.value().clone());
+
+        for pos in held {
+            // Sizes floor to 2dp in `compute_amounts`; anything under a cent
+            // of a share can't form a valid order — skip rather than error.
+            if (pos.size * 100.0).floor() < 1.0 {
+                result.skipped += 1;
+                result.legs.push(LiquidationLeg {
+                    token_id: pos.token_id,
+                    market: pos.market,
+                    size: pos.size,
+                    price: None,
+                    status: "skipped".into(),
+                    detail: Some("sub-cent dust".into()),
+                });
+                continue;
+            }
+
+            let bid = match fetch_best_bid(&self.http, &pos.token_id).await {
+                Some(b) => tick_round_price(b),
+                None => {
+                    result.skipped += 1;
+                    result.legs.push(LiquidationLeg {
+                        token_id: pos.token_id,
+                        market: pos.market,
+                        size: pos.size,
+                        price: None,
+                        status: "skipped".into(),
+                        detail: Some("no bid on book".into()),
+                    });
+                    continue;
+                }
+            };
+
+            let neg_risk = self.resolve_neg_risk(&pos.condition_id).await;
+            let req = PlaceOrderRequest {
+                eoa: eoa.to_string(),
+                creds: ClobCreds {
+                    api_key: String::new(),
+                    secret: String::new(),
+                    passphrase: String::new(),
+                },
+                args: PlaceOrderArgs {
+                    token_id: pos.token_id.clone(),
+                    side: OrderSide::Sell,
+                    price: bid,
+                    size: pos.size,
+                    fee_rate_bps: 0,
+                    expiration: 0,
+                    signature_type: 3,
+                    order_type: OrderTimeInForce::Gtc,
+                    neg_risk,
+                    maker: deposit_wallet.clone(),
+                },
+            };
+
+            match place_order(&self.http, &self.signer_store, req).await {
+                Ok(_) => {
+                    result.placed += 1;
+                    result.legs.push(LiquidationLeg {
+                        token_id: pos.token_id.clone(),
+                        market: pos.market.clone(),
+                        size: pos.size,
+                        price: Some(bid),
+                        status: "placed".into(),
+                        detail: None,
+                    });
+                    if let Some(h) = &handle {
+                        let mut s = h.state.write();
+                        s.positions.remove(&pos.token_id);
+                        s.total_orders_placed += 1;
+                        s.total_volume_mirrored += pos.size * bid;
+                        push_log(&mut s.log, mk_log(
+                            "LIQUIDATE_SELL",
+                            &pos.token_id,
+                            format!(
+                                "SELL {:.0} @ {:.0}¢ · ${:.2} · {}",
+                                pos.size, bid * 100.0, pos.size * bid, pos.market
+                            ),
+                            None,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    result.failed += 1;
+                    result.legs.push(LiquidationLeg {
+                        token_id: pos.token_id.clone(),
+                        market: pos.market.clone(),
+                        size: pos.size,
+                        price: Some(bid),
+                        status: "failed".into(),
+                        detail: Some(e.to_string()),
+                    });
+                    if let Some(h) = &handle {
+                        let mut s = h.state.write();
+                        s.total_orders_failed += 1;
+                        push_log(&mut s.log, mk_log(
+                            "ERROR",
+                            &pos.token_id,
+                            format!("LIQUIDATE_SELL_FAILED: {} · {}", e, pos.market),
+                            None,
+                        ));
+                    }
+                }
+            }
+            // Space out placements so a 17-position flatten doesn't burst the
+            // CLOB rate limiter.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+
+        if let Some(h) = &handle {
+            self.persist_state(eoa, &h.state.read());
+        }
+        tracing::info!(
+            eoa = %eoa,
+            wallet = %deposit_wallet,
+            positions = result.positions,
+            placed = result.placed,
+            skipped = result.skipped,
+            failed = result.failed,
+            "liquidation pass complete",
+        );
+        Ok(result)
+    }
+
+    /// Redeem all RESOLVED positions for an account (settled winnings →
+    /// USDC), wrapping the proceeds back into trading collateral. Thin
+    /// wrapper over `relayer::redeem_resolved_positions` using the registry's
+    /// own http client + signer store, so the scheduled flatten can claim
+    /// settled markets the same way the `/redeem` route does. A SELL can't
+    /// cash these out — settled markets have no order book — so this is the
+    /// companion to `liquidate_all`, not a duplicate of it.
+    pub async fn redeem_all(self: &Arc<Self>, eoa: &str) -> Result<crate::relayer::RedeemResult> {
+        crate::relayer::redeem_resolved_positions(&self.http, &self.signer_store, eoa, true).await
     }
 
     /// Start an engine. If one already exists for this EOA, it's stopped
@@ -675,7 +943,13 @@ impl EngineRegistry {
                             // Mirror BUYs only; a SELL we don't hold would just be
                             // rejected. Position exits are now handled by the
                             // capital-aware rebalancer in `execute_mirrors`.
-                            if t.side == "BUY" && !t.token_id.is_empty() {
+                            // Honor the strat's market-topic filter: a BUY in a
+                            // market that doesn't match `market_query` is still
+                            // observed (rail/log) but never mirrored.
+                            let market_ok = cfg.market_query.as_deref().map_or(true, |query| {
+                                crate::categories::market_matches_query(&t.market, query)
+                            });
+                            if t.side == "BUY" && !t.token_id.is_empty() && market_ok {
                                 mirror_candidates.push((t.clone(), copy_ratio));
                             }
                             new_observed.push(t);

@@ -53,9 +53,85 @@ def is_server_running():
         return False
 
 
+# The port the negative-connectivity tests assume is closed.
+_PRESUMED_CLOSED_URL = 'http://127.0.0.1:59999'
+
+
+def closed_port_is_reachable():
+    """True when the port the negative-connectivity tests assume is *closed* is
+    actually answering here.
+
+    Those tests assert that a bad URL is unreachable, which only holds if the
+    OS refuses the connection. In some environments that port is occupied (a
+    stray dev server) or the sandbox intercepts localhost, so the connection
+    succeeds — any HTTP response (even a 4xx/5xx) means the port answered, so the
+    assertion can't hold and the test must skip. Only a refused/failed
+    connection (URLError without an HTTP status) means it is truly closed.
+    """
+    import urllib.request
+    import urllib.error
+    try:
+        with urllib.request.urlopen(f'{_PRESUMED_CLOSED_URL}/health', timeout=2):
+            return True
+    except urllib.error.HTTPError:
+        return True  # something answered with an HTTP status — port is occupied
+    except Exception:
+        return False  # connection refused / unreachable — genuinely closed
+
+
+def server_is_open():
+    """True when the job server answers an auth-gated endpoint WITHOUT a token —
+    i.e. it's running in local/open mode, so the server read/write tests can run.
+    A server running with auth on (the pm2/root deployment) returns 401 here, in
+    which case those tests are skipped instead of failing on authorization."""
+    if not is_server_running():
+        return False
+    import urllib.request
+    try:
+        req = urllib.request.Request('http://localhost:8820/jobs', method='GET')
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+_CLI_AUTH_OK = None
+
+
+def cli_auth_works():
+    """One-shot, cached check that the Claude CLI can actually produce output.
+
+    `has_auth()` only confirms a key/credentials file is *present*, not that it
+    *works*. CLI tests invoke the real binary, so gate them on a single trivial
+    call — skip cleanly when the configured auth is missing or rejected rather
+    than failing every CLI test with a RuntimeError."""
+    global _CLI_AUTH_OK
+    if _CLI_AUTH_OK is not None:
+        return _CLI_AUTH_OK
+    if not can_run_claude():
+        _CLI_AUTH_OK = False
+        return False
+    try:
+        r = subprocess.run(
+            ["claude", "--print", "--model", "haiku", "--output-format", "text", "ok"],
+            capture_output=True, text=True, timeout=60,
+        )
+        _CLI_AUTH_OK = r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        _CLI_AUTH_OK = False
+    return _CLI_AUTH_OK
+
+
 skip_no_cli = pytest.mark.skipif(not has_claude_cli(), reason="Claude CLI not installed")
 skip_no_auth = pytest.mark.skipif(not can_run_claude(), reason="No auth available")
 skip_no_server = pytest.mark.skipif(not is_server_running(), reason="Job server not running")
+skip_server_closed = pytest.mark.skipif(
+    not server_is_open(), reason="Job server not in local/open mode (auth-gated)")
+skip_network_intercepted = pytest.mark.skipif(
+    closed_port_is_reachable(),
+    reason="presumed-closed port is occupied/intercepted — connection-refused impossible")
+skip_no_working_cli = pytest.mark.skipif(
+    not cli_auth_works(), reason="Claude CLI auth not working in this environment")
 
 
 # ── Unit Tests (always run, no dependencies) ─────────────────────
@@ -515,11 +591,13 @@ class TestServerAvailability:
         result = c._server_available()
         assert isinstance(result, bool)
 
+    @skip_network_intercepted
     def test_server_available_bad_url(self):
         """_server_available returns False for bad URL."""
         c = Mod(api_url='http://127.0.0.1:59999')
         assert c._server_available() is False
 
+    @skip_network_intercepted
     def test_request_raises_on_bad_server(self):
         """_request raises ConnectionError for unreachable server."""
         c = Mod(api_url='http://127.0.0.1:59999')
@@ -673,6 +751,98 @@ class TestForwardPermissions:
             assert mock.called
 
 
+class TestWhitelist:
+    """Off-chain edit whitelist — owner-delegated trusted editors."""
+
+    @pytest.fixture
+    def c(self, tmp_path):
+        mod = Mod()
+        mod._owner = "0xowner000000000000000000000000000000owner"
+        # Isolate the whitelist file from the real ~/.mod/claude/whitelist.json
+        wl = tmp_path / 'whitelist.json'
+        mod._whitelist_path = lambda: wl
+        return mod
+
+    EDITOR = "0x1111111111111111111111111111111111111111"
+    OTHER = "0x2222222222222222222222222222222222222222"
+
+    def test_whitelist_empty_by_default(self, c):
+        assert c.editors() == []
+        assert c.is_whitelisted(self.EDITOR) is False
+
+    def test_add_editor_requires_owner(self, c):
+        with pytest.raises(PermissionError):
+            c.add_editor(self.EDITOR, key=self.OTHER)
+
+    def test_add_editor_persists_and_is_whitelisted(self, c):
+        res = c.add_editor(self.EDITOR, key="0xowner000000000000000000000000000000owner")
+        assert self.EDITOR in res['whitelist']
+        assert c.is_whitelisted(self.EDITOR) is True
+        # persisted to disk and reloadable
+        assert self.EDITOR in c._load_whitelist()
+
+    def test_add_editor_rejects_bad_address(self, c):
+        with pytest.raises(ValueError):
+            c.add_editor("not-an-address", key="0xowner000000000000000000000000000000owner")
+
+    def test_add_editor_idempotent(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        c.add_editor(self.EDITOR, key=owner)
+        c.add_editor(self.EDITOR, key=owner)
+        assert c._load_whitelist().count(self.EDITOR) == 1
+
+    def test_remove_editor(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        c.add_editor(self.EDITOR, key=owner)
+        res = c.remove_editor(self.EDITOR, key=owner)
+        assert res['removed'] == self.EDITOR
+        assert c.is_whitelisted(self.EDITOR) is False
+
+    def test_remove_editor_requires_owner(self, c):
+        with pytest.raises(PermissionError):
+            c.remove_editor(self.EDITOR, key=self.OTHER)
+
+    def test_is_trusted_owner_and_editor(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        assert c.is_trusted(owner) is True
+        assert c.is_trusted(self.EDITOR) is False
+        c.add_editor(self.EDITOR, key=owner)
+        assert c.is_trusted(self.EDITOR) is True
+        assert c.is_trusted(self.OTHER) is False
+
+    def test_editor_is_not_owner(self, c):
+        """Whitelisted editor gets edit access but is NOT the owner."""
+        owner = "0xowner000000000000000000000000000000owner"
+        c.add_editor(self.EDITOR, key=owner)
+        assert c.is_owner(self.EDITOR) is False  # owner-only powers stay gated
+        with pytest.raises(PermissionError):
+            c.require_owner(self.EDITOR, "set_owner")
+
+    def test_require_permission_allows_editor(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        # before whitelisting: confined to portal → denied for an orbit module
+        with pytest.raises(PermissionError):
+            c.require_permission(self.EDITOR, module="polymarket", operation="edit")
+        c.add_editor(self.EDITOR, key=owner)
+        # after whitelisting: full orbit edit access (no raise)
+        c.require_permission(self.EDITOR, module="polymarket", operation="edit")
+
+    def test_permissions_reports_editor_role(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        c.add_editor(self.EDITOR, key=owner)
+        perms = c.permissions(self.EDITOR)
+        assert perms['role'] == 'editor'
+        assert perms['can_edit'] == 'all'
+        assert perms['via'] == 'whitelist'
+
+    def test_forward_works_for_editor(self, c):
+        owner = "0xowner000000000000000000000000000000owner"
+        c.add_editor(self.EDITOR, key=owner)
+        with patch.object(c, '_request', return_value={"id": "job"}) as mock:
+            c.forward("Edit the login page", key=self.EDITOR)
+            assert mock.called
+
+
 class TestSelfTest:
     """Built-in test() method."""
 
@@ -686,8 +856,15 @@ class TestSelfTest:
         assert 'tests' in result
         assert result['total'] == result['passed'] + result['failed']
 
+    @skip_server_closed
+    @skip_no_working_cli
     def test_self_test_passes(self):
-        """Built-in tests should pass."""
+        """Built-in tests should pass.
+
+        The built-in suite includes a job_lifecycle check that submits a real
+        job, so it needs both an open job server and working CLI auth — skip
+        cleanly when either is unavailable rather than reporting a failure that
+        is really an environment gap."""
         c = Mod()
         result = c.test()
         assert result['passed'] > 0
@@ -739,7 +916,12 @@ class TestEnsureEnv:
         with patch('subprocess.run', return_value=MagicMock(returncode=0)) as mock_run:
             result = c.ensure_env(app_dir=str(tmp_path), api_dir=str(tmp_path))
         assert result['api_build']['ok'] is True
-        assert mock_run.call_args[0][0] == ['cargo', 'build', '--release']
+        # ensure_env resolves cargo via shutil.which, so the first arg is the
+        # cargo binary (an absolute path like /root/.cargo/bin/cargo, or bare
+        # 'cargo' when unresolved) — assert on the resolved binary + its args.
+        cmd = mock_run.call_args[0][0]
+        assert os.path.basename(cmd[0]) == 'cargo'
+        assert cmd[1:] == ['build', '--release']
 
     def test_ensure_env_skips_build_when_binary_exists(self, c, tmp_path):
         """ensure_env skips cargo build when binary already exists."""
@@ -800,7 +982,14 @@ class TestServe:
         return mod
 
     def _serve_patches(self, c, mock_registry=None, popen_side_effect=None):
-        """Common patch context for serve() tests."""
+        """Common patch context for serve() tests.
+
+        These tests exercise the Popen launch path + namespace registration, so
+        we force `_serve_pm2` to report "not launched" — otherwise serve() takes
+        the preferred pm2 path (which shells out via subprocess.run against the
+        host's real pm2) and the Popen-oriented assertions never get a chance to
+        run. The pm2 path has its own dedicated coverage in test_serve_uses_pm2.
+        """
         if mock_registry is None:
             mock_registry = MagicMock()
         popen = popen_side_effect or MagicMock()
@@ -811,18 +1000,23 @@ class TestServe:
             patch.object(c, 'snapshot', return_value={'cid': 'QmTest'}),
             patch('subprocess.Popen', popen),
             patch('src.mod.m.mod', return_value=lambda: mock_registry),
+            patch.object(c, '_serve_pm2', return_value=False),
         )
 
     def test_serve_registers_in_namespace(self, c):
         """serve() registers claude in both API and app namespaces."""
         mock_registry = MagicMock()
         patches = self._serve_patches(c, mock_registry=mock_registry)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             c.serve()
-        mock_registry.reg.assert_called_once_with('claude', 'http://localhost:8820')
+        # Derive expected URLs from config so this survives port changes
+        # (e.g. app_port moved 8821 → 8823) rather than hardcoding.
+        api_url = f"http://localhost:{c.config.get('port', 8820)}"
+        app_url = f"http://localhost:{c.config.get('app_port', 8821)}"
+        mock_registry.reg.assert_called_once_with('claude', api_url)
         mock_registry.reg_app.assert_called_once_with(
-            'claude', 'http://localhost:8821',
-            owner=c.key.address, api_url='http://localhost:8820')
+            'claude', app_url,
+            owner=c.key.address, api_url=api_url)
 
     def test_serve_sets_base_path_env(self, c):
         """serve() passes NEXT_PUBLIC_BASE_PATH=/claude to the Next.js app."""
@@ -834,7 +1028,7 @@ class TestServe:
 
         patches = self._serve_patches(c, popen_side_effect=capture_popen)
         with patches[0], patches[1], patches[2], patches[3], \
-             patch('subprocess.Popen', side_effect=capture_popen), patches[5]:
+             patch('subprocess.Popen', side_effect=capture_popen), patches[5], patches[6]:
             c.serve()
 
         app_call = [call for call in popen_calls if call.get('env', {}).get('NEXT_PUBLIC_BASE_PATH')]
@@ -846,7 +1040,7 @@ class TestServe:
         """serve() respects custom port args for registration."""
         mock_registry = MagicMock()
         patches = self._serve_patches(c, mock_registry=mock_registry)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             c.serve(api_port=9000, app_port=9001)
         mock_registry.reg.assert_called_once_with('claude', 'http://localhost:9000')
         mock_registry.reg_app.assert_called_once_with(
@@ -860,6 +1054,7 @@ class TestServe:
              patch.object(c, '_check_service', return_value=True), \
              patch.object(c, 'snapshot', return_value={'cid': 'QmTest'}), \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', return_value=lambda: MagicMock()):
             c.serve()
         mock_env.assert_called_once()
@@ -871,6 +1066,7 @@ class TestServe:
              patch.object(c, '_check_service', return_value=True) as mock_check, \
              patch.object(c, 'snapshot', return_value={'cid': 'QmTest'}), \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', return_value=lambda: MagicMock()):
             result = c.serve()
         assert mock_check.call_count == 2  # once for API, once for app
@@ -892,6 +1088,7 @@ class TestServe:
              patch.object(c, '_check_service', return_value=True), \
              patch.object(c, 'snapshot', return_value={'cid': 'QmDeployCid'}) as mock_snap, \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', side_effect=mock_mod):
             result = c.serve()
         mock_snap.assert_called_once_with(description='deploy')
@@ -906,6 +1103,7 @@ class TestServe:
              patch.object(c, '_tail_log', return_value='Error'), \
              patch.object(c, 'snapshot') as mock_snap, \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', return_value=lambda: MagicMock()):
             result = c.serve()
         mock_snap.assert_not_called()
@@ -918,6 +1116,7 @@ class TestServe:
              patch.object(c, '_check_service', return_value=False), \
              patch.object(c, '_tail_log', return_value='Error: EADDRINUSE'), \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', return_value=lambda: MagicMock()):
             result = c.serve()
         assert result['checks']['api']['live'] is False
@@ -933,9 +1132,36 @@ class TestServe:
              patch.object(c, '_check_service', return_value=True), \
              patch.object(c, 'snapshot', return_value={'cid': 'QmTest'}), \
              patch('subprocess.Popen', MagicMock()), \
+             patch.object(c, '_serve_pm2', return_value=False), \
              patch('src.mod.m.mod', side_effect=failing_mod):
             result = c.serve()
         assert 'logs' in result
+
+    def test_serve_uses_pm2_when_available(self, c):
+        """serve() prefers the pm2 path: when _serve_pm2 launches, the Popen
+        fallback is skipped and namespace registration still happens."""
+        mock_registry = MagicMock()
+        popen = MagicMock()
+
+        def fake_pm2(api_port, app_port, dev, results):
+            results['api'] = f'http://localhost:{api_port}'
+            results['app'] = f'http://localhost:{app_port}'
+            results['pm2'] = True
+            return True
+
+        with patch.object(c, 'kill'), \
+             patch.object(c, 'ensure_env', return_value={'app_install': {'ok': True, 'cached': True}, 'api_build': {'ok': True, 'cached': True}}), \
+             patch.object(c, '_check_service', return_value=True), \
+             patch.object(c, 'snapshot', return_value={'cid': 'QmTest'}), \
+             patch('subprocess.Popen', popen), \
+             patch('src.mod.m.mod', return_value=lambda: mock_registry), \
+             patch.object(c, '_serve_pm2', side_effect=fake_pm2) as mock_pm2:
+            result = c.serve()
+        mock_pm2.assert_called_once()
+        # pm2 owns the processes — serve() must NOT also spawn via Popen.
+        popen.assert_not_called()
+        assert result.get('pm2') is True
+        mock_registry.reg.assert_called_once_with('claude', 'http://localhost:8820')
 
 
 class TestRepr:
@@ -963,7 +1189,7 @@ class TestCLI:
         path = c._find_claude()
         assert os.path.exists(path)
 
-    @skip_no_auth
+    @skip_no_working_cli
     def test_forward_text(self, c, tmp_path):
         """Forward with text output."""
         result = c.forward(
@@ -975,7 +1201,7 @@ class TestCLI:
         )
         assert result is not None
 
-    @skip_no_auth
+    @skip_no_working_cli
     def test_analyze_code(self, c, tmp_path):
         """analyze_code runs."""
         (tmp_path / "test.py").write_text("def hello(): print('hi')\n")
@@ -1006,14 +1232,14 @@ class TestServer:
         h = c.health()
         assert h.get('status') == 'ok'
 
-    @skip_no_server
+    @skip_server_closed
     def test_list_jobs(self):
         c = Mod()
         j = c.jobs()
         assert isinstance(j, list)
 
-    @skip_no_server
-    @skip_no_auth
+    @skip_server_closed
+    @skip_no_working_cli
     def test_submit_and_check(self):
         c = Mod()
         job = c.submit(prompt="Say 'server test'", model="haiku")

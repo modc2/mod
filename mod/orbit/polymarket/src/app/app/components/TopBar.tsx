@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
-import ProfileMenu from "./ProfileMenu";
 import WalletChip from "./WalletChip";
 
 // Lower-cased 40-hex-char Ethereum address pattern — what Polymarket's trader
@@ -31,7 +30,13 @@ export default function TopBar({
     <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-40">
       <div className="px-4 h-12 flex items-center gap-3">
         {/* Primary nav lives in the global left rail (LeftNav). The top bar
-            now carries only search + wallet so it stays compact. */}
+            now carries only wallet + search so it stays compact. */}
+
+        {/* ── LEFT: wallet/account chip (with trading-ready dot + switcher).
+            This is the sign-in / account UI. ── */}
+        <div className="shrink-0 flex items-center gap-2">
+          <WalletChip />
+        </div>
 
         {/* ── CENTER: search ──
             Doubles as a "jump to trader" teleport — paste any 0x address +
@@ -83,12 +88,6 @@ export default function TopBar({
         ) : (
           <div className="flex-1" />
         )}
-
-        {/* ── RIGHT: wallet (with trading-ready dot) + profile panel toggle ── */}
-        <div className="shrink-0 flex items-center gap-2">
-          <WalletChip />
-          <ProfileMenu />
-        </div>
       </div>
     </header>
   );

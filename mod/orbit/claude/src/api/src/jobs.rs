@@ -442,14 +442,15 @@ impl ClaudeJobManager {
         let agent_type = req.agent_type;
         let system_prompt = req.system_prompt;
 
-        // ── Privilege drop for untrusted jobs ──────────────────────────────────
+        // ── Privilege drop for peer jobs ────────────────────────────────────────
         // The CLI runs with `--dangerously-skip-permissions`; `work_dir` is only a
         // cwd, NOT a write boundary. Since the API now runs as root (pm2), a
-        // malicious NON-OWNER prompt could otherwise write absolute paths into the
-        // owner's modules. So any job from an authenticated non-owner is spawned
-        // under an unprivileged uid that has no write access to the root-owned
-        // module tree — kernel-enforced containment no prompt can escape. Owner &
-        // local-mode jobs are trusted and keep running as root.
+        // malicious PEER prompt could otherwise write absolute paths into the
+        // owner's modules. So any job from a peer (every authenticated non-owner,
+        // incl. whitelisted users) is spawned under an unprivileged uid that has no
+        // write access to the root-owned module tree — kernel-enforced containment
+        // no prompt can escape. Only the OWNER (and local-mode) jobs keep running as
+        // root so they can edit the orbit; peers are confined to their own root.
         let job_user = req.user_address.clone().unwrap_or_default();
         let local_mode = std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1";
         let sandbox: Option<(u32, u32)> =

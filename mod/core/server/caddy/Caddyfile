@@ -330,7 +330,11 @@ modc2.com {
     @venice_api path /api/venice /api/venice/*
     handle @venice_api {
         uri strip_prefix /api/venice
-        reverse_proxy {$PM2_HOST:localhost}:8880
+        reverse_proxy {$PM2_HOST:localhost}:50880
+    }
+    @venice_app path /venice /venice/*
+    handle @venice_app {
+        reverse_proxy {$PM2_HOST:localhost}:3880
     }
     # Listener port is parametrised. Default is :3000 (canonical mod-protocol
     # proxy port). `m whitepaper/serve` will pick the first free port from
@@ -385,12 +389,13 @@ api.modc2.com {
 }
 
 :3000 {
-    # Default landing — claude is the canonical control-plane module.
+    # Default landing — web is the core front-door catalog / module explorer.
     # Using a 302 (not 301) so we can flip the default later without
-    # fighting browser cache. The exact-path matcher means /claude,
-    # /api/*, etc. are untouched.
+    # fighting browser cache. The exact-path matcher means /web, /claude,
+    # /api/*, etc. are untouched. The web Next app is built with basePath
+    # /web, so we redirect root to /web rather than proxying it directly.
     @root path /
-    redir @root /claude 302
+    redir @root /web 302
 
     # Core mod-protocol api (FastAPI on :8000) — mounted at /api so the
     # claude UI (and any other module's UI) can call mod core directly

@@ -231,6 +231,63 @@ STYLES: List[Dict[str, Any]] = [
 _STYLE_INDEX = {s["id"]: s for s in STYLES}
 _DEFAULT_STYLE = "brownstone"
 _SLEEPING = {"studio", "bedroom", "mezz", "parlor", "bay"}
+_WET = {"kitchen", "bath"}
+
+
+# ━━ Pluggable audit agents ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# The building-standards audit is provider-agnostic: a design + its
+# deterministic metrics are handed to an *audit agent* that returns a
+# structured verdict. Any agent can be plugged in — add one row here.
+#   kind='rules'     → built-in deterministic auditor (no key, always works)
+#   kind='openai'    → any OpenAI-compatible chat API (Venice, OpenRouter, …)
+#   kind='anthropic' → Anthropic Messages API (Claude)
+# The default is Venice; if its key is absent (or any LLM call fails) the
+# audit transparently falls back to the built-in rules auditor so the
+# feature never hard-fails.
+AUDIT_PROVIDERS: Dict[str, Dict[str, Any]] = {
+    "rules": {
+        "label": "Built-in rules auditor", "kind": "rules",
+        "env": None, "base_url": None, "default_model": "deterministic",
+        "needs_key": False,
+        "blurb": "Offline, deterministic code-envelope + life-safety heuristics. Always available.",
+    },
+    "venice": {
+        "label": "Venice", "kind": "openai",
+        "base_url": "https://api.venice.ai/api/v1", "env": "VENICE_API_KEY",
+        "default_model": "llama-3.3-70b", "needs_key": True,
+        "blurb": "Venice AI (OpenAI-compatible). Private, uncensored inference.",
+    },
+    "claude": {
+        "label": "Claude", "kind": "anthropic",
+        "base_url": "https://api.anthropic.com/v1", "env": "ANTHROPIC_API_KEY",
+        "default_model": "claude-sonnet-4-6", "needs_key": True,
+        "blurb": "Anthropic Claude — strong structured reasoning over codes.",
+    },
+}
+DEFAULT_AUDIT_PROVIDER = "venice"
+
+_AUDIT_SYSTEM = (
+    "You are a meticulous building-permit plan examiner auditing a modular "
+    "(prefab, 3×3×3 m volumetric module) building design for code compliance and "
+    "buildability. You are given the design, its computed metrics, the applicable "
+    "building-code envelope, and a set of DETERMINISTIC compliance checks already "
+    "evaluated by the tool. Treat those deterministic checks as ground truth — do "
+    "not contradict their pass/fail, but explain them and add the judgement a "
+    "plan examiner would: life-safety (egress, fire separation, second exit), "
+    "habitability (light/air, ceiling height, wet cores, accessibility), "
+    "structural plausibility (slenderness, lateral stability), energy, and "
+    "permitting path. Be specific and cite the named code where possible. You are "
+    "an advisory pre-check, NOT a stamped professional approval.\n\n"
+    "Respond with STRICT JSON only (no prose, no markdown fences) matching:\n"
+    "{\n"
+    '  "verdict": "pass" | "conditional" | "fail",\n'
+    '  "score": 0-100,\n'
+    '  "summary": "one-paragraph plain-language verdict",\n'
+    '  "checks": [{"standard": str, "category": "life-safety"|"habitability"|"structure"|"energy"|"envelope"|"zoning"|"accessibility", "status": "pass"|"warn"|"fail"|"unknown", "detail": str, "recommendation": str, "severity": "low"|"medium"|"high"}],\n'
+    '  "red_flags": [str],\n'
+    '  "recommendations": [str]\n'
+    "}"
+)
 
 
 def _builtin_dict(row) -> Dict[str, Any]:
@@ -759,10 +816,66 @@ class Mod:
             'net_positive_energy': solar > 0, 'footprint_cells': footprint_cells,
             'height_m': round(floors * FLOOR_H_M, 1),
             'footprint_m2': round(footprint_cells * UNIT_AREA_M2, 1),
+            'cost_breakdown': self._cost_breakdown(specs, st),
         }
         if constraints:
+            plot = self._plot_metrics(constraints, result)
+            if plot:
+                result['plot'] = plot
             result['compliance'] = self._check(result, constraints, max_ax, max_az)
         return result
+
+    def _cost_breakdown(self, specs, st):
+        """Bill of quantities: every distinct module priced per-unit (style-
+        adjusted) × quantity. This is the 'units cost' a buyer signs off on."""
+        mult = st['price_mult']
+        groups: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+        for s in specs:
+            g = groups.get(s['id'])
+            if g is None:
+                groups[s['id']] = g = {
+                    'id': s['id'], 'name': s['name'], 'category': s.get('category', ''),
+                    'qty': 0, 'unit_price_base': s['price'],
+                    'unit_carbon_kg': s.get('carbon_kg', 0),
+                }
+                order.append(s['id'])
+            g['qty'] += 1
+        items = []
+        for k in order:
+            g = groups[k]
+            unit = round(g['unit_price_base'] * mult)
+            items.append({**g, 'unit_price': unit, 'line_total': unit * g['qty']})
+        subtotal = sum(i['line_total'] for i in items)
+        return {'style': st['id'], 'price_mult': mult, 'modules': items,
+                'module_subtotal_usd': subtotal, 'unit_count': sum(i['qty'] for i in items)}
+
+    def _plot_metrics(self, c, est):
+        """Resolve a *realistic* parcel (metres) into a buildable envelope.
+
+        Real lots are measured in metres with setbacks; this snaps the
+        buildable rectangle to the 3 m module grid and derives site-coverage
+        and FSR (floor-space ratio / FAR) — the figures every zoning bylaw
+        actually checks. Returns None unless a plot is given."""
+        pw, pd = c.get('plot_w_m'), c.get('plot_d_m')
+        if not pw or not pd:
+            return None
+        pw, pd = float(pw), float(pd)
+        sf = float(c.get('setback_front_m', 0) or 0)
+        sr = float(c.get('setback_rear_m', 0) or 0)
+        ss = float(c.get('setback_side_m', 0) or 0)
+        build_w = max(0.0, pw - 2 * ss)
+        build_d = max(0.0, pd - sf - sr)
+        plot_area = pw * pd
+        return {
+            'plot_w_m': round(pw, 2), 'plot_d_m': round(pd, 2),
+            'plot_area_m2': round(plot_area, 1),
+            'buildable_w_m': round(build_w, 2), 'buildable_d_m': round(build_d, 2),
+            'buildable_area_m2': round(build_w * build_d, 1),
+            'build_cells_w': int(build_w // UNIT_M), 'build_cells_d': int(build_d // UNIT_M),
+            'coverage_pct': round(est['footprint_m2'] / plot_area * 100, 1) if plot_area else 0,
+            'fsr': round(est['floor_area_m2'] / plot_area, 2) if plot_area else 0,
+        }
 
     def _check(self, est, c, max_ax=0, max_az=0):
         """Compare an estimate against the user's parameters/constraints."""
@@ -789,6 +902,20 @@ class Mod:
             fits = max_ax <= half_w and max_az <= half_d
             rules['lot'] = {'value': f'{max_ax*2+1}×{max_az*2+1}', 'limit': f'{lw}×{ld}', 'ok': fits}
 
+        # ── realistic parcel: setbacks / coverage / FSR ──────────────
+        plot = est.get('plot')
+        if plot:
+            bw, bd = plot['build_cells_w'], plot['build_cells_d']
+            grid_w, grid_d = max_ax * 2 + 1, max_az * 2 + 1
+            rules['plot_fit'] = {'value': f'{grid_w}×{grid_d}', 'limit': f'{bw}×{bd}',
+                                 'ok': grid_w <= bw and grid_d <= bd}
+            if c.get('max_coverage_pct'):
+                lim = float(c['max_coverage_pct'])
+                rules['coverage'] = rule(plot['coverage_pct'], lim, plot['coverage_pct'] <= lim)
+            if c.get('max_fsr'):
+                lim = float(c['max_fsr'])
+                rules['fsr'] = rule(plot['fsr'], lim, plot['fsr'] <= lim)
+
         # ── laneway / ADU code envelope ──────────────────────────
         code = _CODE_INDEX.get(c.get('code'))
         if code:
@@ -807,6 +934,284 @@ class Mod:
 
         rules['ok'] = all(r.get('ok', True) for k, r in rules.items() if k != 'ok')
         return rules
+
+    # ━━ Audit agent (pluggable: rules / Venice / Claude / any) ━━━━━━━
+    def audit_providers(self):
+        """List the available audit agents and whether each is ready (key
+        present). Any OpenAI-compatible or Anthropic endpoint can be added to
+        AUDIT_PROVIDERS — this is the seam that makes the auditor swappable."""
+        out = []
+        for pid, cfg in AUDIT_PROVIDERS.items():
+            ready = (not cfg['needs_key']) or bool(cfg.get('env') and os.environ.get(cfg['env']))
+            out.append({'id': pid, 'label': cfg['label'], 'kind': cfg['kind'],
+                        'default_model': cfg['default_model'], 'needs_key': cfg['needs_key'],
+                        'ready': ready, 'blurb': cfg.get('blurb', '')})
+        return {'default': DEFAULT_AUDIT_PROVIDER, 'providers': out}
+
+    def _audit_brief(self, est, name, style, constraints):
+        """A compact, model-agnostic description of what's being audited."""
+        c = constraints or {}
+        code = _CODE_INDEX.get(c.get('code'))
+        cb = est.get('cost_breakdown', {})
+        modules = ', '.join(f"{i['qty']}× {i['name']}" for i in cb.get('modules', [])) or 'none'
+        brief = {
+            'building': {'name': name or 'Untitled', 'style': style,
+                         'floors': est['floors'], 'height_m': est['height_m'],
+                         'module_count': est['module_count'], 'modules': modules,
+                         'occupancy_beds': est['occupancy'],
+                         'floor_area_m2': est['floor_area_m2'],
+                         'footprint_m2': est['footprint_m2'],
+                         'has_stair_core': est.get('_has_stair', False),
+                         'has_kitchen': est.get('_has_kitchen', False),
+                         'has_bath': est.get('_has_bath', False),
+                         'glazed_modules': est.get('_glazed', 0)},
+            'cost': {'total_usd': est['price_usd'], 'price_per_m2': est['price_per_m2'],
+                     'embodied_carbon_kg': est['embodied_carbon_kg'],
+                     'lead_time_days': est['lead_time_days']},
+            'plot': est.get('plot'),
+            'code': ({'id': code['id'], 'name': code['name'], 'region': code['region'],
+                      'note': code['note'], 'source': code.get('source'),
+                      'limits': {k: code.get(k) for k in
+                                 ('max_height_m', 'max_storeys', 'max_gfa_m2', 'max_footprint_m2')}}
+                     if code else None),
+            'deterministic_compliance': est.get('compliance'),
+        }
+        return brief
+
+    def _design_flags(self, cells):
+        """Life-safety / habitability presence flags read straight off the grid."""
+        ids = set()
+        for ce in (cells or []):
+            if isinstance(ce, dict):
+                ids.update(ce.get('stack') or [])
+        return {'has_stair': 'stair' in ids, 'has_kitchen': 'kitchen' in ids,
+                'has_bath': 'bath' in ids,
+                'glazed': sum(1 for i in ids if i in {'atrium', 'parlor', 'bay', 'retail'})}
+
+    def audit(self, design_id: str = None, cells: List[Dict[str, Any]] = None,
+              style: str = _DEFAULT_STYLE, constraints: Dict[str, Any] = None,
+              name: str = None, provider: str = None, model: str = None,
+              api_key: str = None, persist: bool = True):
+        """Audit a design against building standards with a pluggable audit
+        agent. ``provider`` ∈ AUDIT_PROVIDERS (default Venice); falls back to the
+        built-in rules auditor if the LLM key is missing or the call fails.
+        Pass ``design_id`` to audit (and optionally persist the verdict on) a
+        saved design, or pass ``cells``/``style``/``constraints`` directly."""
+        rec = None
+        if design_id:
+            rec = self._load_designs().get(design_id)
+            if not rec:
+                return {'error': f'unknown design: {design_id}'}
+            cells = rec.get('cells', cells or [])
+            style = rec.get('style', style)
+            constraints = rec.get('constraints', constraints)
+            name = name or rec.get('name')
+        cells = cells or []
+        est = self.estimate(cells=cells, style=style, constraints=constraints)
+        flags = self._design_flags(cells)
+        est.update({'_has_stair': flags['has_stair'], '_has_kitchen': flags['has_kitchen'],
+                    '_has_bath': flags['has_bath'], '_glazed': flags['glazed']})
+        brief = self._audit_brief(est, name, style, constraints)
+
+        pid = (provider or DEFAULT_AUDIT_PROVIDER)
+        cfg = AUDIT_PROVIDERS.get(pid)
+        if not cfg:
+            return {'error': f"unknown audit provider: {pid}; choose {list(AUDIT_PROVIDERS)}"}
+
+        key = None
+        fallback_from = None
+        if cfg['kind'] != 'rules':
+            key = api_key or (cfg.get('env') and os.environ.get(cfg['env']))
+            if not key:
+                fallback_from = f"{cfg['label']} (no {cfg.get('env')} key)"
+                pid, cfg = 'rules', AUDIT_PROVIDERS['rules']
+
+        if cfg['kind'] == 'rules':
+            audit = self._rules_audit(brief, est, flags)
+            audit['provider'] = 'rules'
+            audit['model'] = 'deterministic'
+        else:
+            try:
+                audit = self._llm_audit(pid, cfg, brief, model, key)
+            except Exception as e:
+                audit = self._rules_audit(brief, est, flags)
+                audit['provider'] = 'rules'
+                audit['model'] = 'deterministic'
+                fallback_from = f"{cfg['label']} ({type(e).__name__}: {e})"
+
+        audit['agent'] = {'requested': provider or DEFAULT_AUDIT_PROVIDER,
+                          'used': audit.get('provider', pid),
+                          'fallback_from': fallback_from}
+        audit['grounding'] = brief
+        audit['audited_at'] = int(time.time())
+        audit['disclaimer'] = ('Advisory automated pre-check — not a stamped review. '
+                               'A licensed architect/engineer and the authority having '
+                               'jurisdiction (AHJ) must approve any permit.')
+
+        if design_id and rec and persist:
+            designs = self._load_designs()
+            if design_id in designs:
+                designs[design_id]['last_audit'] = {
+                    k: audit[k] for k in ('verdict', 'score', 'summary', 'agent', 'audited_at')
+                    if k in audit}
+                designs[design_id]['updated'] = int(time.time())
+                self._save_designs(designs)
+        return audit
+
+    # ── built-in deterministic auditor (default fallback, no key) ───
+    def _rules_audit(self, brief, est, flags):
+        checks = []
+
+        def add(standard, category, status, detail, rec='', severity='medium'):
+            checks.append({'standard': standard, 'category': category, 'status': status,
+                           'detail': detail, 'recommendation': rec, 'severity': severity})
+
+        comp = est.get('compliance') or {}
+        code = brief.get('code')
+        # 1) code envelope — straight from deterministic checks
+        for k, lbl in (('height_m', 'Height'), ('storeys', 'Storeys'),
+                       ('gfa', 'Gross floor area'), ('footprint', 'Building footprint')):
+            r = comp.get(k)
+            if r:
+                add(f"{(code or {}).get('name', 'Code')} — {lbl}", 'envelope',
+                    'pass' if r['ok'] else 'fail',
+                    f"{lbl} {r['value']} vs limit {r['limit']}.",
+                    '' if r['ok'] else f"Reduce {lbl.lower()} to ≤ {r['limit']}.",
+                    'low' if r['ok'] else 'high')
+        # 2) parcel fit / coverage / FSR
+        for k, lbl, sev in (('plot_fit', 'Setback / parcel fit', 'high'),
+                            ('coverage', 'Site coverage', 'high'),
+                            ('fsr', 'Floor-space ratio (FSR)', 'high')):
+            r = comp.get(k)
+            if r:
+                add(lbl, 'zoning', 'pass' if r['ok'] else 'fail',
+                    f"{lbl} {r['value']} vs limit {r['limit']}.",
+                    '' if r['ok'] else f"Design exceeds {lbl.lower()} — shrink footprint or floors.",
+                    'low' if r['ok'] else sev)
+        # 3) egress / life-safety
+        floors = est['floors']
+        if floors >= 2 and not flags['has_stair']:
+            add('Means of egress', 'life-safety', 'fail',
+                f"{floors}-storey building has no Stair Core module.",
+                "Add a Stair Core for code-compliant vertical egress.", 'high')
+        elif floors >= 2:
+            add('Means of egress', 'life-safety', 'pass',
+                "Stair Core present for vertical circulation.", '', 'low')
+        if floors >= 4 and est.get('footprint_cells', 0) < 2:
+            add('Second exit / structural slenderness', 'structure', 'warn',
+                f"{floors} storeys on a single-cell footprint is slender and likely needs a second exit.",
+                "Widen the base or add a second egress stair.", 'medium')
+        # 4) habitability — wet cores & light
+        if est['occupancy'] > 0:
+            if not flags['has_kitchen']:
+                add('Habitability — kitchen', 'habitability', 'warn',
+                    "Sleeping modules present but no Galley Kitchen.",
+                    "Add a kitchen for a self-contained dwelling unit.", 'medium')
+            if not flags['has_bath']:
+                add('Habitability — sanitation', 'habitability', 'fail',
+                    "Dwelling has sleeping space but no Wet Core (bathroom).",
+                    "Add a Wet Core — a bathroom is mandatory for occupancy.", 'high')
+            if flags['glazed'] == 0:
+                add('Light & ventilation', 'habitability', 'warn',
+                    "No glazed/parlor/atrium modules — natural light may be insufficient.",
+                    "Add glazed modules so habitable rooms meet daylight minimums.", 'low')
+        else:
+            add('Occupancy', 'habitability', 'unknown',
+                "No sleeping modules — not a dwelling (or beds modelled differently).",
+                "Add Studio/Bedroom modules if residential occupancy is intended.", 'low')
+        # 5) energy
+        if est.get('net_positive_energy'):
+            add('Energy', 'energy', 'pass', "Solar Roof present — net-positive energy target.",
+                '', 'low')
+        else:
+            add('Energy', 'energy', 'warn', "No Solar Roof — verify the energy-tier path (e.g. BC Step Code).",
+                "Add a Solar Roof or confirm energy compliance another way.", 'low')
+
+        fails = [c for c in checks if c['status'] == 'fail']
+        warns = [c for c in checks if c['status'] == 'warn']
+        passes = [c for c in checks if c['status'] == 'pass']
+        graded = len(fails) + len(warns) + len(passes)
+        score = round(100 * (len(passes) + 0.5 * len(warns)) / graded) if graded else 50
+        verdict = 'fail' if fails else ('conditional' if warns else 'pass')
+        if not fails and not warns and not passes:
+            verdict, score = 'conditional', 60
+        summary = {
+            'pass': "Design meets the deterministic checks; no blocking issues found in the automated pre-check.",
+            'conditional': f"Likely permittable with conditions: {len(warns)} item(s) to address, no hard failures.",
+            'fail': f"Not yet compliant: {len(fails)} blocking issue(s) must be resolved before permit.",
+        }[verdict]
+        return {'verdict': verdict, 'score': score, 'summary': summary, 'checks': checks,
+                'red_flags': [c['detail'] for c in fails],
+                'recommendations': [c['recommendation'] for c in (fails + warns) if c['recommendation']]}
+
+    # ── LLM-backed auditor (OpenAI-compatible or Anthropic) ─────────
+    def _llm_audit(self, pid, cfg, brief, model, key):
+        user = ("Audit this modular building design and return STRICT JSON only.\n\n"
+                + json.dumps(brief, indent=2, default=str))
+        mdl = model or cfg['default_model']
+        if cfg['kind'] == 'anthropic':
+            text = self._call_anthropic(cfg['base_url'], key, mdl, _AUDIT_SYSTEM, user)
+        else:
+            text = self._call_openai(cfg['base_url'], key, mdl, _AUDIT_SYSTEM, user)
+        audit = self._parse_audit_json(text)
+        audit['provider'] = pid
+        audit['model'] = mdl
+        return audit
+
+    @staticmethod
+    def _parse_audit_json(text):
+        """Extract the JSON object from a model reply, tolerating prose/fences."""
+        if not text:
+            raise ValueError('empty model response')
+        s = text.strip()
+        if s.startswith('```'):
+            inner = s[3:]
+            s = inner.split('```', 1)[0]
+            if s[:4].lower() == 'json':
+                s = s[4:]
+            s = s.strip()
+        try:
+            obj = json.loads(s)
+        except Exception:
+            i, j = s.find('{'), s.rfind('}')
+            if i < 0 or j <= i:
+                raise ValueError('no JSON object in model response')
+            obj = json.loads(s[i:j + 1])
+        obj.setdefault('verdict', 'conditional')
+        obj.setdefault('score', 50)
+        obj.setdefault('summary', '')
+        obj.setdefault('checks', [])
+        obj.setdefault('red_flags', [])
+        obj.setdefault('recommendations', [])
+        return obj
+
+    @staticmethod
+    def _call_anthropic(base_url, key, model, system, user, max_tokens=2000):
+        import requests
+        r = requests.post(base_url.rstrip('/') + '/messages',
+                          headers={'x-api-key': key, 'anthropic-version': '2023-06-01',
+                                   'content-type': 'application/json'},
+                          json={'model': model, 'max_tokens': max_tokens, 'system': system,
+                                'messages': [{'role': 'user', 'content': user}]}, timeout=90)
+        if r.status_code >= 400:
+            raise RuntimeError(f'{r.status_code} {r.text[:300]}')
+        data = r.json()
+        parts = data.get('content') or []
+        return ''.join(p.get('text', '') for p in parts if isinstance(p, dict))
+
+    @staticmethod
+    def _call_openai(base_url, key, model, system, user, max_tokens=2000):
+        import requests
+        r = requests.post(base_url.rstrip('/') + '/chat/completions',
+                          headers={'Authorization': f'Bearer {key}',
+                                   'Content-Type': 'application/json'},
+                          json={'model': model, 'max_tokens': max_tokens, 'temperature': 0.2,
+                                'messages': [{'role': 'system', 'content': system},
+                                             {'role': 'user', 'content': user}]}, timeout=90)
+        if r.status_code >= 400:
+            raise RuntimeError(f'{r.status_code} {r.text[:300]}')
+        data = r.json()
+        return data['choices'][0]['message']['content']
 
     # ━━ Designs ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def _design_id(self, name, owner):
@@ -1240,6 +1645,13 @@ class Mod:
                                               style=kwargs.get('style', _DEFAULT_STYLE),
                                               cells=_j(kwargs.get('cells')),
                                               constraints=_j(kwargs.get('constraints'))),
+            'audit_providers': lambda: self.audit_providers(),
+            'audit': lambda: self.audit(
+                design_id=kwargs.get('design_id'), cells=_j(kwargs.get('cells')),
+                style=kwargs.get('style', _DEFAULT_STYLE), constraints=_j(kwargs.get('constraints')),
+                name=kwargs.get('name'), provider=kwargs.get('provider'),
+                model=kwargs.get('model'), api_key=kwargs.get('api_key'),
+                persist=_b(kwargs.get('persist', True))),
             'save_design': lambda: self.save_design(
                 name=kwargs.get('name', ''), owner=kwargs.get('owner', ''),
                 cells=_j(kwargs.get('cells')), style=kwargs.get('style', _DEFAULT_STYLE),

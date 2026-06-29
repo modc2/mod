@@ -47,6 +47,11 @@ export default function LiveAutoResume() {
       address: auth.address,
       minOrderSize: rec.minOrderSize,
       maxSlippageBps: rec.maxSlippageBps,
+      // Restore the strat's market-topic filter + semantic trade filters from
+      // the saved strat (not the persisted session record, which doesn't carry
+      // them).
+      marketQuery: strat.marketQuery,
+      tradeFilters: strat.tradeFilters,
     });
   }, [auth.connected, auth.address, auth.clobCreds, isLive, startLive]);
 

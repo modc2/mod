@@ -1,7 +1,7 @@
 {
     "name": "web",
     "version": "0.1.0",
-    "description": "The mod protocol front door \u2014 Rust (axum) catalog API + Next.js app. A live, searchable explorer of every module in orbit, served under modc2.com/web.",
+    "description": "The mod protocol front door \u2014 Rust (axum) catalog API + Next.js app. A live, searchable explorer of every module (orbit + core): browse the catalog, read each module's source tree, and open its running app, served under modc2.com/web.",
     "port": 50420,
     "app_port": 3420,
     "icon": "m",
@@ -28,6 +28,14 @@
             "method": "GET",
             "docs": "Single module detail (parsed config.json)"
         },
+        "/mods/:name/tree": {
+            "method": "GET",
+            "docs": "Recursive source tree for a module (build output elided)"
+        },
+        "/mods/:name/file": {
+            "method": "GET",
+            "docs": "Read one source file, sandboxed to the module dir (?path=)"
+        },
         "/stats": {
             "method": "GET",
             "docs": "Aggregate ecosystem stats"
@@ -42,6 +50,8 @@
         "health",
         "mods",
         "mod",
+        "tree",
+        "file",
         "stats",
         "search"
     ],

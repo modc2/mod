@@ -41,6 +41,51 @@ async fn main() -> anyhow::Result<()> {
     // every <eoa>.config.json present (explicit STOP deletes those files).
     engines.resume_persisted();
 
+    // Scheduled "flatten everything" — sell every held position on a fixed
+    // cadence. The interval is a PARAMETER via POLYMARKET_LIQUIDATE_EVERY_HOURS
+    // (default 6h; 0 disables). First run is one full period after boot so a
+    // process restart never triggers an unexpected instant flatten. Each pass
+    // iterates every persisted session and sells its deposit-wallet positions.
+    let liq_engines = engines.clone();
+    let liq_hours: f64 = std::env::var("POLYMARKET_LIQUIDATE_EVERY_HOURS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6.0);
+    if liq_hours > 0.0 {
+        let period = std::time::Duration::from_secs_f64(liq_hours * 3600.0);
+        tracing::info!(hours = liq_hours, "scheduled liquidation enabled");
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(period).await;
+                for eoa in liq_engines.persisted_eoas() {
+                    // Redeem settled winnings FIRST — a SELL can't cash out a
+                    // resolved market (no order book), so without this the
+                    // proceeds of every settled position would be stranded as
+                    // un-sellable CTF tokens. Then flatten whatever live
+                    // positions remain.
+                    match liq_engines.redeem_all(&eoa).await {
+                        Ok(r) => tracing::info!(
+                            eoa = %eoa, conditions = r.conditions,
+                            value = r.value_redeemed, skipped = r.skipped,
+                            "scheduled redemption done",
+                        ),
+                        Err(e) => tracing::warn!(eoa = %eoa, error = %e, "scheduled redemption errored"),
+                    }
+                    match liq_engines.liquidate_all(&eoa).await {
+                        Ok(r) => tracing::info!(
+                            eoa = %eoa, positions = r.positions, placed = r.placed,
+                            skipped = r.skipped, failed = r.failed,
+                            "scheduled liquidation done",
+                        ),
+                        Err(e) => tracing::warn!(eoa = %eoa, error = %e, "scheduled liquidation errored"),
+                    }
+                }
+            }
+        });
+    } else {
+        tracing::info!("scheduled liquidation disabled (POLYMARKET_LIQUIDATE_EVERY_HOURS=0)");
+    }
+
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
     let state = AppState {
         http: http.clone(),

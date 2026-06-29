@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, type Module } from "@/lib/api";
+import { api, gatewayUrl, type Module } from "@/lib/api";
 import { Nav, Footer } from "../../components/Chrome";
+import Explorer from "../../components/Explorer";
 
 function hueFromName(name: string): string {
   let h = 0;
@@ -11,9 +12,12 @@ function hueFromName(name: string): string {
   return `hsl(${h} 70% 64%)`;
 }
 
+type Tab = "overview" | "code" | "app";
+
 export default function ModuleDetail({ params }: { params: { name: string } }) {
   const [m, setM] = useState<Module | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
 
   useEffect(() => {
     let alive = true;
@@ -27,6 +31,7 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
   }, [params.name]);
 
   const glow = m?.color || hueFromName(params.name);
+  const appUrl = useMemo(() => gatewayUrl(params.name), [params.name]);
 
   return (
     <>
@@ -49,64 +54,124 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
                 <h1>{m.name}</h1>
                 <div className="ver">v{m.version}</div>
               </div>
+              {m.has_app && (
+                <a
+                  href={appUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="open-live"
+                >
+                  open live ↗
+                </a>
+              )}
             </div>
 
             <p className="detail-desc">
               {m.description || "No description provided."}
             </p>
 
-            <div className="kv-grid">
-              <div className="kv">
-                <div className="k">Gateway mount</div>
-                <div className="v">modc2.com{m.mount}</div>
-              </div>
-              {m.port != null && (
-                <div className="kv">
-                  <div className="k">API port</div>
-                  <div className="v">{m.port}</div>
-                </div>
-              )}
-              {m.app_port != null && (
-                <div className="kv">
-                  <div className="k">App port</div>
-                  <div className="v">{m.app_port}</div>
-                </div>
-              )}
-              <div className="kv">
-                <div className="k">Stack</div>
-                <div className="v">
-                  {[m.has_rust && "rust", m.has_app && "app"]
-                    .filter(Boolean)
-                    .join(" · ") || "python"}
-                </div>
-              </div>
-              {m.schema && (
-                <div className="kv">
-                  <div className="k">Schema CID</div>
-                  <div className="v">{m.schema}</div>
-                </div>
+            <div className="tabs">
+              <button
+                className={`tab${tab === "overview" ? " active" : ""}`}
+                onClick={() => setTab("overview")}
+              >
+                Overview
+              </button>
+              <button
+                className={`tab${tab === "code" ? " active" : ""}`}
+                onClick={() => setTab("code")}
+              >
+                Code
+              </button>
+              {m.has_app && (
+                <button
+                  className={`tab${tab === "app" ? " active" : ""}`}
+                  onClick={() => setTab("app")}
+                >
+                  App
+                </button>
               )}
             </div>
 
-            {m.fns.length > 0 && (
-              <div className="panel">
-                <h3>{m.fns.length} exposed functions</h3>
-                <div className="fn-list">
-                  {m.fns.map((f) => (
-                    <span className="fn-chip" key={f}>
-                      {f}
-                    </span>
-                  ))}
+            {tab === "overview" && (
+              <>
+                <div className="kv-grid">
+                  <div className="kv">
+                    <div className="k">Gateway mount</div>
+                    <div className="v">modc2.com{m.mount}</div>
+                  </div>
+                  {m.port != null && (
+                    <div className="kv">
+                      <div className="k">API port</div>
+                      <div className="v">{m.port}</div>
+                    </div>
+                  )}
+                  {m.app_port != null && (
+                    <div className="kv">
+                      <div className="k">App port</div>
+                      <div className="v">{m.app_port}</div>
+                    </div>
+                  )}
+                  <div className="kv">
+                    <div className="k">Stack</div>
+                    <div className="v">
+                      {[m.has_rust && "rust", m.has_app && "app"]
+                        .filter(Boolean)
+                        .join(" · ") || "python"}
+                    </div>
+                  </div>
+                  {m.schema && (
+                    <div className="kv">
+                      <div className="k">Schema CID</div>
+                      <div className="v">{m.schema}</div>
+                    </div>
+                  )}
                 </div>
-              </div>
+
+                {m.fns.length > 0 && (
+                  <div className="panel">
+                    <h3>{m.fns.length} exposed functions</h3>
+                    <div className="fn-list">
+                      {m.fns.map((f) => (
+                        <span className="fn-chip" key={f}>
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="panel">
+                  <h3>config.json</h3>
+                  <pre className="code">
+                    {JSON.stringify(m.config, null, 2)}
+                  </pre>
+                </div>
+              </>
             )}
 
-            <div className="panel">
-              <h3>config.json</h3>
-              <pre className="code">
-                {JSON.stringify(m.config, null, 2)}
-              </pre>
-            </div>
+            {tab === "code" && <Explorer name={m.name} />}
+
+            {tab === "app" && m.has_app && (
+              <div className="app-embed">
+                <div className="app-bar">
+                  <span className="app-url">{appUrl}</span>
+                  <a
+                    href={appUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="app-open"
+                  >
+                    open in new tab ↗
+                  </a>
+                </div>
+                <iframe
+                  src={appUrl}
+                  className="app-frame"
+                  title={`${m.name} app`}
+                />
+              </div>
+            )}
           </>
         )}
       </main>

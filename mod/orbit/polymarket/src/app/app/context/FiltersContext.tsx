@@ -15,6 +15,13 @@ interface FiltersContextValue {
   setSort: (v: SortMode) => void;
   category: CategorySlug;
   setCategory: (v: CategorySlug) => void;
+  // Free-text market-topic filter for traders (e.g. "bitcoin", "price of
+  // bitcoin"). Narrows the leaderboard to traders active in matching markets
+  // and recomputes their stats from only those markets. Distinct from `search`
+  // (which also matches wallet addresses) and broader than the fixed
+  // `category` keyword buckets.
+  marketQuery: string;
+  setMarketQuery: (v: string) => void;
   daysAgo: string;
   setDaysAgo: (v: string) => void;
   minTrades: string;
@@ -48,6 +55,7 @@ const PARAM_MAP = {
   daysAgo: "days",
   search: "q",
   category: "cat",
+  marketQuery: "mq",
   minTrades: "mint",
   minPerDay: "minpd",
   minVolume: "minvol",
@@ -61,6 +69,7 @@ const DEFAULTS: Record<string, string> = {
   daysAgo: "",
   search: "",
   category: "",
+  marketQuery: "",
   minTrades: "",
   minPerDay: "0",
   minVolume: "100",
@@ -92,6 +101,7 @@ export function useUrlSync() {
     const d = read(PARAM_MAP.daysAgo);
     const q = read(PARAM_MAP.search);
     const cat = read(PARAM_MAP.category);
+    const mq = read(PARAM_MAP.marketQuery);
     const mt = read(PARAM_MAP.minTrades);
     const mpd = read(PARAM_MAP.minPerDay);
     const mv = read(PARAM_MAP.minVolume);
@@ -100,7 +110,7 @@ export function useUrlSync() {
     const mp = read(PARAM_MAP.minPnl);
 
     // Only seed from URL if at least one param is present
-    const hasUrlParams = d !== null || q !== null || cat !== null || mt !== null || mpd !== null ||
+    const hasUrlParams = d !== null || q !== null || cat !== null || mq !== null || mt !== null || mpd !== null ||
       mv !== null || mb !== null || ms !== null || mp !== null;
     if (!hasUrlParams) return;
 
@@ -108,6 +118,7 @@ export function useUrlSync() {
     if (d !== null) filters.setDaysAgo(d);
     if (q !== null) filters.setSearch(q);
     if (cat !== null) filters.setCategory(cat as CategorySlug);
+    if (mq !== null) filters.setMarketQuery(mq);
     if (mt !== null) filters.setMinTrades(mt);
     if (mpd !== null) filters.setMinPerDay(mpd);
     if (mv !== null) filters.setMinVolume(mv);
@@ -132,6 +143,7 @@ export function useUrlSync() {
         daysAgo: filters.daysAgo,
         search: filters.search,
         category: filters.category,
+        marketQuery: filters.marketQuery,
         minTrades: filters.minTrades,
         minPerDay: filters.minPerDay,
         minVolume: filters.minVolume,
@@ -154,7 +166,7 @@ export function useUrlSync() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [
-    filters.daysAgo, filters.search, filters.category,
+    filters.daysAgo, filters.search, filters.category, filters.marketQuery,
     filters.minTrades, filters.minPerDay, filters.minVolume, filters.minBuyVolume,
     filters.minSellVolume, filters.minPnl, pathname, router,
   ]);
@@ -172,6 +184,7 @@ export function useUrlSync() {
     const d = searchParams.get(PARAM_MAP.daysAgo) ?? "";
     const q = searchParams.get(PARAM_MAP.search) ?? "";
     const cat = searchParams.get(PARAM_MAP.category) ?? "";
+    const mq = searchParams.get(PARAM_MAP.marketQuery) ?? "";
     const mt = searchParams.get(PARAM_MAP.minTrades) ?? "";
     const mpd = searchParams.get(PARAM_MAP.minPerDay) ?? "0";
     const mv = searchParams.get(PARAM_MAP.minVolume) ?? "100";
@@ -183,6 +196,7 @@ export function useUrlSync() {
     if (d !== filters.daysAgo) filters.setDaysAgo(d);
     if (q !== filters.search) filters.setSearch(q);
     if (cat !== filters.category) filters.setCategory(cat as CategorySlug);
+    if (mq !== filters.marketQuery) filters.setMarketQuery(mq);
     if (mt !== filters.minTrades) filters.setMinTrades(mt);
     if (mpd !== filters.minPerDay) filters.setMinPerDay(mpd);
     if (mv !== filters.minVolume) filters.setMinVolume(mv);
@@ -203,6 +217,7 @@ export function useFilterParams(opts?: { excludeSearch?: boolean }): string {
     daysAgo: f.daysAgo,
     search: opts?.excludeSearch ? "" : f.search,
     category: f.category,
+    marketQuery: f.marketQuery,
     minTrades: f.minTrades,
     minPerDay: f.minPerDay,
     minVolume: f.minVolume,
@@ -221,6 +236,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortMode>("volume");
   const [category, setCategory] = useState<CategorySlug>("");
+  const [marketQuery, setMarketQuery] = useState<string>("");
   const [daysAgo, setDaysAgo] = useState<string>("");
   const [minTrades, setMinTrades] = useState<string>("");
   const [minPerDay, setMinPerDay] = useState<string>("0");
@@ -238,6 +254,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
       if (typeof saved.search === "string") setSearch(saved.search);
       if (typeof saved.sort === "string") setSort(saved.sort as SortMode);
       if (typeof saved.category === "string") setCategory(saved.category as CategorySlug);
+      if (typeof saved.marketQuery === "string") setMarketQuery(saved.marketQuery);
       if (typeof saved.daysAgo === "string") setDaysAgo(saved.daysAgo);
       if (typeof (saved as Record<string, unknown>).minTrades === "string") setMinTrades((saved as Record<string, unknown>).minTrades as string);
       if (typeof saved.minPerDay === "string") setMinPerDay(saved.minPerDay);
@@ -253,12 +270,12 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
       sessionStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          search, sort, category, daysAgo, minTrades, minPerDay,
+          search, sort, category, marketQuery, daysAgo, minTrades, minPerDay,
           minVolume, minBuyVolume, minSellVolume, minPnl,
         }),
       );
     } catch {}
-  }, [search, sort, category, daysAgo, minTrades, minPerDay, minVolume, minBuyVolume, minSellVolume, minPnl]);
+  }, [search, sort, category, marketQuery, daysAgo, minTrades, minPerDay, minVolume, minBuyVolume, minSellVolume, minPnl]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -268,6 +285,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
         search, setSearch,
         sort, setSort,
         category, setCategory,
+        marketQuery, setMarketQuery,
         daysAgo, setDaysAgo,
         minTrades, setMinTrades,
         minPerDay, setMinPerDay,

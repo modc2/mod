@@ -410,6 +410,26 @@ pub fn is_owner(address: &str) -> bool {
     }
 }
 
+/// Check if an address is *trusted* to edit — the configured owner OR a
+/// whitelisted address. Trusted callers get the owner's wider edit surface
+/// (host filesystem access, unsandboxed jobs, core/ + orbit/ writes) because
+/// everything in the orbit belongs to the host owner and the whitelist is the
+/// owner's explicit delegation of edit rights.
+///
+/// Owner-only *powers* — managing the whitelist, changing the owner, killing
+/// processes, process control, and destructive module ops (delete/rename/
+/// restore) — stay gated on `is_owner`, NOT this. Only edit capability widens.
+pub fn is_trusted(address: &str) -> bool {
+    if address.is_empty() {
+        return false;
+    }
+    if is_owner(address) {
+        return true;
+    }
+    let addr = address.to_lowercase();
+    read_whitelist().iter().any(|w| w == &addr)
+}
+
 /// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.
 /// Kept off-repo because the whitelist is private; mounted into the container as a volume.
 pub fn private_dir() -> Option<std::path::PathBuf> {

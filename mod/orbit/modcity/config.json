@@ -16,12 +16,22 @@
         "module_detail",
         "styles",
         "style",
+        "codes",
+        "code",
         "create_brick",
         "bricks",
         "brick",
         "publish_brick",
         "delete_brick",
+        "panel_catalog",
+        "panels",
+        "panel",
+        "create_panel",
+        "publish_panel",
+        "delete_panel",
         "estimate",
+        "audit",
+        "audit_providers",
         "save_design",
         "publish_design",
         "copy_design",
@@ -48,5 +58,5 @@
         "deregister"
     ],
     "gateway_port": 50141,
-    "schema": "QmeTdF3ufy1ybSEbrc996pypi7evurMSjW5Hy9bZt9yoBS"
+    "schema": "QmYPRVfCSPPXLvVu6CiXFQEMSEBVgxEenAiW7sSf9vqrob"
 }

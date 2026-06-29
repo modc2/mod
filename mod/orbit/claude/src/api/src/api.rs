@@ -2,6 +2,7 @@
 
 use crate::auth;
 use crate::jobs::{ClaudeJobManager, SubmitRequest};
+use crate::process;
 use crate::sudo;
 use crate::userspace;
 use crate::snapshots::{
@@ -47,6 +48,7 @@ fn claude_module_dir() -> std::path::PathBuf {
 /// True if `path` resolves to somewhere inside the claude module's own directory.
 /// Canonicalizes the nearest existing ancestor so a not-yet-created file still
 /// classifies correctly.
+#[allow(dead_code)] // owner now edits any module without the cross-module sudo gate
 fn is_within_claude_dir(path: &std::path::Path) -> bool {
     let base = std::fs::canonicalize(claude_module_dir()).unwrap_or_else(|_| claude_module_dir());
     let mut probe = path.to_path_buf();
@@ -112,6 +114,7 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/modules/:name/snapshot", post(snapshot_module))
             .route("/modules/:name/fork", post(fork_module))
             .route("/modules/:name/restore", post(restore_module))
+            .route("/modules/:name/process", post(module_process))
             .route("/files/write", post(file_write))
             .route("/kill", post(kill_process))
             .route("/whitelist", post(add_to_whitelist))
@@ -313,10 +316,22 @@ fn read_config_owner() -> Option<String> {
 async fn get_role(Query(params): Query<RoleQuery>) -> impl IntoResponse {
     let address = params.address.to_lowercase();
     let is_owner = auth::is_owner(&address);
+    // Whitelisted editors are not the owner but are trusted to edit the host repo.
+    let is_editor = !is_owner && auth::is_trusted(&address);
+    let role = if is_owner {
+        "owner"
+    } else if is_editor {
+        "editor"
+    } else {
+        "user"
+    };
     Json(json!({
         "address": address,
-        "role": if is_owner { "owner" } else { "user" },
+        "role": role,
         "is_owner": is_owner,
+        "is_editor": is_editor,
+        // Trusted = owner OR whitelisted editor; both may edit the orbit.
+        "can_edit": is_owner || is_editor,
     }))
 }
 
@@ -414,8 +429,9 @@ async fn submit_job(
         }
     };
 
-    // Non-owners: default + sandbox the job's work_dir to their workspace.
-    // Owner / local-mode: keep prior behavior (work anywhere on host).
+    // Peers (every non-owner) default + sandbox the job's work_dir to their
+    // private root (~/.mod/peers/<addr>). Owner / local-mode work in the module
+    // tree. The whitelist no longer widens this — whitelisted users are peers.
     let mut req = req;
     if !user_address.is_empty() && !auth::is_owner(&user_address) {
         // Default work_dir to the caller's workspace root.
@@ -460,7 +476,8 @@ async fn list_jobs(
 ) -> impl IntoResponse {
     let all_jobs = mgr.list_jobs();
 
-    // Filter jobs: owner sees all, others see only their own
+    // Filter jobs: only the owner sees all; peers (incl. whitelisted) see only
+    // their own.
     let jobs = match auth::extract_address_from_headers(&headers) {
         Ok(addr) if auth::is_owner(&addr) => all_jobs,
         Ok(addr) => all_jobs
@@ -601,11 +618,13 @@ async fn file_tree(
         Err(e) => return Json(json!({ "tree": [], "error": e })),
     };
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    // Non-owner default: their workspace root. Owner/local: ~/mod.
+    // Owner/local default to the module tree (~/mod/mod); peers to their own
+    // root ("." resolves to ~/.mod/peers/<addr>). resolve_path enforces the
+    // boundary either way.
     let default_root = if caller.is_empty() || userspace::is_owner(&caller) {
-        "~/mod".to_string()
+        "~/mod/mod".to_string()
     } else {
-        "/".to_string()
+        ".".to_string()
     };
     let raw_path = params.path.unwrap_or(default_root);
     let resolved_pb = match userspace::resolve_path(&caller, &raw_path) {
@@ -788,6 +807,10 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                 let mut owner: Option<String> = None;
                 let mut version: Option<String> = None;
                 let mut cid: Option<String> = None;
+                // Module dependency edges, declared in config.json as
+                // `"deps": ["chain", "store", ...]`. Used to draw the hub
+                // dependency graph; modules that declare none are isolated.
+                let mut deps: Vec<String> = Vec::new();
 
                 let config_paths = vec![
                     path.join("config.json"),
@@ -830,6 +853,9 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                                 }
                                 if let Some(v) = config.get("version").and_then(|v| v.as_str()) {
                                     version = Some(v.to_string());
+                                }
+                                if let Some(arr) = config.get("deps").and_then(|v| v.as_array()) {
+                                    deps = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
                                 }
                                 // CID from local config is ignored; registry is authoritative
                                 break; // Use first found config
@@ -881,6 +907,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "owner": owner,
                     "version": version,
                     "cid": cid,
+                    "deps": deps,
                     "created_at": created_at,
                 }));
             }
@@ -1733,50 +1760,17 @@ async fn file_write(
         Ok(a) => a,
         Err(e) => return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response(),
     };
+    // resolve_path is the single boundary chokepoint: it confines the owner to
+    // the module tree (~/mod/mod), each peer to ~/.mod/peers/<addr>, and leaves
+    // local-mode (empty caller, trusted CLI) on the host. A path that escapes the
+    // caller's role-root already returned FORBIDDEN above, so no further gate is
+    // needed here. Destructive ops (delete/rename/restore/kill) still require a
+    // fresh owner sudo signature elsewhere — only file edits flow through here.
     let resolved_pb = match userspace::resolve_path(&caller, &body.path) {
         Ok(p) => p,
         Err(e) => return (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
     };
     let file_path = resolved_pb.as_path();
-
-    // Owner-only: keep the ~/mod/ guard + core/orbit gate for writes that
-    // land inside the host repo. Non-owners are already confined by the
-    // userspace path resolver above, so no extra check needed.
-    let is_owner_call = caller.is_empty() || userspace::is_owner(&caller);
-    if is_owner_call {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let mod_dir = format!("{}/mod", home);
-        let canonical_mod = std::fs::canonicalize(&mod_dir).unwrap_or_else(|_| std::path::PathBuf::from(&mod_dir));
-        let parent = file_path.parent().unwrap_or(file_path);
-        let canonical_parent = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
-        if !canonical_parent.starts_with(&canonical_mod) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({ "error": "Writes only allowed within ~/mod/" })),
-            )
-                .into_response();
-        }
-        let rel = canonical_parent
-            .strip_prefix(&canonical_mod)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let first = rel.split('/').next().unwrap_or("");
-        if matches!(first, "core" | "orbit") && !auth::is_owner(&caller) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(json!({ "error": "Owner-only: core/ and orbit/ writes require the configured owner" })),
-            ).into_response();
-        }
-
-        // Cross-module guard: writing anywhere OUTSIDE claude's own module dir
-        // edits another module / the system and needs a fresh, replay-protected
-        // sudo signature from the owner key bound to this exact path.
-        if !is_within_claude_dir(file_path) {
-            if let Some(denied) = sudo_gate(&headers, "write", &body.path) {
-                return denied;
-            }
-        }
-    }
 
     // Create parent dirs if needed
     if let Some(p) = file_path.parent() {
@@ -1929,6 +1923,210 @@ fn find_pids_by_port(port: u16) -> Result<Vec<u32>, String> {
         .filter_map(|line| line.trim().parse::<u32>().ok())
         .collect();
     Ok(pids)
+}
+
+// ── Module process management ────────────────────────────────────────
+//
+// The owner drives another module's lifecycle (status/stop/start/restart) here.
+// The actual supervisor differs per module — pm2, systemd, or bare processes on
+// a port — so the work is delegated to a pluggable backend (`process.rs`) chosen
+// from MOD_PM / the module's config `process_manager` / auto-detection. The HTTP
+// shape below is identical regardless of backend. Going through the real
+// supervisor is what makes "stop stays stopped" and "restart" behave correctly
+// (a raw port kill is just undone by pm2/systemd autorestart). Modules that ship
+// a flake.nix/shell.nix have their self-launched commands wrapped in nix.
+
+#[derive(Deserialize)]
+struct ProcessRequest {
+    /// "status" | "stop" | "start" | "restart". Defaults to "status".
+    action: Option<String>,
+    /// Optional filter to a single service, e.g. "api" or "app". When set, only
+    /// processes whose name carries that token (`<mod>-api`, `<mod>-app`) are
+    /// acted on — lets the UI restart one service without touching the other.
+    target: Option<String>,
+}
+
+/// Read a module's config.json (handles the nested `<name>/config.json` layout).
+fn read_module_config(module_path: &std::path::Path, name: &str) -> serde_json::Value {
+    for p in [module_path.join("config.json"), module_path.join(name).join("config.json")] {
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
+                return v;
+            }
+        }
+    }
+    json!({})
+}
+
+/// Apply the optional `target` (api/app) filter to a backend's process list.
+fn filter_by_target(procs: Vec<process::Proc>, target: &Option<String>) -> Vec<process::Proc> {
+    match target.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => procs,
+        Some(t) => {
+            let tok = t.to_lowercase();
+            procs
+                .into_iter()
+                .filter(|p| {
+                    let n = p.name.to_lowercase();
+                    n.ends_with(&format!("-{tok}")) || n.ends_with(&tok) || n.contains(&tok)
+                })
+                .collect()
+        }
+    }
+}
+
+/// Owner-only: control another module's processes (status/stop/start/restart)
+/// through its configured process-manager backend (pm2 / systemd / generic).
+/// Cross-module control (any module except claude itself) requires a fresh sudo
+/// signature — restarting/stopping host services is a privileged system op.
+async fn module_process(
+    headers: axum::http::HeaderMap,
+    State(_mgr): State<AppState>,
+    Path(name): Path<String>,
+    Json(body): Json<ProcessRequest>,
+) -> impl IntoResponse {
+    let action = body.action.clone().unwrap_or_else(|| "status".to_string()).to_lowercase();
+    if !matches!(action.as_str(), "status" | "stop" | "start" | "restart" | "reap") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "action must be one of: status, stop, start, restart, reap" })),
+        )
+            .into_response();
+    }
+
+    // Owner-only (skip in local mode — host CLI is trusted).
+    if !local_mode() {
+        let auth_header = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        match auth::extract_address_from_header(auth_header) {
+            Ok(addr) if auth::is_owner(&addr) => {}
+            Ok(_) => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "Owner-only: only the host can manage module processes" })),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response();
+            }
+        }
+        // A mutating action against another module touches host services —
+        // require a fresh sudo signature bound to "process:<name>". `status` is
+        // read-only and claude's own processes are not cross-module.
+        if action != "status" && name != "claude" {
+            if let Some(denied) = sudo_gate(&headers, "process", &name) {
+                return denied;
+            }
+        }
+    }
+
+    // Resolve the module directory under orbit/ or core/.
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let candidates = [
+        format!("{}/mod/mod/orbit/{}", home, name),
+        format!("{}/mod/mod/core/{}", home, name),
+    ];
+    let module_path = match candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_dir()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": format!("Module '{}' not found", name) })),
+            )
+                .into_response();
+        }
+    };
+
+    let config = read_module_config(&module_path, &name);
+    let backend = process::select(&module_path, &config, &name);
+
+    let procs = match process::list(backend, &module_path, &name, &config) {
+        Ok(p) => filter_by_target(p, &body.target),
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+        }
+    };
+
+    let meta = json!({
+        "backend": backend.as_str(),
+        "nix_env": process::has_nix_env(&module_path),
+    });
+
+    // Canonical pids = the legit backend-managed processes; their ports are
+    // protected from reaping. The module's declared api/app ports are ALSO
+    // protected inside find_orphans (via generic_services), so even with a
+    // target=api filter the app's port is never reaped.
+    let canonical_pids = |procs: &[process::Proc]| -> Vec<i64> {
+        procs.iter().filter_map(|p| p.pid).collect()
+    };
+
+    // ── status: report what's running + any orphan processes ──
+    if action == "status" {
+        let running = procs.iter().any(|p| p.status == "online");
+        let orphans = process::find_orphans(&module_path, &name, &config, &canonical_pids(&procs));
+        return Json(json!({
+            "module": name,
+            "action": "status",
+            "backend": backend.as_str(),
+            "nix_env": meta["nix_env"],
+            "running": running,
+            "processes": procs.iter().map(process::Proc::to_json).collect::<Vec<_>>(),
+            "orphans": orphans.iter().map(process::Orphan::to_json).collect::<Vec<_>>(),
+        }))
+        .into_response();
+    }
+
+    // ── reap: kill stale duplicates serving from the module dir, no lifecycle change ──
+    if action == "reap" {
+        let (reaped, log) = process::reap_orphans(&module_path, &name, &config, &canonical_pids(&procs));
+        return Json(json!({
+            "module": name,
+            "action": "reap",
+            "backend": backend.as_str(),
+            "ok": true,
+            "output": log,
+            "reaped": reaped.iter().map(process::Orphan::to_json).collect::<Vec<_>>(),
+            "processes": procs.iter().map(process::Proc::to_json).collect::<Vec<_>>(),
+        }))
+        .into_response();
+    }
+
+    let (ok, output) = process::act(backend, &action, &procs, &module_path, &name, &config);
+
+    // Re-read state so the caller sees the result of their action.
+    let after = process::list(backend, &module_path, &name, &config)
+        .map(|p| filter_by_target(p, &body.target))
+        .unwrap_or_default();
+
+    // Auto-reap on start/restart: once the canonical process is (re)launched, kill
+    // any stale duplicate squatting a non-canonical port so the live app/api is
+    // unambiguously the one built from the edited source. (Not on stop — leaving a
+    // module fully down shouldn't trigger collateral kills.)
+    let reaped = if matches!(action.as_str(), "start" | "restart") {
+        let (reaped, _log) = process::reap_orphans(&module_path, &name, &config, &canonical_pids(&after));
+        reaped
+    } else {
+        Vec::new()
+    };
+
+    let status = if ok { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR };
+    (
+        status,
+        Json(json!({
+            "module": name,
+            "action": action,
+            "backend": backend.as_str(),
+            "nix_env": meta["nix_env"],
+            "ok": ok,
+            "output": output.trim(),
+            "processes": after.iter().map(process::Proc::to_json).collect::<Vec<_>>(),
+            "reaped": reaped.iter().map(process::Orphan::to_json).collect::<Vec<_>>(),
+        })),
+    )
+        .into_response()
 }
 
 // ── Snapshots / Versions / Fork / Restore ────────────────────────────

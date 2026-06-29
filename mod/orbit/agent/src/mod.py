@@ -93,6 +93,24 @@ RULES:
         'venice': 'deepseek-v3.2',
     }
 
+    # curated model choices per provider for the UI selector (free-text still allowed)
+    MODELS = {
+        'openrouter': [
+            'anthropic/claude-sonnet-4-5-20250929',
+            'anthropic/claude-3.5-haiku',
+            'openai/gpt-4o',
+            'openai/gpt-4o-mini',
+            'google/gemini-2.0-flash-exp',
+            'meta-llama/llama-3.3-70b-instruct',
+            'deepseek/deepseek-chat',
+        ],
+        'venice': [
+            'deepseek-v3.2',
+            'llama-3.3-70b',
+            'qwen-2.5-coder-32b',
+        ],
+    }
+
     anchors = {
         'plan': ['<PLAN>', '</PLAN>'],
         'tool': ['<STEP>', '</STEP>'],

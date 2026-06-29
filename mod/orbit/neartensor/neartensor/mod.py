@@ -1,6 +1,7 @@
 import subprocess
 import json
 import os
+import mod as m
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(DIR)
@@ -46,6 +47,21 @@ class Mod:
         self.config = config or _load_config()
         contracts = self.config.get("contracts", {}).get(f"near_{network}", {})
         self.account = account or contracts.get("registry")
+        self.module_dir = ROOT
+        self.port = int(self.config.get("port", 50180))
+        self.app_port = int(self.config.get("app_port", 50181))
+
+    # ── Health ───────────────────────────────────────────────────────────
+
+    def health(self):
+        st = self.status()
+        return {
+            "status": "ok",
+            "module": "neartensor",
+            "network": self.network,
+            "deployed": bool(st.get("deployed")),
+            "registry": self.account,
+        }
 
     # ── Build ────────────────────────────────────────────────────────────
 
@@ -266,14 +282,124 @@ class Mod:
     def validator_balance(self, subnet_id=0, key=""):
         return self._view(self._subnet_account(subnet_id), "get_validator_balance", {"key": key})
 
+    # ── Serve / Route ────────────────────────────────────────────────────
+
+    def _pm2_start(self, name, cmd, cwd=None, env=None):
+        subprocess.run(["pm2", "delete", name], capture_output=True, text=True)
+        pm2_cmd = ["pm2", "start", cmd[0], "--name", name, "--"]
+        pm2_cmd.extend(cmd[1:])
+        if cwd:
+            idx = pm2_cmd.index("--")
+            pm2_cmd.insert(idx, cwd)
+            pm2_cmd.insert(idx, "--cwd")
+        result = subprocess.run(pm2_cmd, capture_output=True, text=True,
+                                env={**os.environ, **(env or {})})
+        return result.returncode == 0
+
+    def _pm2_kill(self, name):
+        return subprocess.run(["pm2", "delete", name], capture_output=True, text=True).returncode == 0
+
+    def serve_api(self, port=None, reload=True):
+        port = int(port or self.port)
+        name = "neartensor.api"
+        api_dir = os.path.join(self.module_dir, "api")
+        if not os.path.exists(os.path.join(api_dir, "api.py")):
+            return {"error": "api/api.py not found"}
+        mod_root = os.path.dirname(os.path.dirname(os.path.dirname(self.module_dir)))
+        env = {
+            "PYTHONPATH": f"{mod_root}:{self.module_dir}:{os.environ.get('PYTHONPATH', '')}",
+            "PORT": str(port),
+        }
+        cmd = ["python3", "-m", "uvicorn", "api:app", "--host", "0.0.0.0",
+               "--port", str(port), "--app-dir", api_dir]
+        if reload:
+            cmd.append("--reload")
+        self._pm2_start(name, cmd, env=env)
+        return {"api": f"http://localhost:{port}", "pm2": name, "docs": f"http://localhost:{port}/docs"}
+
+    def kill_api(self):
+        ok = self._pm2_kill("neartensor.api")
+        return {"killed": ["neartensor.api"] if ok else [], "success": ok}
+
+    def serve_app(self, app_port=None, dev=True):
+        app_port = int(app_port or self.app_port)
+        results = {}
+        self.kill_app()
+        results.update(self.serve_api(port=self.port, reload=dev))
+        app_dir = os.path.join(self.module_dir, "app")
+        if os.path.exists(os.path.join(app_dir, "package.json")):
+            name = "neartensor.app"
+            env = {"NEXT_PUBLIC_API_URL": f"http://localhost:{self.port}", "PORT": str(app_port)}
+            cmd = ["npx", "next", "dev" if dev else "start", "-p", str(app_port)]
+            self._pm2_start(name, cmd, cwd=app_dir, env=env)
+            results["app"] = f"http://localhost:{app_port}"
+            results["pm2_app"] = name
+        else:
+            results["app"] = None
+        results["dev"] = dev
+        results["registration"] = self.register(
+            app_url=f"http://localhost:{app_port}",
+            api_url=f"http://localhost:{self.port}",
+            owner=os.environ.get("NEARTENSOR_OWNER", ""),
+        )
+        return results
+
+    def serve(self, port=None, app_port=None, dev=True):
+        return self.serve_app(app_port=app_port, dev=dev)
+
+    def register(self, app_url=None, api_url=None, owner=None, gateway="https://modc2.com"):
+        app_url = app_url or f"http://localhost:{self.app_port}"
+        api_url = api_url or f"http://localhost:{self.port}"
+        try:
+            ns = m.mod("server.namespace")()
+            ns.reg("neartensor", app_url)
+            ns.reg_app("neartensor", app_url, owner=owner or "", port=self.app_port, api_url=api_url)
+            public = f"{gateway.rstrip('/')}/neartensor"
+            print(f"neartensor registered → {public}  (app: {app_url}, api: {api_url})")
+            return {"ok": True, "gateway": public, "app": app_url, "api": api_url}
+        except Exception as e:
+            print(f"neartensor: gateway registration failed: {e}")
+            return {"ok": False, "error": str(e), "app": app_url, "api": api_url}
+
+    def deregister(self):
+        try:
+            ns = m.mod("server.namespace")()
+            ns.dereg_app("neartensor")
+            ns.dereg("neartensor")
+            return {"ok": True, "deregistered": "neartensor"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def kill_app(self):
+        killed = []
+        if self._pm2_kill("neartensor.api"):
+            killed.append("neartensor.api")
+        if self._pm2_kill("neartensor.app"):
+            killed.append("neartensor.app")
+        return {"killed": killed}
+
+    def kill(self):
+        return self.kill_app()
+
     # ── Default Entry ────────────────────────────────────────────────────
 
     def forward(self, action="status", **kwargs):
         actions = {
             "build": self.build,
             "deploy": self.deploy,
+            "health": self.health,
             "status": self.status,
             "subnets": self.subnets,
+            "consensus_state": self.consensus_state,
+            "subnet_info": self.subnet_info,
+            "serve": self.serve,
+            "serve_api": self.serve_api,
+            "serve_app": self.serve_app,
+            "kill": self.kill,
+            "kill_api": self.kill_api,
+            "kill_app": self.kill_app,
+            "register": self.register,
+            "deregister": self.deregister,
             "register_validator": self.register_validator,
             "stake_on": self.stake_on,
             "unstake_from": self.unstake_from,

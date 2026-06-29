@@ -6,7 +6,6 @@ import { FiltersProvider } from "./context/FiltersContext";
 import { SidebarProvider } from "./context/SidebarContext";
 import { SplitProvider } from "./context/SplitContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
-import SidebarShell from "./components/SidebarShell";
 import SplitShell from "./components/SplitShell";
 import LeftNav from "./components/LeftNav";
 import MarketTicker from "./components/MarketTicker";
@@ -55,9 +54,7 @@ export default function RootLayout({
                       <LeftNav />
                       <div className="flex-1 min-w-0">
                         <SplitShell>
-                          <SidebarShell>
-                            <main>{children}</main>
-                          </SidebarShell>
+                          <main>{children}</main>
                         </SplitShell>
                       </div>
                     </div>

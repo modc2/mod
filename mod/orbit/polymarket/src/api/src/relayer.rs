@@ -876,6 +876,211 @@ pub async fn wrap_usdce_to_collateral(
     submit_wallet_multi_batch(http, signer_store, eoa, &calls).await
 }
 
+// ─── Resolved-position redemption ("claim winnings → cash") ─────────────
+//
+// A SELL only works while a market has a live order book. Once a market
+// RESOLVES, the CLOB returns "invalid token id" (no book) or "not enough
+// balance" (the losing side is worthless), so SELL ALL can never cash out
+// settled positions. The winning outcome tokens must instead be REDEEMED
+// directly against the ConditionalTokens contract, which pays the resolved
+// value back in USDC.e. This is the missing half of the cash-out flow.
+
+const DATA_API_URL: &str = "https://data-api.polymarket.com";
+
+/// One condition's outcome in a redeem pass.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RedeemLeg {
+    #[serde(rename = "conditionId")]
+    pub condition_id: String,
+    pub market: String,
+    /// USDC value recovered (size × resolved price; losing side = 0).
+    pub value: f64,
+    /// "redeem" | "skipped"
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Summary of a redeem pass for one account.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RedeemResult {
+    pub eoa: String,
+    #[serde(rename = "depositWallet")]
+    pub deposit_wallet: String,
+    /// Unique resolved standard conditions submitted for redemption.
+    pub conditions: usize,
+    /// Sum of winning value redeemed (USDC).
+    #[serde(rename = "valueRedeemed")]
+    pub value_redeemed: f64,
+    /// negRisk conditions skipped (different redeem contract — not yet wired).
+    pub skipped: usize,
+    pub legs: Vec<RedeemLeg>,
+    /// Relayer tx result for the redeem batch (absent when nothing to redeem).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx: Option<serde_json::Value>,
+    /// Wrap-after result (raw USDC.e → V2 collateral) when requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<serde_json::Value>,
+}
+
+fn num_of(v: &serde_json::Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
+/// ABI-encode `ConditionalTokens.redeemPositions(USDC.e, 0x0, conditionId,
+/// [1, 2])`. Passing BOTH index sets in one call redeems every side held
+/// for the market (winning side pays out, losing side burns to 0), so a
+/// single call per conditionId clears the whole market — including the
+/// case where we hold both the winning and losing token of one event.
+/// Verified byte-for-byte against `cast calldata` for selector 0x01b7037c.
+fn redeem_positions_calldata(condition_id: &str) -> Result<String> {
+    let cid = condition_id.strip_prefix("0x").unwrap_or(condition_id).to_lowercase();
+    if cid.len() != 64 || hex::decode(&cid).is_err() {
+        return Err(anyhow!("bad conditionId: {}", condition_id));
+    }
+    let collateral = USDC_E_ADDR.strip_prefix("0x").unwrap_or(USDC_E_ADDR).to_lowercase();
+    let mut data = String::from("0x01b7037c"); // redeemPositions(address,bytes32,bytes32,uint256[])
+    data.push_str(&format!("{:0>64}", collateral)); // collateralToken (USDC.e)
+    data.push_str(&"0".repeat(64));                 // parentCollectionId = 0x0
+    data.push_str(&cid);                            // conditionId (already 32 bytes)
+    data.push_str(&format!("{:0>64x}", 0x80u32));   // offset to indexSets array
+    data.push_str(&format!("{:0>64x}", 2u32));      // indexSets.length = 2
+    data.push_str(&format!("{:0>64x}", 1u32));      // indexSets[0] = 0b01
+    data.push_str(&format!("{:0>64x}", 2u32));      // indexSets[1] = 0b10
+    Ok(data)
+}
+
+/// Redeem every RESOLVED position the deposit wallet holds, converting
+/// winning outcome tokens to USDC.e in a single gasless relayer Batch.
+/// Positions are read from the data-api (`redeemable=true`), grouped by
+/// `conditionId`, and redeemed with index sets `[1,2]`. negRisk conditions
+/// are skipped (they settle via the NegRiskAdapter, a different contract).
+///
+/// When `wrap_after` is set, the redeemed raw USDC.e is then wrapped into
+/// V2 trading collateral (the same flow DEPOSIT uses) so the proceeds show
+/// up as spendable balance and can be withdrawn via unwrap-and-send.
+pub async fn redeem_resolved_positions(
+    http: &reqwest::Client,
+    signer_store: &SignerStore,
+    eoa: &str,
+    wrap_after: bool,
+) -> Result<RedeemResult> {
+    let backend_addr = signer_store.signer_address(eoa)?;
+    let wallet = crate::deposit_wallet::derive_deposit_wallet(&backend_addr)?;
+
+    let mut result = RedeemResult {
+        eoa: eoa.to_lowercase(),
+        deposit_wallet: wallet.clone(),
+        conditions: 0,
+        value_redeemed: 0.0,
+        skipped: 0,
+        legs: Vec::new(),
+        tx: None,
+        wrap: None,
+    };
+
+    let url = format!("{}/positions?user={}&sizeThreshold=0.0&limit=500", DATA_API_URL, wallet);
+    let text = http
+        .get(&url)
+        .send()
+        .await
+        .context("data-api positions")?
+        .text()
+        .await
+        .unwrap_or_default();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!([]));
+
+    // Group redeemable, NON-negRisk positions by conditionId; tally winning
+    // value. The winning side carries curPrice≈1, the losing side ≈0, so the
+    // per-condition sum is the USDC the redeem actually returns.
+    use std::collections::BTreeMap;
+    let mut by_condition: BTreeMap<String, (String, f64)> = BTreeMap::new();
+    if let Some(arr) = parsed.as_array() {
+        for p in arr {
+            if !p.get("redeemable").and_then(|v| v.as_bool()).unwrap_or(false) {
+                continue;
+            }
+            let size = p.get("size").and_then(num_of).unwrap_or(0.0);
+            if size <= 0.0 {
+                continue;
+            }
+            let cid = p
+                .get("conditionId")
+                .or_else(|| p.get("condition_id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if cid.is_empty() {
+                continue;
+            }
+            let market = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let value = size * p.get("curPrice").and_then(num_of).unwrap_or(0.0);
+            let neg = p.get("negativeRisk").and_then(|v| v.as_bool()).unwrap_or(false);
+            if neg {
+                result.skipped += 1;
+                result.legs.push(RedeemLeg {
+                    condition_id: cid,
+                    market,
+                    value,
+                    status: "skipped".into(),
+                    detail: Some("negRisk market — redeem via NegRiskAdapter not yet supported".into()),
+                });
+                continue;
+            }
+            let entry = by_condition.entry(cid).or_insert((market, 0.0));
+            entry.1 += value;
+        }
+    }
+
+    if by_condition.is_empty() {
+        tracing::info!(eoa = %eoa, wallet = %wallet, "redeem: nothing resolved to redeem");
+        return Ok(result);
+    }
+
+    let mut calls: Vec<(String, String)> = Vec::with_capacity(by_condition.len());
+    for (cid, (market, value)) in &by_condition {
+        calls.push((CONDITIONAL_TOKENS.to_string(), redeem_positions_calldata(cid)?));
+        result.value_redeemed += *value;
+        result.legs.push(RedeemLeg {
+            condition_id: cid.clone(),
+            market: market.clone(),
+            value: *value,
+            status: "redeem".into(),
+            detail: None,
+        });
+    }
+    result.conditions = calls.len();
+
+    // submit_wallet_multi_batch blocks until the relayer confirms the tx, so
+    // the redeemed USDC.e is on-chain before we attempt the wrap below.
+    let tx = submit_wallet_multi_batch(http, signer_store, eoa, &calls).await?;
+    result.tx = Some(tx);
+
+    if wrap_after {
+        // amount=None → wrap the wallet's full raw USDC.e balance (now
+        // including the freshly-redeemed proceeds). Best-effort: a wrap
+        // failure leaves recoverable raw USDC.e in the wallet, not lost.
+        match wrap_usdce_to_collateral(http, signer_store, eoa, None).await {
+            Ok(w) => result.wrap = Some(w),
+            Err(e) => {
+                tracing::warn!(error = %e, "redeem: wrap-after failed; raw USDC.e left in wallet");
+                result.wrap = Some(serde_json::json!({ "error": e.to_string() }));
+            }
+        }
+    }
+
+    tracing::info!(
+        eoa = %eoa,
+        wallet = %wallet,
+        conditions = result.conditions,
+        value = result.value_redeemed,
+        skipped = result.skipped,
+        "redeem pass complete",
+    );
+    Ok(result)
+}
+
 /// Multi-call variant of `submit_wallet_batch`. Shares the same SIWE +
 /// nonce machinery, but signs a `Batch` typed-data containing an array
 /// of Calls (the V2 deposit wallet supports arbitrary-length batches).
@@ -1042,6 +1247,33 @@ mod tests {
         assert!(msg.contains("Chain ID: 137"));
         assert!(msg.contains("Nonce: abc123"));
         assert!(msg.contains("URI: https://polymarket.com"));
+    }
+
+    #[test]
+    fn redeem_calldata_matches_cast_reference() {
+        // Byte-for-byte against `cast calldata
+        // "redeemPositions(address,bytes32,bytes32,uint256[])"
+        // 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 0x0
+        // 0xed76e3c271f4e24a3db2436cdf2c314cda43909fbc94c2bc34631a01cd67d3ae [1,2]`
+        let got = redeem_positions_calldata(
+            "0xed76e3c271f4e24a3db2436cdf2c314cda43909fbc94c2bc34631a01cd67d3ae",
+        )
+        .unwrap();
+        let want = "0x01b7037c\
+            0000000000000000000000002791bca1f2de4661ed88a30c99a7a9449aa84174\
+            0000000000000000000000000000000000000000000000000000000000000000\
+            ed76e3c271f4e24a3db2436cdf2c314cda43909fbc94c2bc34631a01cd67d3ae\
+            0000000000000000000000000000000000000000000000000000000000000080\
+            0000000000000000000000000000000000000000000000000000000000000002\
+            0000000000000000000000000000000000000000000000000000000000000001\
+            0000000000000000000000000000000000000000000000000000000000000002";
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn redeem_calldata_rejects_bad_condition() {
+        assert!(redeem_positions_calldata("0xdeadbeef").is_err());
+        assert!(redeem_positions_calldata("not-hex-".repeat(8).as_str()).is_err());
     }
 
     #[test]

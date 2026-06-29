@@ -273,6 +273,27 @@ a { color: inherit; text-decoration: none; }
 .nav-name { max-width: 150px; }
 .nav-name:focus { box-shadow: none; }
 
+/* ── identity ──────────────────────────────────────────────────── */
+.who {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: var(--glass); color: var(--text); font-family: inherit;
+  transition: border-color .2s var(--ease), background .2s var(--ease), transform .2s var(--ease);
+}
+.who:hover { background: var(--glass-2); transform: translateY(-1px); }
+.who-dot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(120deg, var(--d3), var(--d4)); box-shadow: 0 0 0 3px rgba(124,92,255,.18); flex-shrink: 0; }
+.who-name { font-weight: 800; font-size: 13.5px; letter-spacing: -.01em; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-addr { font-family: 'Space Grotesk', monospace; font-size: 11.5px; color: var(--muted-2); }
+.input.locked { display: flex; align-items: center; gap: 8px; color: var(--muted); cursor: not-allowed; background: rgba(255,255,255,.03); }
+.pw-eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 15px; opacity: .7; padding: 4px; }
+.pw-eye:hover { opacity: 1; }
+.linklike { background: none; border: none; color: var(--d3); cursor: pointer; font: inherit; font-size: 12px; padding: 0; }
+.linklike:hover { text-decoration: underline; }
+.addr-copy { background: none; border: none; color: var(--muted); cursor: pointer; font-family: 'Space Grotesk', monospace; font-size: 12.5px; padding: 2px 0 0; }
+.addr-copy:hover { color: var(--text); }
+.keybox { font-family: 'Space Grotesk', monospace; font-size: 12px; word-break: break-all; background: rgba(0,0,0,.4); border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; line-height: 1.5; }
+.keybox:hover { border-color: var(--line-2); }
+
 /* ── modal ─────────────────────────────────────────────────────── */
 .modal-bg {
   position: fixed; inset: 0; background: rgba(4, 4, 8, .6); backdrop-filter: blur(8px);

@@ -80,6 +80,10 @@ export interface Compliance {
   storeys?: ComplianceRule
   gfa?: ComplianceRule
   footprint?: ComplianceRule
+  // ── realistic parcel (metres) ──
+  plot_fit?: ComplianceRule
+  coverage?: ComplianceRule
+  fsr?: ComplianceRule
 }
 
 export interface Constraints {
@@ -91,6 +95,57 @@ export interface Constraints {
   min_occupancy?: number
   code?: string            // laneway/ADU jurisdiction preset id
   skin?: string            // active façade panel id (building skin)
+  // ── realistic parcel: metres + setbacks + zoning caps ──
+  plot_w_m?: number
+  plot_d_m?: number
+  setback_front_m?: number
+  setback_rear_m?: number
+  setback_side_m?: number
+  max_coverage_pct?: number
+  max_fsr?: number
+}
+
+// Resolved parcel geometry (mirror of mod.py _plot_metrics)
+export interface PlotMetrics {
+  plot_w_m: number; plot_d_m: number; plot_area_m2: number
+  buildable_w_m: number; buildable_d_m: number; buildable_area_m2: number
+  build_cells_w: number; build_cells_d: number
+  coverage_pct: number; fsr: number
+}
+
+// Units cost — bill of quantities (mirror of mod.py _cost_breakdown)
+export interface CostItem {
+  id: string; name: string; category: string; qty: number
+  unit_price_base: number; unit_carbon_kg: number; unit_price: number; line_total: number
+}
+export interface CostBreakdown {
+  style: string; price_mult: number; modules: CostItem[]
+  module_subtotal_usd: number; unit_count: number
+}
+
+// ── Pluggable building-standards audit ──────────────────────────
+export type AuditStatus = 'pass' | 'warn' | 'fail' | 'unknown'
+export interface AuditCheck {
+  standard: string; category: string; status: AuditStatus
+  detail: string; recommendation?: string; severity?: 'low' | 'medium' | 'high'
+}
+export interface AuditResult {
+  verdict: 'pass' | 'conditional' | 'fail'
+  score: number
+  summary: string
+  checks: AuditCheck[]
+  red_flags: string[]
+  recommendations: string[]
+  provider?: string
+  model?: string
+  agent?: { requested: string; used: string; fallback_from?: string | null }
+  audited_at?: number
+  disclaimer?: string
+  error?: string
+}
+export interface AuditProvider {
+  id: string; label: string; kind: string; default_model: string
+  needs_key: boolean; ready: boolean; blurb: string
 }
 
 // Canadian laneway / ADU building-code preset (mirror of mod.py LANEWAY_CODES)
@@ -124,6 +179,8 @@ export interface Estimate {
   footprint_cells?: number
   height_m?: number
   footprint_m2?: number
+  cost_breakdown?: CostBreakdown
+  plot?: PlotMetrics
   compliance?: Compliance
 }
 
@@ -145,6 +202,7 @@ export interface Design {
   created: number
   updated: number
   stats: Estimate
+  last_audit?: { verdict: string; score: number; summary: string; agent?: any; audited_at?: number }
 }
 
 export interface PortableDoc {
@@ -321,9 +379,71 @@ export function localEstimate(cells: Cell[], style: StyleSpec, catalog: ModuleSp
     footprint_cells: footprint,
     height_m: Math.round(floors * 3 * 10) / 10,
     footprint_m2: Math.round(footprint * 9 * 10) / 10,
+    cost_breakdown: costBreakdown(flat, style),
   }
-  if (constraints) est.compliance = checkConstraints(est, constraints, maxAx, maxAz)
+  if (constraints) {
+    const plot = plotMetrics(constraints, est)
+    if (plot) est.plot = plot
+    est.compliance = checkConstraints(est, constraints, maxAx, maxAz)
+  }
   return est
+}
+
+// Units cost — bill of quantities (mirror of mod.py _cost_breakdown)
+export function costBreakdown(flat: ModuleSpec[], style: StyleSpec): CostBreakdown {
+  const mult = style.price_mult
+  const groups: Record<string, CostItem> = {}
+  const order: string[] = []
+  for (const s of flat) {
+    let g = groups[s.id]
+    if (!g) {
+      g = groups[s.id] = { id: s.id, name: s.name, category: s.category, qty: 0,
+        unit_price_base: s.price, unit_carbon_kg: s.carbon_kg, unit_price: 0, line_total: 0 }
+      order.push(s.id)
+    }
+    g.qty++
+  }
+  const modules = order.map((k) => {
+    const g = groups[k]; const unit = Math.round(g.unit_price_base * mult)
+    return { ...g, unit_price: unit, line_total: unit * g.qty }
+  })
+  return { style: style.id, price_mult: mult, modules,
+    module_subtotal_usd: modules.reduce((s, m) => s + m.line_total, 0),
+    unit_count: modules.reduce((s, m) => s + m.qty, 0) }
+}
+
+// Resolve a realistic parcel (metres) into a buildable envelope (mirror of mod.py)
+export function plotMetrics(c: Constraints, est: Estimate): PlotMetrics | undefined {
+  if (!c.plot_w_m || !c.plot_d_m) return undefined
+  const pw = c.plot_w_m, pd = c.plot_d_m
+  const sf = c.setback_front_m || 0, sr = c.setback_rear_m || 0, ss = c.setback_side_m || 0
+  const buildW = Math.max(0, pw - 2 * ss), buildD = Math.max(0, pd - sf - sr)
+  const area = pw * pd
+  return {
+    plot_w_m: Math.round(pw * 100) / 100, plot_d_m: Math.round(pd * 100) / 100,
+    plot_area_m2: Math.round(area * 10) / 10,
+    buildable_w_m: Math.round(buildW * 100) / 100, buildable_d_m: Math.round(buildD * 100) / 100,
+    buildable_area_m2: Math.round(buildW * buildD * 10) / 10,
+    build_cells_w: Math.floor(buildW / 3), build_cells_d: Math.floor(buildD / 3),
+    coverage_pct: area ? Math.round((est.footprint_m2 ?? 0) / area * 1000) / 10 : 0,
+    fsr: area ? Math.round(est.floor_area_m2 / area * 100) / 100 : 0,
+  }
+}
+
+// ── Pluggable audit agents (mirror of mod.py AUDIT_PROVIDERS) ─────
+export const AUDIT_PROVIDERS: { id: string; label: string; blurb: string }[] = [
+  { id: 'venice', label: 'Venice', blurb: 'Venice AI — private, OpenAI-compatible.' },
+  { id: 'claude', label: 'Claude', blurb: 'Anthropic Claude — strong code reasoning.' },
+  { id: 'rules', label: 'Built-in', blurb: 'Offline deterministic auditor — always available.' },
+]
+export const DEFAULT_AUDIT_PROVIDER = 'venice'
+
+// Run a building-standards audit through the chosen (pluggable) agent.
+export async function runAudit(body: {
+  design_id?: string; cells?: Cell[]; style?: string; constraints?: Constraints | null
+  name?: string; provider?: string; model?: string; api_key?: string; persist?: boolean
+}): Promise<AuditResult> {
+  return api('audit', { method: 'POST', body })
 }
 
 export function checkConstraints(est: Estimate, c: Constraints, maxAx = 0, maxAz = 0): Compliance {
@@ -338,6 +458,15 @@ export function checkConstraints(est: Estimate, c: Constraints, maxAx = 0, maxAz
   if (c.lot_w && c.lot_d) {
     const fits = maxAx <= Math.floor(c.lot_w / 2) && maxAz <= Math.floor(c.lot_d / 2)
     add('lot', `${maxAx * 2 + 1}×${maxAz * 2 + 1}`, `${c.lot_w}×${c.lot_d}`, fits)
+  }
+  // realistic parcel: setbacks / coverage / FSR
+  const plot = est.plot
+  if (plot) {
+    const gw = maxAx * 2 + 1, gd = maxAz * 2 + 1
+    add('plot_fit', `${gw}×${gd}`, `${plot.build_cells_w}×${plot.build_cells_d}`,
+      gw <= plot.build_cells_w && gd <= plot.build_cells_d)
+    if (c.max_coverage_pct) add('coverage', plot.coverage_pct, c.max_coverage_pct, plot.coverage_pct <= c.max_coverage_pct)
+    if (c.max_fsr) add('fsr', plot.fsr, c.max_fsr, plot.fsr <= c.max_fsr)
   }
   // laneway / ADU code envelope
   const code = c.code ? CODE_INDEX[c.code] : undefined
@@ -413,5 +542,7 @@ export const SECTIONS = [
   { k: 'Style is a layer', t: 'Brownstone today. Neo-Tokyo tomorrow.', b: 'Geometry and style are separated. The same stack re-skins instantly across nine architectures. A West Village row becomes a neon Hudson Yards spire with one tap — and the cost re-prices itself.' },
   { k: 'Private by default', t: 'Yours until you say so.', b: 'Every building you save is private. Publish to put it in the shared city, export it as a portable file, or share its content-addressed CID — and anyone can copy-and-remix it into their own.' },
   { k: 'Set the rules', t: 'Parameters & constraints, enforced live.', b: 'Set a lot size, a height cap, a budget and a carbon ceiling. The builder fences you to the lot, caps your floors, and the spec panel turns red the moment you bust a constraint — real developer pro-forma, in your browser.' },
+  { k: 'Any realistic plot', t: 'Real lots, in metres.', b: 'Enter a real parcel — width, depth, front/rear/side setbacks — and ModCity carves the buildable envelope, snaps it to the module grid and computes site coverage and FSR (FAR) live, the exact figures a zoning bylaw checks. Every placed module is priced as a unit, so a transparent bill of quantities falls straight out.' },
+  { k: 'Audit it', t: 'Will it pass? Ask an agent.', b: 'A pluggable building-standards audit agent reviews your design against the code envelope, life-safety (egress), habitability (wet cores, light), structure and energy — returning a verdict, a score and fix-by-fix recommendations. Run it on Venice or Claude, or the always-on built-in rules auditor. The audit agent is swappable: any OpenAI-compatible or Anthropic endpoint drops in.' },
   { k: 'Content-addressed', t: 'Buildings travel as CIDs.', b: 'Saving a building writes a self-contained, IPFS-style document — bundled custom panels included — through the localfs module. The CID is the building: load it on any node, anywhere, and it renders identically.' },
 ]

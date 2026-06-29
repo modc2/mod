@@ -1,12 +1,13 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
 import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats } from "./polymarket";
 import { getTradeCache } from "./cache";
 import { Strat, TraderTrade as StratTraderTrade, SizeConstraints } from "./strats/base";
 import { getStrat } from "./strats/registry";
+import { marketMatchesQuery } from "./marketQuery";
+import { tradeMatchesFilters } from "./tradeFilters";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
-import { getProxyAddress } from "./polymarketProxy";
 import { USDC_E } from "./polymarketContracts";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -123,6 +124,17 @@ export interface CopyEngineConfig {
   /** When true, the backend live engine places real orders; when false/omitted
       it runs DRY RUN (logs intended mirrors, places nothing). */
   autoExecute?: boolean;
+  /** Free-text market-topic filter (e.g. "price of bitcoin"). When set, the
+      strat only mirrors trades whose market title matches the query — keeps a
+      strat focused instead of copying every fill a watched trader makes.
+      Empty/undefined ⇒ copy all markets. */
+  marketQuery?: string;
+  /** Semantic per-trade filters (side / leader price band / leader size band /
+      category). AND-ed with `marketQuery` to carve a unique slice of the
+      watched flow. Honored by the live cycle (via the strat's `shouldMirror`)
+      AND the CATCH UP backfill. Empty/undefined ⇒ no per-trade gating beyond
+      `marketQuery`. */
+  tradeFilters?: TradeFilters;
 }
 
 // ── Scoring constants ──────────────────────────────────────────
@@ -134,6 +146,11 @@ const ROI_WINDOW_DAYS = 30;
 // hammering the data-api each cycle.
 const ROI_REFRESH_MS = 30 * 60 * 1000;
 const ROI_CACHE_KEY = "poly_copy_trader_roi";
+// Fallback ROI assumed when a trader's real 30d stats haven't loaded yet
+// (data-api rate-limited, or a freshly-added trader). Used ONLY to keep a
+// trade copyable — a missing stat must not BLOCK execution. Once real stats
+// arrive, proper EP scoring replaces this.
+const DEFAULT_ROI = 0.05;
 
 const MAX_LOG_ENTRIES = 200;
 const MAX_ORDERS_PER_CYCLE = 20;
@@ -292,7 +309,11 @@ export class CopyEngine {
     this.negRiskMap = loadNegRiskMap();
     // Active strategy. Pass `strat` to override, or change the default
     // in src/app/app/lib/strats/registry.ts to swap globally.
-    this.strat = strat ?? getStrat(undefined, { maxPerCycle: config.maxPerCycle });
+    this.strat = strat ?? getStrat(undefined, {
+      maxPerCycle: config.maxPerCycle,
+      marketQuery: config.marketQuery,
+      tradeFilters: config.tradeFilters,
+    });
     this.state = {
       status: "stopped",
       lastCycleAt: null,
@@ -497,6 +518,10 @@ export class CopyEngine {
         const copyRatio = capitalAlloc / traderVol;
         for (const t of trades) {
           if (t.side !== "BUY") continue;
+          // Honor the strat's market-topic filter AND semantic per-trade filters
+          // — catch-up must not backfill anything the live cycle wouldn't touch.
+          if (!marketMatchesQuery(t.market, this.config.marketQuery)) continue;
+          if (!tradeMatchesFilters(t, this.config.tradeFilters)) continue;
           const notional = t.price * t.size;
           if (notional < opts.minNotional) continue;
           const tradeKey = `${trader.address.toLowerCase()}:${t.conditionId}:${t.timestamp}`;
@@ -614,8 +639,10 @@ export class CopyEngine {
       try {
         const signer = await this.getSigner();
         const negRisk = await this.resolveNegRisk(trade.conditionId);
-        const proxy =
-          this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+        // maker is vestigial (backend overrides to the derived deposit wallet),
+        // but resolve via the same V2 source so this.proxyAddress is never
+        // poisoned with the dead V1 proxy used by later position reads.
+        const proxy = (await this.resolveTradingWallet()) ?? this.config.address;
         const maker = this.sigType === 0 ? this.config.address : proxy;
         const result = await placeOrder(
           this.config.creds,
@@ -777,8 +804,11 @@ export class CopyEngine {
     let sold = 0;
     let freedUsd = 0;
     try {
-      const proxy =
-        this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+      const proxy = await this.resolveTradingWallet();
+      if (!proxy) {
+        opts.onProgress?.("deposit wallet unavailable — skipping sell");
+        return { sold, freedUsd };
+      }
       const positions = await fetchPositions(proxy);
       let candidates: PolymarketPosition[];
       let kindLabel: string;
@@ -1419,7 +1449,8 @@ export class CopyEngine {
             try {
               const signer = await this.getSigner();
               const negRisk = await this.resolveNegRisk(trade.conditionId);
-              const proxy = this.proxyAddress ?? (this.proxyAddress = await getProxyAddress(this.config.address));
+              // V2 deposit wallet (never the dead V1 proxy) — see resolveTradingWallet.
+              const proxy = (await this.resolveTradingWallet()) ?? this.config.address;
               // For sigType=0 (EOA), maker = EOA. For 1/2, maker = proxy.
               const maker = this.sigType === 0 ? this.config.address : proxy;
               const result = await placeOrder(
@@ -1636,6 +1667,38 @@ export class CopyEngine {
     return this.negRiskMap.get(conditionId) ?? false;
   }
 
+  /** Resolve the wallet that actually holds funds + positions for trading.
+   *
+   *  V2 (POLY_1271, sigType=3) routes EVERY order through the deposit wallet
+   *  the backend auto-derives from its signer EOA (see order_place.rs) — so
+   *  BUYs accumulate shares THERE, and SELLs must read positions/balances
+   *  from that same address. The legacy `getProxyAddress` (V1 Safe proxy) is
+   *  a DIFFERENT address that holds none of the bot's shares; reading
+   *  positions from it made every SELL fail with the CLOB "not enough
+   *  balance" error (surfaced to the UI as the 402 "wallet has no USDC").
+   *
+   *  This is the single source of truth for `this.proxyAddress`. It never
+   *  falls back to the V1 proxy: if the deposit wallet can't be resolved we
+   *  return null so callers skip the wrong-wallet read rather than trade
+   *  against a phantom. */
+  private async resolveTradingWallet(): Promise<string | null> {
+    if (this.proxyAddress) return this.proxyAddress;
+    try {
+      const r = await fetch(
+        `/api/polymarket/deposit-wallet/info?eoa=${this.config.address}`,
+        { cache: "no-store" },
+      );
+      if (r.ok) {
+        const j = (await r.json()) as { depositWallet?: string };
+        if (j.depositWallet) {
+          this.proxyAddress = j.depositWallet;
+          return this.proxyAddress;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
   /** Lazily create (and cache) a JsonRpcSigner from window.ethereum,
    *  ensuring the wallet is on Polygon first. Re-created on every cycle
    *  start to handle account/chain changes in MetaMask. */
@@ -1798,6 +1861,14 @@ export class CopyEngine {
     stats: TraderRoiStats | null;
   } {
     const stats = this.traderRoiStats[stratTrade.trader.toLowerCase()] ?? null;
+    if (!stats) {
+      // Stats not loaded yet — DON'T block copying on a missing ROI (that
+      // stranded every trade behind "NO_STATS · ROI not loaded yet"). Score
+      // a neutral expected-profit (DEFAULT_ROI × mirror notional) so the
+      // trade still executes, ranked by mirror size, until real stats land.
+      const rawMirrorNotional = stratTrade.notional * stratTrade.copyRatio;
+      return { score: DEFAULT_ROI * rawMirrorNotional, sharpe: 0, stats: null };
+    }
     const score = this.strat.scoreCandidate(stratTrade, stats);
     return { score, sharpe: stats?.sharpe ?? 0, stats };
   }

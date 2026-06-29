@@ -116,6 +116,12 @@ pub struct ActiveTradersQuery {
     pub page_size: Option<u32>,
     pub search: Option<String>,
     pub category: Option<String>,
+    /// Free-text market-topic filter (e.g. "bitcoin", "price of bitcoin").
+    /// Narrows traders to those active in matching markets and recomputes their
+    /// aggregate stats from only those markets. Finer than `category`'s fixed
+    /// keyword buckets and, unlike `search`, never matches the wallet address.
+    #[serde(rename = "marketQuery")]
+    pub market_query: Option<String>,
     #[serde(rename = "minVolume")]
     pub min_volume: Option<f64>,
     #[serde(rename = "minPnl")]

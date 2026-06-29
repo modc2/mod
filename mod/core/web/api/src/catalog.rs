@@ -60,34 +60,50 @@ struct Snapshot {
     scanned_at: Instant,
 }
 
-/// Thread-safe, TTL-cached view over the orbit tree.
+/// Thread-safe, TTL-cached view over the module tree. Scans every root —
+/// `mod/orbit` plus the sibling `mod/core` (chain, store, web, …) — so the
+/// explorer surfaces the whole ecosystem, core modules included.
 pub struct Catalog {
-    orbit_dir: PathBuf,
+    roots: Vec<PathBuf>,
     ttl: Duration,
     snapshot: RwLock<Option<Snapshot>>,
 }
 
 impl Catalog {
     pub fn new(orbit_dir: PathBuf) -> Self {
+        let mut roots = vec![orbit_dir.clone()];
+        // Core modules (web, chain, store, app) live in a sibling `core/` dir.
+        if let Some(core) = orbit_dir.parent().map(|p| p.join("core")) {
+            if core.is_dir() {
+                roots.push(core);
+            }
+        }
         Self {
-            orbit_dir,
+            roots,
             ttl: Duration::from_secs(3),
             snapshot: RwLock::new(None),
         }
     }
 
+    /// The primary (orbit) root — reported by the health probe.
     pub fn orbit_dir(&self) -> &Path {
-        &self.orbit_dir
+        &self.roots[0]
     }
 
-    /// Return the catalog, rescanning the orbit tree if the cache is cold or stale.
+    /// Return the catalog, rescanning every root if the cache is cold or stale.
     pub fn modules(&self) -> Vec<Module> {
         if let Some(snap) = self.snapshot.read().as_ref() {
             if snap.scanned_at.elapsed() < self.ttl {
                 return snap.modules.clone();
             }
         }
-        let modules = scan(&self.orbit_dir);
+        let mut modules = Vec::new();
+        for root in &self.roots {
+            scan_into(root, &mut modules);
+        }
+        // Stable ordering by name; if a name appears in two roots, keep one.
+        modules.sort_by(|a, b| a.name.cmp(&b.name));
+        modules.dedup_by(|a, b| a.name == b.name);
         *self.snapshot.write() = Some(Snapshot {
             modules: modules.clone(),
             scanned_at: Instant::now(),
@@ -123,16 +139,185 @@ impl Catalog {
             })
             .collect()
     }
+
+    /// Resolve a module name to its directory on disk. Fast path is
+    /// `orbit/<name>`; falls back to scanning for a module whose declared
+    /// `name` differs from its directory. Returns `None` if no such module.
+    fn dir_for(&self, name: &str) -> Option<PathBuf> {
+        for root in &self.roots {
+            let direct = root.join(name);
+            if direct.join("config.json").exists() {
+                return Some(direct);
+            }
+        }
+        for root in &self.roots {
+            let Ok(entries) = std::fs::read_dir(root) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                let cfg = dir.join("config.json");
+                if !cfg.exists() {
+                    continue;
+                }
+                if let Some(m) = parse_module(&dir, &cfg) {
+                    if m.name == name {
+                        return Some(dir);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Recursive source tree for a module — dirs first, then files, build
+    /// output and vendored deps elided. `None` if the module doesn't exist.
+    pub fn tree(&self, name: &str) -> Option<Vec<TreeNode>> {
+        let dir = self.dir_for(name)?;
+        Some(build_tree(&dir, &dir, 0))
+    }
+
+    /// Read one source file inside a module, sandboxed to the module dir.
+    pub fn read_file(&self, name: &str, rel: &str) -> Result<FileContent, FileError> {
+        let dir = self.dir_for(name).ok_or(FileError::NotFound)?;
+        read_file_sandboxed(&dir, rel)
+    }
 }
 
-/// Walk the orbit directory and build a [`Module`] for every `<name>/config.json`.
-fn scan(orbit_dir: &Path) -> Vec<Module> {
-    let mut modules = Vec::new();
-    let entries = match std::fs::read_dir(orbit_dir) {
+/// Directory/file names we never surface in the code explorer: VCS metadata,
+/// build output, vendored deps. Keeps the tree small and the module's own
+/// source front-and-center.
+const TREE_SKIP: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".next",
+    "dist",
+    "build",
+    ".turbo",
+    ".vercel",
+    ".DS_Store",
+    "venv",
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+];
+
+/// Hard ceilings so a pathological module can't blow up the explorer.
+const MAX_TREE_DEPTH: usize = 8;
+const MAX_FILE_BYTES: u64 = 512 * 1024;
+
+/// One node in a module's source tree. `path` is relative to the module dir.
+#[derive(Debug, Clone, Serialize)]
+pub struct TreeNode {
+    pub name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<TreeNode>>,
+}
+
+/// A single file's contents, ready to render in the code viewer.
+#[derive(Debug, Clone, Serialize)]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub lines: usize,
+    pub bytes: u64,
+    pub truncated: bool,
+}
+
+/// Why a file read was refused — mapped to HTTP status codes by the routes.
+#[derive(Debug, Clone, Copy)]
+pub enum FileError {
+    NotFound,
+    Forbidden,
+    TooLarge,
+    Binary,
+    Io,
+}
+
+/// Recursively walk `dir`, yielding paths relative to `root`. Dirs come before
+/// files at each level, both alphabetical, with the skip-list elided.
+fn build_tree(root: &Path, dir: &Path, depth: usize) -> Vec<TreeNode> {
+    if depth >= MAX_TREE_DEPTH {
+        return Vec::new();
+    }
+    let mut nodes: Vec<TreeNode> = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return nodes,
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || TREE_SKIP.contains(&name.as_str()) {
+            continue;
+        }
+        let p = entry.path();
+        let rel = p
+            .strip_prefix(root)
+            .map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_else(|_| name.clone());
+        if p.is_dir() {
+            nodes.push(TreeNode {
+                name,
+                path: rel,
+                kind: "dir",
+                children: Some(build_tree(root, &p, depth + 1)),
+            });
+        } else {
+            nodes.push(TreeNode {
+                name,
+                path: rel,
+                kind: "file",
+                children: None,
+            });
+        }
+    }
+    nodes.sort_by(|a, b| match (a.kind, b.kind) {
+        ("dir", "file") => std::cmp::Ordering::Less,
+        ("file", "dir") => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    nodes
+}
+
+/// Read `rel` under `module_dir`, refusing anything that canonicalizes outside
+/// the module (path traversal, symlink escape), is too large, or isn't UTF-8.
+fn read_file_sandboxed(module_dir: &Path, rel: &str) -> Result<FileContent, FileError> {
+    let base = std::fs::canonicalize(module_dir).map_err(|_| FileError::NotFound)?;
+    let real = std::fs::canonicalize(base.join(rel)).map_err(|_| FileError::NotFound)?;
+    if !real.starts_with(&base) {
+        return Err(FileError::Forbidden);
+    }
+    let meta = std::fs::metadata(&real).map_err(|_| FileError::Io)?;
+    if !meta.is_file() {
+        return Err(FileError::NotFound);
+    }
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(FileError::TooLarge);
+    }
+    let raw = std::fs::read(&real).map_err(|_| FileError::Io)?;
+    let content = String::from_utf8(raw).map_err(|_| FileError::Binary)?;
+    let lines = content.lines().count();
+    Ok(FileContent {
+        path: rel.to_string(),
+        bytes: meta.len(),
+        lines,
+        truncated: false,
+        content,
+    })
+}
+
+/// Walk one root and append a [`Module`] for every `<name>/config.json`.
+fn scan_into(root: &Path, modules: &mut Vec<Module>) {
+    let entries = match std::fs::read_dir(root) {
         Ok(e) => e,
         Err(e) => {
-            tracing::warn!("cannot read orbit dir {}: {e}", orbit_dir.display());
-            return modules;
+            tracing::warn!("cannot read module root {}: {e}", root.display());
+            return;
         }
     };
 
@@ -149,10 +334,6 @@ fn scan(orbit_dir: &Path) -> Vec<Module> {
             modules.push(module);
         }
     }
-
-    // Stable, friendly ordering: by name.
-    modules.sort_by(|a, b| a.name.cmp(&b.name));
-    modules
 }
 
 fn parse_module(dir: &Path, cfg_path: &Path) -> Option<Module> {

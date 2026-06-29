@@ -15,7 +15,17 @@ import {
 } from "../utils/wallet";
 
 const DEFAULT_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/claude";
-const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || `/api${DEFAULT_BASE_PATH}`;
+// The browser must reach the API through the relative gateway path
+// (`/api/claude`, served by the host Caddy and the next.config rewrite). A
+// localhost/127.0.0.1 value of NEXT_PUBLIC_API_URL points the fetch at the
+// *visitor's* own machine — so sign-in/job submits fail for everyone except a
+// browser running on the host. Ignore such values and fall back to the
+// relative path; a genuine external API host is still honored.
+const _ENV_API_URL = process.env.NEXT_PUBLIC_API_URL;
+const DEFAULT_API_URL =
+  _ENV_API_URL && !/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(_ENV_API_URL)
+    ? _ENV_API_URL
+    : `/api${DEFAULT_BASE_PATH}`;
 const API_PORT = parseInt(process.env.NEXT_PUBLIC_API_PORT || "8820", 10);
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -315,6 +325,7 @@ export default function Home() {
     app_url: string | null; api_url: string | null; description: string | null;
     fns: string[]; has_app_dir: boolean; has_server_dir: boolean; has_api_dir: boolean;
     owner: string | null; version: string | null; cid: string | null; created_at: number | null;
+    deps?: string[] | null;
   }>>([]);
   const [moduleSearch, setModuleSearch] = useState("");
   const [showModuleDropdown, setShowModuleDropdown] = useState(false);
@@ -330,6 +341,21 @@ export default function Home() {
   const [moduleLogsOpen, setModuleLogsOpen] = useState<"api" | "app" | null>(null);
   const [moduleLogsLoading, setModuleLogsLoading] = useState(false);
   const [moduleLogsAutoRefresh, setModuleLogsAutoRefresh] = useState(false);
+  // ── Module hub ────────────────────────────────────────────────────
+  // Landing grid of every module: pick one to start editing it, with a live
+  // online/offline dot per module. Statuses are probed in the background while
+  // the hub is open (app port via the same-origin /api/service route, API via
+  // its /health). `autoRestartAfterEdit` restarts a module through pm2 as soon
+  // as an edit job targeting it completes, so changes actually take effect.
+  const [moduleStatuses, setModuleStatuses] = useState<Record<string, { app: boolean | null; api: boolean | null }>>({});
+  const [hubSearch, setHubSearch] = useState("");
+  // Hub layout: "grid" is the card wall; "graph" lays modules out by their
+  // declared `deps` (config.json) as a dependency graph, leaving modules with
+  // no edges as isolated nodes.
+  const [hubGraphMode, setHubGraphMode] = useState(false);
+  const [autoRestartAfterEdit, setAutoRestartAfterEdit] = useState(true);
+  const [restartNotice, setRestartNotice] = useState<string | null>(null);
+  const prevJobStatusRef = useRef<Record<string, string>>({});
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
   const [expandedJobImage, setExpandedJobImage] = useState<string | null>(null);
@@ -396,14 +422,19 @@ export default function Home() {
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-  const [showWalletSidebar, setShowWalletSidebar] = useState(false);
-  const [walletSidebarWidth, setWalletSidebarWidth] = useState(520);
-  const [isWalletSidebarDragging, setIsWalletSidebarDragging] = useState(false);
 
-  // Owner sidebar (persistent right panel, mirrors wallet pattern)
+  // Sign-in drawer — shown as a right-side panel inside the hub when there's no
+  // session (replaces the old full-screen sign-in takeover). Re-opens whenever
+  // the session drops to null; dismissible so the hub stays browsable behind it.
+  const [signInOpen, setSignInOpen] = useState(true);
+
+  // Account sidebar (persistent right panel). This single panel now carries
+  // BOTH the owner controls and the wallet view, toggled by `accountTab` —
+  // there is no longer a separate wallet sidebar.
   const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
-  const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(420);
+  const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
   const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
+  const [accountTab, setAccountTab] = useState<"owner" | "wallet">("owner");
   const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
@@ -462,6 +493,9 @@ export default function Home() {
   // New UI state
   const [moduleTab, setModuleTab] = useState<"app" | "api" | "changelog">("app");
   const [taskSubTab, setTaskSubTab] = useState<"tasks" | "input" | "output" | "deltas">("input");
+  // Sub-tab inside an open task: raw OUTPUT, the file EDITS it made, or an
+  // AUDIT trail of every tool action (bash / reads / searches / subtasks).
+  const [taskDetailTab, setTaskDetailTab] = useState<"output" | "edits" | "audit">("output");
   const [viewMode, setViewMode] = useState<"output" | "code">("output");
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -471,7 +505,11 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [isLeftDragging, setIsLeftDragging] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  // Sub-view inside the merged CODE tab: the file tree vs. the snapshot
+  // version history. Versions used to be its own top-level mod tab; it's
+  // now folded into CODE alongside the files browser.
+  const [codeView, setCodeView] = useState<"files" | "versions">("files");
   // First-level nav category — sits above the mod tabs. The mod tabs
   // (overview/app/api/files/terminal) form the second level. AGENT here
   // doubles as the sidebar toggle.
@@ -491,6 +529,9 @@ export default function Home() {
     code: number | null;
     durationMs: number;
     pending: boolean;
+    // Which nix env the command ran inside ("flake" | "shell"), or null/undefined
+    // for the bare host shell. Set from the /api/terminal response.
+    nix?: string | null;
   };
   const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([]);
   const [terminalInput, setTerminalInput] = useState("");
@@ -820,8 +861,14 @@ export default function Home() {
     if (savedAgent) setAgentType(savedAgent);
 
     const savedSystemPrompt = localStorage.getItem("claude_system_prompt");
-    if (savedSystemPrompt) {
-      setSystemPrompt(savedSystemPrompt);
+    if (savedSystemPrompt) setSystemPrompt(savedSystemPrompt);
+    // Restore the panel's open/closed preference so a minimized panel stays
+    // minimized across reloads. With no saved preference, default to open only
+    // when a prompt is active (so it stays discoverable the first time).
+    const savedSystemPromptOpen = localStorage.getItem("claude_system_prompt_open");
+    if (savedSystemPromptOpen !== null) {
+      setSystemPromptOpen(savedSystemPromptOpen === "1");
+    } else if (savedSystemPrompt) {
       setSystemPromptOpen(true);
     }
 
@@ -881,10 +928,8 @@ export default function Home() {
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
     const savedAgentWidth = localStorage.getItem("claude_agent_sidebar_width");
     if (savedAgentWidth) setAgentSidebarWidth(parseInt(savedAgentWidth, 10));
-    const savedWalletOpen = localStorage.getItem("claude_wallet_sidebar_open");
-    if (savedWalletOpen !== null) setShowWalletSidebar(savedWalletOpen === "true");
-    const savedWalletWidth = localStorage.getItem("claude_wallet_sidebar_width");
-    if (savedWalletWidth) setWalletSidebarWidth(parseInt(savedWalletWidth, 10));
+    const savedAccountTab = localStorage.getItem("claude_account_tab");
+    if (savedAccountTab === "owner" || savedAccountTab === "wallet") setAccountTab(savedAccountTab);
     const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
     if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
     const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
@@ -920,12 +965,8 @@ export default function Home() {
   }, [agentSidebarWidth]);
 
   useEffect(() => {
-    safeSetItem("claude_wallet_sidebar_open", String(showWalletSidebar));
-  }, [showWalletSidebar]);
-
-  useEffect(() => {
-    safeSetItem("claude_wallet_sidebar_width", String(walletSidebarWidth));
-  }, [walletSidebarWidth]);
+    safeSetItem("claude_account_tab", accountTab);
+  }, [accountTab]);
 
   useEffect(() => {
     safeSetItem("claude_owner_sidebar_open", String(showOwnerSidebar));
@@ -934,6 +975,13 @@ export default function Home() {
   useEffect(() => {
     safeSetItem("claude_owner_sidebar_width", String(ownerSidebarWidth));
   }, [ownerSidebarWidth]);
+
+  // Whenever the session drops (initial load with no token, or after sign-out)
+  // surface the sign-in drawer again. Fires only on token transitions, so a
+  // manual dismiss while signed-out stays dismissed.
+  useEffect(() => {
+    if (!token) setSignInOpen(true);
+  }, [token]);
 
   // Check saved token or detect local mode
   useEffect(() => {
@@ -1554,6 +1602,11 @@ export default function Home() {
     }
   }, [selectedJob, jobs, workDir, apiUrl, loadFileContent]);
 
+  // Reset the open-task sub-tab to OUTPUT whenever a different task is opened.
+  useEffect(() => {
+    setTaskDetailTab("output");
+  }, [selectedJob]);
+
   // Load directory tree on mount and when relevant state changes
   useEffect(() => {
     fetchDirectoryTree();
@@ -1616,29 +1669,6 @@ export default function Home() {
       document.body.style.userSelect = '';
     };
   }, [isAgentSidebarDragging]);
-
-  // Handle WALLET sidebar resize dragging. The panel sits on the right with
-  // its drag handle on the LEFT edge — dragging left grows the panel.
-  useEffect(() => {
-    if (!isWalletSidebarDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      const ww = window.innerWidth;
-      const newWidth = ww - e.clientX;
-      const maxWidth = Math.max(380, ww * 0.95);
-      setWalletSidebarWidth(Math.max(320, Math.min(maxWidth, newWidth)));
-    };
-    const handleMouseUp = () => setIsWalletSidebarDragging(false);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isWalletSidebarDragging]);
 
   // Handle OWNER sidebar resize dragging. Sits at the far right; drag handle
   // on the LEFT edge — dragging left grows the panel.
@@ -2527,84 +2557,154 @@ export default function Home() {
   }, [checkModuleHealth]);
 
   // ── Process control: start / stop / restart for API and App separately ──
-  const getPortForTarget = useCallback((target: "api" | "app"): string | null => {
-    const config = moduleConfig?.config || directConfig;
-    if (target === "api") {
-      const apiUrl = selectedModuleInfo?.api_url || config?.urls?.api || config?.api_url || config?.servers?.["claude-api"];
-      const portMatch = apiUrl?.match(/:(\d+)/);
-      return config?.port?.toString() || portMatch?.[1] || null;
-    } else {
-      const appUrl = selectedModuleInfo?.app_url || config?.urls?.app || config?.app_url || config?.servers?.["claude-app"];
-      const portMatch = appUrl?.match(/:(\d+)/);
-      return portMatch?.[1] || null;
-    }
-  }, [selectedModuleInfo, moduleConfig, directConfig]);
+  // Drive the selected module's lifecycle through pm2 (the real supervisor) via
+  // the API's /modules/{name}/process endpoint. Going through pm2 makes "stop"
+  // actually stay stopped and "restart" reliable — unlike a raw port kill, which
+  // pm2's autorestart immediately reverses. Cross-module actions surface the
+  // owner Sudo sheet automatically through authFetchSudo.
+  // authFetchSudo is defined further down the component; reach it through a ref
+  // (kept current each render) so this callback doesn't reference a not-yet-
+  // initialized const in its dependency array (temporal dead zone at render).
+  const authFetchSudoRef = useRef<
+    ((path: string, opts?: RequestInit, timeoutMs?: number) => Promise<Response>) | null
+  >(null);
 
-  const stopProcess = useCallback(async (target: "api" | "app") => {
+  const moduleProcessAction = useCallback(async (
+    target: "api" | "app",
+    action: "stop" | "start" | "restart",
+  ) => {
     if (!selectedModuleInfo || !token) return;
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch) return;
     const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
     setToggling(true);
     try {
-      const port = getPortForTarget(target);
-      if (port) {
-        await authFetch("/kill", {
-          method: "POST",
-          body: JSON.stringify({ port: parseInt(port), signal: "SIGKILL" }),
-        });
-      }
-      setTimeout(() => { checkModuleHealth(); setToggling(false); }, 2000);
+      await doFetch(`/modules/${selectedModuleInfo.name}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action, target }),
+      });
+      // Give pm2 a moment to settle, then re-check health.
+      setTimeout(() => { checkModuleHealth(); setToggling(false); }, action === "stop" ? 1500 : 3000);
     } catch { setToggling(false); }
-  }, [selectedModuleInfo, token, getPortForTarget, authFetch, checkModuleHealth]);
+  }, [selectedModuleInfo, token, checkModuleHealth]);
 
-  const startProcess = useCallback(async (target: "api" | "app") => {
-    if (!selectedModuleInfo || !token) return;
-    const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
-    setToggling(true);
-    try {
-      const config = moduleConfig?.config || directConfig;
-      if (target === "api") {
-        const startScript = config?.scripts?.start;
-        await authFetch("/jobs", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt: startScript
-              ? `Run the API start script in the background: bash ${startScript} &`
-              : `Start this module's API server. Look for start.sh in the current directory or scripts/start.sh and run it in the background. If there is no start.sh, look for a Python module with mod.py and run: python -m uvicorn {module_name}.mod:app --host 0.0.0.0 --port {port} where you determine the module_name and port from config.json`,
-            model: "haiku",
-            work_dir: selectedModuleInfo.path,
-          }),
-        });
-      } else {
-        const port = getPortForTarget("app");
-        await authFetch("/jobs", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt: `Start this module's Next.js app. Run: cd app && npm install --if-present && npx next dev -p ${port || "3000"} in the background.`,
-            model: "haiku",
-            work_dir: selectedModuleInfo.path,
-          }),
-        });
-      }
-      setTimeout(() => { checkModuleHealth(); setToggling(false); }, 3000);
-    } catch { setToggling(false); }
-  }, [selectedModuleInfo, token, moduleConfig, directConfig, getPortForTarget, authFetch, checkModuleHealth]);
+  const stopProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "stop"),
+    [moduleProcessAction],
+  );
 
-  const restartProcess = useCallback(async (target: "api" | "app") => {
-    const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
-    setToggling(true);
-    const port = getPortForTarget(target);
+  const startProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "start"),
+    [moduleProcessAction],
+  );
+
+  const restartProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "restart"),
+    [moduleProcessAction],
+  );
+
+  // ── Module hub: status probing ─────────────────────────────────────
+  // "Real" modules are the ones worth showing on the hub — anything with a
+  // config, a service dir, or a live url. Bare folders are skipped.
+  const isRealModule = useCallback((m: typeof moduleList[0]) => (
+    m.has_config || m.has_api_dir || m.has_app_dir || m.has_server_dir || !!m.app_url || !!m.api_url
+  ), []);
+
+  // Probe one module's liveness without a cross-origin app request: the app is
+  // checked by port occupancy through the same-origin /api/service route, the
+  // API by its /health (same pattern as checkModuleHealth for the selected mod).
+  const probeModuleStatus = useCallback(async (m: typeof moduleList[0]) => {
+    let app: boolean | null = null;
+    let api: boolean | null = null;
+    const port = m.app_url?.match(/:(\d+)/)?.[1];
     if (port) {
       try {
-        await authFetch("/kill", {
-          method: "POST",
-          body: JSON.stringify({ port: parseInt(port), signal: "SIGKILL" }),
-        });
-      } catch { /* ignore kill errors */ }
-      await new Promise(r => setTimeout(r, 1500));
+        const r = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
+        const d = await r.json();
+        app = !!d.running;
+      } catch { app = false; }
     }
-    setToggling(false);
-    await startProcess(target);
-  }, [getPortForTarget, authFetch, startProcess]);
+    if (m.api_url) {
+      try {
+        const r = await fetch(`${m.api_url}/health`, { signal: AbortSignal.timeout(2500) });
+        api = r.ok;
+      } catch { api = false; }
+    }
+    return { app, api };
+  }, []);
+
+  // Probe a list of modules in small concurrent batches, committing results as
+  // each batch lands so dots fill in progressively rather than all-at-once.
+  const probeHubStatuses = useCallback(async (mods: typeof moduleList) => {
+    const BATCH = 8;
+    for (let i = 0; i < mods.length; i += BATCH) {
+      const slice = mods.slice(i, i + BATCH);
+      const results = await Promise.all(
+        slice.map(async (m) => [m.name, await probeModuleStatus(m)] as const),
+      );
+      setModuleStatuses((prev) => {
+        const next = { ...prev };
+        for (const [name, st] of results) next[name] = st;
+        return next;
+      });
+    }
+  }, [probeModuleStatus]);
+
+  // Probe while the hub is open; refresh on an interval so dots stay live.
+  useEffect(() => {
+    if (sidebarView !== "hub") return;
+    const real = moduleList.filter(isRealModule);
+    if (!real.length) return;
+    probeHubStatuses(real);
+    const iv = setInterval(() => probeHubStatuses(real), 8000);
+    return () => clearInterval(iv);
+  }, [sidebarView, moduleList, isRealModule, probeHubStatuses]);
+
+  // ── Auto-restart after an edit ─────────────────────────────────────
+  // Restart a module's processes through pm2 (the real supervisor) so a fresh
+  // edit is actually live. Skips "claude" itself — restarting the console we're
+  // driving would kill this very UI mid-action.
+  const triggerModuleRestart = useCallback(async (name: string) => {
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch) return;
+    setRestartNotice(`↻ restarting ${name} to apply edits…`);
+    try {
+      const res = await doFetch(`/modules/${name}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action: "restart" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setRestartNotice(
+        res.ok && data?.ok !== false ? `✓ ${name} restarted — edits live` : `⚠ couldn't restart ${name}`,
+      );
+    } catch {
+      setRestartNotice(`⚠ couldn't restart ${name}`);
+    }
+    setTimeout(() => setRestartNotice(null), 6000);
+    if (selectedModule === name) setTimeout(checkModuleHealth, 3000);
+  }, [selectedModule, checkModuleHealth]);
+
+  // Watch the jobs list: when an edit job for a module flips to "completed",
+  // restart that module. A ref of prior statuses means we only fire on the
+  // running→completed *transition*, not for jobs already done on first load.
+  useEffect(() => {
+    const prev = prevJobStatusRef.current;
+    const next: Record<string, string> = {};
+    const justCompleted: typeof jobs = [];
+    for (const j of jobs) {
+      next[j.id] = j.status;
+      if (prev[j.id] && prev[j.id] !== j.status && j.status === "completed") justCompleted.push(j);
+    }
+    prevJobStatusRef.current = next;
+    if (!autoRestartAfterEdit) return;
+    const seen = new Set<string>();
+    for (const j of justCompleted) {
+      const mod = j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null;
+      if (!mod || mod === "claude" || seen.has(mod)) continue;
+      seen.add(mod);
+      triggerModuleRestart(mod);
+    }
+  }, [jobs, autoRestartAfterEdit, triggerModuleRestart]);
 
   // Fetch module logs (API and App)
   const fetchModuleLogs = useCallback(async () => {
@@ -2745,6 +2845,66 @@ export default function Home() {
       }
       return <span key={i} style={{ color: "var(--text-primary)" }}>{line}{"\n"}</span>;
     });
+  };
+
+  // ── Task output parsers ────────────────────────────────────────────
+  // The job output stream embeds structured markers the API emits per tool
+  // call (see jobs.rs format_tool_input): EDIT/WRITE diff blocks, "$ " bash
+  // commands, and "⚡ " tool-use lines. These two parsers re-derive the
+  // EDITS and AUDIT views from that single stream — no extra backend data.
+
+  type TaskEdit = { kind: "edit" | "write"; file: string; removed: string[]; added: string[]; lineCount: number };
+
+  const parseTaskEdits = (text: string): TaskEdit[] => {
+    if (!text) return [];
+    const EDIT = "┌─ EDIT: ", WRITE = "┌─ WRITE: ";
+    const edits: TaskEdit[] = [];
+    let cur: TaskEdit | null = null;
+    let phase: "removed" | "added" = "removed";
+    for (const line of text.split("\n")) {
+      if (line.startsWith(EDIT)) {
+        cur = { kind: "edit", file: line.slice(EDIT.length).trim(), removed: [], added: [], lineCount: 0 };
+        phase = "removed";
+        continue;
+      }
+      if (line.startsWith(WRITE)) {
+        const rest = line.slice(WRITE.length).trim();
+        const m = rest.match(/^(.*) \((\d+) lines\)$/);
+        edits.push({ kind: "write", file: m ? m[1] : rest, removed: [], added: [], lineCount: m ? parseInt(m[2], 10) : 0 });
+        cur = null;
+        continue;
+      }
+      if (!cur) continue;
+      if (line === "│───") { phase = "added"; continue; }
+      if (line === "└─") { edits.push(cur); cur = null; continue; }
+      if (phase === "removed" && line.startsWith("│- ")) cur.removed.push(line.slice(3));
+      else if (phase === "added" && line.startsWith("│+ ")) cur.added.push(line.slice(3));
+    }
+    if (cur) edits.push(cur); // block still streaming (job running) — show what we have
+    return edits;
+  };
+
+  type AuditEvent = { type: "edit" | "write" | "bash" | "read" | "search" | "task"; label: string; detail?: string };
+
+  const parseTaskAudit = (text: string): AuditEvent[] => {
+    if (!text) return [];
+    const EDIT = "┌─ EDIT: ", WRITE = "┌─ WRITE: ";
+    const READ = "⚡ Read ", GLOB = "⚡ Glob ", GREP = "⚡ Grep ", TASK = "⚡ Task ";
+    const events: AuditEvent[] = [];
+    for (const line of text.split("\n")) {
+      if (line.startsWith(EDIT)) events.push({ type: "edit", label: line.slice(EDIT.length).trim() });
+      else if (line.startsWith(WRITE)) events.push({ type: "write", label: line.slice(WRITE.length).trim() });
+      else if (line.startsWith("$ ")) {
+        const body = line.slice(2);
+        const sep = body.lastIndexOf(" # ");
+        if (sep >= 0) events.push({ type: "bash", label: body.slice(0, sep), detail: body.slice(sep + 3) });
+        else events.push({ type: "bash", label: body });
+      }
+      else if (line.startsWith(READ)) events.push({ type: "read", label: line.slice(READ.length).trim() });
+      else if (line.startsWith(GLOB) || line.startsWith(GREP)) events.push({ type: "search", label: line.slice(GLOB.length).trim() });
+      else if (line.startsWith(TASK)) events.push({ type: "task", label: line.slice(TASK.length).trim() });
+    }
+    return events;
   };
 
   // Effective config: prefer moduleConfig, fallback to directConfig (hoisted before early return)
@@ -2963,30 +3123,31 @@ export default function Home() {
   // AUTH SCREEN — IBM BOOT STYLE
   // ═══════════════════════════════════════════════════════════════════
 
-  if (!token) {
-    return (
-      <div className="h-screen w-screen flex relative overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-        {/* Sign-in Sidebar */}
-        <div
-          className="relative z-10 h-full w-[360px] shrink-0 flex flex-col overflow-y-auto transition-all duration-500"
-          style={{
-            background: "var(--bg-secondary)",
-            borderRight: `1px solid ${subtleBorder}`,
-            opacity: bootPhase >= 3 ? 1 : 0,
-            transform: bootPhase >= 3 ? "translateX(0)" : "translateX(-10px)",
-          }}
-        >
+  // Connect-wallet panel — rendered as a right-side sign-in drawer inside the
+  // hub when there's no session (replaces the old full-screen takeover).
+  const renderConnectPanel = () => (
+    <div className="h-full flex flex-col overflow-y-auto" style={{ background: "var(--bg-secondary)" }}>
           <div className="flex-1 flex flex-col justify-center p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
-                <span className="text-crt-amber text-[16px]">🔐</span>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
+                  <span className="text-crt-amber text-[16px]">🔐</span>
+                </div>
+                <h2
+                  className="text-[16px] font-semibold"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  Connect Wallet
+                </h2>
               </div>
-              <h2
-                className="text-[16px] font-semibold"
-                style={{ color: "var(--text-primary)" }}
+              <button
+                onClick={() => setSignInOpen(false)}
+                className="text-[18px] leading-none px-2 py-1"
+                style={{ color: "var(--text-tertiary)" }}
+                title="Hide — browse the hub"
               >
-                Connect Wallet
-              </h2>
+                ×
+              </button>
             </div>
 
             <div className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
@@ -3108,58 +3269,8 @@ export default function Home() {
           <div className="p-4 text-[12px] text-center" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
             Bismillah — Mod AI v1.0 — Powered by Rust + Next.js
           </div>
-        </div>
-
-        {/* Main Area — boot art + system status */}
-        <div className="relative flex-1 flex flex-col items-center justify-center overflow-hidden">
-          {/* Ambient glow */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: isLight
-                ? "radial-gradient(ellipse at center, rgba(0,0,0,0.02) 0%, transparent 70%)"
-                : "radial-gradient(ellipse at center, rgba(16,185,129,0.03) 0%, transparent 70%)",
-            }}
-          />
-
-          <div className="relative z-10 flex flex-col items-center gap-6 max-w-2xl w-full px-4">
-            {/* Boot Art */}
-            <pre
-              className="text-crt-green leading-none select-none whitespace-pre transition-opacity duration-700"
-              style={{
-                fontSize: "9px",
-                textShadow: "none",
-                opacity: bootPhase >= 1 ? 1 : 0,
-              }}
-            >
-              {BOOT_ART}
-            </pre>
-
-            {/* Boot Messages */}
-            <div
-              className="w-full max-w-lg transition-opacity duration-500"
-              style={{ opacity: bootPhase >= 2 ? 1 : 0 }}
-            >
-              <div className="rounded-xl p-4 space-y-2" style={{ background: tintBg, border: `1px solid ${subtleBorder}` }}>
-                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>System Check — OK</div>
-                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Claude Engine — Ready</div>
-                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Job Scheduler — Active</div>
-                <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>SSE Stream — Enabled</div>
-                <div className="text-[13px] font-medium mt-2" style={{ color: "var(--crt-amber)" }}>
-                  Wallet signature required for access
-                </div>
-                {!hasMetaMask && !hasSubWallet && (
-                  <div className="text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                    No web3 wallet detected — local key mode available
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 
   // ═══════════════════════════════════════════════════════════════════
   // RENDER FUNCTIONS
@@ -4630,6 +4741,9 @@ export default function Home() {
     const runningCount = filteredJobs.filter(j => j.status === "running").length;
     const isRunning = selectedJobData?.status === "running";
     const output = streamOutput || selectedJobData?.output || "";
+    // Derived views for the open task's EDITS / AUDIT sub-tabs.
+    const taskEdits = parseTaskEdits(output);
+    const taskAudit = parseTaskAudit(output);
     const activeModelChip = MODEL_OPTIONS.find(m => m.value === model)
       || MODEL_OPTIONS.find(m => m.family === model)
       || MODEL_OPTIONS[0];
@@ -5360,9 +5474,54 @@ export default function Home() {
                 );
               })()}
 
-              {/* Output */}
+              {/* Sub-tab strip — OUTPUT · EDITS · AUDIT */}
+              <div
+                className="flex items-center gap-1 px-3 pt-2 shrink-0"
+                style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+              >
+                {([
+                  ["output", "OUTPUT", null],
+                  ["edits", "EDITS", taskEdits.length],
+                  ["audit", "AUDIT", taskAudit.length],
+                ] as const).map(([key, label, count]) => {
+                  const active = taskDetailTab === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setTaskDetailTab(key)}
+                      className="flex items-center gap-1.5 text-[10px] font-bold uppercase px-2.5 py-1.5 rounded-t-md focus-ring"
+                      style={{
+                        color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                        borderBottom: `2px solid ${active ? activeModelChip.color : "transparent"}`,
+                        background: active ? "color-mix(in srgb, var(--bg-secondary) 60%, transparent)" : "transparent",
+                        letterSpacing: "0.06em",
+                        marginBottom: "-1px",
+                      }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.color = "var(--text-tertiary)"; }}
+                    >
+                      {label}
+                      {count != null && count > 0 && (
+                        <span
+                          className="text-[9px] font-mono px-1 rounded-full"
+                          style={{
+                            color: active ? activeModelChip.color : "var(--text-tertiary)",
+                            background: active ? `${activeModelChip.color}1f` : "var(--bg-secondary)",
+                            border: `1px solid ${active ? `${activeModelChip.color}40` : subtleBorder}`,
+                          }}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Tab content */}
               <div className="flex-1 overflow-y-auto p-3">
-                {output ? (
+                {/* OUTPUT — raw stream */}
+                {taskDetailTab === "output" && (output ? (
                   <pre className="m-0 whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: "var(--text-primary)", fontFamily: "monospace", wordBreak: "break-word" }}>
                     {renderOutput(output)}
                     {isRunning && <span className="inline-block animate-pulse" style={{ color: STATUS_COLOR.running }}>&#9610;</span>}
@@ -5379,7 +5538,128 @@ export default function Home() {
                       <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No output</p>
                     )}
                   </div>
-                )}
+                ))}
+
+                {/* EDITS — the file changes this task made, as diffs */}
+                {taskDetailTab === "edits" && (taskEdits.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 gap-1.5">
+                    <span className="text-[18px] opacity-30">✎</span>
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      {isRunning ? "No file edits yet…" : "This task made no file edits"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {/* Summary */}
+                    <div className="text-[10px] font-mono px-0.5" style={{ color: "var(--text-tertiary)" }}>
+                      {taskEdits.length} change{taskEdits.length === 1 ? "" : "s"} across {new Set(taskEdits.map(e => e.file)).size} file{new Set(taskEdits.map(e => e.file)).size === 1 ? "" : "s"}
+                    </div>
+                    {taskEdits.map((ed, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg overflow-hidden"
+                        style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
+                      >
+                        {/* Edit header */}
+                        <div
+                          className="flex items-center gap-2 px-2.5 py-1.5"
+                          style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                        >
+                          <span
+                            className="text-[8px] font-bold uppercase px-1.5 py-[1px] rounded-full shrink-0"
+                            style={{
+                              color: ed.kind === "write" ? "var(--accent-color)" : "var(--crt-amber)",
+                              background: ed.kind === "write" ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
+                              border: `1px solid ${ed.kind === "write" ? "color-mix(in srgb, var(--accent-color) 30%, transparent)" : "color-mix(in srgb, var(--crt-amber) 30%, transparent)"}`,
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            {ed.kind}
+                          </span>
+                          <span className="text-[11px] font-mono truncate flex-1" style={{ color: "var(--text-primary)" }} title={ed.file}>
+                            {ed.file}
+                          </span>
+                          {ed.kind === "edit" ? (
+                            <span className="text-[9px] font-mono shrink-0 flex items-center gap-1.5">
+                              {ed.added.length > 0 && <span style={{ color: "var(--accent-color)" }}>+{ed.added.length}</span>}
+                              {ed.removed.length > 0 && <span style={{ color: "var(--crt-red)" }}>−{ed.removed.length}</span>}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono shrink-0" style={{ color: "var(--accent-color)" }}>{ed.lineCount} lines</span>
+                          )}
+                        </div>
+                        {/* Diff body (edits only) */}
+                        {ed.kind === "edit" && (ed.removed.length > 0 || ed.added.length > 0) && (
+                          <pre className="m-0 px-2.5 py-1.5 text-[10.5px] leading-relaxed overflow-x-auto" style={{ fontFamily: "monospace" }}>
+                            {ed.removed.map((l, j) => (
+                              <span key={`r${j}`} style={{ color: "var(--crt-red)" }}>{"- " + l}{"\n"}</span>
+                            ))}
+                            {ed.added.map((l, j) => (
+                              <span key={`a${j}`} style={{ color: "var(--accent-color)" }}>{"+ " + l}{"\n"}</span>
+                            ))}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                {/* AUDIT — ordered trail of every tool action the task took */}
+                {taskDetailTab === "audit" && (taskAudit.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 gap-1.5">
+                    <span className="text-[18px] opacity-30">⊙</span>
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      {isRunning ? "No actions recorded yet…" : "No tool actions recorded for this task"}
+                    </p>
+                  </div>
+                ) : (() => {
+                  const META: Record<AuditEvent["type"], { icon: string; color: string; verb: string }> = {
+                    edit:   { icon: "✎", color: "var(--crt-amber)",   verb: "edit" },
+                    write:  { icon: "✚", color: "var(--accent-color)", verb: "write" },
+                    bash:   { icon: "$", color: "var(--crt-blue)",    verb: "bash" },
+                    read:   { icon: "◇", color: "var(--text-tertiary)", verb: "read" },
+                    search: { icon: "⌕", color: "var(--crt-amber)",   verb: "search" },
+                    task:   { icon: "→", color: "var(--text-secondary)", verb: "task" },
+                  };
+                  const counts = taskAudit.reduce((acc, ev) => { acc[ev.type] = (acc[ev.type] || 0) + 1; return acc; }, {} as Record<string, number>);
+                  return (
+                    <div className="space-y-2">
+                      {/* Summary chips */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {(Object.keys(META) as AuditEvent["type"][]).filter(t => counts[t]).map(t => (
+                          <span
+                            key={t}
+                            className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-[2px] rounded-full"
+                            style={{ color: META[t].color, background: `color-mix(in srgb, ${META[t].color} 10%, transparent)`, border: `1px solid color-mix(in srgb, ${META[t].color} 28%, transparent)` }}
+                          >
+                            <span style={{ fontWeight: "bold" }}>{META[t].icon}</span>
+                            {counts[t]} {META[t].verb}{counts[t] === 1 ? "" : "s"}
+                          </span>
+                        ))}
+                      </div>
+                      {/* Timeline */}
+                      <div className="space-y-px font-mono">
+                        {taskAudit.map((ev, i) => {
+                          const m = META[ev.type];
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-baseline gap-2 px-2 py-1 rounded"
+                              style={{ background: i % 2 === 0 ? "transparent" : "color-mix(in srgb, var(--bg-secondary) 50%, transparent)" }}
+                            >
+                              <span className="text-[10px] tabular-nums shrink-0 w-6 text-right opacity-40" style={{ color: "var(--text-tertiary)" }}>{i + 1}</span>
+                              <span className="text-[11px] shrink-0 w-3.5 text-center font-bold" style={{ color: m.color }} title={m.verb}>{m.icon}</span>
+                              <span className="text-[10.5px] truncate flex-1" style={{ color: "var(--text-secondary)" }} title={ev.label}>{ev.label}</span>
+                              {ev.detail && (
+                                <span className="text-[9.5px] truncate shrink-0 max-w-[40%] italic opacity-60" style={{ color: "var(--text-tertiary)" }} title={ev.detail}>{ev.detail}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })())}
 
                 {selectedJobData.error && (
                   <div className="mt-3 p-2.5 rounded-lg" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
@@ -5591,19 +5871,30 @@ export default function Home() {
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setSystemPromptOpen(o => !o)}
+                onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
                 className="text-[10px] font-bold uppercase px-2 py-[3px] rounded focus-ring inline-flex items-center gap-1.5"
-                style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}
+                style={systemPrompt.trim() ? {
+                  color: activeModelChip.color,
+                  letterSpacing: "0.06em",
+                  border: `1px solid ${activeModelChip.color}66`,
+                  background: `${activeModelChip.color}18`,
+                  boxShadow: `0 0 8px ${activeModelChip.color}33`,
+                } : { color: "var(--text-secondary)", letterSpacing: "0.06em" }}
                 title="Set a system prompt sent with every task"
               >
                 <span style={{ opacity: 0.7 }}>{systemPromptOpen ? "▾" : "▸"}</span>
                 SYSTEM PROMPT
                 {systemPrompt.trim() && (
                   <span
-                    className="inline-block w-1.5 h-1.5 rounded-full"
-                    style={{ background: activeModelChip.color, boxShadow: `0 0 5px ${activeModelChip.color}` }}
+                    className="inline-flex items-center gap-1"
                     title="A system prompt is active"
-                  />
+                  >
+                    <span
+                      className="inline-block w-1.5 h-1.5 rounded-full"
+                      style={{ background: activeModelChip.color, boxShadow: `0 0 5px ${activeModelChip.color}` }}
+                    />
+                    ACTIVE
+                  </span>
                 )}
               </button>
               {systemPromptOpen && (
@@ -5634,6 +5925,16 @@ export default function Home() {
                 </>
               )}
             </div>
+            {!systemPromptOpen && systemPrompt.trim() && (
+              <button
+                onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
+                className="block w-full mt-1 text-left text-[11px] truncate focus-ring rounded px-1"
+                style={{ color: "var(--text-tertiary)", fontFamily: "'JetBrains Mono', monospace" }}
+                title="Click to edit the active system prompt"
+              >
+                {systemPrompt.trim()}
+              </button>
+            )}
             {systemPromptOpen && (
               <textarea
                 value={systemPrompt}
@@ -5879,72 +6180,9 @@ export default function Home() {
     );
   };
 
-  const renderAppTab = () => {
-    // Gateway URL the user can copy/open for this agent. Caddy proxies the
-    // module path → the agent's app. Two cases:
-    //  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
-    //    explicit port): use the page origin verbatim — e.g.
-    //    https://modc2.com/claude. The :3000 gateway port is internal and
-    //    NOT publicly exposed, so appending it (the old behavior) produced a
-    //    dead "modc2.com:3000" link.
-    //  • LAN/dev (served on a non-standard port like :8823): the local
-    //    gateway listens on :3000, so point there — e.g.
-    //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
-    const modName = selectedModule || "claude";
-    const gatewayUrl = (() => {
-      if (typeof window === "undefined") return `http://localhost:3000/${modName}`;
-      const loc = window.location;
-      const behindPublicProxy =
-        loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
-      return behindPublicProxy
-        ? `${loc.origin}/${modName}`
-        : `http://${loc.hostname}:3000/${modName}`;
-    })();
+  const renderAppTab = (gatewayUrl: string) => {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* URL strip — copyable, click-to-open in new tab. Shown above
-            every APP view so phone users can grab the route. */}
-        {selectedModuleInfo?.app_url && (
-          <div
-            className="flex items-center gap-2 px-3 py-2 shrink-0"
-            style={{
-              borderBottom: "1px solid var(--border-color)",
-              background: "linear-gradient(180deg, var(--bg-tint), transparent)",
-            }}
-          >
-            <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
-            <button
-              onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
-              className="flex-1 font-mono text-[11px] truncate text-left transition-colors"
-              style={{
-                color: "var(--text-secondary)",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-color)",
-                borderRadius: 4,
-                padding: "4px 8px",
-                cursor: "pointer",
-              }}
-              title={`${gatewayUrl} — click to copy`}
-            >
-              {gatewayUrl}
-            </button>
-            <a
-              href={gatewayUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
-              style={{
-                color: "var(--crt-green)",
-                background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
-                textDecoration: "none",
-              }}
-              title="Open in new tab"
-            >
-              ↗
-            </a>
-          </div>
-        )}
         {/* App Content */}
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url ? (
@@ -6273,6 +6511,9 @@ export default function Home() {
       return res; // cancelled — let the caller show the server's sudo_required message
     }
   };
+  // Keep the ref current so earlier-declared callbacks (e.g. module process
+  // control) can invoke the latest authFetchSudo without a render-time TDZ.
+  authFetchSudoRef.current = authFetchSudo;
 
   // Prove ownership by signing, then store the minted session token.
   const authorizeTerminal = async () => {
@@ -6360,6 +6601,7 @@ export default function Home() {
         code: typeof data.code === "number" ? data.code : (res.ok ? 0 : 1),
         durationMs: Date.now() - start,
         pending: false,
+        nix: data.nix ?? null,
       } : e));
     } catch (err: any) {
       setTerminalHistory(h => h.map(e => e.id === id ? {
@@ -6444,7 +6686,8 @@ export default function Home() {
           {terminalHistory.length === 0 ? (
             <div style={{ color: "var(--text-tertiary)" }}>
               <div>{`# shell access in ${cwd}`}</div>
-              <div>{`# commands run via bash -c — owner-only, single-shot (no PTY).`}</div>
+              <div>{`# commands run via bash -lc — owner-only, single-shot (no PTY).`}</div>
+              <div>{`# if the module ships a flake.nix/shell.nix, commands auto-enter its nix env (⬢).`}</div>
               <div>{`# try: ls, cat config.json, git status, pwd`}</div>
               <div>{`# 'clear' wipes the scrollback.`}</div>
             </div>
@@ -6464,8 +6707,14 @@ export default function Home() {
                   {e.stderr && (
                     <pre className="m-0" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--crt-red)" }}>{e.stderr}</pre>
                   )}
-                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                    exit {e.code} · {e.durationMs}ms
+                  <div className="text-[10px] flex items-center gap-2" style={{ color: "var(--text-tertiary)" }}>
+                    <span>exit {e.code} · {e.durationMs}ms</span>
+                    {e.nix && (
+                      <span
+                        title={`ran inside the module's nix ${e.nix} environment`}
+                        style={{ color: "var(--crt-blue)" }}
+                      >⬢ nix:{e.nix}</span>
+                    )}
                   </div>
                 </>
               )}
@@ -6867,6 +7116,371 @@ export default function Home() {
     );
   };
 
+  // ── Dependency graph layout ─────────────────────────────────────────
+  // Lay modules out by the `deps` they declare in config.json. Edge A→B means
+  // "A depends on B"; dependents float above their dependencies. Modules with
+  // no edge in either direction are pulled out into an "isolated" strip.
+  const renderHubGraph = (
+    mods: typeof moduleList,
+    liveOf: (name: string) => boolean | null,
+    openModule: (m: typeof moduleList[0]) => void,
+  ) => {
+    const present = new Set(mods.map((m) => m.name));
+    const byName = new Map(mods.map((m) => [m.name, m] as const));
+    // Resolved dependency edges (only to modules that actually exist here).
+    const depsOf = (name: string): string[] =>
+      (byName.get(name)?.deps || []).filter((d) => d !== name && present.has(d));
+    // Who depends on a given module (reverse edges).
+    const dependents = new Map<string, string[]>();
+    for (const m of mods) {
+      for (const d of depsOf(m.name)) {
+        dependents.set(d, [...(dependents.get(d) || []), m.name]);
+      }
+    }
+    const hasEdge = (name: string) =>
+      depsOf(name).length > 0 || (dependents.get(name)?.length || 0) > 0;
+    const connected = mods.filter((m) => hasEdge(m.name));
+    const isolated = mods.filter((m) => !hasEdge(m.name));
+
+    // Layer = longest dependency chain below a node. Leaves (no deps) sit at
+    // depth 0; the deeper a node's dependency chain, the higher its layer.
+    // Memoized with a cycle guard so a bad config can't loop forever.
+    const depthCache = new Map<string, number>();
+    const depthOf = (name: string, stack: Set<string>): number => {
+      if (depthCache.has(name)) return depthCache.get(name)!;
+      if (stack.has(name)) return 0; // cycle — break it
+      stack.add(name);
+      const ds = depsOf(name);
+      const d = ds.length === 0 ? 0 : 1 + Math.max(...ds.map((x) => depthOf(x, stack)));
+      stack.delete(name);
+      depthCache.set(name, d);
+      return d;
+    };
+
+    const NODE_W = 156, NODE_H = 46, GAP_X = 30, GAP_Y = 72, PAD = 16;
+    const maxDepth = connected.reduce((mx, m) => Math.max(mx, depthOf(m.name, new Set())), 0);
+    // Bucket connected nodes by row (dependents on top → row 0).
+    const rows: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
+    for (const m of connected) {
+      const row = maxDepth - depthOf(m.name, new Set());
+      rows[row].push(m.name);
+    }
+    rows.forEach((r) => r.sort((a, b) => a.localeCompare(b)));
+    const widest = rows.reduce((mx, r) => Math.max(mx, r.length), 1);
+    const canvasW = widest * NODE_W + (widest - 1) * GAP_X + PAD * 2;
+    const canvasH = rows.length * NODE_H + (rows.length - 1) * GAP_Y + PAD * 2;
+    // Node center positions.
+    const pos = new Map<string, { x: number; y: number; cx: number; cy: number }>();
+    rows.forEach((r, ri) => {
+      const rowW = r.length * NODE_W + (r.length - 1) * GAP_X;
+      const startX = (canvasW - rowW) / 2;
+      r.forEach((name, i) => {
+        const x = startX + i * (NODE_W + GAP_X);
+        const y = PAD + ri * (NODE_H + GAP_Y);
+        pos.set(name, { x, y, cx: x + NODE_W / 2, cy: y + NODE_H / 2 });
+      });
+    });
+    const edges: Array<{ from: string; to: string }> = [];
+    for (const m of connected) for (const d of depsOf(m.name)) edges.push({ from: m.name, to: d });
+
+    const nodeColor = (name: string) =>
+      liveOf(name) === true ? "var(--crt-green)" : liveOf(name) === false ? "#888" : "var(--crt-amber)";
+
+    const NodeCard = ({ name, mini }: { name: string; mini?: boolean }) => {
+      const m = byName.get(name)!;
+      const live = liveOf(name);
+      const isSel = name === selectedModule;
+      const dot = live === true ? "var(--crt-green)" : live === false ? "#888" : "color-mix(in srgb, var(--crt-amber) 60%, transparent)";
+      return (
+        <button
+          onClick={() => openModule(m)}
+          className={`text-left border rounded transition-all flex flex-col justify-center group ${mini ? "px-2 py-1.5" : "px-3 py-2"}`}
+          style={{
+            width: mini ? undefined : NODE_W,
+            height: mini ? undefined : NODE_H,
+            borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)",
+            background: isSel ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "var(--bg-secondary, var(--bg-primary))",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 55%, transparent)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"; }}
+          title={m.description || name}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`shrink-0 ${live === true ? "led-pulse" : ""}`} style={{ color: dot, fontSize: "9px" }}>●</span>
+            <span className="font-code font-bold text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{name}</span>
+          </div>
+          {!mini && (depsOf(name).length > 0 || (dependents.get(name)?.length || 0) > 0) && (
+            <span className="text-[9px] font-code mt-0.5" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+              {depsOf(name).length > 0 ? `↑ ${depsOf(name).join(", ")}` : `${dependents.get(name)!.length} dependent${dependents.get(name)!.length === 1 ? "" : "s"}`}
+            </span>
+          )}
+        </button>
+      );
+    };
+
+    return (
+      <div className="flex flex-col gap-5">
+        {connected.length > 0 ? (
+          <div className="relative mx-auto" style={{ width: canvasW, height: canvasH }}>
+            <svg width={canvasW} height={canvasH} className="absolute inset-0 pointer-events-none" style={{ overflow: "visible" }}>
+              <defs>
+                <marker id="hub-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                  <path d="M0,0 L7,3.5 L0,7 Z" fill="color-mix(in srgb, var(--crt-green) 55%, transparent)" />
+                </marker>
+              </defs>
+              {edges.map((e, i) => {
+                const a = pos.get(e.from), b = pos.get(e.to);
+                if (!a || !b) return null;
+                // From the dependent's bottom to the dependency's top.
+                const x1 = a.cx, y1 = a.y + NODE_H, x2 = b.cx, y2 = b.y;
+                const my = (y1 + y2) / 2;
+                return (
+                  <path
+                    key={i}
+                    d={`M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`}
+                    fill="none"
+                    stroke="color-mix(in srgb, var(--crt-green) 35%, transparent)"
+                    strokeWidth={1.4}
+                    markerEnd="url(#hub-arrow)"
+                  />
+                );
+              })}
+            </svg>
+            {connected.map((m) => {
+              const p = pos.get(m.name)!;
+              return (
+                <div key={m.name} className="absolute" style={{ left: p.x, top: p.y }}>
+                  <NodeCard name={m.name} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center text-[12px] font-code py-6" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+            No dependency edges declared yet — add a <span className="text-crt-green">&quot;deps&quot;</span> array to a module&apos;s config.json.
+          </div>
+        )}
+
+        {isolated.length > 0 && (
+          <div className="border-t pt-4" style={{ borderColor: "var(--border-color)" }}>
+            <div className="text-[11px] font-code uppercase tracking-[0.14em] mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+              ○ isolated · {isolated.length}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isolated.map((m) => <NodeCard key={m.name} name={m.name} mini />)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Module hub ──────────────────────────────────────────────────────
+  // Landing grid of every real module. Click a card to load it for editing
+  // (same select flow as the header dropdown), with a live online/offline dot.
+  const renderHubView = () => {
+    const openModule = (m: typeof moduleList[0]) => {
+      resetModuleState(m);
+      setSelectedModule(m.name);
+      setSelectedModuleInfo(m);
+      setWorkDir(m.path);
+      fetchModuleConfig(m.name);
+      setSidebarView(getBestTab(m));
+    };
+
+    const q = hubSearch.trim().toLowerCase();
+    let mods = moduleList.filter(isRealModule);
+    if (q) {
+      mods = mods.filter(
+        (m) => m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q),
+      );
+    }
+    // Owner filter — distinct owners across all real modules. `ownerFilter`
+    // holds the selected owner address (set to the connected wallet for the
+    // "mine" pill), or null for "all". Reused from the header dropdown.
+    const me = address && address !== "local" ? address.toLowerCase() : null;
+    const hubOwners = [...new Set(
+      moduleList.filter(isRealModule).map((m) => m.owner).filter(Boolean) as string[],
+    )];
+    // The owner string (with config's original casing) that belongs to the
+    // connected wallet, so the "mine" pill matches m.owner exactly.
+    const myOwner = me ? hubOwners.find((o) => o.toLowerCase() === me) ?? null : null;
+    const otherOwners = hubOwners.filter((o) => o !== myOwner);
+    if (ownerFilter) {
+      mods = mods.filter((m) => m.owner === ownerFilter);
+    }
+    const liveOf = (name: string): boolean | null => {
+      const st = moduleStatuses[name];
+      if (!st) return null;
+      if (st.app === true || st.api === true) return true;
+      if (st.app === false || st.api === false) return false;
+      return null;
+    };
+    // Online modules first, then alphabetical — the things you're running
+    // float to the top.
+    mods = [...mods].sort((a, b) => {
+      const la = liveOf(a.name) === true ? 0 : 1;
+      const lb = liveOf(b.name) === true ? 0 : 1;
+      return la - lb || a.name.localeCompare(b.name);
+    });
+    const onlineCount = mods.filter((m) => liveOf(m.name) === true).length;
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Hub toolbar */}
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 shrink-0 flex-wrap"
+          style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-green) 4%, transparent)" }}
+        >
+          <span className="text-[14px] font-bold font-code text-crt-green" style={{ letterSpacing: "0.04em" }}>
+            ▦ HUB
+          </span>
+          <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
+            {mods.length} modules · <span className="text-crt-green">{onlineCount} online</span>
+          </span>
+          <input
+            type="text"
+            value={hubSearch}
+            onChange={(e) => setHubSearch(e.target.value)}
+            placeholder="filter modules…"
+            className="px-2.5 py-1 bg-transparent text-crt-green border border-crt-green/30 font-code outline-none text-[12px] rounded"
+            style={{ minWidth: "180px" }}
+          />
+          {/* Grid / dependency-graph layout toggle */}
+          <div className="flex items-center border rounded overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+            {([["grid", "▦ grid"], ["graph", "◆ graph"]] as const).map(([mode, label]) => {
+              const on = hubGraphMode === (mode === "graph");
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setHubGraphMode(mode === "graph")}
+                  className="text-[11px] font-code px-2.5 py-1 transition-colors"
+                  style={{
+                    color: on ? "var(--crt-green)" : "var(--text-tertiary)",
+                    background: on ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  }}
+                  title={mode === "graph" ? "Lay modules out by their config.json deps; modules with no edges float as isolated nodes." : "Card grid of every module."}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Owner filter — "all" / "mine" + a pill per other owner, so you can
+              browse everyone's modules or narrow to just yours. */}
+          {hubOwners.length > 1 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-code uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>owner:</span>
+              <button
+                onClick={() => setOwnerFilter(null)}
+                className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${!ownerFilter ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+              >all</button>
+              {myOwner && (
+                <button
+                  onClick={() => setOwnerFilter(ownerFilter === myOwner ? null : myOwner)}
+                  className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${ownerFilter === myOwner ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+                  title={myOwner}
+                >mine</button>
+              )}
+              {otherOwners.map((o) => (
+                <button
+                  key={o}
+                  onClick={() => setOwnerFilter(ownerFilter === o ? null : o)}
+                  className={`text-[11px] px-2 py-0.5 border rounded font-mono transition-colors ${ownerFilter === o ? "border-crt-blue/50 text-crt-blue bg-crt-blue/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+                  title={o}
+                >{o.slice(0, 6)}..{o.slice(-4)}</button>
+              ))}
+            </div>
+          )}
+          {/* Auto-restart-after-edit toggle */}
+          <button
+            onClick={() => setAutoRestartAfterEdit((v) => !v)}
+            className="ml-auto flex items-center gap-1.5 text-[11px] font-code px-2.5 py-1 border rounded transition-colors"
+            style={{
+              borderColor: autoRestartAfterEdit ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "var(--border-color)",
+              color: autoRestartAfterEdit ? "var(--crt-green)" : "var(--text-tertiary)",
+              background: autoRestartAfterEdit ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+            }}
+            title="When on, a module is restarted via pm2 as soon as an edit job targeting it completes, so changes go live."
+          >
+            <span>{autoRestartAfterEdit ? "●" : "○"}</span>
+            auto-restart after edit
+          </button>
+        </div>
+
+        {/* Module grid */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {mods.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+              <span className="text-[40px]" style={{ color: "var(--crt-green)", opacity: 0.15 }}>▦</span>
+              <span className="text-[13px] font-code" style={{ color: "var(--text-tertiary)" }}>
+                {moduleList.length ? "No modules match your filter." : "Loading modules…"}
+              </span>
+            </div>
+          ) : hubGraphMode ? (
+            renderHubGraph(mods, liveOf, openModule)
+          ) : (
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+            >
+              {mods.map((m) => {
+                const live = liveOf(m.name);
+                const isSel = m.name === selectedModule;
+                const dotColor = live === true ? "var(--crt-green)" : live === false ? "#888" : "color-mix(in srgb, var(--crt-amber) 60%, transparent)";
+                return (
+                  <button
+                    key={m.name}
+                    onClick={() => openModule(m)}
+                    className="text-left border rounded p-3 transition-all flex flex-col gap-2 group"
+                    style={{
+                      borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)",
+                      background: isSel ? "color-mix(in srgb, var(--crt-green) 7%, transparent)" : "var(--bg-secondary, transparent)",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 45%, transparent)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)"; }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`shrink-0 ${live === true ? "led-pulse" : ""}`}
+                          style={{ color: dotColor, fontSize: "10px" }}
+                          title={live === true ? "online" : live === false ? "offline" : "checking…"}
+                        >●</span>
+                        <span className="font-code font-bold text-[14px] truncate" style={{ color: "var(--text-primary)" }}>
+                          {m.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {(m.app_url || m.has_app_dir) && (
+                          <span className="text-[8px] px-1 py-0.5 border border-crt-blue/30 text-crt-blue/60 rounded-sm font-code">APP</span>
+                        )}
+                        {(m.api_url || m.has_api_dir || m.has_server_dir) && (
+                          <span className="text-[8px] px-1 py-0.5 border border-crt-amber/30 text-crt-amber/60 rounded-sm font-code">API</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-[11px] leading-snug font-code line-clamp-2 min-h-[28px]" style={{ color: "var(--text-tertiary)" }}>
+                      {m.description || <span style={{ opacity: 0.4 }}>{m.path.replace(/^.*\/mod\/orbit\//, "orbit/").replace(/^.*\/mod\/core\//, "core/")}</span>}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      {m.owner ? (
+                        <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.5 }} title={m.owner}>
+                          {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
+                        </span>
+                      ) : <span />}
+                      <span className="text-[10px] font-code text-crt-green opacity-0 group-hover:opacity-100 transition-opacity">edit →</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderProfileTab = () => {
     const cfg = effectiveConfig;
     const info = selectedModuleInfo;
@@ -6877,141 +7491,6 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto">
           {sidebarView === "overview" && (
             <div className="p-4 flex flex-col gap-4">
-
-              {/* Service status cards — API + APP side by side. Each is a
-                  pill-bordered tile in its own accent color (blue for API,
-                  green for APP) with a breathing dot, the URL on its own
-                  line in mono, and a single primary action that flips
-                  with state. The duplicate STOP/RESTART pair from QUICK
-                  ACTIONS was redundant — actions live here, on the thing
-                  they act on. */}
-              {(info?.api_url || info?.app_url) && (() => {
-                const ServiceTile = (props: {
-                  kind: "API" | "APP";
-                  glyph: string;
-                  accent: string;        // css var for the accent color
-                  url: string;
-                  running: boolean;
-                  busy: boolean;
-                  onStart: () => void;
-                  onStop: () => void;
-                  onRestart: () => void;
-                  onClickUrl?: () => void;
-                }) => {
-                  const stateColor = props.running ? "var(--crt-green)" : "var(--crt-red)";
-                  return (
-                    <div
-                      className="section-card"
-                      style={{ ['--card-accent' as any]: props.accent }}
-                    >
-                      <span className="section-card__bar" />
-                      <div className="pl-5 pr-4 py-3.5 flex flex-col gap-2.5">
-                        <div className="flex items-center justify-between">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">{props.glyph}</span>
-                            {props.kind}
-                          </div>
-                          <span
-                            className="status-pill"
-                            style={{ ['--pill-accent' as any]: stateColor }}
-                          >
-                            <span className={`status-pill__dot ${props.running ? "led-pulse" : ""}`} />
-                            {props.running ? "ONLINE" : "OFFLINE"}
-                          </span>
-                        </div>
-                        <button
-                          onClick={props.onClickUrl}
-                          disabled={!props.onClickUrl}
-                          className="text-left text-[12px] font-mono truncate transition-colors"
-                          style={{
-                            color: props.running ? "var(--text-secondary)" : "var(--text-tertiary)",
-                            cursor: props.onClickUrl ? "pointer" : "default",
-                            opacity: 0.95,
-                          }}
-                          title={props.url}
-                        >
-                          {props.url}
-                        </button>
-                        <div className="flex items-center gap-1.5">
-                          {props.running ? (
-                            <>
-                              <button
-                                onClick={props.onStop}
-                                disabled={props.busy}
-                                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
-                                style={{
-                                  border: "1px solid color-mix(in srgb, var(--crt-red) 35%, transparent)",
-                                  color: "var(--crt-red)",
-                                  background: "color-mix(in srgb, var(--crt-red) 8%, transparent)",
-                                }}
-                              >
-                                {props.busy ? "…" : "STOP"}
-                              </button>
-                              <button
-                                onClick={props.onRestart}
-                                disabled={props.busy}
-                                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
-                                style={{
-                                  border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
-                                  color: "var(--crt-amber)",
-                                  background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
-                                }}
-                              >
-                                {props.busy ? "…" : "RESTART"}
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={props.onStart}
-                              disabled={props.busy}
-                              className="text-[10px] px-3 py-1 rounded uppercase font-bold tracking-wider transition-all"
-                              style={{
-                                border: "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)",
-                                color: "var(--crt-green)",
-                                background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                              }}
-                            >
-                              {props.busy ? "…" : "START"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                };
-                return (
-                  <div className={`grid gap-3 ${info?.api_url && info?.app_url ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
-                    {info?.api_url && (
-                      <ServiceTile
-                        kind="API"
-                        glyph="⚡"
-                        accent="var(--crt-blue)"
-                        url={info.api_url}
-                        running={!!moduleRunning}
-                        busy={togglingApi}
-                        onStart={() => startProcess("api")}
-                        onStop={() => stopProcess("api")}
-                        onRestart={() => restartProcess("api")}
-                        onClickUrl={() => setSidebarView("api")}
-                      />
-                    )}
-                    {info?.app_url && (
-                      <ServiceTile
-                        kind="APP"
-                        glyph="◈"
-                        accent="var(--crt-green)"
-                        url={info.app_url}
-                        running={!!appRunning}
-                        busy={togglingApp}
-                        onStart={() => startProcess("app")}
-                        onStop={() => stopProcess("app")}
-                        onRestart={() => restartProcess("app")}
-                        onClickUrl={() => setSidebarView("app")}
-                      />
-                    )}
-                  </div>
-                );
-              })()}
 
               {/* Module Info — definition list on top, big stats grid on
                   bottom. Section header gets an accent bar + glyph so it
@@ -7096,9 +7575,12 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Whitelist — owner-managed list of EOAs allowed to sign in
-                  to this module. Backed by GET/POST/DELETE /whitelist on
-                  the Rust API; non-owners see read-only rows + a hint.
+              {/* Whitelist — owner-managed list of EOAs trusted to EDIT the
+                  orbit (sign in + owner-level edit access: host files,
+                  unsandboxed jobs, core/+orbit/ writes). Owner-only powers
+                  (whitelist mgmt, kill, delete/rename) stay with the owner.
+                  Backed by GET/POST/DELETE /whitelist on the Rust API;
+                  non-owners see read-only rows + a hint.
                   Owner gets a click-to-remove X per row and a 0x… input
                   with ADD. Always-visible: a new caller checking whether
                   they were granted access shouldn't need owner perms to
@@ -7127,7 +7609,7 @@ export default function Home() {
                 <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
                   {whitelist.length === 0 ? (
                     <div className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
-                      No addresses whitelisted yet. The configured owner is always allowed.
+                      No editors whitelisted yet. Whitelisted addresses get owner-level edit access to the orbit. The configured owner is always allowed.
                     </div>
                   ) : (
                     whitelist.map((addr) => {
@@ -7896,11 +8378,53 @@ export default function Home() {
   // both an app and an api; otherwise we render whichever exists.
   const renderAppApiTab = () => {
     const hasApp = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
-    const hasApi = !!(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints);
-    const sub: "app" | "api" = !hasApp ? "api" : !hasApi ? "app" : (sidebarView === "api" ? "api" : "app");
+    // App-only: the API explorer and its toggle were removed, so this tab
+    // always shows the live app.
+    const hasApi = false;
+    const sub: "app" | "api" = "app";
+    // Gateway URL the user can copy/open for this agent. Caddy proxies the
+    // module path → the agent's app. Two cases:
+    //  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
+    //    explicit port): use the page origin verbatim — e.g.
+    //    https://modc2.com/claude. The :3000 gateway port is internal and
+    //    NOT publicly exposed, so appending it (the old behavior) produced a
+    //    dead "modc2.com:3000" link.
+    //  • LAN/dev (served on a non-standard port like :8823): the local
+    //    gateway listens on :3000, so point there — e.g.
+    //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
+    const modName = selectedModule || "claude";
+    const gatewayUrl = (() => {
+      if (typeof window === "undefined") return `http://localhost:3000/${modName}`;
+      const loc = window.location;
+      const behindPublicProxy =
+        loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
+      return behindPublicProxy
+        ? `${loc.origin}/${modName}`
+        : `http://${loc.hostname}:3000/${modName}`;
+    })();
+    const showUrl = sub === "app" && !!selectedModuleInfo?.app_url;
+    const logsOpen = moduleLogsOpen !== null;
+    // Logs follow the active sub-view, so the APP/API toggle doubles as a
+    // "logs of each" switch: flip to APP → app logs, flip to API → api logs.
+    const openLogs = (which?: "app" | "api") => {
+      setModuleLogsOpen(which ?? sub);
+      setModuleLogsAutoRefresh(true);
+    };
+    const logsText = (() => {
+      const keys = Object.keys(moduleLogs);
+      const matchKey = keys.find((k) => k.toLowerCase().includes(sub));
+      return matchKey
+        ? moduleLogs[matchKey] || "(empty)"
+        : keys.length > 0
+          ? moduleLogs[keys[0]] || "(empty)"
+          : moduleLogsLoading
+            ? "Loading..."
+            : "(no logs found)";
+    })();
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {hasApp && hasApi && (
+        {/* Single control row: APP/API toggle + the copyable gateway URL + LOGS. */}
+        {(hasApp || hasApi) && (
           <div
             className="flex items-center gap-2 px-3 py-2 shrink-0"
             style={{
@@ -7908,36 +8432,94 @@ export default function Home() {
               background: "linear-gradient(180deg, var(--bg-tint), transparent)",
             }}
           >
-            <div className="inline-flex rounded-md overflow-hidden" style={{ border: "1px solid var(--border-color)" }}>
-              {([
-                { k: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" },
-                { k: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" },
-              ]).map((s, i) => {
-                const active = sub === s.k;
-                return (
-                  <button
-                    key={s.k}
-                    onClick={() => setSidebarView(s.k)}
-                    className="text-[11px] font-bold uppercase tracking-wider px-3.5 py-1.5 flex items-center gap-1.5 transition-all"
-                    style={{
-                      color: active ? s.color : "var(--text-tertiary)",
-                      background: active ? `color-mix(in srgb, ${s.color} 12%, transparent)` : "transparent",
-                      opacity: active ? 1 : 0.55,
-                      borderLeft: i === 0 ? "none" : "1px solid var(--border-color)",
-                    }}
-                    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.color = s.color; } }}
-                    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.color = "var(--text-tertiary)"; } }}
-                  >
-                    <span className="text-[12px]">{s.icon}</span>
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+            {/* URL strip — copyable, click-to-open in new tab. Lets phone
+                users grab the route without leaving the APP view. */}
+            {showUrl && (
+              <>
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+                  className="flex-1 min-w-0 font-mono text-[11px] truncate text-left transition-colors"
+                  style={{
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 4,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                  }}
+                  title={`${gatewayUrl} — click to copy`}
+                >
+                  {gatewayUrl}
+                </button>
+                <a
+                  href={gatewayUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                  style={{
+                    color: "var(--crt-green)",
+                    background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                    textDecoration: "none",
+                  }}
+                  title="Open in new tab"
+                >
+                  ↗
+                </a>
+              </>
+            )}
+            {/* LOGS toggle — shows the live pm2 logs for the active service
+                (APP or API). The APP/API toggle above switches which. */}
+            <button
+              onClick={() => (logsOpen ? setModuleLogsOpen(null) : openLogs())}
+              className={`text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0 ${showUrl ? "" : "ml-auto"}`}
+              style={{
+                color: logsOpen ? "var(--crt-amber)" : "var(--text-tertiary)",
+                background: logsOpen ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "transparent",
+                border: `1px solid ${logsOpen ? "color-mix(in srgb, var(--crt-amber) 40%, transparent)" : "var(--border-color)"}`,
+              }}
+              title={`Show ${sub.toUpperCase()} logs`}
+            >
+              {logsOpen ? "✕ LOGS" : "▤ LOGS"}
+            </button>
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          {sub === "api" ? renderApiTab() : renderAppTab()}
+          {logsOpen ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div
+                className="flex items-center justify-between px-3 py-1.5 shrink-0"
+                style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-amber) 4%, transparent)" }}
+              >
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--crt-amber)" }}>
+                  {sub.toUpperCase()} LOGS{moduleLogsAutoRefresh ? " · LIVE" : ""}
+                </span>
+                <button
+                  onClick={fetchModuleLogs}
+                  className="text-[9px] font-bold uppercase tracking-wider"
+                  style={{ color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
+                  title="Refresh now"
+                >
+                  {moduleLogsLoading ? "…" : "↻ REFRESH"}
+                </button>
+              </div>
+              <pre
+                className="flex-1 overflow-auto px-3 py-2 m-0 text-[11px]"
+                style={{
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-code, monospace)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  lineHeight: 1.5,
+                  background: "var(--bg-primary)",
+                }}
+                ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+              >
+                {logsText}
+              </pre>
+            </div>
+          ) : renderAppTab(gatewayUrl)}
         </div>
       </div>
     );
@@ -8487,26 +9069,23 @@ export default function Home() {
               prevents the address chip from getting pushed off-screen. */}
           <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
           {([
+            { key: "hub" as const, label: "HUB", icon: "▦", color: "var(--crt-green)" },
             { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
-            // APP + API live under one merged tab; the tab content has a
-            // segmented toggle to flip between the live app and the API
-            // explorer. `activeKeys` keeps it highlighted for either
-            // sub-view; `target` is the sub-view it opens on click.
-            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir || selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints)
+            // App-only tab — the API explorer was removed. Shown whenever the
+            // module exposes an app.
+            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
               ? [{
                   key: "app" as const,
-                  label: (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
-                    ? ((selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints) ? "APP / API" : "APP")
-                    : "API",
+                  label: "APP",
                   icon: "◈",
                   color: "var(--crt-green)",
                   activeKeys: ["app", "api"],
-                  target: (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir) ? "app" : "api",
+                  target: "app",
                 }]
               : []),
-            { key: "files" as const, label: "FILES", icon: "◇", color: "var(--text-primary)" },
-            { key: "versions" as const, label: "VERSIONS", icon: "⌬", color: "var(--crt-purple, #c084fc)" },
-            ...(isOwner ? [{ key: "terminal" as const, label: "TERMINAL", icon: "▶_", color: "var(--crt-blue)" }] : []),
+            // CODE merges the file browser and the version history into one
+            // tab (the sub-toggle inside picks between Files and Versions).
+            { key: "files" as const, label: "CODE", icon: "◇", color: "var(--text-primary)" },
           ]).map((tab) => {
             const t = tab as any;
             const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
@@ -8545,6 +9124,10 @@ export default function Home() {
 
           {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            {/* Single identity chip — owner + user are one panel. The module
+                owner's identity (for non-owner viewers) lives inside the
+                profile dropdown below, so the top-right corner never shows a
+                separate OWNER chip alongside the user chip. */}
             {/* User profile chip — when a wallet is connected, clicking
                 pops out the full wallet sidebar (mirrors the AGENT
                 toggle pattern). For local/no-wallet sessions it opens
@@ -8553,29 +9136,55 @@ export default function Home() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (address && address !== "local" && walletType) {
-                    setShowWalletSidebar(o => !o);
+                  // No session yet — this chip reads "SIGN IN" and toggles the
+                  // connect-wallet drawer instead of the profile dropdown.
+                  if (!token) {
+                    setSignInOpen(o => !o);
+                    return;
+                  }
+                  // For the owner, this single chip is also the identity chip, so
+                  // open the dropdown (it carries both owner-panel + wallet tabs).
+                  if (!isOwner && address && address !== "local" && walletType) {
+                    setAccountTab("wallet");
+                    setShowOwnerSidebar(o => !o);
                   } else {
                     setProfileMenuOpen(o => !o);
                   }
                 }}
                 className="text-[12px] font-bold font-mono px-2 py-1 transition-all flex items-center gap-1.5"
-                style={{
+                style={isOwner ? {
                   color: "var(--crt-green)",
-                  opacity: (showWalletSidebar || profileMenuOpen) ? 1 : 0.5,
+                  background: profileMenuOpen
+                    ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+                    : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
                   borderRadius: 4,
-                  background: (showWalletSidebar || profileMenuOpen) ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                  letterSpacing: "0.02em",
+                } : {
+                  color: "var(--crt-green)",
+                  opacity: ((showOwnerSidebar && accountTab === "wallet") || profileMenuOpen) ? 1 : 0.5,
+                  borderRadius: 4,
+                  background: ((showOwnerSidebar && accountTab === "wallet") || profileMenuOpen) ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
                 }}
-                title={address && address !== "local" && walletType
-                  ? (showWalletSidebar ? "Close wallet panel" : "Open wallet panel")
-                  : (address ? `Profile: ${address}` : "Sign in")}
-                aria-expanded={address && address !== "local" && walletType ? showWalletSidebar : profileMenuOpen}
-                aria-haspopup={address && address !== "local" && walletType ? undefined : "menu"}
+                title={isOwner
+                  ? (profileMenuOpen ? "Close menu" : "Owner — open menu")
+                  : (address && address !== "local" && walletType
+                    ? ((showOwnerSidebar && accountTab === "wallet") ? "Close wallet panel" : "Open wallet panel")
+                    : (address ? `Profile: ${address}` : "Sign in"))}
+                aria-expanded={isOwner ? profileMenuOpen : (address && address !== "local" && walletType ? (showOwnerSidebar && accountTab === "wallet") : profileMenuOpen)}
+                aria-haspopup={isOwner || !(address && address !== "local" && walletType) ? "menu" : undefined}
               >
+                {isOwner && (
+                  <span
+                    className="shrink-0 inline-block rounded-full"
+                    style={{ width: "6px", height: "6px", background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }}
+                  />
+                )}
+                {isOwner && <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>}
                 {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
                 <span className="text-[9px]" style={{ opacity: 0.6 }}>
-                  {address && address !== "local" && walletType
-                    ? (showWalletSidebar ? "◨" : "◧")
+                  {!isOwner && address && address !== "local" && walletType
+                    ? ((showOwnerSidebar && accountTab === "wallet") ? "◨" : "◧")
                     : (profileMenuOpen ? "▴" : "▾")}
                 </span>
               </button>
@@ -8658,7 +9267,8 @@ export default function Home() {
                     <button
                       onClick={() => {
                         setProfileMenuOpen(false);
-                        setShowWalletSidebar(true);
+                        setAccountTab("wallet");
+                        setShowOwnerSidebar(true);
                       }}
                       className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
                       style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
@@ -8672,6 +9282,7 @@ export default function Home() {
                   <button
                     onClick={() => {
                       setProfileMenuOpen(false);
+                      setAccountTab("owner");
                       setShowOwnerSidebar(v => !v);
                     }}
                     className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
@@ -8679,11 +9290,21 @@ export default function Home() {
                     onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
                     onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                   >
-                    <span className="flex items-center gap-2">
-                      <span style={{ color: "var(--crt-amber)" }}>◈</span>
-                      {showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
+                    <span className="flex flex-col min-w-0">
+                      <span className="flex items-center gap-2">
+                        <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                        {showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
+                      </span>
+                      {/* For non-owner viewers, show the module owner address
+                          here so the identity from the old standalone chip
+                          isn't lost now that everything lives in one panel. */}
+                      {!isOwner && effectiveConfig?.owner && (
+                        <span className="font-mono text-[10px] mt-0.5 ml-[1.1rem]" style={{ color: "var(--text-tertiary)" }}>
+                          {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
+                        </span>
+                      )}
                     </span>
-                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{showOwnerSidebar ? "✕" : "↗"}</span>
+                    <span className="text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>{showOwnerSidebar ? "✕" : "↗"}</span>
                   </button>
                   {address ? (
                     <button
@@ -8799,7 +9420,9 @@ export default function Home() {
           className="flex-1 flex flex-col overflow-hidden min-w-0"
           style={{ background: "var(--bg-primary)" }}
         >
-            {sidebarView === "overview" ? (
+            {sidebarView === "hub" ? (
+              renderHubView()
+            ) : sidebarView === "overview" ? (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderProfileTab()}
               </div>
@@ -8811,10 +9434,6 @@ export default function Home() {
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderLogsTab()}
               </div>
-            ) : sidebarView === "terminal" ? (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {renderTerminalTab()}
-              </div>
             ) : sidebarView === "files" ? (
               filesPanelFloating ? (
                 <div className="flex-1 flex flex-col overflow-hidden">
@@ -8822,30 +9441,63 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  {renderDirectoryTab()}
+                  {/* Sub-toggle: file browser vs. version history, both folded
+                      into the merged CODE tab. */}
+                  <div
+                    className="flex items-center gap-1 px-3 py-1.5 shrink-0"
+                    style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                  >
+                    {([
+                      { k: "files" as const, label: "Files", icon: "◇" },
+                      { k: "versions" as const, label: "Versions", icon: "⌬" },
+                    ]).map((s) => {
+                      const on = codeView === s.k;
+                      return (
+                        <button
+                          key={s.k}
+                          onClick={() => setCodeView(s.k)}
+                          className="text-[13px] px-2.5 py-1 border transition-all flex items-center gap-1.5 font-code uppercase"
+                          style={{
+                            letterSpacing: "0.02em",
+                            color: on ? "var(--text-primary)" : "var(--text-tertiary)",
+                            borderColor: on ? "var(--crt-green)" : "transparent",
+                            background: on ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                            opacity: on ? 1 : 0.5,
+                          }}
+                        >
+                          <span className="text-[12px]">{s.icon}</span>
+                          {s.label}
+                          {s.k === "versions" && agentVersions.length > 0 && (
+                            <span className="text-[11px] opacity-60">{agentVersions.length}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {codeView === "versions" ? (
+                    selectedModule ? (
+                      <VersionsPanel
+                        apiBase={apiUrl}
+                        module={selectedModule}
+                        authHeader={token ? { Authorization: `Bearer ${token}` } : undefined}
+                        onForked={(m) => setSelectedModule(m)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                        <span className="text-[48px]" style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.15 }}>⌬</span>
+                        <span className="text-[14px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>
+                          No module selected
+                        </span>
+                        <p className="text-[13px] text-center max-w-xs" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                          Pick a module to see its snapshot history and on-chain registry CIDs.
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    renderDirectoryTab()
+                  )}
                 </div>
               )
-            ) : sidebarView === "versions" ? (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {selectedModule ? (
-                  <VersionsPanel
-                    apiBase={apiUrl}
-                    module={selectedModule}
-                    authHeader={token ? { Authorization: `Bearer ${token}` } : undefined}
-                    onForked={(m) => setSelectedModule(m)}
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
-                    <span className="text-[48px]" style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.15 }}>⌬</span>
-                    <span className="text-[14px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>
-                      No module selected
-                    </span>
-                    <p className="text-[13px] text-center max-w-xs" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                      Pick a module to see its snapshot history and on-chain registry CIDs.
-                    </p>
-                  </div>
-                )}
-              </div>
             ) : (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderProfileTab()}
@@ -8853,100 +9505,26 @@ export default function Home() {
             )}
         </div>
 
-        {/* ── Right Sidebar: Wallet ────────────────────────────────────
-            Mirrors the AGENT sidebar pattern: flex sibling on desktop
-            (pushes main content, drag-to-resize on the left edge),
-            fullscreen overlay on mobile. */}
-        {isMobile && showWalletSidebar && address && address !== "local" && walletType && (
+        {/* Auto-restart toast — surfaces the post-edit pm2 restart from any view */}
+        {restartNotice && (
           <div
-            onClick={() => setShowWalletSidebar(false)}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[120] px-4 py-2 rounded border font-code text-[12px]"
             style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.45)",
-              backdropFilter: "blur(2px)",
-              zIndex: 60,
+              borderColor: "color-mix(in srgb, var(--crt-green) 45%, transparent)",
+              background: "var(--bg-primary)",
+              color: "var(--crt-green)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
             }}
-            aria-label="Close wallet panel"
-          />
-        )}
-        {address && address !== "local" && walletType && (
-          <div
-            className="flex flex-col overflow-hidden"
-            style={
-              isMobile
-                ? {
-                    position: showWalletSidebar ? "fixed" : "static",
-                    inset: showWalletSidebar ? 0 : "auto",
-                    width: showWalletSidebar ? "100vw" : "0px",
-                    height: showWalletSidebar ? "100dvh" : "0px",
-                    maxWidth: "100vw",
-                    background: "var(--bg-primary)",
-                    zIndex: 70,
-                    boxShadow: showWalletSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
-                    transition: "none",
-                  }
-                : {
-                    position: "relative",
-                    width: showWalletSidebar ? `${walletSidebarWidth}px` : "0px",
-                    minWidth: showWalletSidebar ? "320px" : "0px",
-                    maxWidth: "100%",
-                    flexShrink: 0,
-                    background: "var(--bg-primary)",
-                    borderLeft: showWalletSidebar ? "1px solid rgba(59,130,246,0.30)" : "none",
-                    boxShadow: showWalletSidebar
-                      ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(59,130,246,0.10), 0 0 60px -20px rgba(59,130,246,0.25)"
-                      : "none",
-                    transition: isWalletSidebarDragging ? "none" : "width 0.25s ease",
-                  }
-            }
           >
-            {/* Drag handle on the LEFT edge to resize the sidebar */}
-            {!isMobile && showWalletSidebar && (
-              <div
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setIsWalletSidebarDragging(true);
-                }}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  bottom: 0,
-                  left: -3,
-                  width: 6,
-                  cursor: "col-resize",
-                  zIndex: 1,
-                  background: isWalletSidebarDragging ? "rgba(59,130,246,0.40)" : "transparent",
-                  transition: "background 0.15s ease",
-                }}
-                title="Drag to resize"
-              />
-            )}
-            {showWalletSidebar && (
-              <WalletModal
-                address={address}
-                walletType={walletType}
-                onClose={() => setShowWalletSidebar(false)}
-                onDisconnect={() => {
-                  setShowWalletSidebar(false);
-                  disconnect();
-                }}
-                inline={true}
-                isOwner={isOwner}
-                onNetworkChange={() => {
-                  const ethereum = (window as any).ethereum;
-                  if (ethereum) {
-                    ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
-                      setCurrentChainId(parseInt(cid, 16));
-                    }).catch(() => {});
-                  }
-                }}
-              />
-            )}
+            {restartNotice}
           </div>
         )}
 
-        {/* ── Right Sidebar: Owner ─────────────────────────────────────
+        {/* The wallet sidebar is no longer a separate panel — its UI is now
+            embedded as the "Wallet" tab inside the merged account sidebar
+            below (see WalletModal embedded render). */}
+
+        {/* ── Right Sidebar: Account (Owner + Wallet) ──────────────────
             Mirrors wallet pattern — flex sibling on desktop (pushes main
             content, drag-to-resize on left edge), fullscreen overlay on
             phone. Sits at the far right when both wallet and owner are
@@ -9019,6 +9597,10 @@ export default function Home() {
             const cfgOwner: string | null = cfg?.owner || null;
             const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
             const moduleInfo = selectedModuleInfo;
+            // The merged panel shows the wallet section only for real wallet
+            // sessions (not local/password-less). Without one, only the owner
+            // controls render.
+            const hasWallet = !!(address && address !== "local" && walletType);
             return (
               <div className="flex flex-col h-full overflow-hidden">
                 {/* Header */}
@@ -9027,13 +9609,15 @@ export default function Home() {
                   style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span style={{ fontSize: 14, color: "var(--crt-amber)" }}>◈</span>
+                    <span style={{ fontSize: 14, color: "var(--crt-amber)" }}>
+                      ◈
+                    </span>
                     <div className="flex flex-col min-w-0">
                       <span
                         className="text-[12px] font-bold uppercase tracking-[0.12em] truncate leading-tight"
                         style={{ color: "var(--text-secondary)" }}
                       >
-                        Owner
+                        Account
                       </span>
                       {selectedModule && (
                         <span
@@ -9080,14 +9664,59 @@ export default function Home() {
                       e.currentTarget.style.borderColor = "transparent";
                       e.currentTarget.style.background = "transparent";
                     }}
-                    title="Close owner panel"
+                    title="Close panel"
                   >
                     ✕
                   </button>
                 </div>
 
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                {/* Merged account body — one continuous scroll. The wallet view
+                    (for real wallet sessions) flows directly above the owner
+                    controls; there is no longer an Owner/Wallet tab toggle. */}
+                <div className="flex-1 overflow-y-auto flex flex-col">
+                {hasWallet && (
+                  <>
+                    <div
+                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      <span style={{ color: "var(--crt-green)" }}>◇</span>
+                      Wallet
+                    </div>
+                    {/* Embedded wallet view in flow mode — its own header/scroll
+                        are suppressed so it shares this panel's single scroll. */}
+                    <WalletModal
+                      address={address}
+                      walletType={walletType}
+                      inline
+                      embedded
+                      flow
+                      isOwner={isOwner}
+                      ownerAddress={cfgOwner}
+                      onClose={() => setShowOwnerSidebar(false)}
+                      onDisconnect={() => {
+                        setShowOwnerSidebar(false);
+                        disconnect();
+                      }}
+                      onNetworkChange={() => {
+                        const ethereum = (window as any).ethereum;
+                        if (ethereum) {
+                          ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
+                            setCurrentChainId(parseInt(cid, 16));
+                          }).catch(() => {});
+                        }
+                      }}
+                    />
+                    <div
+                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                      style={{ color: "var(--text-tertiary)", borderTop: `1px solid ${subtleBorder}` }}
+                    >
+                      <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                      Owner
+                    </div>
+                  </>
+                )}
+                <div className="p-4 flex flex-col gap-3">
                   {/* Owner identity — gradient avatar derived from the address;
                       the whole row is click-to-copy */}
                   {cfgOwner && (() => {
@@ -9250,7 +9879,7 @@ export default function Home() {
                     <div className="section-card__body flex flex-col gap-2">
                       {whitelist.length === 0 ? (
                         <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
-                          No addresses whitelisted yet. The configured owner is always allowed.
+                          No editors whitelisted yet. Whitelisted addresses get owner-level edit access to the orbit. The configured owner is always allowed.
                         </span>
                       ) : (
                         <div
@@ -9387,46 +10016,6 @@ export default function Home() {
                         <button
                           onClick={() => {
                             setShowOwnerSidebar(false);
-                            setSidebarView("terminal");
-                          }}
-                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors group"
-                          style={{
-                            borderColor: "var(--border-color)",
-                            background: "var(--bg-secondary)",
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-amber) 8%, transparent)";
-                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 30%, var(--border-color))";
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = "var(--bg-secondary)";
-                            e.currentTarget.style.borderColor = "var(--border-color)";
-                          }}
-                        >
-                          <span
-                            className="flex items-center justify-center shrink-0 font-mono text-[10px] rounded-md"
-                            style={{
-                              width: 26,
-                              height: 26,
-                              color: "var(--crt-amber)",
-                              background: "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--crt-amber) 25%, transparent)",
-                            }}
-                            aria-hidden
-                          >
-                            {">_"}
-                          </span>
-                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                            <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Open terminal</span>
-                            <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
-                              Shell session in this module
-                            </span>
-                          </span>
-                          <span className="text-[11px] shrink-0" style={{ color: "var(--text-tertiary)" }}>↗</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowOwnerSidebar(false);
                             setShowKillDialog(true);
                           }}
                           className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
@@ -9527,6 +10116,7 @@ export default function Home() {
                     owner controls
                   </div>
                 </div>
+                </div>
               </div>
             );
           })()}
@@ -9619,95 +10209,6 @@ export default function Home() {
       )}
 
       {/* ── Status Bar ───────────────────────────────────────────── */}
-      <footer
-        className="flex items-center justify-end gap-2 px-3 sm:px-5 py-1 flex-wrap"
-        style={{
-          background: "var(--bg-secondary)",
-          borderTop: "1px solid var(--border-color)",
-        }}
-      >
-        {/* Owner chip — module owner identity + owner panel toggle */}
-        {selectedModule && effectiveConfig?.owner && (
-          <button
-            className="text-[12px] px-2 py-0.5 mr-auto font-mono transition-all cursor-pointer flex items-center gap-1.5"
-            title={showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowOwnerSidebar(o => !o);
-            }}
-            style={{
-              color: "var(--crt-green)",
-              background: showOwnerSidebar
-                ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
-                : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
-              borderRadius: "4px",
-              letterSpacing: "0.02em",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 16%, transparent)")}
-            onMouseLeave={e => (e.currentTarget.style.background = showOwnerSidebar
-              ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
-              : "color-mix(in srgb, var(--crt-green) 8%, transparent)")}
-            aria-expanded={showOwnerSidebar}
-          >
-            <span
-              className="shrink-0 inline-block rounded-full"
-              style={{
-                width: "6px",
-                height: "6px",
-                background: "var(--crt-green)",
-                boxShadow: "0 0 6px var(--crt-green)",
-              }}
-            />
-            <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>
-            {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
-            <span className="text-[9px]" style={{ opacity: 0.6 }}>
-              {showOwnerSidebar ? "◨" : "◧"}
-            </span>
-          </button>
-        )}
-        <div className="flex items-center gap-3">
-          {/* Versions (mod-protocol snapshot/fork/restore) */}
-          <button
-            onClick={() => setShowVersions(true)}
-            className="pixel-btn text-[13px] py-0.5 px-2"
-            style={{
-              background: "transparent",
-              color: "var(--accent-color)",
-              border: "1px solid var(--accent-color)",
-            }}
-            title="Versions · snapshot / fork / restore via mod protocol"
-            disabled={!selectedModule}
-          >
-            VERSIONS
-          </button>
-          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
-            │
-          </span>
-          {/* Theme toggle — dark ⇄ light only */}
-          <button
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            className="pixel-btn text-[13px] py-0.5 px-2"
-            style={{
-              background: "var(--accent-color)",
-              color: isLight ? "#fff" : "#000",
-            }}
-            title={`Switch to ${theme === "light" ? "DARK" : "LIGHT"} mode`}
-          >
-            {theme === "light" ? "LIGHT" : "DARK"}
-          </button>
-          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
-            │
-          </span>
-          <span
-            className="text-[13px]"
-            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-          >
-            {new Date().toLocaleTimeString()}
-          </span>
-        </div>
-      </footer>
-
       {/* Kill Process Dialog (Cmd+K) — owner-only */}
       {showKillDialog && isOwner && (
         <div style={{
@@ -9803,6 +10304,42 @@ export default function Home() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Sign-in drawer — connect a wallet when there's no session. Lives over
+          the hub as a right-side panel (the hub stays visible behind it)
+          instead of the old full-screen sign-in takeover. */}
+      {!token && signInOpen && (
+        <div
+          className="fixed top-0 right-0 h-full z-[150] flex flex-col"
+          style={{
+            width: 360,
+            maxWidth: "100vw",
+            borderLeft: `1px solid ${subtleBorder}`,
+            boxShadow: "-8px 0 32px rgba(0,0,0,0.45)",
+          }}
+        >
+          {renderConnectPanel()}
+        </div>
+      )}
+      {/* Collapsed tab to re-open the drawer after it's been dismissed while
+          still signed out. */}
+      {!token && !signInOpen && (
+        <button
+          onClick={() => setSignInOpen(true)}
+          className="fixed top-1/2 right-0 -translate-y-1/2 z-[150] px-2 py-3 text-[11px] font-mono tracking-wider"
+          style={{
+            writingMode: "vertical-rl",
+            background: "var(--bg-secondary)",
+            color: "var(--crt-amber)",
+            border: `1px solid ${subtleBorder}`,
+            borderRight: "none",
+            borderRadius: "6px 0 0 6px",
+          }}
+          title="Sign in"
+        >
+          SIGN IN
+        </button>
       )}
 
       {/* Wallet Modal */}

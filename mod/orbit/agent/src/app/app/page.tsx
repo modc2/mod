@@ -41,7 +41,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskEntry[]>([])
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>('tasks')
+  const [activeTab, setActiveTab] = useState<Tab>('output')
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
   const [composeFocused, setComposeFocused] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -54,8 +54,26 @@ export default function Home() {
   const [chain, setChain] = useState<ChainStep[]>([])
   const [chainMode, setChainMode] = useState(false)
   const [showChainPresets, setShowChainPresets] = useState(false)
+  const [showChats, setShowChats] = useState(false)
   const [freeMode, setFreeMode] = useState(false)
   const [showCreateAgent, setShowCreateAgent] = useState(false)
+
+  // provider + model selection
+  type ProviderInfo = { key: string; models: string[]; default_model: string }
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [provider, setProvider] = useState<string>('openrouter')
+  const [model, setModel] = useState<string>('')
+  const [owner, setOwner] = useState<string | null>(null)
+
+  const providerModels = providers.find(p => p.key === provider)?.models || []
+
+  const onProviderChange = (p: string) => {
+    setProvider(p)
+    localStorage.setItem('agent_provider', p)
+    const def = providers.find(x => x.key === p)?.default_model || ''
+    setModel(def)
+    localStorage.setItem('agent_model', def)
+  }
 
   // layout mode: sidebar (split), fullscreen (agent only), minimized (hidden)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('sidebar')
@@ -156,6 +174,25 @@ export default function Home() {
       .then(d => { setSkills(d.schemas || {}); setApiStatus('ok') })
       .catch(() => setApiStatus('down'))
     fetchAgents()
+    // providers + models for the selector
+    fetch(`${API_URL}/providers`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => {
+        const list: ProviderInfo[] = d.providers || []
+        setProviders(list)
+        const savedP = localStorage.getItem('agent_provider')
+        const savedM = localStorage.getItem('agent_model')
+        const p = (savedP && list.find(x => x.key === savedP)) ? savedP : (d.default || list[0]?.key || 'openrouter')
+        setProvider(p)
+        const pd = list.find(x => x.key === p)
+        setModel(savedM || pd?.default_model || '')
+      })
+      .catch(() => {})
+    // owner / user info
+    fetch(`${API_URL}/owner`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => setOwner(d.owner || null))
+      .catch(() => {})
     const saved = localStorage.getItem('agent_type')
     if (saved) setAgentType(saved)
     const savedFree = localStorage.getItem('agent_free')
@@ -247,6 +284,8 @@ export default function Home() {
       const body: any = { query: q }
       if (isChain) body.chain = chain
       if (agentType && agentType !== 'default') body.agent_type = agentType
+      if (provider) body.provider = provider
+      if (model) body.model = model
       if (freeMode) body.free = true
 
       const controller = new AbortController()
@@ -344,7 +383,7 @@ export default function Home() {
     if (!selectedTask) return
     setTasks(t => t.filter(tk => tk.id !== selectedTask))
     setSelectedTask(tasks.length > 1 ? tasks.find(t => t.id !== selectedTask)?.id || null : null)
-    setActiveTab('tasks')
+    setActiveTab('output')
     setViewingFile(null)
   }
 
@@ -415,32 +454,62 @@ export default function Home() {
     return map[action] || { bg: 'bg-gray-500/15 border-gray-500/25', text: 'text-gray-400' }
   }
 
-  // --- Sidebar content (tasks list + compose) ---
+  // provider + model selectors (used in both sidebar and fullscreen bars)
+  const modelControls = (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <select
+        value={provider}
+        onChange={(e) => onProviderChange(e.target.value)}
+        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors shrink-0"
+        title="LLM provider"
+      >
+        {(providers.length ? providers.map(p => p.key) : ['openrouter', 'venice']).map(k => (
+          <option key={k} value={k} className="bg-[#111]">{k}</option>
+        ))}
+      </select>
+      <select
+        value={model}
+        onChange={(e) => { setModel(e.target.value); localStorage.setItem('agent_model', e.target.value) }}
+        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0"
+        style={{ maxWidth: '190px' }}
+        title="Model"
+      >
+        {(model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => (
+          <option key={mn} value={mn} className="bg-[#111]">{mn}</option>
+        ))}
+        {providerModels.length === 0 && !model && <option value="" className="bg-[#111]">default</option>}
+      </select>
+    </div>
+  )
+
+  // --- Compose bar (agent prompt) — rendered at the bottom of the sidebar ---
+  const composeBar = (
+    <div className={`border-t border-white/[0.06] px-4 py-3 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
+      <div className="flex gap-2 items-end">
+        <textarea
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setComposeFocused(true)}
+          onBlur={() => setComposeFocused(false)}
+          placeholder={chainMode ? 'Main query for chain...' : `Ask ${currentAgentDef?.label || 'agent'}...`}
+          rows={2}
+          className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed"
+          disabled={loading}
+        />
+        <button onClick={run} disabled={loading || !query.trim() || apiStatus === 'down'}
+          className="text-sm bg-blue-600/80 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-md px-4 py-2 transition font-medium shrink-0"
+          title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
+          Run
+        </button>
+      </div>
+    </div>
+  )
+
+  // --- Sidebar content (conversations + compose + user info) ---
   const sidebarContent = (
     <div className="flex flex-col h-full">
-      {/* compose area */}
-      <div className={`border-b border-white/[0.06] px-4 py-3 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setComposeFocused(true)}
-            onBlur={() => setComposeFocused(false)}
-            placeholder={chainMode ? 'Main query for chain...' : `Ask ${currentAgentDef?.label || 'agent'}...`}
-            rows={2}
-            className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed"
-            disabled={loading}
-          />
-          <button onClick={run} disabled={loading || !query.trim() || apiStatus === 'down'}
-            className="text-sm bg-blue-600/80 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-md px-4 py-2 transition font-medium shrink-0"
-            title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
-            Run
-          </button>
-        </div>
-      </div>
-
       {/* agent selector + chain */}
       <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
         <select
@@ -514,6 +583,12 @@ export default function Home() {
             +
           </button>
         </div>
+      </div>
+
+      {/* provider + model selection */}
+      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
+        <span className="text-[10px] text-gray-600 uppercase tracking-wider font-medium shrink-0">model</span>
+        {modelControls}
       </div>
 
       {/* create agent modal */}
@@ -622,8 +697,73 @@ export default function Home() {
 
       {/* tab bar */}
       <div className="border-b border-white/[0.06] px-2 flex items-center shrink-0">
+        {/* chats dropdown (moved out of the tabs into the header) */}
+        <div className="relative shrink-0 mr-1">
+          <button
+            onClick={() => setShowChats(v => !v)}
+            className={`tab-btn flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium uppercase tracking-wider transition-colors ${
+              showChats ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+            }`}
+            title="Conversations"
+          >
+            chats
+            <span className="text-[9px] text-gray-600 normal-case">{tasks.length || ''}</span>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showChats ? 'rotate-180' : ''}`}>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {showChats && (
+            <div className="absolute left-0 top-full mt-1 w-72 max-h-[60vh] overflow-y-auto bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl p-1.5">
+              {tasks.length === 0 ? (
+                <div className="text-center text-gray-600 py-6 px-3">
+                  <p className="text-sm text-gray-500">No conversations yet</p>
+                  <div className="mt-3 flex gap-1.5 justify-center flex-wrap">
+                    {['read this file', 'search for TODO', 'run ls -la'].map(ex => (
+                      <button key={ex} onClick={() => { setQuery(ex); setShowChats(false); inputRef.current?.focus() }}
+                        className="px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                        {ex}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {tasks.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setShowChats(false) }}
+                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition group ${
+                        selectedTask === t.id
+                          ? 'bg-blue-500/10 border border-blue-500/20'
+                          : 'hover:bg-white/[0.04] border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
+                        {t.agent_type && t.agent_type !== 'default' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
+                            {agentOptions.find(a => a.value === t.agent_type)?.icon}
+                          </span>
+                        )}
+                        {t.chain && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
+                            chain
+                          </span>
+                        )}
+                        <span className="truncate flex-1 text-gray-300 group-hover:text-gray-200">{t.query}</span>
+                        {t.stepCount !== undefined && (
+                          <span className="text-[10px] text-gray-600 shrink-0">{t.stepCount}s</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center">
-          {(['tasks', 'output', 'deltas'] as Tab[]).map(tab => (
+          {(['output', 'deltas'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -665,84 +805,30 @@ export default function Home() {
 
       {/* tab content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* TASKS tab */}
-        {activeTab === 'tasks' && (
-          <div className="p-2">
-            {tasks.length === 0 ? (
-              <div className="text-center text-gray-600 mt-12 px-4">
-                <p className="text-2xl mb-3 text-gray-700">{'>'}_ </p>
-                <p className="text-sm text-gray-500">No tasks yet</p>
-                <div className="mt-4 flex gap-1.5 justify-center flex-wrap">
-                  {['read this file', 'search for TODO', 'run ls -la'].map(ex => (
-                    <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                      className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {tasks.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setSelectedTask(t.id); setActiveTab('output') }}
-                    className={`w-full text-left px-3 py-3 rounded-lg text-sm transition group ${
-                      selectedTask === t.id
-                        ? 'bg-blue-500/10 border border-blue-500/20'
-                        : 'hover:bg-white/[0.04] border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
-                      {t.agent_type && t.agent_type !== 'default' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
-                          {agentOptions.find(a => a.value === t.agent_type)?.icon}
-                        </span>
-                      )}
-                      {t.chain && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
-                          chain
-                        </span>
-                      )}
-                      <span className="truncate flex-1 text-gray-300 group-hover:text-gray-200">{t.query}</span>
-                      {t.stepCount !== undefined && (
-                        <span className="text-[10px] text-gray-600 shrink-0">{t.stepCount}s</span>
-                      )}
-                      {t.status !== 'running' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedTask(t.id)
-                            // defer so currentTask updates
-                            setTimeout(() => {
-                              const agentMsgs = t.messages.filter(m => m.role === 'agent')
-                              const lastOutput = agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1].text : ''
-                              const prefix = `Continue from previous task "${t.query}":\n\nPrevious output:\n${lastOutput}\n\nNext step: `
-                              setQuery(prefix)
-                              inputRef.current?.focus()
-                            }, 0)
-                          }}
-                          className="text-[10px] text-blue-400 hover:text-blue-300 opacity-0 group-hover:opacity-100 transition shrink-0"
-                          title="Continue this task"
-                        >
-                          ↳
-                        </button>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* OUTPUT tab */}
         {activeTab === 'output' && (
           <div className="p-3 space-y-2">
             {!currentTask ? (
-              <div className="text-center text-gray-600 mt-12">
-                <p className="text-sm">Select a task</p>
+              <div className="text-center text-gray-600 mt-12 px-4">
+                <p className="text-2xl mb-3 text-gray-700">{'>'}_ </p>
+                <p className="text-sm text-gray-500">
+                  {tasks.length === 0 ? 'No conversations yet' : 'Select a chat or ask below'}
+                </p>
+                <div className="mt-4 flex gap-1.5 justify-center flex-wrap">
+                  {tasks.length === 0 ? (
+                    ['read this file', 'search for TODO', 'run ls -la'].map(ex => (
+                      <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
+                        className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                        {ex}
+                      </button>
+                    ))
+                  ) : (
+                    <button onClick={() => setShowChats(true)}
+                      className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                      open chats ({tasks.length})
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <>
@@ -880,6 +966,28 @@ export default function Home() {
             )}
           </div>
         )}
+      </div>
+
+      {/* agent prompt — sits at the bottom of the sidebar */}
+      {composeBar}
+
+      {/* user info footer */}
+      <div className="border-t border-white/[0.06] px-4 py-2.5 shrink-0 flex items-center gap-2.5">
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${owner ? 'bg-blue-500/15 border border-blue-500/25 text-blue-300' : 'bg-white/5 border border-white/10 text-gray-500'}`}>
+          {owner ? owner.slice(2, 4).toUpperCase() : '··'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-gray-300 font-mono truncate" title={owner || 'no owner configured'}>
+            {owner ? `${owner.slice(0, 6)}…${owner.slice(-4)}` : 'no owner'}
+          </div>
+          <div className="text-[10px] text-gray-600 truncate">
+            {provider} · {model || 'default'} · {Object.keys(skills).length} skills
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'}`} />
+          <span className="text-[10px] text-gray-600">{apiStatus === 'ok' ? 'online' : apiStatus === 'down' ? 'offline' : '…'}</span>
+        </div>
       </div>
     </div>
   )
@@ -1137,17 +1245,20 @@ export default function Home() {
           className="w-full bg-transparent border-none outline-none text-sm resize-none placeholder:text-gray-600"
           disabled={loading}
         />
-        <div className="flex items-center justify-between mt-2">
-          <select
-            value={agentType}
-            onChange={(e) => { setAgentType(e.target.value); localStorage.setItem('agent_type', e.target.value) }}
-            className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors"
-            style={{ maxWidth: '160px' }}
-          >
-            {agentOptions.map((a) => (
-              <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
-            ))}
-          </select>
+        <div className="flex items-center justify-between mt-2 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <select
+              value={agentType}
+              onChange={(e) => { setAgentType(e.target.value); localStorage.setItem('agent_type', e.target.value) }}
+              className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors shrink-0"
+              style={{ maxWidth: '160px' }}
+            >
+              {agentOptions.map((a) => (
+                <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
+              ))}
+            </select>
+            {modelControls}
+          </div>
           <button onClick={run} disabled={loading || !query.trim()}
             className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-xs font-medium transition shrink-0 ml-3">
             Run
@@ -1378,7 +1489,7 @@ export default function Home() {
                   ) : (
                     <div className="flex flex-col h-full">
                       <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
-                        <span className="text-xs text-gray-600 uppercase tracking-wider font-medium">Tasks</span>
+                        <span className="text-xs text-gray-600 uppercase tracking-wider font-medium">Conversations</span>
                         <div className="flex items-center gap-0.5">
                           <button
                             onClick={() => setSidebarExpanded(e => !e)}

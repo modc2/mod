@@ -52,6 +52,12 @@ pub fn router() -> Router<AppState> {
         // POST /live/execution — body: {eoa, autoExecute}. Flips real order
         // placement on/off for a running session (default off = DRY RUN).
         .route("/live/execution", post(live_execution))
+        // POST /liquidate — body: {eoa}. Sell EVERY position the account's
+        // deposit wallet holds, at the marketable price. Places real orders
+        // regardless of the session's autoExecute flag. The scheduled
+        // "flatten every N hours" task (POLYMARKET_LIQUIDATE_EVERY_HOURS)
+        // calls the same path; this endpoint is the manual "sell now" trigger.
+        .route("/liquidate", post(liquidate_handler))
         // Recycle the api process — container runs with
         // restart: unless-stopped so Docker auto-respawns it. Useful when
         // an engine task is wedged or after a deploy; persisted live
@@ -74,6 +80,13 @@ pub fn router() -> Router<AppState> {
         // through the wallet's Batch flow. Used for "send my trading
         // balance to my MetaMask" without a separate unwrap step.
         .route("/deposit-wallet/unwrap-and-send", post(deposit_wallet_unwrap_send))
+        // Redeem RESOLVED positions (winning outcome tokens → USDC). A SELL
+        // can't cash these out — once a market settles it has no order book,
+        // so SELL ALL bounces with "invalid token id" / "not enough balance".
+        // redeemPositions against the ConditionalTokens contract is the only
+        // way to recover settled winnings; this batches every resolved
+        // condition through the deposit wallet, gaslessly.
+        .route("/redeem", post(redeem_handler))
         // User-uploaded strats (mod.py / mod.rs). Storage only — execution
         // is a follow-up; the endpoints are here so the framework + UI
         // upload flow are ready ahead of the runtime hookup.
@@ -215,6 +228,26 @@ async fn live_execution(
     }
 }
 
+#[derive(Deserialize)]
+struct LiquidateBody {
+    eoa: String,
+}
+
+/// Flatten an account: sell every held position at the marketable price.
+async fn liquidate_handler(
+    State(state): State<AppState>,
+    Json(body): Json<LiquidateBody>,
+) -> impl IntoResponse {
+    match state.engines.liquidate_all(&body.eoa).await {
+        Ok(result) => Json(json!({"ok": true, "result": result})).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 // ─── Admin ──────────────────────────────────────────────────────────────
 
 async fn admin_restart() -> impl IntoResponse {
@@ -350,6 +383,9 @@ async fn order_place_handler(
     State(state): State<AppState>,
     Json(req): Json<crate::order_place::PlaceOrderRequest>,
 ) -> impl IntoResponse {
+    // Capture the side before `req` is moved into place_order so the error
+    // message can name the right asset (BUY needs USDC, SELL needs shares).
+    let side = req.args.side;
     match crate::order_place::place_order(&state.http, &state.signer_store, req).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
@@ -359,7 +395,7 @@ async fn order_place_handler(
             // doing so makes proxies (Cloudflare) serve an opaque HTML error
             // page and hides the real, actionable reason from the UI. Forward
             // the true status + a clean message instead.
-            let (code, error) = classify_place_error(&e.to_string());
+            let (code, error) = classify_place_error(&e.to_string(), side);
             (code, Json(json!({ "error": error }))).into_response()
         }
     }
@@ -368,16 +404,27 @@ async fn order_place_handler(
 /// Map a `place_order` error string to an HTTP status + human message.
 /// Recognizes the "CLOB /order HTTP <status>: <body>" shape and forwards the
 /// upstream status for 4xx (client) errors; anything else stays a 502.
-fn classify_place_error(msg: &str) -> (StatusCode, String) {
+fn classify_place_error(msg: &str, side: crate::order_place::OrderSide) -> (StatusCode, String) {
     // Insufficient on-chain balance/allowance is the single most common cause —
-    // give it a crisp, actionable message regardless of the wrapping.
+    // give it a crisp, actionable message. CLOB returns the SAME "not enough
+    // balance" string for both sides, but the cause is opposite: a BUY is short
+    // USDC collateral, a SELL is short the outcome token (shares) or its CTF
+    // allowance. Naming USDC on a SELL sent users to fund a wallet that was
+    // never the problem.
     if msg.contains("not enough balance") || msg.contains("balance is not enough") {
+        let detail = match side {
+            crate::order_place::OrderSide::Buy =>
+                "the trading wallet has no USDC. Fund the backend deposit wallet \
+                 with USDC on Polygon (and approve the CLOB allowance) before buying.",
+            crate::order_place::OrderSide::Sell =>
+                "the trading wallet does not hold enough of this outcome's shares \
+                 (or the CTF allowance isn't set). Confirm the position is held by \
+                 the V2 deposit wallet that signs orders — selling a position held \
+                 by a different wallet always fails here.",
+        };
         return (
-            StatusCode::PAYMENT_REQUIRED, // 402 — funding required
-            "Insufficient balance/allowance: the trading wallet has no USDC. \
-             Fund the backend deposit wallet with USDC on Polygon (and approve \
-             the CLOB allowance) before placing orders."
-                .to_string(),
+            StatusCode::PAYMENT_REQUIRED, // 402 — funding/holdings required
+            format!("Insufficient balance/allowance: {}", detail),
         );
     }
     // Generic upstream status forwarding: "... HTTP <code>: <body>".
@@ -585,7 +632,10 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
 
     let search_lower = q.search.as_ref().map(|s| s.to_lowercase());
     let cat = q.category.as_deref().unwrap_or("").to_lowercase();
-    let has_query = search_lower.is_some() || !cat.is_empty();
+    // Free-text market-topic query — finer than `cat`, never matches address.
+    let mq = q.market_query.as_deref().unwrap_or("").trim().to_string();
+    let has_mq = !mq.is_empty();
+    let has_query = search_lower.is_some() || !cat.is_empty() || has_mq;
 
     // When a search or category filter is active and per-market metrics are
     // available, recompute each trader's aggregate stats from ONLY the
@@ -601,7 +651,8 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                         t.address.contains(s.as_str()) || title_lower.contains(s.as_str())
                     });
                     let cat_ok = cat.is_empty() || crate::categories::title_in_category(&m.title, &cat);
-                    search_ok && cat_ok
+                    let mq_ok = !has_mq || crate::categories::market_matches_query(&m.title, &mq);
+                    search_ok && cat_ok && mq_ok
                 }).collect();
 
                 if matching.is_empty() && !search_lower.as_ref().map_or(false, |s| t.address.contains(s.as_str())) {
@@ -632,7 +683,8 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                         || t.market_titles.iter().any(|m| m.to_lowercase().contains(s.as_str()))
                 });
                 let cat_ok = cat.is_empty() || crate::categories::trader_in_category(&t.market_titles, &cat);
-                search_ok && cat_ok
+                let mq_ok = !has_mq || crate::categories::trader_matches_query(&t.market_titles, &mq);
+                search_ok && cat_ok && mq_ok
             }
         });
     }
@@ -668,7 +720,17 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
     // primary metric (P&L / volume / etc.) as a tiebreaker.
     let dir: f64 = if order == "asc" { 1.0 } else { -1.0 };
     let cat_sort = cat.clone();
+    let mq_sort = mq.clone();
     traders.sort_by(|a, b| {
+        // Topic-query match count is the most specific signal — rank by it
+        // first so the traders heaviest in the queried topic lead.
+        if !mq_sort.is_empty() {
+            let a_q = crate::categories::query_match_count(&a.market_titles, &mq_sort);
+            let b_q = crate::categories::query_match_count(&b.market_titles, &mq_sort);
+            if a_q != b_q {
+                return b_q.cmp(&a_q);
+            }
+        }
         if !cat_sort.is_empty() {
             let a_match = crate::categories::title_match_count(&a.market_titles, &cat_sort);
             let b_match = crate::categories::title_match_count(&b.market_titles, &cat_sort);
@@ -839,6 +901,41 @@ async fn deposit_wallet_wrap(
             StatusCode::BAD_GATEWAY,
             Json(json!({"error": format!("wrap: {}", e)})),
         ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct RedeemRequest {
+    eoa: String,
+    /// Wrap the redeemed USDC.e into V2 trading collateral afterward so the
+    /// proceeds show as spendable balance (and can be withdrawn). Defaults
+    /// to `true`; set `false` to leave raw USDC.e in the wallet.
+    #[serde(rename = "wrapAfter", default = "default_wrap_after")]
+    wrap_after: bool,
+}
+fn default_wrap_after() -> bool { true }
+
+/// Redeem every resolved position the deposit wallet holds, converting
+/// winning outcome tokens to USDC in one gasless relayer Batch. This is the
+/// cash-out path for SETTLED markets, which a SELL can't touch.
+async fn redeem_handler(
+    State(state): State<AppState>,
+    Json(req): Json<RedeemRequest>,
+) -> impl IntoResponse {
+    match crate::relayer::redeem_resolved_positions(
+        &state.http,
+        &state.signer_store,
+        &req.eoa,
+        req.wrap_after,
+    )
+    .await
+    {
+        Ok(r) => Json(r).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("redeem: {}", e)})),
+        )
+            .into_response(),
     }
 }
 

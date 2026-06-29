@@ -4500,51 +4500,8 @@ export default function Home() {
     const gatewayUrl = moduleGatewayUrl(modName);
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* URL strip — copyable + open-in-new-tab. Shown above the app so
-            phone users can grab the route and so a broken iframe is
-            debuggable (you can see exactly what it's loading). */}
-        {selectedModuleInfo?.app_url && (
-          <div
-            className="flex items-center gap-2 px-3 py-2 shrink-0"
-            style={{
-              borderBottom: "1px solid var(--border-color)",
-              background: "linear-gradient(180deg, var(--bg-tint), transparent)",
-            }}
-          >
-            <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
-            <button
-              onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
-              className="flex-1 font-mono text-[11px] truncate text-left transition-colors"
-              style={{
-                color: "var(--text-secondary)",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border-color)",
-                borderRadius: 4,
-                padding: "4px 8px",
-                cursor: "pointer",
-              }}
-              title={`${gatewayUrl} — click to copy`}
-            >
-              {gatewayUrl}
-            </button>
-            <a
-              href={gatewayUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
-              style={{
-                color: "var(--crt-green)",
-                background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
-                textDecoration: "none",
-              }}
-              title="Open in new tab"
-            >
-              ↗
-            </a>
-          </div>
-        )}
-        {/* App Content */}
+        {/* App Content — the URL strip now lives in the shared header row
+            rendered by renderAppApiTab so the toggle and URL share one bar. */}
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url ? (
             <iframe
@@ -4580,9 +4537,12 @@ export default function Home() {
     const hasApp = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
     const hasApi = !!(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints);
     const sub: "app" | "api" = !hasApp ? "api" : !hasApi ? "app" : (sidebarView === "api" ? "api" : "app");
+    const showToggle = hasApp && hasApi;
+    const showUrl = sub === "app" && !!selectedModuleInfo?.app_url;
+    const gatewayUrl = moduleGatewayUrl(selectedModule || "");
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {hasApp && hasApi && (
+        {(showToggle || showUrl) && (
           <div
             className="flex items-center gap-2 px-3 py-2 shrink-0"
             style={{
@@ -4590,32 +4550,72 @@ export default function Home() {
               background: "linear-gradient(180deg, var(--bg-tint), transparent)",
             }}
           >
-            <div className="inline-flex rounded-md overflow-hidden" style={{ border: "1px solid var(--border-color)" }}>
-              {([
-                { k: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" },
-                { k: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" },
-              ]).map((s, i) => {
-                const active = sub === s.k;
-                return (
-                  <button
-                    key={s.k}
-                    onClick={() => setSidebarView(s.k)}
-                    className="text-[11px] font-bold uppercase tracking-wider px-3.5 py-1.5 flex items-center gap-1.5 transition-all"
-                    style={{
-                      color: active ? s.color : "var(--text-tertiary)",
-                      background: active ? `color-mix(in srgb, ${s.color} 12%, transparent)` : "transparent",
-                      opacity: active ? 1 : 0.55,
-                      borderLeft: i === 0 ? "none" : "1px solid var(--border-color)",
-                    }}
-                    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.color = s.color; } }}
-                    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.color = "var(--text-tertiary)"; } }}
-                  >
-                    <span className="text-[12px]">{s.icon}</span>
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+            {showToggle && (
+              <div className="inline-flex rounded-md overflow-hidden shrink-0" style={{ border: "1px solid var(--border-color)" }}>
+                {([
+                  { k: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" },
+                  { k: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" },
+                ]).map((s, i) => {
+                  const active = sub === s.k;
+                  return (
+                    <button
+                      key={s.k}
+                      onClick={() => setSidebarView(s.k)}
+                      className="text-[11px] font-bold uppercase tracking-wider px-3.5 py-1.5 flex items-center gap-1.5 transition-all"
+                      style={{
+                        color: active ? s.color : "var(--text-tertiary)",
+                        background: active ? `color-mix(in srgb, ${s.color} 12%, transparent)` : "transparent",
+                        opacity: active ? 1 : 0.55,
+                        borderLeft: i === 0 ? "none" : "1px solid var(--border-color)",
+                      }}
+                      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.color = s.color; } }}
+                      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.color = "var(--text-tertiary)"; } }}
+                    >
+                      <span className="text-[12px]">{s.icon}</span>
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* URL controls share the header row with the toggle — copyable +
+                open-in-new-tab, so phone users can grab the route and a broken
+                iframe is debuggable (you can see exactly what it's loading). */}
+            {showUrl && (
+              <>
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+                  className="flex-1 min-w-0 font-mono text-[11px] truncate text-left transition-colors"
+                  style={{
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 4,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                  }}
+                  title={`${gatewayUrl} — click to copy`}
+                >
+                  {gatewayUrl}
+                </button>
+                <a
+                  href={gatewayUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                  style={{
+                    color: "var(--crt-green)",
+                    background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                    textDecoration: "none",
+                  }}
+                  title="Open in new tab"
+                >
+                  ↗
+                </a>
+              </>
+            )}
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -6293,7 +6293,7 @@ export default function Home() {
               ? [{
                   key: "app" as const,
                   label: (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
-                    ? ((selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints) ? "APP / API" : "APP")
+                    ? "APP"
                     : "API",
                   icon: "◈",
                   color: "var(--crt-green)",

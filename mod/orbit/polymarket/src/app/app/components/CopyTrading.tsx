@@ -9,6 +9,7 @@ import {
   CategorySlug, CATEGORIES,
   matchTraderSearch, matchTraderCategory,
 } from "../lib/polymarket";
+import { traderMatchesMarketQuery, marketQueryMatchCount } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
@@ -148,6 +149,10 @@ interface CopyTradingProps {
   reloadKey?: number;
   search?: string;
   category?: CategorySlug;
+  /** Free-text market-topic filter (e.g. "bitcoin") — narrows the leaderboard
+      to traders active in matching markets, with stats recomputed from only
+      those markets. */
+  marketQuery?: string;
   onSelect?: (addr: string) => void;
   selectedAddresses?: string[];
   compact?: boolean;
@@ -159,6 +164,7 @@ export default function CopyTrading({
   reloadKey = 0,
   search = "",
   category = "",
+  marketQuery = "",
   onSelect,
   selectedAddresses = [],
   compact = false,
@@ -179,6 +185,7 @@ export default function CopyTrading({
   const {
     daysAgo, setDaysAgo,
     category: ctxCategory, setCategory,
+    marketQuery: ctxMarketQuery, setMarketQuery,
     minTrades, setMinTrades,
     minPerDay, setMinPerDay,
     minVolume, setMinVolume, minBuyVolume, setMinBuyVolume,
@@ -278,6 +285,7 @@ export default function CopyTrading({
           pageSize: PAGE_SIZE,
           search: search || undefined,
           category: category || undefined,
+          marketQuery: marketQuery || undefined,
           minVolume: Number(minVolume) || undefined,
           minPnl: minPnl !== "" ? Number(minPnl) : undefined,
           minTrades: Number(minTrades) || undefined,
@@ -306,7 +314,7 @@ export default function CopyTrading({
         setRefreshing(false);
       }
     },
-    [days, minTradesPerDay, traderSort, sortDir, search, category,
+    [days, minTradesPerDay, traderSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume],
   );
 
@@ -468,7 +476,7 @@ export default function CopyTrading({
         await loadStreamRef.current();
       }
     })();
-  }, [cacheWarm, page, traderSort, sortDir, search, category,
+  }, [cacheWarm, page, traderSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume]);
 
   // Background staleness check. Re-fetches current page silently once data
@@ -609,6 +617,9 @@ export default function CopyTrading({
     let list = baseList.filter((t) => {
       if (search && !matchTraderSearch(t, search)) return false;
       if (cat && !matchTraderCategory(t.marketTitles, cat)) return false;
+      // Market-topic filter — keep only traders active in markets matching the
+      // free-text query (mirrors the server-side recompute path).
+      if (marketQuery && !traderMatchesMarketQuery(t.marketTitles, marketQuery)) return false;
       const mv = Number(minVolume);
       if (Number.isFinite(mv) && mv > 0 && t.volume < mv) return false;
       const mp = Number(minPnl);
@@ -636,6 +647,12 @@ export default function CopyTrading({
     const dir = sortDir === "desc" ? -1 : 1;
     const inCat = (titles: string[]) => cat ? titles.filter((m) => matchTraderCategory([m], cat)).length : 0;
     list = [...list].sort((a, b) => {
+      // Topic-query match count wins first when a market query is active, so
+      // traders heaviest in the queried topic surface at the top.
+      if (marketQuery) {
+        const d = marketQueryMatchCount(b.marketTitles, marketQuery) - marketQueryMatchCount(a.marketTitles, marketQuery);
+        if (d !== 0) return d;
+      }
       if (cat) {
         const d = inCat(b.marketTitles) - inCat(a.marketTitles);
         if (d !== 0) return d;
@@ -646,7 +663,7 @@ export default function CopyTrading({
       return dir * (a.pnl - b.pnl); // default: pnl
     });
     return list;
-  }, [cacheWarm, streamedAll, search, category, minVolume, minPnl,
+  }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
       minTrades, minTrades24h, maxLastTradeHrs, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
       stratFilter, stratAddrs]);
 
@@ -669,7 +686,7 @@ export default function CopyTrading({
   const visibleTotal = clientView ? clientView.length : totalTraders;
 
   // Reset page on filter/sort change
-  useEffect(() => { setPage(0); }, [search, category, traderSort, sortDir,
+  useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
@@ -771,6 +788,7 @@ export default function CopyTrading({
     + (minVolume !== "100" && minVolume !== "" ? 1 : 0)
     + (minPerDay !== "0" && minPerDay !== "" ? 1 : 0)
     + (ctxCategory ? 1 : 0)
+    + (ctxMarketQuery ? 1 : 0)
     + (formula !== DEFAULT_FORMULA ? 1 : 0);
 
   // Stats summary (computed from current page — approximate when paginated)
@@ -943,6 +961,32 @@ export default function CopyTrading({
               })}
             </div>
 
+            {/* Free-text market-topic filter — finer than the category chips.
+                e.g. "bitcoin" or "price of bitcoin" surfaces the best traders
+                for that theme, with their stats recomputed from only matching
+                markets. Binds to FiltersContext so it URL-syncs + persists. */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1">MARKET QUERY</span>
+              <input
+                type="text"
+                value={ctxMarketQuery}
+                onChange={(e) => setMarketQuery(e.target.value)}
+                onKeyDown={onEnter}
+                placeholder="e.g. bitcoin, price of bitcoin — any market topic"
+                title="Keep only traders active in markets matching this query; their P&L/volume are recomputed from just those markets."
+                className="pixel-input-sm flex-1 min-w-[160px] font-mono"
+              />
+              {ctxMarketQuery && (
+                <button
+                  onClick={() => setMarketQuery("")}
+                  className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0"
+                  title="Clear market query"
+                >
+                  CLR
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-x-4 gap-y-2">
               {([
                 { label: "MIN VOLUME", value: minVolume, onChange: onDec(setMinVolume), ph: "100" },
@@ -988,7 +1032,7 @@ export default function CopyTrading({
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
-              <button onClick={() => { setDaysAgo(""); setCategory(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
+              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
                 className="pixel-btn text-[12px] px-3 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-red-400 hover:text-red-400 transition-colors">
                 RESET ALL
               </button>

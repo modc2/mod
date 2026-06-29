@@ -16,7 +16,6 @@ import EnableTradingPanel from "./EnableTradingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import BackendSignerPanel from "./BackendSignerPanel";
 import WalletPanel from "./WalletPanel";
-import PortfolioPanel from "./PortfolioPanel";
 import StratParamsPanel from "./StratParamsPanel";
 import ThemeToggle from "./ThemeToggle";
 
@@ -446,6 +445,10 @@ export default function LivePanel() {
       // the preview predicts execution.
       backtestDays: activeStrat.backtestDays ?? 3,
       maxSlippageBps: 300,
+      // Strat market-topic filter — only mirror trades in matching markets.
+      marketQuery: activeStrat.marketQuery,
+      // Semantic per-trade filters (side / price band / size band / category).
+      tradeFilters: activeStrat.tradeFilters,
     });
 
     updateIndex(activeStrat.id, {
@@ -495,6 +498,8 @@ export default function LivePanel() {
       maxOrderSize: activeStrat.maxTrade,
       backtestDays: activeStrat.backtestDays ?? 3,
       maxSlippageBps: 300,
+      marketQuery: activeStrat.marketQuery,
+      tradeFilters: activeStrat.tradeFilters,
     });
   }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, liveCapital, startLive, stopLive]);
 
@@ -597,12 +602,6 @@ export default function LivePanel() {
           the critical CLOB/funding alert banners live OUTSIDE the tabs so
           they're visible no matter which tab is selected. */}
       <div className="space-y-3">
-
-      {/* ── Plots (pinned above the tabs) ──
-          The portfolio charts sit ABOVE the ALL TRADES / MY TRADES tab bar so
-          they're always over the trades regardless of which tab is selected.
-          The panel's own PIE / OVER TIME control toggles between charts. */}
-      {auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
 
       {auth.connected && (
         <div className="flex border-b border-pixel-border">

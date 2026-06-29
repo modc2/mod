@@ -32,7 +32,7 @@ const TRADES_PAGE_SIZE = 50;
 
 function TradersInner() {
   useUrlSync();
-  const { search, category, daysAgo, minPerDay, reloadKey } = useFilters();
+  const { search, category, marketQuery, daysAgo, minPerDay, reloadKey } = useFilters();
   const days = Number(daysAgo) > 0 ? Number(daysAgo) : 7;
   const minTradesPerDay =
     minPerDay !== "" && Number.isFinite(Number(minPerDay))
@@ -195,6 +195,7 @@ function TradersInner() {
           reloadKey={reloadKey}
           search={search}
           category={category}
+          marketQuery={marketQuery}
           onSelect={handleToggle}
           selectedAddresses={selectedAddresses}
         />

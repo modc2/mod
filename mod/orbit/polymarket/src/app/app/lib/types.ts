@@ -47,6 +47,9 @@ export interface PolymarketPosition {
   /// be signed against the matching exchange contract or CLOB rejects them
   /// as "bad signature".
   negRisk: boolean;
+  /// Market has RESOLVED — this position can't be SOLD (no order book), only
+  /// REDEEMED (winning tokens → USDC) via /redeem. Drives the REDEEM button.
+  redeemable: boolean;
 }
 
 export interface ClobCredentials {
@@ -91,6 +94,37 @@ export interface TraderRoiStats {
   syncedAt: number;
 }
 
+/** Semantic per-trade filters that decide WHICH of a watched trader's fills a
+    strat actually mirrors. Distinct from `marketQuery` (the free-text topic
+    match on the market title): these gate on the trade's own attributes —
+    side, the leader's fill price, the leader's USD size, and the market's
+    category bucket. Every active dimension is AND-ed together, and the whole
+    set is AND-ed with `marketQuery`. Two strats watching the SAME traders with
+    different trade-filters copy different slices of their flow — this is what
+    makes a strat unique.
+
+    Mirror of the per-trade gate in `lib/tradeFilters.ts` (TS engine + backtest)
+    and `EngineConfig`/`trade_passes_filters` in `src/api/src/live_engine.rs`
+    (Rust live engine). Keep the three in sync. */
+export interface TradeFilters {
+  /** Which sides to mirror. "buy" = entries only, "sell" = exits only,
+      "both"/undefined = no side restriction. */
+  sides?: "buy" | "sell" | "both";
+  /** Leader fill-price band (0–1 probability). undefined ⇒ no bound on that
+      end. e.g. {minPrice:0.01,maxPrice:0.2} = longshots only;
+      {minPrice:0.8} = favorites only. */
+  minPrice?: number;
+  maxPrice?: number;
+  /** Leader trade USD notional band (price × size). A conviction filter:
+      skip dust, skip whales. undefined ⇒ no bound on that end. */
+  minNotional?: number;
+  maxNotional?: number;
+  /** Category slugs (politics/crypto/sports/…) the market title must match
+      at least ONE of. Empty/undefined ⇒ all categories. Uses the same
+      keyword buckets as the leaderboard category filter. */
+  categories?: string[];
+}
+
 export interface SavedIndex {
   id: string;
   name: string;
@@ -109,6 +143,14 @@ export interface SavedIndex {
   // score = trader_sharpe_30d * trade_notional, then copy only the top N.
   // Suppresses fee-burn from spamming every observed trade.
   maxPerCycle?: number; // default 3
+  // Free-text market-topic filter (e.g. "price of bitcoin"). When set, the
+  // strat only acts on markets whose title matches the query — backtest, live
+  // mirror, and catch-up all honor it. Empty/undefined ⇒ all markets.
+  marketQuery?: string;
+  // Semantic per-trade filters (side / price band / size band / category).
+  // AND-ed with marketQuery to carve a unique slice of the watched flow.
+  // Empty/undefined ⇒ no per-trade gating beyond marketQuery.
+  tradeFilters?: TradeFilters;
   createdAt: number;
   updatedAt: number;
   // Cached backtest snapshot (updated each time backtest runs)

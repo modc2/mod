@@ -32,6 +32,7 @@ class Mod:
         'get_version', 'restore_version', 'health', 'modules',
         'folders', 'suggest_folders',
         'set_owner', 'get_owner', 'is_owner', 'is_bloctime_owner',
+        'is_trusted', 'is_whitelisted', 'editors', 'add_editor', 'remove_editor',
         'register_onchain', 'permissions', 'ensure_env',
         'install', 'setup', 'serve',
         'kill', 'kill_port', 'status', 'logs', 'scan', 'fix',
@@ -196,6 +197,76 @@ class Mod:
             return True
         return self.is_bloctime_owner(addr)
 
+    # ── whitelist (off-chain trusted editors) ─────────────────────
+    # Everything in the orbit belongs to the host owner. The whitelist is the
+    # owner's explicit delegation of edit rights to other addresses. It lives
+    # off-tree in ~/.mod/claude/whitelist.json (never committed) — the same file
+    # the Rust API reads — and grants owner-level EDIT access only. Owner-only
+    # powers (managing the whitelist, set_owner, kill) stay restricted to owner.
+
+    def _whitelist_path(self) -> Path:
+        return Path(os.path.expanduser('~/.mod/claude/whitelist.json'))
+
+    def _load_whitelist(self) -> List[str]:
+        """Read the lowercased whitelist. Returns [] if absent/malformed."""
+        path = self._whitelist_path()
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            return []
+        # Accept either ["0x..", ..] or {"addresses": ["0x..", ..]}.
+        arr = data if isinstance(data, list) else data.get('addresses', [])
+        return [str(a).lower() for a in arr if isinstance(a, str)]
+
+    def _save_whitelist(self, addresses: List[str]):
+        path = self._whitelist_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(addresses, indent=2))
+
+    def is_whitelisted(self, key=None) -> bool:
+        """True if the caller's address is on the off-chain edit whitelist."""
+        addr = self._resolve_address(key)
+        if not addr:
+            return False
+        return addr.lower() in self._load_whitelist()
+
+    def is_trusted(self, key=None) -> bool:
+        """True if the caller may edit the orbit — the owner OR a whitelisted editor.
+
+        Trusted = owner-level EDIT access. Owner-only powers (whitelist management,
+        set_owner, kill) still gate on is_owner, not this.
+        """
+        return self.is_owner(key) or self.is_whitelisted(key)
+
+    def editors(self, key=None) -> List[str]:
+        """List the whitelisted editor addresses (readable by anyone)."""
+        return self._load_whitelist()
+
+    def add_editor(self, address: str, key=None) -> dict:
+        """Whitelist an address so it can edit the orbit. Owner-only."""
+        self.require_owner(key, operation="add_editor")
+        addr = str(address).strip().lower()
+        if not (addr.startswith('0x') and len(addr) == 42):
+            raise ValueError("address must be a 0x-prefixed 40-hex string")
+        wl = self._load_whitelist()
+        if addr not in wl:
+            wl.append(addr)
+            self._save_whitelist(wl)
+        return {'whitelist': wl, 'added': addr}
+
+    def remove_editor(self, address: str, key=None) -> dict:
+        """Remove an address from the edit whitelist. Owner-only."""
+        self.require_owner(key, operation="remove_editor")
+        target = str(address).strip().lower()
+        wl = self._load_whitelist()
+        if target not in wl:
+            return {'whitelist': wl, 'removed': None, 'note': 'address not in whitelist'}
+        wl = [a for a in wl if a != target]
+        self._save_whitelist(wl)
+        return {'whitelist': wl, 'removed': target}
+
     def _format_address(self, address) -> str:
         """Extract a clean hex address from a string, Key object, or repr."""
         addr = str(address)
@@ -245,8 +316,8 @@ class Mod:
                            operation: str = "this operation"):
         """Check if the caller has permission for the target module/path.
 
-        Owner: can edit anything (orbit, core, portal, etc.)
-        Non-owner: can only edit modules within portal/{their_address}/.
+        Owner / whitelisted editor: can edit anything (orbit, core, portal, etc.)
+        Everyone else: can only edit modules within portal/{their_address}/.
 
         Args:
             key: caller identity (address, Key, token, or None for self.key)
@@ -254,8 +325,8 @@ class Mod:
             path: working directory path
             operation: description for error messages
         """
-        # owner can do anything
-        if self.is_owner(key):
+        # owner and whitelisted editors can edit anything in the orbit
+        if self.is_trusted(key):
             return
 
         caller_addr = self._resolve_address(key)
@@ -292,8 +363,9 @@ class Mod:
     def permissions(self, key=None) -> dict:
         """Check what the caller is allowed to edit.
 
-        Returns role ('owner' or 'user'), address, and allowed modules.
-        Owner can edit all modules. Non-owners can only edit portal/{address}/ modules.
+        Returns role ('owner', 'editor', or 'user'), address, and allowed modules.
+        Owner and whitelisted editors can edit all modules. Everyone else can only
+        edit portal/{address}/ modules.
         """
         addr = self._resolve_address(key)
         if self.is_owner(key):
@@ -304,6 +376,15 @@ class Mod:
                 'can_edit': 'all',
                 'scope': ['orbit/*', 'core/*', 'portal/*'],
                 'via': 'config' if is_config_owner else ('open' if not self._owner else 'bloctime'),
+            }
+        if self.is_whitelisted(key):
+            # Whitelisted editor — owner-delegated edit access to the whole orbit.
+            return {
+                'role': 'editor',
+                'address': addr,
+                'can_edit': 'all',
+                'scope': ['orbit/*', 'core/*', 'portal/*'],
+                'via': 'whitelist',
             }
         allowed = self._user_allowed_modules(addr)
         return {
@@ -694,6 +775,32 @@ class Mod:
     def kill_port(self, port: int, sig: str = "SIGKILL") -> dict:
         """Kill all processes on a port. Owner-only."""
         return self.kill(port=port, sig=sig)
+
+    # ── module process management (pm2-backed) ────────────────────
+    # Drive another module's lifecycle through pm2 (the real supervisor) so a
+    # restart/stop actually sticks — unlike kill(), which pm2 just auto-reverses.
+    # Owner-only; cross-module actions require an owner sudo signature when the
+    # API runs non-local (pm2/root deployment).
+
+    def module_process(self, name: str, action: str = "status") -> dict:
+        """Control a module's pm2 processes. action: status|stop|start|restart."""
+        return self._request("POST", f"/modules/{name}/process", {"action": action})
+
+    def module_status(self, name: str) -> dict:
+        """Report a module's pm2 processes (running/online state)."""
+        return self.module_process(name, "status")
+
+    def restart_module(self, name: str) -> dict:
+        """Restart a module's processes via pm2 (kill + bring back up)."""
+        return self.module_process(name, "restart")
+
+    def stop_module(self, name: str) -> dict:
+        """Stop a module's processes via pm2 (stays stopped, no autorestart)."""
+        return self.module_process(name, "stop")
+
+    def start_module(self, name: str) -> dict:
+        """Start a module's processes (pm2 start, or bootstrap from start.sh)."""
+        return self.module_process(name, "start")
 
     def delete_job(self, job_id: str) -> dict:
         """Delete a job."""

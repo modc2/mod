@@ -200,27 +200,6 @@ pub struct ClobOrder {
 
 // ─── Amount math (mirrors frontend's polymarketOrderSigning.ts) ─────────
 
-fn round2_normal(x: f64) -> f64 { (x * 100.0).round() / 100.0 }
-fn round2_down(x: f64) -> f64 { (x * 100.0).floor() / 100.0 }
-/// Round to 4 decimal places — the precision Polymarket allows for the
-/// USDC notional on a tickSize=0.01 market. Rounding the notional to 2dp
-/// (= whole cents) makes `makerAmount / takerAmount` land on a price
-/// that's NOT a valid tick (e.g. 1.00 / 3.45 = 0.2898…), which trips
-/// Polymarket's "Price breaks minimum tick size rule" 400. 4dp keeps
-/// `notional = price_tick × size_2dp` exact for tickSize=0.01.
-fn round4_down(x: f64) -> f64 { (x * 10_000.0).floor() / 10_000.0 }
-
-/// Convert a decimal USDC amount (≤ 6 fractional digits) to base units
-/// (×10^6) as a u128 without introducing float error. Polymarket cares
-/// about the EXACT integer — a single-unit drift breaks the signature.
-fn to_base_units_u128(amount: f64) -> Result<u128> {
-    let scaled = (amount * 1_000_000.0).round();
-    if scaled < 0.0 || !scaled.is_finite() {
-        return Err(anyhow!("amount out of range: {}", amount));
-    }
-    Ok(scaled as u128)
-}
-
 fn compute_amounts(side: OrderSide, price: f64, size: f64) -> Result<(u128, u128)> {
     if !(0.0..=1.0).contains(&price) {
         return Err(anyhow!("price must be in [0, 1], got {}", price));
@@ -228,22 +207,30 @@ fn compute_amounts(side: OrderSide, price: f64, size: f64) -> Result<(u128, u128
     if size <= 0.0 {
         return Err(anyhow!("size must be > 0, got {}", size));
     }
-    let p = round2_normal(price);
-    let s = round2_down(size);
-    // USDC notional rounds to 4dp (not 2dp): keeps the implied price
-    // `notional / size = p` exact down to the tick. With 2dp we'd get
-    // e.g. p=0.29, s=3.45, notional=round(1.0005,2)=1.00, implied
-    // 1.00/3.45 = 0.2898… → Polymarket rejects as off-tick.
-    let usdc = round4_down(s * p);
+    // The CLOB derives the implied price from `makerAmount / takerAmount`
+    // and rejects anything off the 1¢ tick grid ("price … breaks minimum
+    // tick size rule 0.01"). Doing the notional in f64 trips this: e.g.
+    // `27.99 * 0.96 = 26.870399999999997` in IEEE-754, so flooring to 4dp
+    // (round4_down) dropped a base unit → takerAmount 26.8703, and
+    // 26.8703 / 27.99 = 0.9599964… — off-tick, 400.
+    //
+    // Stay on the grid by working in integers. Price tick-rounds to whole
+    // cents (`p_cents`, 0..=100) and size floors to whole cents
+    // (`s_centi`); their product is exact, and ×100 lifts it straight to
+    // USDC base units (×1e6). `notional / shares = p_cents/100` is then on
+    // the grid by construction, with zero float error.
+    let p_cents = (price * 100.0).round() as u128; // tick-rounded price ×100
+    let s_centi = (size * 100.0).floor() as u128; // size floored to 2dp ×100
+    if s_centi == 0 {
+        return Err(anyhow!("size rounds to 0 at 2dp: {}", size));
+    }
+    let shares_base = s_centi * 10_000; // shares as 6-decimal int (×1e6)
+    let usdc_base = p_cents * s_centi * 100; // notional (price × shares) ×1e6
     match side {
-        OrderSide::Buy => {
-            // maker pays USDC, takes shares
-            Ok((to_base_units_u128(usdc)?, to_base_units_u128(s)?))
-        }
-        OrderSide::Sell => {
-            // maker gives shares, takes USDC
-            Ok((to_base_units_u128(s)?, to_base_units_u128(usdc)?))
-        }
+        // BUY:  maker pays USDC, takes shares.
+        OrderSide::Buy => Ok((usdc_base, shares_base)),
+        // SELL: maker gives shares, takes USDC.
+        OrderSide::Sell => Ok((shares_base, usdc_base)),
     }
 }
 
@@ -730,9 +717,32 @@ mod tests {
 
     #[test]
     fn rounds_down_below_2dp() {
-        // 13.3333 shares × 0.05 = 0.666665 → rounds down to 0.66
-        let (m, _) = compute_amounts(OrderSide::Buy, 0.05, 13.3333).unwrap();
-        assert_eq!(m, 660_000);
+        // Size floors to 2dp: 13.3333 → 13.33 shares. Notional stays exact
+        // on the grid: 13.33 × 0.05 = $0.6665, and 0.6665 / 13.33 = 0.05.
+        let (m, t) = compute_amounts(OrderSide::Buy, 0.05, 13.3333).unwrap();
+        assert_eq!(m, 666_500); // $0.6665 in microUSDC
+        assert_eq!(t, 13_330_000); // 13.33 shares as 6-decimal int
+    }
+
+    #[test]
+    fn sell_notional_stays_on_tick_grid() {
+        // Regression: `27.99 * 0.96 = 26.870399999999997` in f64, so the
+        // old round4_down floored the notional to 26.8703, making the
+        // implied price 26.8703/27.99 = 0.9599964… — Polymarket rejected it
+        // with "price 0.9599964272954627 breaks minimum tick size rule 0.01".
+        // Integer-cent math keeps takerAmount at 26.8704 → exactly 0.96.
+        let (m, t) = compute_amounts(OrderSide::Sell, 0.96, 27.99).unwrap();
+        assert_eq!(m, 27_990_000); // 27.99 shares
+        assert_eq!(t, 26_870_400); // $26.8704, NOT 26_870_300
+        // Implied price lands exactly on the 1¢ grid.
+        assert_eq!((t as f64 / m as f64 * 100.0).round() as u128, 96);
+    }
+
+    #[test]
+    fn rejects_size_rounding_to_zero() {
+        // 0.004 shares floors to 0 at 2dp — no valid order, reject rather
+        // than emit a zero-amount payload.
+        assert!(compute_amounts(OrderSide::Buy, 0.5, 0.004).is_err());
     }
 
     #[test]

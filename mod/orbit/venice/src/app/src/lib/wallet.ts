@@ -56,6 +56,22 @@ export async function personalSign(message: string, address: string): Promise<st
   })) as string;
 }
 
+/**
+ * Best-effort `localStorage.setItem`. Browsers throw `QuotaExceededError` when
+ * the origin is full — and every modc2.com module shares one origin, so venice's
+ * tiny writes can be the call that tips it over. Persistence is a convenience;
+ * the live session lives in React state regardless, so a failed write must never
+ * throw. Returns true iff the value was actually stored.
+ */
+export function safeSetItem(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // base64url JSON, matching Python's urlsafe_b64encode(...).rstrip(b"=").
 function b64urlJson(obj: unknown): string {
   const s = JSON.stringify(obj);
@@ -114,7 +130,9 @@ export function getOrCreateLocalIdentity(): LocalIdentity {
   const existing = loadLocalIdentity();
   if (existing) return existing;
   const pk = generatePrivateKey();
-  localStorage.setItem(LOCAL_PK_KEY, pk);
+  // If storage is full the identity still works for this session, but it can't
+  // survive a reload — surfaced to the user by the caller via `persisted`.
+  safeSetItem(LOCAL_PK_KEY, pk);
   return { address: privateKeyToAccount(pk).address, pk };
 }
 

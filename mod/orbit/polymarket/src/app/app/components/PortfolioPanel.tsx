@@ -34,6 +34,8 @@ interface PositionLite {
   conditionId: string;
   currentPrice: number;
   negRisk: boolean;
+  // Market resolved → REDEEM (not SELL) is the only cash-out path.
+  redeemable: boolean;
 }
 
 interface Snapshot {
@@ -249,6 +251,8 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [lastError, setLastError] = useState<string | null>(null);
   const [selling, setSelling] = useState(false);
   const [sellStatus, setSellStatus] = useState<string | null>(null);
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
 
   const eoa = auth.address;
 
@@ -307,6 +311,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           conditionId: p.conditionId,
           currentPrice: p.currentPrice,
           negRisk: p.negRisk,
+          redeemable: p.redeemable,
         }));
         listOk = true;
       } catch (e) {
@@ -496,6 +501,78 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         </div>
       )}
 
+      {/* REDEEM → CASH — settled markets have no order book, so a SELL can't
+          cash them out ("invalid token id"). Their winning tokens must be
+          REDEEMED to USDC on-chain. Shown only when resolved positions are
+          held; lists how many and how much is claimable. */}
+      {positions.some((p) => p.redeemable) && (() => {
+        const red = positions.filter((p) => p.redeemable);
+        const claimable = red.reduce((s, p) => s + p.value, 0);
+        return (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-pixel-muted whitespace-nowrap">
+              {red.length} settled · ~{fmtUsd(claimable)} to claim
+            </span>
+            <button
+              onClick={async () => {
+                if (!eoa) return;
+                if (
+                  !confirm(
+                    `Redeem ${red.length} settled position(s) (~${fmtUsd(claimable)} → cash)?\n\nConverts winning tokens to USDC on-chain (gasless) and wraps it into your trading balance. SELL can't cash these out — the markets have already resolved.`,
+                  )
+                ) {
+                  return;
+                }
+                setRedeeming(true);
+                setRedeemStatus(`redeeming ${red.length} settled position(s)…`);
+                try {
+                  const r = await fetch("/api/polymarket/redeem", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ eoa }),
+                  });
+                  const j = (await r.json().catch(() => ({}))) as {
+                    conditions?: number;
+                    valueRedeemed?: number;
+                    skipped?: number;
+                    error?: string;
+                  };
+                  if (r.ok) {
+                    const v = Number(j.valueRedeemed ?? 0);
+                    const skipped = Number(j.skipped ?? 0);
+                    setRedeemStatus(
+                      `redeemed ${j.conditions ?? 0} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} skipped` : ""}`,
+                    );
+                    // Curves redraw from the post-redeem state.
+                    try { localStorage.removeItem(HISTORY_KEY); } catch {}
+                    setHistory([]);
+                  } else {
+                    setRedeemStatus(null);
+                    setLastError(`redeem: ${j.error ?? `HTTP ${r.status}`}`);
+                  }
+                } catch (e) {
+                  setRedeemStatus(null);
+                  setLastError(`redeem: ${e instanceof Error ? e.message : String(e)}`);
+                }
+                setRedeeming(false);
+                setTimeout(refresh, 6_000);
+              }}
+              disabled={redeeming}
+              className="text-[10px] px-2 py-0.5 bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded"
+              title="Redeem resolved-market winnings to USDC (gasless, on-chain). A SELL can't cash these out because settled markets have no order book."
+            >
+              {redeeming ? "REDEEMING…" : "REDEEM → CASH"}
+            </button>
+          </div>
+        );
+      })()}
+
+      {redeemStatus && (
+        <div className={`text-xs font-mono ${redeeming ? "text-amber-400" : "text-emerald-400"}`}>
+          {redeemStatus}
+        </div>
+      )}
+
       {/* SELL ALL → CASH — the per-position "Top Positions" list was removed
           for a sleeker panel; the bulk-liquidate action stays. */}
       {posValue > 0 && (
@@ -503,7 +580,10 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
             <button
               onClick={async () => {
                 if (!eoa) return;
-                const all = positions.filter((p) => p.tokenId && p.size > 0);
+                // Resolved (redeemable) markets have no order book — a SELL
+                // there always bounces ("invalid token id"). Exclude them;
+                // they cash out through REDEEM → CASH instead.
+                const all = positions.filter((p) => p.tokenId && p.size > 0 && !p.redeemable);
                 if (all.length === 0) return;
                 if (
                   !confirm(

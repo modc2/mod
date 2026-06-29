@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, TopTrader } from "../lib/polymarket";
-import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats } from "../lib/types";
+import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, TopTrader, CATEGORIES } from "../lib/polymarket";
+import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
+import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
 import { getStrat } from "../lib/strats/registry";
 import type { TraderTrade as StratTraderTrade } from "../lib/strats/base";
+import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
@@ -435,6 +437,24 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // the same sampling the live engine does so the displayed P&L reflects
   // what live will actually execute after Sharpe-rank filtering.
   const [maxPerCycle, setMaxPerCycle] = useState(3);
+  // Free-text market-topic filter — restricts the strat (backtest + live) to
+  // markets whose title matches the query (e.g. "price of bitcoin"). Empty =
+  // every market the watched traders touch.
+  const [marketQuery, setMarketQuery] = useState("");
+  // Uncommitted input mirror — lets the user type freely before the query is
+  // committed (blur / Enter) so the backtest doesn't re-run on each keystroke.
+  const [marketQueryInput, setMarketQueryInput] = useState("");
+  // ── Semantic per-trade filters (side / price band / size band / category) ──
+  // The gate that makes a strat unique: two strats on the same traders with
+  // different filters copy different slices of the flow. Source of truth is
+  // `tradeFilters`; the four numeric band inputs keep uncommitted string
+  // mirrors (commit on blur / Enter) so the backtest doesn't churn per
+  // keystroke. Side + category commit immediately.
+  const [tradeFilters, setTradeFilters] = useState<TradeFilters>({});
+  const [priceMinInput, setPriceMinInput] = useState("");
+  const [priceMaxInput, setPriceMaxInput] = useState("");
+  const [sizeMinInput, setSizeMinInput] = useState("");
+  const [sizeMaxInput, setSizeMaxInput] = useState("");
   // SHOW ALL TRADES — when true, the linkedTrades pipeline skips the TRADE
   // SIZE filter and surfaces every upstream trade regardless of mirror
   // amount. Declared here (not next to feedOrder) so it's available to the
@@ -592,6 +612,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     setMaxTrade(activeIndex.maxTrade ?? 100);
     setMaxTradesPerHour(activeIndex.maxTradesPerHour ?? 10);
     setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
+    setMarketQuery(activeIndex.marketQuery ?? "");
+    setMarketQueryInput(activeIndex.marketQuery ?? "");
     // Force per-trade replay on load — REBALANCE/AT selects were removed,
     // and any non-zero persisted value would silently aggregate trades into
     // windows with no way to undo from the UI.
@@ -785,6 +807,18 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     setRebalanceMinutes(minutes);
     if (activeIndex) {
       updateIndex(activeIndex.id, { rebalanceMinutes: minutes, updatedAt: Date.now() });
+    }
+  };
+
+  // ── Market-topic filter (persist to strategy) ──
+  // Restricts the strat to markets whose title matches the query; empty string
+  // means "all markets". Persisted on commit (blur / Enter) so a half-typed
+  // query doesn't churn the backtest on every keystroke.
+  const updateMarketQuery = (q: string) => {
+    const trimmed = q.trim();
+    setMarketQuery(trimmed);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { marketQuery: trimmed, updatedAt: Date.now() });
     }
   };
 
@@ -1010,11 +1044,14 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // ── Backtests ──
   const backtests = useMemo((): TraderBacktest[] => {
     return watchlist.map((addr) => {
-      const trades = traderTrades.get(addr) || [];
+      // Honor the strat's market-topic filter so the preview P&L reflects only
+      // the markets the live strat would actually trade.
+      const trades = (traderTrades.get(addr) || [])
+        .filter((t) => marketMatchesQuery(t.market, marketQuery));
       const positions = traderData.get(addr) || [];
       return computeBacktest(trades, positions, backtestDays, addr, capital, rebalancePeriod, rebalanceHour);
     }).sort((a, b) => b.estimatedPnl - a.estimatedPnl);
-  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour]);
+  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour, marketQuery]);
 
   const totalBacktestPnl = backtests.reduce((s, b) => s + b.estimatedPnl, 0);
   // Only sum weights of enabled traders
@@ -1076,8 +1113,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // but both reference the same class with the same opts. Drop a new
   // strat into src/app/app/lib/strats/registry.ts and BOTH adopt it.
   const backtestStrat = useMemo(
-    () => getStrat(undefined, { maxPerCycle }),
-    [maxPerCycle],
+    () => getStrat(undefined, { maxPerCycle, marketQuery }),
+    [maxPerCycle, marketQuery],
   );
 
   // ── Per-trader 30d ROI stats (drives top-N sampling) ──
@@ -1089,7 +1126,8 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
     const out = new Map<string, TraderRoiStats>();
     const sharpeCutoffMs = Date.now() - 30 * 86400_000;
     for (const addr of watchlist) {
-      const trades = traderTrades.get(addr) || [];
+      const trades = (traderTrades.get(addr) || [])
+        .filter((t) => marketMatchesQuery(t.market, marketQuery));
       const positions = traderData.get(addr) || [];
       const annotated = computeFifoTrades(trades, positions, sharpeCutoffMs);
       const inWin = annotated.filter((t) => t.timestamp >= sharpeCutoffMs);
@@ -1120,7 +1158,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       });
     }
     return out;
-  }, [watchlist, traderTrades, traderData]);
+  }, [watchlist, traderTrades, traderData, marketQuery]);
 
   // ── Top-N sampling: which BUY IDs survive the strat's filter ──
   // Goes through the SAME strat class the live engine uses (registry).
@@ -1871,6 +1909,67 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
                   <option value={1440}>24h</option>
                 </select>
               </Field>
+
+              {/* Market-topic filter — keeps a strat focused (e.g. "price of
+                  bitcoin") instead of copying every market a trader touches.
+                  Commits on blur / Enter so the backtest doesn't re-run per
+                  keystroke. The local `marketQueryInput` mirror lets the user
+                  type freely before committing. */}
+              <Field label="MARKET">
+                <input
+                  type="text"
+                  value={marketQueryInput}
+                  onChange={(e) => setMarketQueryInput(e.target.value)}
+                  onBlur={() => updateMarketQuery(marketQueryInput)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      updateMarketQuery(marketQueryInput);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="all markets"
+                  title="Only act on markets whose title matches this query. Comma = OR (e.g. 'bitcoin, btc'), space = AND ('price bitcoin'). Blank = every market. Applies to backtest + live."
+                  className="bg-transparent w-44 font-mono text-[14px] text-pixel-white outline-none placeholder:text-pixel-gray/40"
+                />
+              </Field>
+
+              {/* Quick crypto presets — one click focuses the strat on a coin,
+                  OR-matching both the full name and ticker so e.g. "Bitcoin"
+                  catches "BTC above $100k" too. Bitcoin-first by design. */}
+              <div className="w-full flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span className="text-[10px] text-pixel-gray tracking-[0.18em] leading-none">FOCUS</span>
+                {([
+                  ["Bitcoin", "bitcoin, btc"],
+                  ["Ethereum", "ethereum, eth"],
+                  ["Solana", "solana, sol"],
+                  ["Crypto", "bitcoin, btc, ethereum, eth, solana, sol, crypto, xrp, dogecoin"],
+                ] as const).map(([label, q]) => {
+                  const active = marketQueryInput.trim().toLowerCase() === q;
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => { setMarketQueryInput(q); updateMarketQuery(q); }}
+                      title={`Only copy markets matching: ${q}`}
+                      className={`text-[10px] px-2 py-0.5 rounded border font-bold transition-colors ${
+                        active
+                          ? "border-amber-400/70 bg-amber-500/20 text-amber-300"
+                          : "border-pixel-border bg-pixel-black/60 text-pixel-gray-light hover:border-pixel-white/40"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                {marketQueryInput.trim() && (
+                  <button
+                    onClick={() => { setMarketQueryInput(""); updateMarketQuery(""); }}
+                    title="Clear the market focus — copy every market again."
+                    className="text-[10px] px-2 py-0.5 rounded border border-pixel-border bg-pixel-black/60 text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
+                  >
+                    ✕ all
+                  </button>
+                )}
+              </div>
             </div>
             </div>
             )}

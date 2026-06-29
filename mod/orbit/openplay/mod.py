@@ -96,6 +96,7 @@ class Mod:
         self.games_path = self.store_dir / "games.json"
         self.venues_path = self.store_dir / "venues.json"   # custom venues + hidden presets
         self.admin_path = self.store_dir / "admin.json"     # off-chain module-admin secret
+        self.accounts_path = self.store_dir / "accounts.json"  # claimed name → key registry
 
         self.port = int(self.config.get("port", 50150))
         self.app_port = int(self.config.get("app_port", 50151))
@@ -331,6 +332,140 @@ class Mod:
             return {"ok": True, "hidden_venue": target}
         return {"error": "venue_id or name required"}
 
+    # ━━ Accounts — claimed names backed by a key ━━━━━━━━━━━━━━━━━━
+    # A player signs in with a name + password; the browser deterministically
+    # derives an Ethereum keypair from them (never sent to us). The name is
+    # claimed here by proving control of the key (an EIP-191 personal-sign over
+    # a canonical message). One name → one address, so a handle can't be
+    # impersonated. Rotating the key (new password or a fresh key) re-points the
+    # name, authorised by a signature from the CURRENT key. Public reads expose
+    # only name↔address; the private key stays in the browser.
+    SIG_WINDOW = 900  # signed claims/rotations must be within 15 min (anti-replay)
+
+    def _accounts(self) -> Dict[str, Any]:
+        return self._load_json(self.accounts_path, {"names": {}})
+
+    @staticmethod
+    def _name_key(name: str) -> str:
+        return " ".join((name or "").split()).lower()
+
+    @staticmethod
+    def _valid_name(name: str):
+        disp = " ".join((name or "").split())
+        if not (2 <= len(disp) <= 32):
+            return None, "name must be 2–32 characters"
+        if any(ord(c) < 32 for c in disp):
+            return None, "name has invalid characters"
+        return disp, None
+
+    @staticmethod
+    def _valid_addr(addr: str) -> bool:
+        addr = (addr or "").strip()
+        return addr.startswith("0x") and len(addr) == 42
+
+    # Canonical signed messages — MUST byte-match the client (lib/account.ts).
+    @staticmethod
+    def _claim_message(name: str, address: str, ts: int) -> str:
+        return f"OpenPlay — claim identity\nName: {name}\nKey: {address}\nTime: {ts}"
+
+    @staticmethod
+    def _rotate_message(name: str, new_address: str, ts: int) -> str:
+        return f"OpenPlay — rotate key\nName: {name}\nNew key: {new_address}\nTime: {ts}"
+
+    def _fresh(self, ts) -> bool:
+        try:
+            ts = int(ts)
+        except (TypeError, ValueError):
+            return False
+        return ts > 0 and abs(int(time.time()) - ts) <= self.SIG_WINDOW
+
+    @staticmethod
+    def _recover(message: str, signature: str) -> Optional[str]:
+        """Recover the signer address from an EIP-191 personal_sign signature."""
+        try:
+            from eth_account import Account as _EA
+            from eth_account.messages import encode_defunct
+            return _EA.recover_message(encode_defunct(text=message), signature=signature)
+        except Exception:
+            return None
+
+    def account(self, name: str) -> Dict[str, Any]:
+        """Public: resolve a claimed name → its address (and whether it's free)."""
+        key = self._name_key(name)
+        if not key:
+            return {"error": "name required"}
+        rec = self._accounts().get("names", {}).get(key)
+        if not rec:
+            return {"name": " ".join((name or "").split()), "exists": False, "available": True}
+        return {"name": rec.get("display", name), "exists": True, "available": False,
+                "address": rec.get("address"), "created": rec.get("created"),
+                "rotated": rec.get("rotated"), "rotations": rec.get("rotations", 0)}
+
+    def register_account(self, name: str, address: str, signature: str,
+                         ts: int = 0) -> Dict[str, Any]:
+        """Claim a name for a key. Proven by signing `_claim_message` with that
+        key. Idempotent if the name is already yours; rejected if it's someone
+        else's."""
+        disp, err = self._valid_name(name)
+        if err:
+            return {"error": err}
+        addr = (address or "").strip()
+        if not self._valid_addr(addr):
+            return {"error": "a valid wallet address is required"}
+        if not self._fresh(ts):
+            return {"error": "this request expired — please try again"}
+        signer = self._recover(self._claim_message(disp, addr, int(ts)), signature)
+        if not signer or signer.lower() != addr.lower():
+            return {"error": "signature does not match the key — sign-in failed"}
+        data = self._accounts()
+        names = data.setdefault("names", {})
+        key = self._name_key(disp)
+        existing = names.get(key)
+        if existing and existing.get("address", "").lower() != addr.lower():
+            return {"error": f"the name “{disp}” is already taken — pick another"}
+        if existing:
+            existing["display"] = disp  # refresh casing on re-login
+            self._save_json(self.accounts_path, data)
+            return {"ok": True, "name": disp, "address": addr,
+                    "claimed": False, "already_yours": True}
+        now = int(time.time())
+        names[key] = {"display": disp, "address": addr,
+                      "created": now, "rotated": now, "rotations": 0}
+        self._save_json(self.accounts_path, data)
+        return {"ok": True, "name": disp, "address": addr, "claimed": True}
+
+    def rotate_account(self, name: str, new_address: str, signature: str,
+                       ts: int = 0) -> Dict[str, Any]:
+        """Re-point a name to a new key. Must be signed by the CURRENT key
+        (`_rotate_message`). Lets a user change their password or swap to a fresh
+        key while keeping their name."""
+        disp, err = self._valid_name(name)
+        if err:
+            return {"error": err}
+        new_addr = (new_address or "").strip()
+        if not self._valid_addr(new_addr):
+            return {"error": "a valid new wallet address is required"}
+        if not self._fresh(ts):
+            return {"error": "this request expired — please try again"}
+        data = self._accounts()
+        names = data.setdefault("names", {})
+        key = self._name_key(disp)
+        rec = names.get(key)
+        if not rec:
+            return {"error": "no account with that name yet — claim it first"}
+        if rec.get("address", "").lower() == new_addr.lower():
+            return {"ok": True, "name": disp, "address": new_addr,
+                    "rotations": rec.get("rotations", 0), "unchanged": True}
+        signer = self._recover(self._rotate_message(disp, new_addr, int(ts)), signature)
+        if not signer or signer.lower() != rec.get("address", "").lower():
+            return {"error": "a rotation must be signed by your current key"}
+        rec["address"] = new_addr
+        rec["rotated"] = int(time.time())
+        rec["rotations"] = rec.get("rotations", 0) + 1
+        self._save_json(self.accounts_path, data)
+        return {"ok": True, "name": disp, "address": new_addr,
+                "rotations": rec["rotations"]}
+
     # ━━ Recurrence ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     @staticmethod
     def _occ_key(ts: int) -> str:
@@ -467,6 +602,40 @@ class Mod:
                 out.append(self._summarize(game, ts))
         out.sort(key=lambda o: o["occ_ts"])
         return out
+
+    def my_games(self, handle: str = "", game_ids: List[str] = None) -> Dict[str, Any]:
+        """Games that belong to you — `hosting` (you're the organizer, by admin_key
+        or matching handle) and `playing` (you've RSVP'd). Searches every city.
+        Cancelled games are dropped; games whose next date has passed are kept with
+        `upcoming_none=True` so you can still find/cancel them."""
+        handle = (handle or "").strip()
+        owned_ids = set(game_ids or [])
+        hosting: List[Dict[str, Any]] = []
+        playing: List[Dict[str, Any]] = []
+        for gid, game in self._load_games().items():
+            if game.get("status") == "cancelled":
+                continue
+            is_owner = gid in owned_ids or (bool(handle) and game.get("admin", "") == handle)
+            is_player = False
+            if handle:
+                if handle in game.get("roster", []):
+                    is_player = True
+                else:
+                    for bucket in (game.get("rsvps") or {}).values():
+                        if any(p.get("handle") == handle for p in bucket.get("players", [])):
+                            is_player = True
+                            break
+            if not (is_owner or is_player):
+                continue
+            occs = self._occurrences(game, max_occ=1)
+            summary = self._summarize(game, occs[0] if occs else int(game["starts_at"]))
+            if not occs:
+                summary["upcoming_none"] = True
+            summary["role"] = "host" if is_owner else "player"
+            (hosting if is_owner else playing).append(summary)
+        hosting.sort(key=lambda o: o["occ_ts"])
+        playing.sort(key=lambda o: o["occ_ts"])
+        return {"hosting": hosting, "playing": playing}
 
     def game(self, game_id: str, occ: Optional[str] = None) -> Dict[str, Any]:
         games = self._load_games()
@@ -1028,6 +1197,15 @@ class Mod:
                 city=kwargs.get("city"), neighborhood=kwargs.get("neighborhood", ""),
                 sports=kwargs.get("sports")),
             "games": lambda: self.games(sport=kwargs.get("sport"), city=kwargs.get("city")),
+            "my_games": lambda: self.my_games(
+                handle=kwargs.get("handle", ""), game_ids=kwargs.get("game_ids")),
+            "account": lambda: self.account(kwargs.get("name", "")),
+            "register_account": lambda: self.register_account(
+                kwargs.get("name", ""), kwargs.get("address", ""),
+                kwargs.get("signature", ""), ts=kwargs.get("ts", 0)),
+            "rotate_account": lambda: self.rotate_account(
+                kwargs.get("name", ""), kwargs.get("new_address", ""),
+                kwargs.get("signature", ""), ts=kwargs.get("ts", 0)),
             "verify_sudo": lambda: self.verify_sudo(kwargs.get("admin_secret", "")),
             "admin_delete_game": lambda: self.admin_delete_game(
                 kwargs.get("admin_secret", ""), kwargs.get("game_id", "")),

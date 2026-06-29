@@ -29,6 +29,8 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/mods", get(list_mods))
         .route("/mods/:name", get(get_mod))
+        .route("/mods/:name/tree", get(mod_tree))
+        .route("/mods/:name/file", get(mod_file))
         .route("/stats", get(stats))
         .route("/search", get(search))
         .with_state(state)
@@ -90,6 +92,50 @@ async fn get_mod(
             Json(serde_json::json!({ "error": "module not found", "name": name })),
         )
             .into_response(),
+    }
+}
+
+/// Source tree for a module — backs the explorer's file browser.
+async fn mod_tree(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    match state.catalog.tree(&name) {
+        Some(tree) => Json(serde_json::json!({ "name": name, "tree": tree })).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "module not found", "name": name })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct FileParams {
+    path: String,
+}
+
+/// One file's contents — sandboxed to the module dir by the catalog.
+async fn mod_file(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(params): Query<FileParams>,
+) -> impl IntoResponse {
+    use crate::catalog::FileError;
+    match state.catalog.read_file(&name, &params.path) {
+        Ok(file) => Json(file).into_response(),
+        Err(err) => {
+            let (code, msg) = match err {
+                FileError::NotFound => (StatusCode::NOT_FOUND, "file not found"),
+                FileError::Forbidden => (StatusCode::FORBIDDEN, "path is outside the module"),
+                FileError::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "file too large to preview"),
+                FileError::Binary => {
+                    (StatusCode::UNSUPPORTED_MEDIA_TYPE, "binary file — not previewable")
+                }
+                FileError::Io => (StatusCode::INTERNAL_SERVER_ERROR, "could not read file"),
+            };
+            (code, Json(serde_json::json!({ "error": msg, "path": params.path }))).into_response()
+        }
     }
 }
 

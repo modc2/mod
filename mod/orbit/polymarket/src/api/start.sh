@@ -13,6 +13,11 @@ fi
 
 export PORT
 
+# ── Scheduled liquidation ("flatten everything") ──
+# How often the backend sells EVERY held position, in hours. Override by
+# exporting POLYMARKET_LIQUIDATE_EVERY_HOURS before launch; 0 disables it.
+export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-6}"
+
 # ── API log ──
 # The backend logs via `tracing` to stdout; without a redirect those lines
 # vanish when started in the background. Tee them to a logfile so live-engine

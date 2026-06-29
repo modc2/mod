@@ -58,11 +58,37 @@ export function timeAgo(ts: number): string {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 
+// Bare `fetch` surfaces any momentary blip — a wifi hiccup, a laptop wake, a
+// Caddy graceful-reload — as a thrown "Failed to fetch". The live engine polls
+// every enabled trader concurrently each cycle, so one blip used to spawn a
+// row of identical FETCH_FAILED decisions all stamped the same second. Absorb
+// transient failures with a short bounded retry + per-attempt timeout; only a
+// genuine, sustained outage (or a real HTTP error) makes it out of here.
 async function polyApi(endpoint: string, params: Record<string, string> = {}): Promise<unknown> {
   const qs = new URLSearchParams({ endpoint, ...params });
-  const res = await fetch(`${API_URL}?${qs.toString()}`);
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  return res.json();
+  const url = `${API_URL}?${qs.toString()}`;
+  const ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      // 300ms, 900ms backoff — long enough to ride out a reload/blip, short
+      // enough to stay well inside the engine's poll interval.
+      await new Promise((r) => setTimeout(r, 300 * 3 ** (attempt - 1)));
+    }
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      // 5xx is the gateway/backend briefly unhappy — worth retrying. 4xx is a
+      // real client error (bad address, bad params) and won't change on retry.
+      if (res.status >= 500) throw new Error(`API ${res.status}`);
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      // Don't burn retries on a deterministic 4xx.
+      if (e instanceof Error && /^API 4\d\d$/.test(e.message)) throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 // ── Categories ──────────────────────────────────────────────────
@@ -382,6 +408,9 @@ export async function fetchTradersPage(opts: {
   pageSize?: number;
   search?: string;
   category?: string;
+  /** Free-text market-topic filter — narrows traders to those active in
+      matching markets and recomputes their stats from only those markets. */
+  marketQuery?: string;
   minVolume?: number;
   minPnl?: number;
   minTrades?: number;
@@ -402,6 +431,7 @@ export async function fetchTradersPage(opts: {
   if (opts.pageSize) params.set("pageSize", String(opts.pageSize));
   if (opts.search) params.set("search", opts.search);
   if (opts.category) params.set("category", opts.category);
+  if (opts.marketQuery) params.set("marketQuery", opts.marketQuery);
   if (opts.minVolume && opts.minVolume > 0) params.set("minVolume", String(opts.minVolume));
   if (opts.minPnl !== undefined && Number.isFinite(opts.minPnl)) params.set("minPnl", String(opts.minPnl));
   if (opts.minTrades && opts.minTrades > 0) params.set("minTrades", String(opts.minTrades));
@@ -857,6 +887,7 @@ export async function fetchPositions(
         value,
         pnlUsd,
         negRisk: Boolean(p.negativeRisk ?? p.negRisk ?? p.neg_risk ?? false),
+        redeemable: Boolean(p.redeemable ?? false),
       };
     })
     .filter((p) => p.conditionId && p.size > 0);

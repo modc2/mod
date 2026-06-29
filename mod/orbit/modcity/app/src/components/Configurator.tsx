@@ -10,6 +10,7 @@ import {
   ModuleSpec, StyleSpec, Cell, Estimate, Constraints, PortableDoc, PanelSpec,
   localEstimate, api, ownerId, CODES, CODE_INDEX, LANEWAY_TEMPLATES,
   FALLBACK_PANELS, PANEL_INDEX_FALLBACK, buildFabSchedule, fabScheduleCSV,
+  AuditResult, AUDIT_PROVIDERS, DEFAULT_AUDIT_PROVIDER, runAudit,
 } from '@/lib/modcity'
 
 const STEP = 3
@@ -38,6 +39,16 @@ const SEED: Array<[number, number, string[]]> = [
 ]
 
 const WINDOW_CATS = new Set(['living', 'work', 'commerce', 'service'])
+
+const AUDIT_VERDICT_CLS: Record<string, string> = {
+  pass: 'border-emerald-400/40 bg-emerald-400/10',
+  conditional: 'border-amber-400/40 bg-amber-400/10',
+  fail: 'border-rose-400/40 bg-rose-400/10',
+}
+const AUDIT_STATUS_CLS: Record<string, string> = {
+  pass: 'text-emerald-300', warn: 'text-amber-300', fail: 'text-rose-300', unknown: 'text-white/50',
+}
+function statusIcon(s: string) { return s === 'pass' ? '✓' : s === 'fail' ? '✕' : s === 'warn' ? '!' : '?' }
 
 export default function Configurator({
   catalog, styles, owner, loadDoc, onSaved, onBrickCreated,
@@ -77,6 +88,8 @@ export default function Configurator({
   const [autoRotate, setAutoRotate] = useState(true)
   const [toast, setToast] = useState('')
   const [tick, setTick] = useState(0)
+  const [fullscreen, setFullscreen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const [constraints, setConstraints] = useState<Constraints>({ lot_w: 5, lot_d: 5, max_floors: 8 })
   const [showParams, setShowParams] = useState(false)
@@ -87,6 +100,11 @@ export default function Configurator({
   const [showPanels, setShowPanels] = useState(false)
   const [panelTab, setPanelTab] = useState<'all' | 'mine' | 'community'>('all')
   const [showPanelDesigner, setShowPanelDesigner] = useState(false)
+  // ── building-standards audit (pluggable agent) ──
+  const [showAudit, setShowAudit] = useState(false)
+  const [auditProvider, setAuditProvider] = useState(DEFAULT_AUDIT_PROVIDER)
+  const [auditing, setAuditing] = useState(false)
+  const [audit, setAudit] = useState<AuditResult | null>(null)
 
   const style = useMemo(() => styles.find((s) => s.id === styleId) || styles[0], [styles, styleId])
   const activePanel = useMemo(() => {
@@ -101,6 +119,41 @@ export default function Configurator({
   const flash = useCallback((msg: string) => {
     setToast(msg); window.clearTimeout((three.current as any)._t)
     ;(three.current as any)._t = window.setTimeout(() => setToast(''), 2400)
+  }, [])
+
+  // ── full-screen builder mode ──────────────────────────────────
+  // CSS fixed-overlay always fills the viewport (works inside the gateway
+  // iframe); we also request the native Fullscreen API so it takes over the
+  // whole screen when the embedding allows it. The ResizeObserver on the mount
+  // re-sizes the WebGL canvas automatically when the container grows/shrinks.
+  const toggleFullscreen = useCallback(() => {
+    const el = rootRef.current
+    const doc: any = document
+    const next = !fullscreen
+    try {
+      if (next) {
+        const req = el && ((el as any).requestFullscreen || (el as any).webkitRequestFullscreen)
+        if (req) req.call(el).catch?.(() => {})
+      } else if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        const exit = doc.exitFullscreen || doc.webkitExitFullscreen
+        exit?.call(doc)?.catch?.(() => {})
+      }
+    } catch {}
+    setFullscreen(next)
+  }, [fullscreen])
+
+  useEffect(() => {
+    const doc: any = document
+    const onFsChange = () => { if (!(doc.fullscreenElement || doc.webkitFullscreenElement)) setFullscreen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [])
 
   const serialize = useCallback((): Cell[] => {
@@ -595,6 +648,20 @@ export default function Configurator({
     } catch (e: any) { flash('Save failed: ' + (e?.message || 'error')); return null }
   }, [serialize, owner, styleId, constraints, onSaved, flash])
 
+  // ── run the building-standards audit through the chosen agent ──
+  const doAudit = useCallback(async () => {
+    const cells = serialize()
+    if (!cells.length) { flash('Place some panels first'); return }
+    setShowAudit(true); setAuditing(true)
+    try {
+      const res = await runAudit({ cells, style: styleId, constraints, provider: auditProvider, persist: false })
+      setAudit(res)
+      if (res.agent?.fallback_from) flash(`Fell back to built-in auditor (${res.agent.used})`)
+    } catch (e: any) {
+      setAudit({ verdict: 'fail', score: 0, summary: '', checks: [], red_flags: [], recommendations: [], error: e?.message || 'audit failed' })
+    } finally { setAuditing(false) }
+  }, [serialize, styleId, constraints, auditProvider, flash])
+
   // ── export the building mesh to a production 3D format ────────
   // glTF/GLB is the de-facto interchange format (Blender, Unreal, Unity,
   // Spline, three.js); OBJ/STL are universal fallbacks for CAD / printing.
@@ -657,7 +724,7 @@ export default function Configurator({
   const swatchOf = (m: ModuleSpec) => m.color || style.palette[m.tone] || style.accent
 
   return (
-    <div className="relative w-full h-[72vh] min-h-[560px] rounded-2xl overflow-hidden border border-white/10 bg-black/40 select-none">
+    <div ref={rootRef} className={`overflow-hidden border border-white/10 bg-black/40 select-none ${fullscreen ? 'fixed inset-0 z-[80] w-screen h-screen rounded-none' : 'relative w-full h-[72vh] min-h-[560px] rounded-2xl'}`}>
       <div ref={mountRef} className="absolute inset-0" />
 
       <div className="absolute top-3 left-1/2 -translate-x-1/2 text-[11px] tracking-wide text-white/55 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full border border-white/10 pointer-events-none">
@@ -681,9 +748,9 @@ export default function Configurator({
           {comp && Object.keys(comp).some((k) => k !== 'ok') && (
             <div className="mt-2 pt-2 border-t border-white/10">
               <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 mb-1">Constraints</div>
-              {(['budget', 'floors', 'carbon', 'occupancy', 'lot'] as const).map((k) => comp[k] && (
+              {(['budget', 'floors', 'carbon', 'occupancy', 'lot', 'plot_fit', 'coverage', 'fsr'] as const).map((k) => comp[k] && (
                 <div key={k} className={`flex items-center justify-between text-[10px] ${comp[k]!.ok ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  <span className="capitalize">{comp[k]!.ok ? '✓' : '✕'} {k}</span>
+                  <span className="capitalize">{comp[k]!.ok ? '✓' : '✕'} {k.replace('_', ' ')}</span>
                   <span className="font-mono">{typeof comp[k]!.value === 'number' && k === 'budget' ? fmtUSD(comp[k]!.value as number) : comp[k]!.value}/{typeof comp[k]!.limit === 'number' && k === 'budget' ? fmtUSD(comp[k]!.limit as number) : comp[k]!.limit}</span>
                 </div>
               ))}
@@ -746,7 +813,7 @@ export default function Configurator({
 
       {/* params panel */}
       {showParams && (
-        <div className="absolute left-[200px] top-12 w-[230px] bg-black/70 backdrop-blur-md rounded-xl border border-white/10 p-3 text-white z-20">
+        <div className="absolute left-[200px] top-12 w-[230px] max-h-[80vh] overflow-auto bg-black/70 backdrop-blur-md rounded-xl border border-white/10 p-3 text-white z-20">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Parameters & constraints</div>
             <button onClick={() => setShowParams(false)} className="text-white/40 hover:text-white text-xs">✕</button>
@@ -769,7 +836,89 @@ export default function Configurator({
           <ConRow label="Budget cap" suffix="$" value={constraints.max_budget} step={50000} onChange={(v) => setConstraints((c) => ({ ...c, max_budget: v }))} />
           <ConRow label="Carbon cap" suffix="kg" value={constraints.max_carbon_kg} step={10000} onChange={(v) => setConstraints((c) => ({ ...c, max_carbon_kg: v }))} />
           <ConRow label="Min sleeps" value={constraints.min_occupancy} step={1} onChange={(v) => setConstraints((c) => ({ ...c, min_occupancy: v }))} />
-          <p className="text-[9px] text-white/35 mt-1">The lot fences the grid, floors cap the stack, and the spec turns red when you bust a cap.</p>
+
+          {/* realistic parcel — metres + setbacks + zoning caps */}
+          <div className="mt-2 pt-2 border-t border-white/10">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 mb-1.5">Realistic plot (metres)</div>
+            <MRow label="Plot width" value={constraints.plot_w_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, plot_w_m: v }))} />
+            <MRow label="Plot depth" value={constraints.plot_d_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, plot_d_m: v }))} />
+            <MRow label="Setback front" value={constraints.setback_front_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_front_m: v }))} />
+            <MRow label="Setback rear" value={constraints.setback_rear_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_rear_m: v }))} />
+            <MRow label="Setback side" value={constraints.setback_side_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_side_m: v }))} />
+            <MRow label="Max coverage" value={constraints.max_coverage_pct} step={5} suffix="%" onChange={(v) => setConstraints((c) => ({ ...c, max_coverage_pct: v }))} />
+            <MRow label="Max FSR" value={constraints.max_fsr} step={0.05} suffix="×" onChange={(v) => setConstraints((c) => ({ ...c, max_fsr: v }))} />
+            {stats?.plot && (
+              <p className="text-[9px] text-cyan-200/70 leading-snug mt-0.5">
+                Buildable {stats.plot.buildable_w_m}×{stats.plot.buildable_d_m} m → {stats.plot.build_cells_w}×{stats.plot.build_cells_d} grid · coverage {stats.plot.coverage_pct}% · FSR {stats.plot.fsr}
+              </p>
+            )}
+          </div>
+          <p className="text-[9px] text-white/35 mt-1">Setbacks carve a buildable envelope out of the real lot; coverage & FSR are checked live and feed the audit.</p>
+        </div>
+      )}
+
+      {/* building-standards audit panel — pluggable agent */}
+      {showAudit && (
+        <div className="absolute left-1/2 top-10 -translate-x-1/2 w-[360px] max-h-[82vh] overflow-auto bg-[#0d0d14]/95 backdrop-blur-md rounded-2xl border border-white/15 p-4 text-white z-40 shadow-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-white/55">Building-standards audit</div>
+            <button onClick={() => setShowAudit(false)} className="text-white/40 hover:text-white text-sm">✕</button>
+          </div>
+          <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 mb-1.5">Audit agent</div>
+          <div className="flex items-center gap-1.5 mb-2">
+            {AUDIT_PROVIDERS.map((p) => (
+              <button key={p.id} onClick={() => setAuditProvider(p.id)} title={p.blurb}
+                className={`flex-1 text-[11px] py-1.5 rounded-lg border transition ${auditProvider === p.id ? 'bg-white/15 border-white/40 text-white' : 'bg-black/40 border-white/10 text-white/60 hover:bg-white/10'}`}>{p.label}</button>
+            ))}
+          </div>
+          <button disabled={auditing} onClick={doAudit}
+            className="w-full py-2 mb-3 rounded-lg text-[12px] font-semibold text-black bg-gradient-to-r from-amber-300 to-cyan-300 hover:from-amber-200 hover:to-cyan-200 disabled:opacity-50 transition">
+            {auditing ? 'Auditing…' : `Run audit · ${AUDIT_PROVIDERS.find((p) => p.id === auditProvider)?.label}`}
+          </button>
+          {audit?.error && <div className="text-[12px] text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-lg p-2">{audit.error}</div>}
+          {audit && !audit.error && (
+            <>
+              <div className={`rounded-xl p-3 mb-2 border ${AUDIT_VERDICT_CLS[audit.verdict] || 'border-white/15 bg-white/5'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-base font-bold uppercase tracking-wide">{audit.verdict}</span>
+                  <span className="text-2xl font-mono">{audit.score}<span className="text-xs text-white/40">/100</span></span>
+                </div>
+                <p className="text-[11px] text-white/75 mt-1 leading-snug">{audit.summary}</p>
+              </div>
+              <div className="text-[9px] text-white/40 mb-2">
+                agent: {audit.agent?.used || audit.provider}{audit.model ? ` · ${audit.model}` : ''}
+                {audit.agent?.fallback_from ? ` · fell back from ${audit.agent.fallback_from}` : ''}
+              </div>
+              {stats?.cost_breakdown && stats.cost_breakdown.modules.length > 0 && (
+                <div className="mb-2 rounded-lg border border-white/10 bg-black/30 p-2">
+                  <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 mb-1">Units cost · bill of quantities</div>
+                  {stats.cost_breakdown.modules.map((it) => (
+                    <div key={it.id} className="flex items-center justify-between text-[10px] text-white/70">
+                      <span>{it.qty}× {it.name}</span>
+                      <span className="font-mono">{fmtUSD(it.unit_price)} · {fmtUSD(it.line_total)}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-white mt-1 pt-1 border-t border-white/10">
+                    <span>{stats.cost_breakdown.unit_count} units · {style.name}</span>
+                    <span className="font-mono">{fmtUSD(stats.price_usd)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                {audit.checks.map((c, i) => (
+                  <div key={i} className="rounded-lg border border-white/10 bg-black/30 p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={`text-[11px] font-medium ${AUDIT_STATUS_CLS[c.status] || 'text-white'}`}>{statusIcon(c.status)} {c.standard}</span>
+                      <span className="text-[8px] uppercase px-1 rounded bg-white/10 text-white/50 shrink-0">{c.category}</span>
+                    </div>
+                    <p className="text-[10px] text-white/60 mt-0.5 leading-snug">{c.detail}</p>
+                    {c.recommendation && <p className="text-[10px] text-cyan-200/70 mt-0.5 leading-snug">→ {c.recommendation}</p>}
+                  </div>
+                ))}
+              </div>
+              {audit.disclaimer && <p className="text-[9px] text-white/35 mt-3 leading-snug">{audit.disclaimer}</p>}
+            </>
+          )}
         </div>
       )}
 
@@ -837,8 +986,10 @@ export default function Configurator({
               </div>
             )}
           </div>
+          <Btn onClick={toggleFullscreen} active={fullscreen}>{fullscreen ? '⤡ Exit full screen' : '⛶ Full screen'}</Btn>
           <Btn onClick={() => setAutoRotate((v) => !v)} active={autoRotate}>⟳ {autoRotate ? 'Spinning' : 'Rotate'}</Btn>
           <Btn onClick={() => setShowParams((v) => !v)} active={showParams}>⚙ Parameters</Btn>
+          <Btn onClick={() => { setShowAudit((v) => !v); if (!showAudit && !audit) doAudit() }} active={showAudit}>🛡 Audit standards</Btn>
           <Btn onClick={undo}>↩ Undo</Btn>
           <Btn onClick={clear}>✕ Clear</Btn>
           <Btn onClick={surprise}>✦ Surprise</Btn>
@@ -892,6 +1043,19 @@ function NumRow({ label, value, min, max, onChange }: { label: string; value?: n
         <button onClick={() => onChange(Math.max(min, v - 1))} className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 text-xs">−</button>
         <span className="w-7 text-center text-[12px] font-mono">{v}</span>
         <button onClick={() => onChange(Math.min(max, v + 1))} className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 text-xs">+</button>
+      </div>
+    </div>
+  )
+}
+function MRow({ label, value, step = 1, suffix = 'm', onChange }: { label: string; value?: number; step?: number; suffix?: string; onChange: (v: number | undefined) => void }) {
+  return (
+    <div className="flex items-center justify-between mb-1.5">
+      <span className="text-[11px] text-white/60">{label}</span>
+      <div className="flex items-center gap-1">
+        <input type="number" step={step} value={value ?? ''} placeholder="—"
+          onChange={(e) => { const v = e.target.value; onChange(v === '' ? undefined : Number(v)) }}
+          className="w-16 bg-black/40 border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono text-right outline-none focus:border-cyan-400" />
+        <span className="text-[10px] text-white/35 w-4">{suffix}</span>
       </div>
     </div>
   )

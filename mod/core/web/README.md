@@ -10,13 +10,22 @@ app/   Next.js front-end             →  :3420    (basePath /web)
 
 ## What it does
 
-The mod monorepo is a tree of modules — each a directory under `mod/orbit/<name>/`
-with a `config.json`. `mod-api` walks that tree, parses every config, and serves a
-uniform catalog. The Next app renders it: a hero with live ecosystem stats, an
-instant-search module grid, and a per-module detail view (functions, ports,
-gateway mount, raw config).
+The mod monorepo is a tree of modules — each a directory with a `config.json`,
+under `mod/orbit/<name>/` (and the sibling `mod/core/` for core modules like
+web, chain, store). `mod-api` walks those roots, parses every config, and serves
+a uniform catalog. The Next app renders it as a live, browsable explorer:
 
-The API is pure read-side over the filesystem — no chain, no auth, no state — so
+- **Browse** — a hero with ecosystem stats and an instant-search module grid.
+- **Inspect** — a per-module detail view with three tabs:
+  - **Overview** — functions, ports, gateway mount, raw `config.json`.
+  - **Code** — a file-tree browser + viewer over the module's own source. The
+    `/tree` and `/file` endpoints are sandboxed to each module's directory
+    (path traversal and symlink escapes are refused), skip build output
+    (`target`, `node_modules`, `.next`, …), and cap file size at 512 KB.
+  - **App** — the module's live app embedded via iframe at its gateway URL,
+    with an open-in-new-tab link.
+
+The API is pure read-side over the filesystem — no chain, no auth, no writes — so
 it's fast and impossible to break. It rescans on a 3-second TTL, so the catalog
 stays live as modules are added or edited.
 
@@ -29,8 +38,10 @@ stripped before proxying to `mod-api`).
 | -------------- | -------------------------------------------- |
 | `GET /`        | Protocol info + live ecosystem stats         |
 | `GET /health`  | Liveness probe (orbit path + module count)   |
-| `GET /mods`    | Catalog of every orbit module                |
+| `GET /mods`    | Catalog of every module (orbit + core)       |
 | `GET /mods/:n` | Single module detail (parsed `config.json`)  |
+| `GET /mods/:n/tree` | Recursive source tree (build output elided) |
+| `GET /mods/:n/file?path=` | One source file, sandboxed to the module dir |
 | `GET /stats`   | Aggregate stats (modules/functions/rust/app) |
 | `GET /search?q=` | Filter the catalog                         |
 

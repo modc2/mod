@@ -159,6 +159,25 @@ class ChatReq(BaseModel):
     text: str
 
 
+class MyGamesReq(BaseModel):
+    handle: str = ""
+    game_ids: List[str] = []
+
+
+class RegisterAccountReq(BaseModel):
+    name: str
+    address: str
+    signature: str
+    ts: int = 0
+
+
+class RotateAccountReq(BaseModel):
+    name: str
+    new_address: str
+    signature: str
+    ts: int = 0
+
+
 def _check(result):
     if isinstance(result, dict) and result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -207,6 +226,11 @@ def games(sport: Optional[str] = None, city: Optional[str] = None):
     return op().games(sport=sport, city=city)
 
 
+@app.post("/my_games")
+def my_games(req: MyGamesReq):
+    return op().my_games(handle=req.handle, game_ids=req.game_ids)
+
+
 @app.get("/game/{game_id}")
 def game(game_id: str, occ: Optional[str] = None):
     return _check(op().game(game_id, occ))
@@ -215,6 +239,22 @@ def game(game_id: str, occ: Optional[str] = None):
 @app.get("/payment_requirements/{game_id}")
 def payment_requirements(game_id: str):
     return _check(op().payment_requirements(game_id))
+
+
+# ── Accounts (name ↔ key identity) ──────────────────────────────
+@app.get("/account/{name}")
+def account(name: str):
+    return _check(op().account(name))
+
+
+@app.post("/account/register")
+def register_account(req: RegisterAccountReq):
+    return _check(op().register_account(req.name, req.address, req.signature, ts=req.ts))
+
+
+@app.post("/account/rotate")
+def rotate_account(req: RotateAccountReq):
+    return _check(op().rotate_account(req.name, req.new_address, req.signature, ts=req.ts))
 
 
 # ── Create / edit ───────────────────────────────────────────────
