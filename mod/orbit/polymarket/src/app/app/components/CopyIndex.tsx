@@ -9,9 +9,10 @@ import { getStrat } from "../lib/strats/registry";
 import type { TraderTrade as StratTraderTrade } from "../lib/strats/base";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
-import { useFilterParams } from "../context/FiltersContext";
+import { useFilterParams, useFilters } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
+import CopyTrading from "./CopyTrading";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
@@ -486,7 +487,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // rather than the strategy-management screen. The LIVE tab is itself
   // disabled until a watchlist exists, so first-time-no-strat users still
   // see STRATS through the disabled-tab fallback in the tabs render block.
-  const [mode, setMode] = useState<"STRATS" | "BACKTEST" | "LIVE">("LIVE");
+  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE">("LIVE");
 
   // STRAT panel collapsed state — params live above the BACKTEST/LIVE
   // mode-content so the user can tweak window/capital/sample/poll-every
@@ -506,17 +507,27 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
   // tab holding the publish/community/fork hub + the fund shortcut. Open by
   // default so the hub is visible out of the box; state persists so it stays
   // the way the user left it (explicitly collapsed → stored "0").
-  const [hubBarOpen, setHubBarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("stratHubBarOpen") !== "0";
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try { window.localStorage.setItem("stratHubBarOpen", hubBarOpen ? "1" : "0"); } catch {}
-  }, [hubBarOpen]);
-  // Fund sub-section inside the hub bar — reveals WalletFundingPanel on demand
-  // so the bar stays compact until the user actually wants to add funds.
+  // Fund sub-section inside the HUB tab — reveals WalletFundingPanel on demand
+  // so the tab stays compact until the user actually wants to add funds.
   const [hubFundOpen, setHubFundOpen] = useState(false);
+
+  // ── Embedded top-traders leaderboard (STRATS mode) ──
+  // The standalone /traders page was folded into strat management: discovering
+  // who to copy and assembling a strat now live in one place. The leaderboard
+  // reads the shared TopBar filters (category / window / market topic), and
+  // selecting a trader toggles them in/out of the active strat.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const {
+    category: browseCategory,
+    daysAgo: browseDaysAgo,
+    minPerDay: browseMinPerDayRaw,
+    marketQuery: browseMarketQuery,
+    reloadKey: browseReloadKey,
+  } = useFilters();
+  const browseDays = Number(browseDaysAgo) > 0 ? Number(browseDaysAgo) : 7;
+  const browseMinTradesPerDay = browseMinPerDayRaw !== "" && Number.isFinite(Number(browseMinPerDayRaw))
+    ? Math.max(0, Number(browseMinPerDayRaw))
+    : 0;
 
   // UTC clock tick
   useEffect(() => {
@@ -1981,6 +1992,7 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
           {(
             [
               { id: "STRATS", label: "STRATS", disabled: false },
+              { id: "HUB", label: "HUB", disabled: false },
               { id: "BACKTEST", label: "BACKTEST", disabled: watchlist.length === 0 },
               { id: "LIVE", label: "LIVE", disabled: watchlist.length === 0 },
             ] as { id: typeof mode; label: string; disabled: boolean }[]
@@ -2028,42 +2040,31 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
         </div>
       </div>
 
-      {/* ── Strategy Hub top bar (STRATS tab only, collapsed by default) ──
-          One pinned, collapsible block at the very top of the STRATS tab:
-          publish / community / fork (UserStratsPanel) + a FUND shortcut that
-          expands WalletFundingPanel in place. Keeps sharing + funding one
-          click away without pushing the leaderboard down when not in use. */}
-      {mode === "STRATS" && (
+      {/* ── Strategy Hub (HUB tab) ──
+          Your own dedicated tab: publish / community / fork (UserStratsPanel)
+          + a FUND shortcut that expands WalletFundingPanel in place. Formerly
+          a collapsible bar on the STRATS tab and a separate /my-strats page —
+          now folded into one tab so it isn't crowding the strat editor. */}
+      {mode === "HUB" && (
         <div className="pixel-panel border-2 border-pixel-border">
-          <div className="flex items-center justify-between px-3 py-2">
-            <button
-              onClick={() => setHubBarOpen((v) => !v)}
-              className="flex items-center gap-2 text-left"
+          <div className="flex items-center justify-between px-3 py-2 border-b border-pixel-border/40">
+            <span
+              className="text-[14px] text-green-400 uppercase tracking-wider"
+              style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
             >
-              <span className="text-pixel-gray text-[14px]">{hubBarOpen ? "▾" : "▸"}</span>
-              <span
-                className="text-[14px] text-green-400 uppercase tracking-wider"
-                style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
-              >
-                Strategy Hub
-              </span>
-              <span className="text-[11px] text-pixel-gray hidden sm:inline">
-                publish · fork · fund
-              </span>
-            </button>
+              Strategy Hub
+            </span>
             <button
-              onClick={() => { setHubBarOpen(true); setHubFundOpen((v) => !v); }}
+              onClick={() => setHubFundOpen((v) => !v)}
               className="pixel-btn text-[13px] px-3 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10"
             >
               {hubFundOpen ? "HIDE FUND" : "+ FUND"}
             </button>
           </div>
-          {hubBarOpen && (
-            <div className="px-3 pb-3 space-y-3 border-t border-pixel-border/40 pt-3">
-              {hubFundOpen && <WalletFundingPanel />}
-              <UserStratsPanel eoa={auth.address ?? undefined} />
-            </div>
-          )}
+          <div className="px-3 pb-3 space-y-3 pt-3">
+            {hubFundOpen && <WalletFundingPanel />}
+            <UserStratsPanel eoa={auth.address ?? undefined} />
+          </div>
         </div>
       )}
 
@@ -2090,6 +2091,57 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Browse top traders (STRATS tab only) ──
+          The old standalone /traders page, folded in: the full leaderboard for
+          discovering who to copy, collapsible so it doesn't crowd the strat
+          editor. Clicking a trader toggles them in/out of the active strat. */}
+      {mode === "STRATS" && (
+        <div className="pixel-panel border-2 border-pixel-border">
+          <button
+            onClick={() => setBrowseOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2 text-left"
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-pixel-gray text-[14px]">{browseOpen ? "▾" : "▸"}</span>
+              <span
+                className="text-[14px] text-green-400 uppercase tracking-wider"
+                style={{ fontFamily: '"Press Start 2P", monospace', letterSpacing: "0.06em" }}
+              >
+                Browse Traders
+              </span>
+              <span className="text-[11px] text-pixel-gray hidden sm:inline">
+                leaderboard · click to add to strat
+              </span>
+            </span>
+            {allTraderAddrs.length > 0 && (
+              <span className="text-[12px] text-pixel-gray font-mono">{allTraderAddrs.length} in strat</span>
+            )}
+          </button>
+          {browseOpen && (
+            <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
+              <CopyTrading
+                days={browseDays}
+                minTradesPerDay={browseMinTradesPerDay}
+                reloadKey={browseReloadKey}
+                search={searchFilter}
+                category={browseCategory}
+                marketQuery={browseMarketQuery}
+                selectedAddresses={allTraderAddrs}
+                onSelect={(addr) => {
+                  const a = addr.toLowerCase();
+                  // Remove using the exact stored casing (removeTrader matches
+                  // case-sensitively); add new entries lowercased to match the
+                  // app's storage convention.
+                  const stored = allTraderAddrs.find((x) => x.toLowerCase() === a);
+                  if (stored) removeTrader(stored);
+                  else addTrader(a);
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -2275,14 +2327,14 @@ export default function CopyIndex({ searchFilter, compact, onClose }: CopyIndexP
       {activeIndex && (
         <>
           {/* Empty trader state */}
-          {watchlist.length === 0 && (
+          {watchlist.length === 0 && mode !== "HUB" && (
             <div className="pixel-panel p-4 text-center space-y-2">
               <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
               <div className="text-[12px] text-pixel-gray-light">
-                ADD TRADERS ABOVE OR FROM THE{" "}
-                <button onClick={() => router.push("/traders")} className="text-pixel-white hover:text-green-400 transition-colors">
-                  TRADERS
-                </button>{" "}TAB.
+                ADD TRADERS ABOVE OR FROM{" "}
+                <button onClick={() => setMode("STRATS")} className="text-pixel-white hover:text-green-400 transition-colors">
+                  BROWSE TRADERS
+                </button>{" "}IN THE STRATS TAB.
               </div>
             </div>
           )}

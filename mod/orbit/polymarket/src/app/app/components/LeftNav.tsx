@@ -24,27 +24,6 @@ const ICON = "w-[18px] h-[18px] shrink-0";
 
 const NAV: NavItem[] = [
   {
-    href: "/markets",
-    label: "MARKETS",
-    icon: (
-      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M3 3v18h18" />
-        <path d="M7 14l4-4 3 3 5-6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/traders",
-    label: "TRADERS",
-    icon: (
-      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="9" cy="8" r="3" />
-        <path d="M3 20c0-3 3-5 6-5s6 2 6 5" />
-        <path d="M16 4a3 3 0 010 6M21 20c0-2.5-1.5-4.2-3.5-4.8" />
-      </svg>
-    ),
-  },
-  {
     href: "/strats",
     label: "STRATS",
     icon: (
@@ -54,27 +33,6 @@ const NAV: NavItem[] = [
         <circle cx="12" cy="18" r="2.5" />
         <path d="M6 8.5v3a3 3 0 003 3h6a3 3 0 003-3v-3" />
         <path d="M12 14.5v1" />
-      </svg>
-    ),
-  },
-  {
-    href: "/my-strats",
-    label: "MY STRATS",
-    icon: (
-      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="9" cy="8" r="3" />
-        <path d="M3 20c0-3 3-5 6-5s6 2 6 5" />
-        <path d="M18 7v6M15 10h6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/portfolio",
-    label: "PORTFOLIO",
-    icon: (
-      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <rect x="3" y="7" width="18" height="13" rx="1.5" />
-        <path d="M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" />
       </svg>
     ),
   },
@@ -111,7 +69,7 @@ export default function LeftNav() {
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
   const hrefFor = (base: string) =>
-    (base === "/traders" || base === "/strats") && filterQs ? `${base}?${filterQs}` : base;
+    base === "/strats" && filterQs ? `${base}?${filterQs}` : base;
 
   // Split-screen iframe panes stay lightweight — no global rail.
   if (embedded) return null;
