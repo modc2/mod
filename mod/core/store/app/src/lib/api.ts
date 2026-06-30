@@ -25,6 +25,8 @@ export interface MeResponse {
   address: string;
   authorized: boolean;
   admin: boolean;
+  bloctime: boolean;
+  via: "config" | "bloctime" | "open" | null;
   quota: Quota;
 }
 

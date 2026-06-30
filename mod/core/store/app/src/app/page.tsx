@@ -358,7 +358,8 @@ export default function Page() {
           {token && address && (
             <div className="id-chip">
               <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
-              {me?.admin && <span className="pill admin">admin</span>}
+              {me?.admin && <span className="pill admin">owner</span>}
+              {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
               <span className="id-addr" title={address}>
                 {shortAddress(address)}
               </span>
@@ -377,9 +378,22 @@ export default function Page() {
       {error && <div className="error-box">✕ {error}</div>}
       {success && !busy && <div className="success-box">✓ {success}</div>}
 
+      {!token && (
+        <div className="gate-card">
+          <div className="gate-glow" />
+          <h2>Gated storage</h2>
+          <p className="muted">
+            Access is restricted to the <strong>mod owner</strong> and on-chain <strong>BlocTime</strong> holders.
+            Sign in with your wallet to check your access — holding BlocTime grants entry automatically, no
+            whitelisting needed.
+          </p>
+        </div>
+      )}
+
       {token && !canStore && (
         <div className="error-box">
-          Signed in but not whitelisted to store. Ask the owner to whitelist <code>{address}</code>.
+          Signed in as <code>{address}</code> but not authorized — this store is gated to the mod owner and
+          on-chain BlocTime holders. Hold BlocTime to gain access, or ask the owner to whitelist you.
         </div>
       )}
 

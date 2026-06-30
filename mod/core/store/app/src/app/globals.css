@@ -2,7 +2,11 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: #0a0a0a;
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 480px at 12% -10%, #1d2a4a44, transparent 60%),
+    radial-gradient(700px 420px at 100% 0%, #1a3a3344, transparent 55%),
+    #09090b;
   color: #e5e5e5;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 14px;
@@ -47,16 +51,42 @@ input[type="file"] { padding: 6px; }
   padding-bottom: 20px; margin-bottom: 32px;
   border-bottom: 1px solid #222;
 }
-.brand { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.brand {
+  font-size: 19px; font-weight: 700; letter-spacing: -0.01em;
+  background: linear-gradient(135deg, #f5f5f5, #93c5fd);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .brand-sub { color: #888; font-weight: 400; margin-left: 8px; }
 
 .panel {
   border: 1px solid #222;
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 20px;
   margin-bottom: 20px;
-  background: #111;
+  background: linear-gradient(180deg, #121214, #0e0e10);
+  box-shadow: 0 1px 0 #ffffff08 inset, 0 8px 24px -16px #000c;
 }
+
+.gate-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 28px 24px;
+  margin-bottom: 20px;
+  background: linear-gradient(180deg, #111317, #0c0d10);
+  box-shadow: 0 8px 30px -18px #000d;
+}
+.gate-card h2 { margin: 0 0 8px 0; font-size: 16px; }
+.gate-card p { margin: 0; max-width: 640px; }
+.gate-card .muted strong { color: #bfdbfe; font-weight: 600; }
+.gate-glow {
+  position: absolute; top: -60px; right: -60px; width: 220px; height: 220px;
+  background: radial-gradient(circle, #2563eb33, transparent 70%);
+  pointer-events: none;
+}
+
+.pill.bloctime { background: #78350f33; color: #fcd34d; }
 .panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin: 0 0 14px 0; }
 
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -151,8 +181,9 @@ textarea {
 .pool-card {
   text-align: left; padding: 16px; background: #161616; border: 1px solid #262626;
   border-radius: 8px; display: block; width: 100%;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
 }
-.pool-card:hover { border-color: #2563eb; background: #1a1a1a; }
+.pool-card:hover { border-color: #2563eb; background: #1a1a1a; transform: translateY(-1px); }
 
 .link-toggle {
   background: transparent; border: none; padding: 0; color: #7dd3fc; font-size: 13px;
