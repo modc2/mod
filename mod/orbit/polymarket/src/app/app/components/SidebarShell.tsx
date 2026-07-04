@@ -1,6 +1,7 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useSidebar, SIDEBAR_DEFAULT } from "../context/SidebarContext";
 import { useAuth } from "../context/AuthContext";
 import WalletChip from "./WalletChip";
@@ -9,20 +10,35 @@ import WalletPanel from "./WalletPanel";
 import WalletFundingPanel from "./WalletFundingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import PreconditionChecklist from "./PreconditionChecklist";
+import StratSidebar from "./StratSidebar";
 
-/// Account sidebar that owns ALL account chrome: signed-in wallet
-/// (WalletChip), wallet/token/QR pairing (WalletTokenPanel), trading-wallet
-/// deposit/withdraw (WalletPanel), bridge-funds-in (WalletFundingPanel),
-/// legacy V1 proxy migration (PolymarketAccountPanel — self-hides when
-/// empty), and the go-live CHECKLIST. This is the ONLY place any of that
-/// renders — the main column (CopyIndex/LivePanel) stays to strat tabs and
-/// their content, nothing duplicated. Always mounted; `collapsed` only
-/// swaps the full panel for a thin icon rail, it never disappears entirely.
-/// Lives on the LEFT, immediately after LeftNav — the app only chromes one
-/// edge of the screen, keeping the right side free for content.
+type Tab = "ACCOUNT" | "STRATS";
+
+/// The one global sidebar, split into two tabs:
+///  · ACCOUNT — all account chrome: signed-in wallet (WalletChip),
+///    wallet/token/QR pairing (WalletTokenPanel), trading-wallet
+///    deposit/withdraw (WalletPanel), bridge-funds-in (WalletFundingPanel),
+///    legacy V1 proxy migration (PolymarketAccountPanel — self-hides when
+///    empty), and the go-live CHECKLIST.
+///  · STRATS — the strat list (select / rename / delete / new), which used
+///    to be a second floating panel inside CopyIndex.
+/// Both tabs stay mounted (hidden, not unmounted) so wallet state and the
+/// LIVE tab's "FUND NOW" scroll target survive tab switches. Always mounted;
+/// `collapsed` only swaps the full panel for a thin icon rail. Lives on the
+/// LEFT, immediately after LeftNav — the app only chromes one edge of the
+/// screen, keeping the right side free for content.
 export default function SidebarShell({ children }: { children: ReactNode }) {
   const { collapsed, width, hydrated, setWidth, setCollapsed, startDrag } = useSidebar();
   const { auth } = useAuth();
+  const pathname = usePathname() || "";
+  const [tab, setTab] = useState<Tab>("ACCOUNT");
+
+  // Contextual default: land on /strats → STRATS tab, elsewhere → ACCOUNT.
+  // A manual click overrides until the next route change.
+  const onStrats = pathname.startsWith("/strats");
+  useEffect(() => {
+    setTab(onStrats ? "STRATS" : "ACCOUNT");
+  }, [onStrats]);
 
   if (!hydrated) return <>{children}</>;
 
@@ -65,6 +81,20 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
     );
   }
 
+  const tabBtn = (t: Tab) => (
+    <button
+      key={t}
+      onClick={() => setTab(t)}
+      className={`px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-[0.18em] border transition-colors ${
+        tab === t
+          ? "text-green-400 bg-green-400/10 border-green-400/40"
+          : "text-pixel-gray border-transparent hover:text-pixel-white hover:bg-pixel-white/[0.05]"
+      }`}
+    >
+      {t}
+    </button>
+  );
+
   return (
     <div className="flex items-stretch min-h-[calc(100vh-3rem)]">
       {/* Floating glass card that hugs its content — the page canvas (and its
@@ -74,11 +104,12 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
         className="shrink-0 sticky top-12 self-start max-h-[calc(100vh-3rem)] overflow-y-auto p-3 pr-0"
       >
         <div className="pixel-panel overflow-hidden">
-          {/* Account row: signed-in wallet, CLOB status dot, switch + sign-out,
-              add-person. Header carries a collapse button (rail mode, not a
-              full hide — there's no main-column fallback for any of this). */}
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-[var(--border)] bg-[rgb(var(--pixel-white-rgb)/0.02)]">
-            <span className="text-[10px] text-pixel-gray tracking-[0.22em] font-semibold">ACCOUNT</span>
+          {/* Header: ACCOUNT / STRATS tabs + wallet chip + collapse. */}
+          <div className="flex items-center justify-between gap-2 px-2 py-2 border-b border-[var(--border)] bg-[rgb(var(--pixel-white-rgb)/0.02)]">
+            <div className="flex items-center gap-1">
+              {tabBtn("ACCOUNT")}
+              {tabBtn("STRATS")}
+            </div>
             <div className="flex items-center gap-2">
               <WalletChip />
               <button
@@ -90,7 +121,10 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
               </button>
             </div>
           </div>
-          <div className="p-2 space-y-2">
+
+          {/* ACCOUNT tab — kept mounted while hidden so wallet panels don't
+              remount (QR pairing, balances) and scroll anchors stay real. */}
+          <div className={tab === "ACCOUNT" ? "p-2 space-y-2" : "hidden"}>
             {/* Full wallet + token + sign-in-QR pairing panel. */}
             <WalletTokenPanel />
             {/* Trading-wallet deposit/withdraw (V2) — the LIVE tab's "FUND NOW"
@@ -105,6 +139,12 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
             {/* Go-live preflight: WALLET · CLOB · STRATEGY · TRADERS · INTERVAL ·
                 CAPITAL with a progress bar. */}
             <PreconditionChecklist />
+          </div>
+
+          {/* STRATS tab — the strat list (used to float separately in
+              CopyIndex; now it's a first-class sidebar tab). */}
+          <div className={tab === "STRATS" ? "p-2" : "hidden"}>
+            <StratSidebar />
           </div>
         </div>
       </aside>

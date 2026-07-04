@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, TopTrader, CATEGORIES } from "../lib/polymarket";
+import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, CategorySlug } from "../lib/polymarket";
+import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardPresets";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
 import { getStrat } from "../lib/strats/registry";
@@ -16,13 +17,10 @@ import CopyTrading from "./CopyTrading";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
-import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId } from "../lib/indexStore";
+import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import LivePanel from "./LivePanel";
-import StratPicker from "./StratPicker";
 import StratSourceViewer from "./StratSourceViewer";
-import WalletFundingPanel from "./WalletFundingPanel";
 import UserStratsPanel from "./UserStratsPanel";
-import WalletTokenPanel from "./WalletTokenPanel";
 import ThemeToggle from "./ThemeToggle";
 
 interface TraderSummary {
@@ -371,11 +369,6 @@ function AddTraderBar({ watchlist, onAdd }: { watchlist: string[]; onAdd: (addr:
 interface CopyIndexProps {
   searchFilter: string;
   compact?: boolean;
-  onClose?: () => void;
-  /// When the right sidebar is docked it owns the account / wallet / token
-  /// block, so the inline KEY+TOKEN row and WalletTokenPanel are suppressed
-  /// here to avoid rendering them twice. The STRAT summary + tabs stay.
-  hideWalletHeader?: boolean;
 }
 
 // Labeled input/select group used across the backtest controls. Renders a
@@ -404,7 +397,7 @@ function Field({
   );
 }
 
-export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHeader }: CopyIndexProps) {
+export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const router = useRouter();
   const filterQs = useFilterParams({ excludeSearch: true });
   const { localToken, auth } = useAuth();
@@ -497,27 +490,19 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
   // glance from here.
   const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE">("STRATS");
 
-  // STRAT panel collapsed state — params live above the BACKTEST/LIVE
-  // mode-content so the user can tweak window/capital/sample/poll-every
-  // without flipping tabs. Default open; once collapsed, persists in
-  // localStorage across reloads so the panel stays the way the user left
-  // it. Same params either way — they're the strat config.
-  const [stratPanelOpen, setStratPanelOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return window.localStorage.getItem("stratPanelOpen") !== "0";
+  // STRAT subtabs — SOURCE (the strat's code), TRADERS (leaderboard +
+  // watchlist editor), PARAMS (every tuning knob). Params used to live in
+  // a docked panel above the tabs on every view; they're a subtab now and
+  // render nowhere else. Selection persists across reloads.
+  const [stratTab, setStratTab] = useState<"SOURCE" | "TRADERS" | "PARAMS">(() => {
+    if (typeof window === "undefined") return "TRADERS";
+    const v = window.localStorage.getItem("stratSubTab");
+    return v === "SOURCE" || v === "PARAMS" ? v : "TRADERS";
   });
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try { window.localStorage.setItem("stratPanelOpen", stratPanelOpen ? "1" : "0"); } catch {}
-  }, [stratPanelOpen]);
-
-  // STRATEGY HUB top bar — collapsible block pinned at the top of the STRATS
-  // tab holding the publish/community/fork hub + the fund shortcut. Open by
-  // default so the hub is visible out of the box; state persists so it stays
-  // the way the user left it (explicitly collapsed → stored "0").
-  // Fund sub-section inside the HUB tab — reveals WalletFundingPanel on demand
-  // so the tab stays compact until the user actually wants to add funds.
-  const [hubFundOpen, setHubFundOpen] = useState(false);
+    try { window.localStorage.setItem("stratSubTab", stratTab); } catch {}
+  }, [stratTab]);
 
   // ── Embedded top-traders leaderboard (STRATS mode) ──
   // The standalone /traders page was folded into strat management: discovering
@@ -531,11 +516,45 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     minPerDay: browseMinPerDayRaw,
     marketQuery: browseMarketQuery,
     reloadKey: browseReloadKey,
+    setCategory: setBrowseCategory,
+    setDaysAgo: setBrowseDaysAgo,
+    setMinPerDay: setBrowseMinPerDay,
+    setMarketQuery: setBrowseMarketQuery,
   } = useFilters();
   const browseDays = Number(browseDaysAgo) > 0 ? Number(browseDaysAgo) : 7;
   const browseMinTradesPerDay = browseMinPerDayRaw !== "" && Number.isFinite(Number(browseMinPerDayRaw))
     ? Math.max(0, Number(browseMinPerDayRaw))
     : 0;
+
+  // ── Pinned leaderboard presets (named filter combos, e.g. "BTC ≥3/day") ──
+  const [presets, setPresets] = useState<LeaderboardPreset[]>([]);
+  useEffect(() => { setPresets(loadPresets()); }, []);
+  const applyPreset = (p: LeaderboardPreset) => {
+    setBrowseCategory(p.category as CategorySlug);
+    setBrowseMarketQuery(p.marketQuery);
+    setBrowseDaysAgo(p.daysAgo);
+    setBrowseMinPerDay(p.minPerDay);
+    setBrowseOpen(true);
+  };
+  const saveCurrentAsPreset = () => {
+    const name = (typeof window !== "undefined" ? window.prompt("Name this leaderboard (e.g. \"BTC ≥3/day\"):") : "")?.trim();
+    if (!name) return;
+    const next = [...presets, {
+      id: Date.now().toString(36),
+      name,
+      category: browseCategory,
+      marketQuery: browseMarketQuery,
+      daysAgo: browseDaysAgo,
+      minPerDay: browseMinPerDayRaw,
+    }];
+    setPresets(next);
+    savePresets(next);
+  };
+  const deletePreset = (id: string) => {
+    const next = presets.filter((p) => p.id !== id);
+    setPresets(next);
+    savePresets(next);
+  };
 
   // UTC clock tick
   useEffect(() => {
@@ -583,6 +602,7 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     }
 
     // Always ensure at least one strat exists
+    let seeded: SavedIndex | null = null;
     if (indexes.length === 0) {
       const now = Date.now();
       const def: SavedIndex = {
@@ -595,6 +615,7 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
       };
       saveIndex(def);
       indexes = [def];
+      seeded = def;
     }
 
     setSavedIndexes(indexes);
@@ -603,6 +624,22 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     const active = found || indexes[0];
     setActiveIndex(active);
     setActiveIndexId(active.id);
+
+    // Brand-new strat with nobody on it — seed it with the top 10 traders
+    // matching the current leaderboard filters instead of leaving it at 0
+    // traders (which used to render an empty "NO TRADES" feed by default).
+    if (seeded) {
+      fetchTopTraderAddresses(
+        { days: browseDays, minPerDay: browseMinTradesPerDay, category: browseCategory, marketQuery: browseMarketQuery },
+        10,
+      ).then((addrs) => {
+        if (addrs.length === 0) return;
+        const traders = equalWeightTraders(addrs);
+        updateIndex(seeded!.id, { traders, updatedAt: Date.now() });
+        setSavedIndexes(loadIndexes());
+        setActiveIndex((cur) => (cur && cur.id === seeded!.id ? { ...cur, traders } : cur));
+      });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
@@ -633,6 +670,12 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
     setMarketQuery(activeIndex.marketQuery ?? "");
     setMarketQueryInput(activeIndex.marketQuery ?? "");
+    const tf = activeIndex.tradeFilters ?? {};
+    setTradeFilters(tf);
+    setPriceMinInput(tf.minPrice != null ? String(Math.round(tf.minPrice * 100)) : "");
+    setPriceMaxInput(tf.maxPrice != null ? String(Math.round(tf.maxPrice * 100)) : "");
+    setSizeMinInput(tf.minNotional != null ? String(tf.minNotional) : "");
+    setSizeMaxInput(tf.maxNotional != null ? String(tf.maxNotional) : "");
     // Force per-trade replay on load — REBALANCE/AT selects were removed,
     // and any non-zero persisted value would silently aggregate trades into
     // windows with no way to undo from the UI.
@@ -841,6 +884,33 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     }
   };
 
+  // ── Top-N per cycle (persist to strategy) ──
+  const updateMaxPerCycle = (n: number) => {
+    const clamped = Math.max(1, n);
+    setMaxPerCycle(clamped);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { maxPerCycle: clamped, updatedAt: Date.now() });
+    }
+  };
+
+  // ── Semantic per-trade filters (persist to strategy) ──
+  // Merge-patch one dimension (side / price band / size band / category),
+  // leaving the others untouched. Backtest + live engine both read these.
+  const patchTradeFilters = (changes: Partial<TradeFilters>) => {
+    const next = { ...tradeFilters, ...changes };
+    setTradeFilters(next);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { tradeFilters: next, updatedAt: Date.now() });
+    }
+  };
+
+  const toggleTradeCategory = (slug: string) => {
+    const current = tradeFilters.categories ?? [];
+    patchTradeFilters({
+      categories: current.includes(slug) ? current.filter((c) => c !== slug) : [...current, slug],
+    });
+  };
+
   // ── Data fetching ──
   // `silent=true` skips the loading spinner — used by the background refresh
   // so the curve top-up doesn't flash the empty state on every interval tick.
@@ -949,6 +1019,16 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
       const found = aid ? indexes.find((i) => i.id === aid) : indexes[0];
       if (found) {
         setActiveIndex(found);
+        // Re-hydrate backtest/sizing params so external strat edits flow
+        // into the backtest + config bar without a strat switch.
+        setCapital(found.capital ?? DEFAULT_CAPITAL);
+        setMinTrade(found.minTrade ?? 1);
+        setMaxTrade(found.maxTrade ?? 100);
+        setMaxTradesPerHour(found.maxTradesPerHour ?? 10);
+        setMaxPerCycle(found.maxPerCycle ?? 3);
+        setMarketQuery(found.marketQuery ?? "");
+        setMarketQueryInput(found.marketQuery ?? "");
+        setTradeFilters(found.tradeFilters ?? {});
         const current = new Set(watchlist);
         const newAddrs = found.traders.map((t) => t.address).filter((a) => !current.has(a));
         if (newAddrs.length > 0) fetchAll(newAddrs);
@@ -1132,8 +1212,8 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
   // but both reference the same class with the same opts. Drop a new
   // strat into src/app/app/lib/strats/registry.ts and BOTH adopt it.
   const backtestStrat = useMemo(
-    () => getStrat(undefined, { maxPerCycle, marketQuery }),
-    [maxPerCycle, marketQuery],
+    () => getStrat(undefined, { maxPerCycle, marketQuery, tradeFilters }),
+    [maxPerCycle, marketQuery, tradeFilters],
   );
 
   // ── Per-trader 30d ROI stats (drives top-N sampling) ──
@@ -1236,7 +1316,12 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     const traderCurves: { address: string; points: CurvePoint[]; weight: number }[] = [];
 
     for (const addr of watchlist) {
-      const rawTrades = traderTrades.get(addr) || [];
+      // Honor the strat's market-topic filter — same gate `backtests` and
+      // `traderStatsMap` apply. Without this, a SELL outside the query (or
+      // BUYs that never went through `keptBuyIds`) still leaked into the
+      // curve, so the chart didn't match the filtered preview numbers.
+      const rawTrades = (traderTrades.get(addr) || [])
+        .filter((t) => marketMatchesQuery(t.market, marketQuery));
       const positions = traderData.get(addr) || [];
       if (rawTrades.length === 0) continue;
 
@@ -1276,7 +1361,7 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     }
 
     return { combined: buildCombinedPnlCurve(traderCurves), perTrader: traderCurves };
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, keptBuyIds]);
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, keptBuyIds, marketQuery]);
 
   const combinedPnlCurve = combinedCurveData.combined;
 
@@ -1348,7 +1433,10 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     const allEntries: RawEntry[] = [];
 
     for (const addr of watchlist) {
-      const rawTrades = traderTrades.get(addr) || [];
+      // Same market-topic gate as `backtests` / `combinedCurveData` — the
+      // feed must only ever show trades the strat would actually mirror.
+      const rawTrades = (traderTrades.get(addr) || [])
+        .filter((t) => marketMatchesQuery(t.market, marketQuery));
       const positions = traderData.get(addr) || [];
       if (rawTrades.length === 0) continue;
 
@@ -1464,7 +1552,7 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
       runningPnl = Math.round((runningPnl + t.realized) * 100) / 100;
       return { ...t, runningPnl };
     });
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat]);
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, marketQuery]);
 
   // liveCurve — built from the engine's actual order log. Each successful
   // COPY_BUY / COPY_SELL becomes a point. P&L is a FIFO-realized running
@@ -1556,6 +1644,11 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
   // ── Chart ↔ Trade feed hover linking ──
   const [chartHighlight, setChartHighlight] = useState<number | null>(null);
   const [tradeHighlight, setTradeHighlight] = useState<number | null>(null);
+  // Pinned trade selection — survives mouse-leave (unlike the hover-only
+  // chartHighlight/tradeHighlight pair above, which reset on every
+  // mouseleave). Click a row to pin it; click again to unpin. Indexes into
+  // `linkedTrades` (the origIdx used by the feed table below).
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState<number | null>(null);
   // Lowercase trader address → isolate the feed to just this trader's trades.
   // `null` shows everyone (the default). Click a trader chip or a trader cell
   // in the feed to set; click again or the ALL chip to clear.
@@ -1592,6 +1685,15 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
     }
     setTradeHighlight(best);
   }, [chartCurve, linkedTrades]);
+
+  // Drop a pinned selection once the feed it pointed into is rebuilt out
+  // from under it (strat switch, market filter edit, new data fetched) —
+  // otherwise selectedTradeIdx can point at a now-unrelated row.
+  useEffect(() => {
+    if (selectedTradeIdx !== null && selectedTradeIdx >= linkedTrades.length) {
+      setSelectedTradeIdx(null);
+    }
+  }, [linkedTrades, selectedTradeIdx]);
 
   // ── Backtest date range ──
   const backtestDateRange = useMemo(() => {
@@ -1673,145 +1775,165 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
   // ══════════════════════════════════════════
 
   return (
-    <div className="space-y-2">
-      {/* ── Header: key + tabs + close ── */}
+    <div className="min-w-0 space-y-2">
+      {/* ── Header: tabs ──
+          Wallet/token/QR + go-live checklist + the strat list all live in
+          the permanent left SidebarShell (ACCOUNT / STRATS tabs) — this
+          column stays to the strat tabs and their content, nothing
+          duplicated here. */}
       <div className="pixel-panel px-3 py-2 space-y-2">
-        {/* Key + token row — KEY is the connected wallet's 0x address (the
-            identity that signs the CLOB EIP-712 auth + is recovered by the
-            backend), TOKEN is the local strat-encryption preview.
-            Suppressed when the docked sidebar owns the account block. */}
-        {!hideWalletHeader && (
-        <>
-        <div className="flex items-center justify-between gap-2">
-          {auth.address || localToken ? (
-            <div className="flex items-center gap-3 text-[16px] font-mono min-w-0 flex-1">
-              {localToken && (
-                <div className="flex items-center gap-1.5 shrink-0 px-1.5 py-0.5 border border-green-400/40 bg-green-400/5">
-                  <div className="w-1.5 h-1.5 bg-green-400" />
-                  <span className="text-pixel-gray text-[14px]">TOKEN</span>
-                  <span className="text-green-400">{localToken.tokenPreview}</span>
-                </div>
-              )}
-              <span className="text-pixel-gray shrink-0">KEY</span>
-              {auth.address ? (
-                <span
-                  className={`truncate ${auth.authenticated ? "text-green-400" : "text-amber-400"}`}
-                  title={auth.authenticated ? "Wallet signed for CLOB" : "Wallet connected — not yet signed for CLOB"}
-                >
-                  {auth.address}
-                </span>
-              ) : (
-                <span className="text-pixel-gray truncate">NOT CONNECTED</span>
-              )}
-            </div>
-          ) : (
-            <span className="text-[16px] text-pixel-gray tracking-wider font-mono">NO KEY</span>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="pixel-btn text-[15px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white shrink-0 ml-2"
-              title="Close"
-            >
-              X
-            </button>
-          )}
-        </div>
-        {/* ── WALLET / TOKEN / QR pairing panel ──
-            Full wallet status + token + scannable QR live at the top of the
-            sidebar so the user can pair a phone session without leaving the
-            current view. Mirrors the wallet-chip popover (CONNECTED · OWNER
-            · COPY · SIGN OUT) and adds full-token reveal + sign-in QR. */}
-        <WalletTokenPanel />
-        </>
-        )}
-        {/* ── STRAT params panel (above tabs) ──
-            Visible on STRATS, BACKTEST, and LIVE so the user can tweak
-            window / capital / trade size / poll-every from any view
-            once a strat is active. Previously hidden on STRATS, which
-            made the picker tab feel inert. */}
-        {activeIndex && watchlist.length > 0 && (
-          <div className="pixel-panel">
-            <div
-              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-pixel-white/5 cursor-pointer select-none"
-              onClick={() => setStratPanelOpen((o) => !o)}
-              title={stratPanelOpen ? "Collapse strat params" : "Expand strat params"}
-            >
-              <span className="text-pixel-gray text-[12px] w-3 shrink-0">
-                {stratPanelOpen ? "▼" : "▶"}
-              </span>
-              <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">STRAT</span>
-              <div className="w-2 h-2 bg-green-400 shrink-0" />
-              {/* Inline picker — switch active strat without leaving BACKTEST/LIVE. */}
-              <select
-                value={activeIndex.id}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  selectStrategy(e.target.value);
-                }}
-                className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
-                title="Switch active strat"
-              >
-                {savedIndexes.map((s) => (
-                  <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
-              {activeIndex.lastPnlAfterCosts !== undefined && (
-                <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
-                </span>
-              )}
-              <span className="text-[12px] text-pixel-gray/70 font-mono tracking-wider truncate">
-                {backtestDateRange.from} → {backtestDateRange.to}
-              </span>
-              <span className="text-pixel-border/40 shrink-0">·</span>
-              <span className="text-[11px] text-pixel-gray font-mono shrink-0" title="Current time (UTC)">
-                UTC {new Date(utcNow).toISOString().slice(11, 19)}
-              </span>
-              {lastUpdated && fetchAgeMs != null && (
-                <>
-                  <span className="text-pixel-border/40 shrink-0">·</span>
-                  <span
-                    className={`text-[11px] font-mono shrink-0 ${
-                      fetchAgeMs < 90_000 ? "text-pixel-gray/70"
-                        : fetchAgeMs < 5 * 60_000 ? "text-amber-400"
-                        : "text-red-400"
-                    }`}
-                    title={`Watchlist trades last fetched at ${new Date(lastUpdated).toISOString()} — polling interval is 60s`}
-                  >
-                    UPD {formatAgoShort(fetchAgeMs)} ago
-                  </span>
-                </>
-              )}
-              {lastTradeAgeMs != null && (
-                <>
-                  <span className="text-pixel-border/40 shrink-0">·</span>
-                  <span
-                    className={`text-[11px] font-mono shrink-0 ${
-                      lastTradeAgeMs < 5 * 60_000 ? "text-green-400"
-                        : lastTradeAgeMs < 30 * 60_000 ? "text-pixel-gray-light"
-                        : "text-pixel-gray"
-                    }`}
-                    title={`Most recent observed trade across watched traders: ${new Date(lastTradeTs).toISOString()}`}
-                  >
-                    LAST TRADE {formatAgoShort(lastTradeAgeMs)} ago
-                  </span>
-                </>
-              )}
+        {/* Tabs */}
+        <div className="flex items-center gap-2">
+          {(
+            [
+              { id: "STRATS", label: "STRAT", disabled: false },
+              { id: "HUB", label: "HUB", disabled: false },
+              { id: "BACKTEST", label: "BACKTEST", disabled: watchlist.length === 0 },
+              { id: "LIVE", label: "LIVE", disabled: watchlist.length === 0 },
+            ] as { id: typeof mode; label: string; disabled: boolean }[]
+          ).map((t) => {
+            const active = mode === t.id;
+            // Show a RUNNING chip on the LIVE tab while the engine is
+            // actively trading — so the user can tell at a glance there's
+            // a "task" firing in the background even from STRATS/BACKTEST.
+            const showRunning = t.id === "LIVE" && isLive;
+            const runningTone = engineState?.status === "paused"
+              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
+              : engineState?.status === "error"
+                ? "border-red-400/60 text-red-400 bg-red-400/10"
+                : "border-green-400/60 text-green-400 bg-green-400/10";
+            return (
               <button
-                onClick={(e) => { e.stopPropagation(); setMode("STRATS"); }}
-                className="text-[13px] text-pixel-gray hover:text-green-400 transition-colors px-2 py-0.5 border border-pixel-border hover:border-green-400 font-mono shrink-0 ml-auto"
-                title="Open strats manager (rename, delete, weights, fresh strat)"
+                key={t.id}
+                onClick={() => setMode(t.id)}
+                disabled={t.disabled}
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
+                className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
+                  active
+                    ? "text-green-400 bg-green-400/[0.08]"
+                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
+                } disabled:opacity-30 disabled:cursor-not-allowed`}
               >
-                MANAGE →
+                {t.label}
+                {showRunning && (
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
+                    title={`Live engine ${engineState?.status ?? "running"}`}
+                  >
+                    {engineState?.status === "paused" ? "PAUSED" :
+                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
+                  </span>
+                )}
+                <span
+                  className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
+                    active ? "bg-green-400 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
+                  }`}
+                />
               </button>
-            </div>
-            {stratPanelOpen && (
-            <div className="px-3 pb-2.5 pt-1 border-t border-pixel-border/40">
+            );
+          })}
+        </div>
+
+        {/* ── STRAT subtabs ──
+            SOURCE = the strat's code, TRADERS = leaderboard + watchlist
+            editor, PARAMS = every tuning knob. The old always-docked
+            params panel is gone — params render here and nowhere else. */}
+        {mode === "STRATS" && (
+          <div className="flex items-center gap-1.5 border-t border-pixel-border/40 pt-2">
+            {(
+              [
+                { id: "SOURCE", label: "SOURCE", hint: "Strat code — read built-ins, edit your uploads" },
+                { id: "TRADERS", label: "TRADERS", hint: "Browse the leaderboard + manage who you copy" },
+                { id: "PARAMS", label: "PARAMS", hint: "Window, capital, trade band, throttle, market focus, trade filters" },
+              ] as { id: typeof stratTab; label: string; hint: string }[]
+            ).map((t) => {
+              const active = stratTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setStratTab(t.id)}
+                  title={t.hint}
+                  className={`text-[11px] font-mono tracking-[0.15em] px-3 py-1 rounded border transition-colors ${
+                    active
+                      ? "border-green-400/60 text-green-400 bg-green-400/[0.08]"
+                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── PARAMS subtab (STRAT tab only) ──
+          All strat tuning in one place: window / capital / trade band /
+          throttle / top-N / sample / poll cadence / market focus / per-trade
+          filters. The status row keeps the strat picker + data-freshness
+          chips so a stalled poll loop is still diagnosable from here. */}
+      {mode === "STRATS" && stratTab === "PARAMS" && activeIndex && (
+        <div className="pixel-panel px-3 py-2.5 space-y-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">PARAMS</span>
+            <div className="w-2 h-2 bg-green-400 shrink-0" />
+            <select
+              value={activeIndex.id}
+              onChange={(e) => selectStrategy(e.target.value)}
+              className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
+              title="Switch active strat"
+            >
+              {savedIndexes.map((s) => (
+                <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
+            {activeIndex.lastPnlAfterCosts !== undefined && (
+              <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
+              </span>
+            )}
+            <span className="text-[12px] text-pixel-gray/70 font-mono tracking-wider truncate">
+              {backtestDateRange.from} → {backtestDateRange.to}
+            </span>
+            <span className="text-pixel-border/40 shrink-0">·</span>
+            <span className="text-[11px] text-pixel-gray font-mono shrink-0" title="Current time (UTC)">
+              UTC {new Date(utcNow).toISOString().slice(11, 19)}
+            </span>
+            {lastUpdated && fetchAgeMs != null && (
+              <>
+                <span className="text-pixel-border/40 shrink-0">·</span>
+                <span
+                  className={`text-[11px] font-mono shrink-0 ${
+                    fetchAgeMs < 90_000 ? "text-pixel-gray/70"
+                      : fetchAgeMs < 5 * 60_000 ? "text-amber-400"
+                      : "text-red-400"
+                  }`}
+                  title={`Watchlist trades last fetched at ${new Date(lastUpdated).toISOString()} — polling interval is 60s`}
+                >
+                  UPD {formatAgoShort(fetchAgeMs)} ago
+                </span>
+              </>
+            )}
+            {lastTradeAgeMs != null && (
+              <>
+                <span className="text-pixel-border/40 shrink-0">·</span>
+                <span
+                  className={`text-[11px] font-mono shrink-0 ${
+                    lastTradeAgeMs < 5 * 60_000 ? "text-green-400"
+                      : lastTradeAgeMs < 30 * 60_000 ? "text-pixel-gray-light"
+                      : "text-pixel-gray"
+                  }`}
+                  title={`Most recent observed trade across watched traders: ${new Date(lastTradeTs).toISOString()}`}
+                >
+                  LAST TRADE {formatAgoShort(lastTradeAgeMs)} ago
+                </span>
+              </>
+            )}
+          </div>
+          <div className="border-t border-pixel-border/40 pt-2.5">
             <div className="flex items-end gap-2 flex-wrap">
               <Field label="WINDOW" suffix="DAYS">
                 <input
@@ -1892,6 +2014,21 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                     if (!isNaN(v) && v > 0) updateMaxTradesPerHour(v);
                   }}
                   onFocus={(e) => e.target.select()}
+                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="MAX/CYCLE">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maxPerCycle}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v > 0) updateMaxPerCycle(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  title="Top-N candidates copied per scan (by score)"
                   className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
                 />
               </Field>
@@ -1994,70 +2131,106 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                   </button>
                 )}
               </div>
-            </div>
-            </div>
-            )}
-          </div>
-        )}
 
-        {/* Tabs */}
-        <div className="flex items-center gap-2 border-t border-pixel-border/40 pt-3">
-          {(
-            [
-              { id: "STRATS", label: "STRATS", disabled: false },
-              { id: "HUB", label: "HUB", disabled: false },
-              { id: "BACKTEST", label: "BACKTEST", disabled: watchlist.length === 0 },
-              { id: "LIVE", label: "LIVE", disabled: watchlist.length === 0 },
-            ] as { id: typeof mode; label: string; disabled: boolean }[]
-          ).map((t) => {
-            const active = mode === t.id;
-            // Show a RUNNING chip on the LIVE tab while the engine is
-            // actively trading — so the user can tell at a glance there's
-            // a "task" firing in the background even from STRATS/BACKTEST.
-            const showRunning = t.id === "LIVE" && isLive;
-            const runningTone = engineState?.status === "paused"
-              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
-              : engineState?.status === "error"
-                ? "border-red-400/60 text-red-400 bg-red-400/10"
-                : "border-green-400/60 text-green-400 bg-green-400/10";
-            return (
-              <button
-                key={t.id}
-                onClick={() => setMode(t.id)}
-                disabled={t.disabled}
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
-                className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
-                  active
-                    ? "text-green-400 bg-green-400/[0.08]"
-                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
-                } disabled:opacity-30 disabled:cursor-not-allowed`}
-              >
-                {t.label}
-                {showRunning && (
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
-                    title={`Live engine ${engineState?.status ?? "running"}`}
-                  >
-                    {engineState?.status === "paused" ? "PAUSED" :
-                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
-                  </span>
-                )}
-                <span
-                  className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
-                    active ? "bg-green-400 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
-                  }`}
-                />
-              </button>
-            );
-          })}
+              {/* Per-trade filter — orthogonal to MARKET: gates on the
+                  leader's own trade attributes (side / entry price / size /
+                  category) rather than the market title. AND-ed together.
+                  Backtest + live engine + catch-up all honor these. */}
+              <div className="w-full flex items-center gap-2 flex-wrap pt-0.5">
+                <span className="text-[10px] text-pixel-gray tracking-[0.18em] leading-none">TRADE FILTER</span>
+                <span className="flex items-center gap-1">
+                  {(["both", "buy", "sell"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => patchTradeFilters({ sides: s })}
+                      title="Only copy trades on this side"
+                      className={`text-[10px] px-2 py-0.5 rounded border font-mono uppercase transition-colors ${
+                        (tradeFilters.sides ?? "both") === s
+                          ? "border-green-400 text-green-400 bg-green-400/10"
+                          : "border-pixel-border text-pixel-gray hover:text-pixel-white"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </span>
+                <span className="flex items-center font-mono text-[12px] text-pixel-white" title="Only copy trades entered inside this price band (¢)">
+                  <span className="text-[10px] text-pixel-gray mr-1">PRICE¢</span>
+                  <input
+                    type="text" inputMode="numeric" placeholder="0"
+                    value={priceMinInput}
+                    onChange={(e) => setPriceMinInput(e.target.value)}
+                    onBlur={() => {
+                      const v = priceMinInput.trim() === "" ? undefined : Math.min(100, Math.max(0, parseInt(priceMinInput, 10)));
+                      patchTradeFilters({ minPrice: v !== undefined && !isNaN(v) ? v / 100 : undefined });
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    className="bg-transparent w-8 text-right outline-none border-b border-pixel-border/40 focus:border-green-400 placeholder:text-pixel-gray/40" />
+                  <span className="text-pixel-gray/60 mx-0.5">–</span>
+                  <input
+                    type="text" inputMode="numeric" placeholder="100"
+                    value={priceMaxInput}
+                    onChange={(e) => setPriceMaxInput(e.target.value)}
+                    onBlur={() => {
+                      const v = priceMaxInput.trim() === "" ? undefined : Math.min(100, Math.max(0, parseInt(priceMaxInput, 10)));
+                      patchTradeFilters({ maxPrice: v !== undefined && !isNaN(v) ? v / 100 : undefined });
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    className="bg-transparent w-8 text-right outline-none border-b border-pixel-border/40 focus:border-green-400 placeholder:text-pixel-gray/40" />
+                </span>
+                <span className="flex items-center font-mono text-[12px] text-pixel-white" title="Only copy trades whose notional ($) falls inside this band">
+                  <span className="text-[10px] text-pixel-gray mr-1">SIZE $</span>
+                  <input
+                    type="text" inputMode="numeric" placeholder="0"
+                    value={sizeMinInput}
+                    onChange={(e) => setSizeMinInput(e.target.value)}
+                    onBlur={() => {
+                      const v = sizeMinInput.trim() === "" ? undefined : Math.max(0, parseInt(sizeMinInput, 10));
+                      patchTradeFilters({ minNotional: v !== undefined && !isNaN(v) ? v : undefined });
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    className="bg-transparent w-10 text-right outline-none border-b border-pixel-border/40 focus:border-green-400 placeholder:text-pixel-gray/40" />
+                  <span className="text-pixel-gray/60 mx-0.5">–</span>
+                  <input
+                    type="text" inputMode="numeric" placeholder="∞"
+                    value={sizeMaxInput}
+                    onChange={(e) => setSizeMaxInput(e.target.value)}
+                    onBlur={() => {
+                      const v = sizeMaxInput.trim() === "" ? undefined : Math.max(0, parseInt(sizeMaxInput, 10));
+                      patchTradeFilters({ maxNotional: v !== undefined && !isNaN(v) ? v : undefined });
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    className="bg-transparent w-10 text-right outline-none border-b border-pixel-border/40 focus:border-green-400 placeholder:text-pixel-gray/40" />
+                </span>
+                <span className="flex items-center gap-1 flex-wrap">
+                  {CATEGORIES.filter((c) => c.slug).map((c) => {
+                    const active = (tradeFilters.categories ?? []).includes(c.slug);
+                    return (
+                      <button
+                        key={c.slug}
+                        onClick={() => toggleTradeCategory(c.slug)}
+                        title="Only copy trades in the selected categories (none = all)"
+                        className={`text-[9px] px-1.5 py-0.5 rounded border font-mono transition-colors ${
+                          active
+                            ? "border-green-400 text-green-400 bg-green-400/10"
+                            : "border-pixel-border text-pixel-gray hover:text-pixel-white"
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Strategy Hub (HUB tab) ──
-          Your own dedicated tab: publish / community / fork (UserStratsPanel)
-          + a FUND shortcut that expands WalletFundingPanel in place. Formerly
-          a collapsible bar on the STRATS tab and a separate /my-strats page —
-          now folded into one tab so it isn't crowding the strat editor. */}
+          Your own dedicated tab: publish / community / fork (UserStratsPanel).
+          FUND lives permanently in the account sidebar now — this tab stays to
+          its actual job (publish/fork) instead of duplicating wallet chrome. */}
       {mode === "HUB" && (
         <div className="pixel-panel border-2 border-pixel-border">
           <div className="flex items-center justify-between px-4 py-3 border-b border-pixel-border/40">
@@ -2070,33 +2243,25 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                 Strategy Hub
               </span>
               <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                publish · fork · fund
+                publish · fork
               </span>
             </span>
-            <button
-              onClick={() => setHubFundOpen((v) => !v)}
-              className="pixel-btn text-[13px] px-3 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10"
-            >
-              {hubFundOpen ? "HIDE FUND" : "+ FUND"}
-            </button>
           </div>
           <div className="px-4 pb-4 space-y-3 pt-4">
-            {hubFundOpen && <WalletFundingPanel />}
             <UserStratsPanel eoa={auth.address ?? undefined} />
           </div>
         </div>
       )}
 
-      {/* ── Strat Leaderboard (full picker on STRATS tab only, collapsible) ── */}
-      {mode === "STRATS" && <StratPicker onStratChange={() => setRefreshKey((v) => v + 1)} />}
+      {/* Strat list + "+ New" moved to the left StratSidebar (managed there). */}
 
-      {/* ── Strat source viewer (STRATS tab only) ──
+      {/* ── SOURCE subtab — the strat's code ──
           Read-only for built-in TS strats; editable for user-uploaded
           mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
-      {mode === "STRATS" && <StratSourceViewer />}
+      {mode === "STRATS" && stratTab === "SOURCE" && <StratSourceViewer />}
 
-      {/* ── Add trader bar (STRATS + BACKTEST only) ── */}
-      {(mode === "STRATS" || mode === "BACKTEST") && (
+      {/* ── Add trader bar (STRAT → TRADERS subtab + BACKTEST) ── */}
+      {(mode === "BACKTEST" || (mode === "STRATS" && stratTab === "TRADERS")) && (
         <div className="pixel-panel px-3 py-1.5">
           <div className="flex items-center gap-2">
             <div className="flex-1">
@@ -2113,11 +2278,11 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
         </div>
       )}
 
-      {/* ── Browse top traders (STRATS tab only) ──
+      {/* ── TRADERS subtab — browse top traders ──
           The old standalone /traders page, folded in: the full leaderboard for
           discovering who to copy, collapsible so it doesn't crowd the strat
           editor. Clicking a trader toggles them in/out of the active strat. */}
-      {mode === "STRATS" && (
+      {mode === "STRATS" && stratTab === "TRADERS" && (
         <div className="pixel-panel border-2 border-pixel-border">
           <button
             onClick={() => setBrowseOpen((v) => !v)}
@@ -2143,6 +2308,36 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
           </button>
           {browseOpen && (
             <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
+              {/* Pinned leaderboards — named filter combos (e.g. "BTC ≥3/day")
+                  that auto-refresh hourly (FiltersContext's reloadKey timer).
+                  Click to apply, × to unpin. */}
+              <div className="flex items-center gap-1.5 flex-wrap pb-3 mb-3 border-b border-pixel-border/40">
+                <span className="text-[10px] text-pixel-gray tracking-[0.15em] mr-1">PINNED</span>
+                {presets.map((p) => (
+                  <span
+                    key={p.id}
+                    className="pixel-btn text-[11px] pl-2 pr-1 py-0.5 flex items-center gap-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
+                  >
+                    <button onClick={() => applyPreset(p)} title="Apply this leaderboard's filters">
+                      {p.name}
+                    </button>
+                    <button
+                      onClick={() => deletePreset(p.id)}
+                      className="text-pixel-gray/60 hover:text-red-400"
+                      title="Unpin"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button
+                  onClick={saveCurrentAsPreset}
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
+                  title="Pin the current filters (category / market / min trades-per-day / window) as a named leaderboard — refreshes hourly"
+                >
+                  + PIN CURRENT
+                </button>
+              </div>
               <CopyTrading
                 days={browseDays}
                 minTradesPerDay={browseMinTradesPerDay}
@@ -2166,8 +2361,8 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
         </div>
       )}
 
-      {/* ── Trader editor panel (STRATS tab only) ── */}
-      {mode === "STRATS" && allTraderAddrs.length > 0 && (
+      {/* ── Trader editor panel (STRAT → TRADERS subtab) ── */}
+      {mode === "STRATS" && stratTab === "TRADERS" && allTraderAddrs.length > 0 && (
         <div className="pixel-panel px-3 py-2 space-y-1">
           {/* Toolbar: count + actions + weight sum */}
           <div className="flex items-center justify-between">
@@ -2352,10 +2547,10 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
             <div className="pixel-panel p-4 text-center space-y-2">
               <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
               <div className="text-[12px] text-pixel-gray-light">
-                ADD TRADERS ABOVE OR FROM{" "}
-                <button onClick={() => setMode("STRATS")} className="text-pixel-white hover:text-green-400 transition-colors">
-                  BROWSE TRADERS
-                </button>{" "}IN THE STRATS TAB.
+                ADD TRADERS FROM{" "}
+                <button onClick={() => { setMode("STRATS"); setStratTab("TRADERS"); }} className="text-pixel-white hover:text-green-400 transition-colors">
+                  STRAT → TRADERS
+                </button>.
               </div>
             </div>
           )}
@@ -2669,6 +2864,7 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                         <thead className="sticky top-0 bg-pixel-black z-10">
                           <tr>
                             <th className="whitespace-nowrap">WHEN</th>
+                            <th>MARKET</th>
                             <th className="whitespace-nowrap">TRADER</th>
                             <th className="whitespace-nowrap">SIDE</th>
                             <th className="text-right whitespace-nowrap">AMOUNT</th>
@@ -2681,20 +2877,28 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                         <tbody>
                           {ordered.map((t, di) => {
                             const origIdx = feedOrder === "newest" ? n - 1 - di : di;
-                            const isHighlighted = tradeHighlight === origIdx;
+                            const isHovered = tradeHighlight === origIdx;
+                            const isSelected = selectedTradeIdx === origIdx;
                             const d = new Date(t.ts);
                             const when = `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`;
                             return (
                               <tr
                                 key={`${t.trader}-${t.ts}-${di}`}
                                 className={`transition-colors cursor-pointer ${
-                                  isHighlighted
-                                    ? "bg-pixel-white/10"
-                                    : "hover:bg-pixel-white/5"
+                                  isSelected
+                                    ? "bg-green-400/10 outline outline-1 outline-green-400/60"
+                                    : isHovered
+                                      ? "bg-pixel-white/10"
+                                      : "hover:bg-pixel-white/5"
                                 }`}
+                                title="Click to pin this trade against the chart — click again to unpin"
                                 onClick={() => {
-                                  const idx = findCurveIdx(t.ts);
-                                  setChartHighlight(idx);
+                                  // Pinned selection persists across mouse-leave (unlike
+                                  // the hover preview below) so clicking actually "selects"
+                                  // a trade instead of the highlight vanishing the instant
+                                  // the cursor moves off the row.
+                                  setSelectedTradeIdx((cur) => (cur === origIdx ? null : origIdx));
+                                  setChartHighlight(findCurveIdx(t.ts));
                                   setTradeHighlight(origIdx);
                                   chartPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                                 }}
@@ -2703,12 +2907,26 @@ export default function CopyIndex({ searchFilter, compact, onClose, hideWalletHe
                                   setTradeHighlight(origIdx);
                                 }}
                                 onMouseLeave={() => {
-                                  setChartHighlight(null);
-                                  setTradeHighlight(null);
+                                  // Fall back to the pinned selection (if any) instead of
+                                  // clearing outright, so a selected trade stays visible
+                                  // against the chart once the mouse leaves the row.
+                                  if (selectedTradeIdx !== null) {
+                                    const sel = linkedTrades[selectedTradeIdx];
+                                    setChartHighlight(sel ? findCurveIdx(sel.ts) : null);
+                                    setTradeHighlight(selectedTradeIdx);
+                                  } else {
+                                    setChartHighlight(null);
+                                    setTradeHighlight(null);
+                                  }
                                 }}
                               >
                                 <td title={t.market} className="whitespace-nowrap">
                                   <div className="text-[13px] text-pixel-gray-light font-mono">{when}</div>
+                                </td>
+                                <td className="max-w-[220px]">
+                                  <div className="text-[13px] text-pixel-white truncate" title={t.market}>
+                                    {t.market || "—"}
+                                  </div>
                                 </td>
                                 <td>
                                   {/* Click trader: isolate the feed to just
