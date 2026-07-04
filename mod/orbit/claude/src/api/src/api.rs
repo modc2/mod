@@ -125,6 +125,9 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/grants", post(create_grant))
             .route("/grants", get(list_grants))
             .route("/grants/:id", delete(revoke_grant))
+            // Session handoff: any signed-in user mints a QR code that signs
+            // ANOTHER DEVICE in as themselves (redeem is public, below).
+            .route("/auth/handoff", post(create_handoff))
             .route("/credits", get(get_credits))
             .route("/credits/sync", post(sync_credits))
             .route("/credits/accounts", get(credits_accounts))
@@ -160,6 +163,8 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/owner", get(get_owner))
         // Public by design: the grant id (from the owner's QR) IS the capability.
         .route("/grants/:id/redeem", post(redeem_grant_guest))
+        // Public by design: the single-use handoff code IS the capability.
+        .route("/auth/handoff/redeem", post(redeem_handoff))
         .route("/whitelist", get(get_whitelist))
         .route("/auth/role", get(get_role))
         .route(
@@ -515,6 +520,41 @@ async fn revoke_grant(
         (StatusCode::OK, Json(json!({ "revoked": id }))).into_response()
     } else {
         (StatusCode::NOT_FOUND, Json(json!({ "error": "grant not found" }))).into_response()
+    }
+}
+
+// ── Session handoff — QR sign-in on another device ───────────────────
+// A signed-in browser mints a single-use, 5-minute code bound to its OWN
+// identity; another device (the same person's phone) trades the code for a
+// fresh bearer token as that address — no wallet or signing needed there.
+// Minting requires auth (any signed-in user, not just the owner: you can
+// only hand off yourself). Redemption is public: the code is the capability.
+
+async fn create_handoff(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    let address = match auth::extract_address_from_headers(&headers) {
+        Ok(a) => a,
+        Err(e) => {
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response()
+        }
+    };
+    let (code, exp) = auth::create_handoff(&address);
+    println!("✓ Handoff code minted for {} (until {})", address, exp);
+    (StatusCode::OK, Json(json!({ "code": code, "exp": exp, "address": address }))).into_response()
+}
+
+#[derive(Deserialize)]
+struct RedeemHandoffRequest {
+    code: String,
+}
+
+async fn redeem_handoff(Json(req): Json<RedeemHandoffRequest>) -> impl IntoResponse {
+    match auth::redeem_handoff(&req.code) {
+        Ok(address) => {
+            println!("✓ Handoff redeemed — new device signed in as {}", address);
+            let token = auth::mint_token(&address);
+            (StatusCode::OK, Json(json!({ "token": token, "address": address }))).into_response()
+        }
+        Err(e) => (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
     }
 }
 

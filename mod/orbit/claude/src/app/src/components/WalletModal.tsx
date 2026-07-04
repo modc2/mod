@@ -190,85 +190,58 @@ export default function WalletModal({
 
         {!loading && (
           <>
-            {/* Identity Card — balance + address, shown exactly once */}
+            {/* Identity Card — one compact row: balance · address (click = copy) · network (click = switch) */}
             <div
-              className="p-4 space-y-3"
+              className="flex items-center gap-2 px-3 py-2"
               style={{
                 border: "1px solid rgba(255,255,255,0.06)",
                 background: "rgba(255,255,255,0.015)",
                 borderRadius: "10px",
               }}
             >
-              <div className="flex items-baseline justify-between">
-                <div className="flex items-baseline gap-1.5">
-                  <span
-                    className="text-[24px] font-bold font-mono tabular-nums"
-                    style={{
-                      color: "var(--crt-green)",
-                      textShadow: "0 0 30px rgba(16,185,129,0.2), 0 0 8px rgba(16,185,129,0.1)",
-                      letterSpacing: "-1px",
-                    }}
-                  >
-                    {parseFloat(balance).toFixed(4)}
-                  </span>
-                  <span className="text-[11px] font-bold" style={{ color: "var(--crt-green)", opacity: 0.4 }}>
-                    {nativeSymbol}
-                  </span>
-                </div>
-                <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                  {walletIcon} {walletType?.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex-1 px-3 py-2.5 font-mono text-[11px] overflow-hidden text-ellipsis"
-                  style={{
-                    background: "rgba(0,0,0,0.25)",
-                    border: "1px solid rgba(255,255,255,0.04)",
-                    color: "var(--text-primary)",
-                    letterSpacing: "0.3px",
-                    borderRadius: "8px",
-                  }}
-                >
-                  {address}
-                </div>
-                <button
-                  onClick={() => handleCopy(address, "address")}
-                  className="shrink-0 px-3 py-2.5 text-[9px] transition-all tracking-wider"
-                  style={{
-                    border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
-                    color: copied === "address" ? "var(--crt-green)" : "var(--text-tertiary)",
-                    background: copied === "address" ? "rgba(16,185,129,0.08)" : "transparent",
-                    borderRadius: "8px",
-                  }}
-                >
-                  {copied === "address" ? "COPIED" : "COPY"}
-                </button>
-              </div>
-              {/* Network row — click to switch */}
+              <span
+                className="shrink-0 text-[13px] font-bold font-mono tabular-nums"
+                title={`${walletIcon} ${walletType?.toUpperCase()}`}
+                style={{ color: "var(--crt-green)", textShadow: "0 0 12px rgba(16,185,129,0.2)" }}
+              >
+                {parseFloat(balance).toFixed(4)}
+                <span className="text-[9px] font-bold ml-1" style={{ opacity: 0.4 }}>{nativeSymbol}</span>
+              </span>
+              <button
+                onClick={() => handleCopy(address, "address")}
+                title={`${address} — click to copy`}
+                className="flex-1 min-w-0 px-2 py-1.5 font-mono text-[10px] text-left truncate transition-all"
+                style={{
+                  background: "rgba(0,0,0,0.25)",
+                  border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid rgba(255,255,255,0.04)",
+                  color: copied === "address" ? "var(--crt-green)" : "var(--text-primary)",
+                  letterSpacing: "0.3px",
+                  borderRadius: "6px",
+                }}
+              >
+                {copied === "address" ? "COPIED" : `${address.slice(0, 6)}…${address.slice(-4)}`}
+              </button>
               <button
                 onClick={() => setShowNetworkSelector(!showNetworkSelector)}
-                className="w-full flex items-center justify-between px-3 py-2.5 transition-all text-left"
+                title={`${network} #${chainId} — switch network`}
+                className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 transition-all"
                 style={{
                   border: "1px solid rgba(255,255,255,0.05)",
                   background: "rgba(0,0,0,0.15)",
-                  borderRadius: "8px",
+                  borderRadius: "6px",
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(245,158,11,0.25)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}
               >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-[18px] h-[18px] flex items-center justify-center shrink-0"
-                    style={{ color: NETWORK_LOGOS[chainId]?.color || "var(--crt-amber)" }}
-                    dangerouslySetInnerHTML={{
-                      __html: `<svg viewBox="0 0 24 24" width="18" height="18">${NETWORK_LOGOS[chainId]?.svg || '<circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.3"/>'}</svg>`
-                    }}
-                  />
-                  <span className="text-[12px] font-bold" style={{ color: "var(--crt-amber)" }}>{network}</span>
-                  <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>#{chainId}</span>
-                </div>
-                <span className="text-[8px] tracking-wider" style={{ color: "var(--crt-amber)" }}>SWITCH ▾</span>
+                <span
+                  className="w-[14px] h-[14px] flex items-center justify-center shrink-0"
+                  style={{ color: NETWORK_LOGOS[chainId]?.color || "var(--crt-amber)" }}
+                  dangerouslySetInnerHTML={{
+                    __html: `<svg viewBox="0 0 24 24" width="14" height="14">${NETWORK_LOGOS[chainId]?.svg || '<circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.3"/>'}</svg>`
+                  }}
+                />
+                <span className="text-[10px] font-bold" style={{ color: "var(--crt-amber)" }}>{network}</span>
+                <span className="text-[8px]" style={{ color: "var(--crt-amber)", opacity: 0.7 }}>▾</span>
               </button>
             </div>
 

@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import AuthBadge from "../components/AuthBadge";
 
 export const metadata: Metadata = {
   title: "Mod AI",

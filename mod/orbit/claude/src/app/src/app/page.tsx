@@ -444,6 +444,16 @@ export default function Home() {
   // guest access, driving the countdown pill + auto sign-out at grant end.
   const [guestExp, setGuestExp] = useState<number | null>(null);
 
+  // ── Phone sign-in (session handoff QR) ─────────────────────────────
+  // A signed-in browser mints a single-use, 5-min code bound to its OWN
+  // identity (POST /auth/handoff); scanning the QR opens `?handoff=<code>`,
+  // which the mount hook below trades for a bearer token as the SAME address
+  // — so your phone signs in without a wallet or any signing. Distinct from
+  // grants, which invite someone ELSE in.
+  const [handoff, setHandoff] = useState<{ code: string; exp: number } | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+
   // File viewer state
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [viewingFileContent, setViewingFileContent] = useState<string>("");
@@ -555,6 +565,7 @@ export default function Home() {
   const [taskDetailTab, setTaskDetailTab] = useState<"output" | "edits" | "audit">("output");
   const [viewMode, setViewMode] = useState<"output" | "code">("output");
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [directoryTreeError, setDirectoryTreeError] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   // Agent sidebar state (persistent right panel)
@@ -662,9 +673,10 @@ export default function Home() {
   const [headerImportSource, setHeaderImportSource] = useState<"github" | "cid">("github");
   const [headerCid, setHeaderCid] = useState("");
   // Where the BUILD/FORK/EDIT/IMPORT form renders: the header "+" popover
-  // (mobile / collapsed rail) or compressed inline at the bottom of the
-  // left nav rail (desktop default). Same state + submit path either way.
-  const [createAnchor, setCreateAnchor] = useState<"header" | "rail">("header");
+  // (mobile / collapsed rail), compressed inline at the bottom of the left
+  // nav rail (desktop default), or popping up from the composer dock's "+"
+  // button. Same state + submit path in all three.
+  const [createAnchor, setCreateAnchor] = useState<"header" | "rail" | "composer">("header");
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -720,6 +732,7 @@ export default function Home() {
 
   const headerCreateRef = useRef<HTMLDivElement>(null);
   const railCreateRef = useRef<HTMLDivElement>(null);
+  const composerCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -916,6 +929,14 @@ export default function Home() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // The read-only /files/* endpoints default-deny unauthenticated callers, so
+  // every browse/search fetch must carry the bearer token (local mode excepted).
+  const fileAuthHeaders = useCallback(
+    (): Record<string, string> =>
+      token && token !== "local" ? { Authorization: `Bearer ${token}` } : {},
+    [token]
+  );
+
   // Inline search debounce effect
   useEffect(() => {
     if (inlineSearchMode === "off" || !inlineSearchQuery.trim()) {
@@ -930,12 +951,13 @@ export default function Home() {
       try {
         if (inlineSearchMode === "files") {
           const r = await fetch(
-            `${apiUrl}/files/search?path=${encodeURIComponent(sd)}&query=${encodeURIComponent(inlineSearchQuery)}`
+            `${apiUrl}/files/search?path=${encodeURIComponent(sd)}&query=${encodeURIComponent(inlineSearchQuery)}`,
+            { headers: fileAuthHeaders() }
           );
           if (r.ok) { const d = await r.json(); setInlineSearchResults(d.results || []); }
         } else {
           const p = new URLSearchParams({ path: sd, query: inlineSearchQuery });
-          const r = await fetch(`${apiUrl}/files/grep?${p}`);
+          const r = await fetch(`${apiUrl}/files/grep?${p}`, { headers: fileAuthHeaders() });
           if (r.ok) { const d = await r.json(); setInlineSearchResults(d.matches || []); }
         }
       } catch { /* ignore */ }
@@ -943,7 +965,7 @@ export default function Home() {
       setInlineSelectedIndex(0);
     }, 300);
     return () => clearTimeout(tid);
-  }, [inlineSearchQuery, inlineSearchMode, workDir, selectedJob, jobs, apiUrl]);
+  }, [inlineSearchQuery, inlineSearchMode, workDir, selectedJob, jobs, apiUrl, fileAuthHeaders]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -959,7 +981,8 @@ export default function Home() {
       }
       if (
         (!headerCreateRef.current || !headerCreateRef.current.contains(e.target as Node)) &&
-        (!railCreateRef.current || !railCreateRef.current.contains(e.target as Node))
+        (!railCreateRef.current || !railCreateRef.current.contains(e.target as Node)) &&
+        (!composerCreateRef.current || !composerCreateRef.current.contains(e.target as Node))
       ) {
         setShowHeaderCreateForm(null);
       }
@@ -1310,6 +1333,76 @@ export default function Home() {
     if (typeof window === "undefined") return;
     const p = new URLSearchParams(window.location.search).get("grant");
     if (p) setPendingGrant(p);
+  }, []);
+
+  // ── Phone sign-in (session handoff) ────────────────────────────────
+
+  // Mint a single-use handoff code for THIS session's identity. The code is
+  // a capability for the whole identity, so it's rendered as a QR locally
+  // (qrSvg) and never touches any third-party service.
+  const createHandoff = useCallback(async () => {
+    if (!token) return;
+    setHandoffBusy(true);
+    setHandoffError(null);
+    try {
+      const r = await fetch(`${apiUrl}/auth/handoff`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "HANDOFF MINT FAILED");
+      if (!d.code || typeof d.exp !== "number") throw new Error("INVALID HANDOFF RESPONSE");
+      setHandoff({ code: d.code, exp: d.exp });
+    } catch (e) {
+      setHandoffError((e as Error).message);
+    } finally {
+      setHandoffBusy(false);
+    }
+  }, [apiUrl, token]);
+
+  const handoffUrl = useCallback((code: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${DEFAULT_BASE_PATH}?handoff=${encodeURIComponent(code)}`;
+  }, []);
+
+  // Redeem an inbound `?handoff=<code>` once on mount: trade the code for a
+  // bearer token as the minting session's address — the phone signs in with
+  // no wallet and no signature. The param is stripped from the URL/history
+  // immediately (the code is single-use, but don't leave it lying around).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = new URLSearchParams(window.location.search).get("handoff");
+    if (!code) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("handoff");
+    window.history.replaceState({}, "", url.toString());
+    (async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      try {
+        const r = await fetch(`${apiUrl}/auth/handoff/redeem`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "SIGN-IN CODE REJECTED");
+        if (!d.token || !d.address) throw new Error("INVALID HANDOFF RESPONSE");
+        setToken(d.token);
+        setAddress(d.address);
+        setWalletType(null);
+        localStorage.removeItem("claude_jobs_signed_out");
+        localStorage.removeItem("claude_jobs_wallet_type");
+        safeSetItem("claude_jobs_token", d.token);
+        safeSetItem("claude_jobs_address", d.address);
+      } catch (e) {
+        const msg = (e as Error).message;
+        setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg);
+      } finally {
+        setAuthLoading(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reflect the configured owner (config.json, exposed via the API /owner
@@ -1791,10 +1884,14 @@ export default function Home() {
     setViewingFileLoading(true);
     setEditingFile(false);
     try {
-      const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(filePath)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setViewingFileContent(data.content || "");
+        if (data.error) {
+          setViewingFileContent(`// ${data.error}`);
+        } else {
+          setViewingFileContent(data.content || "");
+        }
       } else {
         setViewingFileContent("// Failed to load file");
       }
@@ -1803,7 +1900,7 @@ export default function Home() {
     } finally {
       setViewingFileLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, fileAuthHeaders]);
 
   const saveFile = useCallback(async () => {
     if (!viewingFile || !token) return;
@@ -1836,7 +1933,7 @@ export default function Home() {
 
     // Fetch the tree for the parent directory so we see sibling files
     try {
-      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(parentDir)}`);
+      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(parentDir)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const tree = data.tree || [];
@@ -1862,7 +1959,7 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to navigate to file:", e);
     }
-  }, [apiUrl]);
+  }, [apiUrl, fileAuthHeaders]);
 
   const fetchDirectoryTree = useCallback(async (path?: string) => {
     try {
@@ -1870,11 +1967,14 @@ export default function Home() {
       // switch in the header always re-syncs FILES; the job dir is only a
       // fallback for the pre-selection initial state.
       const targetPath = path || workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : null) || "~/mod";
-      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(targetPath)}`);
+      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(targetPath)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const tree = data.tree || [];
         setDirectoryTree(tree);
+        // /files/tree reports auth/path failures as { tree: [], error } with a
+        // 200 status — surface it instead of rendering a silent empty tree.
+        setDirectoryTreeError(tree.length === 0 && data.error ? data.error : null);
         // Start with all folders collapsed
         setExpandedDirs(new Set());
         // Auto-select config.json
@@ -1886,7 +1986,7 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to fetch directory tree:", e);
     }
-  }, [selectedJob, jobs, workDir, apiUrl, loadFileContent]);
+  }, [selectedJob, jobs, workDir, apiUrl, loadFileContent, fileAuthHeaders]);
 
   // Reset the open-task sub-tab to OUTPUT whenever a different task is opened.
   useEffect(() => {
@@ -4244,7 +4344,15 @@ export default function Home() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <span className="text-[13px] text-crt-green/50">📂 No files loaded</span>
-                <span className="text-[14px] text-crt-green/30">Select a module above or click refresh</span>
+                {directoryTreeError ? (
+                  <span className="text-[13px] text-crt-amber/70 text-center px-4">
+                    {directoryTreeError.includes("auth token")
+                      ? "⚠ Sign in to browse files — the file API requires authentication"
+                      : `⚠ ${directoryTreeError}`}
+                  </span>
+                ) : (
+                  <span className="text-[14px] text-crt-green/30">Select a module above or click refresh</span>
+                )}
                 <button
                   onClick={() => fetchDirectoryTree()}
                   className="text-[14px] px-3 py-1.5 border border-crt-green/30 text-crt-green/60 hover:text-crt-green hover:border-crt-green transition-all"
@@ -6436,6 +6544,203 @@ export default function Home() {
     );
   };
 
+  // ── Compact BUILD/FORK/EDIT/IMPORT form ──────────────────────────────
+  // One form, two anchors: the left rail's bottom actions and the composer
+  // dock's "+" popover both render this. Shares the header popover's state
+  // and submit path, so behavior is identical — only the surface differs.
+  const renderCompactCreateForm = () => {
+                  const isEdit = showHeaderCreateForm === "edit";
+                  const accent = isEdit
+                    ? "var(--crt-blue)"
+                    : showHeaderCreateForm === "fork"
+                    ? "var(--crt-amber)"
+                    : showHeaderCreateForm === "import"
+                    ? "#22d3ee"
+                    : "var(--crt-green)";
+                  const sources = [
+                    { key: "new", label: "NEW", active: showHeaderCreateForm === "create", disabled: false },
+                    { key: "fork", label: "FORK", active: showHeaderCreateForm === "fork", disabled: !selectedModule },
+                    { key: "git", label: "GIT", active: showHeaderCreateForm === "import" && headerImportSource === "github", disabled: false },
+                    { key: "cid", label: "CID", active: showHeaderCreateForm === "import" && headerImportSource === "cid", disabled: false },
+                  ];
+                  const pickSource = (key: string) => {
+                    if (key === "new") {
+                      setHeaderNewName(""); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("create");
+                    } else if (key === "fork") {
+                      if (!selectedModule) return;
+                      setHeaderNewName(selectedModule + "-fork"); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("fork");
+                    } else {
+                      setHeaderNewName("");
+                      setHeaderImportSource(key === "git" ? "github" : "cid");
+                      setShowHeaderCreateForm("import");
+                    }
+                  };
+                  const canGo = isEdit
+                    ? !!headerEditPrompt.trim() && !!selectedModule
+                    : showHeaderCreateForm === "import"
+                    ? (headerImportSource === "github" ? !!headerGithubUrl.trim() : !!headerCid.trim())
+                    : !!headerNewName.trim();
+                  const onFormKeys = (e: React.KeyboardEvent) => {
+                    const inTextarea = e.target instanceof HTMLTextAreaElement;
+                    if (e.key === "Enter" && (!inTextarea || e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                    if (e.key === "Escape") setShowHeaderCreateForm(null);
+                  };
+                  const inputStyle: React.CSSProperties = {
+                    borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
+                    color: "var(--text-primary)",
+                    background: "var(--bg-primary)",
+                  };
+                  return (
+                    <div className="flex flex-col gap-1.5 pb-1" onKeyDown={onFormKeys}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="text-[10px] font-bold font-code uppercase truncate"
+                          style={{ color: accent, letterSpacing: "0.08em" }}
+                        >
+                          {isEdit
+                            ? `✎ EDIT ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "fork"
+                            ? `⑂ FORK ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "import"
+                            ? "⇩ IMPORT MODULE"
+                            : "+ BUILD MODULE"}
+                        </span>
+                        <button
+                          onClick={() => setShowHeaderCreateForm(null)}
+                          className="text-[10px] shrink-0 hover:brightness-125"
+                          style={{ color: "var(--text-tertiary)" }}
+                          aria-label="Close create form"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {!isEdit && (
+                        <div className="flex gap-1">
+                          {sources.map((s) => (
+                            <button
+                              key={s.key}
+                              onClick={() => pickSource(s.key)}
+                              disabled={s.disabled}
+                              title={s.disabled ? "Select a module to fork" : s.label}
+                              className="flex-1 text-[10px] font-bold py-1 font-code border rounded-sm transition-all disabled:cursor-not-allowed"
+                              style={{
+                                letterSpacing: "0.04em",
+                                color: s.active ? accent : "var(--text-secondary, var(--text-tertiary))",
+                                opacity: s.disabled ? 0.35 : 1,
+                                borderColor: s.active ? `color-mix(in srgb, ${accent} 50%, transparent)` : "var(--border-color)",
+                                background: s.active ? `color-mix(in srgb, ${accent} 10%, transparent)` : "transparent",
+                              }}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {isEdit ? (
+                        <textarea
+                          autoFocus
+                          value={headerEditPrompt}
+                          onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                          placeholder="describe the edit… (⌘↵ runs)"
+                          rows={3}
+                          className="px-2 py-1.5 text-[12px] border font-code outline-none resize-none rounded-sm"
+                          style={inputStyle}
+                        />
+                      ) : (
+                        <>
+                          {showHeaderCreateForm === "import" && (
+                            headerImportSource === "github" ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerGithubUrl}
+                                onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                                placeholder="https://github.com/user/repo"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerCid}
+                                onChange={(e) => setHeaderCid(e.target.value)}
+                                placeholder="snapshot cid…"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            )
+                          )}
+                          <input
+                            type="text"
+                            autoFocus={showHeaderCreateForm !== "import"}
+                            value={headerNewName}
+                            onChange={(e) => setHeaderNewName(e.target.value)}
+                            placeholder={
+                              showHeaderCreateForm === "import" && headerImportSource === "github"
+                                ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "name (auto from url)…")
+                                : "module name…"
+                            }
+                            className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                            style={inputStyle}
+                          />
+                          {showHeaderCreateForm === "create" && (
+                            <input
+                              type="text"
+                              value={headerGithubUrl}
+                              onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                              placeholder="github url (optional)…"
+                              className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                              style={inputStyle}
+                            />
+                          )}
+                        </>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        {showHeaderCreateForm !== "import" && (
+                          <select
+                            value={model}
+                            onChange={(e) => {
+                              setModel(e.target.value);
+                              safeSetItem("claude_jobs_model", e.target.value);
+                            }}
+                            className="min-w-0 flex-1 px-1 py-1 text-[10px] bg-transparent border font-code uppercase cursor-pointer rounded-sm"
+                            style={{ color: accent, borderColor: "var(--border-color)" }}
+                            title={`Model: ${modelLabel(model)} (${model})`}
+                          >
+                            {MODEL_OPTIONS.map((m) => (
+                              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          onClick={headerCreateOrFork}
+                          disabled={!canGo || submitting}
+                          className="pixel-btn text-[11px] py-1 px-3 uppercase shrink-0 disabled:cursor-not-allowed"
+                          style={{
+                            opacity: canGo && !submitting ? 1 : 0.4,
+                            marginLeft: showHeaderCreateForm === "import" ? "auto" : undefined,
+                          }}
+                        >
+                          {submitting
+                            ? "…"
+                            : isEdit
+                            ? "EDIT"
+                            : showHeaderCreateForm === "fork"
+                            ? "FORK"
+                            : showHeaderCreateForm === "import"
+                            ? "IMPORT"
+                            : "BUILD"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+  };
+
   // ── Composer dock ─────────────────────────────────────────────────────
   // The ask box + savable system prompt, docked at the bottom of the whole
   // console (spans the app view and the tasks sidebar) so the prompt always
@@ -6688,6 +6993,49 @@ export default function Home() {
               padding: 4,
             }}
           >
+            {/* "+" — build / fork / import a module, right where you type.
+                Opens the same compact create form as the rail, popping up
+                above the composer. */}
+            <div className="relative flex shrink-0" ref={composerCreateRef}>
+              {showHeaderCreateForm && createAnchor === "composer" && (
+                <div
+                  className="absolute bottom-full left-0 mb-2 border rounded-lg p-2 z-[120] w-[300px] max-w-[80vw]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                    boxShadow: "0 12px 40px rgba(0,0,0,0.45)",
+                  }}
+                >
+                  {renderCompactCreateForm()}
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (showHeaderCreateForm && createAnchor === "composer") {
+                    setShowHeaderCreateForm(null);
+                    return;
+                  }
+                  setCreateAnchor("composer");
+                  setHeaderNewName("");
+                  setHeaderGithubUrl("");
+                  setShowHeaderCreateForm("create");
+                }}
+                className="h-full flex items-center justify-center rounded-lg transition-all hover:brightness-125 focus-ring"
+                style={{
+                  width: 46,
+                  border: `1px solid ${showHeaderCreateForm && createAnchor === "composer" ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 45%, transparent)"}`,
+                  color: showHeaderCreateForm && createAnchor === "composer" ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 80%, var(--text-secondary))",
+                  background: showHeaderCreateForm && createAnchor === "composer" ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  fontSize: 22,
+                  lineHeight: 1,
+                }}
+                title="Build, fork or import a module"
+                aria-expanded={!!(showHeaderCreateForm && createAnchor === "composer")}
+                aria-label="Build, fork or import a module"
+              >
+                +
+              </button>
+            </div>
             <input
               ref={composerInputRef}
               type="text"
@@ -11211,198 +11559,7 @@ export default function Home() {
                 className="shrink-0 px-2 py-2 flex flex-col gap-1.5"
                 style={{ borderTop: "1px solid var(--border-color)" }}
               >
-                {showHeaderCreateForm && createAnchor === "rail" && (() => {
-                  const isEdit = showHeaderCreateForm === "edit";
-                  const accent = isEdit
-                    ? "var(--crt-blue)"
-                    : showHeaderCreateForm === "fork"
-                    ? "var(--crt-amber)"
-                    : showHeaderCreateForm === "import"
-                    ? "#22d3ee"
-                    : "var(--crt-green)";
-                  const sources = [
-                    { key: "new", label: "NEW", active: showHeaderCreateForm === "create", disabled: false },
-                    { key: "fork", label: "FORK", active: showHeaderCreateForm === "fork", disabled: !selectedModule },
-                    { key: "git", label: "GIT", active: showHeaderCreateForm === "import" && headerImportSource === "github", disabled: false },
-                    { key: "cid", label: "CID", active: showHeaderCreateForm === "import" && headerImportSource === "cid", disabled: false },
-                  ];
-                  const pickSource = (key: string) => {
-                    if (key === "new") {
-                      setHeaderNewName(""); setHeaderGithubUrl("");
-                      setShowHeaderCreateForm("create");
-                    } else if (key === "fork") {
-                      if (!selectedModule) return;
-                      setHeaderNewName(selectedModule + "-fork"); setHeaderGithubUrl("");
-                      setShowHeaderCreateForm("fork");
-                    } else {
-                      setHeaderNewName("");
-                      setHeaderImportSource(key === "git" ? "github" : "cid");
-                      setShowHeaderCreateForm("import");
-                    }
-                  };
-                  const canGo = isEdit
-                    ? !!headerEditPrompt.trim() && !!selectedModule
-                    : showHeaderCreateForm === "import"
-                    ? (headerImportSource === "github" ? !!headerGithubUrl.trim() : !!headerCid.trim())
-                    : !!headerNewName.trim();
-                  const onFormKeys = (e: React.KeyboardEvent) => {
-                    const inTextarea = e.target instanceof HTMLTextAreaElement;
-                    if (e.key === "Enter" && (!inTextarea || e.metaKey || e.ctrlKey)) headerCreateOrFork();
-                    if (e.key === "Escape") setShowHeaderCreateForm(null);
-                  };
-                  const inputStyle: React.CSSProperties = {
-                    borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
-                    color: "var(--text-primary)",
-                    background: "var(--bg-primary)",
-                  };
-                  return (
-                    <div className="flex flex-col gap-1.5 pb-1" onKeyDown={onFormKeys}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className="text-[10px] font-bold font-code uppercase truncate"
-                          style={{ color: accent, letterSpacing: "0.08em" }}
-                        >
-                          {isEdit
-                            ? `✎ EDIT ${selectedModule || "?"}`
-                            : showHeaderCreateForm === "fork"
-                            ? `⑂ FORK ${selectedModule || "?"}`
-                            : showHeaderCreateForm === "import"
-                            ? "⇩ IMPORT MODULE"
-                            : "+ BUILD MODULE"}
-                        </span>
-                        <button
-                          onClick={() => setShowHeaderCreateForm(null)}
-                          className="text-[10px] shrink-0 hover:brightness-125"
-                          style={{ color: "var(--text-tertiary)" }}
-                          aria-label="Close create form"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                      {!isEdit && (
-                        <div className="flex gap-1">
-                          {sources.map((s) => (
-                            <button
-                              key={s.key}
-                              onClick={() => pickSource(s.key)}
-                              disabled={s.disabled}
-                              title={s.disabled ? "Select a module to fork" : s.label}
-                              className="flex-1 text-[10px] font-bold py-1 font-code border rounded-sm transition-all disabled:cursor-not-allowed"
-                              style={{
-                                letterSpacing: "0.04em",
-                                color: s.active ? accent : "var(--text-secondary, var(--text-tertiary))",
-                                opacity: s.disabled ? 0.35 : 1,
-                                borderColor: s.active ? `color-mix(in srgb, ${accent} 50%, transparent)` : "var(--border-color)",
-                                background: s.active ? `color-mix(in srgb, ${accent} 10%, transparent)` : "transparent",
-                              }}
-                            >
-                              {s.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {isEdit ? (
-                        <textarea
-                          autoFocus
-                          value={headerEditPrompt}
-                          onChange={(e) => setHeaderEditPrompt(e.target.value)}
-                          placeholder="describe the edit… (⌘↵ runs)"
-                          rows={3}
-                          className="px-2 py-1.5 text-[12px] border font-code outline-none resize-none rounded-sm"
-                          style={inputStyle}
-                        />
-                      ) : (
-                        <>
-                          {showHeaderCreateForm === "import" && (
-                            headerImportSource === "github" ? (
-                              <input
-                                type="text"
-                                autoFocus
-                                value={headerGithubUrl}
-                                onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                                placeholder="https://github.com/user/repo"
-                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
-                                style={inputStyle}
-                              />
-                            ) : (
-                              <input
-                                type="text"
-                                autoFocus
-                                value={headerCid}
-                                onChange={(e) => setHeaderCid(e.target.value)}
-                                placeholder="snapshot cid…"
-                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
-                                style={inputStyle}
-                              />
-                            )
-                          )}
-                          <input
-                            type="text"
-                            autoFocus={showHeaderCreateForm !== "import"}
-                            value={headerNewName}
-                            onChange={(e) => setHeaderNewName(e.target.value)}
-                            placeholder={
-                              showHeaderCreateForm === "import" && headerImportSource === "github"
-                                ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "name (auto from url)…")
-                                : "module name…"
-                            }
-                            className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
-                            style={inputStyle}
-                          />
-                          {showHeaderCreateForm === "create" && (
-                            <input
-                              type="text"
-                              value={headerGithubUrl}
-                              onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                              placeholder="github url (optional)…"
-                              className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
-                              style={inputStyle}
-                            />
-                          )}
-                        </>
-                      )}
-                      <div className="flex items-center gap-1.5">
-                        {showHeaderCreateForm !== "import" && (
-                          <select
-                            value={model}
-                            onChange={(e) => {
-                              setModel(e.target.value);
-                              safeSetItem("claude_jobs_model", e.target.value);
-                            }}
-                            className="min-w-0 flex-1 px-1 py-1 text-[10px] bg-transparent border font-code uppercase cursor-pointer rounded-sm"
-                            style={{ color: accent, borderColor: "var(--border-color)" }}
-                            title={`Model: ${modelLabel(model)} (${model})`}
-                          >
-                            {MODEL_OPTIONS.map((m) => (
-                              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <button
-                          onClick={headerCreateOrFork}
-                          disabled={!canGo || submitting}
-                          className="pixel-btn text-[11px] py-1 px-3 uppercase shrink-0 disabled:cursor-not-allowed"
-                          style={{
-                            opacity: canGo && !submitting ? 1 : 0.4,
-                            marginLeft: showHeaderCreateForm === "import" ? "auto" : undefined,
-                          }}
-                        >
-                          {submitting
-                            ? "…"
-                            : isEdit
-                            ? "EDIT"
-                            : showHeaderCreateForm === "fork"
-                            ? "FORK"
-                            : showHeaderCreateForm === "import"
-                            ? "IMPORT"
-                            : "BUILD"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {showHeaderCreateForm && createAnchor === "rail" && renderCompactCreateForm()}
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => {
@@ -11992,6 +12149,81 @@ export default function Home() {
                           {justCopied ? "✓ copied" : "⧉"}
                         </span>
                       </button>
+                    );
+                  })()}
+
+                  {/* Phone sign-in — hand this session to another device via a
+                      single-use QR. Any signed-in user (you can only hand off
+                      yourself); hidden in local mode where auth is disabled. */}
+                  {token && token !== "local" && address && (() => {
+                    const accent = "var(--crt-green)";
+                    const live = handoff && handoff.exp > nowSec ? handoff : null;
+                    const left = live ? Math.max(0, live.exp - nowSec) : 0;
+                    const fmtMMSS = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+                    return (
+                      <div className="section-card" data-accent="green">
+                        <span className="section-card__bar" />
+                        <div className="section-card__head">
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">⇄</span>
+                            Phone Sign-In
+                          </div>
+                          <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                            QR handoff
+                          </span>
+                        </div>
+                        <div className="section-card__body flex flex-col gap-2.5">
+                          <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                            Scan with your phone to open this console <span style={{ color: "var(--text-secondary)" }}>already signed in as you</span> —
+                            no wallet or signing there. The code is single-use and dies in 5 minutes.
+                          </div>
+                          {live ? (
+                            <div
+                              className="rounded-lg p-3 flex flex-col items-center gap-2"
+                              style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                            >
+                              <div
+                                className="rounded-lg p-2 bg-white"
+                                dangerouslySetInnerHTML={{ __html: qrSvg(handoffUrl(live.code), 180) }}
+                              />
+                              <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                single-use · expires in <span style={{ color: accent }}>{fmtMMSS}</span>
+                              </div>
+                              <button
+                                onClick={() => copyGrantBit("handoff", handoffUrl(live.code))}
+                                className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
+                                style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                                title="Copy sign-in link (treat it like a password)"
+                              >
+                                {grantCopied === "handoff" ? "✓ copied link" : handoffUrl(live.code)}
+                              </button>
+                              <button
+                                onClick={() => setHandoff(null)}
+                                className="text-[9px] uppercase tracking-wider"
+                                style={{ color: "var(--text-tertiary)" }}
+                              >
+                                done
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={createHandoff}
+                              disabled={handoffBusy}
+                              className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                              style={{
+                                color: "var(--bg-primary)",
+                                background: accent,
+                                border: `1px solid ${accent}`,
+                              }}
+                            >
+                              {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
+                            </button>
+                          )}
+                          {handoffError && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{handoffError}</div>
+                          )}
+                        </div>
+                      </div>
                     );
                   })()}
 

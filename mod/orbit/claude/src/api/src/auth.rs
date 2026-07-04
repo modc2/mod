@@ -677,6 +677,60 @@ pub fn grant_active(address: &str) -> bool {
         .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
 }
 
+// ── Session handoff (QR sign-in on another device) ──────────────────
+//
+// A signed-in browser mints a short-lived, SINGLE-USE code bound to its own
+// identity. The code rides a QR; another device (typically the same person's
+// phone) opens `?handoff=<code>` and trades it for a fresh bearer token as
+// the SAME address — no wallet or signature needed on that device. This is
+// distinct from grants: a grant invites *someone else* in (guest identity /
+// time-boxed access), a handoff moves *your own* session across devices.
+//
+// Codes live in memory only: they expire in minutes and are consumed on
+// first redemption, so a restart merely voids any un-scanned QR.
+
+struct Handoff {
+    address: String,
+    exp: i64,
+}
+
+static HANDOFFS: OnceLock<std::sync::Mutex<HashMap<String, Handoff>>> = OnceLock::new();
+
+/// How long a handoff QR stays scannable. Short on purpose: the code is a
+/// bearer capability for the minter's whole identity.
+pub const HANDOFF_TTL: i64 = 300;
+
+fn handoff_store() -> &'static std::sync::Mutex<HashMap<String, Handoff>> {
+    HANDOFFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Mint a single-use handoff code for `address`. Returns (code, expiry).
+pub fn create_handoff(address: &str) -> (String, i64) {
+    let now = chrono::Utc::now().timestamp();
+    let code = hex::encode(rand::random::<[u8; 16]>());
+    let exp = now + HANDOFF_TTL;
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.insert(
+        code.clone(),
+        Handoff {
+            address: address.to_lowercase(),
+            exp,
+        },
+    );
+    (code, exp)
+}
+
+/// Redeem (and consume) a handoff code. Returns the bound address.
+pub fn redeem_handoff(code: &str) -> Result<String, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.remove(code)
+        .map(|h| h.address)
+        .ok_or_else(|| "Invalid, expired, or already-used sign-in code".to_string())
+}
+
 /// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.
 /// Kept off-repo because the whitelist is private; mounted into the container as a volume.
 pub fn private_dir() -> Option<std::path::PathBuf> {
@@ -941,6 +995,25 @@ mod tests {
             expected_address.to_lowercase(),
             "Recovered address doesn't match expected"
         );
+    }
+
+    #[test]
+    fn test_handoff_roundtrip_single_use() {
+        let addr = "0xABCDef1234567890abcdef1234567890abcdef12";
+        let (code, exp) = create_handoff(addr);
+        assert!(exp > chrono::Utc::now().timestamp());
+
+        // Redeems to the lowercased bound address…
+        let redeemed = redeem_handoff(&code).expect("redeem failed");
+        assert_eq!(redeemed, addr.to_lowercase());
+
+        // …and only once.
+        assert!(redeem_handoff(&code).is_err());
+    }
+
+    #[test]
+    fn test_handoff_unknown_code() {
+        assert!(redeem_handoff("nope").is_err());
     }
 
     #[test]
