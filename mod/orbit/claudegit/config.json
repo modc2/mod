@@ -36,5 +36,5 @@
         "/jobs/{id}/stream": "SSE stream of job output",
         "/github/push": "Force push to GitHub"
     },
-    "schema": "QmNoyp2qFAUAoQWc7D2PWY6DwJAnoVRkABnLmHHVuawyRh"
+    "schema": "QmNYv2FTf2UZLsjZauwbxXoFe4vAWrwcb2NtvQYke72dmA"
 }

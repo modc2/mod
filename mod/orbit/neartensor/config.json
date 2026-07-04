@@ -11,7 +11,7 @@
     "contracts": {
         "near_testnet": {}
     },
-    "schema": "QmezhpMhgQdwtTsPFNxvCczojkbDeyS76Y6gs927RsS85n",
+    "schema": "QmS8Din4GsLWEbbNU7S2D48vasSBTx54w1dmGzjioW41rh",
     "endpoints": {
         "GET /health": "Liveness probe",
         "GET /status": "Deployment status",

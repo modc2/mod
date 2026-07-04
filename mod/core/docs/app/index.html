@@ -27,6 +27,11 @@
   table { border-collapse:collapse; } th,td { border:1px solid var(--border); padding:6px 10px; }
   blockquote { border-left:3px solid var(--accent); margin:0; padding:.2em 1em; color:var(--muted); }
   .muted { color:var(--muted); }
+  .wp-toggle { display:flex; align-items:center; gap:10px; margin:0 0 18px; }
+  .wp-toggle .seg { display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+  .wp-toggle button { background:none; border:0; color:var(--muted); font:12.5px/1 inherit; padding:7px 14px; cursor:pointer; letter-spacing:.03em; }
+  .wp-toggle button.on { background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); }
+  .wp-toggle .hint { color:var(--muted); font-size:12px; }
 </style>
 </head>
 <body>
@@ -43,6 +48,12 @@ const BASE = "/docs";
 const order = ["README","getting-started","protocol","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","simple-whitepaper","whitepaper"];
 const label = n => n === "README" ? "Overview" : n.replace(/-/g," ");
 
+// The two whitepaper variants share one nav entry + an on-page Simple/Full toggle.
+const WP_FULL = "whitepaper", WP_SIMPLE = "simple-whitepaper";
+const isWp = p => p === WP_FULL || p === WP_SIMPLE;
+const wpPref = () => { try { return localStorage.getItem("docs.wp") || "simple"; } catch(e) { return "simple"; } };
+const setWpPref = v => { try { localStorage.setItem("docs.wp", v); } catch(e){} };
+
 async function loadPages() {
   let pages = [];
   try { pages = await (await fetch(BASE + "/_pages")).json(); } catch(e){}
@@ -51,9 +62,10 @@ async function loadPages() {
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
   for (const p of pages) {
+    if (p === WP_SIMPLE) continue;
     const a = document.createElement("a");
     a.textContent = label(p); a.href = BASE + "/" + p; a.dataset.page = p;
-    a.onclick = e => { e.preventDefault(); show(p, true); };
+    a.onclick = e => { e.preventDefault(); show(p === WP_FULL && wpPref() === "simple" ? WP_SIMPLE : p, true); };
     nav.appendChild(a);
   }
   const start = (location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README";
@@ -61,14 +73,33 @@ async function loadPages() {
 }
 
 async function show(page, push) {
-  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
+  document.querySelectorAll("#nav a").forEach(a =>
+    a.classList.toggle("active", a.dataset.page === page || (a.dataset.page === WP_FULL && isWp(page))));
   const main = document.getElementById("content");
   try {
     const md = await (await fetch(BASE + "/_page/" + page)).text();
     main.innerHTML = window.marked ? marked.parse(md) : "<pre>" + md.replace(/[&<]/g,c=>({"&":"&amp;","<":"&lt;"}[c])) + "</pre>";
+    if (isWp(page)) wpToggle(main, page);
   } catch(e) { main.innerHTML = "<p class='muted'>Could not load “"+page+"”.</p>"; }
   if (push) history.pushState({}, "", BASE + "/" + page);
   window.scrollTo(0,0);
+}
+
+function wpToggle(main, page) {
+  const simple = page === WP_SIMPLE;
+  const bar = document.createElement("div");
+  bar.className = "wp-toggle";
+  bar.innerHTML =
+    '<span class="seg">' +
+      '<button data-v="simple" class="' + (simple ? "on" : "") + '">SIMPLE</button>' +
+      '<button data-v="full" class="' + (simple ? "" : "on") + '">FULL</button>' +
+    '</span>' +
+    '<span class="hint">' + (simple ? "the human version — no jargon" : "the technical version") + '</span>';
+  bar.querySelectorAll("button").forEach(b => b.onclick = () => {
+    setWpPref(b.dataset.v);
+    show(b.dataset.v === "simple" ? WP_SIMPLE : WP_FULL, true);
+  });
+  main.prepend(bar);
 }
 window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README", false);
 loadPages();

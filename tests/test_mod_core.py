@@ -33,12 +33,14 @@ class MockMod:
         obj.executor_cache = {}
         obj._config_cache = {}
         obj._executors = {}
+        import mod as _mod_pkg
+        _repo = os.path.dirname(os.path.dirname(os.path.abspath(_mod_pkg.__file__)))
         obj.paths = {
-            'mod': os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/mod',
-            'lib': os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            'mod': _repo + '/mod',
+            'lib': _repo,
             'orbit': {
                 'orbit': '/tmp/mod_test_orbit',
-                'core': os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/mod/core',
+                'core': _repo + '/mod/core',
                 'local': os.getcwd(),
             },
             'home': os.path.expanduser('~'),
