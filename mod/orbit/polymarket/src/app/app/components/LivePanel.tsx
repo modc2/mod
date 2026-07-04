@@ -764,9 +764,10 @@ export default function LivePanel() {
         <div className="pixel-panel border-2 border-pixel-border p-2">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
             <StatCard
-              label="BALANCE"
+              label="FREE CASH"
               value={engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "—"}
               tone="white"
+              title="Uninvested USDC the engine can spend. Equity (cash + open-position value) and per-position P&L live in the PORTFOLIO panel above."
             />
             {/* Only show CAPITAL when it's actually different from BALANCE —
                 i.e. the user has manually capped below the proxy balance.
