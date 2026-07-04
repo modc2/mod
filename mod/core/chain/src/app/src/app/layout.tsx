@@ -3,8 +3,8 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'Chain Hub - Modular Contract Ecosystem',
-  description: 'Deploy and manage modular smart contracts on Base',
+  title: 'chain — modular contract ecosystem',
+  description: 'Deploy, inspect and operate modular smart contracts on Base',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

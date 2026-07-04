@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { toast } from 'react-toastify'
 import {
   WalletIcon,
@@ -12,11 +11,12 @@ import {
   BanknotesIcon,
   PaperAirplaneIcon,
   CircleStackIcon,
-  CubeTransparentIcon,
   ArrowUpRightIcon,
   PlusCircleIcon,
-  ShieldCheckIcon,
+  ArrowTrendingUpIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline'
+import { Shell, NetworkSelect, RefreshBtn, BlockChip } from '../components/Shell'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,6 +38,7 @@ const TABS = [
   { id: 'wallet', label: 'Wallet', icon: WalletIcon },
   { id: 'stake', label: 'Stake', icon: LockClosedIcon },
   { id: 'market', label: 'Market', icon: BanknotesIcon },
+  { id: 'defi', label: 'DeFi', icon: ArrowTrendingUpIcon },
   { id: 'registry', label: 'Registry', icon: CircleStackIcon },
 ] as const
 
@@ -60,6 +61,23 @@ interface RegMod {
   id: number
   name: string
   data: string
+}
+
+interface YieldStrategy {
+  id: number
+  asset: string
+  asset_symbol: string
+  asset_decimals: number
+  name: string
+  enabled: boolean
+  tvl: number
+  pending_profit: number
+}
+
+interface YieldPosition {
+  strategy_id: number
+  shares: number
+  pending_reward: number
 }
 
 // ── API helper ───────────────────────────────────────────────────────────────
@@ -86,7 +104,7 @@ async function api(path: string, params: Record<string, any> = {}, method: 'GET'
 }
 
 const fmtAddr = (s: string, chars = 5) =>
-  s && s.length > 14 ? `${s.slice(0, chars + 2)}...${s.slice(-chars)}` : (s || '--')
+  s && s.length > 14 ? `${s.slice(0, chars + 2)}…${s.slice(-chars)}` : (s || '--')
 
 const fmtNum = (n: number | null | undefined, dp = 4) =>
   n === null || n === undefined || isNaN(Number(n)) ? '--' : Number(n).toLocaleString(undefined, { maximumFractionDigits: dp })
@@ -96,14 +114,11 @@ const fmtNum = (n: number | null | undefined, dp = 4) =>
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-[9px] font-bold uppercase tracking-wider text-white/30 mb-1.5">{label}</span>
+      <span className="label block mb-1.5">{label}</span>
       {children}
     </label>
   )
 }
-
-const inputCls =
-  'w-full px-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-cyan-500/40 font-mono'
 
 function ActionBtn({ onClick, busy, children, icon: Icon }: {
   onClick: () => void; busy: boolean; children: React.ReactNode; icon: any
@@ -112,7 +127,7 @@ function ActionBtn({ onClick, busy, children, icon: Icon }: {
     <button
       onClick={onClick}
       disabled={busy}
-      className="w-full px-4 py-2.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 disabled:opacity-30 transition-all flex items-center justify-center gap-2"
+      className="btn btn-primary w-full !py-2.5"
     >
       {busy ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
       {children}
@@ -128,16 +143,27 @@ const DOT_COLORS: Record<string, string> = {
   orange: 'bg-orange-400',
 }
 
+const DOT_GLOWS: Record<string, string> = {
+  cyan: 'rgba(34, 211, 238, 0.55)',
+  emerald: 'rgba(52, 211, 153, 0.55)',
+  sky: 'rgba(56, 189, 248, 0.55)',
+  violet: 'rgba(167, 139, 250, 0.55)',
+  orange: 'rgba(251, 146, 60, 0.55)',
+}
+
 function Card({ title, children, accent = 'cyan' }: { title?: string; children: React.ReactNode; accent?: string }) {
   return (
-    <div className={`border border-white/[0.08] rounded-xl bg-white/[0.02] overflow-hidden`}>
+    <div className="glass overflow-hidden">
       {title && (
-        <div className="px-4 py-3 border-b border-white/[0.05] flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${DOT_COLORS[accent] || 'bg-cyan-400'}`} />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">{title}</span>
+        <div className="px-5 py-4 border-b hairline flex items-center gap-2">
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${DOT_COLORS[accent] || 'bg-cyan-400'}`}
+            style={{ boxShadow: `0 0 8px 1px ${DOT_GLOWS[accent] || DOT_GLOWS.cyan}` }}
+          />
+          <span className="text-[14px] font-semibold text-white/85 tracking-tight">{title}</span>
         </div>
       )}
-      <div className="p-4 space-y-3">{children}</div>
+      <div className="p-5 space-y-4">{children}</div>
     </div>
   )
 }
@@ -167,6 +193,12 @@ function ProtocolInner() {
   const [regName, setRegName] = useState('')
   const [regData, setRegData] = useState('')
 
+  // defi state
+  const [strategies, setStrategies] = useState<YieldStrategy[]>([])
+  const [positions, setPositions] = useState<Record<number, YieldPosition>>({})
+  const [yId, setYId] = useState('0')
+  const [yAmt, setYAmt] = useState('')
+
   const explorer = EXPLORER_URLS[network]
 
   // ── Fetch ──
@@ -185,6 +217,18 @@ function ProtocolInner() {
       setStakes(s.stakes || [])
       setRegMods(r.mods || [])
       setBlock(b.result ?? null)
+
+      // DeFi strategies + per-strategy position (best effort)
+      const st = await api('yield/strategies', { network }).catch(() => ({ strategies: [] }))
+      const strat: YieldStrategy[] = st.strategies || []
+      setStrategies(strat)
+      if (strat.length && !strat.some(x => String(x.id) === yId)) setYId(String(strat[0].id))
+      const pos: Record<number, YieldPosition> = {}
+      await Promise.all(strat.map(s =>
+        api('yield/position', { strategy_id: s.id, address: addr, network })
+          .then((p: YieldPosition) => { pos[s.id] = p }).catch(() => {})
+      ))
+      setPositions(pos)
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load wallet')
     }
@@ -230,218 +274,273 @@ function ProtocolInner() {
     () => api('registry/register', { name: regName, data: regData || undefined, network, key: keyName || undefined }, 'POST'),
     `Registered "${regName}"`)
 
+  const selStrat = strategies.find(s => String(s.id) === yId)
+  const doYieldDeposit = () => run('y-deposit',
+    () => api('yield/deposit', { strategy_id: Number(yId), amount: Number(yAmt), network, key: keyName || undefined }, 'POST'),
+    `Deposited ${yAmt} into ${selStrat?.name || 'strategy'}`)
+  const doYieldWithdraw = () => run('y-withdraw',
+    () => api('yield/withdraw', { strategy_id: Number(yId), amount: Number(yAmt), network, key: keyName || undefined }, 'POST'),
+    `Withdrew ${yAmt} from ${selStrat?.name || 'strategy'}`)
+  const doYieldHarvest = (id: number) => run(`y-harvest-${id}`,
+    () => api('yield/harvest', { strategy_id: id, network, key: keyName || undefined }, 'POST'),
+    `Harvested strategy #${id}`)
+  const doYieldClaim = (id: number) => run(`y-claim-${id}`,
+    () => api('yield/claim', { strategy_id: id, network, key: keyName || undefined }, 'POST'),
+    `Claimed rewards from strategy #${id}`)
+
   const marketBal = balances['MARKET']
 
   // ── Render ──
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#e5e5e5] font-mono">
-      <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-4">
+    <Shell
+      active="protocol"
+      right={
+        <>
+          <BlockChip block={block} />
+          <NetworkSelect value={network} onChange={setNetwork} />
+          <RefreshBtn onClick={refresh} loading={loading} />
+        </>
+      }
+      footer={`${CHAIN_NAMES[network]} — protocol app`}
+    >
+      {/* ═══ Hero ═══ */}
+      <div className="fade-up" style={{ '--i': 0 } as any}>
+        <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-white">Protocol</h1>
+        <p className="mt-1 text-[13px] text-white/40">
+          Your wallet, staking, market credits, yield and registry — on {CHAIN_NAMES[network]}.
+        </p>
+      </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between border border-white/10 rounded-xl p-4 bg-white/[0.02]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/10">
-              <WalletIcon className="w-5 h-5 text-white/80" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-wider uppercase">Protocol</h1>
-              <Link href="/" className="text-[10px] text-cyan-500/50 hover:text-cyan-400 uppercase tracking-widest flex items-center gap-1">
-                <CubeTransparentIcon className="w-3 h-3" /> Back to Chain Hub
-              </Link>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/admin"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[10px] font-bold uppercase tracking-wider hover:bg-teal-500/20 transition-all">
-              <ShieldCheckIcon className="w-3.5 h-3.5" /> Owner
-            </Link>
-            {block !== null && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[10px] text-white/30 uppercase">Blk</span>
-                <span className="text-xs text-emerald-400 tabular-nums font-bold">{block.toLocaleString()}</span>
-              </div>
-            )}
-            <select value={network} onChange={e => setNetwork(e.target.value)}
-              className="text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 focus:outline-none focus:border-white/20 font-mono cursor-pointer">
-              <option value="testnet">Base Sepolia</option>
-              <option value="ganache">Ganache</option>
-              <option value="mainnet">Base Mainnet</option>
-            </select>
-            <button onClick={refresh} disabled={loading}
-              className="p-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] disabled:opacity-30 transition-colors">
-              <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+      {/* ═══ Identity bar ═══ */}
+      <div className="glass px-5 py-3.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 fade-up" style={{ '--i': 1 } as any}>
+        <div className="flex-1 flex items-center gap-2.5">
+          <span className="label">Account</span>
+          <span className="font-mono text-[12.5px] text-white/75 tabular-nums">{fmtAddr(address, 8)}</span>
+          {explorer && address && (
+            <a href={`${explorer}/address/${address}`} target="_blank" rel="noopener noreferrer"
+              className="text-cyan-400/50 hover:text-cyan-300 transition-colors"><ArrowUpRightIcon className="w-3 h-3" /></a>
+          )}
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="label">Key</span>
+          <input value={keyName} onChange={e => setKeyName(e.target.value)} placeholder="default"
+            className="input !w-36 !py-1.5 !text-[12px]" />
+        </div>
+      </div>
+
+      {/* ═══ Tabs ═══ */}
+      <div className="glass !rounded-full p-1 flex gap-1 fade-up" style={{ '--i': 2 } as any}>
+        {TABS.map(t => {
+          const Icon = t.icon
+          const active = tab === t.id
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-[12px] font-medium transition-all duration-200 ${
+                active
+                  ? 'text-white bg-gradient-to-b from-white/10 to-white/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_0_18px_-8px_rgba(34,211,238,0.5)]'
+                  : 'text-white/40 hover:text-white/75'
+              }`}>
+              <Icon className="w-4 h-4" /> {t.label}
             </button>
-          </div>
-        </div>
+          )
+        })}
+      </div>
 
-        {/* Identity bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 border border-white/[0.06] rounded-xl p-3 bg-white/[0.015]">
-          <div className="flex-1 flex items-center gap-2">
-            <span className="text-[9px] uppercase tracking-wider text-white/25">Account</span>
-            <span className="text-xs text-white/70 tabular-nums">{fmtAddr(address, 8)}</span>
-            {explorer && address && (
-              <a href={`${explorer}/address/${address}`} target="_blank" rel="noopener noreferrer"
-                className="text-cyan-500/40 hover:text-cyan-400"><ArrowUpRightIcon className="w-3 h-3" /></a>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] uppercase tracking-wider text-white/25">Key</span>
-            <input value={keyName} onChange={e => setKeyName(e.target.value)} placeholder="default"
-              className="px-2 py-1 text-xs rounded-md border border-white/10 bg-white/[0.03] text-white/70 placeholder:text-white/20 focus:outline-none focus:border-cyan-500/40 w-32" />
-          </div>
+      {/* ── Wallet ── */}
+      {tab === 'wallet' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-up" style={{ '--i': 3 } as any}>
+          <Card title="Balances" accent="emerald">
+            <div className="grid grid-cols-2 gap-2">
+              {BAL_TOKENS.map(t => (
+                <div key={t} className="rounded-xl border hairline bg-white/[0.02] px-4 py-3 row">
+                  <p className="label">{t}</p>
+                  <p className="text-[17px] font-semibold tabular-nums text-white/85 font-mono mt-0.5">{fmtNum(balances[t])}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card title="Transfer" accent="sky">
+            <Field label="Token">
+              <select value={xferTok} onChange={e => setXferTok(e.target.value)} className="input">
+                {BAL_TOKENS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Recipient address">
+              <input value={xferTo} onChange={e => setXferTo(e.target.value)} placeholder="0x..." className="input" />
+            </Field>
+            <Field label="Amount">
+              <input value={xferAmt} onChange={e => setXferAmt(e.target.value)} placeholder="0.0" type="number" className="input" />
+            </Field>
+            <ActionBtn onClick={doTransfer} busy={busy === 'transfer'} icon={PaperAirplaneIcon}>Send</ActionBtn>
+          </Card>
         </div>
+      )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 border border-white/[0.06] rounded-xl p-1 bg-white/[0.015]">
-          {TABS.map(t => {
-            const Icon = t.icon
-            const active = tab === t.id
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-                  active ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' : 'text-white/35 hover:text-white/60 border border-transparent'
-                }`}>
-                <Icon className="w-3.5 h-3.5" /> {t.label}
-              </button>
-            )
-          })}
+      {/* ── Stake ── */}
+      {tab === 'stake' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-up" style={{ '--i': 3 } as any}>
+          <Card title="Stake NativeToken" accent="sky">
+            <p className="text-[12px] text-white/35 leading-relaxed">
+              Lock NativeToken to earn BlocTime. Longer locks accrue more BlocTime.
+            </p>
+            <Field label="Amount (NativeToken)">
+              <input value={stakeAmt} onChange={e => setStakeAmt(e.target.value)} placeholder="0.0" type="number" className="input" />
+            </Field>
+            <Field label="Lock duration (blocks)">
+              <input value={lockBlocks} onChange={e => setLockBlocks(e.target.value)} placeholder="100" type="number" className="input" />
+            </Field>
+            <ActionBtn onClick={doStake} busy={busy === 'stake'} icon={LockClosedIcon}>Stake</ActionBtn>
+          </Card>
+          <Card title={`Positions (${stakes.length})`} accent="violet">
+            {stakes.length === 0 ? (
+              <p className="text-[12px] text-white/25 py-6 text-center">No active stakes</p>
+            ) : stakes.map(s => (
+              <div key={s.stake_id} className="rounded-xl border hairline bg-white/[0.02] px-4 py-3 row space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-medium text-white/75">Stake #{s.stake_id}</span>
+                  <button onClick={() => doUnstake(s.stake_id)} disabled={busy === `unstake-${s.stake_id}` || s.blocks_remaining > 0}
+                    className="btn btn-danger !py-1 !px-2.5 !text-[10px]">
+                    {busy === `unstake-${s.stake_id}` ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <LockOpenIcon className="w-3 h-3" />}
+                    Unstake
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-white/35">
+                  <span>Amount: <span className="text-white/70 font-mono tabular-nums">{fmtNum(s.amount)}</span></span>
+                  <span>BlocTime: <span className="text-white/70 font-mono tabular-nums">{fmtNum(s.bloctime_balance)}</span></span>
+                  <span>Lock: <span className="text-white/70 font-mono tabular-nums">{s.lock_blocks}</span></span>
+                  <span>Remaining: <span className={`font-mono tabular-nums ${s.blocks_remaining > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{s.blocks_remaining}</span></span>
+                </div>
+              </div>
+            ))}
+          </Card>
         </div>
+      )}
 
-        {/* ── Wallet ── */}
-        {tab === 'wallet' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card title="Balances" accent="emerald">
-              <div className="grid grid-cols-2 gap-2">
-                {BAL_TOKENS.map(t => (
-                  <div key={t} className="px-3 py-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02]">
-                    <p className="text-[9px] uppercase tracking-wider text-white/25">{t}</p>
-                    <p className="text-sm font-bold text-white/70 tabular-nums">{fmtNum(balances[t])}</p>
+      {/* ── Market ── */}
+      {tab === 'market' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-up" style={{ '--i': 3 } as any}>
+          <Card title="Buy credits (MARKET)" accent="orange">
+            <p className="text-[12px] text-white/35 leading-relaxed">
+              Credit your account with MARKET stable tokens using a whitelisted payment token.
+            </p>
+            <Field label="Pay with">
+              <select value={payToken} onChange={e => setPayToken(e.target.value)} className="input">
+                <option value="usdt">USDT</option>
+                <option value="usdc">USDC</option>
+              </select>
+            </Field>
+            <Field label="Stable amount">
+              <input value={creditAmt} onChange={e => setCreditAmt(e.target.value)} placeholder="0.0" type="number" className="input" />
+            </Field>
+            <ActionBtn onClick={doCredit} busy={busy === 'credit'} icon={BanknotesIcon}>Buy Credits</ActionBtn>
+          </Card>
+          <Card title="MARKET balance" accent="emerald">
+            <div className="flex flex-col items-center justify-center py-8">
+              <p className="stat-value !text-[40px] bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">{fmtNum(marketBal, 2)}</p>
+              <p className="label mt-2">MARKET credits</p>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── DeFi ── */}
+      {tab === 'defi' && (
+        <div className="space-y-4 fade-up" style={{ '--i': 3 } as any}>
+          <Card title="Deposit / Withdraw" accent="emerald">
+            <p className="text-[12px] text-white/35 leading-relaxed">
+              Deposit a stablecoin into a yield strategy. Harvested profit is routed through
+              the Market and minted to depositors as native tokens, distributed pro-rata.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Field label="Strategy">
+                <select value={yId} onChange={e => setYId(e.target.value)} className="input">
+                  {strategies.length === 0 && <option value="0">No strategies</option>}
+                  {strategies.map(s => (
+                    <option key={s.id} value={String(s.id)}>#{s.id} · {s.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={`Amount${selStrat ? ` (${selStrat.asset_symbol})` : ''}`}>
+                <input value={yAmt} onChange={e => setYAmt(e.target.value)} placeholder="0.0" type="number" className="input" />
+              </Field>
+              <div className="flex items-end gap-2">
+                <ActionBtn onClick={doYieldDeposit} busy={busy === 'y-deposit'} icon={ArrowTrendingUpIcon}>Deposit</ActionBtn>
+                <ActionBtn onClick={doYieldWithdraw} busy={busy === 'y-withdraw'} icon={ArrowUpRightIcon}>Withdraw</ActionBtn>
+              </div>
+            </div>
+          </Card>
+
+          <Card title={`Strategies (${strategies.length})`} accent="emerald">
+            {strategies.length === 0 ? (
+              <p className="text-[12px] text-white/25 py-6 text-center">No strategies deployed</p>
+            ) : strategies.map(s => {
+              const p = positions[s.id]
+              return (
+                <div key={s.id} className="rounded-xl border hairline bg-white/[0.02] px-4 py-3 row space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-white/25 font-mono tabular-nums">#{s.id}</span>
+                      <span className="text-[13px] font-medium text-white/75">{s.name}</span>
+                      {!s.enabled && <span className="chip chip-off !text-[9px]">paused</span>}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => doYieldHarvest(s.id)} disabled={busy === `y-harvest-${s.id}`}
+                        className="btn btn-teal !py-1 !px-2.5 !text-[10px]">
+                        {busy === `y-harvest-${s.id}` ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <SparklesIcon className="w-3 h-3" />}
+                        Harvest
+                      </button>
+                      <button onClick={() => doYieldClaim(s.id)} disabled={busy === `y-claim-${s.id}` || !p?.pending_reward}
+                        className="btn btn-primary !py-1 !px-2.5 !text-[10px]">
+                        {busy === `y-claim-${s.id}` ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <BanknotesIcon className="w-3 h-3" />}
+                        Claim
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[11px] text-white/35">
+                    <span>TVL: <span className="text-white/70 font-mono tabular-nums">{fmtNum(s.tvl, 2)}</span></span>
+                    <span>Pending yield: <span className="text-amber-400 font-mono tabular-nums">{fmtNum(s.pending_profit, 2)}</span></span>
+                    <span>Your shares: <span className="text-white/70 font-mono tabular-nums">{fmtNum(p?.shares, 2)}</span></span>
+                    <span>Claimable: <span className="text-emerald-400 font-mono tabular-nums">{fmtNum(p?.pending_reward, 4)}</span></span>
+                  </div>
+                </div>
+              )
+            })}
+          </Card>
+        </div>
+      )}
+
+      {/* ── Registry ── */}
+      {tab === 'registry' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 fade-up" style={{ '--i': 3 } as any}>
+          <Card title="Register a mod" accent="cyan">
+            <Field label="Mod name">
+              <input value={regName} onChange={e => setRegName(e.target.value)} placeholder="my-mod" className="input" />
+            </Field>
+            <Field label="Data / CID (optional)">
+              <input value={regData} onChange={e => setRegData(e.target.value)} placeholder="Qm... (auto if blank)" className="input" />
+            </Field>
+            <ActionBtn onClick={doRegister} busy={busy === 'register'} icon={PlusCircleIcon}>Register</ActionBtn>
+          </Card>
+          <Card title={`My mods (${regMods.length})`} accent="cyan">
+            {regMods.length === 0 ? (
+              <p className="text-[12px] text-white/25 py-6 text-center">No registered mods</p>
+            ) : (
+              <div className="space-y-2">
+                {regMods.map(mod => (
+                  <div key={mod.id} className="rounded-xl border hairline bg-white/[0.02] px-4 py-3 row flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-white/25 font-mono tabular-nums">#{mod.id}</span>
+                      <span className="text-[13px] font-medium text-white/75">{mod.name}</span>
+                    </div>
+                    <span className="text-[11px] text-white/35 font-mono tabular-nums">{fmtAddr(mod.data, 4)}</span>
                   </div>
                 ))}
               </div>
-            </Card>
-            <Card title="Transfer" accent="sky">
-              <Field label="Token">
-                <select value={xferTok} onChange={e => setXferTok(e.target.value)} className={inputCls}>
-                  {BAL_TOKENS.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </Field>
-              <Field label="Recipient address">
-                <input value={xferTo} onChange={e => setXferTo(e.target.value)} placeholder="0x..." className={inputCls} />
-              </Field>
-              <Field label="Amount">
-                <input value={xferAmt} onChange={e => setXferAmt(e.target.value)} placeholder="0.0" type="number" className={inputCls} />
-              </Field>
-              <ActionBtn onClick={doTransfer} busy={busy === 'transfer'} icon={PaperAirplaneIcon}>Send</ActionBtn>
-            </Card>
-          </div>
-        )}
-
-        {/* ── Stake ── */}
-        {tab === 'stake' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card title="Stake NativeToken" accent="sky">
-              <p className="text-[10px] text-white/30 leading-relaxed">
-                Lock NativeToken to earn BlocTime. Longer locks accrue more BlocTime.
-              </p>
-              <Field label="Amount (NativeToken)">
-                <input value={stakeAmt} onChange={e => setStakeAmt(e.target.value)} placeholder="0.0" type="number" className={inputCls} />
-              </Field>
-              <Field label="Lock duration (blocks)">
-                <input value={lockBlocks} onChange={e => setLockBlocks(e.target.value)} placeholder="100" type="number" className={inputCls} />
-              </Field>
-              <ActionBtn onClick={doStake} busy={busy === 'stake'} icon={LockClosedIcon}>Stake</ActionBtn>
-            </Card>
-            <Card title={`Positions (${stakes.length})`} accent="violet">
-              {stakes.length === 0 ? (
-                <p className="text-[10px] text-white/25 py-4 text-center uppercase tracking-wider">No active stakes</p>
-              ) : stakes.map(s => (
-                <div key={s.stake_id} className="px-3 py-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-white/50 uppercase">Stake #{s.stake_id}</span>
-                    <button onClick={() => doUnstake(s.stake_id)} disabled={busy === `unstake-${s.stake_id}` || s.blocks_remaining > 0}
-                      className="flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 text-[9px] font-bold uppercase tracking-wider hover:bg-rose-500/20 disabled:opacity-30 transition-all">
-                      {busy === `unstake-${s.stake_id}` ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <LockOpenIcon className="w-3 h-3" />}
-                      Unstake
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-white/30">
-                    <span>Amount: <span className="text-white/60 tabular-nums">{fmtNum(s.amount)}</span></span>
-                    <span>BlocTime: <span className="text-white/60 tabular-nums">{fmtNum(s.bloctime_balance)}</span></span>
-                    <span>Lock: <span className="text-white/60 tabular-nums">{s.lock_blocks}</span></span>
-                    <span>Remaining: <span className={`tabular-nums ${s.blocks_remaining > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{s.blocks_remaining}</span></span>
-                  </div>
-                </div>
-              ))}
-            </Card>
-          </div>
-        )}
-
-        {/* ── Market ── */}
-        {tab === 'market' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card title="Buy Credits (MARKET)" accent="orange">
-              <p className="text-[10px] text-white/30 leading-relaxed">
-                Credit your account with MARKET stable tokens using a whitelisted payment token.
-              </p>
-              <Field label="Pay with">
-                <select value={payToken} onChange={e => setPayToken(e.target.value)} className={inputCls}>
-                  <option value="usdt">USDT</option>
-                  <option value="usdc">USDC</option>
-                </select>
-              </Field>
-              <Field label="Stable amount">
-                <input value={creditAmt} onChange={e => setCreditAmt(e.target.value)} placeholder="0.0" type="number" className={inputCls} />
-              </Field>
-              <ActionBtn onClick={doCredit} busy={busy === 'credit'} icon={BanknotesIcon}>Buy Credits</ActionBtn>
-            </Card>
-            <Card title="MARKET Balance" accent="emerald">
-              <div className="flex flex-col items-center justify-center py-6">
-                <p className="text-3xl font-bold text-emerald-400 tabular-nums">{fmtNum(marketBal, 2)}</p>
-                <p className="text-[10px] uppercase tracking-widest text-white/25 mt-1">MARKET credits</p>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* ── Registry ── */}
-        {tab === 'registry' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card title="Register a Mod" accent="cyan">
-              <Field label="Mod name">
-                <input value={regName} onChange={e => setRegName(e.target.value)} placeholder="my-mod" className={inputCls} />
-              </Field>
-              <Field label="Data / CID (optional)">
-                <input value={regData} onChange={e => setRegData(e.target.value)} placeholder="Qm... (auto if blank)" className={inputCls} />
-              </Field>
-              <ActionBtn onClick={doRegister} busy={busy === 'register'} icon={PlusCircleIcon}>Register</ActionBtn>
-            </Card>
-            <Card title={`My Mods (${regMods.length})`} accent="cyan">
-              {regMods.length === 0 ? (
-                <p className="text-[10px] text-white/25 py-4 text-center uppercase tracking-wider">No registered mods</p>
-              ) : (
-                <div className="divide-y divide-white/[0.04]">
-                  {regMods.map(mod => (
-                    <div key={mod.id} className="flex items-center justify-between py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] text-white/20 tabular-nums">#{mod.id}</span>
-                        <span className="text-xs font-bold text-white/55">{mod.name}</span>
-                      </div>
-                      <span className="text-[10px] text-white/25 tabular-nums">{fmtAddr(mod.data, 4)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-        )}
-
-        <div className="text-center text-[10px] text-white/10 uppercase tracking-widest py-6">
-          {CHAIN_NAMES[network]} — Protocol App
+            )}
+          </Card>
         </div>
-      </div>
-    </div>
+      )}
+    </Shell>
   )
 }
 

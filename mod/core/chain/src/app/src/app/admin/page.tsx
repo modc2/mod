@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { toast } from 'react-toastify'
 import {
   ShieldCheckIcon,
   ArrowPathIcon,
-  CubeTransparentIcon,
   ArrowUpRightIcon,
   BoltIcon,
   QueueListIcon,
@@ -19,6 +17,7 @@ import {
   CheckBadgeIcon,
   NoSymbolIcon,
 } from '@heroicons/react/24/outline'
+import { Shell, NetworkSelect, RefreshBtn } from '../components/Shell'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -161,7 +160,7 @@ async function api(path: string, params: Record<string, any> = {}, method: 'GET'
 }
 
 const fmtAddr = (s: string | null | undefined, chars = 5) =>
-  s && s.length > 14 ? `${s.slice(0, chars + 2)}...${s.slice(-chars)}` : (s || '--')
+  s && s.length > 14 ? `${s.slice(0, chars + 2)}…${s.slice(-chars)}` : (s || '--')
 
 // Parse a single form value into the JSON arg the backend expects.
 function parseValue(inp: Input, raw: string): any {
@@ -176,27 +175,33 @@ function parseValue(inp: Input, raw: string): any {
 
 // ── UI bits ────────────────────────────────────────────────────────────────────
 
-const ACCENTS: Record<string, string> = {
-  rose: 'bg-rose-400', amber: 'bg-amber-400', orange: 'bg-orange-400',
-  lime: 'bg-lime-400', sky: 'bg-sky-400', violet: 'bg-violet-400', cyan: 'bg-cyan-400',
+const ACCENTS: Record<string, { dot: string; glow: string }> = {
+  rose:   { dot: 'bg-rose-400',   glow: 'rgba(251,113,133,0.5)' },
+  amber:  { dot: 'bg-amber-400',  glow: 'rgba(251,191,36,0.5)' },
+  orange: { dot: 'bg-orange-400', glow: 'rgba(251,146,60,0.5)' },
+  lime:   { dot: 'bg-lime-400',   glow: 'rgba(163,230,53,0.5)' },
+  sky:    { dot: 'bg-sky-400',    glow: 'rgba(56,189,248,0.5)' },
+  violet: { dot: 'bg-violet-400', glow: 'rgba(167,139,250,0.5)' },
+  cyan:   { dot: 'bg-cyan-400',   glow: 'rgba(34,211,238,0.5)' },
+  teal:   { dot: 'bg-teal-400',   glow: 'rgba(45,212,191,0.5)' },
 }
 
-const inputCls =
-  'w-full px-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] text-white/80 placeholder:text-white/20 focus:outline-none focus:border-cyan-500/40 font-mono'
+const inputCls = 'input'
 
-function Card({ title, accent = 'cyan', right, children }: { title?: string; accent?: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Card({ title, accent = 'cyan', right, hover, children }: { title?: string; accent?: string; right?: React.ReactNode; hover?: boolean; children: React.ReactNode }) {
+  const a = ACCENTS[accent] || ACCENTS.cyan
   return (
-    <div className="border border-white/[0.08] rounded-xl bg-white/[0.02] overflow-hidden">
+    <div className={`glass ${hover ? 'glass-hover' : ''} overflow-hidden`}>
       {title && (
-        <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${ACCENTS[accent] || 'bg-cyan-400'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">{title}</span>
+        <div className="px-5 py-4 border-b hairline flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className={`dot ${a.dot}`} style={{ boxShadow: `0 0 10px 1px ${a.glow}` }} />
+            <span className="text-[14px] font-semibold text-white/85 tracking-tight">{title}</span>
           </div>
           {right}
         </div>
       )}
-      <div className="p-4 space-y-4">{children}</div>
+      <div className="p-5 space-y-4">{children}</div>
     </div>
   )
 }
@@ -257,15 +262,15 @@ function MethodRow({ group, m, ownerInfo, network, keyName, onQueue, onAfterSend
   }
 
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-3 space-y-2">
+    <div className="rounded-xl border hairline bg-white/[0.02] p-3.5 space-y-2.5">
       <div className="flex items-center justify-between">
-        <span className={`text-[11px] font-bold ${m.danger ? 'text-rose-300' : 'text-white/70'}`}>
+        <span className={`text-[13px] font-medium ${m.danger ? 'text-rose-300' : 'text-white/75'}`}>
           {m.label}
-          {m.danger && <ExclamationTriangleIcon className="inline w-3 h-3 ml-1 -mt-0.5 text-rose-400/70" />}
+          {m.danger && <ExclamationTriangleIcon className="inline w-3.5 h-3.5 ml-1 -mt-0.5 text-rose-400/70" />}
         </span>
-        <code className="text-[9px] text-white/20">{m.method}</code>
+        <code className="text-[10px] text-white/20 font-mono">{m.method}</code>
       </div>
-      {m.help && <p className="text-[9px] text-white/30 leading-relaxed">{m.help}</p>}
+      {m.help && <p className="text-[11px] text-white/35 leading-relaxed">{m.help}</p>}
       {m.inputs.map((inp, i) => (
         inp.json ? (
           <textarea key={inp.name} value={vals[i]} placeholder={inp.placeholder}
@@ -280,14 +285,14 @@ function MethodRow({ group, m, ownerInfo, network, keyName, onQueue, onAfterSend
       <div className="flex gap-2 pt-0.5">
         <button onClick={doSend} disabled={busy !== '' || !ready}
           title={ownerInfo && !ownerInfo.is_owner ? 'Active key is not the current owner — this will revert' : 'Execute now with the deployer key'}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[9px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 disabled:opacity-25 transition-all">
-          {busy === 'send' ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <BoltIcon className="w-3 h-3" />}
+          className="btn btn-primary flex-1 !py-2 !text-[11px]">
+          {busy === 'send' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <BoltIcon className="w-3.5 h-3.5" />}
           Execute
         </button>
         <button onClick={doQueue} disabled={busy !== '' || !ready}
           title="Encode and add to the Safe batch"
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[9px] font-bold uppercase tracking-wider hover:bg-teal-500/20 disabled:opacity-25 transition-all">
-          {busy === 'queue' ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <QueueListIcon className="w-3 h-3" />}
+          className="btn btn-teal flex-1 !py-2 !text-[11px]">
+          {busy === 'queue' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <QueueListIcon className="w-3.5 h-3.5" />}
           Queue
         </button>
       </div>
@@ -425,103 +430,94 @@ function AdminInner() {
 
   // ── Render ──
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#e5e5e5] font-mono">
-      <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
+    <Shell
+      active="admin"
+      right={
+        <>
+          <NetworkSelect value={network} onChange={setNetwork} />
+          <RefreshBtn onClick={refresh} loading={loading} />
+        </>
+      }
+      footer={`${CHAIN_NAMES[network]} — owner console`}
+    >
+      {/* ═══ Hero ═══ */}
+      <div className="fade-up pt-2 pb-1" style={{ '--i': 0 } as any}>
+        <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-white">Owner console</h1>
+        <p className="mt-1 text-[13px] text-white/40">
+          Execute owner-only protocol methods directly, or queue them into a Safe multisig batch.
+        </p>
+      </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between border border-white/10 rounded-xl p-4 bg-white/[0.02]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/10">
-              <ShieldCheckIcon className="w-5 h-5 text-white/80" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-wider uppercase">Owner Console</h1>
-              <Link href="/" className="text-[10px] text-cyan-500/50 hover:text-cyan-400 uppercase tracking-widest flex items-center gap-1">
-                <CubeTransparentIcon className="w-3 h-3" /> Back to Chain Hub
-              </Link>
-            </div>
+      {/* ═══ Identity + key ═══ */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="glass p-4 fade-up" style={{ '--i': 1 } as any}>
+          <p className="label mb-2">Active signer</p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[13px] text-white/80 tabular-nums font-mono">{fmtAddr(account, 7)}</span>
+            {explorer && account && <a href={`${explorer}/address/${account}`} target="_blank" rel="noopener noreferrer" className="text-cyan-500/40 hover:text-cyan-400 transition-colors"><ArrowUpRightIcon className="w-3 h-3" /></a>}
           </div>
-          <div className="flex items-center gap-2">
-            <select value={network} onChange={e => setNetwork(e.target.value)}
-              className="text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 focus:outline-none focus:border-white/20 font-mono cursor-pointer">
-              <option value="testnet">Base Sepolia</option>
-              <option value="ganache">Ganache</option>
-              <option value="mainnet">Base Mainnet</option>
-            </select>
-            <button onClick={refresh} disabled={loading}
-              className="p-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] disabled:opacity-30 transition-colors">
-              <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          <p className="text-[11px] text-white/30 mt-1.5">
+            <span className="text-white/45 tabular-nums">{ownedCount}/{owners.length}</span> contracts owned by this signer
+          </p>
         </div>
-
-        {/* Identity + key */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="border border-white/[0.06] rounded-xl p-3 bg-white/[0.015]">
-            <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">Active signer</p>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-white/70 tabular-nums">{fmtAddr(account, 7)}</span>
-              {explorer && account && <a href={`${explorer}/address/${account}`} target="_blank" rel="noopener noreferrer" className="text-cyan-500/40 hover:text-cyan-400"><ArrowUpRightIcon className="w-3 h-3" /></a>}
-            </div>
-            <p className="text-[9px] text-white/20 mt-1">{ownedCount}/{owners.length} contracts owned by this signer</p>
-          </div>
-          <div className="border border-white/[0.06] rounded-xl p-3 bg-white/[0.015] flex flex-col justify-center">
-            <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1 flex items-center gap-1"><KeyIcon className="w-3 h-3" /> Signing key (server)</p>
-            <input value={keyName} onChange={e => setKeyName(e.target.value)} placeholder="default deployer"
-              className="px-2 py-1 text-xs rounded-md border border-white/10 bg-white/[0.03] text-white/70 placeholder:text-white/20 focus:outline-none focus:border-cyan-500/40" />
-          </div>
-          <div className="border border-white/[0.06] rounded-xl p-3 bg-white/[0.015]">
-            <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">Safe multisig</p>
-            <input value={safeAddr} onChange={e => setSafeAddr(e.target.value)} placeholder="0x… Safe address"
-              className="w-full px-2 py-1 text-xs rounded-md border border-white/10 bg-white/[0.03] text-white/70 placeholder:text-white/20 focus:outline-none focus:border-teal-500/40 font-mono" />
-            {safeAddr && <p className="text-[9px] text-teal-400/70 mt-1">{safeOwnsCount}/{owners.length} contracts owned by this Safe</p>}
-          </div>
+        <div className="glass p-4 fade-up flex flex-col justify-center" style={{ '--i': 2 } as any}>
+          <p className="label mb-2 flex items-center gap-1"><KeyIcon className="w-3 h-3" /> Signing key (server)</p>
+          <input value={keyName} onChange={e => setKeyName(e.target.value)} placeholder="default deployer"
+            className="input !py-2 !text-[12px]" />
         </div>
+        <div className="glass p-4 fade-up" style={{ '--i': 3 } as any}>
+          <p className="label mb-2">Safe multisig</p>
+          <input value={safeAddr} onChange={e => setSafeAddr(e.target.value)} placeholder="0x… Safe address"
+            className="input !py-2 !text-[12px]" />
+          {safeAddr && <p className="text-[11px] text-teal-300/70 mt-1.5 tabular-nums">{safeOwnsCount}/{owners.length} contracts owned by this Safe</p>}
+        </div>
+      </div>
 
-        {/* Ownership matrix */}
+      {/* ═══ Ownership matrix ═══ */}
+      <div className="fade-up" style={{ '--i': 4 } as any}>
         <Card title="Ownership" accent="cyan" right={
           <button onClick={transferAllToSafe} disabled={busyGlobal === 'transfer-all' || !safeAddr}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[9px] font-bold uppercase tracking-wider hover:bg-teal-500/20 disabled:opacity-30 transition-all">
-            {busyGlobal === 'transfer-all' ? <ArrowPathIcon className="w-3 h-3 animate-spin" /> : <ShieldCheckIcon className="w-3 h-3" />}
+            className="btn btn-teal !py-2 !text-[11px]">
+            {busyGlobal === 'transfer-all' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheckIcon className="w-3.5 h-3.5" />}
             Transfer all → Safe
           </button>
         }>
           {owners.length === 0 ? (
-            <p className="text-[10px] text-white/25 py-4 text-center uppercase tracking-wider">No owner-managed contracts on this network</p>
+            <p className="text-[12px] text-white/30 py-4 text-center">No owner-managed contracts on this network</p>
           ) : (
             <div className="space-y-2">
               {owners.map(o => {
                 const isSafe = safeAddr && o.owner && o.owner.toLowerCase() === safeAddr.toLowerCase()
                 return (
-                  <div key={o.key} className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 py-2.5">
+                  <div key={o.key} className="row flex flex-col sm:flex-row sm:items-center gap-2 rounded-xl border hairline bg-white/[0.02] px-4 py-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white/70">{o.name}</span>
+                        <span className="text-[13px] font-semibold tracking-tight text-white/80">{o.name}</span>
                         {o.ownerless ? (
-                          <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/5 text-white/30 flex items-center gap-1"><NoSymbolIcon className="w-2.5 h-2.5" /> ownerless</span>
+                          <span className="chip chip-off"><NoSymbolIcon className="w-2.5 h-2.5" /> ownerless</span>
                         ) : o.is_owner ? (
-                          <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 flex items-center gap-1"><CheckBadgeIcon className="w-2.5 h-2.5" /> you</span>
+                          <span className="chip text-cyan-300 bg-cyan-500/10 border border-cyan-500/25"><CheckBadgeIcon className="w-2.5 h-2.5" /> you</span>
                         ) : isSafe ? (
-                          <span className="text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 flex items-center gap-1"><ShieldCheckIcon className="w-2.5 h-2.5" /> safe</span>
+                          <span className="chip text-teal-300 bg-teal-500/10 border border-teal-500/25"><ShieldCheckIcon className="w-2.5 h-2.5" /> safe</span>
                         ) : null}
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-white/30">
+                      <div className="flex items-center gap-1.5 mt-1 text-[11px] text-white/30">
                         <span>owner</span>
-                        <span className="tabular-nums text-white/45">{o.ownerless ? '—' : fmtAddr(o.owner, 5)}</span>
-                        {explorer && o.owner && !o.ownerless && <a href={`${explorer}/address/${o.owner}`} target="_blank" rel="noopener noreferrer" className="text-cyan-500/40 hover:text-cyan-400"><ArrowUpRightIcon className="w-2.5 h-2.5" /></a>}
+                        <span className="tabular-nums text-white/45 font-mono">{o.ownerless ? '—' : fmtAddr(o.owner, 5)}</span>
+                        {explorer && o.owner && !o.ownerless && <a href={`${explorer}/address/${o.owner}`} target="_blank" rel="noopener noreferrer" className="text-cyan-500/40 hover:text-cyan-400 transition-colors"><ArrowUpRightIcon className="w-2.5 h-2.5" /></a>}
                       </div>
                     </div>
                     {!o.ownerless && (
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => transferOne(o, safeAddr, 'send')} disabled={busyGlobal === `${o.key}-transfer` || !o.is_owner || !safeAddr}
                           title={!safeAddr ? 'Enter a Safe address' : !o.is_owner ? 'Active signer is not the owner' : 'Transfer to Safe now'}
-                          className="px-2 py-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[8px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 disabled:opacity-25 transition-all">→ Safe</button>
+                          className="btn btn-primary !px-3 !py-1.5 !text-[11px]">→ Safe</button>
                         <button onClick={() => transferOne(o, safeAddr, 'queue')} disabled={busyGlobal === `${o.key}-transfer` || !safeAddr}
                           title="Queue transfer for Safe batch"
-                          className="px-2 py-1 rounded-md border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[8px] font-bold uppercase tracking-wider hover:bg-teal-500/20 disabled:opacity-25 transition-all">Queue</button>
+                          className="btn btn-teal !px-3 !py-1.5 !text-[11px]">Queue</button>
                         <button onClick={() => renounceOne(o, 'send')} disabled={busyGlobal === `${o.key}-renounce` || !o.is_owner}
                           title="Renounce ownership (permanent)"
-                          className="px-2 py-1 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 text-[8px] font-bold uppercase tracking-wider hover:bg-rose-500/20 disabled:opacity-25 transition-all">Renounce</button>
+                          className="btn btn-danger !px-3 !py-1.5 !text-[11px]">Renounce</button>
                       </div>
                     )}
                   </div>
@@ -529,62 +525,62 @@ function AdminInner() {
               })}
             </div>
           )}
-          <p className="text-[9px] text-white/25 leading-relaxed pt-1">
-            <ExclamationTriangleIcon className="inline w-3 h-3 mr-1 -mt-0.5 text-amber-400/60" />
+          <p className="text-[11px] text-white/35 leading-relaxed pt-1">
+            <ExclamationTriangleIcon className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-amber-400/60" />
             Hand the protocol to a Safe by transferring each contract's ownership to the Safe address. Afterwards, use <span className="text-teal-300/80">Queue</span> on any action and export a Safe batch — the multisig signers execute it from the Safe UI.
           </p>
         </Card>
+      </div>
 
-        {/* Safe batch cart */}
-        {cart.length > 0 && (
-          <Card title={`Safe Batch (${cart.length})`} accent="teal" right={
+      {/* ═══ Safe batch cart ═══ */}
+      {cart.length > 0 && (
+        <div className="fade-up" style={{ '--i': 5 } as any}>
+          <Card title={`Safe batch (${cart.length})`} accent="teal" right={
             <div className="flex items-center gap-2">
-              <button onClick={exportSafeBatch} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[9px] font-bold uppercase tracking-wider hover:bg-teal-500/20 transition-all">
-                <ArrowDownTrayIcon className="w-3 h-3" /> Export JSON
+              <button onClick={exportSafeBatch} className="btn btn-teal !py-2 !text-[11px]">
+                <ArrowDownTrayIcon className="w-3.5 h-3.5" /> Export JSON
               </button>
-              <button onClick={clearCart} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] text-white/40 text-[9px] font-bold uppercase tracking-wider hover:text-white/70 transition-all">
-                <TrashIcon className="w-3 h-3" /> Clear
+              <button onClick={clearCart} className="btn btn-ghost !py-2 !text-[11px]">
+                <TrashIcon className="w-3.5 h-3.5" /> Clear
               </button>
             </div>
           }>
             <div className="space-y-2">
               {cart.map((i, idx) => (
-                <div key={i.id} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 py-2">
-                  <span className="text-[9px] text-white/20 tabular-nums w-5">{idx + 1}</span>
+                <div key={i.id} className="row flex items-center gap-3 rounded-xl border hairline bg-white/[0.02] px-4 py-2.5">
+                  <span className="text-[11px] text-white/20 tabular-nums w-5 font-mono">{idx + 1}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-teal-300/90 truncate">{i.label}</p>
-                    <p className="text-[9px] text-white/30 truncate">{i.argsDisplay} → {fmtAddr(i.to)}</p>
+                    <p className="text-[13px] font-medium text-teal-300/90 truncate">{i.label}</p>
+                    <p className="text-[11px] text-white/30 truncate font-mono">{i.argsDisplay} → {fmtAddr(i.to)}</p>
                   </div>
                   <button onClick={() => copy(JSON.stringify({ to: i.to, value: i.value, data: i.data }, null, 2), 'Tx copied')}
-                    title="Copy to / value / data" className="p-1 rounded hover:bg-white/10"><ClipboardDocumentIcon className="w-3.5 h-3.5 text-white/30 hover:text-white/60" /></button>
-                  <button onClick={() => removeFromCart(i.id)} className="p-1 rounded hover:bg-white/10"><TrashIcon className="w-3.5 h-3.5 text-white/30 hover:text-rose-400" /></button>
+                    title="Copy to / value / data" className="p-1 rounded-md hover:bg-white/10 transition-colors"><ClipboardDocumentIcon className="w-3.5 h-3.5 text-white/30 hover:text-white/60" /></button>
+                  <button onClick={() => removeFromCart(i.id)} className="p-1 rounded-md hover:bg-white/10 transition-colors"><TrashIcon className="w-3.5 h-3.5 text-white/30 hover:text-rose-400" /></button>
                 </div>
               ))}
             </div>
-            <p className="text-[9px] text-white/25 leading-relaxed">
-              Import the exported file in the Safe app → <span className="text-white/40">Transaction Builder</span> → <span className="text-white/40">Load batch</span>. All {cart.length} actions are proposed as one multisig transaction.
+            <p className="text-[11px] text-white/35 leading-relaxed">
+              Import the exported file in the Safe app → <span className="text-white/50">Transaction Builder</span> → <span className="text-white/50">Load batch</span>. All {cart.length} actions are proposed as one multisig transaction.
             </p>
           </Card>
-        )}
+        </div>
+      )}
 
-        {/* Contract method groups */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {GROUPS.filter(g => ownerByKey[g.key]).map(g => (
-            <Card key={g.key} title={g.title} accent={g.accent} right={
-              <span className="text-[9px] text-white/25 tabular-nums">{fmtAddr(ownerByKey[g.key]?.address, 4)}</span>
+      {/* ═══ Contract method groups ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {GROUPS.filter(g => ownerByKey[g.key]).map((g, i) => (
+          <div key={g.key} className="fade-up" style={{ '--i': Math.min(i + 6, 14) } as any}>
+            <Card title={g.title} accent={g.accent} hover right={
+              <span className="text-[11px] text-white/25 tabular-nums font-mono">{fmtAddr(ownerByKey[g.key]?.address, 4)}</span>
             }>
               {g.methods.map(m => (
                 <MethodRow key={m.method} group={g} m={m} ownerInfo={ownerByKey[g.key]} network={network} keyName={keyName} onQueue={addToCart} onAfterSend={refresh} />
               ))}
             </Card>
-          ))}
-        </div>
-
-        <div className="text-center text-[10px] text-white/10 uppercase tracking-widest py-6">
-          {CHAIN_NAMES[network]} — Owner Console
-        </div>
+          </div>
+        ))}
       </div>
-    </div>
+    </Shell>
   )
 }
 

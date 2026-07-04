@@ -4,22 +4,15 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'react-toastify'
 import {
-  CubeTransparentIcon,
   ArrowPathIcon,
   RocketLaunchIcon,
-  SignalIcon,
-  SignalSlashIcon,
-  LinkIcon,
-  ServerStackIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ArrowTopRightOnSquareIcon,
   MagnifyingGlassIcon,
-  CommandLineIcon,
-  WalletIcon,
-  DocumentTextIcon,
-  ShieldCheckIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline'
+import { Shell, NetworkSelect, RefreshBtn, BlockChip } from './components/Shell'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -55,26 +48,28 @@ const MOD_CONTRACTS: Record<string, string[]> = {
   bloctime: ['BlocTime'],
   treasury: ['Treasury'],
   market: ['Market'],
+  defi: ['YieldVault', 'MockYieldAdapter_USDC', 'MockYieldAdapter_USDT', 'AaveV3Adapter'],
   debit: ['Debit'],
   safe: ['Safe', 'SafeProxy'],
   bridge: ['Bridge'],
 }
 
-const MOD_COLORS: Record<string, { text: string; border: string; bg: string; dot: string }> = {
-  token:     { text: 'text-emerald-400', border: 'border-emerald-500/20', bg: 'bg-emerald-500/[0.06]', dot: 'bg-emerald-400' },
-  oracle:    { text: 'text-amber-400',   border: 'border-amber-500/20',   bg: 'bg-amber-500/[0.06]',   dot: 'bg-amber-400' },
-  registry:  { text: 'text-cyan-400',    border: 'border-cyan-500/20',    bg: 'bg-cyan-500/[0.06]',    dot: 'bg-cyan-400' },
-  perms:     { text: 'text-violet-400',  border: 'border-violet-500/20',  bg: 'bg-violet-500/[0.06]',  dot: 'bg-violet-400' },
-  tokengate: { text: 'text-rose-400',    border: 'border-rose-500/20',    bg: 'bg-rose-500/[0.06]',    dot: 'bg-rose-400' },
-  bloctime:  { text: 'text-sky-400',     border: 'border-sky-500/20',     bg: 'bg-sky-500/[0.06]',     dot: 'bg-sky-400' },
-  treasury:  { text: 'text-lime-400',    border: 'border-lime-500/20',    bg: 'bg-lime-500/[0.06]',    dot: 'bg-lime-400' },
-  market:    { text: 'text-orange-400',  border: 'border-orange-500/20',  bg: 'bg-orange-500/[0.06]',  dot: 'bg-orange-400' },
-  debit:     { text: 'text-pink-400',    border: 'border-pink-500/20',    bg: 'bg-pink-500/[0.06]',    dot: 'bg-pink-400' },
-  safe:      { text: 'text-teal-400',    border: 'border-teal-500/20',    bg: 'bg-teal-500/[0.06]',    dot: 'bg-teal-400' },
-  bridge:    { text: 'text-indigo-400',  border: 'border-indigo-500/20',  bg: 'bg-indigo-500/[0.06]',  dot: 'bg-indigo-400' },
+const MOD_COLORS: Record<string, { text: string; glow: string; dot: string }> = {
+  token:     { text: 'text-emerald-300', glow: 'rgba(52,211,153,0.5)',  dot: 'bg-emerald-400' },
+  oracle:    { text: 'text-amber-300',   glow: 'rgba(251,191,36,0.5)',  dot: 'bg-amber-400' },
+  registry:  { text: 'text-cyan-300',    glow: 'rgba(34,211,238,0.5)',  dot: 'bg-cyan-400' },
+  perms:     { text: 'text-violet-300',  glow: 'rgba(167,139,250,0.5)', dot: 'bg-violet-400' },
+  tokengate: { text: 'text-rose-300',    glow: 'rgba(251,113,133,0.5)', dot: 'bg-rose-400' },
+  bloctime:  { text: 'text-sky-300',     glow: 'rgba(56,189,248,0.5)',  dot: 'bg-sky-400' },
+  treasury:  { text: 'text-lime-300',    glow: 'rgba(163,230,53,0.5)',  dot: 'bg-lime-400' },
+  market:    { text: 'text-orange-300',  glow: 'rgba(251,146,60,0.5)',  dot: 'bg-orange-400' },
+  defi:      { text: 'text-green-300',   glow: 'rgba(74,222,128,0.5)',  dot: 'bg-green-400' },
+  debit:     { text: 'text-pink-300',    glow: 'rgba(244,114,182,0.5)', dot: 'bg-pink-400' },
+  safe:      { text: 'text-teal-300',    glow: 'rgba(45,212,191,0.5)',  dot: 'bg-teal-400' },
+  bridge:    { text: 'text-indigo-300',  glow: 'rgba(129,140,248,0.5)', dot: 'bg-indigo-400' },
 }
 
-const defaultColors = { text: 'text-white/70', border: 'border-white/10', bg: 'bg-white/[0.03]', dot: 'bg-white/40' }
+const defaultColors = { text: 'text-white/70', glow: 'rgba(255,255,255,0.25)', dot: 'bg-white/40' }
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -115,14 +110,14 @@ async function apiCall(path: string, params: Record<string, any> = {}, method = 
 }
 
 const fmtAddr = (s: string, chars = 6) =>
-  s && s.length > 16 ? `${s.slice(0, chars + 2)}...${s.slice(-chars)}` : (s || '--')
+  s && s.length > 16 ? `${s.slice(0, chars + 2)}…${s.slice(-chars)}` : (s || '—')
 
 const fmtBalance = (wei: string | null) => {
-  if (!wei) return '--'
+  if (!wei) return '—'
   try {
     const eth = Number(BigInt(wei)) / 1e18
     return eth.toFixed(4)
-  } catch { return '--' }
+  } catch { return '—' }
 }
 
 const getExplorerUrl = (network: string, address: string) => {
@@ -137,33 +132,31 @@ function getModuleContracts(modName: string, allContracts: Record<string, string
   )
 }
 
-// ── Copy Button ────────────────────────────────────────────────────────────
+// ── Copy / Explorer buttons ────────────────────────────────────────────────
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-      className="p-1 rounded hover:bg-white/10 transition-all"
+      className="p-1 rounded-md hover:bg-white/10 transition-all"
       title="Copy"
     >
       {copied
-        ? <span className="text-[9px] text-emerald-400 font-bold px-0.5">OK</span>
-        : <LinkIcon className="w-3 h-3 text-white/20 hover:text-white/40" />
+        ? <span className="text-[10px] text-emerald-300 font-semibold px-0.5">✓</span>
+        : <LinkIcon className="w-3 h-3 text-white/25 hover:text-white/60" />
       }
     </button>
   )
 }
-
-// ── Explorer Link ──────────────────────────────────────────────────────────
 
 function ExplorerBtn({ network, address }: { network: string; address: string }) {
   const url = getExplorerUrl(network, address)
   if (!url) return null
   return (
     <a href={url} target="_blank" rel="noopener noreferrer"
-      className="p-1 rounded hover:bg-white/10 transition-all" title="View on Explorer">
-      <ArrowTopRightOnSquareIcon className="w-3 h-3 text-white/20 hover:text-white/40" />
+      className="p-1 rounded-md hover:bg-white/10 transition-all" title="View on Explorer">
+      <ArrowTopRightOnSquareIcon className="w-3 h-3 text-white/25 hover:text-white/60" />
     </a>
   )
 }
@@ -281,262 +274,226 @@ function ChainHubInner() {
   // ── Render ──
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#e5e5e5] font-mono">
-      <div className="relative z-10 p-4 md:p-6 max-w-7xl mx-auto space-y-4">
-
-        {/* ═══ Header ═══ */}
-        <div className="flex items-center justify-between border border-white/10 rounded-xl p-4 bg-white/[0.02]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/10">
-              <CubeTransparentIcon className="w-5 h-5 text-white/80" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-wider uppercase">Chain Hub</h1>
-              <p className="text-[10px] text-white/30 uppercase tracking-widest">Modular Contract Ecosystem</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <a href="/contracts"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] text-white/50 text-[10px] font-bold uppercase tracking-wider hover:text-white/80 hover:bg-white/[0.08] transition-all">
-              <DocumentTextIcon className="w-3.5 h-3.5" /> Contracts
-            </a>
-            <a href="/protocol"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 transition-all">
-              <WalletIcon className="w-3.5 h-3.5" /> Protocol App
-            </a>
-            <a href="/admin"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 text-teal-300 text-[10px] font-bold uppercase tracking-wider hover:bg-teal-500/20 transition-all">
-              <ShieldCheckIcon className="w-3.5 h-3.5" /> Owner Console
-            </a>
-            {/* Live block */}
-            {chainData.blockNumber && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                <div className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${blockPulse ? 'animate-ping' : 'animate-pulse'}`} />
-                <span className="text-[10px] text-white/30 uppercase">Blk</span>
-                <span className="text-xs text-emerald-400 tabular-nums font-bold">
-                  {chainData.blockNumber.toLocaleString()}
-                </span>
-              </div>
-            )}
-
-            <select
-              value={network}
-              onChange={e => setNetwork(e.target.value)}
-              className="text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/70 focus:outline-none focus:border-white/20 font-mono cursor-pointer"
-            >
-              <option value="testnet">Base Sepolia</option>
-              <option value="ganache">Ganache</option>
-              <option value="mainnet">Base Mainnet</option>
-            </select>
-
-            <button
-              onClick={() => { fetchAll(); fetchChainData() }}
-              disabled={loading}
-              className="p-2 rounded-lg border border-white/10 bg-white/[0.04] text-white/40 hover:text-white/70 hover:bg-white/[0.08] disabled:opacity-30 transition-colors"
-            >
-              <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-
-        {/* ═══ Chain Info ═══ */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">Chain</p>
-            <p className="text-sm font-bold text-white/60">{CHAIN_NAMES[network]}</p>
-            <p className="text-[10px] text-white/20 tabular-nums mt-0.5">ID {currentDeployment?.chainId || '--'}</p>
-          </div>
-          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">Deployer</p>
-            <div className="flex items-center gap-1">
-              <p className="text-sm font-bold text-white/60 tabular-nums">{fmtAddr(currentDeployment?.deployer || '', 4)}</p>
-              {currentDeployment?.deployer && <CopyBtn text={currentDeployment.deployer} />}
-            </div>
-            {explorerBase && currentDeployment?.deployer && (
-              <a href={getExplorerUrl(network, currentDeployment.deployer)} target="_blank" rel="noopener noreferrer"
-                className="text-[10px] text-cyan-500/40 hover:text-cyan-400 transition-colors">
-                explorer ↗
-              </a>
-            )}
-          </div>
-          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">Balance</p>
-            <p className="text-sm font-bold text-white/60 tabular-nums">{fmtBalance(chainData.balance)} ETH</p>
-            <p className="text-[10px] text-white/20 mt-0.5">native</p>
-          </div>
-          <div className="p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">Status</p>
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-bold text-emerald-400 tabular-nums">{contractCount}</span>
-              <span className="text-[10px] text-white/20">contracts</span>
-            </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-[10px] text-amber-400 tabular-nums font-bold">{aliveCount}/{mods.length}</span>
-              <span className="text-[10px] text-white/20">APIs live</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ═══ Controls ═══ */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
-            <input
-              type="text"
-              placeholder="Filter modules..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] text-white/70 placeholder:text-white/20 focus:outline-none focus:border-white/20 font-mono"
-            />
-          </div>
-          <button
-            onClick={() => handleDeploy()}
-            disabled={deploying !== null}
-            className="px-5 py-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/20 disabled:opacity-30 transition-all flex items-center justify-center gap-2"
-          >
-            {deploying === 'all'
-              ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
-              : <RocketLaunchIcon className="w-3.5 h-3.5" />
-            }
-            Deploy All
-          </button>
-        </div>
-
-        {/* ═══ Module Grid ═══ */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filteredMods.map((mod) => {
-            const colors = MOD_COLORS[mod.name] || defaultColors
-            const modContracts = getModuleContracts(mod.name, contracts)
-            const isExpanded = expanded.has(mod.name)
-            const isDeploying = deploying === mod.name
-
-            return (
-              <div
-                key={mod.name}
-                className={`border ${colors.border} rounded-xl ${colors.bg} hover:brightness-125 transition-all overflow-hidden`}
-              >
-                <div className="p-4">
-                  {/* Name + status */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${mod.alive ? colors.dot : 'bg-white/10'} ${mod.alive ? 'animate-pulse' : ''}`} />
-                      <span className={`text-sm font-bold uppercase tracking-wider ${colors.text}`}>
-                        {mod.name}
-                      </span>
-                    </div>
-                    <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                      mod.alive ? 'bg-emerald-500/10 text-emerald-400/80' : 'bg-white/5 text-white/20'
-                    }`}>
-                      {mod.alive ? 'Live' : 'Off'}
-                    </span>
-                  </div>
-
-                  {/* Ports + contract count */}
-                  <div className="flex items-center gap-4 mb-3 text-[10px] text-white/25">
-                    <span>:{mod.api_port}</span>
-                    <span>:{mod.app_port}</span>
-                    {modContracts.length > 0 && (
-                      <span className={`${colors.text} opacity-50`}>
-                        {modContracts.length} contract{modContracts.length !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2">
-                    {mod.alive && (
-                      <>
-                        <a href={`${mod.api_url}/docs`} target="_blank" rel="noopener noreferrer"
-                          className="flex-1 text-center py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[9px] font-bold uppercase tracking-wider text-white/35 hover:text-white/60 hover:bg-white/[0.06] transition-colors">
-                          Docs
-                        </a>
-                        <a href={mod.app_url} target="_blank" rel="noopener noreferrer"
-                          className="flex-1 text-center py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] text-[9px] font-bold uppercase tracking-wider text-white/35 hover:text-white/60 hover:bg-white/[0.06] transition-colors">
-                          App
-                        </a>
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleDeploy([mod.name])}
-                      disabled={deploying !== null}
-                      className={`flex-1 py-1.5 rounded-lg border ${colors.border} bg-white/[0.02] text-[9px] font-bold uppercase tracking-wider ${colors.text} opacity-50 hover:opacity-100 disabled:opacity-20 transition-all flex items-center justify-center gap-1`}
-                    >
-                      {isDeploying && <ArrowPathIcon className="w-3 h-3 animate-spin" />}
-                      Deploy
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expandable contracts section */}
-                {modContracts.length > 0 && (
-                  <>
-                    <button
-                      onClick={() => toggleExpand(mod.name)}
-                      className="w-full flex items-center justify-between px-4 py-2 border-t border-white/[0.04] text-[9px] uppercase tracking-wider text-white/20 hover:text-white/35 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <span>Contracts</span>
-                      {isExpanded
-                        ? <ChevronDownIcon className="w-3 h-3" />
-                        : <ChevronRightIcon className="w-3 h-3" />
-                      }
-                    </button>
-                    {isExpanded && (
-                      <div className="border-t border-white/[0.04] bg-black/20">
-                        {modContracts.map(([name, address]) => (
-                          <div key={name} className="flex items-center justify-between px-4 py-2 hover:bg-white/[0.02]">
-                            <span className="text-[10px] text-white/35">{name}</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-white/20 tabular-nums">{fmtAddr(address)}</span>
-                              <CopyBtn text={address} />
-                              <ExplorerBtn network={network} address={address} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {/* ═══ All Contracts ═══ */}
-        {Object.keys(contracts).length > 0 && (
-          <div className="border border-white/[0.08] rounded-xl bg-white/[0.015] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-white/[0.05]">
-              <div className="flex items-center gap-2">
-                <CommandLineIcon className="w-4 h-4 text-white/20" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                  Deployed Contracts — {CHAIN_NAMES[network]}
-                </span>
-              </div>
-              <span className="text-[10px] text-white/15 tabular-nums">{Object.keys(contracts).length}</span>
-            </div>
-            <div className="divide-y divide-white/[0.03]">
-              {Object.entries(contracts).map(([name, address]) => (
-                <div key={name} className="flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.02] transition-colors group">
-                  <span className="text-xs font-bold text-white/45 group-hover:text-white/65 transition-colors">{name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-white/20 font-mono tabular-nums group-hover:text-white/30 transition-colors">
-                      {fmtAddr(address, 8)}
-                    </span>
-                    <CopyBtn text={address} />
-                    <ExplorerBtn network={network} address={address} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ═══ Footer ═══ */}
-        <div className="text-center text-[10px] text-white/10 uppercase tracking-widest py-6">
-          Chain Hub — mod
-        </div>
+    <Shell
+      active="hub"
+      right={
+        <>
+          <BlockChip block={chainData.blockNumber} pulse={blockPulse} />
+          <NetworkSelect value={network} onChange={setNetwork} />
+          <RefreshBtn onClick={() => { fetchAll(); fetchChainData() }} loading={loading} />
+        </>
+      }
+      footer={`${CHAIN_NAMES[network]} — chain hub`}
+    >
+      {/* ═══ Hero ═══ */}
+      <div className="fade-up pt-4 pb-2" style={{ '--i': 0 } as any}>
+        <h1 className="text-[34px] md:text-[42px] font-semibold tracking-[-0.03em] leading-tight text-white">
+          The modular contract{' '}
+          <span className="bg-gradient-to-r from-cyan-300 via-sky-300 to-violet-300 bg-clip-text text-transparent">
+            ecosystem
+          </span>
+        </h1>
+        <p className="mt-2 text-[14px] text-white/40 max-w-xl">
+          Deploy, inspect and operate every protocol module on {CHAIN_NAMES[network]} — from one surface.
+        </p>
       </div>
-    </div>
+
+      {/* ═══ Stats ═══ */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          {
+            label: 'Network', value: CHAIN_NAMES[network],
+            sub: <span className="tabular-nums">chain id {currentDeployment?.chainId || '—'}</span>,
+          },
+          {
+            label: 'Deployer',
+            value: (
+              <span className="flex items-center gap-1 font-mono text-[17px]">
+                {fmtAddr(currentDeployment?.deployer || '', 4)}
+                {currentDeployment?.deployer && <CopyBtn text={currentDeployment.deployer} />}
+              </span>
+            ),
+            sub: explorerBase && currentDeployment?.deployer ? (
+              <a href={getExplorerUrl(network, currentDeployment.deployer)} target="_blank" rel="noopener noreferrer"
+                className="text-cyan-400/50 hover:text-cyan-300 transition-colors">view on explorer ↗</a>
+            ) : 'no deployment',
+          },
+          {
+            label: 'Balance',
+            value: <span className="tabular-nums">{fmtBalance(chainData.balance)} <span className="text-[13px] text-white/35 font-medium">ETH</span></span>,
+            sub: 'native gas balance',
+          },
+          {
+            label: 'Fleet',
+            value: (
+              <span className="tabular-nums">
+                {contractCount} <span className="text-[13px] text-white/35 font-medium">contracts</span>
+              </span>
+            ),
+            sub: <span><span className="text-emerald-300/90 tabular-nums">{aliveCount}/{mods.length}</span> module APIs live</span>,
+          },
+        ].map((s, i) => (
+          <div key={s.label} className="glass glass-hover p-4 fade-up" style={{ '--i': i + 1 } as any}>
+            <p className="label mb-2">{s.label}</p>
+            <div className="stat-value text-[20px] md:text-[22px]">{s.value}</div>
+            <p className="text-[11px] text-white/30 mt-1.5">{s.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ═══ Controls ═══ */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 fade-up" style={{ '--i': 5 } as any}>
+        <div className="relative flex-1 max-w-sm">
+          <MagnifyingGlassIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+          <input
+            type="text"
+            placeholder="Filter modules…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="input !pl-10 !font-sans"
+          />
+        </div>
+        <button
+          onClick={() => handleDeploy()}
+          disabled={deploying !== null}
+          className="btn btn-primary !px-6 !py-2.5"
+        >
+          {deploying === 'all'
+            ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+            : <RocketLaunchIcon className="w-4 h-4" />
+          }
+          Deploy all
+        </button>
+      </div>
+
+      {/* ═══ Module Grid ═══ */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {filteredMods.map((mod, i) => {
+          const colors = MOD_COLORS[mod.name] || defaultColors
+          const modContracts = getModuleContracts(mod.name, contracts)
+          const isExpanded = expanded.has(mod.name)
+          const isDeploying = deploying === mod.name
+
+          return (
+            <div
+              key={mod.name}
+              className="glass glass-hover overflow-hidden fade-up"
+              style={{ '--i': Math.min(i + 6, 14) } as any}
+            >
+              <div className="p-4">
+                {/* Name + status */}
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className={`dot ${mod.alive ? colors.dot : 'bg-white/10'}`}
+                      style={mod.alive ? { boxShadow: `0 0 10px 1px ${colors.glow}` } : undefined}
+                    />
+                    <span className={`text-[15px] font-semibold tracking-tight ${colors.text}`}>
+                      {mod.name}
+                    </span>
+                  </div>
+                  <span className={`chip ${mod.alive ? 'chip-live' : 'chip-off'}`}>
+                    {mod.alive ? 'live' : 'off'}
+                  </span>
+                </div>
+
+                {/* Ports + contract count */}
+                <div className="flex items-center gap-3 mb-4 text-[11px] text-white/30 font-mono">
+                  <span>:{mod.api_port}</span>
+                  <span>:{mod.app_port}</span>
+                  {modContracts.length > 0 && (
+                    <span className={`${colors.text} opacity-60 font-sans`}>
+                      {modContracts.length} contract{modContracts.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2">
+                  {mod.alive && (
+                    <>
+                      <a href={`${mod.api_url}/docs`} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-ghost flex-1 !py-1.5 !text-[11px]">
+                        Docs
+                      </a>
+                      <a href={mod.app_url} target="_blank" rel="noopener noreferrer"
+                        className="btn btn-ghost flex-1 !py-1.5 !text-[11px]">
+                        App
+                      </a>
+                    </>
+                  )}
+                  <button
+                    onClick={() => handleDeploy([mod.name])}
+                    disabled={deploying !== null}
+                    className="btn btn-ghost flex-1 !py-1.5 !text-[11px] hover:!border-cyan-400/40 hover:!text-cyan-200"
+                  >
+                    {isDeploying && <ArrowPathIcon className="w-3 h-3 animate-spin" />}
+                    Deploy
+                  </button>
+                </div>
+              </div>
+
+              {/* Expandable contracts section */}
+              {modContracts.length > 0 && (
+                <>
+                  <button
+                    onClick={() => toggleExpand(mod.name)}
+                    className="w-full flex items-center justify-between px-4 py-2 border-t hairline text-[11px] text-white/30 hover:text-white/55 hover:bg-white/[0.02] transition-colors"
+                  >
+                    <span>Contracts</span>
+                    {isExpanded
+                      ? <ChevronDownIcon className="w-3 h-3" />
+                      : <ChevronRightIcon className="w-3 h-3" />
+                    }
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t hairline bg-black/25">
+                      {modContracts.map(([name, address]) => (
+                        <div key={name} className="row flex items-center justify-between px-4 py-2">
+                          <span className="text-[11.5px] text-white/45">{name}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] text-white/25 font-mono tabular-nums">{fmtAddr(address)}</span>
+                            <CopyBtn text={address} />
+                            <ExplorerBtn network={network} address={address} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ═══ All Contracts ═══ */}
+      {Object.keys(contracts).length > 0 && (
+        <div className="glass overflow-hidden fade-up" style={{ '--i': 8 } as any}>
+          <div className="flex items-center justify-between px-5 py-4 border-b hairline">
+            <div>
+              <p className="text-[14px] font-semibold text-white/85 tracking-tight">Deployed contracts</p>
+              <p className="text-[11px] text-white/30 mt-0.5">{CHAIN_NAMES[network]}</p>
+            </div>
+            <span className="stat-value !text-[20px] text-white/60">{Object.keys(contracts).length}</span>
+          </div>
+          <div className="divide-y divide-white/[0.04]">
+            {Object.entries(contracts).map(([name, address]) => (
+              <div key={name} className="row group flex items-center justify-between px-5 py-2.5">
+                <span className="text-[12.5px] font-medium text-white/55 group-hover:text-white/85 transition-colors">{name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-white/25 font-mono tabular-nums group-hover:text-white/45 transition-colors">
+                    {fmtAddr(address, 8)}
+                  </span>
+                  <CopyBtn text={address} />
+                  <ExplorerBtn network={network} address={address} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Shell>
   )
 }
 

@@ -124,16 +124,30 @@ async def status():
     return {"deployments": result}
 
 
+def _require_mainnet_confirm(network: str, confirm: bool):
+    """Guard against accidental real-money mainnet writes from the UI.
+
+    Any route that can spend gas / move funds on mainnet must pass its
+    `confirm` flag through here; everything else (testnet/ganache/localhost)
+    is unaffected.
+    """
+    if network == "mainnet" and not confirm:
+        raise HTTPException(status_code=400,
+                            detail="mainnet requires confirm=true")
+
+
 # ── Deploy ────────────────────────────────────────────────────────────────
 
 class DeployReq(BaseModel):
     network: str = "testnet"
     mods: Optional[List[str]] = None
     key: Optional[str] = None
+    confirm: bool = False
 
 @app.post("/deploy")
 async def deploy(req: DeployReq):
     """Deploy contracts (synchronous)."""
+    _require_mainnet_confirm(req.network, req.confirm)
     chain = get_chain(req.network)
     try:
         result = chain.deploy(
@@ -651,6 +665,85 @@ async def pool_snapshot(req: NetworkReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── DeFi yield aggregator ────────────────────────────────────────────────────
+#
+# Modular multi-strategy vault: deposit USDC/USDT/etc into one of many lowfi
+# yield strategies; harvested profit is routed through Market and minted to
+# depositors as native tokens (pro-rata).
+
+class YieldActionReq(BaseModel):
+    strategy_id: int
+    amount: float = 0.0
+    network: str = "testnet"
+    key: Optional[str] = None
+
+
+class YieldHarvestReq(BaseModel):
+    strategy_id: int
+    network: str = "testnet"
+    key: Optional[str] = None
+
+
+@app.get("/yield/strategies")
+async def yield_strategies(network: str = "testnet"):
+    """List the registered yield strategies (the lowfi yield options)."""
+    chain = get_chain(network)
+    try:
+        return {"strategies": _serialize(chain.yield_strategies())}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/yield/position")
+async def yield_position(strategy_id: int, address: Optional[str] = None, network: str = "testnet"):
+    """A user's position in a strategy: principal shares + claimable native reward."""
+    chain = get_chain(network)
+    try:
+        return _serialize(chain.yield_position(strategy_id, address))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/yield/deposit")
+async def yield_deposit(req: YieldActionReq):
+    """Deposit an asset into a yield strategy."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return {"result": _serialize(chain.yield_deposit(req.strategy_id, req.amount))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/yield/withdraw")
+async def yield_withdraw(req: YieldActionReq):
+    """Withdraw principal shares from a yield strategy."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return {"result": _serialize(chain.yield_withdraw(req.strategy_id, req.amount))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/yield/harvest")
+async def yield_harvest(req: YieldHarvestReq):
+    """Harvest a strategy's yield → mint native tokens to depositors."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return {"result": _serialize(chain.yield_harvest(req.strategy_id))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/yield/claim")
+async def yield_claim(req: YieldHarvestReq):
+    """Claim accrued native reward tokens for a strategy."""
+    chain = get_chain(req.network, req.key)
+    try:
+        return {"result": _serialize(chain.yield_claim(req.strategy_id))}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ── Owner Console (admin) ───────────────────────────────────────────────────
 #
 # Owner-only operations across the protocol contracts. Every action can be
@@ -716,6 +809,7 @@ class AdminReq(BaseModel):
     value: str = "0"
     network: str = "testnet"
     key: Optional[str] = None
+    confirm: bool = False
 
 
 @app.post("/admin/encode")
@@ -731,6 +825,7 @@ async def admin_encode(req: AdminReq):
 @app.post("/admin/send")
 async def admin_send(req: AdminReq):
     """Execute an owner call directly, signed by the active deployer key."""
+    _require_mainnet_confirm(req.network, req.confirm)
     chain = get_chain(req.network, req.key)
     try:
         result = chain.admin_send(req.contract, req.method, req.args, req.value)
@@ -743,6 +838,7 @@ class TransferAllReq(BaseModel):
     to: str
     network: str = "testnet"
     key: Optional[str] = None
+    confirm: bool = False
 
 @app.post("/admin/transfer-all")
 async def admin_transfer_all(req: TransferAllReq):
@@ -752,6 +848,7 @@ async def admin_transfer_all(req: TransferAllReq):
     Only contracts the active account currently owns are transferred; the rest
     are reported as skipped. Direct-signed (the current owner must sign).
     """
+    _require_mainnet_confirm(req.network, req.confirm)
     chain = get_chain(req.network, req.key)
     try:
         account = chain.account.address
@@ -777,6 +874,83 @@ async def admin_transfer_all(req: TransferAllReq):
     return {"results": results, "to": req.to}
 
 
+# ── Control Panel ────────────────────────────────────────────────────────
+#
+# Unified deploy + verify + status view layered on top of Owner Console
+# (admin_*) and Chain Hub's /status. Adds what neither covers: triggering
+# Hardhat-script deploys (e.g. the DeFi vault, outside the Python
+# DEPLOY_GROUPS pipeline) and Basescan/Etherscan source verification.
+
+@app.get("/control/status")
+async def control_status(network: str = "testnet", key: Optional[str] = None):
+    """Per-network contract rows merging address + owner info in one view."""
+    chain = get_chain(network, key)
+    try:
+        account = chain.account.address
+    except Exception:
+        account = None
+    deployment = chain.config.get("deployments", {}).get(network, {})
+    owners = {}
+    for modkey, dispname in ADMIN_MODULES:
+        if modkey not in chain.contracts:
+            continue
+        owner = chain.admin_owner(modkey)
+        owners[dispname] = {
+            "owner": owner,
+            "ownerless": owner is None or owner.lower() == ZERO_ADDR,
+            "is_owner": bool(owner and account and owner.lower() == account.lower()),
+        }
+    rows = []
+    for name, info in deployment.get("contracts", {}).items():
+        own = owners.get(name)
+        rows.append({
+            "name": name,
+            "contract": info.get("contract"),
+            "address": info.get("address", ""),
+            "owner": own["owner"] if own else None,
+            "ownerless": own["ownerless"] if own else None,
+            "is_owner": own["is_owner"] if own else False,
+        })
+    return {
+        "network": network,
+        "chainId": deployment.get("chainId"),
+        "deployer": deployment.get("deployer"),
+        "account": account,
+        "contracts": rows,
+    }
+
+
+class VerifyReq(BaseModel):
+    network: str = "testnet"
+    contract: str
+    args: list = []
+
+@app.post("/control/verify")
+async def control_verify(req: VerifyReq):
+    """Verify a deployed contract's source on Basescan/Etherscan (hardhat-verify)."""
+    chain = get_chain(req.network)
+    try:
+        return chain.verify_contract(req.network, req.contract, req.args)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class DeployScriptReq(BaseModel):
+    network: str = "testnet"
+    script: str
+    confirm: bool = False
+
+@app.post("/control/deploy-script")
+async def control_deploy_script(req: DeployScriptReq):
+    """Run a whitelisted Hardhat deploy script (e.g. deploy-defi.js) against a network."""
+    _require_mainnet_confirm(req.network, req.confirm)
+    chain = get_chain(req.network)
+    try:
+        return chain.deploy_script(req.network, req.script)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -795,5 +969,6 @@ async def info():
             "register", "mint", "pool", "pool/claimable", "pool/claim",
             "pool/epochs", "pool/snapshot",
             "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",
+            "control/status", "control/verify", "control/deploy-script",
         ],
     }

@@ -11,6 +11,7 @@ from web3 import Web3
 from typing import Dict, Any, Optional, List, Union
 import json
 import os
+import subprocess
 import mod as m
 import requests
 from eth_account import Account
@@ -152,6 +153,42 @@ class Mod:
             {'inputs': [{'type': 'address', 'name': 'token'},
                         {'type': 'uint256', 'name': 'amount'}], 'name': 'fundTreasury',
              'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+        ],
+        # DeFi yield aggregator — modular multi-strategy vault.
+        'YieldVault': [
+            {'inputs': [], 'name': 'strategyCount', 'outputs': [{'type': 'uint256'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'}], 'name': 'strategies',
+             'outputs': [{'type': 'address', 'name': 'adapter'},
+                         {'type': 'address', 'name': 'asset'},
+                         {'type': 'string', 'name': 'name'},
+                         {'type': 'bool', 'name': 'enabled'},
+                         {'type': 'uint256', 'name': 'totalShares'},
+                         {'type': 'uint256', 'name': 'trackedPrincipal'},
+                         {'type': 'uint256', 'name': 'accRewardPerShare'}],
+             'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'address', 'name': 'asset'},
+                        {'type': 'address', 'name': 'adapter'},
+                        {'type': 'string', 'name': 'name'}], 'name': 'addStrategy',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'},
+                        {'type': 'uint256', 'name': 'amount'}], 'name': 'deposit',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'},
+                        {'type': 'uint256', 'name': 'shares'}], 'name': 'withdraw',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'}], 'name': 'harvest',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'}], 'name': 'claim',
+             'outputs': [], 'stateMutability': 'nonpayable', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'},
+                        {'type': 'address', 'name': 'user'}], 'name': 'pendingReward',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'}], 'name': 'pendingProfit',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
+            {'inputs': [{'type': 'uint256', 'name': 'id'},
+                        {'type': 'address', 'name': 'user'}], 'name': 'userShares',
+             'outputs': [{'type': 'uint256'}], 'stateMutability': 'view', 'type': 'function'},
         ],
     }
 
@@ -1183,6 +1220,113 @@ class Mod:
             return []
         return epochs[-int(limit):]
 
+    # ==================== DEFI / YIELD AGGREGATOR ====================
+
+    def _yield_vault(self):
+        vault = self.contracts.get('yieldvault')
+        if not vault:
+            raise ValueError('YieldVault contract not loaded')
+        return vault
+
+    def _strategy_asset(self, strategy_id):
+        """Resolve (asset address, asset decimals) for a strategy id."""
+        s = self._yield_vault().functions.strategies(int(strategy_id)).call()
+        asset = self.checksum(s[1])
+        try:
+            dec = self._erc20(asset).functions.decimals().call()
+        except Exception:
+            dec = 18
+        return asset, dec
+
+    def yield_strategies(self) -> List[Dict[str, Any]]:
+        """List registered yield strategies — the modular lowfi yield options."""
+        vault = self._yield_vault()
+        count = vault.functions.strategyCount().call()
+        out = []
+        for i in range(count):
+            s = vault.functions.strategies(i).call()
+            asset = self.checksum(s[1])
+            try:
+                tok = self._erc20(asset)
+                dec = tok.functions.decimals().call()
+                sym = tok.functions.symbol().call()
+            except Exception:
+                dec, sym = 18, '?'
+            try:
+                profit = vault.functions.pendingProfit(i).call()
+            except Exception:
+                profit = 0
+            out.append({
+                'id': i,
+                'adapter': self.checksum(s[0]),
+                'asset': asset,
+                'asset_symbol': sym,
+                'asset_decimals': dec,
+                'name': s[2],
+                'enabled': s[3],
+                'tvl': s[4] / (10 ** dec),
+                'pending_profit': profit / (10 ** dec),
+            })
+        return out
+
+    def yield_deposit(self, strategy_id: int, amount: float) -> Dict[str, Any]:
+        """Deposit `amount` (human units) of a strategy's asset into the vault."""
+        vault = self._yield_vault()
+        asset, dec = self._strategy_asset(strategy_id)
+        raw = int(round(float(amount) * (10 ** dec)))
+        if raw <= 0:
+            raise ValueError('Amount too small')
+        token = self._erc20(asset)
+        allowance = token.functions.allowance(self.account.address, vault.address).call()
+        if allowance < raw:
+            approve_tx = token.functions.approve(vault.address, raw).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address, 'pending'),
+                'gas': 100000,
+                **self._gas_fees(),
+            })
+            signed = self.w3.eth.account.sign_transaction(approve_tx, self.account.key)
+            h = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            self.w3.eth.wait_for_transaction_receipt(h)
+        return self.send_tx('yieldvault', 'deposit', [int(strategy_id), raw])
+
+    def yield_withdraw(self, strategy_id: int, shares: float) -> Dict[str, Any]:
+        """Withdraw `shares` (human units of principal) from a strategy."""
+        _, dec = self._strategy_asset(strategy_id)
+        raw = int(round(float(shares) * (10 ** dec)))
+        if raw <= 0:
+            raise ValueError('Amount too small')
+        return self.send_tx('yieldvault', 'withdraw', [int(strategy_id), raw])
+
+    def yield_harvest(self, strategy_id: int) -> Dict[str, Any]:
+        """Realize a strategy's yield → route through Market → mint native tokens
+        to depositors (distributed pro-rata)."""
+        return self.send_tx('yieldvault', 'harvest', [int(strategy_id)])
+
+    def yield_claim(self, strategy_id: int) -> Dict[str, Any]:
+        """Claim accrued native reward tokens for a strategy."""
+        return self.send_tx('yieldvault', 'claim', [int(strategy_id)])
+
+    def yield_position(self, strategy_id: int, address: Optional[str] = None) -> Dict[str, Any]:
+        """A user's position: principal shares + claimable native reward."""
+        vault = self._yield_vault()
+        if address and not self.is_address(address):
+            address = m.key(address).address
+        addr = self.checksum(address or self.account.address)
+        _, dec = self._strategy_asset(strategy_id)
+        try:
+            native_dec = self.decimals('market')
+        except Exception:
+            native_dec = 8
+        shares = vault.functions.userShares(int(strategy_id), addr).call()
+        pending = vault.functions.pendingReward(int(strategy_id), addr).call()
+        return {
+            'strategy_id': int(strategy_id),
+            'address': addr,
+            'shares': shares / (10 ** dec),
+            'pending_reward': pending / (10 ** native_dec),
+        }
+
     def _erc20(self, address: str):
         """A bare ERC20 handle (balanceOf/decimals/symbol/totalSupply) for any
         token address, using the built-in Token ABI."""
@@ -1326,6 +1470,53 @@ class Mod:
         signed = self.w3.eth.account.sign_transaction(tx, self.account.key)
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
         return self.w3.eth.wait_for_transaction_receipt(tx_hash)
+
+    # ==================== CONTROL PANEL (deploy scripts / verify) ====================
+    #
+    # Hardhat-script-based deploys (e.g. the DeFi vault, which isn't part of the
+    # Python/web3 DEPLOY_GROUPS pipeline) and Basescan/Etherscan source verification,
+    # both invoked via `npx hardhat ...` subprocesses scoped to this module's directory.
+
+    HH_NETWORK = {'testnet': 'base_sepolia', 'mainnet': 'base', 'ganache': 'ganache', 'localhost': 'hardhat'}
+
+    def _hh_network(self, network: str) -> str:
+        """Map a config network key to its Hardhat network name."""
+        return self.HH_NETWORK.get(network, network)
+
+    def verify_contract(self, network: str, name: str, args: list = None) -> Dict[str, Any]:
+        """Verify a deployed contract's source on Basescan/Etherscan via hardhat-verify."""
+        deployment = self.config.get('deployments', {}).get(network, {})
+        contract = deployment.get('contracts', {}).get(name)
+        if not contract or not contract.get('address'):
+            raise ValueError(f"'{name}' is not deployed on '{network}'")
+        address = contract['address']
+        cmd = ['npx', 'hardhat', 'verify', '--network', self._hh_network(network),
+               address, *[str(a) for a in (args or [])]]
+        proc = subprocess.run(cmd, cwd=m.dp('chain'), capture_output=True, text=True, timeout=180)
+        output = ((proc.stdout or '') + (proc.stderr or '')).strip()
+        if 'Already Verified' in output:
+            status = 'already_verified'
+        elif proc.returncode == 0:
+            status = 'verified'
+        else:
+            status = 'failed'
+        return {'status': status, 'output': output, 'address': address}
+
+    def deploy_script(self, network: str, script: str) -> Dict[str, Any]:
+        """Run a whitelisted Hardhat deploy script (e.g. deploy-defi.js) against a network."""
+        base = m.dp('chain')
+        scripts_dir = os.path.join(base, 'scripts')
+        available = {f for f in os.listdir(scripts_dir) if f.endswith('.js')} if os.path.isdir(scripts_dir) else set()
+        if script not in available:
+            raise ValueError(f"Unknown deploy script '{script}'")
+        env = {**os.environ, 'CONFIG_NET': network}
+        cmd = ['npx', 'hardhat', 'run', os.path.join('scripts', script), '--network', self._hh_network(network)]
+        proc = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=600, env=env)
+        output = ((proc.stdout or '') + (proc.stderr or '')).strip()
+        if proc.returncode != 0:
+            raise RuntimeError(output or f'deploy script failed (exit {proc.returncode})')
+        self.config = m.config('chain')  # the script rewrites config.json directly — reload it
+        return {'status': 'ok', 'output': output}
 
     def is_ecdsa(self, address: str) -> bool:
         """Check if address is an ECDSA address."""
