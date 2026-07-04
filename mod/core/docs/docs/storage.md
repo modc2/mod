@@ -37,10 +37,10 @@ data = m.get('cache_key', max_age=3600)  # None if older than 1 hour
 
 ## Store Class
 
-The `Store` class (`mod/core/store/`) provides a richer interface with folder management, bulk operations, and encryption controls.
+The `Store` class (`mod/core/store/src/mod.py`) provides a richer interface with folder management, bulk operations, and encryption controls.
 
 ```python
-from mod.core.store.store.store import Store
+from mod.core.store.src.mod import Store
 
 store = Store(path='~/.mod/myapp', password='optional')
 

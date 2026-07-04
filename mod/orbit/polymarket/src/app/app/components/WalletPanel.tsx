@@ -372,10 +372,10 @@ export default function WalletPanel() {
             >
               ↗
             </a>
-            <span className="ml-auto text-sm flex items-center gap-2">
-              <span className="text-pixel-muted">Balance:</span>
+            <span className="ml-auto flex items-baseline gap-2">
+              <span className="text-[10px] uppercase tracking-[0.15em] text-pixel-muted">Balance</span>
               <span
-                className={`font-mono text-base ${balanceUsd == null ? "text-amber-400" : "text-green-400"}`}
+                className={`font-mono text-[20px] leading-none ${balanceUsd == null ? "text-amber-400" : "text-green-400"}`}
                 title={balanceUsd == null ? "On-chain read failed — retrying" : undefined}
               >
                 {balanceUsd == null ? "unavailable" : `$${balanceUsd.toFixed(2)}`}
@@ -400,9 +400,9 @@ export default function WalletPanel() {
       {!collapsed && (
         <>
       {!info?.deployed && info && (
-        <div className="text-xs text-amber-400">
-          Wallet not deployed on-chain yet — first trade attempt will
-          deploy it automatically (gasless, takes ~10s).
+        <div className="flex items-center gap-2 text-[11px] text-amber-400/90 leading-snug">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80 shrink-0" />
+          <span>Not on-chain yet — deploys automatically on your first trade (gasless, ~10s).</span>
         </div>
       )}
 
@@ -435,26 +435,27 @@ export default function WalletPanel() {
         </div>
       )}
 
-      {/* DEPOSIT */}
-      <div className="border border-pixel-border rounded p-2 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wide text-pixel-muted">
+      {/* DEPOSIT — amount + presets on one wrappable row, full-width action
+          button below so nothing overflows in narrow sidebar mounts. */}
+      <div className="border border-pixel-border/70 rounded bg-pixel-black/30 p-2 space-y-1.5">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-pixel-white">
             Deposit
           </span>
-          <span className="text-[10px] text-pixel-muted">
-            Sends USDC from your MetaMask
+          <span className="text-[10px] text-pixel-muted text-right leading-tight min-w-0">
+            USDC from your MetaMask
           </span>
         </div>
-        <div className="flex gap-2">
-          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
-            <span className="text-pixel-muted mr-1">$</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center flex-1 min-w-[120px] bg-pixel-bg border border-pixel-border rounded px-2">
+            <span className="text-pixel-muted mr-1 font-mono">$</span>
             <input
               type="text"
               inputMode="decimal"
               value={depositAmount}
               onChange={(e) => setDepositAmount(e.target.value)}
               placeholder="0.00"
-              className="bg-transparent flex-1 py-1.5 outline-none font-mono"
+              className="bg-transparent flex-1 min-w-0 py-1.5 outline-none font-mono"
               disabled={busy}
             />
           </div>
@@ -462,73 +463,85 @@ export default function WalletPanel() {
             <button
               key={preset}
               onClick={() => setDepositAmount(String(preset))}
-              className="px-2 text-xs border border-pixel-border rounded hover:bg-pixel-border-light"
+              className="px-2 py-1 text-[11px] font-mono border border-pixel-border rounded text-pixel-muted hover:text-green-400 hover:border-green-400/70 transition-colors shrink-0"
               disabled={busy}
             >
               ${preset}
             </button>
           ))}
-          <button
-            onClick={handleDeposit}
-            disabled={busy || !depositAmount}
-            className="px-4 py-1.5 bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded inline-flex items-center gap-2"
-          >
-            {busy && <Spinner />}
-            DEPOSIT
-          </button>
         </div>
+        <button
+          onClick={handleDeposit}
+          disabled={busy || !depositAmount}
+          className="pixel-btn w-full py-1.5 text-[13px] font-mono tracking-wider border-green-400/80 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:cursor-not-allowed gap-2"
+        >
+          {busy && <Spinner />}
+          DEPOSIT{depositAmount ? ` $${depositAmount}` : ""}
+        </button>
       </div>
 
-      {/* WITHDRAW */}
-      <div className="border border-pixel-border rounded p-2 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs uppercase tracking-wide text-pixel-muted">
+      {/* WITHDRAW — destination row (with ME reset when edited), amount + MAX,
+          full-width gasless action button. */}
+      <div className="border border-pixel-border/70 rounded bg-pixel-black/30 p-2 space-y-1.5">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-pixel-white">
             Withdraw
           </span>
-          <span className="text-[10px] text-pixel-muted">
+          <span className="text-[10px] text-pixel-muted text-right leading-tight min-w-0">
             Gasless — no MetaMask popup
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] tracking-[0.15em] text-pixel-muted w-6 shrink-0">TO</span>
           <input
             type="text"
             value={withdrawDest}
             onChange={(e) => setWithdrawDest(e.target.value)}
             placeholder="0x… destination"
-            className="bg-pixel-bg border border-pixel-border rounded px-2 py-1.5 flex-1 font-mono text-xs outline-none"
+            className="bg-pixel-bg border border-pixel-border rounded px-2 py-1.5 flex-1 min-w-0 font-mono text-xs outline-none"
             disabled={busy}
           />
+          {eoa && withdrawDest.trim().toLowerCase() !== eoa.toLowerCase() && (
+            <button
+              onClick={() => setWithdrawDest(eoa)}
+              className="px-2 py-1 text-[11px] font-mono border border-pixel-border rounded text-pixel-muted hover:text-green-400 hover:border-green-400/70 transition-colors shrink-0"
+              disabled={busy}
+              title="Send back to your connected wallet"
+            >
+              ME
+            </button>
+          )}
         </div>
-        <div className="flex gap-2">
-          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
-            <span className="text-pixel-muted mr-1">$</span>
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center flex-1 min-w-0 bg-pixel-bg border border-pixel-border rounded px-2">
+            <span className="text-pixel-muted mr-1 font-mono">$</span>
             <input
               type="text"
               inputMode="decimal"
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(e.target.value)}
               placeholder="0.00"
-              className="bg-transparent flex-1 py-1.5 outline-none font-mono"
+              className="bg-transparent flex-1 min-w-0 py-1.5 outline-none font-mono"
               disabled={busy}
             />
           </div>
           <button
             onClick={() => balanceUsd != null && setWithdrawAmount(balanceUsd.toFixed(2))}
-            className="px-2 text-xs border border-pixel-border rounded hover:bg-pixel-border-light"
+            className="px-2 py-1 text-[11px] font-mono border border-pixel-border rounded text-pixel-muted hover:text-green-400 hover:border-green-400/70 transition-colors shrink-0"
             disabled={busy || balanceUsd == null || balanceUsd <= 0}
             title="Withdraw all"
           >
             MAX
           </button>
-          <button
-            onClick={handleWithdraw}
-            disabled={busy || !withdrawAmount || balanceUsd == null || balanceUsd <= 0}
-            className="px-4 py-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm rounded inline-flex items-center gap-2"
-          >
-            {busy && <Spinner />}
-            WITHDRAW
-          </button>
         </div>
+        <button
+          onClick={handleWithdraw}
+          disabled={busy || !withdrawAmount || balanceUsd == null || balanceUsd <= 0}
+          className="pixel-btn w-full py-1.5 text-[13px] font-mono tracking-wider border-amber-400/80 text-amber-400 hover:bg-amber-400/10 disabled:opacity-30 disabled:cursor-not-allowed gap-2"
+        >
+          {busy && <Spinner />}
+          WITHDRAW{withdrawAmount ? ` $${withdrawAmount}` : ""}
+        </button>
       </div>
         </>
       )}

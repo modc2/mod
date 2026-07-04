@@ -231,22 +231,22 @@ export default function WalletTokenPanel() {
           <div className="pt-2 border-t border-pixel-border/40 space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-pixel-gray tracking-[0.15em] shrink-0">PAIR</span>
-              <span className="text-[11px] text-pixel-gray/80 flex-1 leading-snug">
-                Open this URL on your phone to share the session. The token
-                rides in the URL fragment so it never hits a server log.
+              <span className="text-[10px] text-pixel-gray/70 flex-1 leading-snug">
+                Open on your phone to share this session.
               </span>
-            </div>
-            <div className="space-y-1.5">
-              <div className="font-mono text-[10px] text-pixel-gray/80 break-all leading-snug border border-pixel-border/60 bg-pixel-black/50 p-1.5">
-                {signinUrl}
-              </div>
               <button
                 onClick={() => { void copyText(signinUrl, "token"); }}
-                className="text-[11px] tracking-[0.12em] text-pixel-gray hover:text-green-400 border border-pixel-border/60 hover:border-green-400/60 px-1.5 py-0.5"
+                className="text-[11px] tracking-[0.12em] text-pixel-gray hover:text-green-400 border border-pixel-border/60 hover:border-green-400/60 px-1.5 py-0.5 shrink-0"
                 title="Copy sign-in URL"
               >
                 COPY URL
               </button>
+            </div>
+            <div className="font-mono text-[10px] text-pixel-gray/80 break-all leading-snug border border-pixel-border/60 bg-pixel-black/50 rounded p-1.5">
+              {signinUrl}
+            </div>
+            <div className="text-[10px] text-pixel-gray/50 leading-snug">
+              The token rides in the URL fragment, so it never hits a server log.
             </div>
           </div>
         )}

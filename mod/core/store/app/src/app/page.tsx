@@ -88,10 +88,13 @@ export default function Page() {
   const [semResults, setSemResults] = useState<StoredObject[] | null>(null);
 
   // upload form
-  const [uploadKind, setUploadKind] = useState<"file" | "text" | "image">("file");
+  const [uploadKind, setUploadKind] = useState<"file" | "text" | "json" | "image">("file");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [textName, setTextName] = useState("");
+  const [jsonText, setJsonText] = useState("");
+  const [jsonName, setJsonName] = useState("");
+  const [jsonErr, setJsonErr] = useState<string | null>(null);
   const [backend, setBackend] = useState<"localfs" | "filecoin" | "hippius" | "both">("localfs");
   const [makePublic, setMakePublic] = useState(false);
   const [uploadPool, setUploadPool] = useState("");
@@ -241,6 +244,18 @@ export default function Page() {
       const name = (textName.trim() || `note-${Date.now()}`).replace(/[^\w.\-]/g, "_");
       payload = new File([text], name.endsWith(".txt") ? name : `${name}.txt`, { type: "text/plain" });
     }
+    if (uploadKind === "json") {
+      if (!jsonText.trim()) return;
+      try {
+        JSON.parse(jsonText);
+      } catch (e) {
+        setJsonErr((e as Error).message);
+        return;
+      }
+      setJsonErr(null);
+      const name = (jsonName.trim() || `data-${Date.now()}`).replace(/[^\w.\-]/g, "_");
+      payload = new File([jsonText], name.endsWith(".json") ? name : `${name}.json`, { type: "application/json" });
+    }
     if (!payload) return;
     setError(null);
     setSuccess(null);
@@ -250,10 +265,13 @@ export default function Page() {
       const cids = Object.entries(r.results)
         .map(([b, v]) => (v.cid ? `${b}: ${v.cid.slice(0, 16)}…` : `${b}: error — ${v.error}`))
         .join("  •  ");
-      setSuccess(`stored (${makePublic ? "public" : "private"})${uploadPool ? " → pool" : ""}: ${cids}`);
+      const mapped = r.refs && r.refs.length > 0 ? ` • mapped from ${r.refs.length} existing object${r.refs.length > 1 ? "s" : ""}` : "";
+      setSuccess(`stored (${makePublic ? "public" : "private"})${uploadPool ? " → pool" : ""}: ${cids}${mapped}`);
       setFile(null);
       setText("");
       setTextName("");
+      setJsonText("");
+      setJsonName("");
       await refreshFiles(token);
       await refreshMe(token);
       if (uploadPool) await refreshPools(token);
@@ -420,9 +438,9 @@ export default function Page() {
         <div className="panel">
           <h2 className="panel-title">Add data</h2>
           <div className="tabs">
-            {(["file", "text", "image"] as const).map((k) => (
+            {(["file", "text", "json", "image"] as const).map((k) => (
               <button key={k} className={`tab ${uploadKind === k ? "active" : ""}`} onClick={() => setUploadKind(k)}>
-                {k === "file" ? "📄 File" : k === "text" ? "✍️ Text" : "🖼️ Image"}
+                {k === "file" ? "📄 File" : k === "text" ? "✍️ Text" : k === "json" ? "🧩 JSON" : "🖼️ Image"}
               </button>
             ))}
           </div>
@@ -436,6 +454,37 @@ export default function Page() {
             <div className="col">
               <input type="text" placeholder="name (optional, e.g. recipe.txt)" value={textName} onChange={(e) => setTextName(e.target.value)} disabled={!!busy} />
               <textarea placeholder="Paste or type any text — stored content-addressed like a file." value={text} onChange={(e) => setText(e.target.value)} rows={6} disabled={!!busy} />
+            </div>
+          )}
+          {uploadKind === "json" && (
+            <div className="col">
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <input type="text" placeholder="name (optional, e.g. bundle.json)" value={jsonName} onChange={(e) => setJsonName(e.target.value)} disabled={!!busy} />
+                <label className="btn-link" style={{ cursor: "pointer" }}>
+                  Load .json file…
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    style={{ display: "none" }}
+                    disabled={!!busy}
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      setJsonText(await f.text());
+                      setJsonName(f.name);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <textarea
+                placeholder="Paste or type JSON. Any CID string it embeds that matches an existing stored object is auto-linked — visible as a graph in that object's 'graph' tab."
+                value={jsonText}
+                onChange={(e) => { setJsonText(e.target.value); setJsonErr(null); }}
+                rows={8}
+                disabled={!!busy}
+              />
+              {jsonErr && <p className="error-box" style={{ margin: 0 }}>invalid JSON: {jsonErr}</p>}
             </div>
           )}
           <div className="row" style={{ marginTop: 12 }}>
@@ -455,7 +504,11 @@ export default function Page() {
               <input type="checkbox" checked={makePublic} onChange={(e) => setMakePublic(e.target.checked)} disabled={!!busy} />
               public
             </label>
-            <button className="primary" onClick={upload} disabled={!!busy || (uploadKind === "text" ? !text.trim() : !file)}>
+            <button
+              className="primary"
+              onClick={upload}
+              disabled={!!busy || (uploadKind === "text" ? !text.trim() : uploadKind === "json" ? !jsonText.trim() : !file)}
+            >
               Store
             </button>
           </div>
@@ -599,7 +652,7 @@ export default function Page() {
       {shareFor && token && <ShareModal token={token} object={shareFor} onClose={() => setShareFor(null)} setError={setError} setSuccess={setSuccess} />}
       {ticketFor && token && <TicketModal token={token} object={ticketFor} onClose={() => setTicketFor(null)} setError={setError} />}
       {contentFor && token && <ContentModal token={token} object={contentFor} onClose={() => setContentFor(null)} setError={setError} copyText={copyText} copied={copied} />}
-      {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} />}
+      {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} onNavigate={setInfoFor} />}
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
       {openPool && token && (
         <PoolModal
@@ -836,14 +889,32 @@ function TicketModal({
 
 /* ──────────────────────────── object info modal ──────────────────────────── */
 
-function InfoModal({ token, cid, onClose }: { token: string; cid: string; onClose: () => void }) {
+function shortCid(cid: string): string {
+  return cid.length > 18 ? `${cid.slice(0, 8)}…${cid.slice(-6)}` : cid;
+}
+
+function InfoModal({
+  token,
+  cid,
+  onClose,
+  onNavigate,
+}: {
+  token: string;
+  cid: string;
+  onClose: () => void;
+  onNavigate?: (cid: string) => void;
+}) {
   const [info, setInfo] = useState<ObjectInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [tab, setTab] = useState<"info" | "graph">("info");
   useEffect(() => {
     let live = true;
+    setInfo(null);
     api.objectInfo(token, cid).then((r) => live && setInfo(r)).catch((e) => live && setErr((e as Error).message));
     return () => { live = false; };
   }, [token, cid]);
+
+  const hasGraph = !!(info && (info.links.out.length > 0 || info.links.in.length > 0));
 
   return (
     <Modal title="Object info" onClose={onClose}>
@@ -852,49 +923,120 @@ function InfoModal({ token, cid, onClose }: { token: string; cid: string; onClos
       {!info && !err && <p className="muted">loading…</p>}
       {info && (
         <>
-          <div className="info-grid">
-            <span className="muted">Owner</span><span className="mono">{info.owner ? shortAddress(info.owner) : "—"} {info.is_owner && <span className="pill admin">you</span>}</span>
-            <span className="muted">Stored</span><span>{fmtDate(info.stored_at)}</span>
-            <span className="muted">Name</span><span>{info.key || "—"}</span>
-            <span className="muted">Size</span><span>{fmtBytes(info.size)}</span>
-            <span className="muted">Backends</span><span>{info.backends.join(", ") || "—"}</span>
-            <span className="muted">Scheme</span><span>{info.scheme}</span>
-            <span className="muted">Visibility</span><span>{info.visibility === "private" ? "🔒 private" : "🌐 public"}</span>
-            <span className="muted">Pinned</span><span>{info.pinned ? "yes" : "no"}</span>
-            <span className="muted">Semantic hash</span><span className="mono" style={{ wordBreak: "break-all" }}>{info.semhash || "—"}</span>
-            {info.external_url && (<><span className="muted">External</span><span><a href={info.external_url} target="_blank" rel="noreferrer">{info.external_url}</a></span></>)}
+          <div className="tabs">
+            <button className={`tab ${tab === "info" ? "active" : ""}`} onClick={() => setTab("info")}>info</button>
+            <button className={`tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>
+              graph{hasGraph ? ` (${info.links.out.length + info.links.in.length})` : ""}
+            </button>
           </div>
 
-          {info.is_owner && (
+          {tab === "info" && (
             <>
-              <h3 className="panel-title" style={{ marginTop: 18 }}>Who has access</h3>
-              {info.grants.length === 0 && info.pools.length === 0 && (
-                <p className="muted">{info.visibility === "public" ? "Public — anyone can read." : "Only you. Share it or add it to a pool to grant access."}</p>
+              <div className="info-grid">
+                <span className="muted">Owner</span><span className="mono">{info.owner ? shortAddress(info.owner) : "—"} {info.is_owner && <span className="pill admin">you</span>}</span>
+                <span className="muted">Stored</span><span>{fmtDate(info.stored_at)}</span>
+                <span className="muted">Name</span><span>{info.key || "—"}</span>
+                <span className="muted">Size</span><span>{fmtBytes(info.size)}</span>
+                <span className="muted">Backends</span><span>{info.backends.join(", ") || "—"}</span>
+                <span className="muted">Scheme</span><span>{info.scheme}</span>
+                <span className="muted">Visibility</span><span>{info.visibility === "private" ? "🔒 private" : "🌐 public"}</span>
+                <span className="muted">Pinned</span><span>{info.pinned ? "yes" : "no"}</span>
+                <span className="muted">Semantic hash</span><span className="mono" style={{ wordBreak: "break-all" }}>{info.semhash || "—"}</span>
+                {info.external_url && (<><span className="muted">External</span><span><a href={info.external_url} target="_blank" rel="noreferrer">{info.external_url}</a></span></>)}
+              </div>
+
+              {info.is_owner && (
+                <>
+                  <h3 className="panel-title" style={{ marginTop: 18 }}>Who has access</h3>
+                  {info.grants.length === 0 && info.pools.length === 0 && (
+                    <p className="muted">{info.visibility === "public" ? "Public — anyone can read." : "Only you. Share it or add it to a pool to grant access."}</p>
+                  )}
+                  {info.grants.map((g) => (
+                    <div key={g.id} className="row grant-row">
+                      <span className="pill">grant</span>
+                      <span className="muted">{shortAddress(g.grantee)}</span>
+                      <span className="pill">{g.scope}</span>
+                      <span className="muted">{g.expired ? "expired" : fmtDuration(g.expires_in)}</span>
+                      {g.cid === "*" && <span className="pill">all objects</span>}
+                    </div>
+                  ))}
+                  {info.pools.map((p) => (
+                    <div key={p.id} className="row grant-row">
+                      <span className="pill">pool</span>
+                      <strong>{p.name}</strong>
+                      <span className="muted">{p.members.filter((m) => !m.expired).length} members</span>
+                    </div>
+                  ))}
+                </>
               )}
-              {info.grants.map((g) => (
-                <div key={g.id} className="row grant-row">
-                  <span className="pill">grant</span>
-                  <span className="muted">{shortAddress(g.grantee)}</span>
-                  <span className="pill">{g.scope}</span>
-                  <span className="muted">{g.expired ? "expired" : fmtDuration(g.expires_in)}</span>
-                  {g.cid === "*" && <span className="pill">all objects</span>}
-                </div>
-              ))}
-              {info.pools.map((p) => (
-                <div key={p.id} className="row grant-row">
-                  <span className="pill">pool</span>
-                  <strong>{p.name}</strong>
-                  <span className="muted">{p.members.filter((m) => !m.expired).length} members</span>
-                </div>
-              ))}
+              {!info.is_owner && (
+                <p className="muted" style={{ marginTop: 14 }}>{info.you_can_read ? "You have access to this object." : "You do not have access."}</p>
+              )}
             </>
           )}
-          {!info.is_owner && (
-            <p className="muted" style={{ marginTop: 14 }}>{info.you_can_read ? "You have access to this object." : "You do not have access."}</p>
+
+          {tab === "graph" && (
+            hasGraph
+              ? <CidGraph cid={cid} links={info.links} onNavigate={onNavigate} />
+              : <p className="muted" style={{ marginTop: 14 }}>Not mapped from (or referenced by) any other object in the store.</p>
           )}
         </>
       )}
     </Modal>
+  );
+}
+
+/* ──────────────────────────── CID graph ──────────────────────────── */
+
+function CidGraph({
+  cid,
+  links,
+  onNavigate,
+}: {
+  cid: string;
+  links: { out: { cid: string; key: string | null }[]; in: { cid: string; key: string | null }[] };
+  onNavigate?: (cid: string) => void;
+}) {
+  const rowH = 46;
+  const colW = 240;
+  const midY = Math.max(links.out.length, links.in.length, 1) * rowH / 2;
+  const height = Math.max(links.out.length, links.in.length, 1) * rowH + 20;
+
+  const node = (n: { cid: string; key: string | null }, i: number, col: "out" | "in") => {
+    const x = col === "out" ? 20 : colW * 2 - 20;
+    const y = 10 + i * rowH + rowH / 2;
+    return (
+      <g key={n.cid} transform={`translate(${x},${y})`}>
+        <line x1={col === "out" ? 100 : -100} y1="0" x2={col === "out" ? 0 : 0} y2="0" stroke="#2a2a2a" />
+        <foreignObject x={col === "out" ? -10 : -190} y={-16} width="200" height="32">
+          <button
+            className="graph-node"
+            title={n.cid}
+            onClick={() => onNavigate?.(n.cid)}
+            disabled={!onNavigate}
+          >
+            {n.key || shortCid(n.cid)}
+          </button>
+        </foreignObject>
+      </g>
+    );
+  };
+
+  return (
+    <div className="graph-wrap">
+      <svg width="100%" viewBox={`0 0 ${colW * 2} ${height}`} height={height}>
+        {links.out.map((n, i) => node(n, i, "out"))}
+        {links.in.map((n, i) => node(n, i, "in"))}
+        <line x1="100" y1={midY + 10} x2={colW * 2 - 100} y2={midY + 10} stroke="#2a2a2a" strokeDasharray="3,3" />
+        <foreignObject x={colW - 90} y={midY - 6} width="180" height="32">
+          <div className="graph-node self" title={cid}>{shortCid(cid)}</div>
+        </foreignObject>
+      </svg>
+      <div className="graph-legend">
+        <span className="muted">← mapped from (this object's content references these)</span>
+        <span className="muted">mapped into (these were built from this) →</span>
+      </div>
+    </div>
   );
 }
 

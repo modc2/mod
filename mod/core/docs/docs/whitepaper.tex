@@ -114,7 +114,7 @@
 
 \begin{abstract}
 \noindent
-We present MOD Protocol, a decentralized modular development framework that unifies on-chain economic primitives with off-chain composable computation. The protocol introduces \emph{BlocTime}---a time-weighted staking mechanism that distributes real marketplace revenue to long-term participants proportional to their lock commitment---and \emph{StakeTime}---a validator consensus layer with Yuma-inspired scoring, subnet emissions, and slashing. MOD operates across a five-layer architecture: a Python framework core with 204 composable orbit modules, a BlocTime smart contract suite deployed on Base (EVM), a FastAPI service layer, IPFS-backed distributed storage, and a Next.js frontend. Developers register callable functions on-chain, set prices, and earn revenue each time their modules are invoked. Revenue flows through a Treasury contract and is distributed to BlocTime stakers without inflationary token emission. All core contracts implement a \texttt{setOwnerless()} function enabling irreversible decentralization. The protocol supports multi-chain operation across EVM, Substrate, and Solana ecosystems, with AI-native agent workflows as first-class primitives.
+We present MOD Protocol, a decentralized modular development framework that unifies on-chain economic primitives with off-chain composable computation. The protocol introduces \emph{BlocTime}---a time-weighted staking mechanism that distributes real marketplace revenue to long-term participants proportional to their lock commitment---and \emph{StakeTime}---a validator consensus layer with Yuma-inspired scoring, subnet emissions, and slashing. MOD operates across a five-layer architecture: a Python framework core with 250+ composable orbit modules, a BlocTime smart contract suite deployed on Base (EVM), a Flask service layer, IPFS-backed distributed storage, and a Next.js frontend. Developers register callable functions on-chain, set prices, and earn revenue each time their modules are invoked. Revenue flows through a Treasury contract and is distributed to BlocTime stakers without inflationary token emission. All core contracts implement a \texttt{setOwnerless()} function enabling irreversible decentralization. The protocol supports multi-chain operation across EVM, Substrate, and Solana ecosystems, with AI-native agent workflows as first-class primitives.
 \end{abstract}
 
 \vfill
@@ -151,7 +151,7 @@ MOD Protocol bridges the gap between on-chain economics and off-chain developmen
 \subsection{Design Principles}
 
 \begin{itemize}
-    \item \textbf{Composability over monolithism}: 204 independent modules that compose at runtime.
+    \item \textbf{Composability over monolithism}: 250+ independent modules that compose at runtime.
     \item \textbf{Revenue from usage, not inflation}: Treasury rewards funded exclusively by marketplace fees.
     \item \textbf{Progressive decentralization}: Contracts begin owner-managed, with an irreversible path to full decentralization.
     \item \textbf{AI-native by default}: Agent workflows, memory, and tool execution are first-class primitives.
@@ -172,7 +172,7 @@ MOD Protocol bridges the gap between on-chain economics and off-chain developmen
 ]
     \node[layer] (L5) at (0,5)   {\textbf{Layer 5: Frontend} -- Next.js 14 + TypeScript + ethers.js v6};
     \node[layer] (L4) at (0,3.5) {\textbf{Layer 4: Service} -- Flask server auto-wrapping modules + registry + IPFS};
-    \node[layer] (L3) at (0,2)   {\textbf{Layer 3: Modules} -- 204 composable Python orbit modules};
+    \node[layer] (L3) at (0,2)   {\textbf{Layer 3: Modules} -- 250+ composable Python orbit modules};
     \node[layer] (L2) at (0,0.5) {\textbf{Layer 2: Chain} -- BlocTime + StakeTime Protocol (Solidity 0.8.20, Base)};
     \node[layer] (L1) at (0,-1)  {\textbf{Layer 1: Core} -- mod.py framework engine (crypto, storage, routing)};
 
@@ -407,7 +407,7 @@ A generic permission system mapping parent keys to arrays of child keys:
 \section{StakeTime Consensus Layer}
 \label{sec:staketime}
 
-StakeTime extends BlocTime with a full validator consensus mechanism, enabling decentralized scoring, emission distribution, and slashing across subnet networks.
+StakeTime extends BlocTime with a full validator consensus mechanism, enabling decentralized scoring, emission distribution, and slashing across subnet networks. It ships as its own orbit module (\texttt{mod/orbit/staketime}, with a dedicated whitepaper) rather than as part of the core BlocTime suite; this section summarizes its design.
 
 \subsection{Validator Registration}
 
@@ -613,7 +613,7 @@ mod/orbit/{module_name}/
 
 Anchor file resolution order: \texttt{agent.py} $>$ \texttt{mod.py} $>$ \texttt{block.py} $>$ \texttt{\{name\}.py}.
 
-\subsection{Module Categories (204 total)}
+\subsection{Module Categories (250+ total)}
 
 \begin{table}[H]
 \centering
@@ -999,7 +999,7 @@ MOD Protocol presents a production-ready framework for decentralized module deve
 
     \item \textbf{Non-inflationary economics}: All staker rewards derive from real marketplace activity (credit and debit fees), eliminating the inflation-dilution problem common in DeFi protocols (Equation~\ref{eq:reward}).
 
-    \item \textbf{204 composable modules}: The orbit ecosystem spans AI agents, DeFi protocols, cross-chain bridges, decentralized storage, validator consensus, and developer tooling---all discoverable and callable with zero configuration.
+    \item \textbf{250+ composable modules}: The orbit ecosystem spans AI agents, DeFi protocols, cross-chain bridges, decentralized storage, validator consensus, and developer tooling---all discoverable and callable with zero configuration.
 
     \item \textbf{AI-native execution}: Built-in agent framework with persistent memory, tool composition, and autonomous module creation enables a new paradigm of self-building software systems.
 

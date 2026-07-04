@@ -158,6 +158,13 @@ class Access:
                 expires INTEGER,
                 claimed INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS refs (
+                cid     TEXT NOT NULL,
+                ref_cid TEXT NOT NULL,
+                created INTEGER,
+                PRIMARY KEY (cid, ref_cid)
+            );
+            CREATE INDEX IF NOT EXISTS idx_refs_ref_cid ON refs(ref_cid);
         ''')
         # Migration: add semhash to acl tables created before semantic hashing.
         cols = {r[1] for r in conn.execute('PRAGMA table_info(acl)').fetchall()}
@@ -216,6 +223,35 @@ class Access:
         acl = self.get_acl(cid)
         # Unknown CID ⇒ public (back-compat with pre-ACL objects).
         return acl['visibility'] if acl else 'public'
+
+    # ── refs (CID → CID composition, detected at upload time) ───────
+    # When an object's content embeds other CIDs already known to the store
+    # (a manifest/bundle referencing pre-existing objects), it is "mapped
+    # from" them. Recorded one-directional (cid references ref_cid) so both
+    # "what was this built from" and "what was built from this" are cheap.
+
+    def set_refs(self, cid, ref_cids: list):
+        conn = self._db()
+        conn.execute('DELETE FROM refs WHERE cid=?', (cid,))
+        for ref_cid in {r for r in ref_cids if r and r != cid}:
+            conn.execute('INSERT OR IGNORE INTO refs (cid, ref_cid, created) VALUES (?,?,?)',
+                         (cid, ref_cid, now()))
+        conn.commit()
+        conn.close()
+
+    def refs_out(self, cid) -> list:
+        """CIDs this object's content references (what it was mapped from)."""
+        conn = self._db()
+        rows = conn.execute('SELECT ref_cid FROM refs WHERE cid=?', (cid,)).fetchall()
+        conn.close()
+        return [r['ref_cid'] for r in rows]
+
+    def refs_in(self, cid) -> list:
+        """CIDs whose content references this one (what was mapped from it)."""
+        conn = self._db()
+        rows = conn.execute('SELECT cid FROM refs WHERE ref_cid=?', (cid,)).fetchall()
+        conn.close()
+        return [r['cid'] for r in rows]
 
     # ── grants (timed access) ──────────────────────────────────────
 

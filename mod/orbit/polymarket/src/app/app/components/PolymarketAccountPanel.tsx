@@ -513,16 +513,16 @@ export default function PolymarketAccountPanel() {
           have positions held there). V2 trading goes through the new
           deposit wallet instead — see WalletPanel above. */}
       <div className="border border-pixel-border rounded p-2 space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs uppercase tracking-wide text-pixel-muted">
             Deposit to Proxy
           </span>
-          <span className="text-[10px] text-pixel-muted">
+          <span className="text-[10px] text-pixel-muted text-right leading-tight min-w-0">
             Sends USDC.e from your MetaMask
           </span>
         </div>
-        <div className="flex gap-2">
-          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex items-center flex-1 min-w-[120px] bg-pixel-bg border border-pixel-border rounded px-2">
             <span className="text-pixel-muted mr-1">$</span>
             <input
               type="text"
@@ -558,16 +558,16 @@ export default function PolymarketAccountPanel() {
           The owner EOA signs a pre-validated signature so MetaMask only
           prompts for the tx send, not an EIP-712 sign popup. */}
       <div className="border border-pixel-border rounded p-2 space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs uppercase tracking-wide text-pixel-muted">
             Withdraw from Proxy
           </span>
-          <span className="text-[10px] text-pixel-muted">
+          <span className="text-[10px] text-pixel-muted text-right leading-tight min-w-0">
             Sends USDC.e back to your MetaMask
           </span>
         </div>
-        <div className="flex gap-2">
-          <div className="flex items-center flex-1 bg-pixel-bg border border-pixel-border rounded px-2">
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex items-center flex-1 min-w-[120px] bg-pixel-bg border border-pixel-border rounded px-2">
             <span className="text-pixel-muted mr-1">$</span>
             <input
               type="text"

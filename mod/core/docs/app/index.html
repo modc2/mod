@@ -40,7 +40,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const BASE = "/docs";
-const order = ["README","getting-started","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","whitepaper"];
+const order = ["README","getting-started","protocol","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","simple-whitepaper","whitepaper"];
 const label = n => n === "README" ? "Overview" : n.replace(/-/g," ");
 
 async function loadPages() {
@@ -56,7 +56,7 @@ async function loadPages() {
     a.onclick = e => { e.preventDefault(); show(p, true); };
     nav.appendChild(a);
   }
-  const start = (location.pathname.replace(BASE,"").replace(/^\//,"")) || "README";
+  const start = (location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README";
   show(pages.includes(start) ? start : (pages[0]||"README"), false);
 }
 
@@ -70,7 +70,7 @@ async function show(page, push) {
   if (push) history.pushState({}, "", BASE + "/" + page);
   window.scrollTo(0,0);
 }
-window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"")) || "README", false);
+window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README", false);
 loadPages();
 </script>
 </body>

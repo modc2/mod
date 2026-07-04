@@ -183,7 +183,7 @@ export default function DocsPage() {
   return (
     <div className="max-w-[1920px] mx-auto">
       {/* Header */}
-      <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-50">
+      <header className="border-b border-pixel-border bg-pixel-black/90 sticky top-0 z-50">
         <div className="px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -193,11 +193,11 @@ export default function DocsPage() {
               BACK
             </Link>
             <div className="flex flex-col">
-              <span className="text-pixel-white text-[13px] glow-green tracking-wider leading-tight">
-                API DOCUMENTATION
+              <span className="text-pixel-white text-[13px] tracking-wider leading-tight">
+                API Documentation
               </span>
-              <span className="text-pixel-gray text-[7px] tracking-widest leading-tight">
-                SUPER POLYMARKET BROS
+              <span className="text-pixel-gray text-[10px] tracking-widest leading-tight">
+                POLYMARKET
               </span>
             </div>
           </div>
@@ -434,18 +434,17 @@ export default function DocsPage() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t-2 border-pixel-white mx-4 mt-8 pt-4 pb-8">
+      <footer className="border-t border-pixel-border mx-4 mt-8 pt-4 pb-8">
         <div className="flex items-center justify-between text-[11px] text-pixel-gray">
           <div className="flex items-center gap-3">
-            <Link href="/" className="text-pixel-white glow-green hover:underline">
-              SUPER POLYMARKET BROS
+            <Link href="/" className="text-pixel-white hover:underline">
+              Polymarket
             </Link>
             <span className="text-pixel-border">|</span>
-            <span>API DOCS</span>
+            <span>API Docs</span>
           </div>
-          <span>POWERED BY MOD</span>
+          <span>Powered by mod</span>
         </div>
-        <div className="mt-3 mario-ground" />
       </footer>
     </div>
   );

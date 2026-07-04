@@ -16,8 +16,8 @@ import LiveAutoResume from "./components/LiveAutoResume";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "SUPER POLYMARKET BROS - Prediction Market Terminal",
-  description: "Mario-themed black & white Polymarket trading terminal",
+  title: "Polymarket - Prediction Market Terminal",
+  description: "Copy-trading and market data terminal for Polymarket prediction markets",
 };
 
 export default function RootLayout({

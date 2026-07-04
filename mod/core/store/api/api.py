@@ -414,6 +414,21 @@ def _truthy(v) -> bool:
     return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _detect_cid_refs(path: Path, exclude: set, cap: int = 1 << 16) -> list:
+    """Best-effort scan of a file's text content for embedded references to
+    other CIDs already known to the store — the signal that this object is a
+    manifest/bundle *mapped from* pre-existing objects. Binary or unreadable
+    content just yields no refs."""
+    try:
+        with open(path, 'rb') as f:
+            text = f.read(cap).decode('utf-8')
+    except (OSError, UnicodeDecodeError):
+        return []
+    known = {o.get('cid') for o in store_mod.list(limit=100000) if o.get('cid')}
+    known -= exclude
+    return [c for c in known if c in text]
+
+
 @app.post('/put')
 async def put(
     file: UploadFile = File(...),
@@ -455,11 +470,17 @@ async def put(
     sem = semantic.encode_file(str(tmp))
     try:
         r = store_mod.put(path=str(tmp), backend=backend, owner=owner, key=key)
+        new_cids = {v.get('cid') for v in r.get('results', {}).values()
+                    if isinstance(v, dict) and v.get('cid')}
+        refs = _detect_cid_refs(tmp, exclude=new_cids)
     finally:
         tmp.unlink(missing_ok=True)
     _apply_acl_and_pool(r.get('results', {}), owner, backend, _truthy(public), pool, key, semhash=sem)
+    for cid in new_cids:
+        ACCESS.set_refs(cid, refs)
     r['public'] = _truthy(public)
     r['semhash'] = sem
+    r['refs'] = refs
     return r
 
 
@@ -569,12 +590,20 @@ def object_info(cid: str, authorization: Optional[str] = Header(default=None)):
     caller = optional_session(authorization, None)
     if not ACCESS.can_read(caller, cid):
         raise HTTPException(403, 'not authorized to view this object')
-    rows = [o for o in store_mod.list(limit=100000) if o.get('cid') == cid]
+    all_objs = store_mod.list(limit=100000)
+    rows = [o for o in all_objs if o.get('cid') == cid]
     rows.sort(key=lambda o: o.get('timestamp') or 0)
     acl = ACCESS.get_acl(cid) or {}
     owner = acl.get('owner') or (rows[0].get('owner') if rows else None)
     first = rows[0] if rows else {}
     backends = sorted({o.get('backend') for o in rows if o.get('backend')})
+    key_by_cid = {o['cid']: o.get('key') for o in all_objs if o.get('cid')}
+
+    def _linked(cids: list) -> list:
+        # Only surface CIDs the caller may actually see — the graph must not
+        # leak the existence of private objects to non-owners.
+        return [{'cid': c, 'key': key_by_cid.get(c)} for c in cids if ACCESS.can_read(caller, c)]
+
     info = {
         'cid': cid,
         'owner': owner,
@@ -587,6 +616,10 @@ def object_info(cid: str, authorization: Optional[str] = Header(default=None)):
         'semhash': acl.get('semhash'),
         'external_url': acl.get('url'),
         'pinned': ACCESS.is_pinned(cid),
+        'links': {
+            'out': _linked(ACCESS.refs_out(cid)),  # what this object was mapped from
+            'in': _linked(ACCESS.refs_in(cid)),    # what was mapped from this object
+        },
     }
     is_owner = bool(caller and (caller == (owner or '').lower() or is_admin(caller)))
     info['is_owner'] = is_owner

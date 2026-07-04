@@ -51,6 +51,14 @@
         "/graph": {
             "method": "GET",
             "docs": "Module dependency graph (nodes + edges from each module's deps)"
+        },
+        "/owner/verify": {
+            "method": "POST",
+            "docs": "Owner-gated: confirm a bearer token (x-mod-owner) is the owner token"
+        },
+        "/modules/add": {
+            "method": "POST",
+            "docs": "Owner-gated: import a GitHub repo as a new module ({repo, name?}); clones into the orbit tree and rescans the catalog"
         }
     },
     "deps": [
@@ -66,7 +74,9 @@
         "stats",
         "search",
         "registry",
-        "graph"
+        "graph",
+        "owner_verify",
+        "modules_add"
     ],
     "schema": "QmWZLYz5QyunRkJBgbUVLfVUwfp3RyJNp8eF27ZAxTBfTv"
 }

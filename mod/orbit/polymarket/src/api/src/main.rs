@@ -87,6 +87,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
+    let share = polymarket_api::ShareStore::from_env();
+    tracing::info!(backend = %share.label(), "strat share store");
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -95,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         signer_store,
         engines,
         user_strats,
+        share,
     };
 
     // Background warmup: traders pipeline. HOURLY cadence — re-warming the

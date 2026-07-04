@@ -10,7 +10,7 @@ mod/
 │   ├── mod.py          # Framework core (CLI, module loader, crypto, storage)
 │   ├── utils.py        # 75KB of battle-tested utilities
 │   ├── cli/            # CLI interface (m / c commands)
-│   ├── api/            # FastAPI server (module registry, IPFS, blockchain)
+│   ├── api/            # API module (module registry, IPFS, blockchain) served via Flask
 │   ├── app/            # Next.js 14 frontend (TypeScript, Tailwind, ethers.js)
 │   ├── chain/          # BlocTime Protocol (Solidity, Hardhat, Base Sepolia)
 │   ├── server/         # PM2-based server management
@@ -23,9 +23,9 @@ mod/
 │   ├── ipfs/           # IPFS storage (auto-managed Kubo daemon)
 │   ├── bridge/         # Sr25519 → EVM token bridge
 │   ├── uniswap/        # DEX strategies (Rust engine)
-│   └── ...             # safe, filecoin, lighthouse, web, cache, etc.
+│   └── ...             # safe, filecoin, lighthouse, web, fncache, etc.
 │
-└── docs/               # You are here
+└── mod/core/docs/      # You are here (docs module + web app at /docs)
 ```
 
 ## Quick Start
@@ -53,15 +53,16 @@ m get mykey
 | Doc | What's Inside |
 |-----|--------------|
 | [Getting Started](getting-started.md) | Installation, setup, first commands |
+| [Protocol](protocol.md) | The mod protocol — module anatomy, serving, URL rule, discovery |
 | [CLI Reference](cli.md) | `m` / `c` commands, argument parsing, examples |
 | [Modules](modules.md) | Loading, searching, creating, and introspecting modules |
 | [Storage](storage.md) | Key-value store, encryption, IPFS integration |
 | [Keys](keys.md) | Multi-chain crypto keys, signing, verification |
 | [Servers](servers.md) | PM2 server management, registry, ports |
-| [API Server](api.md) | FastAPI endpoints, module registration, blockchain ops |
+| [API Server](api.md) | API module endpoints, module registration, blockchain ops |
 | [Smart Contracts](contracts.md) | BlocTime Protocol — Treasury, Market, Staking, Registry |
 | [Frontend](frontend.md) | Next.js app, wallet integration, network layer |
-| [Orbit Modules](orbit.md) | Full catalog of 140+ modules by category |
+| [Orbit Modules](orbit.md) | Full catalog of 200+ modules by category |
 | [Skills](skills.md) | Every capability in one place — the full cheat sheet |
 | [Utilities](utils.md) | Core utility functions reference |
 
@@ -69,7 +70,7 @@ m get mykey
 
 **Modules** — Everything is a module. Each module lives in `mod/orbit/` with an anchor file (`mod.py`, `agent.py`, or `{name}.py`). Load any module with `m.mod('name')()` or call functions directly with `m.fn('name/function')()`.
 
-**Orbits** — Modules are organized into orbits (namespaces): `core` (framework internals), `inner` (your modules), and `outer` (community modules). The framework searches all orbits when resolving module names.
+**Orbits** — Modules are organized into orbits (namespaces): `core` (framework internals), `orbit` (the ecosystem), `mods` (registry-installed), and `local`. The framework searches all orbits when resolving module names.
 
 **Keys** — Multi-chain cryptographic identity. Supports Ethereum (ecdsa), Substrate (sr25519/ed25519), and Solana. Keys are stored encrypted at `~/.mod/key/`.
 

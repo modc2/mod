@@ -12,11 +12,15 @@ const GAMMA_API: &str = "https://gamma-api.polymarket.com";
 const CLOB_API: &str = "https://clob.polymarket.com";
 const DATA_API: &str = "https://data-api.polymarket.com";
 
+// `market-trades` rewrites to data-api's public `/trades?market=<conditionId>`
+// — it must NOT resolve to the CLOB API's `/trades`, which is an
+// authenticated (API-key-gated) endpoint for the caller's own fills and
+// returns 401 for anyone else's market history.
 const DATA_PREFIXES: &[&str] = &[
-    "positions", "trades", "activity", "value", "holders", "users/", "v1/",
+    "positions", "trades", "activity", "value", "holders", "users/", "v1/", "market-trades",
 ];
 const CLOB_PREFIXES: &[&str] = &[
-    "prices-history", "book", "books", "midpoint", "midpoints", "price", "market-trades",
+    "prices-history", "book", "books", "midpoint", "midpoints", "price",
 ];
 
 fn select_upstream(endpoint: &str) -> &'static str {

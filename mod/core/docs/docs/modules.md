@@ -90,13 +90,13 @@ Modules are organized into orbits (namespaces). The framework searches all orbit
 | Orbit | Location | Purpose |
 |-------|----------|---------|
 | `core` | `mod/core/` | Framework internals (api, server, store, key, chain, app) |
-| `inner` | `mod/orbit/` | Primary module ecosystem (140+ modules) |
-| `outer` | Configurable | Community / external modules |
+| `orbit` | `mod/orbit/` | Primary module ecosystem (200+ modules) |
+| `mods` | `mod/orbit/registry/mods/` | Registry-installed modules |
 | `local` | Current directory | Project-local modules |
 
 ### Search Order
 
-When you call `m.mod('name')`, the framework searches orbits in order until it finds a match. Core modules take priority, then inner, then outer, then local.
+When you call `m.mod('name')`, the framework searches orbits in order until it finds a match. Core modules take priority, then orbit, then mods, then local.
 
 ## Module Discovery
 
@@ -104,7 +104,7 @@ When you call `m.mod('name')`, the framework searches orbits in order until it f
 
 ```python
 # All modules
-m.mods()  # ['agent', 'api', 'bridge', 'cache', ...]
+m.mods()  # ['agent', 'api', 'bridge', 'caddy', ...]
 
 # Search
 m.mods(search='ip')  # ['ipfs', 'ip']
@@ -196,7 +196,7 @@ contents = m.content('agent')
 Loaded modules are cached in memory for performance:
 
 - `_mod_cache` — module class cache
-- `fnscache` / `modscache` — function cache
+- `modscache` — module list cache
 - `tree_cache` — module tree cache (persists to `~/.mod/tree/`)
 
 Use `update=True` to force reload:
@@ -272,3 +272,5 @@ curl -X POST http://localhost:8840/in_snapshot \
 ```
 
 Ports are read from the module's `config.json`. The API runs on `port`, the Next.js app on `app_port`.
+
+The server also exposes namespaced routes: `POST /mod/{name}/{fn}` calls `fn` on module `name`, and a **null call** — `POST /mod/{name}` with no function — returns the module's info (functions, schema). See [Protocol](protocol.md) for the full convention, including the `/{mod}` (app) / `/api/{mod}` (API) gateway URL rule.

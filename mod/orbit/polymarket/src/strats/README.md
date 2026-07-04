@@ -36,6 +36,28 @@ One-shot replay over a historical window:
 
 The UI's P&L curve, trade feed, and fee/gas/total/gross row all read directly from `BacktestResult`.
 
+## Sharing a strat
+
+Two ways to get a strat to someone else:
+
+- **In-deploy gallery** — flip it `public` (`POST /user-strats/:id/publish`) and
+  it appears in every trader's Community list, where they can `fork` it.
+- **By CID (cross-system)** — `POST /user-strats/:id/share` bundles the strat's
+  source + metadata into a self-describing JSON blob, stores those bytes in a
+  content-addressable store, and returns an IPFS-compatible **CID**. Anyone
+  imports it with `POST /user-strats/import {cid, owner}` — it lands as a
+  private copy they own, with `forkedFrom` lineage back to the original.
+
+The share backend is just an HTTP endpoint speaking a two-call contract
+(`POST /put` → `{cid}`, `GET /get/{cid}`). The orbit `localfs` module
+implements it on `:8860` and is the default. Point `POLYMARKET_SHARE_URL`
+(or `LOCALFS_URL`) at any other service that speaks it — a remote/shared
+localfs, the `store` module, or an adapter in front of a real IPFS pinning
+service — and sharing works across systems unchanged. Because the bundle is
+plain bytes and the CID is computed the IPFS way, the same CID re-pinned to
+any IPFS-compatible store resolves to the same strat: the link is portable
+even when the backend is not. See `src/api/src/share.rs`.
+
 ## Writing a custom strat
 
 Two paths:

@@ -45,7 +45,9 @@ without `.git`), or a bare name (assumed under `modc2`).
 | `untrack` / `detach` | remove a repo |
 | `set_branch` | change which branch a tracked repo follows |
 | `repos` | the watchlist with each repo's branch + latest commit |
-| `info` | module + watchlist + auth status |
+| `modules` | modules known to the **registrar** (`core/registry`), each with its live URL — `{name, key, registered, cid, updated, app, api, path, desc}`; cached ~90s, `refresh=True` to re-scan |
+| `register` | register `updates` itself with the registrar |
+| `info` | module + watchlist + auth status + registrar |
 
 Each commit comes back as
 `{repo, branch, sha, full_sha, author, date, message, url, new}`.
@@ -61,13 +63,20 @@ m updates/serve port=50180 background=False   # run in the foreground
 m updates/kill                  # stop it
 ```
 
-The page shows the merged commit feed (mod `dev` by default), repo filter pills,
-an **NEW** badge on unseen commits, a "track owner/repo" box, and a "mark read"
-button; it auto-refreshes every 60s.
+The UI has two views, switched with the segmented control in the header:
+
+- **Feed** — the merged commit feed (mod `dev` by default), repo filter pills, a
+  **NEW** badge on unseen commits, a "track owner/repo" box, and a "mark read"
+  button; auto-refreshes every 60s.
+- **Modules** — a launcher backed by the **registrar** (`core/registry`): every
+  module it knows about as a card with a registered/local chip, last-updated time,
+  and an **open ↗** link to the module's live app (gateway path `modc2.com/<name>`).
+  Filter as you type; "rescan" forces a fresh registry walk.
 
 JSON API (same port): `GET /api/updates?n=&repo=`, `GET /api/commits?repo=&branch=&n=`,
-`GET /api/repos`, `GET /api/poll`, `GET /api/info`, `POST /api/track {repo,branch}`,
-`POST /api/untrack {repo}`, `POST /api/set_branch {repo,branch}`.
+`GET /api/repos`, `GET /api/modules?search=&refresh=`, `GET /api/poll`,
+`GET /api/info`, `POST /api/track {repo,branch}`, `POST /api/untrack {repo}`,
+`POST /api/set_branch {repo,branch}`.
 
 ## Continuous monitoring
 

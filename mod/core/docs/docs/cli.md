@@ -118,7 +118,7 @@ m kill api                # Stop server
 ```bash
 m push "commit message"   # Add, commit, push
 m repos                   # List git repos
-m clone mod_name          # Clone a module
+m clone mod_name new_name # Clone a module under a new name
 ```
 
 ### System

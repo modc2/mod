@@ -70,6 +70,18 @@ export type Info = {
   stats: Stats;
 };
 
+/** A search result module carries a relevance `score` when semantic ranking ran. */
+export type ScoredModule = Module & { score?: number };
+
+/** Response from `/search`. `semantic` is true when embeddings ranked the
+ *  results; false means the backend fell back to a substring filter. */
+export type SearchResult = {
+  mode: "semantic" | "substring";
+  semantic: boolean;
+  query: string;
+  results: ScoredModule[];
+};
+
 export type TreeNode = {
   name: string;
   path: string;
@@ -91,6 +103,24 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** POST with the owner bearer token; throws the API's error message on failure. */
+async function ownerPost<T>(path: string, token: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-mod-owner": token,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(json?.error || `${path} → ${res.status}`);
+  }
+  return json as T;
+}
+
 export const api = {
   info: () => get<Info>("/info"),
   mods: () => get<Module[]>("/mods"),
@@ -106,6 +136,46 @@ export const api = {
     ),
   registry: () => get<Registry>("/registry"),
   graph: () => get<Graph>("/graph"),
+  search: (q: string, limit = 80) =>
+    get<SearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+
+  /** Owner-only: confirm a token is the owner's. Resolves true/false. */
+  verifyOwner: (token: string) =>
+    ownerPost<{ ok: boolean }>("/owner/verify", token)
+      .then((r) => r.ok)
+      .catch(() => false),
+
+  /** Owner-only: import a GitHub repo as a new module. Returns the new record. */
+  addModule: (token: string, repo: string, name?: string) =>
+    ownerPost<{ ok: boolean; module: Module }>("/modules/add", token, {
+      repo,
+      name: name?.trim() || undefined,
+    }).then((r) => r.module),
+};
+
+// Recently-visited modules, shared between the explorer detail pages and the
+// workspace sidebar. Tiny payload, quota-safe: modc2.com modules share one
+// localStorage origin, so a failed setItem must never crash the caller.
+const RECENTS_KEY = "mod.web.recents";
+export const recents = {
+  get(): string[] {
+    if (typeof window === "undefined") return [];
+    try {
+      const v = JSON.parse(window.localStorage.getItem(RECENTS_KEY) || "[]");
+      return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  },
+  add(name: string): string[] {
+    const next = [name, ...recents.get().filter((n) => n !== name)].slice(0, 12);
+    try {
+      window.localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage full / blocked — non-fatal */
+    }
+    return next;
+  },
 };
 
 // Public gateway URL for a module's live app. Behind the modc2.com proxy the

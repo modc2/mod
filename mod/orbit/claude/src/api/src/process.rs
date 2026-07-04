@@ -246,11 +246,83 @@ pub fn act(
     module_name: &str,
     config: &Value,
 ) -> (bool, String) {
-    match backend {
+    // Smart prod rebuild. Claude restarts a module after editing it so the edit
+    // goes live. But a module whose app runs a *production* Next build
+    // (`next start`) re-serves the stale `.next` bundle on a bare restart — the
+    // edit never appears. So when (re)starting such a module, rebuild the app
+    // first. A dev-mode app (`next dev`) is left untouched: it hot-reloads
+    // source on its own, so a plain restart already picks up the edit.
+    let mut prelog: Option<String> = None;
+    if matches!(action, "restart" | "start") {
+        if let Some(app_dir) = prod_next_app_dir(procs) {
+            let (built, blog) = build_app(module_dir, &app_dir);
+            if !built {
+                // Don't restart into a broken build — leave the old server up.
+                return (
+                    false,
+                    format!(
+                        "✗ prod build failed — keeping the running server (no restart)\n{}",
+                        blog.trim()
+                    ),
+                );
+            }
+            prelog = Some(format!("✓ rebuilt prod app before restart · {}", app_dir.display()));
+        }
+    }
+
+    let (ok, out) = match backend {
         Backend::Pm2 => pm2_act(action, procs, module_dir, config),
         Backend::Systemd => systemd_act(action, procs, module_name),
         Backend::Generic => generic_act(action, procs, module_dir, config),
+    };
+    match prelog {
+        Some(b) => (ok, format!("{}\n{}", b, out)),
+        None => (ok, out),
     }
+}
+
+/// Quote a path for safe interpolation into a bash one-liner.
+fn sh_quote(p: &Path) -> String {
+    format!("'{}'", p.to_string_lossy().replace('\'', "'\\''"))
+}
+
+/// If the module's running APP process is a *production* Next build
+/// (`next start`), return its working directory (where `npm run build` runs).
+/// Returns None for a dev-mode app (`next dev`, hot-reloads on its own), a
+/// non-Next server, or when nothing is running — in all those cases a plain
+/// restart already suffices and no rebuild is needed.
+fn prod_next_app_dir(procs: &[Proc]) -> Option<PathBuf> {
+    for p in procs {
+        let pid = match p.pid {
+            Some(n) if n > 0 => n,
+            _ => continue,
+        };
+        let cmd = proc_cmdline(pid);
+        if !cmd.contains("next") {
+            continue; // api proc (rust binary / uvicorn) — skip
+        }
+        let is_dev = cmd.contains("next dev") || cmd.contains(" dev ") || cmd.ends_with(" dev");
+        let is_prod =
+            cmd.contains("next start") || cmd.contains(" start ") || cmd.ends_with(" start");
+        if is_dev || !is_prod {
+            return None; // dev (or indeterminate) — restart is enough
+        }
+        // Prefer the live cwd; fall back to the pm2-reported pm_cwd (Proc.detail).
+        if let Some(dir) = proc_link(pid, "cwd") {
+            return Some(dir);
+        }
+        if !p.detail.is_empty() {
+            return Some(PathBuf::from(&p.detail));
+        }
+        return None;
+    }
+    None
+}
+
+/// Run `npm run build` for the app, entering the module's nix env when present.
+fn build_app(module_dir: &Path, app_dir: &Path) -> (bool, String) {
+    let cmd = format!("cd {} && npm run build", sh_quote(app_dir));
+    run(launcher(module_dir, &cmd))
 }
 
 // ── nix wrapping ─────────────────────────────────────────────────────

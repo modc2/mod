@@ -11,13 +11,8 @@ import { networkById, withRpcFallback } from "../lib/networks";
 import type { SavedIndex, PolymarketTrade } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
-import WalletFundingPanel from "./WalletFundingPanel";
-import EnableTradingPanel from "./EnableTradingPanel";
-import PolymarketAccountPanel from "./PolymarketAccountPanel";
-import BackendSignerPanel from "./BackendSignerPanel";
-import WalletPanel from "./WalletPanel";
-import StratParamsPanel from "./StratParamsPanel";
 import ThemeToggle from "./ThemeToggle";
+import PortfolioPanel from "./PortfolioPanel";
 
 const ERC20_BAL_ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -374,8 +369,9 @@ export default function LivePanel() {
     if (rounded > 0 && rounded !== liveCapital) setLiveCapital(rounded);
   }, [proxyBalance, liveCapital]);
 
-  // Wrap setLiveCapital so the CAPITAL CAP picker (in WalletFundingPanel)
-  // flips the override ref — any manual pick disables proxy auto-sync.
+  // Wrap setLiveCapital so the CAPITAL CAP picker (in the sidebar's
+  // WalletFundingPanel) flips the override ref — any manual pick disables
+  // proxy auto-sync.
   const handleManualCapital = useCallback((n: number) => {
     userOverrodeCapitalRef.current = true;
     setLiveCapital(n);
@@ -505,12 +501,8 @@ export default function LivePanel() {
 
   return (
     <div className="space-y-1">
-      {/* ── Trading wallet at top of LIVE ──
-          Compact deposit/withdraw panel mounted above the engine status
-          bar so balance + funding is always one click away regardless
-          of which tab is active. Engine spamming "wallet empty" errors
-          every cycle was confusing — surface the fix inline. */}
-      {auth.connected && <div id="live-wallet-panel"><WalletPanel /></div>}
+      {/* Trading wallet (deposit/withdraw) lives permanently in the account
+          SidebarShell now (#sidebar-wallet-panel) — not duplicated here. */}
 
       {/* ── Header ── */}
       <div className="pixel-panel border-2 border-pixel-border">
@@ -698,9 +690,6 @@ export default function LivePanel() {
         );
       })()}
 
-      {/* WalletFundingPanel moved to top of LivePanel — see directly above
-          the engine control bar. */}
-
       {/* ── CLOB credentials required banner ──
           Orders are signed with a Polymarket CLOB API key derived from a
           one-time MetaMask signature. Without it EVERY order placement fails
@@ -748,7 +737,7 @@ export default function LivePanel() {
             </div>
           </div>
           <button
-            onClick={() => document.getElementById("live-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onClick={() => document.getElementById("sidebar-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded"
           >
             FUND NOW →
@@ -756,8 +745,10 @@ export default function LivePanel() {
         </div>
       )}
 
-      {/* Portfolio plots are pinned ABOVE the tab bar (see top of the content
-          column) so they sit over the trades on every tab. */}
+      {/* ── Portfolio — pinned ABOVE the tab bar so equity (cash + positions,
+          not just free capital), the performance-over-time curve, and every
+          open position's live P&L stay visible on every tab. */}
+      {auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
 
       {/* BackendSignerPanel removed — the V1 Safe-co-owner flow that
           panel managed isn't needed for V2 trading. The V2 deposit
@@ -1386,14 +1377,13 @@ export default function LivePanel() {
       )}
 
       {/* ══ CONFIG ══ (MY TRADES tab)
-          Strat params, custom strats, and wallet admin moved BELOW the
-          plots + trades so the chart and execution feed lead the view. */}
+          Custom strats and wallet admin moved BELOW the plots + trades so
+          the chart and execution feed lead the view. */}
 
-      {/* ── Active strat params + watchlist ──
-          Read-only mirror of what's set in the STRATS tab — capital,
-          min/max trade, poll cadence, the trader list with weights.
-          `stratTick` re-evaluates on each strat edit elsewhere in the app. */}
-      {liveTab === "mine" && auth.connected && <StratParamsPanel tick={stratTick} />}
+      {/* ── Active strat params ──
+          Removed: the STRAT params panel here was a read-only mirror of the
+          left StratSidebar's PARAMETERS section — pure duplication. The
+          sidebar is now the single place to view + edit strat config. */}
 
       {/* ── Custom strats / Strategy Hub moved to the STRATS tab top bar ──
           (publish · fork · fund). See CopyIndex STRATS-mode hub bar. */}
@@ -1442,7 +1432,7 @@ export default function LivePanel() {
                 {" "}is a wallet from Polymarket's old (V1) system.
                 <b> Ignore it unless you have leftover USDC sitting there.</b>
                 {" "}If you do, WITHDRAW it back to your MetaMask, then DEPOSIT
-                into TRADING WALLET above. The panel auto-hides once empty.
+                into TRADING WALLET in the sidebar. The panel auto-hides once empty.
               </div>
               <div className="text-pixel-muted leading-relaxed">
                 <span className="text-amber-400 font-bold">WITHDRAW</span> from
@@ -1454,13 +1444,8 @@ export default function LivePanel() {
         );
       })()}
 
-      {/* ── Legacy V1 Safe (proxy) ──
-          Auto-hides itself when balance is 0 (see component). Lets
-          users with leftover V1 funds withdraw them out and re-deposit
-          into the V2 TRADING WALLET. */}
-      {liveTab === "mine" && auth.connected && (
-        <PolymarketAccountPanel />
-      )}
+      {/* Legacy V1 Safe migration panel also lives in the sidebar now
+          (auto-hides itself when balance is 0). */}
 
       </div>{/* /content column */}
     </div>

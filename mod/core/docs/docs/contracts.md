@@ -17,13 +17,16 @@ The BlocTime Protocol is a suite of Solidity smart contracts deployed on Base Se
 | USDC | `0xe22970F0bB899C7D615ED522B2A807629F99ec01` |
 | USDT | `0xc68d5E71404cAb1101597B7531A5738873E226Bc` |
 | NativeToken | `0xB9b6F5CdB25f8BC9fC88CA171381B509Df907b51` |
-| ManualPriceOracle | `0x40C37CA1321f967831c86E5AF8935aC043F9adF1` |
+| ManualPriceOracle | `0x50a37f1b9b4463B79f256857D1AE092A371aC198` |
 | TokenGate | `0x97c7a7066e80F13Ee4ABEdeaA223CbC71472de8b` |
 | BlocTime | `0xF25AAFDd0A842ff50b041595C79210b48d6795bD` |
-| Registry | `0x4f9e72C935e5762E941F98DA50696cb022008a43` |
+| Registry | `0xF7a5498369d7ceA13461BcfDC65995B8743baE97` |
 | Treasury | `0xe9a96Ae58108E9Dd7e14c5DdCb66C175BB877785` |
 | Market | `0x2F0B61616Fbf662A4f4C544D7d5d909D74ef7687` |
 | Debit | `0x6F941E762C7Df3db8DfD0C47d53Acd85D73Da442` |
+| Perms | `0x5ee790Cd1FBFdeDfDD5Ea681fCdDF8a0e259A23A` |
+
+Addresses above mirror `mod/core/chain/config.json` (`deployments.testnet`) — that file is the source of truth.
 
 Config: `mod/core/chain/config.json`
 ABIs: Stored on IPFS (referenced in config)

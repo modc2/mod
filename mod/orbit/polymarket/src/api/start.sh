@@ -13,6 +13,14 @@ fi
 
 export PORT
 
+# ── Persistent data dir ──
+# Signer keystore, live-engine sessions, and user strats all resolve from
+# POLYMARKET_DATA_DIR and fall back to /tmp when unset — which loses wallet
+# keys and silently reverts live sessions to DRY RUN after a reboot/tmp
+# clean. Pin it to the module's off-tree state dir.
+export POLYMARKET_DATA_DIR="${POLYMARKET_DATA_DIR:-$HOME/.mod/polymarket}"
+mkdir -p "$POLYMARKET_DATA_DIR"
+
 # ── Scheduled liquidation ("flatten everything") ──
 # How often the backend sells EVERY held position, in hours. Override by
 # exporting POLYMARKET_LIQUIDATE_EVERY_HOURS before launch; 0 disables it.

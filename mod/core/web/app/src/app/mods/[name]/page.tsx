@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { api, gatewayUrl, type Module } from "@/lib/api";
+import { api, gatewayUrl, recents, type Module } from "@/lib/api";
 import { Nav, Footer } from "../../components/Chrome";
 import Explorer from "../../components/Explorer";
 import RegisterPanel from "../../components/RegisterPanel";
@@ -30,7 +30,11 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
     let alive = true;
     api
       .mod(params.name)
-      .then((mod) => alive && setM(mod))
+      .then((mod) => {
+        if (!alive) return;
+        setM(mod);
+        recents.add(mod.name); // feeds the workspace "previously visited" rail
+      })
       .catch((e) => alive && setErr(String(e)));
     return () => {
       alive = false;

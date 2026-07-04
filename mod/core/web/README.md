@@ -43,7 +43,7 @@ stripped before proxying to `mod-api`).
 | `GET /mods/:n/tree` | Recursive source tree (build output elided) |
 | `GET /mods/:n/file?path=` | One source file, sandboxed to the module dir |
 | `GET /stats`   | Aggregate stats (modules/functions/rust/app) |
-| `GET /search?q=` | Filter the catalog                         |
+| `GET /search?q=&limit=` | Semantic search (embeddings); falls back to substring filter when no provider is configured |
 
 ## Run
 
@@ -53,6 +53,21 @@ stripped before proxying to `mod-api`).
 
 Env knobs: `MOD_WEB_API_PORT` (50420), `MOD_WEB_APP_PORT` (3420),
 `MOD_WEB_MODE` (`prod`|`dev`), `MOD_ORBIT_DIR` (defaults to `../../orbit`).
+
+### Semantic search
+
+`GET /search` ranks modules by meaning using vector embeddings. The provider is
+an OpenAI-standard `/embeddings` endpoint, so it can point at the mod `dev`/
+`venice` LLM gateways or OpenAI directly:
+
+- `WEB_EMBED_URL` — provider base URL (default `https://api.openai.com/v1`).
+- `WEB_EMBED_MODEL` — embedding model (default `text-embedding-3-small`).
+- `WEB_EMBED_KEY` — bearer key (falls back to `OPENAI_API_KEY`).
+
+Search is enabled when a key is set, or when `WEB_EMBED_URL` points at a local
+gateway that needs none. With no provider configured (or if it's unreachable),
+`/search` transparently falls back to a substring filter and the explorer labels
+results "text match" instead of "semantic" — it never hard-fails.
 
 ## Gateway
 

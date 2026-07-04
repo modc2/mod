@@ -1067,7 +1067,7 @@ export default function Home() {
           action: "start",
           type: "api",
           port: API_PORT,
-          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`,
+          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/codex/src/api`,
         }),
       });
       const data = await res.json();
@@ -1097,7 +1097,7 @@ export default function Home() {
     }
     setApiStatus("starting");
     // Try starting via start.sh (the Rust binary)
-    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`;
+    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/codex/src/api`;
     try {
       const res = await fetch("/api/service", {
         method: "POST",

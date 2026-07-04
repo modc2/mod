@@ -27,6 +27,50 @@ export default function WalletChip() {
   const [editing, setEditing] = useState<string | null>(null);
   const [draftLabel, setDraftLabel] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  // Funded USDC per wallet (deposit-wallet collateral), keyed by lowercased
+  // address. undefined = not fetched yet, null = unavailable, number = dollars.
+  const [balances, setBalances] = useState<Record<string, number | null>>({});
+
+  // Wallets the switcher knows about, as a stable key so the balance fetch
+  // doesn't re-run on every render (knownWallets is a fresh array each time).
+  const addrKey = knownWallets.map((w) => w.address).join(",");
+
+  // When the dropdown opens, fetch each known wallet's funded value so the
+  // user can see where their money is before switching. Sums every USDC form
+  // (CLOB collateral + native + un-deposited USDC.e) the backend reports.
+  useEffect(() => {
+    if (!open || !addrKey) return;
+    const addrs = addrKey.split(",").filter(Boolean);
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        addrs.map(async (addr) => {
+          try {
+            const r = await fetch(
+              `/api/polymarket/deposit-wallet/info?eoa=${encodeURIComponent(addr)}`,
+              { cache: "no-store" },
+            );
+            if (!r.ok) return [addr.toLowerCase(), null] as const;
+            const j = (await r.json()) as {
+              usdcBalance?: string; nativeUsdcBalance?: string;
+              rawUsdceBalance?: string; balanceUnavailable?: boolean;
+            };
+            if (j.balanceUnavailable) return [addr.toLowerCase(), null] as const;
+            const dollars =
+              (Number(j.usdcBalance ?? 0) +
+                Number(j.nativeUsdcBalance ?? 0) +
+                Number(j.rawUsdceBalance ?? 0)) /
+              1e6;
+            return [addr.toLowerCase(), Number.isFinite(dollars) ? dollars : null] as const;
+          } catch {
+            return [addr.toLowerCase(), null] as const;
+          }
+        }),
+      );
+      if (!cancelled) setBalances(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [open, addrKey]);
 
   // Close on outside-click / Escape.
   useEffect(() => {
@@ -52,6 +96,27 @@ export default function WalletChip() {
   // Everyone except the active wallet — the "switch to" choices.
   const others = knownWallets.filter((w) => w.address.toLowerCase() !== activeLower);
   const active = knownWallets.find((w) => w.address.toLowerCase() === activeLower);
+
+  // Render the funded value for a wallet address (null = unavailable,
+  // undefined = still loading). Green when funded, dim when empty.
+  const fundedChip = (address: string) => {
+    const v = balances[address.toLowerCase()];
+    if (v === undefined) {
+      return <span className="text-[10px] font-mono text-pixel-gray/50 animate-pulse">···</span>;
+    }
+    if (v === null) {
+      return <span className="text-[10px] font-mono text-pixel-gray/50">—</span>;
+    }
+    const text = v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(2)}`;
+    return (
+      <span
+        className={`text-[11px] font-mono ${v > 0 ? "text-green-400" : "text-pixel-gray/60"}`}
+        title="Funded USDC in this wallet's trading account"
+      >
+        {text}
+      </span>
+    );
+  };
 
   const label = loading
     ? "..."
@@ -150,9 +215,12 @@ export default function WalletChip() {
                     {shortAddress(auth.address)}
                   </div>
                 </div>
-                <span className={`text-[10px] font-mono ${auth.authenticated ? "text-green-400" : "text-amber-400"}`}>
-                  {auth.authenticated ? "CLOB ✓" : "CLOB…"}
-                </span>
+                <div className="flex flex-col items-end shrink-0">
+                  {fundedChip(auth.address)}
+                  <span className={`text-[10px] font-mono ${auth.authenticated ? "text-green-400" : "text-amber-400"}`}>
+                    {auth.authenticated ? "CLOB ✓" : "CLOB…"}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <button
@@ -256,6 +324,7 @@ export default function WalletChip() {
                           {shortAddress(w.address)}
                         </div>
                       </button>
+                      <div className="shrink-0">{fundedChip(w.address)}</div>
                       <button
                         onClick={() => startEdit(w.address, w.label)}
                         className="text-[11px] text-pixel-gray hover:text-pixel-white px-1 opacity-0 group-hover:opacity-100"

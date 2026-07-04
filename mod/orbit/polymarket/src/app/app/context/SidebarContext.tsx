@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode,
 } from "react";
 
-const DOCKED_KEY = "poly8bit_strats_sidebar";
+const COLLAPSED_KEY = "poly8bit_strats_sidebar_collapsed";
 const WIDTH_KEY = "poly8bit_strats_sidebar_width";
 
 export const SIDEBAR_MIN = 280;
@@ -12,11 +12,15 @@ export const SIDEBAR_MAX = 1600;
 export const SIDEBAR_DEFAULT = 420;
 
 interface SidebarContextValue {
-  docked: boolean;
+  /// The account sidebar (wallet / funding / go-live checklist) is permanent —
+  /// it always mounts, there's no "undocked" state that drops it back into
+  /// the main column. `collapsed` only toggles a thin icon rail vs the full
+  /// panel, the same way the left StratSidebar collapses.
+  collapsed: boolean;
   width: number;
   hydrated: boolean;
-  toggleDocked: () => void;
-  setDocked: (v: boolean) => void;
+  toggleCollapsed: () => void;
+  setCollapsed: (v: boolean) => void;
   setWidth: (v: number) => void;
   /// Begin a drag to resize. Component should pass a MouseDown handler.
   startDrag: (e: React.MouseEvent) => void;
@@ -31,26 +35,32 @@ export function useSidebar() {
 }
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [docked, setDockedState] = useState(false);
+  const [collapsed, setCollapsedState] = useState(false);
   const [width, setWidthState] = useState(SIDEBAR_DEFAULT);
   const [hydrated, setHydrated] = useState(false);
   const draggingRef = useRef(false);
+  // Delta-based drag (mouse-x movement since drag start) rather than
+  // distance-from-viewport-edge — the panel sits to the left of main content
+  // now, not pinned to the screen's right edge, so an edge-relative formula
+  // would resize wrong as soon as the left nav rail's own width changes.
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(SIDEBAR_DEFAULT);
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(DOCKED_KEY) === "1") setDockedState(true);
+      if (localStorage.getItem(COLLAPSED_KEY) === "1") setCollapsedState(true);
       const w = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(w) && w >= SIDEBAR_MIN && w <= SIDEBAR_MAX) setWidthState(w);
     } catch {}
     setHydrated(true);
   }, []);
 
-  const setDocked = useCallback((v: boolean) => {
-    setDockedState(v);
-    try { localStorage.setItem(DOCKED_KEY, v ? "1" : "0"); } catch {}
+  const setCollapsed = useCallback((v: boolean) => {
+    setCollapsedState(v);
+    try { localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0"); } catch {}
   }, []);
 
-  const toggleDocked = useCallback(() => setDocked(!docked), [docked, setDocked]);
+  const toggleCollapsed = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed]);
 
   const setWidth = useCallback((w: number) => {
     const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, w));
@@ -63,8 +73,9 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!draggingRef.current) return;
-      const fromRight = window.innerWidth - e.clientX;
-      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, fromRight));
+      // Handle sits on the panel's right edge — dragging right widens it.
+      const delta = e.clientX - dragStartXRef.current;
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidthRef.current + delta));
       setWidthState(next);
     };
     const onUp = () => {
@@ -85,12 +96,14 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   const startDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     draggingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = width;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, []);
+  }, [width]);
 
   return (
-    <SidebarContext.Provider value={{ docked, width, hydrated, toggleDocked, setDocked, setWidth, startDrag }}>
+    <SidebarContext.Provider value={{ collapsed, width, hydrated, toggleCollapsed, setCollapsed, setWidth, startDrag }}>
       {children}
     </SidebarContext.Provider>
   );

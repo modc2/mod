@@ -195,12 +195,12 @@ class TestStoreConfig:
         # store should be a localfs instance
         assert hasattr(reg.store, 'put')
         assert hasattr(reg.store, 'get')
-        assert reg.store.__class__.__name__ == 'LocalFS'
+        assert 'localfs' in reg.store.__class__.__module__
 
     def test_registry_accepts_store_override(self):
         from mod.core.registry.registry import Registry
         reg = Registry(store='localfs')
-        assert reg.store.__class__.__name__ == 'LocalFS'
+        assert 'localfs' in reg.store.__class__.__module__
 
     def test_localfs_put_get_roundtrip(self):
         store = m.mod('localfs')()

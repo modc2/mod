@@ -51,6 +51,15 @@ curl -X POST http://localhost:8840/in_snapshot \
 
 Response format: `{"result": <return_value>}`
 
+Besides the bare `POST /{method_name}` route, every served module also answers the namespaced form and the discovery **null call**:
+
+```bash
+POST /mod/{name}/{fn}    # call fn on module {name}
+POST /mod/{name}         # no function → returns the module's info (functions, schema)
+```
+
+Behind a gateway the same API is reachable at `/api/{mod}` (prefix stripped) while the module's app lives at `/{mod}` — see [Protocol](protocol.md).
+
 ### Serve Suffixes: `.app` and `.api`
 
 Use suffixes to control what gets served:

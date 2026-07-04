@@ -50,8 +50,16 @@
         "/?endpoint=prices-history": {
             "method": "GET",
             "docs": "Proxy: price history (clob)"
+        },
+        "/user-strats/{id}/share": {
+            "method": "POST",
+            "docs": "Bundle a strat + store it content-addressably (localfs default) -> CID"
+        },
+        "/user-strats/import": {
+            "method": "POST",
+            "docs": "Import a strat by CID as a private copy you own"
         }
     },
-    "schema": "QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz",
+    "schema": "QmekoQcn4MrjvW757N1dv9xYJiSDDK1tiJYZjCqbLh1dec",
     "gateway_port": 3091
 }

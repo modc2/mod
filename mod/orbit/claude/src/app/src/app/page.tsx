@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { VersionsPanel } from "../components/VersionsPanel";
+import { qrSvg } from "./lib/qr";
 
 const WalletModal = dynamic(() => import("../components/WalletModal"), { ssr: false });
 const SudoModal = dynamic(() => import("../components/SudoModal"), { ssr: false });
@@ -176,8 +177,9 @@ const STATUS_COLOR_LIGHT: Record<string, string> = {
 // ── Models ──────────────────────────────────────────────────────────
 // Specific model IDs the user can pick. Value is what we hand to the CLI's
 // --model flag (accepts both family aliases and full names like
-// claude-opus-4-7). Keep first item = current default Opus.
+// claude-opus-4-7). Keep first item = current default (Fable 5).
 const MODEL_OPTIONS = [
+  { value: "claude-fable-5",    label: "Fable 5",    family: "fable",  color: "#f472b6" },
   { value: "claude-opus-4-8",   label: "Opus 4.8",   family: "opus",   color: "#c4b5fd" },
   { value: "claude-opus-4-7",   label: "Opus 4.7",   family: "opus",   color: "#a78bfa" },
   { value: "claude-opus-4-6",   label: "Opus 4.6",   family: "opus",   color: "#9f7aea" },
@@ -187,14 +189,13 @@ const MODEL_OPTIONS = [
 ];
 
 // Legacy aliases (saved by older builds / older jobs) → upgraded value.
-// Family aliases resolve to the newest of that family; `fable` is gated behind
-// Mythos access (resolves to an unavailable model) so it falls back to Opus.
+// Family aliases resolve to the newest of that family. `fable` now resolves to
+// the live Claude Fable 5 model (Mythos access is generally available).
 const MODEL_ALIAS_UPGRADE: Record<string, string> = {
   opus: "claude-opus-4-8",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5",
-  fable: "claude-opus-4-8",
-  "claude-fable-5": "claude-opus-4-8",
+  fable: "claude-fable-5",
 };
 
 // Map any stored/legacy model string to a currently-selectable model value,
@@ -291,7 +292,7 @@ export default function Home() {
   const [dragOverJobId, setDragOverJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("claude-opus-4-8");
+  const [model, setModel] = useState("claude-fable-5");
   const [agentType, setAgentType] = useState("default");
   // Direct, savable system prompt sent verbatim as --append-system-prompt.
   // Takes precedence over a selected personality when non-empty.
@@ -317,6 +318,24 @@ export default function Home() {
   const [moduleName, setModuleName] = useState("");
   const [creationMode, setCreationMode] = useState<"edit" | "fork" | "new">("edit");
   const [selectedModule, setSelectedModule] = useState("claude");
+  // True when this console is itself running inside an iframe. claude's APP tab
+  // embeds the real claude app (/claude); since the claude app IS this console,
+  // the embedded copy must NOT re-iframe /claude again or it recurses forever —
+  // so when embedded we break the chain by falling back to the web front-door.
+  const [isEmbedded, setIsEmbedded] = useState(false);
+  useEffect(() => {
+    try { setIsEmbedded(window.self !== window.top); } catch { setIsEmbedded(true); }
+  }, []);
+  // Most-recently-opened modules (names, newest first) — powers the left nav
+  // rail's quick-switch list. Persisted so the rail is useful on reload.
+  const [recentModules, setRecentModules] = useState<string[]>([]);
+  // Left navigation rail (HUB + recent modules) open/closed.
+  const [leftRailOpen, setLeftRailOpen] = useState(true);
+  // Rail search — filters the rail's module list (replaces MINE/RECENT while typing).
+  const [railSearch, setRailSearch] = useState("");
+  // Expand the embedded module APP to a full-viewport overlay (hides the
+  // console chrome so you get the module's app edge-to-edge).
+  const [appExpanded, setAppExpanded] = useState(false);
   const [githubUrl, setGithubUrl] = useState("");
   const [anchorDir, setAnchorDir] = useState("~/mod");
   const [modules, setModules] = useState<string[]>([]);
@@ -395,6 +414,35 @@ export default function Home() {
   const [whitelistInput, setWhitelistInput] = useState("");
   const [whitelistBusy, setWhitelistBusy] = useState(false);
   const [whitelistError, setWhitelistError] = useState<string | null>(null);
+
+  // ── Time-boxed edit grants (QR hand-off) ──────────────────────────
+  // The owner mints a grant → a QR-shareable invite that confers temporary
+  // edit access (default 1h), optionally gated by a locally-generated key the
+  // owner shares out of band. Backed by GET/POST/DELETE /grants on the API.
+  type GrantRow = { id: string; exp: number; ttl: number; label?: string | null; created: number; key_required: boolean };
+  type RedemptionRow = { address: string; exp: number; grant: string; redeemed: number };
+  const [grants, setGrants] = useState<GrantRow[]>([]);
+  const [grantRedemptions, setGrantRedemptions] = useState<RedemptionRow[]>([]);
+  const [grantTtl, setGrantTtl] = useState(3600); // seconds; default 1h
+  const [grantKey, setGrantKey] = useState("");
+  const [grantLabel, setGrantLabel] = useState("");
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  // The just-minted grant we're showing a QR for (id + the key to share OOB).
+  const [activeGrant, setActiveGrant] = useState<{ id: string; exp: number; key?: string; key_required: boolean } | null>(null);
+  const [grantCopied, setGrantCopied] = useState<string | null>(null);
+  // Now (seconds) ticking for live countdowns on grants.
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+
+  // Redemption side: an invite link (`?grant=<id>`) lands a non-owner here.
+  // We capture it on mount and offer a "redeem" banner that threads the grant
+  // through sign-in. The key (if required) is typed by the visitor.
+  const [pendingGrant, setPendingGrant] = useState<string | null>(null);
+  const [redeemKey, setRedeemKey] = useState("");
+  const pendingGrantRef = useRef<{ id: string; key: string } | null>(null);
+  // Walletless guest sessions (POST /grants/:id/redeem): unix expiry of the
+  // guest access, driving the countdown pill + auto sign-out at grant end.
+  const [guestExp, setGuestExp] = useState<number | null>(null);
 
   // File viewer state
   const [viewingFile, setViewingFile] = useState<string | null>(null);
@@ -555,7 +603,7 @@ export default function Home() {
 
   // Top-of-panel tabs inside the AGENT sidebar — switch between agent
   // settings (engine/model/persona), version history, and the task list.
-  const [agentPanelTab, setAgentPanelTab] = useState<"info" | "versions" | "tasks">("tasks");
+  const [agentPanelTab, setAgentPanelTab] = useState<"info" | "versions" | "tasks" | "modules">("tasks");
 
   // Left sidebar (agent) and right sidebar (wallet)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
@@ -605,10 +653,18 @@ export default function Home() {
     name: string; path: string; display: string; has_config: boolean; has_mod: boolean;
   }>>([]);
   const [selectorMode, setSelectorMode] = useState<"modules" | "folders">("modules");
-  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | "edit" | null>(null);
+  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | "edit" | "import" | null>(null);
   const [headerNewName, setHeaderNewName] = useState("");
   const [headerGithubUrl, setHeaderGithubUrl] = useState("");
   const [headerEditPrompt, setHeaderEditPrompt] = useState("");
+  // IMPORT tab — deterministic add from an existing GitHub repo or snapshot
+  // CID (same POST /modules/import path the HUB "Add a module" modal uses).
+  const [headerImportSource, setHeaderImportSource] = useState<"github" | "cid">("github");
+  const [headerCid, setHeaderCid] = useState("");
+  // Where the BUILD/FORK/EDIT/IMPORT form renders: the header "+" popover
+  // (mobile / collapsed rail) or compressed inline at the bottom of the
+  // left nav rail (desktop default). Same state + submit path either way.
+  const [createAnchor, setCreateAnchor] = useState<"header" | "rail">("header");
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -641,8 +697,29 @@ export default function Home() {
   const [killLoading, setKillLoading] = useState(false);
   const killInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
+  // Composer dock — publish its live height as a CSS var so the mobile
+  // fullscreen task overlay can stop right above it (keeps the prompt
+  // visible + typeable on phones while tasks are open).
+  const composerDockRO = useRef<ResizeObserver | null>(null);
+  const composerDockRef = useCallback((el: HTMLDivElement | null) => {
+    composerDockRO.current?.disconnect();
+    composerDockRO.current = null;
+    if (!el) {
+      document.documentElement.style.setProperty("--composer-dock-h", "0px");
+      return;
+    }
+    const apply = () =>
+      document.documentElement.style.setProperty("--composer-dock-h", `${el.offsetHeight}px`);
+    apply();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(apply);
+      ro.observe(el);
+      composerDockRO.current = ro;
+    }
+  }, []);
 
   const headerCreateRef = useRef<HTMLDivElement>(null);
+  const railCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -685,12 +762,15 @@ export default function Home() {
   const jsonCopiedBg = isLight ? "rgba(5,150,105,0.1)" : "rgba(80,250,123,0.1)";
 
   // Pick the best default tab for a module based on its capabilities.
-  // On phone we jump straight to APP (when the module has one) so the
-  // user lands on the real interface instead of the OVERVIEW chrome.
-  const getBestTab = useCallback((info: typeof moduleList[0] | null): "overview" | "app" | "api" | "files" => {
-    if (isMobile && (info?.app_url || info?.has_app_dir)) return "app";
+  // We land on APP (the live module interface) whenever the module has one —
+  // the real thing first, OVERVIEW chrome only when there's no app to show.
+  // claude's APP embeds the real claude app (see appModName in
+  // renderAppApiTab); an embedded copy falls back to the web front-door so it
+  // doesn't iframe itself forever.
+  const getBestTab = useCallback((info: typeof moduleList[0] | null): "hub" | "overview" | "app" | "api" | "files" => {
+    if (info?.app_url || info?.has_app_dir) return "app";
     return "overview";
-  }, [isMobile]);
+  }, []);
 
   // Reset all module-specific state when switching modules
   const resetModuleState = useCallback((newModuleInfo?: typeof moduleList[0] | null) => {
@@ -722,9 +802,42 @@ export default function Home() {
     setExpandedDirs(new Set());
     // JSON tree
     setCollapsedPaths(new Set());
+    // A freshly opened module starts un-expanded.
+    setAppExpanded(false);
     // Auto-select the best tab for the new module
     setSidebarView(getBestTab(newModuleInfo || null));
   }, [getBestTab]);
+
+  // Track recently-opened modules (newest first, deduped, capped) whenever the
+  // selection changes, and persist so the rail survives reloads.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("claude_recent_modules");
+      if (saved) setRecentModules(JSON.parse(saved));
+      const railOpen = localStorage.getItem("claude_left_rail_open");
+      if (railOpen !== null) setLeftRailOpen(railOpen === "true");
+    } catch { /* ignore corrupt cache */ }
+  }, []);
+  useEffect(() => {
+    safeSetItem("claude_left_rail_open", String(leftRailOpen));
+  }, [leftRailOpen]);
+  // Esc exits the full-viewport app overlay.
+  useEffect(() => {
+    if (!appExpanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setAppExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [appExpanded]);
+  useEffect(() => {
+    if (!selectedModule) return;
+    setRecentModules((prev) => {
+      const next = [selectedModule, ...prev.filter((n) => n !== selectedModule)].slice(0, 10);
+      return next;
+    });
+  }, [selectedModule]);
+  useEffect(() => {
+    safeSetItem("claude_recent_modules", JSON.stringify(recentModules));
+  }, [recentModules]);
 
   // Detect wallet extensions client-side only (avoids hydration mismatch)
   useEffect(() => {
@@ -844,7 +957,10 @@ export default function Home() {
       if (headerModuleRef.current && !headerModuleRef.current.contains(e.target as Node)) {
         setShowHeaderModuleDropdown(false);
       }
-      if (headerCreateRef.current && !headerCreateRef.current.contains(e.target as Node)) {
+      if (
+        (!headerCreateRef.current || !headerCreateRef.current.contains(e.target as Node)) &&
+        (!railCreateRef.current || !railCreateRef.current.contains(e.target as Node))
+      ) {
         setShowHeaderCreateForm(null);
       }
     };
@@ -1109,6 +1225,93 @@ export default function Home() {
     }
   }, [apiUrl, token]);
 
+  // ── Grants: owner mints / lists / revokes time-boxed edit invites ──
+  const loadGrants = useCallback(async () => {
+    if (!token || !isOwner) { setGrants([]); setGrantRedemptions([]); return; }
+    try {
+      const r = await fetch(`${apiUrl}/grants`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      setGrants(Array.isArray(d.grants) ? d.grants : []);
+      setGrantRedemptions(Array.isArray(d.redemptions) ? d.redemptions : []);
+    } catch { /* transient */ }
+  }, [apiUrl, token, isOwner]);
+  useEffect(() => { loadGrants(); }, [loadGrants]);
+
+  // Generate a short, URL-safe key locally (the "further restriction").
+  const genKey = useCallback(() => {
+    const bytes = new Uint8Array(8);
+    (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
+    const k = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    setGrantKey(k);
+  }, []);
+
+  const createGrant = useCallback(async () => {
+    setGrantBusy(true);
+    setGrantError(null);
+    try {
+      const key = grantKey.trim();
+      const r = await fetch(`${apiUrl}/grants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ttl: grantTtl, key: key || undefined, label: grantLabel.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setActiveGrant({ id: d.id, exp: d.exp, key: key || undefined, key_required: !!d.key_required });
+      await loadGrants();
+    } catch (e) {
+      setGrantError((e as Error).message);
+    } finally {
+      setGrantBusy(false);
+    }
+  }, [apiUrl, token, grantTtl, grantKey, grantLabel, loadGrants]);
+
+  const revokeGrant = useCallback(async (id: string) => {
+    setGrantBusy(true);
+    setGrantError(null);
+    try {
+      const r = await fetch(`${apiUrl}/grants/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) { const d = await safeJson(r); throw new Error(d.error || `HTTP ${r.status}`); }
+      if (activeGrant?.id === id) setActiveGrant(null);
+      await loadGrants();
+    } catch (e) {
+      setGrantError((e as Error).message);
+    } finally {
+      setGrantBusy(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, token, activeGrant, loadGrants]);
+
+  // Build the invite URL a grantee opens. The id (a capability) travels in the
+  // QR; the key never does — it's shared out of band, so a leaked QR is inert.
+  const grantInviteUrl = useCallback((id: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${DEFAULT_BASE_PATH}?grant=${encodeURIComponent(id)}`;
+  }, []);
+
+  const copyGrantBit = useCallback((label: string, value: string) => {
+    navigator.clipboard?.writeText(value).catch(() => {});
+    setGrantCopied(label);
+    setTimeout(() => setGrantCopied((c) => (c === label ? null : c)), 1400);
+  }, []);
+
+  // Tick a clock once a second so grant countdowns stay live.
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Capture an inbound `?grant=<id>` invite once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search).get("grant");
+    if (p) setPendingGrant(p);
+  }, []);
+
   // Reflect the configured owner (config.json, exposed via the API /owner
   // endpoint) and treat the connected wallet as owner only when it matches.
   useEffect(() => {
@@ -1153,16 +1356,26 @@ export default function Home() {
 
     const signature = await signFn(message);
 
+    // If the visitor arrived via a QR edit-invite, thread its id + key so the
+    // API redeems the grant during verify and lets a non-whitelisted address in.
+    const grant = pendingGrantRef.current;
     const verifyRes = await fetch(`${apiUrl}/auth/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address: addr, signature, message }),
+      body: JSON.stringify({
+        address: addr,
+        signature,
+        message,
+        ...(grant ? { grant: grant.id, grant_key: grant.key || undefined } : {}),
+      }),
     });
 
     const verifyData = await safeJson(verifyRes);
     if (!verifyRes.ok) {
       throw new Error(verifyData.error || "SIGNATURE VERIFICATION FAILED");
     }
+    // Invite consumed — clear it so a later re-sign doesn't re-thread it.
+    if (grant) { pendingGrantRef.current = null; setPendingGrant(null); }
 
     const { token: newToken, address: verifiedAddr } = verifyData;
     if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
@@ -1232,6 +1445,68 @@ export default function Home() {
       setAuthLoading(false);
     }
   };
+
+  // Redeem an inbound QR edit-invite: stash {id,key} where signChallenge reads
+  // it, then run the normal wallet sign-in (which threads the grant to verify).
+  const redeemInvite = useCallback(async (walletKind: "metamask" | "subwallet" = "metamask") => {
+    if (!pendingGrant) return;
+    pendingGrantRef.current = { id: pendingGrant, key: redeemKey.trim() };
+    await connectWallet(walletKind);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGrant, redeemKey]);
+
+  // Walletless entry: trade the grant id (+ optional key) for a guest bearer
+  // token via the public redeem endpoint. No wallet, no signature — possession
+  // of the QR is the capability; access ends when the grant expires.
+  const enterAsGuest = useCallback(async () => {
+    if (!pendingGrant) return;
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const r = await fetch(`${apiUrl}/grants/${encodeURIComponent(pendingGrant)}/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: redeemKey.trim() || undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "INVITE REDEMPTION FAILED");
+      if (!d.token || !d.address) throw new Error("INVALID REDEEM RESPONSE");
+      setToken(d.token);
+      setAddress(d.address);
+      setWalletType(null);
+      setGuestExp(typeof d.exp === "number" ? d.exp : null);
+      localStorage.removeItem("claude_jobs_signed_out");
+      safeSetItem("claude_jobs_token", d.token);
+      safeSetItem("claude_jobs_address", d.address);
+      if (typeof d.exp === "number") safeSetItem("claude_jobs_guest_exp", String(d.exp));
+      setPendingGrant(null);
+      pendingGrantRef.current = null;
+    } catch (e) {
+      const msg = (e as Error).message;
+      setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg);
+    } finally {
+      setAuthLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, pendingGrant, redeemKey]);
+
+  // Restore a guest session's expiry across reloads; drop it for wallet users.
+  useEffect(() => {
+    if (address && address.startsWith("guest_")) {
+      const saved = Number(localStorage.getItem("claude_jobs_guest_exp") || "");
+      setGuestExp(Number.isFinite(saved) && saved > 0 ? saved : null);
+    } else {
+      setGuestExp(null);
+    }
+  }, [address]);
+
+  // Guest access is time-boxed server-side; mirror it client-side so the UI
+  // signs out the moment the grant window closes instead of on the next 401.
+  useEffect(() => {
+    if (!address || !address.startsWith("guest_") || !guestExp) return;
+    if (nowSec >= guestExp) disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowSec, address, guestExp]);
 
   const connectWithPassword = async (password: string) => {
     setAuthLoading(true);
@@ -1303,9 +1578,11 @@ export default function Home() {
     setSelectedJob(null);
     setStreamOutput("");
     setTokenStats(null);
+    setGuestExp(null);
     localStorage.removeItem("claude_jobs_token");
     localStorage.removeItem("claude_jobs_address");
     localStorage.removeItem("claude_jobs_wallet_type");
+    localStorage.removeItem("claude_jobs_guest_exp");
     // Persist the sign-out so the local-mode probe on next load
     // doesn't silently reconnect us.
     safeSetItem("claude_jobs_signed_out", "1");
@@ -1416,7 +1693,7 @@ export default function Home() {
           action: "start",
           type: "api",
           port: API_PORT,
-          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`,
+          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`,
         }),
       });
       const data = await res.json();
@@ -1446,7 +1723,7 @@ export default function Home() {
     }
     setApiStatus("starting");
     // Try starting via start.sh (the Rust binary)
-    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`;
+    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`;
     try {
       const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
@@ -1656,13 +1933,13 @@ export default function Home() {
     };
   }, [isLeftDragging]);
 
-  // Handle AGENT sidebar resize dragging. The panel sits on the left with
-  // its drag handle on the right edge — dragging right grows the panel.
+  // Handle AGENT sidebar resize dragging. The panel sits on the right with
+  // its drag handle on the left edge — dragging left grows the panel.
   useEffect(() => {
     if (!isAgentSidebarDragging) return;
     const handleMouseMove = (e: MouseEvent) => {
       const ww = window.innerWidth;
-      const newWidth = e.clientX;
+      const newWidth = ww - e.clientX;
       const maxWidth = Math.max(380, ww * 0.95);
       setAgentSidebarWidth(Math.max(320, Math.min(maxWidth, newWidth)));
     };
@@ -2064,6 +2341,38 @@ export default function Home() {
     }
   };
 
+  // Minimal job submission used by the profile panel's NEW tab — a plain
+  // prompt/model/agent-type task against the default work_dir, bypassing the
+  // edit/fork/new-module branching in submitJob() above. Returns true/false
+  // instead of relying on the composer's own prompt/model/agentType state.
+  const quickSubmitJob = useCallback(async (promptText: string, modelValue: string, agentTypeValue: string): Promise<boolean> => {
+    const text = promptText.trim();
+    if (!text || !token) return false;
+    setSubmitting(true);
+    try {
+      const apiReady = await ensureApi();
+      if (!apiReady) {
+        setError("API SERVER COULD NOT BE STARTED — check api/start.sh");
+        return false;
+      }
+      touchApiActivity();
+      const body: any = { prompt: text, model: modelValue };
+      if (agentTypeValue && agentTypeValue !== "default") body.agent_type = agentTypeValue;
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("SUBMIT FAILED");
+      const job = await res.json();
+      setSelectedJob(job.id);
+      fetchJobs();
+      startStream(job.id);
+      return true;
+    } catch (e: any) {
+      setError(e.message);
+      return false;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [token, ensureApi, touchApiActivity, authFetch, fetchJobs]);
+
   const startStream = (jobId: string) => {
     if (esRef.current) esRef.current.close();
     // Pre-fill with any existing output so late subscribers see accumulated logs
@@ -2120,6 +2429,12 @@ export default function Home() {
   const [renamingModule, setRenamingModule] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
   const [moduleManageSearch, setModuleManageSearch] = useState("");
+  // MODULES tab (agent panel) — inline NEW form + per-module EDIT prompt.
+  const [newModuleFormOpen, setNewModuleFormOpen] = useState(false);
+  const [newModuleName, setNewModuleName] = useState("");
+  const [newModulePrompt, setNewModulePrompt] = useState("");
+  const [moduleEditTarget, setModuleEditTarget] = useState<string | null>(null);
+  const [moduleEditPrompt, setModuleEditPrompt] = useState("");
 
   const renameModule = async (oldName: string, newName: string) => {
     if (!token || !newName.trim()) return;
@@ -2166,6 +2481,81 @@ export default function Home() {
       fetchModules();
     } catch (e: any) {
       setError(e.message);
+    }
+  };
+
+  // MODULES tab NEW — launch an agent job that scaffolds a brand-new module,
+  // then jump to the TASKS tab so its progress streams in place.
+  const createModuleJob = async () => {
+    if (!token || !newModuleName.trim()) return;
+    setSubmitting(true);
+    try {
+      let finalName = newModuleName.trim();
+      if (!isOwner && !finalName.startsWith("peers/")) {
+        finalName = `peers/${finalName}`;
+      }
+      const extra = newModulePrompt.trim();
+      const body: any = {
+        model,
+        anchor_dir: anchorDir,
+        prompt: extra
+          ? `Create a new module called "${finalName}". ${extra}`
+          : `Create a new module called "${finalName}". Set up the standard module structure with config.json, mod.py, and a README.md.`,
+        module_name: finalName,
+        creation_mode: "new",
+      };
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("SUBMIT FAILED");
+      const job = await res.json();
+      setNewModuleFormOpen(false);
+      setNewModuleName("");
+      setNewModulePrompt("");
+      setSelectedJob(job.id);
+      setAgentPanelTab("tasks");
+      fetchJobs();
+      startStream(job.id);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // MODULES tab EDIT — launch an agent job against an existing module's
+  // working directory, then jump to the TASKS tab to watch it.
+  const editModuleJob = async (m: typeof moduleList[0]) => {
+    if (!token || !moduleEditPrompt.trim()) return;
+    if (!isOwner && !m.name.includes("peers/") && !m.name.startsWith("peers.")) {
+      setError("NON-OWNERS CAN ONLY EDIT MODULES IN PEERS FOLDER");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const body: any = {
+        model,
+        anchor_dir: anchorDir,
+        prompt: moduleEditPrompt.trim(),
+        work_dir: m.path || `${anchorDir}/mod/orbit/${m.name}`,
+        creation_mode: "edit",
+      };
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("SUBMIT FAILED");
+      const job = await res.json();
+      setModuleEditTarget(null);
+      setModuleEditPrompt("");
+      resetModuleState(m);
+      setSelectedModule(m.name);
+      setSelectedModuleInfo(m);
+      setWorkDir(m.path);
+      fetchModuleConfig(m.name);
+      setSelectedJob(job.id);
+      setAgentPanelTab("tasks");
+      fetchJobs();
+      startStream(job.id);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -2278,6 +2668,45 @@ export default function Home() {
 
   const headerCreateOrFork = async () => {
     if (!token) return;
+    if (showHeaderCreateForm === "import") {
+      // Deterministic import (no agent job) — mirrors submitAddModule but
+      // reads the header panel's fields, then jumps into the new module.
+      const name = (headerNewName.trim() || (headerImportSource === "github" ? deriveNameFromUrl(headerGithubUrl) : "")).trim();
+      if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) { setError("ENTER A MODULE NAME (LETTERS, NUMBERS, - OR _)"); return; }
+      if (headerImportSource === "github" && !/^https?:\/\//i.test(headerGithubUrl.trim())) { setError("ENTER AN HTTP(S) GIT URL"); return; }
+      if (headerImportSource === "cid" && !headerCid.trim()) { setError("ENTER A SNAPSHOT CID"); return; }
+      setSubmitting(true);
+      try {
+        const body: Record<string, string> = { source: headerImportSource, name };
+        if (headerImportSource === "github") body.url = headerGithubUrl.trim();
+        else body.cid = headerCid.trim();
+        // git clone can be slow — give it a generous timeout.
+        const res = await authFetch("/modules/import", { method: "POST", body: JSON.stringify(body) }, 200000);
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok || data?.error) throw new Error(data?.error || `IMPORT FAILED (HTTP ${res.status})`);
+        setHeaderNewName(""); setHeaderGithubUrl(""); setHeaderCid("");
+        setShowHeaderCreateForm(null);
+        await fetchModules("");
+        const opened = (data.module as string) || name;
+        const m = {
+          name: opened,
+          path: (data.path as string) || "",
+          category: (data.category as string) || "orbit",
+          description: "",
+        } as typeof moduleList[0];
+        resetModuleState(m);
+        setSelectedModule(opened);
+        setSelectedModuleInfo(m);
+        setWorkDir(m.path);
+        fetchModuleConfig(opened);
+        setSidebarView("overview");
+      } catch (e: any) {
+        setError(e?.message === "NOT AUTHENTICATED" ? "SIGN IN TO IMPORT A MODULE" : (e?.message || "IMPORT FAILED"));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     if (showHeaderCreateForm === "edit") {
       if (!headerEditPrompt.trim() || !selectedModule) return;
     } else {
@@ -2483,6 +2912,17 @@ export default function Home() {
     finally { setLoadingConfig(false); }
   }, [anchorDir, apiUrl]);
 
+  // Canonical "open this module for editing" flow — mirrors the HUB card click
+  // so the left nav rail (and anywhere else) selects a module identically.
+  const selectModule = useCallback((m: typeof moduleList[0]) => {
+    resetModuleState(m);
+    setSelectedModule(m.name);
+    setSelectedModuleInfo(m);
+    setWorkDir(m.path);
+    fetchModuleConfig(m.name);
+    setSidebarView(getBestTab(m));
+  }, [resetModuleState, getBestTab, fetchModuleConfig]);
+
   // Derive a sensible default module name from a git URL's last path
   // segment (".git" stripped) so the user rarely has to type one.
   const deriveNameFromUrl = (url: string): string => {
@@ -2662,10 +3102,12 @@ export default function Home() {
     const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
     setToggling(true);
     try {
+      // start/restart may rebuild a prod (next start) app server-side first, so
+      // allow plenty of time; stop is quick.
       await doFetch(`/modules/${selectedModuleInfo.name}/process`, {
         method: "POST",
         body: JSON.stringify({ action, target }),
-      });
+      }, action === "stop" ? 60000 : 300000);
       // Give pm2 a moment to settle, then re-check health.
       setTimeout(() => { checkModuleHealth(); setToggling(false); }, action === "stop" ? 1500 : 3000);
     } catch { setToggling(false); }
@@ -2743,6 +3185,40 @@ export default function Home() {
     return () => clearInterval(iv);
   }, [sidebarView, moduleList, isRealModule, probeHubStatuses]);
 
+  // Same for the agent panel's MODULES tab.
+  useEffect(() => {
+    if (!agentSidebarOpen || agentPanelTab !== "modules") return;
+    const real = moduleList.filter(isRealModule);
+    if (!real.length) return;
+    probeHubStatuses(real);
+    const iv = setInterval(() => probeHubStatuses(real), 8000);
+    return () => clearInterval(iv);
+  }, [agentSidebarOpen, agentPanelTab, moduleList, isRealModule, probeHubStatuses]);
+
+  // pm2 lifecycle for any module by name (the account panel's list isn't tied
+  // to the selected module the way moduleProcessAction is). Cross-module
+  // actions surface the owner Sudo sheet automatically through authFetchSudo.
+  const walletModuleAction = useCallback(async (
+    name: string,
+    action: "start" | "stop" | "restart",
+  ) => {
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch || !token) return;
+    try {
+      await doFetch(`/modules/${encodeURIComponent(name)}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      }, action === "stop" ? 60000 : 300000);
+    } catch { /* status re-probe below reflects the real outcome */ }
+    const m = moduleList.find((x) => x.name === name);
+    if (m) {
+      setTimeout(async () => {
+        const st = await probeModuleStatus(m);
+        setModuleStatuses((prev) => ({ ...prev, [name]: st }));
+      }, action === "stop" ? 1500 : 3000);
+    }
+  }, [token, moduleList, probeModuleStatus]);
+
   // ── Auto-restart after an edit ─────────────────────────────────────
   // Restart a module's processes through pm2 (the real supervisor) so a fresh
   // edit is actually live. Skips "claude" itself — restarting the console we're
@@ -2752,13 +3228,19 @@ export default function Home() {
     if (!doFetch) return;
     setRestartNotice(`↻ restarting ${name} to apply edits…`);
     try {
+      // A prod-built (next start) module is rebuilt server-side before the
+      // restart so the edit is actually served — that can take a while, so we
+      // give this a generous timeout (a dev-mode module just restarts fast).
       const res = await doFetch(`/modules/${name}/process`, {
         method: "POST",
         body: JSON.stringify({ action: "restart" }),
-      });
+      }, 300000);
       const data = await res.json().catch(() => ({}));
+      const built = typeof data?.output === "string" && data.output.includes("rebuilt prod app");
       setRestartNotice(
-        res.ok && data?.ok !== false ? `✓ ${name} restarted — edits live` : `⚠ couldn't restart ${name}`,
+        res.ok && data?.ok !== false
+          ? `✓ ${name} ${built ? "rebuilt + restarted" : "restarted"} — edits live`
+          : `⚠ couldn't restart ${name}${data?.output ? `: ${String(data.output).split("\n")[0]}` : ""}`,
       );
     } catch {
       setRestartNotice(`⚠ couldn't restart ${name}`);
@@ -4980,7 +5462,7 @@ export default function Home() {
           </button>
         </div>
 
-        {/* ── Tabs (Info / Versions / Tasks) ── */}
+        {/* ── Tabs (Info / Versions / Tasks / Modules) ── */}
         <div
           className="flex items-center gap-1 px-2 pt-1.5 shrink-0"
           style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
@@ -4989,13 +5471,16 @@ export default function Home() {
             { key: "info", label: "Agent", icon: "⬡", count: null as number | null },
             { key: "versions", label: "Versions", icon: "◆", count: agentVersions.length || null },
             { key: "tasks", label: "Tasks", icon: "▤", count: filteredJobs.filter(j => j.status === "running" || j.status === "pending").length || null },
+            { key: "modules", label: "Modules", icon: "▦", count: moduleList.filter(isRealModule).length || null },
           ] as const).map((t) => {
             const active = agentPanelTab === t.key;
             const tabColor = t.key === "info"
               ? "#a78bfa"
               : t.key === "versions"
                 ? "var(--accent-color)"
-                : "var(--crt-blue)";
+                : t.key === "modules"
+                  ? "#fbbf24"
+                  : "var(--crt-blue)";
             return (
               <button
                 key={t.key}
@@ -5943,16 +6428,37 @@ export default function Home() {
         </div>
         )}
 
-        {/* ── Input bar (top) — moved from bottom so the ask box is the
-            first thing the user sees / can type into. ── */}
-        <div
-          className="shrink-0 px-3.5 py-3 order-first"
-          style={{
-            borderBottom: `1px solid ${subtleBorder}`,
-            background: `linear-gradient(180deg, var(--bg-primary), ${tintBg})`,
-          }}
-        >
-          {/* ── Direct savable system prompt ─────────────────────────── */}
+        {/* ── Module management (MODULES tab) — browse, create, edit,
+            rename, delete and start/stop the modules on this box. ── */}
+        {agentPanelTab === "modules" && renderModulesTab()}
+
+      </div>
+    );
+  };
+
+  // ── Composer dock ─────────────────────────────────────────────────────
+  // The ask box + savable system prompt, docked at the bottom of the whole
+  // console (spans the app view and the tasks sidebar) so the prompt always
+  // lives at the bottom, like a chat app — on desktop and phone alike.
+  // Extracted from the agent panel: EDIT now reads app (main) + tasks
+  // (sidebar) + prompt (bottom).
+  const renderComposerDock = () => {
+    const activeModelChip = MODEL_OPTIONS.find(m => m.value === model)
+      || MODEL_OPTIONS.find(m => m.family === model)
+      || MODEL_OPTIONS[0];
+    return (
+      <div
+        ref={composerDockRef}
+        className="shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-3"
+        style={{
+          position: "relative",
+          zIndex: 80,
+          borderTop: `1px solid ${subtleBorder}`,
+          background: `linear-gradient(0deg, var(--bg-primary), ${tintBg})`,
+        }}
+      >
+          {/* ── PARAMS — auth + the request params sent with every task
+              (agent mod, model, agent personality, system prompt). ── */}
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <button
@@ -5965,10 +6471,10 @@ export default function Home() {
                   background: `${activeModelChip.color}18`,
                   boxShadow: `0 0 8px ${activeModelChip.color}33`,
                 } : { color: "var(--text-secondary)", letterSpacing: "0.06em" }}
-                title="Set a system prompt sent with every task"
+                title="Auth + params sent with every task (module, model, agent, system prompt)"
               >
                 <span style={{ opacity: 0.7 }}>{systemPromptOpen ? "▾" : "▸"}</span>
-                SYSTEM PROMPT
+                PARAMS
                 {systemPrompt.trim() && (
                   <span
                     className="inline-flex items-center gap-1"
@@ -6021,20 +6527,153 @@ export default function Home() {
               </button>
             )}
             {systemPromptOpen && (
-              <textarea
-                value={systemPrompt}
-                onChange={e => setSystemPrompt(e.target.value)}
-                placeholder="You are a senior Rust reviewer. Be terse. Cite file:line…"
-                rows={3}
-                className="w-full mt-1.5 px-3 py-2 rounded-lg outline-none text-[13px] resize-y"
-                style={{
-                  background: darkOverlay,
-                  border: `1px solid ${subtleBorder}`,
-                  color: "var(--text-primary)",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  lineHeight: 1.5,
-                }}
-              />
+              <div
+                className="mt-1.5 rounded-lg px-3 py-2.5"
+                style={{ background: darkOverlay, border: `1px solid ${subtleBorder}` }}
+              >
+                {/* AUTH — who this request is signed as */}
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    AUTH
+                  </span>
+                  <span
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full"
+                    style={{
+                      color: address ? "var(--text-secondary)" : "var(--crt-red)",
+                      border: `1px solid ${subtleBorder}`,
+                      background: "var(--bg-secondary)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title={address ? `Signed in as ${address}${walletType ? ` via ${walletType}` : ""}` : "Not signed in"}
+                  >
+                    {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}…${address.slice(-4)}`) : "SIGNED OUT"}
+                    {walletType && <span style={{ opacity: 0.55 }}> · {walletType}</span>}
+                  </span>
+                  {address && (
+                    <span
+                      className="text-[9px] font-bold uppercase px-2 py-[2px] rounded-full"
+                      style={isOwner ? {
+                        color: "var(--crt-green)",
+                        border: "1px solid rgba(52,211,153,0.35)",
+                        background: "rgba(52,211,153,0.08)",
+                        letterSpacing: "0.06em",
+                      } : {
+                        color: "var(--crt-amber)",
+                        border: "1px solid rgba(251,191,36,0.3)",
+                        background: "rgba(251,191,36,0.06)",
+                        letterSpacing: "0.06em",
+                      }}
+                      title={isOwner ? "You are the configured owner — full edit access" : "Guest — edits limited to peers/ modules"}
+                    >
+                      {isOwner ? "OWNER" : "GUEST · PEERS EDIT"}
+                    </span>
+                  )}
+                  {ownerAddress && !isOwner && (
+                    <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.7 }} title={`Configured owner: ${ownerAddress}`}>
+                      owner {ownerAddress.slice(0, 6)}…{ownerAddress.slice(-4)}
+                    </span>
+                  )}
+                  <span
+                    className="inline-block w-1.5 h-1.5 rounded-full"
+                    style={{
+                      background: token ? "var(--crt-green)" : "var(--crt-red)",
+                      boxShadow: token ? "0 0 5px var(--crt-green)" : "none",
+                    }}
+                    title={token ? "Auth token active" : "No auth token"}
+                  />
+                </div>
+                {/* Request params — MOD / MODEL / AGENT */}
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    MOD
+                  </span>
+                  <select
+                    value={selectedModule}
+                    onChange={(e) => {
+                      const m = moduleList.find((x) => x.name === e.target.value);
+                      if (!m) return;
+                      resetModuleState(m);
+                      setSelectedModule(m.name);
+                      setSelectedModuleInfo(m);
+                      setWorkDir(m.path);
+                      fetchModuleConfig(m.name);
+                    }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer max-w-[180px]"
+                    style={{
+                      color: "#fbbf24",
+                      border: "1px solid rgba(251,191,36,0.3)",
+                      background: "rgba(251,191,36,0.08)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title={`Agent works on module: ${selectedModule || "none"}`}
+                  >
+                    {selectedModule && !moduleList.some((m) => m.name === selectedModule) && (
+                      <option value={selectedModule}>{selectedModule}</option>
+                    )}
+                    {moduleList.map((m) => (
+                      <option key={m.name} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    MODEL
+                  </span>
+                  <select
+                    value={model}
+                    onChange={(e) => { setModel(e.target.value); safeSetItem("claude_jobs_model", e.target.value); }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer"
+                    style={{
+                      color: activeModelChip.color,
+                      border: `1px solid ${activeModelChip.color}55`,
+                      background: `${activeModelChip.color}14`,
+                      letterSpacing: "0.04em",
+                    }}
+                    title={`Model: ${activeModelChip.label} (${activeModelChip.value})`}
+                  >
+                    {MODEL_OPTIONS.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    AGENT
+                  </span>
+                  <select
+                    value={agentType}
+                    onChange={(e) => { setAgentType(e.target.value); safeSetItem("claude_jobs_agent", e.target.value); }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer max-w-[160px]"
+                    style={{
+                      color: "var(--text-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      background: "var(--bg-secondary)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title="Agent personality sent as the fallback system prompt"
+                  >
+                    {AGENT_OPTIONS.map(a => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* SYSTEM PROMPT — one param among the rest */}
+                <div className="flex items-start gap-x-2">
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0 mt-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    SYSTEM
+                  </span>
+                  <textarea
+                    value={systemPrompt}
+                    onChange={e => setSystemPrompt(e.target.value)}
+                    placeholder="You are a senior Rust reviewer. Be terse. Cite file:line…"
+                    rows={3}
+                    className="flex-1 px-3 py-2 rounded-lg outline-none text-[13px] resize-y"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      color: "var(--text-primary)",
+                      fontFamily: "'JetBrains Mono', monospace",
+                      lineHeight: 1.5,
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </div>
           <div
@@ -6074,7 +6713,7 @@ export default function Home() {
               }}
               placeholder="ask agent…"
               disabled={submitting}
-              className="flex-1 px-5 py-5 bg-transparent border-0 outline-none text-[18px]"
+              className="flex-1 px-4 py-3 sm:px-5 sm:py-5 bg-transparent border-0 outline-none text-[16px] sm:text-[18px]"
               style={{
                 color: "var(--text-primary)",
                 fontFamily: "'JetBrains Mono', monospace",
@@ -6230,7 +6869,7 @@ export default function Home() {
                   </div>
                 )}
               </div>
-              <span className="text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.55, letterSpacing: "0.04em" }}>
+              <span className="text-[9px] hidden sm:inline" style={{ color: "var(--text-tertiary)", opacity: 0.55, letterSpacing: "0.04em" }}>
                 <kbd style={{
                   padding: "1px 5px",
                   borderRadius: 4,
@@ -6255,12 +6894,11 @@ export default function Home() {
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
-              <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
+              <span className="text-[9px] font-mono hidden sm:inline" style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>
                 · {apiUrl.replace("http://", "")}
               </span>
             </div>
           </div>
-        </div>
       </div>
     );
   };
@@ -6994,11 +7632,18 @@ export default function Home() {
   };
 
   const renderModulesTab = () => {
-    const filtered = moduleList.filter(m =>
+    const filtered = moduleList.filter(isRealModule).filter(m =>
       !moduleManageSearch || m.name.toLowerCase().includes(moduleManageSearch.toLowerCase())
     );
     const canManage = (m: typeof moduleList[0]) =>
       isOwner || (m.owner && address && m.owner.toLowerCase() === address.toLowerCase());
+    const liveOf = (name: string): boolean | null => {
+      const st = moduleStatuses[name];
+      if (!st) return null;
+      if (st.app === true || st.api === true) return true;
+      if (st.app === false || st.api === false) return false;
+      return null;
+    };
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -7006,17 +7651,32 @@ export default function Home() {
         <div
           className="px-4 py-3 border-b shrink-0"
           style={{
-            borderColor: "rgba(59,130,246,0.15)",
-            background: "linear-gradient(180deg, rgba(59,130,246,0.06) 0%, rgba(59,130,246,0.01) 100%)",
+            borderColor: "rgba(251,191,36,0.15)",
+            background: "linear-gradient(180deg, rgba(251,191,36,0.06) 0%, rgba(251,191,36,0.01) 100%)",
           }}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-bold" style={{ color: "var(--crt-blue)", letterSpacing: "0.04em", textShadow: "none" }}>
+            <span className="text-[13px] font-bold" style={{ color: "var(--crt-amber)", letterSpacing: "0.04em", textShadow: "none" }}>
               MODULES
             </span>
-            <span className="text-[12px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
-              {filtered.length} module{filtered.length !== 1 ? "s" : ""}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[12px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+                {filtered.length} module{filtered.length !== 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={() => { setNewModuleFormOpen((v) => !v); setModuleEditTarget(null); }}
+                className="text-[11px] px-2 py-0.5 border font-bold uppercase transition-all hover:brightness-125"
+                style={{
+                  borderColor: newModuleFormOpen ? "rgba(16,185,129,0.6)" : "rgba(16,185,129,0.3)",
+                  color: "var(--crt-green)",
+                  background: newModuleFormOpen ? "rgba(16,185,129,0.12)" : "transparent",
+                  letterSpacing: "0.04em",
+                }}
+                title="Create a new module — the agent scaffolds it as a task"
+              >
+                ＋ New
+              </button>
+            </div>
           </div>
           <input
             type="text"
@@ -7025,10 +7685,53 @@ export default function Home() {
             placeholder="filter modules..."
             className="w-full px-2 py-1.5 text-[13px] bg-transparent border font-code outline-none"
             style={{
-              borderColor: "rgba(59,130,246,0.2)",
+              borderColor: "rgba(251,191,36,0.2)",
               color: "var(--text-primary)",
             }}
           />
+          {newModuleFormOpen && (
+            <div className="mt-2 flex flex-col gap-2">
+              <input
+                autoFocus
+                type="text"
+                value={newModuleName}
+                onChange={(e) => setNewModuleName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setNewModuleFormOpen(false); }}
+                placeholder="new module name..."
+                className="px-2 py-1.5 text-[13px] bg-transparent border font-code outline-none"
+                style={{ borderColor: "rgba(16,185,129,0.35)", color: "var(--text-primary)" }}
+              />
+              <textarea
+                value={newModulePrompt}
+                onChange={(e) => setNewModulePrompt(e.target.value)}
+                placeholder="what should it do? (optional — defaults to a standard scaffold)"
+                rows={2}
+                className="px-2 py-1.5 text-[12px] bg-transparent border font-code outline-none resize-y"
+                style={{ borderColor: "rgba(16,185,129,0.25)", color: "var(--text-primary)" }}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={createModuleJob}
+                  disabled={!newModuleName.trim() || submitting}
+                  className="text-[12px] px-3 py-1 border transition-all hover:brightness-125 uppercase font-bold"
+                  style={{
+                    borderColor: "rgba(16,185,129,0.5)",
+                    color: "var(--crt-green)",
+                    opacity: newModuleName.trim() && !submitting ? 1 : 0.3,
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {submitting ? "..." : "Create"}
+                </button>
+                <button
+                  onClick={() => { setNewModuleFormOpen(false); setNewModuleName(""); setNewModulePrompt(""); }}
+                  className="text-[12px] px-3 py-1 border border-crt-green/20 text-crt-green/50 hover:text-crt-green hover:border-crt-green/40 transition-all uppercase"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Module List */}
@@ -7107,6 +7810,20 @@ export default function Home() {
                           fetchModuleConfig(m.name);
                         }}
                       >
+                        {(() => {
+                          const live = liveOf(m.name);
+                          return (
+                            <span
+                              className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{
+                                background: live === true ? "var(--crt-green)" : live === false ? "var(--crt-red)" : "var(--text-tertiary)",
+                                boxShadow: live === true ? "0 0 6px var(--crt-green)" : "none",
+                                opacity: live === null ? 0.35 : 1,
+                              }}
+                              title={live === true ? "online" : live === false ? "offline" : "status unknown"}
+                            />
+                          );
+                        })()}
                         <span className="text-[14px] font-code truncate" style={{ color: m.name === selectedModule ? "var(--crt-blue)" : "var(--crt-green)" }}>
                           {m.name}
                         </span>
@@ -7137,7 +7854,26 @@ export default function Home() {
                     )}
                     {/* Action buttons */}
                     {canManage(m) && (
-                      <div className="flex items-center gap-2 mt-2">
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <button
+                          onClick={() => {
+                            setModuleEditTarget(moduleEditTarget === m.name ? null : m.name);
+                            setModuleEditPrompt("");
+                            setNewModuleFormOpen(false);
+                          }}
+                          className="text-[11px] px-2 py-0.5 border transition-all hover:brightness-125 uppercase"
+                          style={{
+                            borderColor: moduleEditTarget === m.name ? "rgba(59,130,246,0.6)" : "rgba(59,130,246,0.25)",
+                            color: moduleEditTarget === m.name ? "var(--crt-blue)" : "rgba(59,130,246,0.6)",
+                            background: moduleEditTarget === m.name ? "rgba(59,130,246,0.10)" : "transparent",
+                            letterSpacing: "0",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(59,130,246,0.5)"; e.currentTarget.style.color = "var(--crt-blue)"; }}
+                          onMouseLeave={(e) => { if (moduleEditTarget !== m.name) { e.currentTarget.style.borderColor = "rgba(59,130,246,0.25)"; e.currentTarget.style.color = "rgba(59,130,246,0.6)"; } }}
+                          title="Describe a change — the agent edits this module as a task"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => {
                             setRenamingModule(m.name);
@@ -7189,6 +7925,80 @@ export default function Home() {
                             </button>
                           )
                         )}
+                        {/* pm2 lifecycle — start when down, stop/restart when up */}
+                        {(() => {
+                          const live = liveOf(m.name);
+                          return live === true ? (
+                            <>
+                              <button
+                                onClick={() => walletModuleAction(m.name, "restart")}
+                                className="text-[11px] px-2 py-0.5 border border-crt-green/20 text-crt-green/50 hover:text-crt-green hover:border-crt-green/50 transition-all uppercase"
+                                style={{ letterSpacing: "0" }}
+                                title="pm2 restart"
+                              >
+                                Restart
+                              </button>
+                              <button
+                                onClick={() => walletModuleAction(m.name, "stop")}
+                                className="text-[11px] px-2 py-0.5 border transition-all uppercase"
+                                style={{ borderColor: "rgba(239,68,68,0.2)", color: "rgba(239,68,68,0.4)", letterSpacing: "0" }}
+                                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.5)"; e.currentTarget.style.color = "var(--crt-red)"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.2)"; e.currentTarget.style.color = "rgba(239,68,68,0.4)"; }}
+                                title="pm2 stop"
+                              >
+                                Stop
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => walletModuleAction(m.name, "start")}
+                              className="text-[11px] px-2 py-0.5 border border-crt-green/25 text-crt-green/60 hover:text-crt-green hover:border-crt-green/60 transition-all uppercase"
+                              style={{ letterSpacing: "0" }}
+                              title="pm2 start"
+                            >
+                              Start
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {/* Inline EDIT — describe the change, agent runs it as a task */}
+                    {moduleEditTarget === m.name && (
+                      <div className="flex flex-col gap-2 mt-2">
+                        <textarea
+                          autoFocus
+                          value={moduleEditPrompt}
+                          onChange={(e) => setModuleEditPrompt(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && moduleEditPrompt.trim()) editModuleJob(m);
+                            if (e.key === "Escape") { setModuleEditTarget(null); setModuleEditPrompt(""); }
+                          }}
+                          placeholder={`what should change in ${m.name}?`}
+                          rows={2}
+                          className="px-2 py-1.5 text-[12px] bg-transparent border font-code outline-none resize-y"
+                          style={{ borderColor: "rgba(59,130,246,0.35)", color: "var(--text-primary)" }}
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => editModuleJob(m)}
+                            disabled={!moduleEditPrompt.trim() || submitting}
+                            className="text-[12px] px-3 py-1 border transition-all hover:brightness-125 uppercase font-bold"
+                            style={{
+                              borderColor: "rgba(59,130,246,0.5)",
+                              color: "var(--crt-blue)",
+                              opacity: moduleEditPrompt.trim() && !submitting ? 1 : 0.3,
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            {submitting ? "..." : "Run edit"}
+                          </button>
+                          <button
+                            onClick={() => { setModuleEditTarget(null); setModuleEditPrompt(""); }}
+                            className="text-[12px] px-3 py-1 border border-crt-green/20 text-crt-green/50 hover:text-crt-green hover:border-crt-green/40 transition-all uppercase"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -7466,10 +8276,10 @@ export default function Home() {
               );
             })}
           </div>
-          {/* Owner filter — "all" / "mine" + a pill per other owner, so you can
-              browse everyone's modules or narrow to just yours. */}
+          {/* Owner filter — "all" / "mine" + a single dropdown for everyone
+              else, so the row stays on one line instead of a pill per owner. */}
           {hubOwners.length > 1 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-code uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>owner:</span>
               <button
                 onClick={() => setOwnerFilter(null)}
@@ -7482,14 +8292,19 @@ export default function Home() {
                   title={myOwner}
                 >mine</button>
               )}
-              {otherOwners.map((o) => (
-                <button
-                  key={o}
-                  onClick={() => setOwnerFilter(ownerFilter === o ? null : o)}
-                  className={`text-[11px] px-2 py-0.5 border rounded font-mono transition-colors ${ownerFilter === o ? "border-crt-blue/50 text-crt-blue bg-crt-blue/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
-                  title={o}
-                >{o.slice(0, 6)}..{o.slice(-4)}</button>
-              ))}
+              {otherOwners.length > 0 && (
+                <select
+                  value={ownerFilter && otherOwners.includes(ownerFilter) ? ownerFilter : ""}
+                  onChange={(e) => setOwnerFilter(e.target.value || null)}
+                  title="Filter by another owner"
+                  className={`text-[11px] px-2 py-0.5 border rounded font-mono bg-transparent outline-none transition-colors ${ownerFilter && otherOwners.includes(ownerFilter) ? "border-crt-blue/50 text-crt-blue bg-crt-blue/10" : "border-crt-green/15 text-crt-green/40 hover:border-crt-green/30"}`}
+                >
+                  <option value="">others…</option>
+                  {otherOwners.map((o) => (
+                    <option key={o} value={o}>{o.slice(0, 6)}..{o.slice(-4)}</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
           {/* Auto-restart-after-edit toggle */}
@@ -7974,6 +8789,218 @@ export default function Home() {
                   )}
                 </div>
               </div>
+
+              {/* Share edit access — owner mints a QR invite that confers
+                  TEMPORARY edit rights (default 1h), optionally protected by a
+                  locally-generated key shared out of band. The id rides the QR;
+                  the key never does. Backed by GET/POST/DELETE /grants. Owner-
+                  only: the controls don't render for anyone else. */}
+              {isOwner && (() => {
+                const TTL_OPTS = [
+                  { l: "15m", v: 900 },
+                  { l: "1h", v: 3600 },
+                  { l: "8h", v: 28800 },
+                  { l: "24h", v: 86400 },
+                  { l: "7d", v: 604800 },
+                ];
+                const fmtLeft = (exp: number) => {
+                  let s = Math.max(0, exp - nowSec);
+                  if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+                  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+                  if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+                  return `${s}s`;
+                };
+                const accent = "var(--accent-color, #cc785c)";
+                return (
+                <div className="section-card" data-accent="green" style={{ ["--card-accent" as any]: accent }}>
+                  <span className="section-card__bar" style={{ background: accent }} />
+                  <div className="section-card__head">
+                    <div className="section-card__title min-w-0">
+                      <span className="section-card__glyph" style={{ color: accent }}>⧉</span>
+                      Share Edit Access
+                      <span
+                        className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
+                        style={{
+                          color: accent,
+                          background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+                          border: `1px solid color-mix(in srgb, ${accent} 28%, transparent)`,
+                        }}
+                      >
+                        {grants.length}
+                      </span>
+                    </div>
+                    <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      QR invite
+                    </span>
+                  </div>
+                  <div className="pl-5 pr-4 py-3 flex flex-col gap-3">
+                    <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                      Mint a QR that grants <span style={{ color: "var(--text-secondary)" }}>temporary access</span> to
+                      anyone who scans it — no wallet needed (guests get an anonymous pass; wallet sign-in ties access to
+                      their address). Access ends automatically when the timer runs out. Add a key for a second factor you
+                      share separately (a leaked QR alone won&apos;t work).
+                    </div>
+
+                    {/* Duration picker */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>Duration</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {TTL_OPTS.map((o) => {
+                          const on = grantTtl === o.v;
+                          return (
+                            <button
+                              key={o.v}
+                              onClick={() => setGrantTtl(o.v)}
+                              className="text-[11px] px-2.5 py-1 rounded font-mono transition-all"
+                              style={{
+                                color: on ? "var(--bg-primary)" : "var(--text-secondary)",
+                                background: on ? accent : "var(--bg-secondary)",
+                                border: `1px solid ${on ? accent : "var(--border-color)"}`,
+                              }}
+                            >
+                              {o.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Optional key (second factor) */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                        Key — optional second factor
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={grantKey}
+                          onChange={(e) => setGrantKey(e.target.value)}
+                          placeholder="none — open to anyone with the QR"
+                          className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                          style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                        />
+                        <button
+                          onClick={genKey}
+                          className="text-[10px] px-2.5 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
+                          style={{ color: accent, background: `color-mix(in srgb, ${accent} 10%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)` }}
+                          title="Generate a random key locally"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Optional label */}
+                    <input
+                      type="text"
+                      value={grantLabel}
+                      onChange={(e) => setGrantLabel(e.target.value)}
+                      placeholder="label (optional) — e.g. “Sam, design review”"
+                      className="px-2 py-1.5 text-[11px] rounded outline-none"
+                      style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                    />
+
+                    <button
+                      onClick={createGrant}
+                      disabled={grantBusy}
+                      className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                      style={{ color: "var(--bg-primary)", background: accent, border: `1px solid ${accent}` }}
+                    >
+                      {grantBusy ? "…" : "Create Invite QR"}
+                    </button>
+                    {grantError && (
+                      <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{grantError}</div>
+                    )}
+
+                    {/* Freshly-minted invite: QR + shareables */}
+                    {activeGrant && (
+                      <div
+                        className="rounded-lg p-3 flex flex-col items-center gap-2.5"
+                        style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                      >
+                        <div
+                          className="rounded-lg p-2 bg-white"
+                          dangerouslySetInnerHTML={{ __html: qrSvg(grantInviteUrl(activeGrant.id), 200) }}
+                        />
+                        <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          expires in <span style={{ color: accent }}>{fmtLeft(activeGrant.exp)}</span>
+                        </div>
+                        <button
+                          onClick={() => copyGrantBit("link", grantInviteUrl(activeGrant.id))}
+                          className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
+                          style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                          title="Copy invite link"
+                        >
+                          {grantCopied === "link" ? "✓ copied link" : grantInviteUrl(activeGrant.id)}
+                        </button>
+                        {activeGrant.key && (
+                          <button
+                            onClick={() => copyGrantBit("key", activeGrant.key!)}
+                            className="w-full text-[10px] px-2 py-1.5 rounded font-mono transition-all flex items-center justify-between gap-2"
+                            style={{ color: accent, background: `color-mix(in srgb, ${accent} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                            title="Copy key — share this SEPARATELY from the QR"
+                          >
+                            <span className="uppercase tracking-wider text-[8px] font-bold">key · share separately</span>
+                            <span className="truncate">{grantCopied === "key" ? "✓ copied" : activeGrant.key}</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setActiveGrant(null)}
+                          className="text-[9px] uppercase tracking-wider"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          done
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Active invites */}
+                    {grants.length > 0 && (
+                      <div className="flex flex-col gap-1.5 mt-1">
+                        <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                          Active invites
+                        </span>
+                        {grants.map((g) => {
+                          const used = grantRedemptions.filter((r) => r.grant === g.id).length;
+                          return (
+                            <div
+                              key={g.id}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded"
+                              style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                            >
+                              <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: accent }} />
+                              <button
+                                onClick={() => setActiveGrant({ id: g.id, exp: g.exp, key_required: g.key_required })}
+                                className="flex-1 min-w-0 text-left"
+                                title="Show QR"
+                              >
+                                <div className="font-mono text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
+                                  {g.label || `${g.id.slice(0, 8)}…`}
+                                </div>
+                                <div className="text-[9px] flex items-center gap-1.5" style={{ color: "var(--text-tertiary)" }}>
+                                  <span>{fmtLeft(g.exp)} left</span>
+                                  {g.key_required && <span style={{ color: accent }}>· 🔑 key</span>}
+                                  {used > 0 && <span>· {used} active</span>}
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => revokeGrant(g.id)}
+                                disabled={grantBusy}
+                                className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
+                                style={{ color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)" }}
+                                title="Revoke this invite (cuts every session it opened)"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                );
+              })()}
 
               {/* Utility toolbar — process start/stop/restart already live
                   on the API/APP tiles above, so this is just the cross-
@@ -8663,14 +9690,20 @@ export default function Home() {
     //    gateway listens on :3000, so point there — e.g.
     //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
     const modName = selectedModule || "claude";
+    // claude's APP tab points at the real claude app (/claude). The console IS
+    // the claude module, so at the top level this simply re-shows the claude
+    // app in the iframe. To avoid infinite nesting, an already-embedded copy
+    // (this console running inside an iframe) breaks the chain by falling back
+    // to the web front-door instead of iframing /claude again.
+    const appModName = modName === "claude" ? (isEmbedded ? "web" : "claude") : modName;
     const gatewayUrl = (() => {
-      if (typeof window === "undefined") return `http://localhost:3000/${modName}`;
+      if (typeof window === "undefined") return `http://localhost:3000/${appModName}`;
       const loc = window.location;
       const behindPublicProxy =
         loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
       return behindPublicProxy
-        ? `${loc.origin}/${modName}`
-        : `http://${loc.hostname}:3000/${modName}`;
+        ? `${loc.origin}/${appModName}`
+        : `http://${loc.hostname}:3000/${appModName}`;
     })();
     const showUrl = sub === "app" && !!selectedModuleInfo?.app_url;
     const logsOpen = moduleLogsOpen !== null;
@@ -8692,7 +9725,14 @@ export default function Home() {
             : "(no logs found)";
     })();
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div
+        className="flex-1 flex flex-col overflow-hidden"
+        style={
+          appExpanded
+            ? { position: "fixed", inset: 0, zIndex: 200, background: "var(--bg-primary)" }
+            : undefined
+        }
+      >
         {/* Single control row: APP/API toggle + the copyable gateway URL + LOGS. */}
         {(hasApp || hasApi) && (
           <div
@@ -8753,6 +9793,22 @@ export default function Home() {
             >
               {logsOpen ? "✕ LOGS" : "▤ LOGS"}
             </button>
+            {/* EXPAND — blow the embedded app up to a full-viewport overlay
+                (hides the console chrome). Toggles back to MINIMIZE. */}
+            {hasApp && (
+              <button
+                onClick={() => setAppExpanded((v) => !v)}
+                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                style={{
+                  color: appExpanded ? "var(--crt-green)" : "var(--text-tertiary)",
+                  background: appExpanded ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  border: `1px solid ${appExpanded ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"}`,
+                }}
+                title={appExpanded ? "Exit full screen" : "Expand app to full screen"}
+              >
+                {appExpanded ? "⤡ MINIMIZE" : "⤢ EXPAND"}
+              </button>
+            )}
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -8807,6 +9863,109 @@ export default function Home() {
         color: "var(--text-primary)",
       }}
     >
+      {/* Inbound QR edit-invite banner — a `?grant=<id>` link landed here.
+          Offer to redeem: optional key + connect-wallet, which threads the
+          grant through sign-in for time-boxed edit access. Hidden once the
+          invite is consumed (signChallenge clears pendingGrant) or dismissed. */}
+      {pendingGrant && !isOwner && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
+          style={{
+            maxWidth: "min(92vw, 560px)",
+            background: "color-mix(in srgb, var(--glass-bg, #11131a) 88%, transparent)",
+            border: "1px solid color-mix(in srgb, #cc785c 45%, transparent)",
+            backdropFilter: "blur(14px) saturate(150%)",
+            WebkitBackdropFilter: "blur(14px) saturate(150%)",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+          }}
+        >
+          <span className="text-[18px] leading-none shrink-0" style={{ color: "#cc785c" }}>⧉</span>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="text-[11.5px] font-bold" style={{ color: "var(--text-primary)" }}>
+              You&apos;ve been invited
+            </div>
+            <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              Enter instantly as a guest, or connect a wallet — access is temporary either way.
+            </div>
+          </div>
+          <input
+            type="text"
+            value={redeemKey}
+            onChange={(e) => setRedeemKey(e.target.value)}
+            placeholder="key (if given)"
+            className="px-2 py-1.5 text-[11px] font-mono rounded outline-none w-[110px] shrink-0"
+            style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+          />
+          <button
+            onClick={enterAsGuest}
+            disabled={authLoading}
+            className="text-[11px] px-3 py-1.5 rounded uppercase font-bold tracking-wider shrink-0 transition-all disabled:opacity-40"
+            style={{ color: "#0b0b0c", background: "#cc785c", border: "1px solid #cc785c" }}
+            title="No wallet needed — a guest pass that expires with the invite"
+          >
+            {authLoading ? "…" : "Enter"}
+          </button>
+          <button
+            onClick={() => redeemInvite("metamask")}
+            disabled={authLoading}
+            className="text-[11px] px-3 py-1.5 rounded uppercase font-bold tracking-wider shrink-0 transition-all disabled:opacity-40"
+            style={{
+              color: "#cc785c",
+              background: "color-mix(in srgb, #cc785c 12%, transparent)",
+              border: "1px solid color-mix(in srgb, #cc785c 45%, transparent)",
+            }}
+            title="Sign in with your wallet so the access is tied to your address"
+          >
+            Wallet
+          </button>
+          <button
+            onClick={() => { setPendingGrant(null); pendingGrantRef.current = null; }}
+            className="text-[14px] px-1 shrink-0"
+            style={{ color: "var(--text-tertiary)" }}
+            title="Dismiss"
+          >
+            ✕
+          </button>
+          {authError && (
+            <div className="absolute -bottom-6 left-0 text-[10px] px-2" style={{ color: "var(--crt-red)" }}>
+              {authError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Guest session pill — live countdown to the grant's expiry. The server
+          cuts access at the same moment; this keeps the deadline visible. */}
+      {address && address.startsWith("guest_") && guestExp && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-2 px-3 py-1.5 rounded-full"
+          style={{
+            background: "color-mix(in srgb, var(--glass-bg, #11131a) 88%, transparent)",
+            border: "1px solid color-mix(in srgb, #cc785c 40%, transparent)",
+            backdropFilter: "blur(14px) saturate(150%)",
+            WebkitBackdropFilter: "blur(14px) saturate(150%)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.4)",
+          }}
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{ background: "#cc785c", boxShadow: "0 0 6px #cc785c" }}
+          />
+          <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: "var(--text-primary)" }}>
+            Guest
+          </span>
+          <span className="text-[10px] font-mono" style={{ color: "#cc785c" }}>
+            {(() => {
+              const s = Math.max(0, guestExp - nowSec);
+              if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+              if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+              if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+              return `${s}s`;
+            })()} left
+          </span>
+        </div>
+      )}
+
       {/* Versions overlay (mod-protocol, storage-agnostic) */}
       {showVersions && selectedModule && (
         <div
@@ -8869,181 +10028,13 @@ export default function Home() {
           borderBottom: `1px solid ${subtleBorder}`,
         }}
       >
-        {/* Module selector + mod tabs (overview/app/api/files/terminal). */}
-        <div className="flex items-center px-4 py-1.5">
+        {/* Second-level row: module selector + mod tabs (app/code/overview).
+            Rendered first in source but displayed BELOW the top-level row via
+            flex `order` — the top-level row (HUB/TASKS + account chip) wraps
+            the large account block that follows the tabs in source. Compact
+            type on both rows keeps the two-level header short. */}
+        <div className="flex items-center px-4 py-0.5" style={{ order: 2 }}>
           <div className="flex items-center gap-3">
-            {/* Wrench: BUILD / FORK / EDIT actions side panel.
-                Sits to the LEFT of the selected module name. Clicking
-                opens a tabbed panel anchored under the icon. */}
-            <div className="relative" ref={headerCreateRef}>
-              <button
-                onClick={() => setAgentSidebarOpen((v) => !v)}
-                className="flex items-center justify-center transition-all hover:brightness-125 rounded-sm"
-                style={{
-                  width: 28,
-                  height: 28,
-                  border: `1px solid ${agentSidebarOpen ? "var(--crt-green)" : "rgba(16,185,129,0.25)"}`,
-                  color: agentSidebarOpen ? "var(--crt-green)" : "rgba(16,185,129,0.55)",
-                  background: agentSidebarOpen ? "rgba(16,185,129,0.10)" : "transparent",
-                }}
-                title={agentSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-                aria-expanded={agentSidebarOpen}
-                aria-label="Toggle sidebar"
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                </svg>
-              </button>
-
-              {showHeaderCreateForm && (
-                <div
-                  className="absolute left-0 top-full mt-1 border z-50 flex flex-col min-w-[320px]"
-                  style={{
-                    background: "var(--bg-primary)",
-                    borderColor: showHeaderCreateForm === "fork"
-                      ? "rgba(245,158,11,0.3)"
-                      : showHeaderCreateForm === "edit"
-                      ? "rgba(59,130,246,0.3)"
-                      : "rgba(16,185,129,0.3)",
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.20)",
-                  }}
-                >
-                  {/* Tabs */}
-                  <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                    {([
-                      { key: "create" as const, label: "+ BUILD", color: "var(--crt-green)", rgb: "16,185,129" },
-                      { key: "fork"   as const, label: "⑂ FORK",  color: "var(--crt-amber)", rgb: "245,158,11" },
-                      { key: "edit"   as const, label: "✎ EDIT",  color: "var(--crt-blue)",  rgb: "59,130,246" },
-                    ]).map((tab) => {
-                      const isActive = showHeaderCreateForm === tab.key;
-                      const disabled = tab.key === "edit" && !selectedModule;
-                      return (
-                        <button
-                          key={tab.key}
-                          onClick={() => {
-                            if (disabled) return;
-                            if (tab.key === "fork") {
-                              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
-                              setHeaderGithubUrl("");
-                            } else if (tab.key === "create") {
-                              setHeaderNewName("");
-                              setHeaderGithubUrl("");
-                            } else {
-                              setHeaderEditPrompt("");
-                            }
-                            setShowHeaderCreateForm(tab.key);
-                          }}
-                          disabled={disabled}
-                          className="flex-1 text-[11px] font-bold py-1.5 px-2 font-code transition-all disabled:cursor-not-allowed"
-                          style={{
-                            letterSpacing: "0.02em",
-                            color: isActive ? tab.color : `rgba(${tab.rgb}, ${disabled ? 0.2 : 0.5})`,
-                            background: isActive ? `rgba(${tab.rgb}, 0.08)` : "transparent",
-                            borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
-                          }}
-                          title={disabled ? "Select a module to edit" : tab.label}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Active form */}
-                  <div className="p-3 flex flex-col gap-2">
-                    <div className="text-[12px] font-bold uppercase" style={{
-                      letterSpacing: "0.02em",
-                      color: showHeaderCreateForm === "fork"
-                        ? "var(--crt-amber)"
-                        : showHeaderCreateForm === "edit"
-                        ? "var(--crt-blue)"
-                        : "var(--crt-green)",
-                    }}>
-                      {showHeaderCreateForm === "fork"
-                        ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}`
-                        : showHeaderCreateForm === "edit"
-                        ? `✎ EDIT ${selectedModule?.toUpperCase() || "?"}`
-                        : "+ BUILD MODULE"}
-                    </div>
-                    {showHeaderCreateForm === "edit" ? (
-                      <textarea
-                        autoFocus
-                        value={headerEditPrompt}
-                        onChange={(e) => setHeaderEditPrompt(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="describe the edit..."
-                        rows={3}
-                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none resize-none"
-                        style={{
-                          borderColor: "rgba(59,130,246,0.3)",
-                          color: "var(--text-primary)",
-                        }}
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={headerNewName}
-                        onChange={(e) => setHeaderNewName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="module name..."
-                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                        style={{
-                          borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                          color: "var(--text-primary)",
-                        }}
-                      />
-                    )}
-                    {showHeaderCreateForm === "create" && (
-                      <input
-                        type="text"
-                        value={headerGithubUrl}
-                        onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="github url (optional)..."
-                        className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
-                        style={{ color: "var(--text-primary)" }}
-                      />
-                    )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={headerCreateOrFork}
-                        disabled={(showHeaderCreateForm === "edit" ? !headerEditPrompt.trim() : !headerNewName.trim()) || submitting}
-                        className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
-                        style={{
-                          letterSpacing: "0.01em",
-                          opacity: (showHeaderCreateForm === "edit" ? headerEditPrompt.trim() : headerNewName.trim()) ? 1 : 0.4,
-                        }}
-                      >
-                        {submitting
-                          ? "..."
-                          : showHeaderCreateForm === "fork"
-                          ? "FORK"
-                          : showHeaderCreateForm === "edit"
-                          ? "EDIT"
-                          : "BUILD"}
-                      </button>
-                      <button
-                        onClick={() => setShowHeaderCreateForm(null)}
-                        className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
-                      >
-                        ESC
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Module/Folder selector dropdown */}
             <div className="relative" ref={headerModuleRef}>
               {showHeaderModuleDropdown ? (
@@ -9104,8 +10095,8 @@ export default function Home() {
                       }
                     }}
                     placeholder={selectorMode === "modules" ? "search modules..." : "search folders..."}
-                    className="px-3 py-1 bg-transparent text-crt-green border border-crt-green/40 font-code outline-none w-[220px]"
-                    style={{ letterSpacing: "0.01em", fontSize: "20px" }}
+                    className="px-3 py-0.5 bg-transparent text-crt-green border border-crt-green/40 font-code outline-none w-[220px]"
+                    style={{ letterSpacing: "0.01em", fontSize: "14px" }}
                   />
                   {/* Mode toggle: modules vs folders */}
                   <div className="flex ml-1 border border-crt-green/20 rounded overflow-hidden">
@@ -9130,12 +10121,12 @@ export default function Home() {
                       fetchFolders("");
                     }
                   }}
-                  className="flex items-center gap-2 font-bold text-crt-green font-code cursor-pointer hover:text-crt-green/80 transition-colors group"
-                  style={{ letterSpacing: "0.01em", fontSize: "20px" }}
+                  className="flex items-center gap-1.5 font-bold text-crt-green font-code cursor-pointer hover:text-crt-green/80 transition-colors group"
+                  style={{ letterSpacing: "0.01em", fontSize: "14px" }}
                   title="Click to switch module/folder (Tab to toggle mode)"
                 >
                   {selectedModule || "claude"}
-                  <span style={{ color: "var(--crt-green)", opacity: 0.25, fontSize: "11px", transition: "opacity 0.2s" }} className="group-hover:!opacity-50">▾</span>
+                  <span style={{ color: "var(--crt-green)", opacity: 0.25, fontSize: "9px", transition: "opacity 0.2s" }} className="group-hover:!opacity-50">▾</span>
                 </button>
               )}
               {/* Modules dropdown */}
@@ -9334,15 +10325,13 @@ export default function Home() {
 
           </div>
 
-          {/* Navigation Tabs — inline with module selector. On phone we
-              still want the tabs visible but the row may wrap; `flex-wrap`
-              prevents the address chip from getting pushed off-screen. */}
+          {/* Mod tabs — inline with the module selector on the second-level
+              row (HUB/TASKS moved up to the top-level row). On phone the row
+              may wrap; `flex-wrap` keeps everything on-screen. */}
           <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
           {([
-            { key: "hub" as const, label: "HUB", icon: "▦", color: "var(--crt-green)" },
-            { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
-            // App-only tab — the API explorer was removed. Shown whenever the
-            // module exposes an app.
+            // APP leads — the live module interface is the first thing you see.
+            // Shown whenever the module exposes an app.
             ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
               ? [{
                   key: "app" as const,
@@ -9356,6 +10345,10 @@ export default function Home() {
             // CODE merges the file browser and the version history into one
             // tab (the sub-toggle inside picks between Files and Versions).
             { key: "files" as const, label: "CODE", icon: "◇", color: "var(--text-primary)" },
+            // OVERVIEW is the module's profile/chrome — kept last now that the
+            // app leads. (The EDIT view moved out of the tab row: it's the
+            // floating wrench in the bottom-left corner.)
+            { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
           ]).map((tab) => {
             const t = tab as any;
             const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
@@ -9363,7 +10356,7 @@ export default function Home() {
               <button
                 key={tab.key}
                 onClick={() => setSidebarView(t.target || tab.key)}
-                className="text-[15px] font-bold transition-all px-3 py-2 font-code flex items-center gap-1.5 relative"
+                className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
                 style={{
                   letterSpacing: "0.02em",
                   color: isActive ? tab.color : "var(--text-tertiary)",
@@ -9385,15 +10378,390 @@ export default function Home() {
                   }
                 }}
               >
-                <span className="text-[13px]">{tab.icon}</span>
+                <span className="text-[11px]">{tab.icon}</span>
                 {tab.label}
               </button>
             );
           })}
           </div>
+        </div>
+
+        {/* ── Top-level row: HUB + TASKS on the left, account controls on the
+            right. Displayed ABOVE the module row via flex `order: 1`. TASKS
+            opens the AGENT sidebar on its task list (same target as the nav
+            rail's EDIT button) so running jobs are one click from anywhere. */}
+        <div
+          className="flex items-center px-4 py-1"
+          style={{ order: 1, borderBottom: `1px solid ${subtleBorder}` }}
+        >
+          <div className="flex items-center gap-0">
+            {(() => {
+              const hubActive = sidebarView === "hub";
+              const tasksActive = agentSidebarOpen && agentPanelTab === "tasks";
+              const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+              const topTabs = [
+                {
+                  key: "hub",
+                  label: "HUB",
+                  icon: "▦",
+                  color: "var(--crt-green)",
+                  active: hubActive,
+                  badge: null as number | null,
+                  onClick: () => setSidebarView("hub"),
+                },
+                {
+                  key: "tasks",
+                  label: "TASKS",
+                  icon: "▤",
+                  color: "var(--crt-blue)",
+                  active: tasksActive,
+                  badge: runningCount > 0 ? runningCount : null,
+                  onClick: () => {
+                    if (tasksActive) { setAgentSidebarOpen(false); return; }
+                    setAgentSidebarOpen(true);
+                    setAgentPanelTab("tasks");
+                  },
+                },
+              ];
+              return topTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={tab.onClick}
+                  className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
+                  style={{
+                    letterSpacing: "0.02em",
+                    color: tab.active ? tab.color : "var(--text-tertiary)",
+                    opacity: tab.active ? 1 : 0.45,
+                    borderBottom: tab.active ? `2px solid ${tab.color}` : "2px solid transparent",
+                    background: tab.active ? `color-mix(in srgb, ${tab.color} 6%, transparent)` : "transparent",
+                    marginBottom: "-1px",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!tab.active) {
+                      e.currentTarget.style.opacity = "0.75";
+                      e.currentTarget.style.color = tab.color;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!tab.active) {
+                      e.currentTarget.style.opacity = "0.45";
+                      e.currentTarget.style.color = "var(--text-tertiary)";
+                    }
+                  }}
+                  title={tab.key === "tasks" ? "Open the task list (agent panel)" : "Open the module hub"}
+                >
+                  <span className="text-[11px]">{tab.icon}</span>
+                  {tab.label}
+                  {tab.badge != null && (
+                    <span
+                      className="text-[9px] font-mono px-1 py-[1px] rounded"
+                      style={{
+                        color: tab.color,
+                        background: `color-mix(in srgb, ${tab.color} 14%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${tab.color} 35%, transparent)`,
+                      }}
+                    >
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ));
+            })()}
+          </div>
 
           {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          {/* Wrench: BUILD / FORK / EDIT actions side panel.
+              Lives on the RIGHT of the header. Clicking opens a
+              tabbed panel anchored under the icon (right-aligned). */}
+            <div className="relative flex items-center gap-1.5" ref={headerCreateRef}>
+              {/* "+" opens the BUILD / FORK / EDIT / IMPORT panel. On desktop
+                  with the nav rail open, these actions live compressed at the
+                  bottom of the rail instead — the header button only shows on
+                  mobile or when the rail is collapsed. */}
+              {(isMobile || !leftRailOpen) && (
+              <button
+                onClick={() => {
+                  setCreateAnchor("header");
+                  setShowHeaderCreateForm((f) => (f ? null : "create"));
+                }}
+                className="flex items-center justify-center transition-all hover:brightness-125 rounded-sm"
+                style={{
+                  width: 28,
+                  height: 28,
+                  border: `1px solid ${showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.25)"}`,
+                  color: showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.55)",
+                  background: showHeaderCreateForm ? "rgba(16,185,129,0.10)" : "transparent",
+                  fontSize: 15,
+                  lineHeight: 1,
+                }}
+                title="Build / fork / edit / import a module"
+                aria-expanded={!!showHeaderCreateForm}
+                aria-label="Build, fork, edit or import a module"
+              >
+                +
+              </button>
+              )}
+              {/* The wrench that used to live here moved to a larger floating
+                  toggle in the bottom-left corner (see EDIT-agent FAB below). */}
+
+              {showHeaderCreateForm && createAnchor === "header" && (
+                <div
+                  className="absolute right-0 top-full mt-1 border z-50 flex flex-col min-w-[320px]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: showHeaderCreateForm === "fork"
+                      ? "rgba(245,158,11,0.3)"
+                      : showHeaderCreateForm === "edit"
+                      ? "rgba(59,130,246,0.3)"
+                      : showHeaderCreateForm === "import"
+                      ? "rgba(34,211,238,0.3)"
+                      : "rgba(16,185,129,0.3)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.20)",
+                  }}
+                >
+                  {/* Tabs */}
+                  <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    {([
+                      { key: "create" as const, label: "+ BUILD", color: "var(--crt-green)", rgb: "16,185,129" },
+                      { key: "fork"   as const, label: "⑂ FORK",  color: "var(--crt-amber)", rgb: "245,158,11" },
+                      { key: "edit"   as const, label: "✎ EDIT",  color: "var(--crt-blue)",  rgb: "59,130,246" },
+                      { key: "import" as const, label: "⇩ IMPORT", color: "#22d3ee",         rgb: "34,211,238" },
+                    ]).map((tab) => {
+                      const isActive = showHeaderCreateForm === tab.key;
+                      const disabled = tab.key === "edit" && !selectedModule;
+                      return (
+                        <button
+                          key={tab.key}
+                          onClick={() => {
+                            if (disabled) return;
+                            if (tab.key === "fork") {
+                              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
+                              setHeaderGithubUrl("");
+                            } else if (tab.key === "create") {
+                              setHeaderNewName("");
+                              setHeaderGithubUrl("");
+                            } else if (tab.key === "import") {
+                              setHeaderNewName("");
+                              setHeaderGithubUrl("");
+                              setHeaderCid("");
+                            } else {
+                              setHeaderEditPrompt("");
+                            }
+                            setShowHeaderCreateForm(tab.key);
+                          }}
+                          disabled={disabled}
+                          className="flex-1 text-[11px] font-bold py-1.5 px-2 font-code transition-all disabled:cursor-not-allowed"
+                          style={{
+                            letterSpacing: "0.02em",
+                            color: isActive ? tab.color : `rgba(${tab.rgb}, ${disabled ? 0.2 : 0.5})`,
+                            background: isActive ? `rgba(${tab.rgb}, 0.08)` : "transparent",
+                            borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
+                          }}
+                          title={disabled ? "Select a module to edit" : tab.label}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Active form */}
+                  <div className="p-3 flex flex-col gap-2">
+                    <div className="text-[12px] font-bold uppercase" style={{
+                      letterSpacing: "0.02em",
+                      color: showHeaderCreateForm === "fork"
+                        ? "var(--crt-amber)"
+                        : showHeaderCreateForm === "edit"
+                        ? "var(--crt-blue)"
+                        : showHeaderCreateForm === "import"
+                        ? "#22d3ee"
+                        : "var(--crt-green)",
+                    }}>
+                      {showHeaderCreateForm === "fork"
+                        ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}`
+                        : showHeaderCreateForm === "edit"
+                        ? `✎ EDIT ${selectedModule?.toUpperCase() || "?"}`
+                        : showHeaderCreateForm === "import"
+                        ? "⇩ IMPORT MODULE"
+                        : "+ BUILD MODULE"}
+                    </div>
+                    {showHeaderCreateForm === "edit" ? (
+                      <textarea
+                        autoFocus
+                        value={headerEditPrompt}
+                        onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="describe the edit..."
+                        rows={3}
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none resize-none"
+                        style={{
+                          borderColor: "rgba(59,130,246,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    ) : showHeaderCreateForm === "import" ? (
+                      <>
+                        {/* Source toggle — clone a git repo or restore a snapshot CID */}
+                        <div className="flex gap-1">
+                          {(["github", "cid"] as const).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setHeaderImportSource(s)}
+                              className="flex-1 text-[11px] font-bold py-1 px-2 font-code border transition-all"
+                              style={{
+                                letterSpacing: "0.02em",
+                                color: headerImportSource === s ? "#22d3ee" : "rgba(34,211,238,0.45)",
+                                borderColor: headerImportSource === s ? "rgba(34,211,238,0.5)" : "rgba(34,211,238,0.15)",
+                                background: headerImportSource === s ? "rgba(34,211,238,0.08)" : "transparent",
+                              }}
+                            >
+                              {s === "github" ? "GITHUB" : "CID"}
+                            </button>
+                          ))}
+                        </div>
+                        {headerImportSource === "github" ? (
+                          <input
+                            type="text"
+                            autoFocus
+                            value={headerGithubUrl}
+                            onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") headerCreateOrFork();
+                              if (e.key === "Escape") setShowHeaderCreateForm(null);
+                            }}
+                            placeholder="https://github.com/user/repo.git"
+                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            autoFocus
+                            value={headerCid}
+                            onChange={(e) => setHeaderCid(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") headerCreateOrFork();
+                              if (e.key === "Escape") setShowHeaderCreateForm(null);
+                            }}
+                            placeholder="snapshot cid..."
+                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          value={headerNewName}
+                          onChange={(e) => setHeaderNewName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") headerCreateOrFork();
+                            if (e.key === "Escape") setShowHeaderCreateForm(null);
+                          }}
+                          placeholder={
+                            headerImportSource === "github"
+                              ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "module name (auto from url)...")
+                              : "module name..."
+                          }
+                          className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                          style={{ borderColor: "rgba(34,211,238,0.2)", color: "var(--text-primary)" }}
+                        />
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={headerNewName}
+                        onChange={(e) => setHeaderNewName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="module name..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                        style={{
+                          borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    )}
+                    {showHeaderCreateForm === "create" && (
+                      <input
+                        type="text"
+                        value={headerGithubUrl}
+                        onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="github url (optional)..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
+                        style={{ color: "var(--text-primary)" }}
+                      />
+                    )}
+                    {/* Model selector — drives the same shared model state the
+                        composer uses, so EDIT/FORK/BUILD jobs run on the model
+                        picked here (previously this panel had no picker and
+                        silently inherited the composer's choice). IMPORT is a
+                        deterministic clone/restore — no agent, no model. */}
+                    {showHeaderCreateForm !== "import" && (
+                    <select
+                      value={model}
+                      onChange={(e) => {
+                        setModel(e.target.value);
+                        safeSetItem("claude_jobs_model", e.target.value);
+                      }}
+                      className="px-2 py-1 text-[12px] bg-transparent text-crt-green border border-crt-green/20 font-code uppercase cursor-pointer hover:border-crt-green/40 transition-colors self-start"
+                      title={`Model: ${modelLabel(model)} (${model})`}
+                    >
+                      {MODEL_OPTIONS.map(m => (
+                        <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={headerCreateOrFork}
+                        disabled={(showHeaderCreateForm === "edit"
+                          ? !headerEditPrompt.trim()
+                          : showHeaderCreateForm === "import"
+                          ? (headerImportSource === "github" ? !headerGithubUrl.trim() : !headerCid.trim())
+                          : !headerNewName.trim()) || submitting}
+                        className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
+                        style={{
+                          letterSpacing: "0.01em",
+                          opacity: (showHeaderCreateForm === "edit"
+                            ? headerEditPrompt.trim()
+                            : showHeaderCreateForm === "import"
+                            ? (headerImportSource === "github" ? headerGithubUrl.trim() : headerCid.trim())
+                            : headerNewName.trim()) ? 1 : 0.4,
+                        }}
+                      >
+                        {submitting
+                          ? "..."
+                          : showHeaderCreateForm === "fork"
+                          ? "FORK"
+                          : showHeaderCreateForm === "edit"
+                          ? "EDIT"
+                          : showHeaderCreateForm === "import"
+                          ? "IMPORT"
+                          : "BUILD"}
+                      </button>
+                      <button
+                        onClick={() => setShowHeaderCreateForm(null)}
+                        className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
+                      >
+                        ESC
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             {/* Single identity chip — owner + user are one panel. The module
                 owner's identity (for non-owner viewers) lives inside the
                 profile dropdown below, so the top-right corner never shows a
@@ -9603,6 +10971,516 @@ export default function Home() {
 
       <div className="flex-1 flex flex-row overflow-hidden relative">
 
+        {/* ── Left nav rail: HUB + EDIT + recent modules ───────────────
+            Quick-draw navigation on the far left. The HUB button jumps to
+            the module grid; EDIT opens the app + tasks-sidebar edit view;
+            the recent list lets you flip between the
+            modules you've been working on without reopening the hub.
+            Desktop only — on phone the header HUB button / module picker
+            cover this in the limited width. */}
+        {!isMobile && (
+          leftRailOpen ? (
+            <div
+              className="flex flex-col overflow-hidden shrink-0"
+              style={{
+                order: 0,
+                width: 212,
+                background: "var(--bg-secondary, var(--bg-primary))",
+                borderRight: "1px solid var(--border-color)",
+              }}
+            >
+              {/* Rail header — HUB + EDIT + collapse merged onto one line */}
+              <div
+                className="flex items-center gap-1.5 px-2 py-2 shrink-0"
+                style={{ borderBottom: "1px solid var(--border-color)" }}
+              >
+                <button
+                  onClick={() => setSidebarView("hub")}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
+                  style={{
+                    color: sidebarView === "hub" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
+                    background: sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 14%, transparent)" : "transparent",
+                    border: `1px solid ${sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+                    letterSpacing: "0.04em",
+                  }}
+                  onMouseEnter={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 7%, transparent)"; }}
+                  onMouseLeave={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "transparent"; }}
+                  title="Open the module hub"
+                >
+                  <span style={{ fontSize: 13, lineHeight: 1 }}>▦</span> HUB
+                </button>
+                {(() => {
+                  const tasksActive = agentSidebarOpen && agentPanelTab === "tasks";
+                  const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+                  return (
+                    <button
+                      onClick={() => {
+                        setAgentSidebarOpen(true);
+                        setAgentPanelTab("tasks");
+                        if (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir) {
+                          setSidebarView("app");
+                        }
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
+                      style={{
+                        color: tasksActive ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
+                        background: tasksActive ? "color-mix(in srgb, var(--crt-blue) 14%, transparent)" : "transparent",
+                        border: `1px solid ${tasksActive ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
+                        letterSpacing: "0.04em",
+                      }}
+                      onMouseEnter={(e) => { if (!tasksActive) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 7%, transparent)"; }}
+                      onMouseLeave={(e) => { if (!tasksActive) e.currentTarget.style.background = "transparent"; }}
+                      title="Open the edit view (app + tasks + prompt)"
+                    >
+                      <span style={{ fontSize: 13, lineHeight: 1 }}>✎</span> EDIT
+                      {runningCount > 0 && (
+                        <span
+                          className="text-[10px] font-mono px-1 py-[1px] rounded"
+                          style={{
+                            color: "var(--crt-blue)",
+                            background: "color-mix(in srgb, var(--crt-blue) 14%, transparent)",
+                            border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
+                          }}
+                        >
+                          {runningCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })()}
+                <button
+                  onClick={() => setLeftRailOpen(false)}
+                  className="flex items-center justify-center shrink-0 transition-all hover:brightness-125"
+                  style={{ width: 20, height: 20, color: "var(--text-tertiary)" }}
+                  title="Collapse nav rail"
+                  aria-label="Collapse nav rail"
+                >
+                  «
+                </button>
+              </div>
+
+              {/* Rail search — type to filter the module list below */}
+              <div className="px-2 pt-2 shrink-0">
+                <div
+                  className="flex items-center gap-1.5 px-2 rounded-md"
+                  style={{ border: "1px solid var(--border-color)", background: "var(--bg-primary)" }}
+                >
+                  <span className="text-[12px] shrink-0" style={{ color: "var(--text-tertiary)" }}>⌕</span>
+                  <input
+                    value={railSearch}
+                    onChange={(e) => setRailSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setRailSearch("");
+                      if (e.key === "Enter") {
+                        // Enter jumps straight into the first match.
+                        const q = railSearch.trim().toLowerCase();
+                        if (!q) return;
+                        const hit = moduleList
+                          .filter(isRealModule)
+                          .find((m) => m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q));
+                        if (hit) { selectModule(hit); setRailSearch(""); }
+                      }
+                    }}
+                    placeholder="Search modules…"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="w-full min-w-0 bg-transparent outline-none font-code text-[12px] py-1.5"
+                    style={{ color: "var(--text-secondary, var(--text-tertiary))" }}
+                  />
+                  {railSearch && (
+                    <button
+                      onClick={() => setRailSearch("")}
+                      className="text-[10px] shrink-0 hover:brightness-125"
+                      style={{ color: "var(--text-tertiary)" }}
+                      aria-label="Clear module search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Module list: search matches, or MINE (owned by the signed-in
+                  wallet) + RECENT when the search box is empty. */}
+              <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1 flex flex-col gap-0.5">
+                {(() => {
+                  const sectionHeader = (label: string) => (
+                    <div
+                      key={`hdr-${label}`}
+                      className="px-1 pt-2 pb-1 text-[10px] font-bold font-code uppercase shrink-0"
+                      style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}
+                    >
+                      {label}
+                    </div>
+                  );
+                  const row = (name: string, info: typeof moduleList[0] | undefined, keyPrefix: string) => {
+                    const st = moduleStatuses[name];
+                    const live = st ? (st.app === true || st.api === true ? true : (st.app === false || st.api === false ? false : null)) : null;
+                    const active = name === selectedModule && sidebarView !== "hub";
+                    return (
+                      <button
+                        key={`${keyPrefix}-${name}`}
+                        onClick={() => {
+                          if (info) selectModule(info);
+                          else setSelectedModule(name);
+                        }}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
+                        style={{
+                          color: active ? "var(--accent-color)" : "var(--text-secondary, var(--text-tertiary))",
+                          background: active ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "transparent",
+                          border: `1px solid ${active ? "color-mix(in srgb, var(--accent-color) 35%, transparent)" : "transparent"}`,
+                        }}
+                        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 7%, transparent)"; }}
+                        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                        title={info?.description || name}
+                      >
+                        <span
+                          className="shrink-0"
+                          style={{
+                            width: 7, height: 7, borderRadius: 999,
+                            background: live === true ? "var(--crt-green)" : live === false ? "color-mix(in srgb, var(--crt-red, #ef4444) 70%, transparent)" : "var(--text-tertiary)",
+                            opacity: live === null ? 0.4 : 1,
+                            boxShadow: live === true ? "0 0 6px var(--crt-green)" : "none",
+                          }}
+                        />
+                        <span className="truncate">{name}</span>
+                      </button>
+                    );
+                  };
+                  const q = railSearch.trim().toLowerCase();
+                  if (q) {
+                    const matches = moduleList
+                      .filter(isRealModule)
+                      .filter((m) => m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q));
+                    if (matches.length === 0) {
+                      return (
+                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                          No modules match “{railSearch.trim()}”.
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        {sectionHeader(`Matches · ${matches.length}`)}
+                        {matches.map((m) => row(m.name, m, "match"))}
+                      </>
+                    );
+                  }
+                  const me = address && address !== "local" ? address.toLowerCase() : null;
+                  const owned = me
+                    ? moduleList.filter(isRealModule).filter((m) => m.owner && m.owner.toLowerCase() === me)
+                    : [];
+                  // Recents that already appear under MINE are redundant — drop them.
+                  const ownedNames = new Set(owned.map((m) => m.name));
+                  const recents = recentModules.filter((name) => !ownedNames.has(name));
+                  return (
+                    <>
+                      {owned.length > 0 && (
+                        <>
+                          {sectionHeader(`Mine · ${owned.length}`)}
+                          {owned.map((m) => row(m.name, m, "mine"))}
+                        </>
+                      )}
+                      {recents.length > 0 ? (
+                        <>
+                          {sectionHeader(`Recent · ${recents.length}`)}
+                          {recents.map((name) => row(name, moduleList.find((m) => m.name === name), "recent"))}
+                        </>
+                      ) : owned.length === 0 ? (
+                        <>
+                          {sectionHeader("Recent")}
+                          <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                            Modules you open show up here.
+                          </div>
+                        </>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Rail actions — the header's four-tab BUILD/FORK/EDIT/IMPORT
+                  popover compressed into two buttons: CREATE (build from
+                  scratch, fork the selected module, or import via github/cid
+                  — picked with a small source segment) and EDIT (agent edit
+                  of the selected module). Shares the header panel's state and
+                  submit path, so behavior is identical — only the surface is
+                  smaller. */}
+              <div
+                ref={railCreateRef}
+                className="shrink-0 px-2 py-2 flex flex-col gap-1.5"
+                style={{ borderTop: "1px solid var(--border-color)" }}
+              >
+                {showHeaderCreateForm && createAnchor === "rail" && (() => {
+                  const isEdit = showHeaderCreateForm === "edit";
+                  const accent = isEdit
+                    ? "var(--crt-blue)"
+                    : showHeaderCreateForm === "fork"
+                    ? "var(--crt-amber)"
+                    : showHeaderCreateForm === "import"
+                    ? "#22d3ee"
+                    : "var(--crt-green)";
+                  const sources = [
+                    { key: "new", label: "NEW", active: showHeaderCreateForm === "create", disabled: false },
+                    { key: "fork", label: "FORK", active: showHeaderCreateForm === "fork", disabled: !selectedModule },
+                    { key: "git", label: "GIT", active: showHeaderCreateForm === "import" && headerImportSource === "github", disabled: false },
+                    { key: "cid", label: "CID", active: showHeaderCreateForm === "import" && headerImportSource === "cid", disabled: false },
+                  ];
+                  const pickSource = (key: string) => {
+                    if (key === "new") {
+                      setHeaderNewName(""); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("create");
+                    } else if (key === "fork") {
+                      if (!selectedModule) return;
+                      setHeaderNewName(selectedModule + "-fork"); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("fork");
+                    } else {
+                      setHeaderNewName("");
+                      setHeaderImportSource(key === "git" ? "github" : "cid");
+                      setShowHeaderCreateForm("import");
+                    }
+                  };
+                  const canGo = isEdit
+                    ? !!headerEditPrompt.trim() && !!selectedModule
+                    : showHeaderCreateForm === "import"
+                    ? (headerImportSource === "github" ? !!headerGithubUrl.trim() : !!headerCid.trim())
+                    : !!headerNewName.trim();
+                  const onFormKeys = (e: React.KeyboardEvent) => {
+                    const inTextarea = e.target instanceof HTMLTextAreaElement;
+                    if (e.key === "Enter" && (!inTextarea || e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                    if (e.key === "Escape") setShowHeaderCreateForm(null);
+                  };
+                  const inputStyle: React.CSSProperties = {
+                    borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
+                    color: "var(--text-primary)",
+                    background: "var(--bg-primary)",
+                  };
+                  return (
+                    <div className="flex flex-col gap-1.5 pb-1" onKeyDown={onFormKeys}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="text-[10px] font-bold font-code uppercase truncate"
+                          style={{ color: accent, letterSpacing: "0.08em" }}
+                        >
+                          {isEdit
+                            ? `✎ EDIT ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "fork"
+                            ? `⑂ FORK ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "import"
+                            ? "⇩ IMPORT MODULE"
+                            : "+ BUILD MODULE"}
+                        </span>
+                        <button
+                          onClick={() => setShowHeaderCreateForm(null)}
+                          className="text-[10px] shrink-0 hover:brightness-125"
+                          style={{ color: "var(--text-tertiary)" }}
+                          aria-label="Close create form"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {!isEdit && (
+                        <div className="flex gap-1">
+                          {sources.map((s) => (
+                            <button
+                              key={s.key}
+                              onClick={() => pickSource(s.key)}
+                              disabled={s.disabled}
+                              title={s.disabled ? "Select a module to fork" : s.label}
+                              className="flex-1 text-[10px] font-bold py-1 font-code border rounded-sm transition-all disabled:cursor-not-allowed"
+                              style={{
+                                letterSpacing: "0.04em",
+                                color: s.active ? accent : "var(--text-secondary, var(--text-tertiary))",
+                                opacity: s.disabled ? 0.35 : 1,
+                                borderColor: s.active ? `color-mix(in srgb, ${accent} 50%, transparent)` : "var(--border-color)",
+                                background: s.active ? `color-mix(in srgb, ${accent} 10%, transparent)` : "transparent",
+                              }}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {isEdit ? (
+                        <textarea
+                          autoFocus
+                          value={headerEditPrompt}
+                          onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                          placeholder="describe the edit… (⌘↵ runs)"
+                          rows={3}
+                          className="px-2 py-1.5 text-[12px] border font-code outline-none resize-none rounded-sm"
+                          style={inputStyle}
+                        />
+                      ) : (
+                        <>
+                          {showHeaderCreateForm === "import" && (
+                            headerImportSource === "github" ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerGithubUrl}
+                                onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                                placeholder="https://github.com/user/repo"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerCid}
+                                onChange={(e) => setHeaderCid(e.target.value)}
+                                placeholder="snapshot cid…"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            )
+                          )}
+                          <input
+                            type="text"
+                            autoFocus={showHeaderCreateForm !== "import"}
+                            value={headerNewName}
+                            onChange={(e) => setHeaderNewName(e.target.value)}
+                            placeholder={
+                              showHeaderCreateForm === "import" && headerImportSource === "github"
+                                ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "name (auto from url)…")
+                                : "module name…"
+                            }
+                            className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                            style={inputStyle}
+                          />
+                          {showHeaderCreateForm === "create" && (
+                            <input
+                              type="text"
+                              value={headerGithubUrl}
+                              onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                              placeholder="github url (optional)…"
+                              className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                              style={inputStyle}
+                            />
+                          )}
+                        </>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        {showHeaderCreateForm !== "import" && (
+                          <select
+                            value={model}
+                            onChange={(e) => {
+                              setModel(e.target.value);
+                              safeSetItem("claude_jobs_model", e.target.value);
+                            }}
+                            className="min-w-0 flex-1 px-1 py-1 text-[10px] bg-transparent border font-code uppercase cursor-pointer rounded-sm"
+                            style={{ color: accent, borderColor: "var(--border-color)" }}
+                            title={`Model: ${modelLabel(model)} (${model})`}
+                          >
+                            {MODEL_OPTIONS.map((m) => (
+                              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          onClick={headerCreateOrFork}
+                          disabled={!canGo || submitting}
+                          className="pixel-btn text-[11px] py-1 px-3 uppercase shrink-0 disabled:cursor-not-allowed"
+                          style={{
+                            opacity: canGo && !submitting ? 1 : 0.4,
+                            marginLeft: showHeaderCreateForm === "import" ? "auto" : undefined,
+                          }}
+                        >
+                          {submitting
+                            ? "…"
+                            : isEdit
+                            ? "EDIT"
+                            : showHeaderCreateForm === "fork"
+                            ? "FORK"
+                            : showHeaderCreateForm === "import"
+                            ? "IMPORT"
+                            : "BUILD"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => {
+                      if (showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail") {
+                        setShowHeaderCreateForm(null);
+                        return;
+                      }
+                      setCreateAnchor("rail");
+                      setHeaderNewName("");
+                      setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("create");
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all"
+                    style={{
+                      color: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
+                      background: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                      border: `1px solid ${showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+                      letterSpacing: "0.04em",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 8%, transparent)"; }}
+                    onMouseLeave={(e) => { if (!(showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
+                    title="Build, fork or import a module"
+                  >
+                    + CREATE
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!selectedModule) return;
+                      if (showHeaderCreateForm === "edit" && createAnchor === "rail") {
+                        setShowHeaderCreateForm(null);
+                        return;
+                      }
+                      setCreateAnchor("rail");
+                      setHeaderEditPrompt("");
+                      setShowHeaderCreateForm("edit");
+                    }}
+                    disabled={!selectedModule}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all disabled:cursor-not-allowed"
+                    style={{
+                      color: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
+                      opacity: selectedModule ? 1 : 0.35,
+                      background: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 12%, transparent)" : "transparent",
+                      border: `1px solid ${showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
+                      letterSpacing: "0.04em",
+                    }}
+                    onMouseEnter={(e) => { if (selectedModule) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 8%, transparent)"; }}
+                    onMouseLeave={(e) => { if (!(showHeaderCreateForm === "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
+                    title={selectedModule ? `Edit ${selectedModule} with the agent` : "Select a module to edit"}
+                  >
+                    ✎ EDIT
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Collapsed: a thin reopen tab on the far left.
+            <button
+              onClick={() => setLeftRailOpen(true)}
+              className="flex items-center justify-center shrink-0 transition-all hover:brightness-125"
+              style={{
+                order: 0,
+                width: 22,
+                background: "var(--bg-secondary, var(--bg-primary))",
+                borderRight: "1px solid var(--border-color)",
+                color: "var(--text-tertiary)",
+                writingMode: "vertical-rl",
+                fontSize: 10,
+                letterSpacing: "0.18em",
+                fontFamily: "var(--font-code, monospace)",
+              }}
+              title="Open nav rail (HUB + tasks + recent)"
+              aria-label="Open nav rail"
+            >
+              ▦ NAV »
+            </button>
+          )
+        )}
+
         {/* ── Sidebar: Agent ────────────────────────────────────────────
             One AGENT button in the header toggles this. On desktop it's
             a flex sibling that pushes main content (so the embedded app
@@ -9627,26 +11505,33 @@ export default function Home() {
           style={
             isMobile
               ? {
+                  // Fullscreen overlay on phone, but stop above the composer
+                  // dock so the prompt stays visible + typeable under the
+                  // task list (--composer-dock-h is published by the dock).
                   position: agentSidebarOpen ? "fixed" : "static",
-                  inset: agentSidebarOpen ? 0 : "auto",
+                  top: agentSidebarOpen ? 0 : "auto",
+                  left: agentSidebarOpen ? 0 : "auto",
+                  right: agentSidebarOpen ? 0 : "auto",
                   width: agentSidebarOpen ? "100vw" : "0px",
-                  height: agentSidebarOpen ? "100dvh" : "0px",
+                  height: agentSidebarOpen ? "calc(100dvh - var(--composer-dock-h, 0px))" : "0px",
                   maxWidth: "100vw",
                   background: "var(--bg-primary)",
                   zIndex: 70,
                   boxShadow: agentSidebarOpen ? "0 0 40px rgba(0,0,0,0.6)" : "none",
                   transition: "none",
+                  order: 2,
                 }
               : {
                   position: "relative",
+                  order: 2,
                   width: agentSidebarOpen ? `${agentSidebarWidth}px` : "0px",
                   minWidth: agentSidebarOpen ? "320px" : "0px",
                   maxWidth: "100%",
                   flexShrink: 0,
                   background: "var(--bg-primary)",
-                  borderRight: agentSidebarOpen ? "1px solid rgba(251,191,36,0.30)" : "none",
+                  borderLeft: agentSidebarOpen ? "1px solid rgba(251,191,36,0.30)" : "none",
                   boxShadow: agentSidebarOpen
-                    ? "12px 0 32px rgba(0,0,0,0.35), inset -1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
+                    ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
                     : "none",
                   transition: isAgentSidebarDragging ? "none" : "width 0.25s ease",
                 }
@@ -9663,7 +11548,7 @@ export default function Home() {
                 position: "absolute",
                 top: 0,
                 bottom: 0,
-                right: -3,
+                left: -3,
                 width: 6,
                 cursor: "col-resize",
                 zIndex: 1,
@@ -9679,7 +11564,7 @@ export default function Home() {
         {/* ── Main Content ──────────────────────── */}
         <div
           className="flex-1 flex flex-col overflow-hidden min-w-0"
-          style={{ background: "var(--bg-primary)" }}
+          style={{ background: "var(--bg-primary)", order: 1 }}
         >
             {sidebarView === "hub" ? (
               renderHubView()
@@ -9781,6 +11666,61 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── EDIT-agent toggle (bottom-left FAB) ──────────────────────
+            Replaces the small wrench in the header + the EDIT nav tab: one
+            big floating wrench in the bottom-left corner that opens/closes
+            the edit-agent view (app in the main area, tasks docked right,
+            composer at the bottom). Badge shows running/pending jobs. */}
+        {(() => {
+          const editOpen = agentSidebarOpen && agentPanelTab === "tasks";
+          const runningCount = jobs.filter((j) => j.status === "running" || j.status === "pending").length;
+          return (
+            <button
+              onClick={() => {
+                if (editOpen) {
+                  setAgentSidebarOpen(false);
+                  return;
+                }
+                setAgentSidebarOpen(true);
+                setAgentPanelTab("tasks");
+                if (selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir) {
+                  setSidebarView("app");
+                }
+              }}
+              className="fixed bottom-4 left-4 z-[140] flex items-center justify-center rounded-xl transition-all hover:brightness-125"
+              style={{
+                width: 56,
+                height: 56,
+                border: `1px solid ${editOpen ? "var(--crt-blue)" : "color-mix(in srgb, var(--crt-blue) 35%, transparent)"}`,
+                color: editOpen ? "var(--crt-blue)" : "color-mix(in srgb, var(--crt-blue) 75%, var(--text-tertiary))",
+                background: editOpen
+                  ? "color-mix(in srgb, var(--crt-blue) 14%, var(--bg-primary))"
+                  : "var(--bg-primary)",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+              }}
+              title={editOpen ? "Close the edit agent" : "Open the edit agent"}
+              aria-expanded={editOpen}
+              aria-label="Toggle edit agent"
+            >
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+              </svg>
+              {runningCount > 0 && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 text-[11px] font-mono font-bold px-1.5 py-[1px] rounded-full"
+                  style={{
+                    color: "var(--bg-primary)",
+                    background: "var(--crt-blue)",
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 60%, black)",
+                  }}
+                >
+                  {runningCount}
+                </span>
+              )}
+            </button>
+          );
+        })()}
+
         {/* The wallet sidebar is no longer a separate panel — its UI is now
             embedded as the "Wallet" tab inside the merged account sidebar
             below (see WalletModal embedded render). */}
@@ -9817,9 +11757,11 @@ export default function Home() {
                   zIndex: 70,
                   boxShadow: showOwnerSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
                   transition: "none",
+                  order: 3,
                 }
               : {
                   position: "relative",
+                  order: 3,
                   width: showOwnerSidebar ? `${ownerSidebarWidth}px` : "0px",
                   minWidth: showOwnerSidebar ? "300px" : "0px",
                   maxWidth: "100%",
@@ -9867,10 +11809,19 @@ export default function Home() {
                 {/* Header */}
                 <div
                   className="flex items-center justify-between px-4 py-3 shrink-0"
-                  style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                  style={{
+                    borderBottom: "1px solid color-mix(in srgb, var(--crt-amber) 16%, var(--border-color))",
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 5%, transparent), transparent)",
+                  }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span style={{ fontSize: 14, color: "var(--crt-amber)" }}>
+                    <span
+                      style={{
+                        fontSize: 14,
+                        color: "var(--crt-amber)",
+                        textShadow: "0 0 12px color-mix(in srgb, var(--crt-amber) 65%, transparent)",
+                      }}
+                    >
                       ◈
                     </span>
                     <div className="flex flex-col min-w-0">
@@ -9897,6 +11848,8 @@ export default function Home() {
                           color: "var(--crt-amber)",
                           background: "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
                           border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                          boxShadow: "0 0 14px -3px color-mix(in srgb, var(--crt-amber) 50%, transparent), inset 0 0 8px color-mix(in srgb, var(--crt-amber) 8%, transparent)",
+                          textShadow: "0 0 8px color-mix(in srgb, var(--crt-amber) 45%, transparent)",
                         }}
                       >
                         YOU
@@ -9941,8 +11894,13 @@ export default function Home() {
                       className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
                       style={{ color: "var(--text-tertiary)" }}
                     >
-                      <span style={{ color: "var(--crt-green)" }}>◇</span>
+                      <span style={{ color: "var(--crt-green)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-green) 55%, transparent)" }}>◇</span>
                       Wallet
+                      <span
+                        className="flex-1 h-px ml-1.5"
+                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-green) 22%, transparent), transparent)" }}
+                        aria-hidden
+                      />
                     </div>
                     {/* Embedded wallet view in flow mode — its own header/scroll
                         are suppressed so it shares this panel's single scroll. */}
@@ -9952,8 +11910,6 @@ export default function Home() {
                       inline
                       embedded
                       flow
-                      isOwner={isOwner}
-                      ownerAddress={cfgOwner}
                       onClose={() => setShowOwnerSidebar(false)}
                       onDisconnect={() => {
                         setShowOwnerSidebar(false);
@@ -9972,15 +11928,22 @@ export default function Home() {
                       className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
                       style={{ color: "var(--text-tertiary)", borderTop: `1px solid ${subtleBorder}` }}
                     >
-                      <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                      <span style={{ color: "var(--crt-amber)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-amber) 55%, transparent)" }}>◈</span>
                       Owner
+                      <span
+                        className="flex-1 h-px ml-1.5"
+                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-amber) 22%, transparent), transparent)" }}
+                        aria-hidden
+                      />
                     </div>
                   </>
                 )}
                 <div className="p-4 flex flex-col gap-3">
                   {/* Owner identity — gradient avatar derived from the address;
-                      the whole row is click-to-copy */}
-                  {cfgOwner && (() => {
+                      the whole row is click-to-copy. Hidden when the connected
+                      wallet IS the owner and its address already shows in the
+                      wallet card above (the YOU badge covers it). */}
+                  {cfgOwner && !(hasWallet && youAreOwner) && (() => {
                     const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
                     const h1 = seed % 360;
                     const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
@@ -10384,6 +12347,12 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* ── Composer dock — full-width prompt bar at the bottom of the
+          console. App renders above it, tasks live in the right sidebar,
+          and the PARAMS panel (auth + mod/model/agent + savable system
+          prompt) folds out of this bar. ── */}
+      {renderComposerDock()}
 
       {/* ── Floating FILES Panel ──────────────────────────── */}
       {filesPanelFloating && (

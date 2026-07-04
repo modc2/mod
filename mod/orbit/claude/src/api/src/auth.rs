@@ -75,6 +75,13 @@ pub struct VerifyRequest {
     pub address: String,
     pub signature: String,
     pub message: String,
+    /// Optional QR edit-grant id — lets a non-whitelisted address sign in for
+    /// the grant's window (and registers their time-boxed edit access).
+    #[serde(default)]
+    pub grant: Option<String>,
+    /// Optional second-factor key for the grant above.
+    #[serde(default)]
+    pub grant_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -134,21 +141,41 @@ pub async fn verify(
                 && !read_whitelist().iter().any(|w| w == &addr)
                 && !run_gate_command(&addr)
             {
-                // Echo the verified signer + configured owner so a wrong active
-                // MetaMask account is obvious. Log it too — this path was silent.
-                eprintln!(
-                    "✗ Sign-in denied: signer {} is not owner ({}), not whitelisted, no gate matched",
-                    addr, owner
-                );
-                return Err((
-                    StatusCode::FORBIDDEN,
-                    Json(serde_json::json!({
-                        "error": format!(
-                            "Sign-in not permitted: signed-in address {} is not the owner ({}), not whitelisted, and no gate matched. Check which account is active in your wallet.",
+                // Last chance: a QR edit-grant. Redeeming one lets this address
+                // in for the grant's window and records its time-boxed access.
+                match req.grant.as_deref() {
+                    Some(gid) => {
+                        match redeem_grant(gid, req.grant_key.as_deref(), &addr) {
+                            Ok(exp) => {
+                                println!("✓ Grant redeemed: {} via {} (until {})", addr, gid, exp);
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Grant redemption failed for {}: {}", addr, e);
+                                return Err((
+                                    StatusCode::FORBIDDEN,
+                                    Json(serde_json::json!({ "error": e })),
+                                ));
+                            }
+                        }
+                    }
+                    None => {
+                        // Echo the verified signer + configured owner so a wrong active
+                        // MetaMask account is obvious. Log it too — this path was silent.
+                        eprintln!(
+                            "✗ Sign-in denied: signer {} is not owner ({}), not whitelisted, no gate matched",
                             addr, owner
-                        )
-                    })),
-                ));
+                        );
+                        return Err((
+                            StatusCode::FORBIDDEN,
+                            Json(serde_json::json!({
+                                "error": format!(
+                                    "Sign-in not permitted: signed-in address {} is not the owner ({}), not whitelisted, and no gate matched. Check which account is active in your wallet.",
+                                    addr, owner
+                                )
+                            })),
+                        ));
+                    }
+                }
             }
             false
         }
@@ -172,13 +199,7 @@ pub async fn verify(
         }
     };
 
-    // Generate bearer token: address:timestamp:hmac
-    let timestamp = chrono::Utc::now().timestamp();
-    let payload = format!("{}:{}", addr, timestamp);
-    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
-    mac.update(payload.as_bytes());
-    let sig = hex::encode(mac.finalize().into_bytes());
-    let token = format!("{}:{}", payload, sig);
+    let token = mint_token(&addr);
 
     if is_new_owner {
         println!("✓ First user authenticated - set as owner: {}", addr);
@@ -188,6 +209,16 @@ pub async fn verify(
         token,
         address: addr,
     }))
+}
+
+/// Mint a bearer token for an authenticated identity: address:timestamp:hmac.
+pub fn mint_token(address: &str) -> String {
+    let timestamp = chrono::Utc::now().timestamp();
+    let payload = format!("{}:{}", address, timestamp);
+    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+    mac.update(payload.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("{}:{}", payload, sig)
 }
 
 // ── Middleware ────────────────────────────────────────────────────────
@@ -250,9 +281,11 @@ pub fn validate_token(token: &str) -> Result<String, String> {
         .map_err(|_| "Invalid timestamp".to_string())?;
     let provided_sig = parts[2];
 
-    // Check expiry (24 hours)
+    // Check expiry (24 hours). Guest tokens (walletless QR redemption) are
+    // exempt here — they live and die with their grant, checked below.
+    let is_guest = address.starts_with(GUEST_PREFIX);
     let now = chrono::Utc::now().timestamp();
-    if now - timestamp > 86400 {
+    if !is_guest && now - timestamp > 86400 {
         return Err("Token expired".to_string());
     }
 
@@ -264,6 +297,12 @@ pub fn validate_token(token: &str) -> Result<String, String> {
 
     if expected != provided_sig {
         return Err("Invalid token signature".to_string());
+    }
+
+    // A guest identity only means anything while its grant redemption is live,
+    // so access ends the moment the grant expires or is revoked.
+    if is_guest && !grant_active(address) {
+        return Err("Guest access expired".to_string());
     }
 
     Ok(address.to_string())
@@ -427,7 +466,215 @@ pub fn is_trusted(address: &str) -> bool {
         return true;
     }
     let addr = address.to_lowercase();
-    read_whitelist().iter().any(|w| w == &addr)
+    if read_whitelist().iter().any(|w| w == &addr) {
+        return true;
+    }
+    // Time-boxed QR grants: a holder who redeemed a still-valid edit grant gets
+    // the same edit surface as a whitelisted editor, until the grant expires.
+    grant_active(&addr)
+}
+
+// ── Time-boxed edit grants (QR hand-off) ─────────────────────────────
+//
+// The owner mints a *grant*: a short, random id that confers temporary
+// edit access (default 1h) to whoever redeems it, optionally protected by
+// a second-factor *key* the owner shares out of band. The id travels in a
+// QR code; the key is supplied separately so a leaked QR alone is useless.
+//
+// Redemption is bound to the redeemer's signed-in address (during sign-in),
+// so access cleaves an auditable trail and the grant can serve multiple
+// people. Everything lives off-repo in ~/.mod/claude/grants.json next to the
+// whitelist; the grant window is absolute (created → created+ttl), so the QR
+// stops working — and every redeemer's access ends — at the same moment.
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Grant {
+    /// Random, URL-safe id carried by the QR code.
+    pub id: String,
+    /// Unix expiry — access (and redemption) ends here.
+    pub exp: i64,
+    /// Seconds of life the owner asked for (for display/echo).
+    pub ttl: i64,
+    /// sha256(key) hex if the owner set a second-factor key; absent otherwise.
+    #[serde(default)]
+    pub key_hash: Option<String>,
+    /// Optional human label so the owner remembers what a grant was for.
+    #[serde(default)]
+    pub label: Option<String>,
+    pub created: i64,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Redemption {
+    pub address: String,
+    pub exp: i64,
+    pub grant: String,
+    pub redeemed: i64,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct GrantsFile {
+    #[serde(default)]
+    pub grants: Vec<Grant>,
+    #[serde(default)]
+    pub redemptions: Vec<Redemption>,
+}
+
+pub fn grants_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("grants.json"))
+}
+
+/// Read the grants file, tolerating a missing/corrupt file (returns empty).
+pub fn read_grants() -> GrantsFile {
+    let path = match grants_path() {
+        Some(p) => p,
+        None => return GrantsFile::default(),
+    };
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+pub fn write_grants(file: &GrantsFile) -> Result<(), String> {
+    let path = grants_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(file).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+fn sha256_hex(s: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    hex::encode(h.finalize())
+}
+
+/// Drop expired grants and redemptions, plus redemptions whose grant is gone or
+/// revoked. Returns the pruned file (callers persist it).
+fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
+    file.grants.retain(|g| !g.revoked && g.exp > now);
+    let live: std::collections::HashSet<String> =
+        file.grants.iter().map(|g| g.id.clone()).collect();
+    file.redemptions
+        .retain(|r| r.exp > now && live.contains(&r.grant));
+    file
+}
+
+/// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
+/// never stored in the clear. Returns the created grant.
+pub fn create_grant(
+    ttl: i64,
+    key: Option<&str>,
+    label: Option<&str>,
+) -> Result<Grant, String> {
+    let now = chrono::Utc::now().timestamp();
+    let id = hex::encode(rand::random::<[u8; 12]>());
+    let grant = Grant {
+        id,
+        exp: now + ttl,
+        ttl,
+        key_hash: key.map(sha256_hex),
+        label: label
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        created: now,
+        revoked: false,
+    };
+    let mut file = prune_grants(read_grants(), now);
+    file.grants.push(grant.clone());
+    write_grants(&file)?;
+    Ok(grant)
+}
+
+/// Active (unexpired, unrevoked) grants and live redemptions, for the owner UI.
+pub fn list_grants() -> GrantsFile {
+    let now = chrono::Utc::now().timestamp();
+    let pruned = prune_grants(read_grants(), now);
+    // Persist the prune so the file doesn't grow unbounded; ignore write errors.
+    let _ = write_grants(&pruned);
+    pruned
+}
+
+/// Revoke a grant by id (and cut every session it opened). Returns true if found.
+pub fn revoke_grant(id: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let before = file.grants.len();
+    file.grants.retain(|g| g.id != id);
+    let removed = file.grants.len() != before;
+    if removed {
+        file.redemptions.retain(|r| r.grant != id);
+        let _ = write_grants(&file);
+    }
+    removed
+}
+
+/// Redeem a grant for `address`. Validates existence, expiry, and the optional
+/// key, then records (or refreshes) the redemption. Returns the access expiry.
+pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let addr = address.to_lowercase();
+
+    let grant = file
+        .grants
+        .iter()
+        .find(|g| g.id == id)
+        .cloned()
+        .ok_or("Invalid or expired invite")?;
+
+    if let Some(expected) = &grant.key_hash {
+        let supplied = key.map(|k| k.trim()).filter(|k| !k.is_empty());
+        match supplied {
+            Some(k) if &sha256_hex(k) == expected => {}
+            Some(_) => return Err("Wrong key for this invite".to_string()),
+            None => return Err("This invite requires a key".to_string()),
+        }
+    }
+
+    // Upsert the redemption (re-redeeming just refreshes it to the grant window).
+    file.redemptions.retain(|r| !(r.address == addr && r.grant == id));
+    file.redemptions.push(Redemption {
+        address: addr,
+        exp: grant.exp,
+        grant: grant.id.clone(),
+        redeemed: now,
+    });
+    write_grants(&file)?;
+    Ok(grant.exp)
+}
+
+/// Prefix for walletless guest identities minted by QR redemption. Can never
+/// collide with a real signer: Ethereum addresses always start with "0x".
+pub const GUEST_PREFIX: &str = "guest_";
+
+/// Walletless redemption: anyone holding the grant id (from the QR) trades it
+/// for a fresh guest identity whose redemption — and therefore whose bearer
+/// token — expires with the grant. Returns (guest address, access expiry).
+pub fn redeem_grant_guest(id: &str, key: Option<&str>) -> Result<(String, i64), String> {
+    let guest = format!("{}{}", GUEST_PREFIX, hex::encode(rand::random::<[u8; 4]>()));
+    let exp = redeem_grant(id, key, &guest)?;
+    Ok((guest, exp))
+}
+
+/// True if `address` holds an unexpired redemption of a live grant.
+pub fn grant_active(address: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let addr = address.to_lowercase();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    file.redemptions
+        .iter()
+        .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
 }
 
 /// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.

@@ -5,6 +5,7 @@
 //! Authentication via MetaMask signature verification.
 
 mod auth;
+mod credits;
 mod jobs;
 mod api;
 mod snapshots;

@@ -124,6 +124,109 @@ impl Catalog {
         self.modules().into_iter().find(|m| m.name == name)
     }
 
+    /// Drop the cached snapshot so the next read rescans the tree. Called after
+    /// a module is added on disk so it shows up immediately.
+    pub fn invalidate(&self) {
+        *self.snapshot.write() = None;
+    }
+
+    /// Clone a GitHub repo into the orbit tree as a new module and return its
+    /// freshly-scanned record. Owner-gated upstream. The repo is cloned shallow,
+    /// its `.git` removed (we don't track sub-histories), and — if it ships no
+    /// `config.json` — a minimal one is synthesized so the catalog adopts it.
+    pub async fn add_from_github(
+        &self,
+        repo_input: &str,
+        name_override: Option<&str>,
+    ) -> Result<Module, AddError> {
+        let (url, derived_name) = parse_repo(repo_input).ok_or(AddError::BadRepo)?;
+        let name = match name_override {
+            Some(n) if !n.trim().is_empty() => sanitize_name(n),
+            _ => sanitize_name(&derived_name),
+        };
+        if name.is_empty() {
+            return Err(AddError::BadRepo);
+        }
+
+        // Always land new modules in the primary (orbit) root.
+        let target = self.roots[0].join(&name);
+        if target.exists() {
+            return Err(AddError::Exists(name));
+        }
+
+        // Clone into a temp sibling first, then move into place atomically-ish,
+        // so a failed/partial clone never leaves a half-module in the catalog.
+        let tmp = self.roots[0].join(format!(".import-{name}"));
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let mut cmd = tokio::process::Command::new("git");
+        cmd.args([
+            "clone",
+            "--depth",
+            "1",
+            "--no-tags",
+            "--single-branch",
+            &url,
+        ])
+        .arg(&tmp)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "true")
+        .kill_on_drop(true);
+
+        let run = tokio::time::timeout(Duration::from_secs(120), cmd.output()).await;
+        let output = match run {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => {
+                let _ = std::fs::remove_dir_all(&tmp);
+                return Err(AddError::Clone(format!("could not run git: {e}")));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_dir_all(&tmp);
+                return Err(AddError::Clone("clone timed out (120s)".into()));
+            }
+        };
+        if !output.status.success() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = stderr.lines().last().unwrap_or("clone failed").to_string();
+            return Err(AddError::Clone(msg));
+        }
+
+        // We don't carry the upstream history; keeps disk light and avoids a
+        // nested repo confusing the monorepo's own git status.
+        let _ = std::fs::remove_dir_all(tmp.join(".git"));
+
+        // Adopt or synthesize a config.json so the catalog recognizes it.
+        let cfg_path = tmp.join("config.json");
+        if !cfg_path.exists() {
+            let description = readme_summary(&tmp)
+                .unwrap_or_else(|| format!("Imported from {url}"));
+            let cfg = serde_json::json!({
+                "name": name,
+                "version": "0.0.0",
+                "description": description,
+                "source": url,
+                "imported": true,
+            });
+            let pretty = serde_json::to_string_pretty(&cfg).unwrap_or_else(|_| "{}".into());
+            if let Err(e) = std::fs::write(&cfg_path, pretty) {
+                let _ = std::fs::remove_dir_all(&tmp);
+                return Err(AddError::Io(e.to_string()));
+            }
+        }
+
+        // Move into place.
+        if let Err(e) = std::fs::rename(&tmp, &target) {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(AddError::Io(e.to_string()));
+        }
+
+        self.invalidate();
+        self.get(&name).ok_or(AddError::Io(
+            "imported but could not parse the module config".into(),
+        ))
+    }
+
     pub fn stats(&self) -> Stats {
         let modules = self.modules();
         Stats {
@@ -238,6 +341,19 @@ pub struct FileContent {
     pub truncated: bool,
 }
 
+/// Why importing a module from GitHub failed — mapped to HTTP codes by routes.
+#[derive(Debug, Clone)]
+pub enum AddError {
+    /// Couldn't parse the input into a clonable GitHub repo.
+    BadRepo,
+    /// A module by that name already exists in the tree.
+    Exists(String),
+    /// `git clone` itself failed (bad URL, private repo, network).
+    Clone(String),
+    /// Filesystem error writing the module into place.
+    Io(String),
+}
+
 /// Why a file read was refused — mapped to HTTP status codes by the routes.
 #[derive(Debug, Clone, Copy)]
 pub enum FileError {
@@ -344,6 +460,99 @@ fn completeness(m: &Module) -> i32 {
         s += 1;
     }
     s
+}
+
+/// Turn user input into a `(clone_url, derived_name)` pair. Accepts:
+///   - `owner/repo`
+///   - `https://github.com/owner/repo[.git]`
+///   - `git@github.com:owner/repo[.git]`
+///   - any `https://…/…/repo[.git]` git host
+/// Returns `None` if it can't find a sensible repo name.
+fn parse_repo(input: &str) -> Option<(String, String)> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // git@host:owner/repo(.git)
+    if let Some(rest) = s.strip_prefix("git@") {
+        if let Some((_host, path)) = rest.split_once(':') {
+            let name = repo_name_from_path(path)?;
+            return Some((s.to_string(), name));
+        }
+    }
+
+    // Full URL.
+    if s.starts_with("http://") || s.starts_with("https://") {
+        let name = repo_name_from_path(s)?;
+        return Some((s.to_string(), name));
+    }
+
+    // Shorthand owner/repo → GitHub.
+    let parts: Vec<&str> = s.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() == 2 {
+        let owner = parts[0];
+        let repo = parts[1].trim_end_matches(".git");
+        if is_path_segment(owner) && is_path_segment(repo) {
+            return Some((
+                format!("https://github.com/{owner}/{repo}.git"),
+                repo.to_string(),
+            ));
+        }
+    }
+
+    None
+}
+
+fn repo_name_from_path(path: &str) -> Option<String> {
+    let last = path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()?
+        .trim_end_matches(".git");
+    if last.is_empty() {
+        None
+    } else {
+        Some(last.to_string())
+    }
+}
+
+fn is_path_segment(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// Reduce a name to a safe, lowercase module directory name.
+fn sanitize_name(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+/// First meaningful line of a repo's README, used as a fallback description.
+fn readme_summary(dir: &Path) -> Option<String> {
+    for cand in ["README.md", "README", "readme.md", "Readme.md"] {
+        if let Ok(text) = std::fs::read_to_string(dir.join(cand)) {
+            for line in text.lines() {
+                let l = line.trim_start_matches('#').trim();
+                if !l.is_empty() {
+                    return Some(l.chars().take(200).collect());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Walk one root and append a [`Module`] for every `<name>/config.json`.

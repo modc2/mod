@@ -23,6 +23,7 @@ pub fn test_app() -> Router {
         signer_store.clone(),
     ));
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
+    let share = polymarket_api::ShareStore::from_env();
 
     let state = AppState {
         http,
@@ -32,6 +33,7 @@ pub fn test_app() -> Router {
         signer_store,
         engines,
         user_strats,
+        share,
     };
 
     let cors = CorsLayer::new()

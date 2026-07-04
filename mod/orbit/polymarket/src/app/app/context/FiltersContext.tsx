@@ -279,6 +279,14 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
+  // Auto-refresh every leaderboard/trader view hourly — matches the backend's
+  // own hourly cache-warm cycle, so pinned filter presets ("BTC traders,
+  // ≥3 trades/day") stay current without the user manually hitting reload.
+  useEffect(() => {
+    const t = setInterval(() => setReloadKey((k) => k + 1), 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <FiltersContext.Provider
       value={{

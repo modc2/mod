@@ -342,24 +342,27 @@ export interface MarketTrade {
   asset_id: string;
 }
 
-/** Fetch recent trades for a market from the CLOB API.
- *  Uses the `market-trades` virtual endpoint which routes to clob.polymarket.com/trades. */
+/** Fetch recent trades for a market from the public data-api trade feed.
+ *  Uses the `market-trades` virtual endpoint which routes to
+ *  data-api.polymarket.com/trades?market=<conditionId> — NOT the CLOB API's
+ *  `/trades`, which is an authenticated endpoint for the caller's own fills
+ *  and returns 401 for anyone else's market history. */
 export async function fetchMarketTrades(
-  tokenId: string,
+  conditionId: string,
 ): Promise<MarketTrade[]> {
-  const cacheKey = `mkt_trades_${tokenId}`;
+  const cacheKey = `mkt_trades_${conditionId}`;
   const cached = getMarketCache(cacheKey);
   if (cached) return cached as unknown as MarketTrade[];
 
-  const raw = await polyApi("market-trades", { asset_id: tokenId }) as unknown;
+  const raw = await polyApi("market-trades", { market: conditionId }) as unknown;
   const arr = Array.isArray(raw) ? raw : [];
   const result = arr.map((t: Record<string, unknown>) => ({
-    id: String(t.id || ""),
+    id: String(t.id || t.transactionHash || ""),
     price: Number(t.price || 0),
     size: Number(t.size || 0),
     side: String(t.side || "BUY").toUpperCase() === "SELL" ? "SELL" as const : "BUY" as const,
-    timestamp: Number(t.match_time || t.timestamp || t.created_at || 0),
-    asset_id: String(t.asset_id || tokenId),
+    timestamp: Number(t.timestamp || t.match_time || t.created_at || 0),
+    asset_id: String(t.asset || t.asset_id || ""),
   }));
   if (result.length > 0) setMarketCache(cacheKey, result as unknown as unknown[]);
   return result;
@@ -383,8 +386,10 @@ export interface GlobalTrade {
   timestamp: number;   // ms
 }
 
-export async function fetchGlobalTrades(limit = 100): Promise<GlobalTrade[]> {
-  const raw = await polyApi("trades", { limit: String(limit), takerOnly: "false" }) as unknown;
+export async function fetchGlobalTrades(limit = 100, offset = 0): Promise<GlobalTrade[]> {
+  const params: Record<string, string> = { limit: String(limit), takerOnly: "false" };
+  if (offset > 0) params.offset = String(offset);
+  const raw = await polyApi("trades", params) as unknown;
   const arr = Array.isArray(raw) ? raw : [];
   return arr
     .map((t: Record<string, unknown>) => {
@@ -487,6 +492,30 @@ export async function fetchTradersPage(opts: {
   const res = await fetch(`${API_URL}/active-traders?${params.toString()}`);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<PagedTradersResult>;
+}
+
+// Top-N trader addresses for the currently active filters, sorted by P&L.
+// Used to seed a new/empty strat with a sensible default instead of leaving
+// it at 0 traders — swallows errors and returns [] so callers can no-op.
+export async function fetchTopTraderAddresses(
+  opts: { days?: number; minPerDay?: number; category?: string; marketQuery?: string },
+  n = 10,
+): Promise<string[]> {
+  try {
+    const res = await fetchTradersPage({
+      days: opts.days,
+      minPerDay: opts.minPerDay,
+      category: opts.category || undefined,
+      marketQuery: opts.marketQuery || undefined,
+      sort: "pnl",
+      order: "desc",
+      pageSize: n,
+      page: 0,
+    });
+    return res.traders.slice(0, n).map((t) => t.address);
+  } catch {
+    return [];
+  }
 }
 
 // ── Trader / User data ──────────────────────────────────────────

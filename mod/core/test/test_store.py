@@ -1,4 +1,4 @@
-"""Tests for mod/core/store/store/store.py — Store class (filesystem operations only)."""
+"""Tests for mod/core/store/src/mod.py — Store class (filesystem operations only)."""
 import os
 import sys
 import json
@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from mod.core.store.store.mod import Store
+from mod.core.store.src.mod import Store
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@
 
 mod catalog;
 mod chain;
+mod embed;
+mod owner;
 mod routes;
 
 use std::net::SocketAddr;
@@ -14,6 +16,7 @@ use std::sync::Arc;
 
 use catalog::Catalog;
 use chain::ChainClient;
+use owner::OwnerAuth;
 use routes::AppState;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -39,9 +42,19 @@ async fn main() -> anyhow::Result<()> {
     let chain = Arc::new(ChainClient::from_env());
     tracing::info!("chain hub: registry source configured");
 
+    let semantic = Arc::new(embed::Semantic::from_env());
+    tracing::info!(
+        "semantic search: {}",
+        if semantic.available() { "enabled (embeddings provider configured)" } else { "disabled (no provider — falling back to substring)" }
+    );
+
+    let owner = Arc::new(OwnerAuth::from_env());
+
     let state = AppState {
         catalog,
         chain,
+        semantic,
+        owner,
         version: VERSION,
     };
 

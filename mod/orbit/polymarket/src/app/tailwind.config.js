@@ -22,20 +22,30 @@ module.exports = {
           white: "rgb(var(--pixel-white-rgb) / <alpha-value>)",
           gray: "rgb(var(--pixel-gray-rgb) / <alpha-value>)",
           "gray-light": "rgb(var(--pixel-gray-light-rgb) / <alpha-value>)",
-          green: "#ffffff",
-          "green-dim": "#cccccc",
-          lime: "#eeeeee",
-          cyan: "#ffffff",
-          "cyan-dim": "#cccccc",
-          magenta: "#ffffff",
-          purple: "#cccccc",
-          red: "#000000",
-          "red-dim": "#222222",
-          amber: "#ffffff",
-          "amber-dim": "#cccccc",
-          orange: "#ffffff",
-          blue: "#cccccc",
-          "blue-bright": "#ffffff",
+          // Aliases used across the wallet/portfolio panels — previously
+          // undefined, so `text-pixel-muted` etc. compiled to nothing and
+          // helper text rendered full-brightness with no hierarchy.
+          fg: "rgb(var(--pixel-white-rgb) / <alpha-value>)",
+          muted: "rgb(var(--pixel-gray-rgb) / <alpha-value>)",
+          "border-light": "rgb(var(--pixel-border-rgb) / <alpha-value>)",
+          // Semantic accents — wired to the real signature palette (globals.css
+          // --accent/--accent-2/--accent-3/--danger/--warn) instead of the old
+          // monochrome stub values, so `text-pixel-green` etc. render actual
+          // brand color rather than white/black placeholders.
+          green: "rgb(var(--accent) / <alpha-value>)",
+          "green-dim": "rgb(var(--accent) / <alpha-value>)",
+          lime: "rgb(var(--accent) / <alpha-value>)",
+          cyan: "rgb(var(--accent-2) / <alpha-value>)",
+          "cyan-dim": "rgb(var(--accent-2) / <alpha-value>)",
+          magenta: "rgb(var(--accent-3) / <alpha-value>)",
+          purple: "rgb(var(--accent-3) / <alpha-value>)",
+          red: "rgb(var(--danger) / <alpha-value>)",
+          "red-dim": "rgb(var(--danger) / <alpha-value>)",
+          amber: "rgb(var(--warn) / <alpha-value>)",
+          "amber-dim": "rgb(var(--warn) / <alpha-value>)",
+          orange: "rgb(var(--warn) / <alpha-value>)",
+          blue: "rgb(var(--accent-2) / <alpha-value>)",
+          "blue-bright": "rgb(var(--accent-2) / <alpha-value>)",
         },
       },
       fontFamily: {
@@ -57,44 +67,13 @@ module.exports = {
         xl:  'var(--radius-xl)',
       },
       keyframes: {
-        scanline: {
-          "0%": { transform: "translateY(-100%)" },
-          "100%": { transform: "translateY(100vh)" },
-        },
-        blink: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0" },
-        },
-        glow: {
-          "0%, 100%": { textShadow: "2px 2px 0 #000000" },
-          "50%": { textShadow: "3px 3px 0 #333333" },
-        },
-        "pixel-pulse": {
-          "0%, 100%": { boxShadow: "inset 3px 3px 0 #333333, inset -3px -3px 0 #000000" },
-          "50%": { boxShadow: "inset 3px 3px 0 #666666, inset -3px -3px 0 #000000" },
-        },
         float: {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-4px)" },
         },
-        "mario-jump": {
-          "0%, 100%": { transform: "translateY(0) scaleY(1)" },
-          "40%": { transform: "translateY(-8px) scaleY(1.1)" },
-          "60%": { transform: "translateY(-8px) scaleY(0.9)" },
-        },
-        "coin-spin": {
-          "0%": { transform: "rotateY(0deg)" },
-          "100%": { transform: "rotateY(360deg)" },
-        },
       },
       animation: {
-        scanline: "scanline 8s linear infinite",
-        blink: "blink 1s step-end infinite",
-        glow: "glow 2s ease-in-out infinite",
-        "pixel-pulse": "pixel-pulse 3s ease-in-out infinite",
         float: "float 2s ease-in-out infinite",
-        "mario-jump": "mario-jump 0.6s ease-in-out infinite",
-        "coin-spin": "coin-spin 1s linear infinite",
       },
     },
   },

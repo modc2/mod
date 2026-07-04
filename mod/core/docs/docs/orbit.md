@@ -23,7 +23,7 @@ The orbit ecosystem contains 200+ pluggable modules. Each module lives in `mod/o
 | `ipfs` | IPFS client with auto-managed Kubo daemon — `put()`, `get()`, pinning |
 | `filecoin` | Filecoin storage deals |
 | `lighthouse` | Lighthouse (Filecoin/IPFS) storage provider |
-| `cache` | Function-level caching (`fncache`) |
+| `fncache` | Function-level caching |
 | `localfs` | Local filesystem storage |
 
 ### Blockchain & DeFi
@@ -37,7 +37,8 @@ The orbit ecosystem contains 200+ pluggable modules. Each module lives in `mod/o
 | `near` | NEAR Protocol integration |
 | `solana` | Solana integration |
 | `polycopy` | Polygon copy trading |
-| `raydium` | Raydium DEX (Solana) |
+| `polymarket` | Polymarket copy-trading engine (Rust backend) |
+| `hyperliquid` | Hyperliquid copy trading |
 
 ### Dev Tools
 
@@ -48,7 +49,7 @@ The orbit ecosystem contains 200+ pluggable modules. Each module lives in `mod/o
 | `pytest` | Python test runner |
 | `conda` | Conda environment management |
 | `replit` | Replit integration |
-| `docker` | Docker management |
+| `ssh` | Remote host management |
 
 ### Infrastructure
 
@@ -402,23 +403,15 @@ Each orbit module ships with:
 - `docker-compose.yml` — joins the `modnet` external Docker network
 - `docker-entrypoint.sh` — boots API + app inside the container
 
-The core Caddy gateway (`core/server/caddy/Caddyfile`) routes `/api/<mod>` and `/<mod>` to your container by name. So `claude`, `codex`, `dev`, and your `mymod` all live behind a single public port (80/443 on `modc2.com`, or `:3000` locally).
+The gateway follows the protocol's one URL rule (see [Protocol](protocol.md)): `/<mod>` routes to your app and `/api/<mod>` (prefix stripped) to your API. So `claude`, `codex`, `dev`, and your `mymod` all live behind a single public host (`modc2.com`).
 
-Add your module to the Caddyfile snippet:
+You don't hand-edit the Caddyfile: the `caddy` orbit module generates routes from each module's `config.json`. Opt in with `"route": true` (plus a live `port` / `app_port`), then:
 
-```
-@mymod_api path /api/mymod /api/mymod/*
-handle @mymod_api {
-    uri strip_prefix /api/mymod
-    reverse_proxy mymod:<api_port>
-}
-@mymod_app path /mymod /mymod/*
-handle @mymod_app {
-    reverse_proxy mymod:<app_port>
-}
+```bash
+m caddy/apply     # regenerate + reload gateway routes
 ```
 
-Then `docker compose up -d` in your module's directory joins it to `modnet` and Caddy starts routing.
+Modules with hand-written routes are left untouched; everything else is routed automatically once its ports answer.
 
 ### Reference
 

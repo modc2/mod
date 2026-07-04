@@ -34,6 +34,7 @@ export interface PutResponse {
   owner: string;
   backend: string;
   results: Record<string, { cid?: string; error?: string; size?: number; backend?: string }>;
+  refs?: string[];
 }
 
 export interface StoredObject {
@@ -82,6 +83,11 @@ export interface Preview {
   url?: string | null;
 }
 
+export interface CidLink {
+  cid: string;
+  key: string | null;
+}
+
 export interface ObjectInfo {
   cid: string;
   owner: string | null;
@@ -98,6 +104,7 @@ export interface ObjectInfo {
   grants: Grant[];
   pools: { id: string; name: string; owner: string; members: { address: string; role: string; expires_in: number | null; expired: boolean }[] }[];
   you_can_read?: boolean;
+  links: { out: CidLink[]; in: CidLink[] };
 }
 
 export interface Grant {

@@ -1,6 +1,7 @@
 //! HTTP API for Claude Jobs — Axum endpoints + SSE streaming + MetaMask auth
 
 use crate::auth;
+use crate::credits;
 use crate::jobs::{ClaudeJobManager, SubmitRequest};
 use crate::process;
 use crate::sudo;
@@ -120,7 +121,14 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/files/write", post(file_write))
             .route("/kill", post(kill_process))
             .route("/whitelist", post(add_to_whitelist))
-            .route("/whitelist/:address", delete(remove_from_whitelist));
+            .route("/whitelist/:address", delete(remove_from_whitelist))
+            .route("/grants", post(create_grant))
+            .route("/grants", get(list_grants))
+            .route("/grants/:id", delete(revoke_grant))
+            .route("/credits", get(get_credits))
+            .route("/credits/sync", post(sync_credits))
+            .route("/credits/accounts", get(credits_accounts))
+            .route("/credits/debit", post(credits_debit));
 
         if local_mode {
             println!("⚡ Local mode — auth disabled");
@@ -150,6 +158,8 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/modules/:name/versions", get(list_module_versions))
         .route("/modules/:name/registry", get(module_registry))
         .route("/owner", get(get_owner))
+        // Public by design: the grant id (from the owner's QR) IS the capability.
+        .route("/grants/:id/redeem", post(redeem_grant_guest))
         .route("/whitelist", get(get_whitelist))
         .route("/auth/role", get(get_role))
         .route(
@@ -165,6 +175,9 @@ pub async fn serve(manager: AppState, port: u16) {
         .merge(job_routes)
         .merge(public_routes)
         .layer(cors);
+
+    // Credit system: poll registered deposit wallets, forward funds to the owner
+    credits::spawn_watcher();
 
     // Bind host defaults to all interfaces (needed inside Docker so the Caddy
     // gateway in a sibling container can reach it). For host-only single-port
@@ -402,6 +415,201 @@ async fn remove_from_whitelist(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
     }
     (StatusCode::OK, Json(json!({ "whitelist": after, "removed": target }))).into_response()
+}
+
+// ── Time-boxed edit grants (QR hand-off) ─────────────────────────────
+// The owner mints a grant → a QR-shareable id that confers temporary edit
+// access (default 1h), optionally gated by a second-factor key. Redemption
+// happens inside /auth/verify at sign-in; these endpoints are owner-only and
+// just mint / list / revoke. See auth.rs for the grant model.
+
+const GRANT_TTL_MIN: i64 = 60; // 1 minute floor
+const GRANT_TTL_MAX: i64 = 30 * 24 * 3600; // 30 days ceiling
+const GRANT_TTL_DEFAULT: i64 = 3600; // 1 hour
+
+#[derive(Deserialize)]
+struct CreateGrantRequest {
+    #[serde(default)]
+    ttl: Option<i64>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+/// Strip the secret hash before sending a grant to the client; expose only
+/// whether a key is required.
+fn grant_json(g: &auth::Grant) -> serde_json::Value {
+    json!({
+        "id": g.id,
+        "exp": g.exp,
+        "ttl": g.ttl,
+        "label": g.label,
+        "created": g.created,
+        "key_required": g.key_hash.is_some(),
+    })
+}
+
+async fn create_grant(
+    headers: axum::http::HeaderMap,
+    Json(req): Json<CreateGrantRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    let ttl = req.ttl.unwrap_or(GRANT_TTL_DEFAULT).clamp(GRANT_TTL_MIN, GRANT_TTL_MAX);
+    let key = req.key.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let label = req.label.as_deref();
+    match auth::create_grant(ttl, key, label) {
+        Ok(g) => (StatusCode::OK, Json(grant_json(&g))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn list_grants(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    let file = auth::list_grants();
+    let grants: Vec<_> = file.grants.iter().map(grant_json).collect();
+    let redemptions: Vec<_> = file
+        .redemptions
+        .iter()
+        .map(|r| json!({
+            "address": r.address,
+            "exp": r.exp,
+            "grant": r.grant,
+            "redeemed": r.redeemed,
+        }))
+        .collect();
+    (StatusCode::OK, Json(json!({ "grants": grants, "redemptions": redemptions }))).into_response()
+}
+
+#[derive(Deserialize, Default)]
+struct RedeemGrantRequest {
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// Walletless QR redemption — anyone opening the invite trades the grant id
+/// (+ optional key) for a guest identity and bearer token that both expire
+/// with the grant. No auth: possession of the id is the capability.
+async fn redeem_grant_guest(
+    Path(id): Path<String>,
+    body: Option<Json<RedeemGrantRequest>>,
+) -> impl IntoResponse {
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+    let key = req.key.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    match auth::redeem_grant_guest(&id, key) {
+        Ok((address, exp)) => {
+            println!("✓ Guest grant redeemed: {} via {} (until {})", address, id, exp);
+            let token = auth::mint_token(&address);
+            (StatusCode::OK, Json(json!({ "token": token, "address": address, "exp": exp }))).into_response()
+        }
+        Err(e) => (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn revoke_grant(
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    if auth::revoke_grant(&id) {
+        (StatusCode::OK, Json(json!({ "revoked": id }))).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, Json(json!({ "error": "grant not found" }))).into_response()
+    }
+}
+
+// ── Credits — per-key deposit wallets, owner-swept ledger ────────────
+// Backed by credits.rs; state under ~/.mod/{module}/credits/. Authed routes:
+// the caller's identity is their signed-in address ("local" in local mode).
+
+fn caller_identity(headers: &axum::http::HeaderMap) -> Result<String, axum::response::Response> {
+    match auth::extract_address_from_headers(headers) {
+        Ok(addr) => Ok(addr),
+        Err(_) if local_mode() => Ok("local".to_string()),
+        Err(e) => Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response()),
+    }
+}
+
+fn account_json(identity: &str, a: &credits::Account) -> serde_json::Value {
+    json!({
+        "identity": identity,
+        "deposit_address": a.deposit_address,
+        "credited_wei": a.credited_wei().to_string(),
+        "spent_wei": a.spent_wei().to_string(),
+        "balance_wei": a.balance_wei().to_string(),
+        "deposits": a.deposits,
+        "spends": a.spends,
+    })
+}
+
+/// Caller's credit account: ensures it exists (which registers the deposit
+/// wallet with the sweep watcher) and returns balances + chain settings.
+async fn get_credits(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    let identity = match caller_identity(&headers) { Ok(i) => i, Err(r) => return r };
+    match credits::ensure_account(&identity) {
+        Ok(a) => (StatusCode::OK, Json(json!({
+            "account": account_json(&identity, &a),
+            "chain": credits::chain_cfg(),
+        }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// On-demand sweep: check the caller's deposit wallet on-chain and credit
+/// anything that landed (the 60s watcher does the same in the background).
+async fn sync_credits(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    let identity = match caller_identity(&headers) { Ok(i) => i, Err(r) => return r };
+    if let Err(e) = credits::ensure_account(&identity) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+    }
+    match credits::sweep(&identity).await {
+        Ok(r) => {
+            let a = credits::read_ledger().accounts.get(&identity).cloned().unwrap_or_default();
+            (StatusCode::OK, Json(json!({
+                "sweep": r,
+                "account": account_json(&identity, &a),
+            }))).into_response()
+        }
+        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// Owner-only: every account in the ledger, for the console's admin view.
+async fn credits_accounts(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    let ledger = credits::read_ledger();
+    let accounts: Vec<_> = ledger
+        .accounts
+        .iter()
+        .map(|(id, a)| account_json(id, a))
+        .collect();
+    (StatusCode::OK, Json(json!({ "accounts": accounts }))).into_response()
+}
+
+#[derive(Deserialize)]
+struct CreditsDebitRequest {
+    identity: String,
+    /// Wei as a decimal string — u128 doesn't survive JS numbers.
+    wei: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// Owner-only: charge an account (subscription / pay-per-use settlement).
+async fn credits_debit(
+    headers: axum::http::HeaderMap,
+    Json(req): Json<CreditsDebitRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    let wei: u128 = match req.wei.trim().parse() {
+        Ok(w) => w,
+        Err(_) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "wei must be a decimal string" }))).into_response(),
+    };
+    let identity = req.identity.trim().to_lowercase();
+    match credits::debit(&identity, wei, req.reason.as_deref().unwrap_or("debit")) {
+        Ok(a) => (StatusCode::OK, Json(json!({ "account": account_json(&identity, &a) }))).into_response(),
+        Err(e) => (StatusCode::PAYMENT_REQUIRED, Json(json!({ "error": e }))).into_response(),
+    }
 }
 
 async fn submit_job(
@@ -766,6 +974,13 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
 
     let mut modules: Vec<serde_json::Value> = Vec::new();
 
+    // Everything under the local core/ and orbit/ trees is the host owner's —
+    // the per-module config.json "owner" fields are historical noise (old keys,
+    // other chains) and would make the UI invent phantom owners. Attribute all
+    // scanned modules to the configured owner; a module's own config value is
+    // only used when no host owner is configured at all.
+    let host_owner = auth::get_owner_address();
+
     // Load registry.json for authoritative CID lookups
     let registry_path = format!("{}/.mod/api/registry.json", home);
     let registry_data: Option<serde_json::Value> = std::fs::read_to_string(&registry_path)
@@ -906,7 +1121,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "has_app_dir": has_app_dir,
                     "has_server_dir": has_server_dir,
                     "has_api_dir": has_api_dir,
-                    "owner": owner,
+                    "owner": host_owner.clone().or(owner),
                     "version": version,
                     "cid": cid,
                     "deps": deps,
@@ -2250,20 +2465,7 @@ async fn mod_protocol_register(
         .map_err(|e| format!("api/reg shape: {e}"))
 }
 
-fn module_root_for(name: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let candidates = [
-        format!("{home}/mod/mod/orbit/{name}"),
-        format!("{home}/mod/mod/core/{name}"),
-    ];
-    for c in &candidates {
-        let p = std::path::PathBuf::from(c);
-        if p.is_dir() {
-            return Some(p);
-        }
-    }
-    None
-}
+use crate::snapshots::module_root_for;
 
 #[derive(Deserialize)]
 struct SnapshotBody {
@@ -2333,6 +2535,7 @@ async fn snapshot_module(
         registry_cid: registry_cid.clone(),
         registry_prev: registry_prev.clone(),
         action: Some("snapshot".to_string()),
+        job_id: None,
     };
     if let Err(e) = append_version(&name, record) {
         return (
@@ -2481,6 +2684,7 @@ async fn fork_module(
         registry_cid: registry_cid.clone(),
         registry_prev: registry_prev.clone(),
         action: Some("fork".to_string()),
+        job_id: None,
     };
     let _ = append_version(&target_module, fork_record);
     (
@@ -2567,6 +2771,7 @@ async fn restore_module(
                 registry_cid: rcid,
                 registry_prev: rprev,
                 action: Some("auto-snapshot".to_string()),
+                job_id: None,
             },
         );
     }
@@ -2603,6 +2808,7 @@ async fn restore_module(
             registry_cid: registry_cid.clone(),
             registry_prev: registry_prev.clone(),
             action: Some("restore".to_string()),
+            job_id: None,
         },
     );
     (
@@ -2856,6 +3062,7 @@ async fn import_module(
                 registry_cid: registry_cid.clone(),
                 registry_prev: registry_prev.clone(),
                 action: Some("import".to_string()),
+                job_id: None,
             },
         );
     }

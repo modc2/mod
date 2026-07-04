@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useCallback } from "react";
 import type { Module } from "@/lib/api";
 
 // Deterministic accent for modules that don't declare a color — hash the name
@@ -13,10 +16,19 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
   const glow = m.color || hueFromName(m.name);
   const label = (m.icon || m.name[0] || "m").slice(0, 1);
   const depCount = m.deps?.length ?? 0;
+
+  // Feed the cursor position to the CSS spotlight (.card::after).
+  const track = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+    e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+  }, []);
+
   return (
     <Link
       href={`/mods/${m.name}`}
       className="card"
+      onMouseMove={track}
       style={
         {
           "--glow": glow,
@@ -50,6 +62,9 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
         )}
         {m.port && <span className="tag">:{m.port}</span>}
       </div>
+      <span className="card-go" aria-hidden>
+        →
+      </span>
     </Link>
   );
 }

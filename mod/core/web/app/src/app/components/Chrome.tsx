@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { gatewayUrl } from "@/lib/api";
 
 export function Nav() {
   return (
@@ -12,8 +15,11 @@ export function Nav() {
           <Link href="/" className="hide-sm">
             Ecosystem
           </Link>
+          <Link href="/workspace" className="nav-cta-soft">
+            ▦ Workspace
+          </Link>
           <a
-            href="https://github.com/modc2/mod"
+            href={gatewayUrl("docs")}
             target="_blank"
             rel="noreferrer"
             className="hide-sm"

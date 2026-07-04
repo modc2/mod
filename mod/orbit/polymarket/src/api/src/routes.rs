@@ -93,6 +93,9 @@ pub fn router() -> Router<AppState> {
         .route("/user-strats", get(user_strats_list).post(user_strats_upload))
         // Community gallery of public strats (shared by other traders).
         .route("/user-strats/public", get(user_strats_public))
+        // Import a strat shared by CID (content-addressable; localfs default).
+        // Single static segment — declared before the `/:id/:kind` catch-all.
+        .route("/user-strats/import", post(user_strats_import))
         // Template route MUST come before the `/:id/:kind` catch-all
         // below — axum matches in declaration order and otherwise this
         // resolves as `id=template, kind=<name>` and 400s on `kind`.
@@ -101,6 +104,8 @@ pub fn router() -> Router<AppState> {
         // into your own. Static second segments win over the `:kind` route.
         .route("/user-strats/:id/publish", post(user_strats_publish))
         .route("/user-strats/:id/fork", post(user_strats_fork))
+        // Share a strat → CID (content-addressable; localfs default).
+        .route("/user-strats/:id/share", post(user_strats_share))
         .route("/user-strats/:id/:kind", get(user_strats_read).delete(user_strats_delete))
         // Encrypted strat storage
         .merge(crate::strats::router())
@@ -1078,6 +1083,105 @@ async fn user_strats_fork(
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": format!("fork: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ShareBody {
+    /// Viewer EOA — required to share a *private* strat (must be the owner);
+    /// optional for public strats, which anyone may share.
+    #[serde(default)]
+    owner: Option<String>,
+}
+
+/// Share a strat: bundle its source + metadata, store the bytes in the
+/// content-addressable backend (localfs by default), and return the CID.
+/// The CID is the portable share link — see `share.rs` for how the backend
+/// is swapped for other systems.
+async fn user_strats_share(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<ShareBody>,
+) -> impl IntoResponse {
+    let bundle = match state.user_strats.bundle(&id, req.owner.as_deref()) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("share: {}", e)})),
+            ).into_response()
+        }
+    };
+    let bytes = match serde_json::to_vec(&bundle) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("serialize bundle: {}", e)})),
+            ).into_response()
+        }
+    };
+    match state.share.put_and_pin(&state.http, bytes).await {
+        Ok(cid) => Json(json!({
+            "ok": true,
+            "cid": cid,
+            "id": id,
+            "backend": state.share.label(),
+        })).into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("share store unavailable: {}", e)})),
+        ).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ImportBody {
+    /// CID of a previously-shared strat bundle.
+    cid: String,
+    /// EOA that will own the imported copy.
+    #[serde(default)]
+    owner: Option<String>,
+    /// Optional preferred id for the imported copy (auto-suffixed on clash).
+    #[serde(default)]
+    id: Option<String>,
+}
+
+/// Import a strat by CID: fetch the bundle from the share backend, validate
+/// it, and write it as a new strat owned by the caller (private, lineage
+/// tracked back to the original).
+async fn user_strats_import(
+    State(state): State<AppState>,
+    Json(req): Json<ImportBody>,
+) -> impl IntoResponse {
+    let bytes = match state.share.get(&state.http, req.cid.trim()).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("fetch {}: {}", req.cid, e)})),
+            ).into_response()
+        }
+    };
+    let bundle: crate::user_strats::StratBundle = match serde_json::from_slice(&bytes) {
+        Ok(b) => b,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("blob at {} is not a polymarket strat bundle", req.cid)})),
+            ).into_response()
+        }
+    };
+    let owner = req.owner.unwrap_or_default();
+    match state
+        .user_strats
+        .import_bundle(&bundle, &owner, req.id.as_deref())
+    {
+        Ok(entry) => Json(entry).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": format!("import: {}", e)})),
         ).into_response(),
     }
 }

@@ -39,6 +39,12 @@ const STRAT_FILE_MAX_BYTES: usize = 256 * 1024; // 256 KiB; plenty for hand-writ
 const TITLE_MAX: usize = 120;
 const DESC_MAX: usize = 2000;
 
+/// Bundle format discriminator — lets an importer reject blobs that aren't
+/// shared strats (a CID can point at anything).
+pub const BUNDLE_FORMAT: &str = "polymarket.strat";
+/// Bundle schema version. Bump on breaking changes; importers reject newer.
+pub const BUNDLE_VERSION: u32 = 1;
+
 /// Kind of source file. Determines the extension and (eventually) the
 /// runtime that will execute the strat.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,6 +114,32 @@ pub struct UserStratEntry {
     /// True when `owner` matches the requesting EOA (or the strat is
     /// unclaimed). Set by list helpers; defaults false.
     pub mine: bool,
+}
+
+/// A self-describing, content-addressable strat bundle. Its serialized bytes
+/// are what gets stored in the share backend (localfs by default) and hashed
+/// to the CID people pass around. Plain JSON + a `format`/`version` header so
+/// the same CID re-pinned to any IPFS-compatible store resolves to the same
+/// strat — the share link is portable across systems, not tied to one deploy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StratBundle {
+    /// Always [`BUNDLE_FORMAT`]; importers reject anything else.
+    pub format: String,
+    pub version: u32,
+    pub id: String,
+    pub kind: StratKind,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub source: String,
+    #[serde(default, rename = "forkedFrom", skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<String>,
+    /// Original author EOA — provenance only; the importer becomes the owner.
+    #[serde(default)]
+    pub author: String,
+    #[serde(default, rename = "createdAt")]
+    pub created_at: u64,
 }
 
 #[derive(Clone)]
@@ -361,6 +393,137 @@ impl UserStratStore {
         Ok(())
     }
 
+    // ── content-addressable sharing ──
+
+    /// Build a shareable bundle for `id`. Readable when the strat is public
+    /// or owned by `viewer` (`None` = unrestricted, for legacy/admin callers).
+    /// Bundles the strat's primary source (`mod.py` preferred over `mod.rs`).
+    pub fn bundle(&self, id: &str, viewer: Option<&str>) -> Result<StratBundle> {
+        validate_id(id)?;
+        let kind = self.primary_kind(id)?;
+        let meta = self.load_meta(id);
+        // Access gate: don't let anyone mint a share link for a private strat
+        // they don't own. Public strats are shareable by anyone.
+        if !meta.public {
+            let v = normalize_owner(viewer);
+            if !meta.owner.is_empty() && (v.is_empty() || v != meta.owner) {
+                return Err(anyhow!(
+                    "strat '{}' is private — only its owner can share it",
+                    id
+                ));
+            }
+        }
+        let source = self.read(id, kind)?;
+        Ok(StratBundle {
+            format: BUNDLE_FORMAT.to_string(),
+            version: BUNDLE_VERSION,
+            id: id.to_string(),
+            kind,
+            title: if meta.title.is_empty() {
+                id.to_string()
+            } else {
+                meta.title.clone()
+            },
+            description: meta.description.clone(),
+            source,
+            forked_from: meta.forked_from.clone(),
+            author: meta.owner.clone(),
+            created_at: meta.created_at,
+        })
+    }
+
+    /// Import a bundle (fetched by CID from the share backend) as a new strat
+    /// owned by `new_owner`. Mirrors `fork()`: the copy starts private and
+    /// records `forked_from` lineage back to the bundle's original id. The new
+    /// id is `want_id` if given and free, else the bundle id, else a numeric
+    /// suffix — so re-importing the same CID never clobbers an existing strat.
+    pub fn import_bundle(
+        &self,
+        bundle: &StratBundle,
+        new_owner: &str,
+        want_id: Option<&str>,
+    ) -> Result<UserStratEntry> {
+        if bundle.format != BUNDLE_FORMAT {
+            return Err(anyhow!(
+                "not a polymarket strat bundle (format='{}')",
+                bundle.format
+            ));
+        }
+        if bundle.version > BUNDLE_VERSION {
+            return Err(anyhow!(
+                "bundle is version {} but this build only understands up to {}",
+                bundle.version,
+                BUNDLE_VERSION
+            ));
+        }
+        if bundle.source.is_empty() {
+            return Err(anyhow!("bundle has no source code"));
+        }
+        if bundle.source.len() > STRAT_FILE_MAX_BYTES {
+            return Err(anyhow!(
+                "bundle source too large ({} bytes; max {})",
+                bundle.source.len(),
+                STRAT_FILE_MAX_BYTES
+            ));
+        }
+        let owner = normalize_owner(Some(new_owner));
+        let id = self.unique_id(want_id.unwrap_or(&bundle.id))?;
+
+        let dir = self.strat_dir(&id)?;
+        fs::create_dir_all(&dir).context("create import dir")?;
+        fs::write(self.strat_path(&id, bundle.kind)?, &bundle.source)
+            .context("write imported strat")?;
+
+        let base_title = if bundle.title.trim().is_empty() {
+            bundle.id.clone()
+        } else {
+            bundle.title.clone()
+        };
+        let meta = StratMeta {
+            owner: owner.clone(),
+            title: base_title.chars().take(TITLE_MAX).collect(),
+            description: bundle.description.chars().take(DESC_MAX).collect(),
+            public: false, // imports start private; owner publishes when ready
+            forked_from: Some(bundle.id.clone()),
+            created_at: now_secs(),
+            forks: 0,
+        };
+        self.save_meta(&id, &meta)?;
+        self.entry_for(&id, bundle.kind, &caller_for_mine(Some(&owner)))
+    }
+
+    /// Pick a free id derived from `base`: sanitize to the allowed charset,
+    /// then append `-1`, `-2`, … until nothing exists there.
+    fn unique_id(&self, base: &str) -> Result<String> {
+        let cleaned: String = base
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(58) // leave headroom for a `-N` suffix within the 64 cap
+            .collect();
+        let cleaned = if cleaned.is_empty() {
+            "strat".to_string()
+        } else {
+            cleaned
+        };
+        if !self.exists(&cleaned) {
+            validate_id(&cleaned)?;
+            return Ok(cleaned);
+        }
+        for n in 1..=9999 {
+            let cand = format!("{}-{}", cleaned, n);
+            if !self.exists(&cand) {
+                validate_id(&cand)?;
+                return Ok(cand);
+            }
+        }
+        Err(anyhow!("could not find a free id for '{}'", cleaned))
+    }
+
+    /// True if any source file or metadata already lives under `id`.
+    fn exists(&self, id: &str) -> bool {
+        self.has_source(id) || self.meta_path(id).map(|p| p.exists()).unwrap_or(false)
+    }
+
     // ── helpers ──
 
     fn assert_owner(&self, meta: &StratMeta, caller: &str, id: &str) -> Result<()> {
@@ -602,6 +765,68 @@ mod tests {
         assert!(s.fork("priv", "copy", "0xbbbb").is_err());
         // owner can fork their own private strat
         assert!(s.fork("priv", "copy", "0xaaaa").is_ok());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bundle_roundtrips_into_a_new_owner() {
+        let (s, dir) = tmp_store();
+        let alice = UploadMeta {
+            owner: Some("0xaaaa".into()),
+            title: Some("Alice EV".into()),
+            description: Some("captures EV edge".into()),
+            public: Some(true),
+        };
+        s.upload("ev", StratKind::Py, "EDGE=0.05", &alice).unwrap();
+
+        // Share → bundle carries the source + provenance.
+        let b = s.bundle("ev", Some("0xbbbb")).unwrap(); // public ⇒ anyone can share
+        assert_eq!(b.format, BUNDLE_FORMAT);
+        assert_eq!(b.source, "EDGE=0.05");
+        assert_eq!(b.author, "0xaaaa");
+
+        // Import into Bob's store as a new, private, owned strat.
+        let e = s.import_bundle(&b, "0xBBBB", None).unwrap();
+        assert_eq!(e.owner, "0xbbbb");
+        assert!(!e.public);
+        assert_eq!(e.forked_from.as_deref(), Some("ev"));
+        // id collided with the existing "ev" → suffixed.
+        assert_eq!(e.id, "ev-1");
+        assert_eq!(s.read("ev-1", StratKind::Py).unwrap(), "EDGE=0.05");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bundle_blocks_private_strat_of_another() {
+        let (s, dir) = tmp_store();
+        let alice = UploadMeta {
+            owner: Some("0xaaaa".into()),
+            ..Default::default()
+        };
+        s.upload("secret", StratKind::Py, "x=1", &alice).unwrap();
+        // Stranger can't mint a share link for Alice's private strat.
+        assert!(s.bundle("secret", Some("0xbbbb")).is_err());
+        // Owner can.
+        assert!(s.bundle("secret", Some("0xaaaa")).is_ok());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn import_rejects_foreign_blob() {
+        let (s, dir) = tmp_store();
+        let junk = StratBundle {
+            format: "not-a-strat".into(),
+            version: 1,
+            id: "x".into(),
+            kind: StratKind::Py,
+            title: String::new(),
+            description: String::new(),
+            source: "print(1)".into(),
+            forked_from: None,
+            author: String::new(),
+            created_at: 0,
+        };
+        assert!(s.import_bundle(&junk, "0xbbbb", None).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 }

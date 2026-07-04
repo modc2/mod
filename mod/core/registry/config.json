@@ -2,5 +2,5 @@
     "name": "registry",
     "description": "Module registry \u2014 manages registration, lookup, versioning, and content for mod modules stored via CID-based content addressing.",
     "version": "0.1.0",
-    "schema": "QmR7B8RYM6co3G3bLAFEnFGk7UDwuPELMFdrWUXu3Lxxw5"
+    "schema": "Qmcb2S6vQTdssSA9FpDeqypqfueVHDFtcYodtuBXscvXTT"
 }

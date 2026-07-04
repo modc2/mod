@@ -99,6 +99,14 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ id: string; kind: StratKind; src: string } | null>(null);
+  // Last share result: the CID a strat was published to (content-addressable
+  // store — localfs by default). Shown with a copy button so it can be passed
+  // to anyone, on any system that speaks the same store.
+  const [shared, setShared] = useState<{ id: string; cid: string; backend?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Import-by-CID box.
+  const [importCid, setImportCid] = useState("");
+  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -245,6 +253,70 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     if (src != null) setViewing({ id: s.id, kind: s.kind, src });
   }, [fetchSource]);
 
+  // Share a strat into the content-addressable store → CID. The CID is the
+  // portable share link: anyone can import it (here or on another system
+  // pointed at the same / an IPFS-compatible store).
+  const handleShare = useCallback(async (s: UserStratEntry) => {
+    setError(null);
+    setStatus(null);
+    setShared(null);
+    setCopied(false);
+    try {
+      const r = await fetch(
+        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/share`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ owner }),
+        },
+      );
+      if (!r.ok) throw new Error(await readError(r));
+      const j = (await r.json()) as { cid?: string; backend?: string };
+      if (!j.cid) throw new Error("share store returned no CID");
+      setShared({ id: s.id, cid: j.cid, backend: j.backend });
+      setStatus(`Shared "${s.title}" → ${j.cid}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [owner]);
+
+  const copyCid = useCallback(async (cid: string) => {
+    try {
+      await navigator.clipboard.writeText(cid);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }, []);
+
+  // Import a strat shared by someone else, by CID. Becomes a private strat
+  // owned by the connected wallet, lineage tracked.
+  const handleImport = useCallback(async () => {
+    const cid = importCid.trim();
+    if (!cid) {
+      setError("Paste a CID to import.");
+      return;
+    }
+    setError(null);
+    setStatus(null);
+    setImporting(true);
+    try {
+      const r = await fetch("/api/polymarket/user-strats/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cid, owner }),
+      });
+      if (!r.ok) throw new Error(await readError(r));
+      const j = (await r.json()) as UserStratEntry;
+      setStatus(`Imported → "${j.id}" (private). Edit + publish when ready.`);
+      setImportCid("");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  }, [importCid, owner, refresh]);
+
   const handleFork = useCallback(async (s: UserStratEntry) => {
     if (!owner) {
       setError("Connect a wallet to fork strats.");
@@ -347,6 +419,13 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
                   {s.public ? "MAKE PRIVATE" : "MAKE PUBLIC"}
                 </button>
                 <button
+                  onClick={() => handleShare(s)}
+                  className="text-[10px] px-2 py-0.5 border border-blue-400/50 text-blue-400 rounded hover:bg-blue-400/10"
+                  title="Publish to the content-addressable store → get a CID anyone can import"
+                >
+                  ⇪ SHARE
+                </button>
+                <button
                   onClick={() => handleView(s)}
                   className="text-[10px] px-2 py-0.5 border border-pixel-border rounded hover:bg-pixel-border-light"
                 >
@@ -365,6 +444,29 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
                   DEL
                 </button>
               </div>
+              {shared?.id === s.id && (
+                <div className="mt-1 border border-blue-400/30 bg-blue-400/[0.04] rounded px-2 py-1.5 space-y-1">
+                  <div className="text-[9px] uppercase tracking-wide text-blue-300/80">
+                    Share link (CID){shared.backend ? ` · ${shared.backend}` : ""}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <code className="text-[10px] font-mono break-all flex-1 text-pixel-white">
+                      {shared.cid}
+                    </code>
+                    <button
+                      onClick={() => copyCid(shared.cid)}
+                      className="text-[10px] px-2 py-0.5 border border-blue-400/50 text-blue-400 rounded hover:bg-blue-400/10 whitespace-nowrap"
+                    >
+                      {copied ? "COPIED ✓" : "COPY"}
+                    </button>
+                  </div>
+                  <div className="text-[9px] text-pixel-muted">
+                    Anyone can pull this strat in via <b>Hub → Import by CID</b>. The
+                    CID is content-addressed, so it also resolves on any
+                    IPFS-compatible store.
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -455,6 +557,42 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
 
       {status && <div className="text-xs text-green-400 font-mono break-all">{status}</div>}
       {error && <div className="text-xs text-red-400 font-mono break-all">{error}</div>}
+
+      {/* ── IMPORT BY CID (Hub tab) ── */}
+      {hubTab === "hub" && (
+      <div className="border border-blue-400/30 bg-blue-400/[0.03] rounded p-2 space-y-1.5">
+        <div className="text-[10px] uppercase tracking-wide text-blue-300/80">
+          Import by CID
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            placeholder="Qm… (a shared strat's CID)"
+            value={importCid}
+            onChange={(e) => setImportCid(e.target.value)}
+            className="bg-pixel-bg border border-pixel-border rounded px-2 py-1 flex-1 min-w-[180px] font-mono text-xs outline-none"
+            disabled={importing}
+          />
+          <button
+            onClick={handleImport}
+            disabled={importing || !importCid.trim()}
+            className="px-3 py-1 border border-blue-400/50 text-blue-400 hover:bg-blue-400/10 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-xs rounded whitespace-nowrap"
+          >
+            {importing ? "IMPORTING…" : "⇩ IMPORT"}
+          </button>
+        </div>
+        <div className="text-[9px] text-pixel-muted">
+          Paste a CID someone shared (from any system pointed at the same /
+          IPFS-compatible store). It lands in <b>My Strats</b> as a private copy
+          you own — edit and publish when ready.
+        </div>
+        {!owner && (
+          <div className="text-[9px] text-yellow-400/80">
+            Connect a wallet to own the imported strat.
+          </div>
+        )}
+      </div>
+      )}
 
       {/* ── COMMUNITY GALLERY (Hub tab) ── */}
       {hubTab === "hub" && (
@@ -615,12 +753,22 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             </li>
           </ul>
           <p>
-            <b>Sharing:</b> flip a strat <b>public</b> and it shows up in every
-            trader&apos;s Community list. Anyone can <b>fork</b> a public strat
-            into their own (the copy starts private and records what it was
-            forked from), tweak it, and re-publish. Your wallet address is the
-            owner — only you can edit, delete, or change visibility of your own
-            strats.
+            <b>Sharing (in-deploy):</b> flip a strat <b>public</b> and it shows
+            up in every trader&apos;s Community list. Anyone can <b>fork</b> a
+            public strat into their own (the copy starts private and records
+            what it was forked from), tweak it, and re-publish. Your wallet
+            address is the owner — only you can edit, delete, or change
+            visibility of your own strats.
+          </p>
+          <p>
+            <b>Sharing (anywhere) via CID:</b> hit <b>⇪ Share</b> on one of your
+            strats to publish it to a content-addressable store (localfs by
+            default) and get back a <b>CID</b>. Send that CID to anyone — they
+            paste it into <b>Hub → Import by CID</b> to pull the strat in as a
+            private copy they own. The CID is content-addressed (IPFS-compatible),
+            so it works across deploys and resolves on any IPFS-compatible store
+            — point <code className="font-mono">POLYMARKET_SHARE_URL</code> at a
+            shared/remote store to share beyond one machine.
           </p>
           <p>
             Engine runtime hookup (loading + executing your code in the live

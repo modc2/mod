@@ -95,20 +95,19 @@ pub struct SubmitRequest {
 }
 
 fn default_model() -> String {
-    "sonnet".to_string()
+    "claude-fable-5".to_string()
 }
 
 /// Remap models the CLI can't actually run to a safe, available one.
 ///
-/// `fable` / `claude-fable-5` are gated behind Mythos access and fail every job
-/// with "Claude Fable 5 is currently unavailable". Re-runs resubmit a stored
-/// model and stale UI state can send one too, so we normalize here — the single
-/// chokepoint every job passes through — rather than trusting the caller.
+/// Claude Fable 5 is now generally available, so `fable` resolves to the real
+/// `claude-fable-5` model instead of falling back to Opus. Empty stays the
+/// default. This is the single chokepoint every job passes through.
 fn normalize_model(model: &str) -> String {
     let m = model.trim();
     let base = m.strip_suffix("[1m]").unwrap_or(m);
     match base {
-        "fable" | "claude-fable-5" => "claude-opus-4-7".to_string(),
+        "fable" => "claude-fable-5".to_string(),
         "" => default_model(),
         _ => model.to_string(),
     }
@@ -364,7 +363,30 @@ impl ClaudeJobManager {
             prompt_parts.push(req.prompt.clone());
             prompt_parts.join("")
         } else {
-            req.prompt.clone()
+            // EDIT jobs land here (work_dir = the module dir, no module_name).
+            // A single prompt may also fork this module or create brand-new
+            // modules — tell the agent where siblings live so it doesn't treat
+            // the cwd as a hard boundary. Non-owner jobs are still confined to
+            // peers/ by the uid sandbox below; the note just aims them there.
+            let orbit_root = std::path::PathBuf::from(&anchor_dir)
+                .join("mod/orbit")
+                .to_string_lossy()
+                .to_string();
+            if work_dir.starts_with(&format!("{}/", orbit_root)) {
+                let job_user = req.user_address.clone().unwrap_or_default();
+                let peers_only = !job_user.is_empty() && !crate::auth::is_owner(&job_user);
+                let create_root = if peers_only {
+                    format!("{}/peers", orbit_root)
+                } else {
+                    orbit_root.clone()
+                };
+                format!(
+                    "{}\n\nNote: you are working on the module at {}. If the request calls for it, you may also fork this module or create additional new modules in this same run — modules live under {}. To fork: copy this module's directory to a new name there, then update self-references (config.json name, ports, routes). To create a fresh module: scaffold a new directory there with a config.json and a mod.py or src/. Otherwise just edit this module in place.",
+                    req.prompt, work_dir, create_root
+                )
+            } else {
+                req.prompt.clone()
+            }
         };
 
         // Save attached images to temp dir and prepend paths to prompt
@@ -774,6 +796,14 @@ async fn run_claude_process(
         match status {
             Ok(exit) if exit.success() => {
                 store.update_status(job_id, &JobStatus::Completed, None);
+                // Every completed job that touched a module leaves a
+                // content-addressed version behind: snapshot the module dir
+                // into the localfs blob store and log the CID (tagged with
+                // this job id so the EDIT tab can pair edit ↔ version).
+                // Identical tree ⇒ identical CID ⇒ no-op edits add no record.
+                if let Some((cid, module)) = snapshot_after_job(job_id, work_dir, prompt, &store) {
+                    tx.send(format!("[VERSION] {} → localfs cid {}\n", module, cid)).ok();
+                }
             }
             Ok(exit) => {
                 let code = exit.code().unwrap_or(-1);
@@ -790,6 +820,54 @@ async fn run_claude_process(
     // Clean up
     let mut s = streams.write().await;
     s.remove(job_id);
+}
+
+/// Snapshot the module a completed job worked on into the localfs blob store
+/// and append an "edit" version record carrying the job id. Returns
+/// (cid, module_name) when a new version was recorded; None when the job ran
+/// outside the module tree, the tree is unchanged, or the snapshot failed
+/// (all non-fatal — the job itself already completed).
+fn snapshot_after_job(
+    job_id: &str,
+    work_dir: &str,
+    prompt: &str,
+    store: &JobStore,
+) -> Option<(String, String)> {
+    use crate::snapshots::{
+        append_version, default_store, module_for_work_dir, read_versions, snapshot_dir,
+        VersionRecord,
+    };
+    let (module, root) = module_for_work_dir(work_dir)?;
+    let blob_store = default_store();
+    let (cid, _manifest) = snapshot_dir(&root, &blob_store).ok()?;
+    let history = read_versions(&module);
+    if history.last().map(|v| v.cid == cid).unwrap_or(false) {
+        return None; // job changed nothing — same tree, same CID
+    }
+    let parent = history.last().map(|v| v.cid.clone());
+    // The stored prompt may carry the injected "Note: you are working on…"
+    // suffix and image-path preamble — keep just the human request, one line.
+    let human = prompt.split("\n\nNote: you are working on").next().unwrap_or(prompt);
+    let line = human.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let message: String = if line.chars().count() > 120 {
+        format!("{}…", line.chars().take(119).collect::<String>())
+    } else {
+        line.to_string()
+    };
+    let author = store.get(job_id).map(|j| j.user_address).unwrap_or_default();
+    let record = VersionRecord {
+        cid: cid.clone(),
+        message,
+        author,
+        timestamp: Utc::now().timestamp().max(0) as u64,
+        parent,
+        registry_cid: None,
+        registry_prev: None,
+        action: Some("edit".to_string()),
+        job_id: Some(job_id.to_string()),
+    };
+    append_version(&module, record).ok()?;
+    Some((cid, module))
 }
 
 // ── Stateful Stream Parser ───────────────────────────────────────────

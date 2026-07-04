@@ -66,10 +66,14 @@
   --radius-xl: 18px;
 
   /* Signature accent system — emerald primary, sky secondary, violet for the
-     surreal background aurora. RGB channels so we can compose any opacity. */
-  --accent:   74 222 128;   /* emerald */
+     surreal background aurora. RGB channels so we can compose any opacity.
+     Emerald is tuned a shade more restrained than stock green-400 (#4ade80)
+     to read institutional rather than arcade-bright. */
+  --accent:   52 211 153;   /* emerald (#34d399) */
   --accent-2: 125 211 252;  /* sky      */
   --accent-3: 167 139 250;  /* violet   */
+  --danger:   248 113 113;  /* red-400, used for NO/sell/error states */
+  --warn:     251 191 36;   /* amber-400, used for pending/warning states */
 }
 
 [data-theme="light"] {
@@ -109,6 +113,8 @@
   --pixel-white: #111827;
   --pixel-gray: #6b7280;
   --pixel-gray-light: #9ca3af;
+  --danger: 220 38 38;   /* red-600, darker for contrast on white */
+  --warn: 180 83 9;      /* amber-700 */
 }
 
 /* Light mode wants a cooler, fainter atmosphere — the dark-mode accent suns
@@ -239,7 +245,7 @@ input[type="radio"] {
 }
 
 /* Glow effects — softer modern variants (kept for backward compat) */
-.glow-green   { text-shadow: 0 0 14px rgba(74, 222, 128, 0.45); }
+.glow-green   { text-shadow: 0 0 14px rgba(var(--accent) / 0.45); }
 .glow-cyan    { text-shadow: 0 0 14px rgba(125, 211, 252, 0.45); }
 .glow-amber   { text-shadow: 0 0 14px rgba(251, 191, 36, 0.45); }
 .glow-red     { text-shadow: 0 0 14px rgba(248, 113, 113, 0.45); }
@@ -328,9 +334,9 @@ input[type="radio"] {
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .pixel-input:focus {
-  border-color: rgba(74, 222, 128, 0.55);
+  border-color: rgba(var(--accent) / 0.55);
   background: var(--input-bg-focus);
-  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.08);
+  box-shadow: 0 0 0 4px rgba(var(--accent) / 0.08);
 }
 .pixel-input::placeholder {
   color: var(--fg-dim);
@@ -350,9 +356,9 @@ input[type="radio"] {
   transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 .pixel-input-sm:focus {
-  border-color: rgba(74, 222, 128, 0.55);
+  border-color: rgba(var(--accent) / 0.55);
   background: var(--input-bg-focus);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.08);
+  box-shadow: 0 0 0 3px rgba(var(--accent) / 0.08);
 }
 .pixel-input-sm::placeholder {
   color: var(--fg-dim);
@@ -469,8 +475,8 @@ input[type="radio"] {
 
 /* Market card — vibey rounded */
 .market-card {
-  background: linear-gradient(180deg, #131313 0%, #0e0e0e 100%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, var(--panel-from) 0%, var(--panel-to) 100%);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px;
   transition:
@@ -488,17 +494,16 @@ input[type="radio"] {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(74, 222, 128, 0.5), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--accent) / 0.5), transparent);
   opacity: 0;
   transition: opacity 0.25s;
 }
 .market-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: linear-gradient(180deg, #181818 0%, #111 100%);
+  border-color: var(--border-strong);
   transform: translateY(-2px);
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(74, 222, 128, 0.10);
+    var(--panel-shadow),
+    0 0 0 1px rgba(var(--accent) / 0.10);
 }
 .market-card:hover::before {
   opacity: 1;
@@ -507,8 +512,8 @@ input[type="radio"] {
   transform: translateY(0);
 }
 .market-card-selected {
-  border-color: rgba(74, 222, 128, 0.6) !important;
-  box-shadow: 0 0 24px rgba(74, 222, 128, 0.18), inset 0 0 30px rgba(74, 222, 128, 0.04);
+  border-color: rgba(var(--accent) / 0.6) !important;
+  box-shadow: 0 0 24px rgba(var(--accent) / 0.18), inset 0 0 30px rgba(var(--accent) / 0.04);
 }
 
 /* Recharts overrides — vibey numerics */
@@ -520,121 +525,6 @@ input[type="radio"] {
   fill: #888 !important;
   font-family: "JetBrains Mono", ui-monospace, monospace !important;
   font-size: 10px !important;
-}
-
-/* Pixel sprite decorations - Mario coin */
-.sprite-coin::before {
-  content: "";
-  display: inline-block;
-  width: 12px; height: 12px;
-  background:
-    linear-gradient(90deg,
-      #000 0%, #000 2px,
-      #fff 2px, #fff 4px,
-      #000 4px, #000 6px,
-      #fff 6px, #fff 8px,
-      #000 8px, #000 10px,
-      #fff 10px, #fff 12px
-    );
-  border: 2px solid #ffffff;
-  box-shadow: inset 2px 2px 0 #666666, inset -2px -2px 0 #000000;
-  margin-right: 4px;
-  vertical-align: middle;
-  border-radius: 50%;
-}
-
-/* Animated cursor */
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-.pixel-cursor::after {
-  content: "_";
-  animation: cursor-blink 1s step-end infinite;
-}
-
-/* Mario-style question block */
-.mario-block {
-  width: 16px;
-  height: 16px;
-  background: #ffffff;
-  border: 2px solid #000000;
-  position: relative;
-  box-shadow: inset 2px 2px 0 #cccccc, inset -2px -2px 0 #666666;
-}
-
-.mario-block::after {
-  content: "?";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-family: "Press Start 2P", monospace;
-  font-size: 10px;
-  color: #000000;
-}
-
-/* Mario pipe decoration */
-.mario-pipe {
-  width: 20px;
-  height: 30px;
-  background: #666666;
-  border: 2px solid #ffffff;
-  border-radius: 4px 4px 0 0;
-  position: relative;
-  box-shadow: inset 2px 2px 0 #999999, inset -2px -2px 0 #333333;
-}
-
-.mario-pipe::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 6px;
-  background: #999999;
-  border-bottom: 2px solid #ffffff;
-}
-
-/* Mario mushroom */
-.mario-mushroom {
-  width: 16px;
-  height: 16px;
-  background:
-    radial-gradient(circle at 30% 30%, #ffffff 20%, transparent 20%),
-    radial-gradient(circle at 70% 30%, #ffffff 20%, transparent 20%),
-    #000000;
-  border: 2px solid #ffffff;
-  border-radius: 50% 50% 0 0;
-}
-
-/* Brick block pattern */
-.brick-pattern {
-  background-image:
-    repeating-linear-gradient(0deg, #333333 0px, #333333 1px, transparent 1px, transparent 8px),
-    repeating-linear-gradient(90deg, #333333 0px, #333333 1px, transparent 1px, transparent 16px);
-}
-
-/* Star power animation */
-@keyframes star-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.mario-star {
-  animation: star-spin 2s linear infinite;
-}
-
-/* Ground pattern like Mario level */
-.mario-ground {
-  background-image:
-    repeating-linear-gradient(90deg,
-      #000 0px, #000 2px,
-      #fff 2px, #fff 4px,
-      #000 4px, #000 6px,
-      #fff 6px, #fff 8px
-    );
-  height: 4px;
 }
 
 /* ── Premium utilities ─────────────────────────────────────────────

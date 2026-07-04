@@ -44,9 +44,13 @@ pub struct VersionRecord {
     /// The previous registry CID (for git-like linked-list traversal).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_prev: Option<String>,
-    /// What kind of action created this record: snapshot, restore, fork, auto-snapshot.
+    /// What kind of action created this record: snapshot, restore, fork, auto-snapshot, edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
+    /// For `edit` records: the agent job whose completion produced this
+    /// version — lets the UI pair each past edit with its localfs CID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
 }
 
 /// Storage backend. Add a variant per backend (ipfs, bitstore, dstore…).
@@ -93,6 +97,39 @@ impl Store {
             Store::LocalFs { blobs_dir } => blobs_dir.join(cid).exists(),
         }
     }
+}
+
+/// Resolve a module name to its directory (orbit first, then core).
+pub fn module_root_for(name: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let candidates = [
+        format!("{home}/mod/mod/orbit/{name}"),
+        format!("{home}/mod/mod/core/{name}"),
+    ];
+    for c in &candidates {
+        let p = PathBuf::from(c);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Map a job's work_dir to the module it edits: the first path component
+/// after `mod/orbit/` or `mod/core/`, verified to be a real module dir.
+/// Returns (module_name, module_root). None for jobs outside the tree.
+pub fn module_for_work_dir(work_dir: &str) -> Option<(String, PathBuf)> {
+    for marker in ["/mod/orbit/", "/mod/core/"] {
+        if let Some(idx) = work_dir.find(marker) {
+            let name = work_dir[idx + marker.len()..].split('/').next().unwrap_or("");
+            if !name.is_empty() {
+                if let Some(root) = module_root_for(name) {
+                    return Some((name.to_string(), root));
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn default_store() -> Store {

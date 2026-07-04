@@ -10,6 +10,7 @@ import {
 import { PolymarketMarket } from "../../lib/types";
 import TopBar from "../../components/TopBar";
 import TradePanel from "../../components/TradePanel";
+import { useTheme } from "../../context/ThemeContext";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   Line, LineChart, BarChart, Bar,
@@ -17,7 +18,10 @@ import {
 
 // Visually-distinct colors for outcome lines. Multi-outcome markets (e.g.
 // election candidates) can have many outcomes — these cycle for the rest.
-const OUTCOME_COLORS = [
+// Index 0 (primary/Yes outcome) is theme-dependent — pure white reads great
+// on the dark canvas but vanishes on a light background, so it's swapped
+// per-render in the component below instead of hardcoded here.
+const OUTCOME_COLORS_DARK = [
   "#ffffff", // primary outcome (Yes)
   "#f87171", // No / second
   "#4ade80",
@@ -27,6 +31,7 @@ const OUTCOME_COLORS = [
   "#f472b6",
   "#34d399",
 ];
+const OUTCOME_COLORS_LIGHT = ["#111827", ...OUTCOME_COLORS_DARK.slice(1)];
 
 type IntervalKey = "1h" | "6h" | "1d" | "1w" | "1m" | "max";
 const INTERVALS: { key: IntervalKey; label: string; fidelity: number }[] = [
@@ -42,6 +47,8 @@ export default function MarketPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { theme } = useTheme();
+  const OUTCOME_COLORS = theme === "light" ? OUTCOME_COLORS_LIGHT : OUTCOME_COLORS_DARK;
   const slug = String(
     Array.isArray(params.slug) ? params.slug[0] : params.slug || "",
   );
@@ -104,11 +111,10 @@ export default function MarketPage() {
 
   // 3. Fetch market-level trades for volume bars.
   useEffect(() => {
-    const ids = market?.clobTokenIds;
-    if (!ids || ids.length === 0) return;
+    const conditionId = market?.conditionId;
+    if (!conditionId) return;
     let cancelled = false;
-    // Fetch trades for the first (primary) token
-    fetchMarketTrades(ids[0])
+    fetchMarketTrades(conditionId)
       .then((trades) => {
         if (!cancelled) setMarketTrades(trades);
       })
@@ -282,8 +288,8 @@ export default function MarketPage() {
                       <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                         <defs>
                           <linearGradient id="yesGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#ffffff" stopOpacity={0.25} />
-                            <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
+                            <stop offset="0%" stopColor={OUTCOME_COLORS[0]} stopOpacity={0.25} />
+                            <stop offset="100%" stopColor={OUTCOME_COLORS[0]} stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid stroke="#222" vertical={false} />
@@ -307,11 +313,11 @@ export default function MarketPage() {
                         />
                         <Tooltip
                           contentStyle={{
-                            background: "#1a1a1a",
-                            border: "2px solid #333",
+                            background: "var(--panel-from)",
+                            border: "1px solid var(--border-strong)",
                             fontSize: 10,
-                            color: "#fff",
-                            fontFamily: "'Press Start 2P'",
+                            color: "var(--fg)",
+                            fontFamily: "'JetBrains Mono', monospace",
                           }}
                           labelFormatter={(t: number) =>
                             new Date(t * 1000).toLocaleString([], {
@@ -327,7 +333,7 @@ export default function MarketPage() {
                         <Area
                           type="monotone"
                           dataKey="o0"
-                          stroke="#ffffff"
+                          stroke={OUTCOME_COLORS[0]}
                           fill="url(#yesGrad)"
                           strokeWidth={2}
                           isAnimationActive={false}
@@ -357,11 +363,11 @@ export default function MarketPage() {
                         />
                         <Tooltip
                           contentStyle={{
-                            background: "#1a1a1a",
-                            border: "2px solid #333",
+                            background: "var(--panel-from)",
+                            border: "1px solid var(--border-strong)",
                             fontSize: 10,
-                            color: "#fff",
-                            fontFamily: "'Press Start 2P'",
+                            color: "var(--fg)",
+                            fontFamily: "'JetBrains Mono', monospace",
                           }}
                           labelFormatter={(t: number) =>
                             new Date(t * 1000).toLocaleString([], {
@@ -451,11 +457,11 @@ export default function MarketPage() {
                           />
                           <Tooltip
                             contentStyle={{
-                              background: "#1a1a1a",
-                              border: "2px solid #333",
+                              background: "var(--panel-from)",
+                              border: "1px solid var(--border-strong)",
                               fontSize: 9,
-                              color: "#fff",
-                              fontFamily: "'Press Start 2P'",
+                              color: "var(--fg)",
+                              fontFamily: "'JetBrains Mono', monospace",
                             }}
                             labelFormatter={(t: number) =>
                               new Date(t * 1000).toLocaleString([], {

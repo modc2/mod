@@ -1,4 +1,15 @@
-import { SavedIndex } from "./types";
+import { SavedIndex, IndexTrader } from "./types";
+
+// Equal-weight a list of addresses into IndexTrader rows (remainder cents go
+// to the earliest entries) — shared by every "seed a strat with N traders"
+// call site so weights always sum to exactly 100.
+export function equalWeightTraders(addrs: string[]): IndexTrader[] {
+  const n = addrs.length;
+  if (n === 0) return [];
+  const base = Math.floor(100 / n);
+  const remainder = 100 - base * n;
+  return addrs.map((address, i) => ({ address, weight: (base + (i < remainder ? 1 : 0)) / 100 }));
+}
 
 const STORAGE_KEY = "poly8bit_indexes";
 const ACTIVE_KEY = "poly8bit_active_index";

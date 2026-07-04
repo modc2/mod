@@ -14,46 +14,41 @@ The frontend is a Next.js 14 application with TypeScript, Tailwind CSS, and ethe
 ## Project Structure
 
 ```
-mod/core/app/src/
-├── app/                    # Next.js App Router pages
-│   ├── layout.tsx          # Root layout (providers, sidebar, top bar)
-│   ├── providers.tsx       # Context provider hierarchy
-│   ├── home/               # Landing page
-│   ├── chat/               # AI chat interface
-│   ├── market/             # Market credit/debit
-│   ├── treasury/           # Treasury management
-│   ├── safe/               # Safe multisig wallet
-│   ├── bridge/             # Token bridge
-│   ├── contracts/          # Contract interaction
-│   ├── quests/             # Quest system
-│   ├── traders/            # Trader analytics
-│   ├── transactions/       # Transaction history
-│   ├── buidl/              # Builder tools
-│   ├── create/             # Module creation
-│   ├── mod/                # Module browser
-│   ├── cid/                # IPFS CID viewer
-│   ├── api/                # API explorer
-│   ├── network/            # Network info
-│   ├── docs/               # In-app docs
-│   ├── jobs/               # Background jobs
-│   └── user/               # User profile
-│
-├── network/                # Blockchain interaction layer
-│   ├── Market.ts           # Market contract wrapper
-│   ├── Treasury.ts         # Treasury contract wrapper
-│   ├── safe.ts             # Safe multisig wrapper
-│   ├── network.ts          # Network utilities
-│   └── NetworkSelector.tsx # Network switcher component
-│
-├── context/                # React contexts
-├── wallet/                 # MetaMask integration
-├── components/             # Shared UI components
-└── config/                 # App configuration
+mod/core/app/
+├── middleware.ts           # Gateway middleware: /{mod} → app, /api/{mod} → API
+├── config.json             # App configuration (contracts, networks)
+└── app/                    # Next.js App Router pages + libs
+    ├── layout.tsx          # Root layout (providers, sidebar, top bar)
+    ├── providers.tsx       # Context provider hierarchy
+    ├── home/               # Landing page
+    ├── chat/               # AI chat interface
+    ├── apps/               # Module app launcher
+    ├── treasury/           # Treasury management
+    ├── safe/               # Safe multisig wallet
+    ├── contracts/          # Contract interaction
+    ├── quests/             # Quest system
+    ├── traders/            # Trader analytics
+    ├── transactions/       # Transaction history
+    ├── buidl/              # Builder tools
+    ├── create/             # Module creation
+    ├── mod/, mods/         # Module browser
+    ├── cid/                # IPFS CID viewer
+    ├── docs/               # In-app docs
+    ├── jobs/               # Background jobs
+    │
+    ├── network/            # Blockchain interaction layer
+    │   ├── Market.ts       # Market contract wrapper
+    │   ├── safe.ts         # Safe multisig wrapper
+    │   ├── network.ts      # Network utilities
+    │   └── NetworkSelector.tsx # Network switcher component
+    ├── context/            # React contexts
+    ├── components/         # Shared UI components
+    └── config/             # App configuration
 ```
 
 ## Configuration
 
-Contract addresses are stored in `src/app/mod.json` (or `src/config.json`) under `chain.testnet.contracts`:
+Contract addresses are stored in `mod/core/app/config.json` under `chain.testnet.contracts`:
 
 ```json
 {

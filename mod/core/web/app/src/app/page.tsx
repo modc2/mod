@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { api, type Graph, type Info, type Module, type Registry } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  type Graph,
+  type Info,
+  type Module,
+  type Registry,
+  type SearchResult,
+} from "@/lib/api";
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
 import DepGraph from "./components/DepGraph";
 import PoolWidget from "./components/PoolWidget";
-
-const LOGO = ` _____ _______ ______
-|     |       |      \\
-| | | |   -   |   -  |
-|_|_|_|_______|______/`;
+import AddModule from "./components/AddModule";
 
 type View = "grid" | "graph";
 
@@ -24,25 +27,81 @@ export default function Home() {
   const [onchainOnly, setOnchainOnly] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Backend semantic search results for the active query (null = none yet).
+  const [sem, setSem] = useState<SearchResult | null>(null);
+  const [semBusy, setSemBusy] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // "/" or ⌘K focuses search from anywhere; Escape clears and blurs it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+      if ((e.key === "/" && !typing) || (e.key === "k" && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === "Escape" && el === searchRef.current) {
+        setQ("");
+        searchRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     let alive = true;
-    Promise.all([api.info(), api.mods(), api.registry(), api.graph()])
-      .then(([i, m, r, g]) => {
-        if (!alive) return;
-        setInfo(i);
-        setMods(m);
-        setRegistry(r);
-        setGraph(g);
-      })
-      .catch((e) => alive && setErr(String(e)));
+    // Load each piece independently: a hiccup in one call (especially the
+    // chain-backed registry/graph, or a transient API restart during an
+    // activator wake) must not blank the whole catalog. The module grid only
+    // needs `mods`; info/registry/graph are enrichment, so only a failed
+    // `mods` surfaces an error.
+    api.mods().then((m) => alive && setMods(m)).catch((e) => alive && setErr(String(e)));
+    api.info().then((i) => alive && setInfo(i)).catch(() => {});
+    api.registry().then((r) => alive && setRegistry(r)).catch(() => {});
+    api.graph().then((g) => alive && setGraph(g)).catch(() => {});
     return () => {
       alive = false;
     };
   }, []);
 
+  // Debounced semantic search. The backend ranks by meaning when an embeddings
+  // provider is configured and silently reports `semantic: false` otherwise, in
+  // which case we fall back to the local substring filter below.
+  useEffect(() => {
+    const s = q.trim();
+    if (!s) {
+      setSem(null);
+      setSemBusy(false);
+      return;
+    }
+    let alive = true;
+    setSemBusy(true);
+    const t = setTimeout(() => {
+      api
+        .search(s)
+        .then((r) => alive && setSem(r))
+        .catch(() => alive && setSem(null))
+        .finally(() => alive && setSemBusy(false));
+    }, 220);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [q]);
+
+  // True when the backend semantically ranked results for exactly this query.
+  const semantic = !!sem?.semantic && sem.query.trim() === q.trim();
+
   const filtered = useMemo(() => {
     if (!mods) return [];
     const s = q.trim().toLowerCase();
+    // Prefer backend semantic ranking (already ordered by relevance); apply the
+    // on-chain filter client-side on top of it.
+    if (semantic && sem) {
+      return sem.results.filter((m) => !onchainOnly || m.registered);
+    }
     return mods.filter((m) => {
       if (onchainOnly && !m.registered) return false;
       if (!s) return true;
@@ -53,44 +112,64 @@ export default function Home() {
         m.deps.some((d) => d.toLowerCase().includes(s))
       );
     });
-  }, [mods, q, onchainOnly]);
+  }, [mods, q, onchainOnly, semantic, sem]);
 
   const onchainCount = useMemo(
     () => (mods ? mods.filter((m) => m.registered).length : 0),
     [mods],
   );
-  const ready = !!info;
   const chainUp = registry?.available ?? false;
 
   return (
     <>
       <Nav />
 
-      <header className="explorer-hero wrap">
-        <pre className="hero-ascii">{LOGO}</pre>
-        <div className="badge">
-          <span className="dot" />
-          {ready ? `${mods?.length ?? 0} modules in orbit` : "connecting to orbit…"}
+      <header className="search-hero wrap">
+        <div className="search-hero-eyebrow eyebrow">the mod ecosystem</div>
+        <div className="search-hero-bar">
+          <span className="icon">⌕</span>
+          <input
+            ref={searchRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search modules by meaning — try “trade crypto”, “store files”, “on-chain identity”…"
+            spellCheck={false}
+            autoComplete="off"
+            autoFocus
+          />
+          {semBusy ? (
+            <span className="sem-spin" aria-label="searching" />
+          ) : q.trim() ? (
+            <span className="count">
+              {mods ? `${filtered.length}/${mods.length}` : ""}
+            </span>
+          ) : (
+            <span className="kbd" aria-hidden>
+              /
+            </span>
+          )}
         </div>
-        <h1>
-          The <span className="grad-text">module</span> explorer.
-        </h1>
-        <p className="lede">
-          Every module in the mod protocol — searchable, with its on-chain
-          registration status and the dependency links between them.
-        </p>
-
-        <div className="hero-chips">
-          <span className="hero-chip">
+        <div className="search-hero-meta">
+          <span>
             <b>{mods?.length ?? 0}</b> modules
           </span>
-          <span className="hero-chip">
+          <span className="sep">·</span>
+          <span>
             <b>{info?.stats.functions ?? 0}</b> functions
           </span>
-          <span className="hero-chip onchain-chip" title={chainUp ? `chain · ${registry?.network}` : "chain module unreachable"}>
+          <span className="sep">·</span>
+          <span
+            className="oc"
+            title={chainUp ? `chain · ${registry?.network}` : "chain module unreachable"}
+          >
             ⛓ <b>{onchainCount}</b> on-chain
             <i className={`chain-dot ${chainUp ? "up" : "down"}`} />
           </span>
+          {q.trim() && (
+            <span className={`sem-badge ${semantic ? "on" : "off"}`}>
+              {semBusy ? "ranking…" : semantic ? "✦ semantic" : "text match"}
+            </span>
+          )}
         </div>
       </header>
 
@@ -100,21 +179,16 @@ export default function Home() {
 
       <section className="wrap" id="ecosystem">
         <div className="explorer-toolbar">
-          <div className="search">
-            <span className="icon">⌕</span>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search modules, descriptions, functions, deps…"
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <span className="count">
-              {mods ? `${filtered.length}/${mods.length}` : ""}
-            </span>
+          <div className="toolbar-caption">
+            {semantic
+              ? "ranked by relevance"
+              : q.trim()
+                ? "text matches"
+                : "all modules"}
           </div>
 
           <div className="toolbar-controls">
+            <AddModule onAdded={() => api.mods().then(setMods).catch(() => {})} />
             <button
               className={`chip-toggle ${onchainOnly ? "active" : ""}`}
               onClick={() => setOnchainOnly((v) => !v)}

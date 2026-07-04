@@ -253,3 +253,42 @@ def test_register_external_cid_agnostic(client):
     resp = client.get("/get?cid=ar://tx123", follow_redirects=False)
     assert resp.status_code in (302, 307)
     assert "arweave.net" in resp.headers["location"]
+
+
+def test_json_manifest_maps_to_referenced_cids(client):
+    """A JSON object whose content embeds a CID it was built from shows up as
+    a graph edge in both directions once uploaded."""
+    part_cid = _upload(client, ALICE, content=b"part one", public=True)
+    manifest = ('{"parts": ["%s"]}' % part_cid).encode()
+    r = client.post("/put", headers=H(ALICE), files={"file": ("bundle.json", manifest)},
+                    data={"backend": "localfs", "public": "true"})
+    assert r.status_code == 200, r.text
+    assert r.json()["refs"] == [part_cid]
+    manifest_cid = r.json()["results"]["localfs"]["cid"]
+
+    # The manifest's graph points OUT to the part it references…
+    minfo = client.get(f"/object?cid={manifest_cid}", headers=H(ALICE)).json()
+    assert [l["cid"] for l in minfo["links"]["out"]] == [part_cid]
+    assert minfo["links"]["in"] == []
+
+    # …and the part's graph shows the manifest pointing IN at it.
+    pinfo = client.get(f"/object?cid={part_cid}", headers=H(ALICE)).json()
+    assert [l["cid"] for l in pinfo["links"]["in"]] == [manifest_cid]
+    assert pinfo["links"]["out"] == []
+
+
+def test_graph_hides_private_refs_from_non_owner(client):
+    """The graph must not leak the existence of a private object to someone
+    who can't otherwise read it."""
+    part_cid = _upload(client, ALICE, content=b"secret part")  # private
+    manifest = ('{"parts": ["%s"]}' % part_cid).encode()
+    r = client.post("/put", headers=H(ALICE), files={"file": ("bundle.json", manifest)},
+                    data={"backend": "localfs", "public": "true"})
+    manifest_cid = r.json()["results"]["localfs"]["cid"]
+
+    # Bob can read the (public) manifest but not the private part it links to.
+    minfo = client.get(f"/object?cid={manifest_cid}", headers=H(BOB)).json()
+    assert minfo["links"]["out"] == []
+    # Alice, the owner, sees the full edge.
+    aowner = client.get(f"/object?cid={manifest_cid}", headers=H(ALICE)).json()
+    assert [l["cid"] for l in aowner["links"]["out"]] == [part_cid]

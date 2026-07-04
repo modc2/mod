@@ -148,15 +148,15 @@ data = ipfs.get(cid)
 └── {key}.json             # Individual stored values
 
 ~/mod/                     # Source code
-├── mod/core/              # Framework core
+├── mod/core/              # Framework core (docs module lives at mod/core/docs)
 ├── mod/orbit/             # Module ecosystem
-├── docs/                  # Documentation
-└── setup.py               # Package definition
+└── pyproject.toml         # Package definition
 ```
 
 ## Next Steps
 
+- [Protocol](protocol.md) — the mod protocol conventions
 - [CLI Reference](cli.md) — master the command line
 - [Modules](modules.md) — understand the module system
-- [Orbit Modules](orbit.md) — browse 140+ available modules
+- [Orbit Modules](orbit.md) — browse 200+ available modules
 - [Smart Contracts](contracts.md) — explore the BlocTime Protocol

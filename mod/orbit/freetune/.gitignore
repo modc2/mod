@@ -1,0 +1,11 @@
+# Rust
+src/api/target/
+# Next
+src/app/node_modules/
+src/app/.next/
+# generated / runtime
+Caddyfile
+api.log
+src/api/api.log
+__pycache__/
+*.pyc

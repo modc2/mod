@@ -12,7 +12,7 @@ CLI (via `m`):
     m docs/page cli                 # read one page
     m docs/modules [group=orbit|core|all]
     m docs/doc claude               # a module's README + skill
-    m docs/whitepaper [fmt=md|tex]
+    m docs/whitepaper [fmt=md|tex|simple]
     m docs/search auth
 """
 import os
@@ -107,7 +107,7 @@ class Mod:
 
     # ── whitepaper ───────────────────────────────────────────────────────
     def whitepaper(self, fmt: str = "md"):
-        fn = "whitepaper.tex" if fmt == "tex" else "whitepaper.md"
+        fn = {"tex": "whitepaper.tex", "simple": "simple-whitepaper.md"}.get(fmt, "whitepaper.md")
         p = os.path.join(self.docs_dir, fn)
         return m.get_text(p) if os.path.exists(p) else None
 

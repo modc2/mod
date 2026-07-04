@@ -221,6 +221,29 @@ export default function CopyTrading({
     [compiled],
   );
 
+  // Header keyword search — a draft of the shared `marketQuery` filter, pushed
+  // to context after a short debounce so each keystroke doesn't refire the
+  // paged fetch. The FILTERS-panel MARKET QUERY input binds to the same
+  // context value, so the two stay in sync via the adopt-external effect.
+  const [kwDraft, setKwDraft] = useState("");
+  const kwPushedRef = useRef("");
+  useEffect(() => {
+    // External change (URL seed, FILTERS panel input, RESET ALL) → adopt it.
+    if (ctxMarketQuery !== kwPushedRef.current) {
+      setKwDraft(ctxMarketQuery);
+      kwPushedRef.current = ctxMarketQuery;
+    }
+  }, [ctxMarketQuery]);
+  useEffect(() => {
+    if (kwDraft === ctxMarketQuery) return;
+    const t = setTimeout(() => {
+      kwPushedRef.current = kwDraft;
+      setMarketQuery(kwDraft);
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kwDraft]);
+
   const [progress, setProgress] = useState<ActiveTradersProgress | null>(null);
   const [source, setSource] = useState<"memory" | "disk" | "fresh" | null>(null);
 
@@ -826,6 +849,42 @@ export default function CopyTrading({
               onKeyDown={onEnter} placeholder="7"
               className="pixel-input-sm w-10 text-center font-mono text-[13px]" />
           </div>
+
+          {/* Keyword filter — always visible (the FILTERS panel has the same
+              field, but topic filtering is the leaderboard's primary lens so
+              it shouldn't hide behind a toggle). Matching traders keep only
+              markets that hit the query, and P&L/VOL/TRADES are recomputed
+              from just those markets server-side. */}
+          <div className="relative flex-1 min-w-[160px] max-w-[340px]">
+            <input
+              type="text"
+              value={kwDraft}
+              onChange={(e) => setKwDraft(e.target.value)}
+              onKeyDown={onEnter}
+              placeholder="KEYWORD — e.g. bitcoin, nba"
+              title="Filter traders by market keyword — P&L / volume / trades are recomputed from only the matching markets. Comma or | = OR, space = AND (e.g. 'bitcoin, btc')."
+              className={`pixel-input-sm w-full font-mono text-[13px] pr-6 ${
+                kwDraft ? "!border-green-400/60 !text-green-300" : ""
+              }`}
+            />
+            {kwDraft && (
+              <button
+                onClick={() => { setKwDraft(""); kwPushedRef.current = ""; setMarketQuery(""); }}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[13px] text-pixel-gray hover:text-pixel-white"
+                title="Clear keyword filter"
+              >
+                x
+              </button>
+            )}
+          </div>
+          {ctxMarketQuery && (
+            <span
+              className="text-[11px] font-mono tracking-wider text-green-400 border border-green-400/40 bg-green-400/5 px-1.5 py-0.5 shrink-0"
+              title={`Each trader's P&L, volume and trade counts below are recomputed from only their markets matching "${ctxMarketQuery}" — not their overall totals.`}
+            >
+              PERF: MATCHING MARKETS ONLY
+            </span>
+          )}
 
           {visibleTotal > 0 && !loading && (
             <span className="text-[13px] text-pixel-gray font-mono shrink-0">

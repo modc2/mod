@@ -16,6 +16,9 @@ import { shortAddress } from "../lib/auth";
 // cache miss would hammer data-api's rate limit. Refresh slowly; the cache
 // does the real work.
 const REFRESH_MS = 60_000;
+const PAGE_SIZE = 50;   // rows per page
+const CHUNK = 200;      // trades pulled per "scan deeper" fetch
+const POOL_CAP = 10_000; // hard safety cap on the in-memory pool
 
 function TradesInner() {
   useUrlSync();
@@ -23,33 +26,61 @@ function TradesInner() {
   const { search, category } = useFilters();
   const [trades, setTrades] = useState<GlobalTrade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [page, setPage] = useState(1);
+  const [exhausted, setExhausted] = useState(false);
   const seen = useRef<Set<string>>(new Set());
+  // How deep into data-api's trade history we've fetched. Offsets drift as
+  // new fills push old ones deeper — the de-dupe merge absorbs the overlap.
+  const deepestOffset = useRef(0);
+
+  const merge = useCallback((fresh: GlobalTrade[]) => {
+    setTrades((prev) => {
+      const merged = [...fresh, ...prev];
+      const out: GlobalTrade[] = [];
+      const ids = new Set<string>();
+      for (const t of merged.sort((a, b) => b.timestamp - a.timestamp)) {
+        if (ids.has(t.id)) continue;
+        ids.add(t.id);
+        out.push(t);
+        if (out.length >= POOL_CAP) break;
+      }
+      return out;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const fresh = await fetchGlobalTrades(100);
       setError(null);
-      setTrades((prev) => {
-        // Merge newest-first, de-dupe by tx, cap the tape.
-        const merged = [...fresh, ...prev];
-        const out: GlobalTrade[] = [];
-        const ids = new Set<string>();
-        for (const t of merged.sort((a, b) => b.timestamp - a.timestamp)) {
-          if (ids.has(t.id)) continue;
-          ids.add(t.id);
-          out.push(t);
-          if (out.length >= 300) break;
-        }
-        return out;
-      });
+      merge(fresh);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [merge]);
+
+  // Pull the next CHUNK of older history into the pool. Pagination and
+  // search both read from the pool, so this deepens them together.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || exhausted) return;
+    setLoadingMore(true);
+    try {
+      const off = deepestOffset.current === 0 ? 100 : deepestOffset.current;
+      const fresh = await fetchGlobalTrades(CHUNK, off);
+      deepestOffset.current = off + CHUNK;
+      if (fresh.length < CHUNK || off + CHUNK >= POOL_CAP) setExhausted(true);
+      setError(null);
+      merge(fresh);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, exhausted, merge]);
 
   useEffect(() => {
     load();
@@ -59,21 +90,36 @@ function TradesInner() {
   }, [load, paused]);
 
   const q = search.trim().toLowerCase();
-  const rows = trades.filter((t) => {
+  const filtered = trades.filter((t) => {
     if (category && !matchMarketCategory(t.market, category)) return false;
     if (!q) return true;
     return (
       t.market.toLowerCase().includes(q) ||
+      t.outcome.toLowerCase().includes(q) ||
       t.pseudonym.toLowerCase().includes(q) ||
       t.trader.toLowerCase().includes(q)
     );
   });
 
-  // Flash a row green/red for the first render after it arrives.
+  // Jump back to page 1 whenever the query/category changes — the old page
+  // number is meaningless against a different result set.
+  useEffect(() => { setPage(1); }, [q, category]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const curPage = Math.min(page, totalPages);
+  const rows = filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+
+  const goNext = () => {
+    if (curPage < totalPages) setPage(curPage + 1);
+    else if (!exhausted) loadMore().then(() => setPage(curPage + 1));
+  };
+
+  // Flash a row green/red for the first render after it arrives — only on
+  // page 1, where fresh fills actually land; deeper pages are old history.
   const isNew = (id: string) => {
     if (seen.current.has(id)) return false;
     seen.current.add(id);
-    return true;
+    return curPage === 1;
   };
 
   return (
@@ -95,7 +141,9 @@ function TradesInner() {
             </span>
           </div>
           <div className="flex items-center gap-2 text-[12px] font-mono">
-            <span className="text-pixel-gray">{rows.length} shown</span>
+            <span className="text-pixel-gray">
+              {q || category ? `${filtered.length} matches · ` : ""}{trades.length} loaded
+            </span>
             <button
               onClick={() => setPaused((p) => !p)}
               className={`pixel-btn text-[12px] px-2.5 py-1 ${paused ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
@@ -118,9 +166,18 @@ function TradesInner() {
         ) : rows.length === 0 ? (
           <div className="pixel-panel p-8 text-center">
             <div className="text-[14px] text-pixel-gray-light tracking-wider mb-1">NO TRADES MATCH</div>
-            <div className="text-[12px] text-pixel-gray">
-              {q || category ? "Clear the search / category filter to see the full tape." : "Waiting for fills…"}
+            <div className="text-[12px] text-pixel-gray mb-3">
+              {q || category ? "No hits in the loaded tape — scan deeper into history, or clear the filter." : "Waiting for fills…"}
             </div>
+            {(q || category) && !exhausted && (
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="pixel-btn text-[12px] px-3 py-1.5 border-green-400 text-green-400 disabled:opacity-50"
+              >
+                {loadingMore ? "SCANNING…" : `⌄ SCAN ${CHUNK} OLDER TRADES`}
+              </button>
+            )}
           </div>
         ) : (
           <div className="pixel-panel overflow-hidden">
@@ -190,6 +247,63 @@ function TradesInner() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* ── Pagination — pool-backed: NEXT past the last loaded page
+                   pulls the next CHUNK of history from data-api. ── */}
+            <div className="flex items-center justify-between gap-3 flex-wrap px-3 py-2 border-t border-pixel-border font-mono text-[12px]">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={curPage === 1}
+                  className="pixel-btn px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-40"
+                >
+                  «
+                </button>
+                <button
+                  onClick={() => setPage(Math.max(1, curPage - 1))}
+                  disabled={curPage === 1}
+                  className="pixel-btn px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-40"
+                >
+                  ‹ PREV
+                </button>
+                {/* windowed page numbers around the current page */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((n) => n === 1 || n === totalPages || Math.abs(n - curPage) <= 2)
+                  .map((n, i, arr) => (
+                    <span key={n} className="flex items-center gap-1.5">
+                      {i > 0 && arr[i - 1] !== n - 1 && <span className="text-pixel-gray">…</span>}
+                      <button
+                        onClick={() => setPage(n)}
+                        className={`pixel-btn px-2.5 py-1 ${n === curPage ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                      >
+                        {n}
+                      </button>
+                    </span>
+                  ))}
+                <button
+                  onClick={goNext}
+                  disabled={loadingMore || (curPage >= totalPages && exhausted)}
+                  className="pixel-btn px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-40"
+                >
+                  {loadingMore ? "LOADING…" : "NEXT ›"}
+                </button>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-pixel-gray">
+                  page {curPage}/{totalPages}{exhausted ? " · end of history" : ""}
+                </span>
+                {!exhausted && (
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="pixel-btn px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-green-400 disabled:opacity-50"
+                    title="Fetch older trades into the tape — widens search + adds pages"
+                  >
+                    {loadingMore ? "SCANNING…" : `⌄ SCAN ${CHUNK} OLDER`}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

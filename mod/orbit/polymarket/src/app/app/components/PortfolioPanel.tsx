@@ -28,6 +28,7 @@ interface PositionLite {
   size: number;
   value: number;
   pnlUsd: number;
+  avgPrice: number;
   // Forwarded so the SELL ALL button can build a /order/place body
   // without re-fetching positions just for the asset/conditionId.
   tokenId: string;
@@ -307,6 +308,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           size: p.size,
           value: p.value,
           pnlUsd: p.pnlUsd,
+          avgPrice: p.avgPrice,
           tokenId: p.tokenId,
           conditionId: p.conditionId,
           currentPrice: p.currentPrice,
@@ -371,6 +373,27 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
 
   const total = liq + posValue;
 
+  // Unrealized P&L across every open position (mark-to-market vs avg entry),
+  // with the cost basis so we can show it as a % too.
+  const unrealized = useMemo(
+    () => positions.reduce((s, p) => s + p.pnlUsd, 0),
+    [positions],
+  );
+  const costBasis = useMemo(
+    () => positions.reduce((s, p) => s + p.avgPrice * p.size, 0),
+    [positions],
+  );
+  const unrealizedPct = costBasis > 0 ? (unrealized / costBasis) * 100 : 0;
+
+  // Session performance: equity now vs the oldest snapshot we hold.
+  const sessionDelta = useMemo(() => {
+    if (history.length < 2) return null;
+    const first = history[0];
+    const start = first.liq + first.pos;
+    if (!Number.isFinite(start)) return null;
+    return { delta: total - start, since: first.t, start };
+  }, [history, total]);
+
   // ── Rotation queue ──
   // Mirror the live engine's forward-EP ranking so the user can see which
   // positions get sold first when cash is freed to fund a new buy. Forward
@@ -400,32 +423,66 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   if (!auth.connected) return null;
 
   return (
-    <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
-      {/* Header: title + total + chart toggle */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs uppercase tracking-wide text-pixel-muted">
-          Portfolio
-        </span>
-        <span className="text-base font-mono">{fmtUsd(total)}</span>
-        <span className="text-xs text-pixel-muted">
-          ({fmtUsd(liq)} cash + {fmtUsd(posValue)} positions)
-        </span>
-        <div className="ml-auto flex gap-1 border border-pixel-border rounded overflow-hidden">
-          <button
-            onClick={() => setMode("pie")}
-            className={`px-2 py-1 text-xs ${
-              mode === "pie" ? "bg-pixel-border-light" : "hover:bg-pixel-border-light/50"
-            }`}
+    <div className="pixel-panel p-3 space-y-3">
+      {/* Header: equity headline + cash/positions/unrealized-P&L breakdown +
+          session performance + chart toggle. EQUITY (cash + mark-to-market
+          positions) leads — free capital alone is not the account's worth. */}
+      <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-pixel-muted">
+            Equity
+          </span>
+          <span className="text-[19px] font-mono font-semibold text-pixel-white">{fmtUsd(total)}</span>
+        </div>
+        <div className="flex items-baseline gap-1.5" title="Free USDC in the trading wallet">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-pixel-muted">Cash</span>
+          <span className="text-[13px] font-mono">{fmtUsd(liq)}</span>
+        </div>
+        <div className="flex items-baseline gap-1.5" title="Mark-to-market value of all open positions">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-pixel-muted">Positions</span>
+          <span className="text-[13px] font-mono text-amber-400">{fmtUsd(posValue)}</span>
+        </div>
+        <div
+          className="flex items-baseline gap-1.5"
+          title="Unrealized P&L across all open positions (current price vs avg entry)"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-pixel-muted">P&L</span>
+          <span className={`text-[13px] font-mono font-semibold ${unrealized >= 0 ? "text-green-400" : "text-red-400"}`}>
+            {unrealized >= 0 ? "+" : "-"}{fmtUsd(Math.abs(unrealized))}
+            {costBasis > 0 && (
+              <span className="opacity-75"> ({unrealizedPct >= 0 ? "+" : ""}{unrealizedPct.toFixed(1)}%)</span>
+            )}
+          </span>
+        </div>
+        {sessionDelta && (
+          <div
+            className="flex items-baseline gap-1.5"
+            title={`Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)})`}
           >
-            PIE
-          </button>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-pixel-muted">
+              Δ {fmtRelTime(Date.now(), sessionDelta.since).replace(" ago", "")}
+            </span>
+            <span className={`text-[13px] font-mono ${sessionDelta.delta >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {sessionDelta.delta >= 0 ? "+" : "-"}{fmtUsd(Math.abs(sessionDelta.delta))}
+            </span>
+          </div>
+        )}
+        <div className="ml-auto flex gap-1 border border-pixel-border rounded-full overflow-hidden">
           <button
             onClick={() => setMode("line")}
-            className={`px-2 py-1 text-xs ${
-              mode === "line" ? "bg-pixel-border-light" : "hover:bg-pixel-border-light/50"
+            className={`px-2.5 py-1 text-[10px] font-semibold tracking-[0.1em] transition-colors ${
+              mode === "line" ? "bg-pixel-border-light text-pixel-white" : "text-pixel-muted hover:bg-pixel-border-light/50"
             }`}
           >
             OVER TIME
+          </button>
+          <button
+            onClick={() => setMode("pie")}
+            className={`px-2.5 py-1 text-[10px] font-semibold tracking-[0.1em] transition-colors ${
+              mode === "pie" ? "bg-pixel-border-light text-pixel-white" : "text-pixel-muted hover:bg-pixel-border-light/50"
+            }`}
+          >
+            PIE
           </button>
         </div>
       </div>
@@ -439,64 +496,75 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         )}
       </div>
 
-      {/* ROTATION QUEUE — per-position forward-EP, in the exact order the live
-          engine sells to fund new buys (cheapest forward EP first). Lets the
-          user see at a glance which holdings are about to be replaced. */}
+      {/* OPEN POSITIONS — every holding with its live mark-to-market P&L,
+          listed in the engine's rotation order (lowest forward-EP first =
+          sold first to fund new buys). Totals pinned in the footer. */}
       {rotationQueue.length > 0 && (
-        <div className="bg-pixel-bg border border-pixel-border rounded">
-          <div className="px-2 py-1 border-b border-pixel-border flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wide text-pixel-muted">
-              Rotation queue · sold first to fund new buys
+        <div className="bg-pixel-bg border border-pixel-border rounded-[var(--radius)] overflow-hidden">
+          <div className="px-2 py-1.5 border-b border-pixel-border flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-pixel-muted">
+              Open positions · {rotationQueue.length}
             </span>
-            <span className="text-[10px] text-pixel-muted" title="Forward expected profit = entry EP − realized P&L. Lower = rotated out sooner.">
-              FWD EP
+            <span className="text-[9.5px] text-pixel-muted" title="Rows are in rotation order — the engine sells the lowest forward expected profit first to fund new buys.">
+              rotation order · ▸ = sold first
             </span>
           </div>
-          <div className="max-h-[180px] overflow-y-auto">
-            {rotationQueue.map((p, i) => (
-              <div
-                key={`${p.conditionId}-${p.outcome}-${i}`}
-                className="flex items-center gap-2 px-2 py-1 text-[11px] font-mono border-b border-pixel-border/30 last:border-b-0"
-              >
-                <span
-                  className={`shrink-0 w-[16px] text-center ${i === 0 ? "text-red-400 font-bold" : "text-pixel-muted"}`}
-                  title={i === 0 ? "Next to be sold when cash is freed" : `#${i + 1} in rotation order`}
+          <div className="grid grid-cols-[16px_minmax(0,1fr)_44px_84px_64px_108px] items-center gap-x-3 px-2 py-1 text-[9.5px] font-semibold uppercase tracking-[0.12em] text-pixel-muted border-b border-pixel-border/40">
+            <span />
+            <span>Market</span>
+            <span className="text-right">Size</span>
+            <span className="text-right" title="Average entry price → current price">Avg→Cur</span>
+            <span className="text-right">Value</span>
+            <span className="text-right" title="Unrealized P&L (current price vs avg entry)">P&L</span>
+          </div>
+          <div className="max-h-[220px] overflow-y-auto">
+            {rotationQueue.map((p, i) => {
+              const basis = p.avgPrice * p.size;
+              const pct = basis > 0 ? (p.pnlUsd / basis) * 100 : 0;
+              const curPrice = p.size > 0 ? p.value / p.size : p.currentPrice;
+              return (
+                <div
+                  key={`${p.conditionId}-${p.outcome}-${i}`}
+                  className="grid grid-cols-[16px_minmax(0,1fr)_44px_84px_64px_108px] items-center gap-x-3 px-2 py-1 text-[11px] font-mono border-b border-pixel-border/30 last:border-b-0 hover:bg-pixel-white/[0.03]"
                 >
-                  {i === 0 ? "▸" : i + 1}
-                </span>
-                <span className="truncate flex-1 min-w-0 text-pixel-white" title={p.market}>
-                  {p.market}
-                  <span className="text-pixel-muted"> · {p.outcome}</span>
-                </span>
-                <span className="shrink-0 w-[52px] text-right text-pixel-muted" title="position value">
-                  {fmtUsd(p.value)}
-                </span>
-                <span
-                  className={`shrink-0 w-[56px] text-right ${p.pnlUsd >= 0 ? "text-green-400/80" : "text-red-400/80"}`}
-                  title="unrealized P&L"
-                >
-                  {p.pnlUsd >= 0 ? "+" : ""}{p.pnlUsd.toFixed(2)}
-                </span>
-                <span
-                  className={`shrink-0 w-[48px] text-right ${
-                    !p.tracked
-                      ? "text-pixel-muted"
-                      : p.forwardEP > 5
-                        ? "text-green-400"
-                        : p.forwardEP > 1
-                          ? "text-yellow-400"
-                          : "text-pixel-gray-light"
-                  }`}
-                  title={
-                    p.tracked
-                      ? `Forward expected profit $${p.forwardEP.toFixed(2)} (entry EP − realized P&L). The engine sells the lowest first to fund higher-EP buys.`
-                      : "Not opened by the copy engine — no entry EP, treated as freely rotatable (sold first)."
-                  }
-                >
-                  {p.tracked ? `$${p.forwardEP.toFixed(2)}` : "free"}
-                </span>
-              </div>
-            ))}
+                  <span
+                    className={`text-center ${i === 0 ? "text-red-400 font-bold" : "text-pixel-muted"}`}
+                    title={i === 0 ? "Next to be sold when cash is freed" : `#${i + 1} in rotation order`}
+                  >
+                    {i === 0 ? "▸" : i + 1}
+                  </span>
+                  <span className="truncate min-w-0 text-pixel-white" title={`${p.market} · ${p.outcome}${p.tracked ? ` · fwd EP $${p.forwardEP.toFixed(2)}` : " · not opened by the engine (rotates first)"}`}>
+                    {p.market}
+                    <span className={p.outcome.toLowerCase() === "no" ? "text-red-400/80" : "text-green-400/80"}> · {p.outcome}</span>
+                    {p.redeemable && (
+                      <span className="ml-1.5 text-[9px] px-1 py-px rounded-full border border-amber-400/50 text-amber-400 font-sans font-semibold tracking-wide" title="Market resolved — cash out via REDEEM, not SELL">
+                        REDEEM
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-right text-pixel-muted">{p.size.toFixed(1)}</span>
+                  <span className="text-right text-pixel-muted" title="avg entry → current">
+                    {Math.round(p.avgPrice * 100)}¢→{Math.round(curPrice * 100)}¢
+                  </span>
+                  <span className="text-right text-pixel-white">{fmtUsd(p.value)}</span>
+                  <span className={`text-right ${p.pnlUsd >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {p.pnlUsd >= 0 ? "+" : "-"}${Math.abs(p.pnlUsd).toFixed(2)}
+                    <span className="opacity-70"> {pct >= 0 ? "+" : ""}{pct.toFixed(0)}%</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {/* Totals */}
+          <div className="grid grid-cols-[16px_minmax(0,1fr)_44px_84px_64px_108px] items-center gap-x-3 px-2 py-1.5 text-[11px] font-mono border-t border-pixel-border bg-pixel-white/[0.02]">
+            <span />
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-pixel-muted font-sans">Total</span>
+            <span />
+            <span />
+            <span className="text-right text-pixel-white font-semibold">{fmtUsd(posValue)}</span>
+            <span className={`text-right font-semibold ${unrealized >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {unrealized >= 0 ? "+" : "-"}${Math.abs(unrealized).toFixed(2)}
+            </span>
           </div>
         </div>
       )}

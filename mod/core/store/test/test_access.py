@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # store dir
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # store dir
 from api.access import Access, infer_scheme  # noqa: E402
 
 ALICE = '0x' + 'a' * 40
