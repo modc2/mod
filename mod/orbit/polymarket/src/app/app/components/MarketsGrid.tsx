@@ -105,14 +105,14 @@ export default function MarketsGrid({
 
       {loading ? (
         <div className="pixel-panel p-12 text-center">
-          <div className="text-[16px] text-pixel-white animate-pulse glow-green">
-            LOADING MARKETS...
+          <div className="text-[14px] font-semibold tracking-[0.2em] text-pixel-white animate-pulse glow-green">
+            LOADING MARKETS
           </div>
           <div className="mt-4 flex justify-center gap-1.5">
             {[...Array(8)].map((_, i) => (
               <div
                 key={i}
-                className="w-2.5 h-2.5 bg-pixel-white/30"
+                className="w-2 h-2 rounded-full bg-pixel-white/30"
                 style={{ animationDelay: `${i * 100}ms`, animation: "blink 1.5s step-end infinite" }}
               />
             ))}
@@ -121,7 +121,7 @@ export default function MarketsGrid({
       ) : (
         <>
           <div className="flex items-center justify-between px-1 gap-3">
-            <span className="text-[16px] text-pixel-white tracking-widest shrink-0">
+            <span className="font-display text-[15px] font-semibold text-pixel-white tracking-[0.18em] shrink-0">
               PREDICTION MARKETS
             </span>
             <div className="flex items-center gap-1.5 ml-auto">
@@ -129,10 +129,10 @@ export default function MarketsGrid({
                 <button
                   key={opt.value}
                   onClick={() => setSort(opt.value)}
-                  className={`text-[13px] font-mono px-2 py-0.5 border transition-colors ${
+                  className={`text-[11.5px] font-mono font-semibold tracking-[0.08em] px-2.5 py-1 rounded-full border transition-colors ${
                     sort === opt.value
-                      ? "border-pixel-white text-pixel-white bg-pixel-white/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                      ? "border-[rgb(var(--accent)/0.55)] text-green-400 bg-green-400/10"
+                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
                   }`}
                 >
                   {opt.label}

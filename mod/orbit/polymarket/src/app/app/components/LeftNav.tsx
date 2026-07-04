@@ -137,13 +137,14 @@ export default function LeftNav() {
 
   return (
     <aside
-      className={`group/nav shrink-0 sticky top-0 self-start h-[calc(100vh-3rem)] border-r-2 border-pixel-border flex flex-col transition-[width] duration-200 ease-out backdrop-blur-md ${
+      className={`group/nav shrink-0 sticky top-0 self-start h-[calc(100vh-3rem)] flex flex-col transition-[width] duration-200 ease-out backdrop-blur-md ${
         expanded ? "w-56" : "w-[58px]"
       }`}
       style={{
         background:
           "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.92), rgb(var(--pixel-bg-rgb)/0.86))",
-        boxShadow: "1px 0 0 rgb(var(--pixel-border-rgb)/0.4), 8px 0 24px rgba(0,0,0,0.35)",
+        borderRight: "1px solid var(--border)",
+        boxShadow: "8px 0 24px rgba(0,0,0,0.25)",
       }}
     >
       {/* ── Square mark (no wordmark) → Strat World ── */}
@@ -160,19 +161,13 @@ export default function LeftNav() {
         </span>
       </Link>
 
-      {/* ── Data views: Markets · Traders · Trades ── */}
+      {/* ── All destinations together at the top: Markets · Traders · Trades ·
+          Strat World · Me · Docs — one continuous list, no split top/bottom. ── */}
       <nav className="flex flex-col gap-1 px-1.5 pt-1">
         {expanded && (
           <span className="px-3 pt-1 pb-0.5 text-[10px] text-pixel-gray tracking-[0.22em]">DATA</span>
         )}
         {DATA_NAV.map(navRow)}
-      </nav>
-
-      {/* ── Open middle (intentional negative space) ── */}
-      <div className="flex-1" />
-
-      {/* ── Bottom cluster: Strat World · Me · Sign In · Docs ── */}
-      <nav className="flex flex-col gap-1 px-1.5 pb-1.5 pt-2 border-t border-pixel-border/50">
         {FOOTER_NAV.map(navRow)}
 
         {/* Docs — secondary */}
@@ -188,11 +183,14 @@ export default function LeftNav() {
         })}
       </nav>
 
+      {/* ── Open remaining space (intentional negative space) ── */}
+      <div className="flex-1" />
+
       {/* ── Expand / collapse toggle ── */}
       <button
         onClick={toggle}
         title={expanded ? "Collapse sidebar" : "Expand sidebar"}
-        className="flex items-center gap-3 px-4 py-3 border-t-2 border-pixel-border text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06] transition-colors"
+        className="flex items-center gap-3 px-4 py-3 border-t border-[var(--border)] text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06] transition-colors"
       >
         <span className="text-[15px] leading-none shrink-0 transition-transform duration-200">
           {expanded ? "«" : "»"}

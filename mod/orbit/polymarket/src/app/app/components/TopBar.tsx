@@ -27,7 +27,10 @@ export default function TopBar({
   const isAddrSearch = ADDR_RE.test(search.trim());
 
   return (
-    <header className="border-b-2 border-pixel-border bg-pixel-black/90 sticky top-0 z-40">
+    <header
+      className="sticky top-0 z-40 backdrop-blur-md bg-[rgb(var(--pixel-black-rgb)/0.75)]"
+      style={{ borderBottom: "1px solid var(--border)" }}
+    >
       <div className="px-4 h-12 flex items-center gap-3">
         {/* The header is just the query — the search box (also a "jump to
             trader" teleport: paste any 0x address + Enter) fills the bar, and

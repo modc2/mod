@@ -50,7 +50,7 @@ export default function MarketTicker() {
       <div className="absolute left-0 top-0 z-10 h-full px-2 flex items-center bg-pixel-black border-r border-pixel-border">
         <span className="text-[13px] tracking-[3px] text-pixel-white uppercase font-mono">
           <span
-            className="inline-block w-1.5 h-1.5 mr-1.5 bg-green-400 align-middle"
+            className="inline-block w-1.5 h-1.5 mr-1.5 rounded-full bg-green-400 align-middle"
             style={{ animation: "ticker-pulse 1.4s infinite" }}
           />
           live

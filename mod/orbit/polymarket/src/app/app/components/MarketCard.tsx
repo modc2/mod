@@ -39,8 +39,8 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
   }, [yesPrice]);
 
   const flashShadow =
-    flash === "up"   ? "0 0 0 1px rgba(74,222,128,0.6), 0 0 14px rgba(74,222,128,0.45)" :
-    flash === "down" ? "0 0 0 1px rgba(248,113,113,0.6), 0 0 14px rgba(248,113,113,0.45)" :
+    flash === "up"   ? "0 0 0 1px rgba(var(--accent) / 0.6), 0 0 14px rgba(var(--accent) / 0.45)" :
+    flash === "down" ? "0 0 0 1px rgba(var(--danger) / 0.6), 0 0 14px rgba(var(--danger) / 0.45)" :
     "none";
 
   const endDate = market.endDate
@@ -74,56 +74,53 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
       }`}
     >
       {/* Top: category + end date */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[13px] tracking-[2px] text-pixel-gray uppercase">
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-[11px] tracking-[0.16em] text-pixel-gray uppercase font-semibold">
           {market.category ? market.category.slice(0, 14) : "\u00A0"}
         </span>
-        <span className="text-[13px] text-pixel-gray font-mono">{endDate}</span>
+        <span className="text-[12px] text-pixel-gray font-mono">{endDate}</span>
       </div>
 
-      {/* Question — flex-1 so cards align */}
-      <div className="text-[16px] text-pixel-white leading-[1.7] mb-4 line-clamp-3 flex-1">
+      {/* Question — grouped tight against its price bar; the flex spacer under
+          the outcome cluster pins the stats footer to the card's bottom edge. */}
+      <div className="text-[15.5px] font-semibold tracking-[-0.01em] text-pixel-white leading-[1.45] mb-3.5 line-clamp-3">
         {market.question}
       </div>
 
       {/* Outcome buttons — clickable options */}
       {isBinary ? (
-        <div className="mb-3 space-y-1.5">
+        <div className="space-y-1.5">
           {/* YES / NO probability bar */}
           <div
-            className="relative h-[36px] w-full bg-[#0a0a0a] border border-[#2a2a2a] overflow-hidden"
+            className="relative h-[38px] w-full bg-[var(--input-bg)] border border-[var(--border-strong)] rounded-[var(--radius)] overflow-hidden"
             style={{ boxShadow: flashShadow, transition: "box-shadow 0.7s ease-out" }}
           >
             <div
               className="absolute inset-y-0 left-0 transition-all duration-500"
               style={{
                 width: `${yesPct}%`,
-                background: "linear-gradient(90deg, rgba(74, 222, 128, 0.3) 0%, rgba(74, 222, 128, 0.1) 100%)",
+                background: "linear-gradient(90deg, rgba(var(--accent) / 0.3) 0%, rgba(var(--accent) / 0.1) 100%)",
               }}
             />
             <div
               className="absolute inset-y-0 right-0 transition-all duration-500"
               style={{
                 width: `${noPct}%`,
-                background: "linear-gradient(270deg, rgba(248, 113, 113, 0.15) 0%, transparent 100%)",
+                background: "linear-gradient(270deg, rgba(var(--danger) / 0.15) 0%, transparent 100%)",
               }}
             />
             <div className="absolute inset-0 flex items-center justify-between px-3">
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-mono" style={{ color: "#4ade80" }}>YES</span>
-                <span className="text-[16px] font-mono" style={{
-                  color: yesPct >= 50 ? "#4ade80" : "#555",
-                }}>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-[11px] font-mono font-semibold tracking-[0.1em] text-green-400">YES</span>
+                <span className={`text-[16px] font-mono font-semibold ${yesPct >= 50 ? "text-green-400" : "text-pixel-gray"}`}>
                   {yesPct}¢
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[16px] font-mono" style={{
-                  color: noPct >= 50 ? "#f87171" : "#555",
-                }}>
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-[16px] font-mono font-semibold ${noPct >= 50 ? "text-red-400" : "text-pixel-gray"}`}>
                   {noPct}¢
                 </span>
-                <span className="text-[14px] font-mono" style={{ color: "#f87171" }}>NO</span>
+                <span className="text-[11px] font-mono font-semibold tracking-[0.1em] text-red-400">NO</span>
               </div>
             </div>
           </div>
@@ -137,7 +134,7 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
               className={`flex-1 py-1.5 text-[13px] font-mono border transition-all ${
                 hoveredOutcome === 0
                   ? "border-green-400 text-green-400 bg-green-400/10"
-                  : "border-[#2a2a2a] text-pixel-gray hover:border-green-400 hover:text-green-400"
+                  : "border-[var(--border-strong)] text-pixel-gray hover:border-green-400 hover:text-green-400"
               }`}
             >
               BUY YES {yesPct}¢
@@ -149,7 +146,7 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
               className={`flex-1 py-1.5 text-[13px] font-mono border transition-all ${
                 hoveredOutcome === 1
                   ? "border-red-400 text-red-400 bg-red-400/10"
-                  : "border-[#2a2a2a] text-pixel-gray hover:border-red-400 hover:text-red-400"
+                  : "border-[var(--border-strong)] text-pixel-gray hover:border-red-400 hover:text-red-400"
               }`}
             >
               BUY NO {noPct}¢
@@ -158,13 +155,9 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
 
           {/* Conviction indicator */}
           {isHighConviction && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5" style={{
-                background: yesPct >= 80 ? "#4ade80" : "#f87171",
-              }} />
-              <span className="text-[12px] tracking-wider" style={{
-                color: yesPct >= 80 ? "#4ade80" : "#f87171",
-              }}>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <div className={`w-1.5 h-1.5 rounded-full ${yesPct >= 80 ? "bg-green-400" : "bg-red-400"}`} />
+              <span className={`text-[10.5px] font-semibold tracking-[0.14em] ${yesPct >= 80 ? "text-green-400" : "text-red-400"}`}>
                 {yesPct >= 80 ? "HIGH YES" : "HIGH NO"}
               </span>
             </div>
@@ -172,7 +165,7 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
         </div>
       ) : (
         /* Multi-outcome: list each option with price */
-        <div className="mb-3 space-y-1">
+        <div className="space-y-1">
           {outcomes.map((outcome, i) => {
             const px = prices[i] ?? 0;
             const pct = Math.round(px * 100);
@@ -185,7 +178,7 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
                 className={`w-full flex items-center justify-between px-3 py-1.5 text-[13px] font-mono border transition-all ${
                   hoveredOutcome === i
                     ? "border-pixel-white text-pixel-white bg-pixel-white/10"
-                    : "border-[#1e1e1e] text-pixel-gray hover:border-pixel-white/40 hover:text-pixel-white"
+                    : "border-[var(--border)] text-pixel-gray hover:border-pixel-white/40 hover:text-pixel-white"
                 }`}
               >
                 <span className="truncate mr-2">{outcome}</span>
@@ -196,20 +189,24 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
         </div>
       )}
 
+      {/* Spacer — soaks up leftover height so short cards keep their footer
+          pinned to the bottom edge like tall ones. */}
+      <div className="flex-1" />
+
       {/* Bottom stats */}
-      <div className="flex items-center justify-between pt-3 border-t border-[#1e1e1e]">
+      <div className="flex items-center justify-between pt-3 mt-3 border-t border-[var(--border)]">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[12px] text-pixel-gray tracking-wider">VOL</span>
-            <span className="text-[14px] text-pixel-white font-mono">{formatVolume(market.volume)}</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[10.5px] text-pixel-gray font-semibold tracking-[0.14em]">VOL</span>
+            <span className="text-[13px] text-pixel-white font-mono">{formatVolume(market.volume)}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[12px] text-pixel-gray tracking-wider">LIQ</span>
-            <span className="text-[14px] text-pixel-gray-light font-mono">{formatVolume(market.liquidity)}</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[10.5px] text-pixel-gray font-semibold tracking-[0.14em]">LIQ</span>
+            <span className="text-[13px] text-pixel-gray-light font-mono">{formatVolume(market.liquidity)}</span>
           </div>
         </div>
         {market.image && (
-          <div className="w-6 h-6 border border-[#2a2a2a] overflow-hidden opacity-50 group-hover:opacity-100 transition-opacity">
+          <div className="w-6 h-6 rounded-[6px] border border-[var(--border-strong)] overflow-hidden opacity-50 group-hover:opacity-100 transition-opacity">
             <img src={market.image} alt="" className="w-full h-full object-cover" style={{ imageRendering: "auto" }} />
           </div>
         )}
