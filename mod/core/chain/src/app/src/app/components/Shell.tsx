@@ -2,11 +2,13 @@
 
 import Link from 'next/link'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
+import { WalletButton } from './Wallet'
 
 // ── Shared page shell: sticky glass nav + aurora page frame ────────────────
 
 const NAV = [
   { key: 'hub', label: 'Hub', href: '/' },
+  { key: 'interact', label: 'Interact', href: '/interact' },
   { key: 'contracts', label: 'Contracts', href: '/contracts' },
   { key: 'control', label: 'Control', href: '/control' },
   { key: 'protocol', label: 'Protocol', href: '/protocol' },
@@ -47,7 +49,7 @@ export function Shell({ active, right, children, footer }: {
           <div className="flex-1" />
 
           {/* Page-specific controls */}
-          <div className="flex items-center gap-2">{right}</div>
+          <div className="flex items-center gap-2">{right}<WalletButton /></div>
         </div>
 
         {/* Mobile nav */}

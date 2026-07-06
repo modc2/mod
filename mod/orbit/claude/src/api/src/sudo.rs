@@ -18,6 +18,15 @@
 //!   2. `time` must be within `WINDOW_SECS` of now (freshness).
 //!   3. the recovered signer must equal `key`, and `key` must be the owner.
 //!   4. the signature must not have been seen before (replay store on disk).
+//!
+//! Sessions: like Unix sudo's credential caching, a successful signature also
+//! opens a sudo *session* for the owner (default one hour). While the session is
+//! live, further privileged requests from the owner's authenticated bearer token
+//! pass without a new signature. The owner tailors this via [`SudoPolicy`]
+//! (`~/.mod/claude/sudo_policy.json`): session length (0 = ask every time) and a
+//! list of actions that always demand a fresh signature regardless of session.
+//! Changing the policy itself always requires a fresh signature — a cached
+//! session can never be used to loosen the auth requirements.
 
 use crate::auth;
 use axum::http::HeaderMap;
@@ -76,18 +85,72 @@ pub fn sudo_message(action: &str, target: &str, time: i64, nonce: &str) -> Strin
     .join("\n")
 }
 
-/// Verify the `x-sudo` header authorizes `(action, target)` right now, as the owner,
-/// exactly once. Returns the authorizing address on success or a human error string.
+/// Verify the request authorizes `(action, target)` right now, as the owner.
+/// Accepts either a fresh `x-sudo` signature (which also opens/refreshes the
+/// sudo session) or, for actions the policy allows, an active session held by
+/// the authenticated owner. Returns the authorizing address on success.
 pub fn verify_sudo(headers: &HeaderMap, action: &str, target: &str) -> Result<String, String> {
+    let policy = read_policy();
+
+    let raw = headers
+        .get("x-sudo")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let raw = match raw {
+        Some(raw) => raw,
+        None => {
+            // No signature attached — see if an active sudo session covers this.
+            if policy.always_asks(action) {
+                return Err(format!(
+                    "Privileged operation requires a sudo signature ('{}' always asks under the current sudo policy)",
+                    action
+                ));
+            }
+            if let Some((owner, _expires)) = active_session() {
+                let caller = auth::extract_address_from_headers(headers).map_err(|_| {
+                    "Privileged operation requires a sudo signature (missing x-sudo header)"
+                        .to_string()
+                })?;
+                if caller.eq_ignore_ascii_case(&owner) && auth::is_owner(&caller) {
+                    return Ok(owner);
+                }
+            }
+            return Err(
+                "Privileged operation requires a sudo signature (missing x-sudo header)"
+                    .to_string(),
+            );
+        }
+    };
+
+    let addr = verify_sudo_fresh_raw(raw, action, target)?;
+    // A verified signature doubles as "sudo -v": open/refresh the session so the
+    // owner isn't re-prompted for every privileged op until it expires.
+    if policy.session_secs > 0 {
+        open_session(&addr, policy.session_secs);
+    }
+    Ok(addr)
+}
+
+/// Verify a fresh `x-sudo` signature ONLY — never satisfied by a session. Used
+/// for operations that must re-prove key possession (e.g. editing the sudo
+/// policy itself). Does not open a session.
+pub fn verify_sudo_fresh(headers: &HeaderMap, action: &str, target: &str) -> Result<String, String> {
     let raw = headers
         .get("x-sudo")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            "Privileged operation requires a sudo signature (missing x-sudo header)".to_string()
+            "This operation always requires a fresh sudo signature (missing x-sudo header)"
+                .to_string()
         })?;
+    verify_sudo_fresh_raw(raw, action, target)
+}
 
+/// Core signature verification: binding, freshness, owner recovery, replay.
+fn verify_sudo_fresh_raw(raw: &str, action: &str, target: &str) -> Result<String, String> {
     if raw.len() > MAX_TOKEN_BYTES {
         return Err("Sudo token too large".to_string());
     }
@@ -140,6 +203,124 @@ pub fn verify_sudo(headers: &HeaderMap, action: &str, target: &str) -> Result<St
     guard().check_and_record(&sig_key, now + WINDOW_SECS)?;
 
     Ok(recovered.to_lowercase())
+}
+
+// ── Owner-tailored policy ───────────────────────────────────────────────────
+// Off-chain, like the whitelist: private auth state lives in ~/.mod/claude/.
+
+/// Default session length: one signature per hour, like Unix sudo but longer.
+pub const DEFAULT_SESSION_SECS: i64 = 3600;
+/// Ceiling so a typo'd policy can't leave sudo unlocked for days.
+pub const MAX_SESSION_SECS: i64 = 24 * 3600;
+
+#[derive(Clone, serde::Serialize, Deserialize)]
+pub struct SudoPolicy {
+    /// How long one signature keeps sudo unlocked. 0 = ask for every operation.
+    #[serde(default = "default_session_secs")]
+    pub session_secs: i64,
+    /// Actions that always require a fresh signature, session or not.
+    #[serde(default)]
+    pub always_ask: Vec<String>,
+}
+
+fn default_session_secs() -> i64 {
+    DEFAULT_SESSION_SECS
+}
+
+impl Default for SudoPolicy {
+    fn default() -> Self {
+        SudoPolicy {
+            session_secs: DEFAULT_SESSION_SECS,
+            always_ask: Vec::new(),
+        }
+    }
+}
+
+impl SudoPolicy {
+    pub fn always_asks(&self, action: &str) -> bool {
+        self.always_ask.iter().any(|a| a == action)
+    }
+}
+
+fn policy_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home)
+        .join(".mod")
+        .join("claude")
+        .join("sudo_policy.json")
+}
+
+pub fn read_policy() -> SudoPolicy {
+    std::fs::read_to_string(policy_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn write_policy(policy: &SudoPolicy) -> Result<(), String> {
+    let mut policy = policy.clone();
+    policy.session_secs = policy.session_secs.clamp(0, MAX_SESSION_SECS);
+    policy.always_ask.retain(|a| !a.is_empty());
+    policy.always_ask.dedup();
+    let path = policy_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&policy).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    // Tightening the window (or disabling sessions) applies immediately.
+    if let Some((owner, expires)) = active_session() {
+        let now = chrono::Utc::now().timestamp();
+        let cap = now + policy.session_secs;
+        if policy.session_secs == 0 {
+            end_session();
+        } else if expires > cap {
+            open_session(&owner, policy.session_secs);
+        }
+    }
+    Ok(())
+}
+
+// ── Sudo session ────────────────────────────────────────────────────────────
+// One active session at a time, held by the owner address that signed. Disk-
+// mirrored so a service restart doesn't silently re-lock (or unlock) sudo.
+
+fn session_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(home)
+        .join(".mod")
+        .join("claude")
+        .join("sudo_session.json")
+}
+
+/// The live session as `(owner_address, expires_unix)`, if any.
+pub fn active_session() -> Option<(String, i64)> {
+    let content = std::fs::read_to_string(session_path()).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let owner = v.get("owner")?.as_str()?.to_lowercase();
+    let expires = v.get("expires")?.as_i64()?;
+    if expires > chrono::Utc::now().timestamp() && !owner.is_empty() {
+        Some((owner, expires))
+    } else {
+        None
+    }
+}
+
+fn open_session(owner: &str, session_secs: i64) {
+    let path = session_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let expires = chrono::Utc::now().timestamp() + session_secs.clamp(0, MAX_SESSION_SECS);
+    let _ = std::fs::write(
+        &path,
+        serde_json::json!({ "owner": owner.to_lowercase(), "expires": expires }).to_string(),
+    );
+}
+
+/// Re-lock sudo now ("sudo -k").
+pub fn end_session() {
+    let _ = std::fs::remove_file(session_path());
 }
 
 fn decode_token(raw: &str) -> Result<SudoToken, String> {
@@ -351,8 +532,113 @@ mod tests {
 
     #[test]
     fn missing_header_rejected() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key); // fresh HOME → no session file
         let r = verify_sudo(&HeaderMap::new(), "write", "/a/b.rs");
         assert!(r.unwrap_err().contains("missing x-sudo"));
+    }
+
+    fn bearer_headers(addr: &str) -> HeaderMap {
+        auth::init_secret();
+        let tok = auth::mint_token(addr);
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", tok).parse().unwrap(),
+        );
+        h
+    }
+
+    #[test]
+    fn signature_opens_session_that_covers_later_ops() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key);
+        let now = chrono::Utc::now().timestamp();
+
+        // Sign once...
+        let signed = make_header("kill", "1234", now, "s1", &key);
+        verify_sudo(&signed, "kill", "1234").expect("fresh signature accepted");
+
+        // ...then a different privileged op, no x-sudo, owner bearer only.
+        let bearer = bearer_headers(&address_of(&key));
+        let r = verify_sudo(&bearer, "delete", "somemodule");
+        assert!(r.is_ok(), "session should cover it: {:?}", r.err());
+
+        // A non-owner bearer does NOT ride the session.
+        let other = SigningKey::random(&mut rand::thread_rng());
+        let stranger = bearer_headers(&address_of(&other));
+        assert!(verify_sudo(&stranger, "delete", "somemodule").is_err());
+
+        // Lock ends it.
+        end_session();
+        assert!(verify_sudo(&bearer, "delete", "somemodule").is_err());
+    }
+
+    #[test]
+    fn always_ask_action_ignores_session() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key);
+        write_policy(&SudoPolicy {
+            session_secs: 3600,
+            always_ask: vec!["delete".to_string()],
+        })
+        .unwrap();
+        let now = chrono::Utc::now().timestamp();
+        verify_sudo(&make_header("write", "/a/b.rs", now, "s2", &key), "write", "/a/b.rs").unwrap();
+
+        let bearer = bearer_headers(&address_of(&key));
+        // Session live, but delete is on the always-ask list.
+        let r = verify_sudo(&bearer, "delete", "mod-x");
+        assert!(r.unwrap_err().contains("always asks"));
+        // Other actions still ride the session.
+        assert!(verify_sudo(&bearer, "kill", "999").is_ok());
+    }
+
+    #[test]
+    fn zero_session_policy_means_ask_every_time() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key);
+        write_policy(&SudoPolicy {
+            session_secs: 0,
+            always_ask: vec![],
+        })
+        .unwrap();
+        let now = chrono::Utc::now().timestamp();
+        verify_sudo(&make_header("write", "/a/b.rs", now, "s3", &key), "write", "/a/b.rs").unwrap();
+        // No session was opened.
+        let bearer = bearer_headers(&address_of(&key));
+        assert!(verify_sudo(&bearer, "write", "/a/c.rs").is_err());
+    }
+
+    #[test]
+    fn fresh_variant_never_accepts_session() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key);
+        let now = chrono::Utc::now().timestamp();
+        verify_sudo(&make_header("write", "/a/b.rs", now, "s4", &key), "write", "/a/b.rs").unwrap();
+        let bearer = bearer_headers(&address_of(&key));
+        let r = verify_sudo_fresh(&bearer, "policy", "sudo");
+        assert!(r.unwrap_err().contains("fresh sudo signature"));
+        // But a real signature passes it.
+        let signed = make_header("policy", "sudo", now, "s5", &key);
+        assert!(verify_sudo_fresh(&signed, "policy", "sudo").is_ok());
+    }
+
+    #[test]
+    fn tightening_policy_trims_live_session() {
+        let _g = test_lock();
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let _home = setup_owner(&key);
+        let now = chrono::Utc::now().timestamp();
+        verify_sudo(&make_header("write", "/a/b.rs", now, "s6", &key), "write", "/a/b.rs").unwrap();
+        assert!(active_session().is_some());
+        write_policy(&SudoPolicy { session_secs: 0, always_ask: vec![] }).unwrap();
+        assert!(active_session().is_none());
     }
 }
 

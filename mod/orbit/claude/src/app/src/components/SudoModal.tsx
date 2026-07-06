@@ -11,6 +11,9 @@ interface SudoModalProps {
   status: SudoStatus;
   error?: string | null;
   signerLabel?: string | null; // short owner address, shown as the authorizing key
+  // Minutes this signature will keep sudo unlocked (owner policy). null/0 =
+  // per-operation signing; the modal then keeps the classic one-shot copy.
+  sessionMins?: number | null;
   onAuthorize: () => void;
   onCancel: () => void;
 }
@@ -42,6 +45,7 @@ export default function SudoModal({
   status,
   error,
   signerLabel,
+  sessionMins,
   onAuthorize,
   onCancel,
 }: SudoModalProps) {
@@ -61,11 +65,20 @@ export default function SudoModal({
   const { verb, noun } = describe(action, target);
   const busy = status === "signing";
 
+  const mins = sessionMins && sessionMins > 0 ? Math.round(sessionMins) : 0;
+  const sessionLabel =
+    mins >= 60 ? `${Math.floor(mins / 60)} hour${mins >= 120 ? "s" : ""}${mins % 60 ? ` ${mins % 60} min` : ""}` : `${mins} minutes`;
   const guarantees = [
     { k: "owner", label: "Signed by the owner key", sub: signerLabel || "your connected wallet" },
     { k: "once", label: "One-time use", sub: "replay-protected — the signature can't be reused" },
     { k: "fresh", label: "Expires in 120 seconds", sub: "bound to this exact operation" },
-  ];
+    // What this signature buys beyond the one operation, per the owner policy.
+    action === "policy"
+      ? { k: "session", label: "Always asks", sub: "auth policy changes never ride a cached session" }
+      : mins > 0
+      ? { k: "session", label: `Unlocks sudo for ${sessionLabel}`, sub: "no re-signing until it expires — tune or lock in ACCOUNT" }
+      : null,
+  ].filter(Boolean) as { k: string; label: string; sub: string }[];
 
   return (
     <div

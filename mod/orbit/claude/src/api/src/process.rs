@@ -865,6 +865,63 @@ pub fn reap_orphans(
     (orphans, log)
 }
 
+/// argv + cwd of a live process, captured from /proc before it is killed so a
+/// launcher-less module can be respawned exactly as it was running.
+fn snapshot_cmds(procs: &[Proc]) -> Vec<(Vec<String>, PathBuf)> {
+    let mut snaps = Vec::new();
+    for p in procs {
+        let pid = match p.pid {
+            Some(n) if n > 0 => n,
+            _ => continue,
+        };
+        let argv: Vec<String> = std::fs::read(format!("/proc/{}/cmdline", pid))
+            .map(|b| {
+                b.split(|&c| c == 0)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| String::from_utf8_lossy(s).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if argv.is_empty() {
+            continue;
+        }
+        let cwd = proc_link(pid, "cwd").unwrap_or_else(|| PathBuf::from("/"));
+        snaps.push((argv, cwd));
+    }
+    snaps
+}
+
+/// Relaunch snapshotted commands, detached (own process group, no inherited
+/// stdio) so they outlive this request and never receive our signals.
+fn respawn(snaps: &[(Vec<String>, PathBuf)], _module_dir: &Path) -> (bool, String) {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    let mut launched = Vec::new();
+    let mut failed = Vec::new();
+    for (argv, cwd) in snaps {
+        let mut cmd = Command::new(&argv[0]);
+        cmd.args(&argv[1..])
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        match cmd.spawn() {
+            Ok(child) => launched.push(format!("pid {} · {}", child.id(), argv.join(" "))),
+            Err(e) => failed.push(format!("{}: {}", argv.join(" "), e)),
+        }
+    }
+    let ok = failed.is_empty() && !launched.is_empty();
+    let mut out = format!("respawned {} bare proc(es)", launched.len());
+    for l in &launched {
+        out.push_str(&format!("\n  ↻ {}", l));
+    }
+    for f in &failed {
+        out.push_str(&format!("\n  ✗ {}", f));
+    }
+    (ok, out)
+}
+
 fn generic_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value) -> (bool, String) {
     let kill = |sig: i32| -> usize {
         let mut n = 0;
@@ -884,10 +941,26 @@ fn generic_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value)
         }
         "start" => bootstrap(module_dir, false),
         _ => {
-            // restart: stop what's up, then start fresh.
+            // restart: stop what's up, then start fresh. A bare module may
+            // have no launcher at all (no ecosystem.config.js / start.sh) —
+            // snapshot its live commands BEFORE killing so we can respawn
+            // them, and refuse to kill anything we cannot bring back.
+            let has_launcher = module_dir.join("ecosystem.config.js").exists()
+                || module_dir.join("start.sh").exists();
+            let snaps = if has_launcher { Vec::new() } else { snapshot_cmds(procs) };
+            if !has_launcher && snaps.is_empty() {
+                return (
+                    false,
+                    "refusing to restart: no ecosystem.config.js / start.sh and no respawnable process — nothing was stopped".to_string(),
+                );
+            }
             let n = kill(libc::SIGTERM);
             std::thread::sleep(std::time::Duration::from_millis(800));
-            let (ok, out) = bootstrap(module_dir, false);
+            let (ok, out) = if has_launcher {
+                bootstrap(module_dir, false)
+            } else {
+                respawn(&snaps, module_dir)
+            };
             (ok, format!("stopped {} proc(es); {}", n, out))
         }
     }

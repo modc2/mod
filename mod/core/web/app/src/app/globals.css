@@ -242,6 +242,171 @@ a {
   border-color: var(--accent);
 }
 
+/* ── Nav search — global module search in the top-right corner ─────────── */
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.nav-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: min(300px, 34vw);
+}
+.nav-search .icon {
+  position: absolute;
+  left: 12px;
+  font-size: 15px;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+.nav-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 34px 0 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.nav-search input::placeholder {
+  color: var(--ink-faint);
+}
+.nav-search input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(124, 139, 255, 0.16);
+}
+.nav-search .kbd {
+  position: absolute;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-faint);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.nav-search:focus-within .kbd {
+  opacity: 0;
+}
+.nav-search .sem-spin {
+  right: 12px;
+}
+.nav-search-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(380px, 92vw);
+  max-height: 60vh;
+  overflow: auto;
+  background: rgba(10, 12, 18, 0.94);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  z-index: 60;
+}
+.nav-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.nav-search-row:hover {
+  background: var(--panel-hover);
+}
+.nav-search-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: #06070a;
+  font-weight: 700;
+  font-size: 13px;
+}
+.nav-search-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.nav-search-desc {
+  color: var(--ink-faint);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-search-empty {
+  padding: 12px 10px;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+/* Second sticky row under the nav — catalog stats on the left, view controls
+   on the right, all living in the top chrome. */
+.nav-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 9px;
+  padding-bottom: 11px;
+  flex-wrap: wrap;
+}
+.nav-sub-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  min-width: 0;
+}
+.nav-sub-meta b {
+  color: var(--ink);
+  font-weight: 650;
+}
+.nav-sub-meta .sep {
+  color: var(--ink-faint);
+}
+.nav-sub-meta .oc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Compact chips so the controls sit comfortably in the header. */
+.nav-sub .chip-toggle,
+.nav-sub .view-toggle button {
+  padding: 7px 13px;
+  font-size: 12.5px;
+}
+@media (max-width: 720px) {
+  .nav-search {
+    width: 42vw;
+  }
+  .nav-right {
+    gap: 10px;
+  }
+  .nav-right .brand span:last-child {
+    display: none;
+  }
+}
+
 /* ── Hero ───────────────────────────────────────────────────────────────── */
 
 .hero {
@@ -1128,96 +1293,8 @@ a.fn-chip:hover {
   background: #ff7a7a;
 }
 
-/* ── Search-first hero (big semantic search bar) ────────────────────────── */
+/* ── Semantic-search affordances (spinner + ranking badge) ──────────────── */
 
-.search-hero {
-  padding: 48px 0 18px;
-}
-.search-hero-eyebrow {
-  text-align: center;
-  margin-bottom: 18px;
-}
-.search-hero-bar {
-  position: relative;
-  max-width: 760px;
-  margin: 0 auto;
-  border-radius: 17px;
-}
-/* Gradient halo that blooms when the bar is focused. */
-.search-hero-bar::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: 18px;
-  background: var(--grad);
-  opacity: 0;
-  filter: blur(6px);
-  transition: opacity 0.35s var(--spring);
-  pointer-events: none;
-}
-.search-hero-bar:focus-within::before {
-  opacity: 0.35;
-}
-.search-hero-bar input {
-  position: relative;
-  width: 100%;
-  background: rgba(11, 13, 18, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 19px 64px 19px 54px;
-  color: var(--ink);
-  font-size: 18px;
-  font-family: var(--sans);
-  outline: none;
-  box-shadow: var(--top-light), 0 12px 40px -18px rgba(0, 0, 0, 0.8);
-  transition: border-color 0.25s, box-shadow 0.25s;
-}
-.search-hero-bar input::placeholder {
-  color: var(--ink-faint);
-}
-.search-hero-bar input:focus {
-  border-color: rgba(124, 139, 255, 0.55);
-  box-shadow: var(--top-light-strong), 0 12px 48px -16px rgba(124, 139, 255, 0.25);
-}
-.search-hero-bar .kbd {
-  position: absolute;
-  right: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1;
-  color: var(--ink-faint);
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: rgba(255, 255, 255, 0.03);
-  pointer-events: none;
-  transition: opacity 0.2s;
-}
-.search-hero-bar:focus-within .kbd {
-  opacity: 0;
-}
-.search-hero-bar .icon {
-  position: absolute;
-  left: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 19px;
-  color: var(--ink-faint);
-  pointer-events: none;
-}
-.search-hero-bar .count {
-  position: absolute;
-  right: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink-faint);
-}
 .sem-spin {
   position: absolute;
   right: 20px;
@@ -1234,28 +1311,6 @@ a.fn-chip:hover {
   to {
     transform: rotate(360deg);
   }
-}
-.search-hero-meta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  flex-wrap: wrap;
-  margin-top: 16px;
-  font-size: 13.5px;
-  color: var(--ink-dim);
-}
-.search-hero-meta b {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.search-hero-meta .sep {
-  color: var(--ink-faint);
-}
-.search-hero-meta .oc {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
 }
 .sem-badge {
   margin-left: 4px;
@@ -1274,28 +1329,9 @@ a.fn-chip:hover {
 .sem-badge.off {
   color: var(--ink-faint);
 }
-.toolbar-caption {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--ink-faint);
-  letter-spacing: 0.02em;
-}
 
-/* ── Explorer toolbar (filters + view toggle) ───────────────────────────── */
+/* ── Catalog controls (filters + view toggle, docked in the nav sub-row) ── */
 
-.explorer-toolbar {
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-}
-.explorer-toolbar .search {
-  flex: 1;
-  min-width: 240px;
-  margin-bottom: 0;
-}
 .toolbar-controls {
   display: flex;
   gap: 10px;
@@ -1651,7 +1687,6 @@ a.fn-chip:hover {
   .nav-links .hide-sm { display: none; }
   .explorer { grid-template-columns: 1fr; }
   .explorer-tree { max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
-  .explorer-toolbar { flex-direction: column; align-items: stretch; }
   .toolbar-controls { justify-content: space-between; }
   .pool-widget { flex-direction: column; align-items: stretch; }
 }

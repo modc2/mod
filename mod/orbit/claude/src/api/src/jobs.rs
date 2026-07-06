@@ -363,11 +363,17 @@ impl ClaudeJobManager {
             prompt_parts.push(req.prompt.clone());
             prompt_parts.join("")
         } else {
-            // EDIT jobs land here (work_dir = the module dir, no module_name).
-            // A single prompt may also fork this module or create brand-new
-            // modules — tell the agent where siblings live so it doesn't treat
-            // the cwd as a hard boundary. Non-owner jobs are still confined to
-            // peers/ by the uid sandbox below; the note just aims them there.
+            req.prompt.clone()
+        };
+
+        // Module-context note for EDIT jobs (work_dir = the module dir, no
+        // module_name). A single prompt may also fork this module or create
+        // brand-new modules — tell the agent where siblings live so it doesn't
+        // treat the cwd as a hard boundary. Non-owner jobs are still confined
+        // to peers/ by the uid sandbox below; the note just aims them there.
+        // Delivered via --append-system-prompt, NOT the job prompt, so it
+        // never shows up in the user-visible task text.
+        let module_note = if req.module_name.is_none() {
             let orbit_root = std::path::PathBuf::from(&anchor_dir)
                 .join("mod/orbit")
                 .to_string_lossy()
@@ -380,13 +386,15 @@ impl ClaudeJobManager {
                 } else {
                     orbit_root.clone()
                 };
-                format!(
-                    "{}\n\nNote: you are working on the module at {}. If the request calls for it, you may also fork this module or create additional new modules in this same run — modules live under {}. To fork: copy this module's directory to a new name there, then update self-references (config.json name, ports, routes). To create a fresh module: scaffold a new directory there with a config.json and a mod.py or src/. Otherwise just edit this module in place.",
-                    req.prompt, work_dir, create_root
-                )
+                Some(format!(
+                    "You are working on the module at {}. If the request calls for it, you may also fork this module or create additional new modules in this same run — modules live under {}. To fork: copy this module's directory to a new name there, then update self-references (config.json name, ports, routes). To create a fresh module: scaffold a new directory there with a config.json and a mod.py or src/. Otherwise just edit this module in place.",
+                    work_dir, create_root
+                ))
             } else {
-                req.prompt.clone()
+                None
             }
+        } else {
+            None
         };
 
         // Save attached images to temp dir and prepend paths to prompt
@@ -483,7 +491,7 @@ impl ClaudeJobManager {
             };
 
         tokio::spawn(async move {
-            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), sandbox, store, streams, cancelled, tx).await;
+            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), module_note.as_deref(), sandbox, store, streams, cancelled, tx).await;
         });
 
         self.store.get(&id).unwrap_or(job)
@@ -605,6 +613,7 @@ async fn run_claude_process(
     claude_bin: &str,
     agent_type: Option<&str>,
     system_prompt: Option<&str>,
+    module_note: Option<&str>,
     sandbox: Option<(u32, u32)>,
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
@@ -644,13 +653,25 @@ async fn run_claude_process(
         .arg("stream-json")
         .arg("--dangerously-skip-permissions");
 
-    // Personality system prompt takes priority over agent_type
-    if let Some(sp) = system_prompt {
-        if !sp.is_empty() {
-            cmd.arg("--append-system-prompt").arg(sp);
+    // Personality system prompt takes priority over agent_type; --agent still
+    // composes with --append-system-prompt, so the module note can ride along
+    // either way.
+    if system_prompt.is_none() {
+        if let Some(agent) = agent_type {
+            cmd.arg("--agent").arg(agent);
         }
-    } else if let Some(agent) = agent_type {
-        cmd.arg("--agent").arg(agent);
+    }
+    let mut append_sp = system_prompt.unwrap_or("").to_string();
+    if let Some(note) = module_note {
+        if !note.is_empty() {
+            if !append_sp.is_empty() {
+                append_sp.push_str("\n\n");
+            }
+            append_sp.push_str(note);
+        }
+    }
+    if !append_sp.is_empty() {
+        cmd.arg("--append-system-prompt").arg(&append_sp);
     }
 
     cmd.arg(prompt)

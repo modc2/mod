@@ -105,11 +105,8 @@ pub async fn serve(manager: AppState, port: u16) {
     let job_routes = {
         let base = Router::new()
             .route("/jobs", post(submit_job))
-            .route("/jobs", get(list_jobs))
-            .route("/jobs/:id", get(get_job))
             .route("/jobs/:id", delete(delete_job))
             .route("/jobs/:id/cancel", post(cancel_job))
-            .route("/jobs/:id/stream", get(stream_job))
             .route("/modules/:name", delete(delete_module))
             .route("/modules/:name/rename", put(rename_module))
             .route("/modules/:name/snapshot", post(snapshot_module))
@@ -120,6 +117,9 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/modules/:name/logs", post(module_logs))
             .route("/files/write", post(file_write))
             .route("/kill", post(kill_process))
+            .route("/sudo/status", get(sudo_status))
+            .route("/sudo/policy", post(sudo_policy_set))
+            .route("/sudo/lock", post(sudo_lock))
             .route("/whitelist", post(add_to_whitelist))
             .route("/whitelist/:address", delete(remove_from_whitelist))
             .route("/grants", post(create_grant))
@@ -145,6 +145,11 @@ pub async fn serve(manager: AppState, port: u16) {
     // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/health", get(health))
+        // Public code ledger: every task is world-readable (list, detail,
+        // live stream). Mutations (submit/cancel/delete) stay authenticated.
+        .route("/jobs", get(list_jobs))
+        .route("/jobs/:id", get(get_job))
+        .route("/jobs/:id/stream", get(stream_job))
         .route("/config", get(get_config))
         .route("/repos", get(list_repos))
         .route("/modules", get(list_modules))
@@ -420,6 +425,87 @@ async fn remove_from_whitelist(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
     }
     (StatusCode::OK, Json(json!({ "whitelist": after, "removed": target }))).into_response()
+}
+
+// ── Sudo session & policy ────────────────────────────────────────────
+// One signature unlocks sudo for policy.session_secs (default 1h, like Unix
+// sudo's credential cache); the owner tailors duration + per-action always-ask
+// here. Changing the policy always demands a fresh signature so a cached
+// session can never loosen the rules. Locking is free.
+
+async fn sudo_status(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if local_mode() {
+        return Json(json!({ "local": true, "session_active": false })).into_response();
+    }
+    if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    let policy = sudo::read_policy();
+    let now = chrono::Utc::now().timestamp();
+    let session = sudo::active_session();
+    Json(json!({
+        "session_active": session.is_some(),
+        "expires": session.as_ref().map(|(_, exp)| exp),
+        "remaining_secs": session.as_ref().map(|(_, exp)| (exp - now).max(0)),
+        "policy": policy,
+        "default_session_secs": sudo::DEFAULT_SESSION_SECS,
+        "max_session_secs": sudo::MAX_SESSION_SECS,
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct SudoPolicyRequest {
+    #[serde(default)]
+    session_secs: Option<i64>,
+    #[serde(default)]
+    always_ask: Option<Vec<String>>,
+}
+
+async fn sudo_policy_set(
+    headers: axum::http::HeaderMap,
+    Json(req): Json<SudoPolicyRequest>,
+) -> impl IntoResponse {
+    if !local_mode() {
+        if let Err(e) = require_owner(&headers) { return e.into_response(); }
+        // Auth requirements can only be changed by proving key possession NOW —
+        // an active session deliberately does not cover this.
+        if let Err(e) = sudo::verify_sudo_fresh(&headers, "policy", "sudo") {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "error": e, "sudo_required": true, "action": "policy", "target": "sudo" })),
+            )
+                .into_response();
+        }
+    }
+    let mut policy = sudo::read_policy();
+    if let Some(secs) = req.session_secs {
+        if !(0..=sudo::MAX_SESSION_SECS).contains(&secs) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("session_secs must be 0..={}", sudo::MAX_SESSION_SECS) })),
+            )
+                .into_response();
+        }
+        policy.session_secs = secs;
+    }
+    if let Some(list) = req.always_ask {
+        policy.always_ask = list
+            .into_iter()
+            .map(|a| a.trim().to_lowercase())
+            .filter(|a| !a.is_empty())
+            .collect();
+    }
+    if let Err(e) = sudo::write_policy(&policy) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+    }
+    Json(json!({ "success": true, "policy": sudo::read_policy() })).into_response()
+}
+
+async fn sudo_lock(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if !local_mode() {
+        if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    }
+    sudo::end_session();
+    Json(json!({ "success": true, "session_active": false })).into_response()
 }
 
 // ── Time-boxed edit grants (QR hand-off) ─────────────────────────────
@@ -720,55 +806,19 @@ async fn submit_job(
     (StatusCode::CREATED, Json(json!(job))).into_response()
 }
 
-async fn list_jobs(
-    headers: axum::http::HeaderMap,
-    State(mgr): State<AppState>,
-) -> impl IntoResponse {
-    let all_jobs = mgr.list_jobs();
-
-    // Filter jobs: only the owner sees all; peers (incl. whitelisted) see only
-    // their own.
-    let jobs = match auth::extract_address_from_headers(&headers) {
-        Ok(addr) if auth::is_owner(&addr) => all_jobs,
-        Ok(addr) => all_jobs
-            .into_iter()
-            .filter(|j| j.user_address.to_lowercase() == addr.to_lowercase())
-            .collect(),
-        Err(_) => {
-            // Local mode or no auth — return all
-            if std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1" {
-                all_jobs
-            } else {
-                vec![]
-            }
-        }
-    };
-
+async fn list_jobs(State(mgr): State<AppState>) -> impl IntoResponse {
+    // Public code ledger: every task is world-readable, no auth required.
+    let jobs = mgr.list_jobs();
     Json(json!({ "jobs": jobs, "count": jobs.len() }))
 }
 
 async fn get_job(
-    headers: axum::http::HeaderMap,
     State(mgr): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    // Public code ledger: any task is world-readable by id.
     match mgr.get_job(&id) {
-        Some(job) => {
-            // Non-owners can only view their own jobs
-            if let Ok(user_addr) = auth::extract_address_from_headers(&headers) {
-                if !auth::is_owner(&user_addr)
-                    && !job.user_address.is_empty()
-                    && job.user_address.to_lowercase() != user_addr.to_lowercase()
-                {
-                    return (
-                        StatusCode::FORBIDDEN,
-                        Json(json!({ "error": "You can only view your own jobs" })),
-                    )
-                        .into_response();
-                }
-            }
-            (StatusCode::OK, Json(json!(job))).into_response()
-        }
+        Some(job) => (StatusCode::OK, Json(json!(job))).into_response(),
         None => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Job not found" })),
@@ -888,7 +938,30 @@ async fn file_tree(
         return Json(json!({ "tree": [], "error": "Directory not found" }));
     }
 
-    fn walk(dir: &std::path::Path, depth: usize, max_depth: usize, home: &str) -> Vec<serde_json::Value> {
+    // Per-file CIDs + root hash use the exact snapshot scheme (file CID =
+    // sha256(bytes), tree CID = sha256(sorted manifest)) so what the file
+    // browser shows lines up with VERSIONS snapshot CIDs. Hash-only — no
+    // blobs are written. Skipped (root_hash: null) for oversized trees.
+    let (root_hash, cid_map) = match crate::snapshots::hash_dir(root, 128 * 1024 * 1024) {
+        Ok((tree_cid, manifest)) => {
+            let map: std::collections::HashMap<String, (String, u64)> = manifest
+                .files
+                .into_iter()
+                .map(|f| (f.path.clone(), (f.cid, f.size)))
+                .collect();
+            (Some(tree_cid), map)
+        }
+        Err(_) => (None, std::collections::HashMap::new()),
+    };
+
+    fn walk(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        depth: usize,
+        max_depth: usize,
+        home: &str,
+        cids: &std::collections::HashMap<String, (String, u64)>,
+    ) -> Vec<serde_json::Value> {
         if depth >= max_depth {
             return vec![];
         }
@@ -912,19 +985,26 @@ async fn file_tree(
             let full = path.to_string_lossy().to_string();
             let display = full.replacen(home, "~", 1);
             let is_dir = path.is_dir();
-            let children = if is_dir { walk(&path, depth + 1, max_depth, home) } else { vec![] };
+            let children = if is_dir { walk(root, &path, depth + 1, max_depth, home, cids) } else { vec![] };
+            let rel = path
+                .strip_prefix(root)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"));
+            let hashed = rel.as_deref().and_then(|r| cids.get(r));
             entries.push(json!({
                 "name": name,
                 "path": display,
                 "type": if is_dir { "directory" } else { "file" },
+                "cid": hashed.map(|(c, _)| c.clone()),
+                "size": hashed.map(|(_, s)| *s),
                 "children": children,
             }));
         }
         entries
     }
 
-    let tree = walk(root, 0, max_depth, &home);
-    Json(json!({ "tree": tree, "path": raw_path }))
+    let tree = walk(root, root, 0, max_depth, &home, &cid_map);
+    Json(json!({ "tree": tree, "path": raw_path, "root_hash": root_hash }))
 }
 
 async fn list_repos(Query(params): Query<RepoQuery>) -> impl IntoResponse {

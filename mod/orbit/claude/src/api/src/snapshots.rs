@@ -171,7 +171,7 @@ fn walk_files(
     root: &Path,
     dir: &Path,
     out: &mut Vec<ManifestEntry>,
-    store: &Store,
+    store: Option<&Store>,
 ) -> Result<(), String> {
     let entries =
         std::fs::read_dir(dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
@@ -196,7 +196,10 @@ fn walk_files(
                 .to_string_lossy()
                 .replace('\\', "/");
             let bytes = std::fs::read(&path).map_err(|e| format!("read {rel}: {e}"))?;
-            let cid = store.put(&bytes)?;
+            let cid = match store {
+                Some(s) => s.put(&bytes)?,
+                None => sha256_hex(&bytes),
+            };
             #[cfg(unix)]
             let mode = {
                 use std::os::unix::fs::PermissionsExt;
@@ -223,7 +226,7 @@ pub fn snapshot_dir(root: &Path, store: &Store) -> Result<(String, Manifest), St
         return Err(format!("not a directory: {}", root.display()));
     }
     let mut entries: Vec<ManifestEntry> = Vec::new();
-    walk_files(root, root, &mut entries, store)?;
+    walk_files(root, root, &mut entries, Some(store))?;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     let manifest = Manifest {
         version: 1,
@@ -233,6 +236,48 @@ pub fn snapshot_dir(root: &Path, store: &Store) -> Result<(String, Manifest), St
         serde_json::to_vec(&manifest).map_err(|e| format!("manifest serialize: {e}"))?;
     let tree_cid = store.put(&manifest_json)?;
     Ok((tree_cid, manifest))
+}
+
+/// Metadata-only pre-scan (same skip rules as walk_files) so hash_dir can
+/// refuse pathologically large trees before reading a single file body.
+fn tree_bytes(dir: &Path, acc: &mut u64) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            if !should_skip_dir(&name) {
+                tree_bytes(&entry.path(), acc);
+            }
+        } else if ft.is_file() && !name.starts_with('.') {
+            *acc += entry.metadata().map(|m| m.len()).unwrap_or(0);
+        }
+    }
+}
+
+/// Hash a directory without writing any blobs: returns the exact
+/// (tree_cid, manifest) that snapshot_dir would produce, so file-browser
+/// hashes line up with VERSIONS snapshot CIDs. `max_bytes` bounds the total
+/// content read.
+pub fn hash_dir(root: &Path, max_bytes: u64) -> Result<(String, Manifest), String> {
+    if !root.is_dir() {
+        return Err(format!("not a directory: {}", root.display()));
+    }
+    let mut total = 0u64;
+    tree_bytes(root, &mut total);
+    if total > max_bytes {
+        return Err(format!("tree too large to hash ({total} bytes)"));
+    }
+    let mut entries: Vec<ManifestEntry> = Vec::new();
+    walk_files(root, root, &mut entries, None)?;
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    let manifest = Manifest {
+        version: 1,
+        files: entries,
+    };
+    let manifest_json =
+        serde_json::to_vec(&manifest).map_err(|e| format!("manifest serialize: {e}"))?;
+    Ok((sha256_hex(&manifest_json), manifest))
 }
 
 pub fn restore_into(target: &Path, cid: &str, store: &Store) -> Result<usize, String> {

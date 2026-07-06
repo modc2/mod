@@ -8,6 +8,7 @@
 // the owner unlocks once, then `+ Add module` is a two-field form: repo + name.
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, type Module } from "@/lib/api";
 
 const TOKEN_KEY = "mod.web.owner";
@@ -94,7 +95,10 @@ export default function AddModule({ onAdded }: { onAdded?: (m: Module) => void }
         ＋ Add module
       </button>
 
-      {open && (
+      {/* Portal: the button now lives inside the sticky nav, whose
+          backdrop-filter would trap a fixed-position backdrop. */}
+      {open &&
+        createPortal(
         <div className="add-mod-backdrop" onClick={close}>
           <div className="add-mod-modal" onClick={(e) => e.stopPropagation()}>
             <div className="add-mod-head">
@@ -189,7 +193,8 @@ export default function AddModule({ onAdded }: { onAdded?: (m: Module) => void }
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

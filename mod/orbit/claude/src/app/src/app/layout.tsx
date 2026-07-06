@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mod AI",
-  description: "Background AI job runner — powered by Claude",
+  title: "Claude ✦ Orbit Console",
+  description: "Programmable AI developer console — powered by Claude",
 };
 
 export const viewport: Viewport = {
@@ -23,7 +23,6 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
-        <AuthBadge />
       </body>
     </html>
   );

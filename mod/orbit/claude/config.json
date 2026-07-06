@@ -1,7 +1,8 @@
 {
     "name": "claude",
+    "title": "Claude \u2726 Orbit Console",
     "version": "2.1.0",
-    "description": "Programmable AI developer interface \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "description": "Programmable AI developer console \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
     "port": 8820,
     "app_port": 8823,
     "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
@@ -9,7 +10,7 @@
     "bloctime_gate": true,
     "bloctime_ttl": 60,
     "onchain_registry": false,
-    "icon": "C",
+    "icon": "✦",
     "color": "#cc785c",
     "deps": [
         "chain",
@@ -121,16 +122,16 @@
                 "POST",
                 "GET"
             ],
-            "auth": true,
-            "docs": "Submit or list jobs"
+            "auth": "GET: false, POST: true",
+            "docs": "Submit a job (auth) or list ALL jobs (public — tasks form a public code ledger)"
         },
         "/jobs/{id}": {
             "method": [
                 "GET",
                 "DELETE"
             ],
-            "auth": true,
-            "docs": "Get or delete job"
+            "auth": "GET: false, DELETE: true",
+            "docs": "Get any job by id (public ledger; shareable via QR deep link ?job={id}) or delete your own job (auth)"
         },
         "/jobs/{id}/cancel": {
             "method": "POST",
@@ -139,8 +140,8 @@
         },
         "/jobs/{id}/stream": {
             "method": "GET",
-            "auth": true,
-            "docs": "SSE live stream of job output"
+            "auth": false,
+            "docs": "SSE live stream of job output (public ledger)"
         },
         "/kill": {
             "method": "POST",

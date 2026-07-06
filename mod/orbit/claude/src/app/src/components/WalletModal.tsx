@@ -12,6 +12,7 @@ import {
   EVM_NETWORKS,
   NETWORK_LOGOS,
 } from "../utils/wallet";
+import { qrSvg } from "../app/lib/qr";
 
 interface WalletModalProps {
   address: string;
@@ -51,6 +52,7 @@ export default function WalletModal({
   const [switchingNetwork, setSwitchingNetwork] = useState(false);
   const [showTestnets, setShowTestnets] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
 
   // Load wallet data
   useEffect(() => {
@@ -143,8 +145,8 @@ export default function WalletModal({
       <div
         className="flex items-center justify-between px-5 py-3 shrink-0"
         style={{
-          borderBottom: "1px solid rgba(0,170,255,0.12)",
-          background: "linear-gradient(180deg, rgba(0,170,255,0.06) 0%, transparent 100%)",
+          borderBottom: "1px solid color-mix(in srgb, var(--crt-blue) 12%, var(--border-color))",
+          background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-blue) 6%, transparent) 0%, transparent 100%)",
         }}
       >
         <span className="text-[11px] font-bold tracking-[2px]" style={{ color: "var(--text-secondary)" }}>
@@ -159,9 +161,9 @@ export default function WalletModal({
             borderRadius: "8px",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.borderColor = "rgba(239,68,68,0.4)";
+            (e.currentTarget as HTMLElement).style.borderColor = "color-mix(in srgb, var(--crt-red) 40%, transparent)";
             (e.currentTarget as HTMLElement).style.color = "var(--crt-red)";
-            (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.08)";
+            (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)";
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLElement).style.borderColor = "var(--border-color)";
@@ -192,17 +194,19 @@ export default function WalletModal({
           <>
             {/* Identity Card — one compact row: balance · address (click = copy) · network (click = switch) */}
             <div
-              className="flex items-center gap-2 px-3 py-2"
+              className="flex items-center gap-2 px-3 py-2.5"
               style={{
-                border: "1px solid rgba(255,255,255,0.06)",
-                background: "rgba(255,255,255,0.015)",
-                borderRadius: "10px",
+                border: "1px solid color-mix(in srgb, var(--crt-green) 14%, var(--border-color))",
+                background:
+                  "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
+                borderRadius: "14px",
+                boxShadow: "0 1px 0 inset color-mix(in srgb, var(--crt-green) 6%, transparent), var(--shadow-sm)",
               }}
             >
               <span
                 className="shrink-0 text-[13px] font-bold font-mono tabular-nums"
                 title={`${walletIcon} ${walletType?.toUpperCase()}`}
-                style={{ color: "var(--crt-green)", textShadow: "0 0 12px rgba(16,185,129,0.2)" }}
+                style={{ color: "var(--crt-green)", textShadow: "0 0 12px color-mix(in srgb, var(--crt-green) 20%, transparent)" }}
               >
                 {parseFloat(balance).toFixed(4)}
                 <span className="text-[9px] font-bold ml-1" style={{ opacity: 0.4 }}>{nativeSymbol}</span>
@@ -212,26 +216,64 @@ export default function WalletModal({
                 title={`${address} — click to copy`}
                 className="flex-1 min-w-0 px-2 py-1.5 font-mono text-[10px] text-left truncate transition-all"
                 style={{
-                  background: "rgba(0,0,0,0.25)",
-                  border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid rgba(255,255,255,0.04)",
+                  background: "var(--bg-secondary)",
+                  border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
                   color: copied === "address" ? "var(--crt-green)" : "var(--text-primary)",
                   letterSpacing: "0.3px",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                 }}
               >
                 {copied === "address" ? "COPIED" : `${address.slice(0, 6)}…${address.slice(-4)}`}
+              </button>
+              <button
+                onClick={() => handleCopy(address, "address")}
+                title="Copy address"
+                className="shrink-0 w-[30px] h-[30px] flex items-center justify-center transition-all"
+                style={{
+                  border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
+                  background: "var(--bg-secondary)",
+                  color: copied === "address" ? "var(--crt-green)" : "var(--text-secondary)",
+                  borderRadius: "8px",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 35%, transparent)"; e.currentTarget.style.color = "var(--crt-green)"; }}
+                onMouseLeave={(e) => { if (copied !== "address") { e.currentTarget.style.borderColor = "var(--border-color)"; e.currentTarget.style.color = "var(--text-secondary)"; } }}
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowQr(!showQr)}
+                title="Show address QR code"
+                className="shrink-0 w-[30px] h-[30px] flex items-center justify-center transition-all"
+                style={{
+                  border: showQr ? "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)" : "1px solid var(--border-color)",
+                  background: showQr ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "var(--bg-secondary)",
+                  color: showQr ? "var(--crt-green)" : "var(--text-secondary)",
+                  borderRadius: "8px",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 35%, transparent)"; e.currentTarget.style.color = "var(--crt-green)"; }}
+                onMouseLeave={(e) => { if (!showQr) { e.currentTarget.style.borderColor = "var(--border-color)"; e.currentTarget.style.color = "var(--text-secondary)"; } }}
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1" />
+                </svg>
               </button>
               <button
                 onClick={() => setShowNetworkSelector(!showNetworkSelector)}
                 title={`${network} #${chainId} — switch network`}
                 className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 transition-all"
                 style={{
-                  border: "1px solid rgba(255,255,255,0.05)",
-                  background: "rgba(0,0,0,0.15)",
-                  borderRadius: "6px",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--bg-secondary)",
+                  borderRadius: "8px",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(245,158,11,0.25)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.05)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 25%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border-color)"; }}
               >
                 <span
                   className="w-[14px] h-[14px] flex items-center justify-center shrink-0"
@@ -245,14 +287,58 @@ export default function WalletModal({
               </button>
             </div>
 
+            {/* Address QR — rendered locally (qrSvg), never sent to a third-party service */}
+            {showQr && (
+              <div
+                className="p-4 flex flex-col items-center gap-3"
+                style={{
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 14%, var(--border-color))",
+                  background:
+                    "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
+                  borderRadius: "14px",
+                }}
+              >
+                <div className="w-full text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
+                  <span>ADDRESS QR</span>
+                  <button
+                    onClick={() => setShowQr(false)}
+                    className="text-[9px] px-2 py-0.5 transition-all"
+                    style={{ color: "var(--crt-green)", border: "1px solid color-mix(in srgb, var(--crt-green) 15%, transparent)", borderRadius: "8px" }}
+                  >
+                    CLOSE
+                  </button>
+                </div>
+                <div
+                  className="p-2"
+                  style={{ background: "#ffffff", borderRadius: "12px", boxShadow: "0 2px 16px rgba(0,0,0,0.35)" }}
+                  dangerouslySetInnerHTML={{ __html: qrSvg(address, 200) }}
+                />
+                <button
+                  onClick={() => handleCopy(address, "address")}
+                  title="Click to copy"
+                  className="w-full px-3 py-2 font-mono text-[10px] text-center break-all transition-all"
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
+                    color: copied === "address" ? "var(--crt-green)" : "var(--text-primary)",
+                    letterSpacing: "0.3px",
+                    borderRadius: "8px",
+                  }}
+                >
+                  {copied === "address" ? "COPIED" : address}
+                </button>
+              </div>
+            )}
+
             {/* Inline Network Selector */}
             {showNetworkSelector && (
               <div
                 className="p-4 space-y-3"
                 style={{
-                  border: "1px solid rgba(245,158,11,0.15)",
-                  background: "rgba(245,158,11,0.02)",
-                  borderRadius: "10px",
+                  border: "1px solid color-mix(in srgb, var(--crt-amber) 14%, var(--border-color))",
+                  background:
+                    "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
+                  borderRadius: "14px",
                 }}
               >
                 <div className="text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
@@ -260,7 +346,7 @@ export default function WalletModal({
                   <button
                     onClick={() => setShowNetworkSelector(false)}
                     className="text-[9px] px-2 py-0.5 transition-all"
-                    style={{ color: "var(--crt-amber)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: "8px" }}
+                    style={{ color: "var(--crt-amber)", border: "1px solid color-mix(in srgb, var(--crt-amber) 15%, transparent)", borderRadius: "8px" }}
                   >
                     CLOSE
                   </button>
@@ -273,7 +359,7 @@ export default function WalletModal({
                     className="flex-1 py-2 text-[9px] tracking-[2px] transition-all"
                     style={{
                       color: !showTestnets ? "var(--crt-amber)" : "var(--text-tertiary)",
-                      background: !showTestnets ? "rgba(245,158,11,0.1)" : "transparent",
+                      background: !showTestnets ? "color-mix(in srgb, var(--crt-amber) 10%, transparent)" : "transparent",
                       borderRight: "1px solid var(--border-color)",
                       fontWeight: !showTestnets ? "bold" : "normal",
                       opacity: !showTestnets ? 1 : 0.5,
@@ -286,7 +372,7 @@ export default function WalletModal({
                     className="flex-1 py-2 text-[9px] tracking-[2px] transition-all"
                     style={{
                       color: showTestnets ? "var(--crt-amber)" : "var(--text-tertiary)",
-                      background: showTestnets ? "rgba(245,158,11,0.1)" : "transparent",
+                      background: showTestnets ? "color-mix(in srgb, var(--crt-amber) 10%, transparent)" : "transparent",
                       fontWeight: showTestnets ? "bold" : "normal",
                       opacity: showTestnets ? 1 : 0.5,
                     }}
@@ -303,21 +389,25 @@ export default function WalletModal({
                       disabled={switchingNetwork}
                       className="p-3 text-center transition-all flex flex-col items-center gap-2"
                       style={{
-                        border: n.chainId === chainId ? `1px solid ${NETWORK_LOGOS[n.chainId]?.color || "rgba(245,158,11,0.3)"}40` : "1px solid rgba(255,255,255,0.06)",
-                        background: n.chainId === chainId ? `${NETWORK_LOGOS[n.chainId]?.color || "rgba(245,158,11,"}10` : "rgba(0,0,0,0.15)",
+                        border: n.chainId === chainId
+                          ? `1px solid color-mix(in srgb, ${NETWORK_LOGOS[n.chainId]?.color || "var(--crt-amber)"} 30%, transparent)`
+                          : "1px solid var(--border-color)",
+                        background: n.chainId === chainId
+                          ? `color-mix(in srgb, ${NETWORK_LOGOS[n.chainId]?.color || "var(--crt-amber)"} 8%, transparent)`
+                          : "var(--bg-secondary)",
                         borderRadius: "10px",
                         opacity: switchingNetwork ? 0.5 : 1,
                       }}
                       onMouseEnter={(e) => {
                         if (n.chainId !== chainId) {
-                          e.currentTarget.style.borderColor = `${NETWORK_LOGOS[n.chainId]?.color || "#ffb000"}40`;
-                          e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+                          e.currentTarget.style.borderColor = `color-mix(in srgb, ${NETWORK_LOGOS[n.chainId]?.color || "var(--crt-amber)"} 30%, transparent)`;
+                          e.currentTarget.style.background = "color-mix(in srgb, var(--text-primary) 4%, transparent)";
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (n.chainId !== chainId) {
-                          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                          e.currentTarget.style.background = "rgba(0,0,0,0.15)";
+                          e.currentTarget.style.borderColor = "var(--border-color)";
+                          e.currentTarget.style.background = "var(--bg-secondary)";
                         }
                       }}
                     >
@@ -339,7 +429,7 @@ export default function WalletModal({
                 {networkError && (
                   <div
                     className="text-[10px] text-center py-2 tracking-wider"
-                    style={{ color: "var(--crt-red)", border: "1px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.06)", borderRadius: "8px" }}
+                    style={{ color: "var(--crt-red)", border: "1px solid color-mix(in srgb, var(--crt-red) 20%, transparent)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)", borderRadius: "8px" }}
                   >
                     {networkError}
                   </div>
@@ -352,9 +442,10 @@ export default function WalletModal({
               <div
                 className="p-4"
                 style={{
-                  border: "1px solid rgba(245,158,11,0.12)",
-                  background: "rgba(245,158,11,0.02)",
-                  borderRadius: "10px",
+                  border: "1px solid color-mix(in srgb, var(--crt-amber) 14%, var(--border-color))",
+                  background:
+                    "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
+                  borderRadius: "14px",
                 }}
               >
                 <button
@@ -372,8 +463,8 @@ export default function WalletModal({
                     <div
                       className="px-3 py-2 text-[10px] tracking-wider"
                       style={{
-                        background: "rgba(239,68,68,0.06)",
-                        border: "1px solid rgba(239,68,68,0.2)",
+                        background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
+                        border: "1px solid color-mix(in srgb, var(--crt-red) 20%, transparent)",
                         color: "var(--crt-red)",
                         borderRadius: "8px",
                       }}
@@ -383,8 +474,8 @@ export default function WalletModal({
                     <div
                       className="p-3 font-mono text-[11px] break-all leading-relaxed"
                       style={{
-                        background: "rgba(0,0,0,0.3)",
-                        border: "1px solid rgba(239,68,68,0.1)",
+                        background: "var(--bg-secondary)",
+                        border: "1px solid color-mix(in srgb, var(--crt-red) 10%, transparent)",
                         color: "var(--text-primary)",
                         borderRadius: "8px",
                       }}
@@ -395,7 +486,7 @@ export default function WalletModal({
                       onClick={() => handleCopy(getSeedPhrase(), "seed")}
                       className="text-[9px] px-3 py-1.5 transition-all tracking-wider"
                       style={{
-                        border: copied === "seed" ? "1px solid var(--crt-green)" : "1px solid rgba(239,68,68,0.25)",
+                        border: copied === "seed" ? "1px solid var(--crt-green)" : "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
                         color: copied === "seed" ? "var(--crt-green)" : "var(--crt-red)",
                         borderRadius: "8px",
                       }}
@@ -411,37 +502,37 @@ export default function WalletModal({
             <div className="flex gap-3 pt-1">
               <button
                 onClick={loadWalletData}
-                className="flex-1 py-3 text-[10px] transition-all tracking-[1.5px]"
+                className="flex-1 py-2.5 text-[10px] transition-all tracking-[1.5px]"
                 style={{
                   background: "var(--crt-blue)",
-                  color: "#000",
+                  color: "var(--bg-primary)",
                   fontWeight: "bold",
-                  borderRadius: "8px",
-                  boxShadow: "0 2px 12px rgba(0,170,255,0.2)",
+                  borderRadius: "10px",
+                  boxShadow: "0 2px 12px color-mix(in srgb, var(--crt-blue) 20%, transparent)",
                   border: "none",
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 20px rgba(0,170,255,0.35)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,170,255,0.2)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 20px color-mix(in srgb, var(--crt-blue) 35%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 12px color-mix(in srgb, var(--crt-blue) 20%, transparent)"; }}
               >
                 REFRESH
               </button>
               <button
                 onClick={onDisconnect}
-                className="flex-1 py-3 text-[10px] transition-all tracking-[1.5px]"
+                className="flex-1 py-2.5 text-[10px] transition-all tracking-[1.5px]"
                 style={{
                   background: "transparent",
                   color: "var(--crt-red)",
-                  border: "1px solid rgba(239,68,68,0.25)",
+                  border: "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
                   fontWeight: "bold",
-                  borderRadius: "8px",
+                  borderRadius: "10px",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(239,68,68,0.1)";
-                  e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)";
+                  e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 10%, transparent)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 40%, transparent)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.borderColor = "rgba(239,68,68,0.25)";
+                  e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 25%, transparent)";
                 }}
               >
                 DISCONNECT
@@ -470,8 +561,8 @@ export default function WalletModal({
         className="fixed top-0 right-0 z-50 h-full w-[680px] max-w-[92vw] flex flex-col animate-slideIn"
         style={{
           background: "var(--bg-primary)",
-          borderLeft: "1px solid rgba(0,170,255,0.2)",
-          boxShadow: "-12px 0 60px rgba(0,0,0,0.5), -2px 0 20px rgba(0,170,255,0.08)",
+          borderLeft: "1px solid color-mix(in srgb, var(--crt-blue) 20%, transparent)",
+          boxShadow: "-12px 0 60px rgba(0,0,0,0.5), -2px 0 20px color-mix(in srgb, var(--crt-blue) 8%, transparent)",
         }}
       >
         {content}

@@ -317,6 +317,142 @@ async def contract_source(file: Optional[str] = None, mod: str = "chain",
     return {"contracts": contracts, "count": len(contracts), "module": mod}
 
 
+# ── Contract ABIs + sources, stored in localfs by CID ────────────────────────
+#
+# ABIs and Solidity sources are pinned into the content-addressable localfs
+# store; their CIDs are recorded per-contract in config.json ("abi" / "src"),
+# same pattern the deploy pipeline already uses. Serving prefers the pinned
+# CID; hardhat artifacts are only read to pin content the first time.
+
+_artifact_cache = {}
+
+def _localfs():
+    try:
+        import mod as m
+        return m.mod('localfs')()
+    except Exception:
+        return None
+
+
+def _load_artifact(contract_type: str):
+    """Load a compiled hardhat artifact ({abi, sourceName, ...}) for a contract type."""
+    if contract_type in _artifact_cache:
+        return _artifact_cache[contract_type]
+    artifact = None
+    base = _module_dir("chain")
+    root = os.path.join(base, "artifacts", "src", "contracts") if base else ""
+    if os.path.isdir(root):
+        want_dir, want_file = f"{contract_type}.sol", f"{contract_type}.json"
+        for dirpath, _dn, files in os.walk(root):
+            if os.path.basename(dirpath) == want_dir and want_file in files:
+                try:
+                    with open(os.path.join(dirpath, want_file)) as f:
+                        artifact = json.load(f)
+                except Exception:
+                    artifact = None
+                break
+    _artifact_cache[contract_type] = artifact
+    return artifact
+
+
+def _lf_get_json(lf, cid):
+    """localfs.get that tolerates bytes payloads; returns parsed JSON or None."""
+    try:
+        data = lf.get(cid)
+        if isinstance(data, bytes):
+            data = json.loads(data.decode("utf-8"))
+        return data
+    except Exception:
+        return None
+
+
+@app.get("/contracts/abis")
+async def contract_abis(network: str = "testnet"):
+    """Deployed contracts with addresses + ABIs (localfs-pinned), for wallet-side calls."""
+    base = _module_dir("chain")
+    cfg_path = os.path.join(base, "config.json") if base else None
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = get_chain().config or {}
+
+    deployment = cfg.get("deployments", {}).get(network, {})
+    contracts = deployment.get("contracts") or {}
+    lf = _localfs()
+    out, dirty = [], False
+
+    for name, info in contracts.items():
+        if not isinstance(info, dict) or not info.get("address"):
+            continue
+        ctype = info.get("contract") or name
+        abi, abi_cid, src_cid = None, info.get("abi"), info.get("src")
+
+        # 1) pinned ABI CID from config
+        if lf and abi_cid:
+            abi = _lf_get_json(lf, abi_cid)
+
+        # 2) fall back to the hardhat artifact — and pin it for next time
+        if abi is None:
+            artifact = _load_artifact(ctype)
+            abi = (artifact or {}).get("abi")
+            if lf and abi:
+                try:
+                    abi_cid = lf.put(abi)
+                    info["abi"] = abi_cid
+                    dirty = True
+                except Exception:
+                    pass
+
+        # pin the Solidity source alongside (once)
+        if lf and not src_cid:
+            artifact = _load_artifact(ctype)
+            src_path = os.path.join(base, (artifact or {}).get("sourceName", "")) if base else ""
+            if src_path and os.path.isfile(src_path):
+                try:
+                    with open(src_path) as f:
+                        src_cid = lf.put(f.read())
+                    info["src"] = src_cid
+                    dirty = True
+                except Exception:
+                    pass
+
+        if not abi:
+            continue
+        out.append({"name": name, "contract": ctype, "address": info["address"],
+                    "abi": abi, "abi_cid": abi_cid, "src_cid": src_cid})
+
+    # persist newly pinned CIDs back into config.json (the canonical index)
+    if dirty and cfg_path:
+        try:
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f, indent=4)
+        except Exception:
+            pass
+
+    out.sort(key=lambda c: c["name"].lower())
+    return {"network": network, "chainId": deployment.get("chainId"),
+            "rpc_url": deployment.get("url"), "contracts": out, "count": len(out)}
+
+
+@app.get("/cid/{cid}")
+async def cid_get(cid: str):
+    """Fetch pinned content (ABI JSON / Solidity source) from localfs by CID."""
+    lf = _localfs()
+    if not lf:
+        raise HTTPException(status_code=503, detail="localfs unavailable")
+    try:
+        data = lf.get(cid)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"CID not found: {cid}")
+    if isinstance(data, bytes):
+        try:
+            data = data.decode("utf-8")
+        except Exception:
+            raise HTTPException(status_code=415, detail="Binary content")
+    return {"cid": cid, "content": data}
+
+
 # ── Module Proxy ──────────────────────────────────────────────────────────
 
 class ModCallReq(BaseModel):
@@ -964,7 +1100,7 @@ async def info():
             "timestamp", "info",
             "wallet", "balances", "stake", "unstake", "stakes",
             "credit", "transfer", "tokens",
-            "contracts/source", "contracts/mods",
+            "contracts/source", "contracts/mods", "contracts/abis", "cid/{cid}",
             "registry/mods", "registry/all", "registry/register", "bloctime/owner",
             "register", "mint", "pool", "pool/claimable", "pool/claim",
             "pool/epochs", "pool/snapshot",

@@ -1171,6 +1171,143 @@ pre.font-code,
   padding: 12px 14px 14px 18px;
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Task cards — the TASKS view job list.
+ *
+ * Each card is a glass tile that carries its status color via
+ * --task-accent: a left accent bar, an accent-washed border, and (while
+ * running) a live shimmer strip along the bottom edge. Hover lifts the
+ * card and brightens the bar; cards stagger in via animation-delay set
+ * inline per row.
+ * ──────────────────────────────────────────────────────────────────────*/
+@keyframes task-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.task-card {
+  --task-accent: var(--accent-color);
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--task-accent) 10%, var(--border-color));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--task-accent) 4%, transparent), transparent 50%),
+    var(--glass-bg, var(--bg-secondary));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: var(--shadow-sm);
+  animation: task-in 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.task-card::before {
+  /* status-tinted accent bar on the left edge */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--task-accent) 85%, transparent),
+    color-mix(in srgb, var(--task-accent) 22%, transparent)
+  );
+  opacity: 0.75;
+  pointer-events: none;
+  transition: opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.task-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--task-accent) 28%, var(--border-color-strong));
+  box-shadow:
+    0 8px 24px -10px color-mix(in srgb, var(--task-accent) 30%, rgba(0, 0, 0, 0.45)),
+    var(--shadow-md);
+}
+
+.task-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--task-accent) 55%, transparent);
+}
+
+.task-card--running {
+  border-color: color-mix(in srgb, var(--task-accent) 28%, var(--border-color));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--task-accent) 16%, transparent),
+    0 4px 18px -8px color-mix(in srgb, var(--task-accent) 35%, transparent);
+}
+
+.task-card__progress {
+  /* live shimmer strip along the bottom edge of a running card */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--task-accent) 85%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+  pointer-events: none;
+}
+
+/* Small metadata chip on a task card (model, module, attachments…). */
+.task-chip {
+  --chip-accent: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: 999px;
+  color: var(--chip-accent);
+  background: color-mix(in srgb, var(--chip-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-accent) 24%, transparent);
+}
+
+/* Hover action pill on a task card (Cancel / Replay / Delete). */
+.task-action {
+  --action-accent: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--action-accent);
+  background: color-mix(in srgb, var(--action-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--action-accent) 30%, transparent);
+  transition: background 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+
+.task-action:hover {
+  background: color-mix(in srgb, var(--action-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--action-accent) 55%, transparent);
+}
+
+.task-action:active { transform: scale(0.96); }
+
+@media (max-width: 767px) {
+  .task-chip   { font-size: 12.5px; }
+  .task-action { font-size: 12.5px; padding: 5px 12px; }
+}
+
 /* Reusable status pill that picks up an accent via --pill-accent. Used by
  * the ONLINE/OFFLINE chips on Gateway / API / APP tiles. */
 .status-pill {

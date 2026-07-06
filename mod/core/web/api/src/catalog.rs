@@ -242,14 +242,50 @@ impl Catalog {
         if q.is_empty() {
             return self.modules();
         }
-        self.modules()
+        // Keyword search: every whitespace-separated term must appear somewhere
+        // in the module (name/description/functions/deps) — "store files" then
+        // matches a module described as "file storage", instead of requiring
+        // the literal phrase. A term also matches on its singular stem
+        // ("files" → "file" hits "filecoin"). Name hits rank above body-only.
+        let terms: Vec<&str> = q.split_whitespace().collect();
+        fn term_hits(hay: &str, t: &str) -> bool {
+            hay.contains(t)
+                || (t.len() > 3 && t.ends_with('s') && hay.contains(&t[..t.len() - 1]))
+        }
+        let scored: Vec<(u32, u32, Module)> = self
+            .modules()
             .into_iter()
-            .filter(|m| {
-                m.name.to_lowercase().contains(&q)
-                    || m.description.to_lowercase().contains(&q)
-                    || m.fns.iter().any(|f| f.to_lowercase().contains(&q))
+            .filter_map(|m| {
+                let name = m.name.to_lowercase();
+                let hay = format!(
+                    "{} {} {} {}",
+                    name,
+                    m.description.to_lowercase(),
+                    m.fns.join(" ").to_lowercase(),
+                    m.deps.join(" ").to_lowercase()
+                );
+                let matched = terms.iter().filter(|t| term_hits(&hay, t)).count() as u32;
+                if matched == 0 {
+                    return None;
+                }
+                let name_hits = terms.iter().filter(|t| term_hits(&name, t)).count() as u32;
+                Some((matched, name_hits, m))
             })
-            .collect()
+            .collect();
+        // Prefer modules matching every term; when none do, degrade to partial
+        // matches so "trade crypto" still surfaces trading modules.
+        let full = terms.len() as u32;
+        let any_full = scored.iter().any(|s| s.0 == full);
+        let mut hits: Vec<_> = scored
+            .into_iter()
+            .filter(|s| !any_full || s.0 == full)
+            .collect();
+        hits.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.cmp(&a.1))
+                .then_with(|| a.2.name.cmp(&b.2.name))
+        });
+        hits.into_iter().map(|(_, _, m)| m).collect()
     }
 
     /// Resolve a module name to its directory on disk. Fast path is
