@@ -1,8 +1,8 @@
 "use client";
 
-// Strat list — select / rename / delete / "+ New strat". Renders as the
-// STRATS tab inside the global account sidebar (SidebarShell); it is
-// content-only, the sidebar owns the panel chrome.
+// Strat list — select / rename / delete / "+ New strat". Renders in the
+// STRAT page's account column (strats/page.tsx); it is content-only, the
+// column owns the panel chrome.
 //
 // Parameter editing lives in the STRAT → PARAMS subtab (CopyIndex) — the
 // single place to tune capital, trade band, throttle, top-N, market + trade

@@ -3,7 +3,14 @@ import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, Trad
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
 import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats } from "./polymarket";
 import { getTradeCache } from "./cache";
-import { Strat, TraderTrade as StratTraderTrade, SizeConstraints } from "./strats/base";
+import {
+  Strat,
+  TraderTrade as StratTraderTrade,
+  SizeConstraints,
+  StratHistory,
+  ProposedTrade,
+  emptyHistory,
+} from "./strats/base";
 import { getStrat } from "./strats/registry";
 import { marketMatchesQuery } from "./marketQuery";
 import { tradeMatchesFilters } from "./tradeFilters";
@@ -155,6 +162,10 @@ const DEFAULT_ROI = 0.05;
 const MAX_LOG_ENTRIES = 200;
 const MAX_ORDERS_PER_CYCLE = 20;
 const ORDER_DELAY_MS = 500;
+// How long before a history-driven strat may re-propose the same
+// market+outcome+side (Phase 4). Stops unfilled GTC proposals from being
+// stacked on the book every cycle while the signal persists.
+const PROPOSAL_COOLDOWN_MS = 30 * 60_000;
 // 0 — the matcher's fee schedule for binary markets returns 0, and a
 // hardcoded 200 bps was making every CLOB POST reject with HTTP 400
 // "Invalid order payload" because the signed feeRateBps didn't match
@@ -297,11 +308,21 @@ export class CopyEngine {
   private traderRoiStats: Record<string, TraderRoiStats> = {};
   private roiRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private roiRefreshInFlight = false;
-  // The strategy decides scoring + sizing per candidate. Swap by
-  // pointing this at any class implementing Strat. Default = CopyTrader.
-  // The engine handles everything else (cycle loop, balance check,
-  // deposit wallet, CLOB submission, log persistence).
+  // The strategy decides scoring + sizing per candidate — and may
+  // originate its own trades from history (propose). Swap by pointing
+  // this at any class extending Strat. Default = CopyTrader. The engine
+  // handles everything else (cycle loop, balance check, deposit wallet,
+  // CLOB submission, log persistence).
   private strat: Strat;
+  // The most recent cycle's assembled history — every strat hook receives
+  // it. Kept on the instance so out-of-cycle helpers (bestBuyCandidateEP)
+  // can score with the same context the strat last saw.
+  private lastHistory: StratHistory = emptyHistory();
+  // Proposal dedup: `conditionId:outcome:side` → last-proposed ms epoch.
+  // A GTC proposal can take a while to fill (or never fill); without a
+  // cooldown a history-driven strat re-proposes the same consensus entry
+  // every cycle and stacks duplicate orders on the book.
+  private proposedRecently: Map<string, number> = new Map();
 
   constructor(config: CopyEngineConfig, strat?: Strat) {
     this.config = config;
@@ -1160,6 +1181,30 @@ export class CopyEngine {
       const totalWeight = enabledTraders.reduce((s, t) => s + t.weight, 0);
       if (totalWeight <= 0) return;
 
+      // ── Assemble this cycle's StratHistory ──
+      // Every strat hook receives it. `trades` fills during Phase 1 (each
+      // trader's full lookback window lands before any hook runs on that
+      // trader's fills; the whole watchlist is in by Phase 3/4). Positions
+      // are an extra API call, fetched only when the strat class actually
+      // originates trades (overrides propose).
+      const history: StratHistory = {
+        trades: [],
+        traderStats: this.traderRoiStats,
+        positions: [],
+        balance: effective,
+        capital: this.config.capital,
+        watchlist: enabledTraders,
+        cycle: this.state.cycleCount,
+        now: Date.now(),
+      };
+      if (this.stratProposes()) {
+        try {
+          const proxy = await this.resolveTradingWallet();
+          if (proxy) history.positions = await fetchPositions(proxy, { bypassCache: true });
+        } catch {} // history.positions stays [] — propose still runs
+      }
+      this.lastHistory = history;
+
       let ordersThisCycle = 0;
       let pollFailures = 0;
       let tradersWithNewActivity = 0;
@@ -1241,6 +1286,13 @@ export class CopyEngine {
           const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
           const copyRatio = capitalAlloc / traderVol;
 
+          // Feed this trader's full lookback window into the shared
+          // history BEFORE any hook runs on their fills — strats can
+          // aggregate flow, not just react to single trades.
+          for (const t of windowTrades) {
+            history.trades.push(this.buildStratTrade(t, trader, copyRatio, totalWeight));
+          }
+
           // Push every observed trade into the UI ring buffer with its
           // score, even ones we won't copy — gives the user a real view
           // of "what we saw vs what we picked".
@@ -1274,7 +1326,7 @@ export class CopyEngine {
             const stratTrade = this.buildStratTrade(trade, trader, copyRatio, totalWeight);
             // Strat pre-filter — runs before scoring/sizing per the Strat
             // contract (base.ts). Default CopyTrader passes everything.
-            if (!this.strat.shouldMirror(stratTrade)) {
+            if (!this.strat.shouldMirror(stratTrade, history)) {
               this.addLog({
                 id: uid(),
                 timestamp: Date.now(),
@@ -1322,6 +1374,9 @@ export class CopyEngine {
           });
         }
       }
+
+      // History is complete for the whole watchlist from here on.
+      history.trades.sort((a, b) => b.timestamp - a.timestamp);
 
       // ── Phase 2: rank BUYs by EXPECTED PROFIT and slice top N ──
       // SELLs always execute. BUYs compete for the strat's maxPerCycle
@@ -1385,7 +1440,7 @@ export class CopyEngine {
               clobFloor: clobMinNotional(trade.price),
               capital: this.config.capital,
             };
-            const decision = this.strat.sizeAndPrice(stratTrade, constraints);
+            const decision = this.strat.sizeAndPrice(stratTrade, constraints, history);
             if (decision.mirrorNotional <= 0) {
               this.addLog({
                 id: uid(),
@@ -1548,6 +1603,16 @@ export class CopyEngine {
               });
               this.copiedIds.add(trade.id);
             }
+      }
+
+      // ── Phase 4: strat-originated proposals ──
+      // History-driven strats (a propose override) originate trades that
+      // aren't tied to any upstream fill. Same submission path as mirrors:
+      // resolve token id, tick-round, clamp to the CLOB floor, place, log.
+      // A per-market cooldown stops an unfilled GTC proposal from being
+      // re-stacked every cycle while the signal persists.
+      if (this.stratProposes() && this.running) {
+        ordersThisCycle = await this.executeProposals(history, ordersThisCycle);
       }
 
       this.setState({
@@ -1838,6 +1903,135 @@ export class CopyEngine {
   // Used by both observed-trade enrichment (score for UI display) and the
   // execution path (score + sizing). One builder = one source of truth
   // for the engine→strat hand-off.
+  /** True when the active strat class overrides `propose` — i.e. it
+   *  originates trades from history rather than only mirroring. Gates the
+   *  per-cycle positions fetch and Phase 4. */
+  private stratProposes(): boolean {
+    return this.strat.propose !== Strat.prototype.propose;
+  }
+
+  /** Phase 4 body: ask the strat for history-driven proposals and submit
+   *  them through the same order path mirrors use. Returns the updated
+   *  per-cycle order count. */
+  private async executeProposals(history: StratHistory, ordersSoFar: number): Promise<number> {
+    let ordersThisCycle = ordersSoFar;
+    let proposals: ProposedTrade[] = [];
+    try {
+      proposals = this.strat.propose(history, {
+        userFloor: this.config.minOrderSize,
+        userCeiling: this.config.maxOrderSize ?? Number.POSITIVE_INFINITY,
+        // Per-price CLOB floor is enforced per proposal below; this is the
+        // price-independent $1 baseline for the strat's own sizing.
+        clobFloor: POLYMARKET_MIN_USD,
+        capital: this.config.capital,
+      });
+    } catch (e) {
+      this.addLog({
+        id: uid(),
+        timestamp: Date.now(),
+        type: "ERROR",
+        reason: `PROPOSE_FAILED (${this.strat.name}): ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return ordersThisCycle;
+    }
+
+    for (const p of proposals.slice(0, this.strat.maxPerCycle())) {
+      if (ordersThisCycle >= MAX_ORDERS_PER_CYCLE) break;
+      if (!this.running) break;
+
+      const limitPrice = tickRoundPrice(p.limitPrice);
+      if (!(p.notional > 0) || !(limitPrice > 0)) continue;
+
+      // Cooldown — an unfilled GTC entry would otherwise be re-proposed
+      // (and re-stacked on the book) every cycle the signal persists.
+      const dedupKey = `${p.conditionId.toLowerCase()}:${(p.outcome || "Yes").toLowerCase()}:${p.side}`;
+      const lastAt = this.proposedRecently.get(dedupKey) ?? 0;
+      if (Date.now() - lastAt < PROPOSAL_COOLDOWN_MS) continue;
+
+      const clobFloor = clobMinNotional(limitPrice);
+      const notional = Math.max(p.notional, clobFloor);
+      const tokenId = await this.resolveTokenId(p.conditionId, p.outcome || "Yes");
+      if (!tokenId) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "SKIP",
+          market: p.market,
+          conditionId: p.conditionId,
+          side: p.side,
+          reason: `TOKEN_ID_NOT_FOUND · proposal by ${this.strat.name}`,
+        });
+        continue;
+      }
+      const size = Math.max(
+        POLYMARKET_MIN_SHARES,
+        Math.ceil(notional / Math.max(limitPrice, 1e-9)),
+      );
+
+      try {
+        const signer = await this.getSigner();
+        const negRisk = await this.resolveNegRisk(p.conditionId);
+        const proxy = (await this.resolveTradingWallet()) ?? this.config.address;
+        const maker = this.sigType === 0 ? this.config.address : proxy;
+        const result = await placeOrder(
+          this.config.creds,
+          signer,
+          maker,
+          {
+            tokenID: tokenId,
+            price: limitPrice,
+            size: Math.round(size * 100) / 100,
+            side: p.side,
+            type: "GTC",
+            feeRateBps: TAKER_FEE_BPS,
+          },
+          negRisk,
+          this.sigType,
+        );
+
+        this.proposedRecently.set(dedupKey, Date.now());
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: result.success ? (p.side === "BUY" ? "COPY_BUY" : "COPY_SELL") : "ERROR",
+          market: p.market,
+          conditionId: p.conditionId,
+          tokenId,
+          side: p.side,
+          mirrorSize: Math.round(size * 100) / 100,
+          mirrorNotional: Math.round(notional * 100) / 100,
+          price: limitPrice,
+          orderResult: result,
+          reason: result.success
+            ? `PROPOSED by ${this.strat.name}${p.reason ? ` · ${p.reason}` : ""}`
+            : (result.errorMsg ?? "REJECTED"),
+        });
+        if (result.success) {
+          this.setState({
+            totalOrdersPlaced: this.state.totalOrdersPlaced + 1,
+            totalVolumeMirrored: this.state.totalVolumeMirrored + notional,
+          });
+        } else {
+          this.setState({ totalOrdersFailed: this.state.totalOrdersFailed + 1 });
+        }
+        ordersThisCycle++;
+        await delay(ORDER_DELAY_MS);
+      } catch (e) {
+        this.addLog({
+          id: uid(),
+          timestamp: Date.now(),
+          type: "ERROR",
+          market: p.market,
+          conditionId: p.conditionId,
+          side: p.side,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+        this.setState({ totalOrdersFailed: this.state.totalOrdersFailed + 1 });
+      }
+    }
+    return ordersThisCycle;
+  }
+
   private buildStratTrade(
     trade: PolymarketTrade,
     trader: IndexTrader,
@@ -1871,7 +2065,7 @@ export class CopyEngine {
       const rawMirrorNotional = stratTrade.notional * stratTrade.copyRatio;
       return { score: DEFAULT_ROI * rawMirrorNotional, sharpe: 0, stats: null };
     }
-    const score = this.strat.scoreCandidate(stratTrade, stats);
+    const score = this.strat.scoreCandidate(stratTrade, stats, this.lastHistory);
     return { score, sharpe: stats?.sharpe ?? 0, stats };
   }
 

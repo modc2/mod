@@ -1,6 +1,11 @@
 # Strats
 
-Polymarket strategies as Python classes — like ERC-20 standardizes tokens, the `Strat` interface in `base.py` standardizes copy-trading logic so the live engine and backtest engine can drive any strategy through the same methods.
+Polymarket strategies as classes — like ERC-20 standardizes tokens, the `Strat` interface standardizes trading logic so the live engine and backtest engine can drive any strategy through the same methods, parameterized by the class.
+
+Two authoring surfaces, same idea (history in, trade intents out):
+
+- **TypeScript** — `src/app/app/lib/strats/base.ts`: `abstract class Strat<P>` with five hooks (`maxPerCycle` / `shouldMirror` / `scoreCandidate` / `sizeAndPrice` / `propose`), every hook receiving the full `StratHistory` (watchlist trade history, per-trader stats, open positions, balance). This is what the browser live engine and the BACKTEST tab execute. `copytrader.ts` is the mirror reference; `flowmomentum.ts` is the history-driven `propose()` reference. Register classes in `registry.ts`.
+- **Python** — `base/mod.py` (this directory): `sync → signal → execute`, documented below.
 
 ## The canonical interface
 

@@ -971,6 +971,61 @@ export async function fetchPositions(
   return result;
 }
 
+// ── Closed (fully exited) positions with realized P&L ───────────
+//
+// data-api /closed-positions — one row per position the wallet has fully
+// exited (sold and/or redeemed), with the realized P&L already computed
+// upstream. This is what lets the UI show past trades' outcomes without
+// reconstructing FIFO from the whole activity feed.
+export interface ClosedPosition {
+  conditionId: string;
+  tokenId: string;      // CTF outcome token id (data-api `asset`)
+  market: string;
+  outcome: string;
+  totalBought: number;  // shares accumulated over the position's life
+  avgPrice: number;     // average entry
+  curPrice: number;     // settlement/current price (1 = resolved winner, 0 = loser)
+  realizedPnl: number;  // USDC realized over the position's life
+  timestamp: number;    // ms — when the position closed
+}
+
+export async function fetchClosedPositions(
+  address: string,
+  maxRows = 1000,
+): Promise<ClosedPosition[]> {
+  // The data-api silently caps limit at 50 — page until a short page.
+  const PAGE = 50;
+  const out: ClosedPosition[] = [];
+  const safe = (n: unknown, fallback = 0): number => {
+    const v = Number(n);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  for (let offset = 0; offset < maxRows; offset += PAGE) {
+    const raw = await polyApi("closed-positions", {
+      user: address,
+      limit: String(PAGE),
+      offset: String(offset),
+    }) as unknown;
+    if (!Array.isArray(raw) || raw.length === 0) break;
+    for (const p of raw as Record<string, unknown>[]) {
+      const ts = safe(p.timestamp);
+      out.push({
+        conditionId: String(p.conditionId || ""),
+        tokenId: String(p.asset || ""),
+        market: String(p.title || p.slug || ""),
+        outcome: String(p.outcome || ""),
+        totalBought: safe(p.totalBought),
+        avgPrice: safe(p.avgPrice),
+        curPrice: safe(p.curPrice),
+        realizedPnl: safe(p.realizedPnl),
+        timestamp: ts > 1e12 ? ts : ts * 1000,
+      });
+    }
+    if (raw.length < PAGE) break;
+  }
+  return out.filter((p) => p.conditionId);
+}
+
 // ── Trader Sharpe / EV stats (powers copy-engine top-N sampling) ────
 //
 // For each candidate copy trade we score:

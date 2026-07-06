@@ -8,9 +8,8 @@ import WalletChip from "./WalletChip";
 // URLs accept. Matching here lets the search box double as a "jump to trader"
 // teleport: type any 0x address + Enter and we route to the profile page.
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
-// Top bar intentionally minimal — primary nav moved to the global LeftNav
-// rail; the wallet chip's dot conveys CLOB / trading readiness, and
-// ProfileMenu (the right-side panel toggle) holds split-screen + token gen.
+// Top bar intentionally minimal — primary nav lives in the global LeftNav
+// rail; the wallet chip's dot conveys CLOB / trading readiness.
 
 interface TopBarProps {
   showSearch?: boolean;
@@ -31,13 +30,16 @@ export default function TopBar({
       className="sticky top-0 z-40 backdrop-blur-md bg-[rgb(var(--pixel-black-rgb)/0.75)]"
       style={{ borderBottom: "1px solid var(--border)" }}
     >
-      <div className="px-4 h-12 flex items-center gap-3">
+      {/* Balanced 3-column grid so the search box sits dead-center in the
+          viewport regardless of the wallet chip's width. */}
+      <div className="px-4 h-12 grid grid-cols-[1fr_minmax(0,620px)_1fr] items-center gap-3">
+        <div />
         {/* The header is just the query — the search box (also a "jump to
-            trader" teleport: paste any 0x address + Enter) fills the bar, and
+            trader" teleport: paste any 0x address + Enter) sits centered, and
             sign-in (the wallet chip) sits in the top-right corner. */}
         {showSearch ? (
-          <div className="flex-1 min-w-0">
-            <div className="relative w-full max-w-[620px]">
+          <div className="min-w-0">
+            <div className="relative w-full">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-pixel-gray pointer-events-none">/</span>
               <input
                 type="text"
@@ -79,10 +81,10 @@ export default function TopBar({
             </div>
           </div>
         ) : (
-          <div className="flex-1" />
+          <div />
         )}
         {/* ── Sign in — top-right corner ── */}
-        <div className="shrink-0">
+        <div className="justify-self-end">
           <WalletChip />
         </div>
       </div>

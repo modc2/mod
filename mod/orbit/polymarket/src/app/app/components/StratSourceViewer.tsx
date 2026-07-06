@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import baseSrc from "../lib/strats/base.ts?raw";
 import copytraderSrc from "../lib/strats/copytrader.ts?raw";
+import flowmomentumSrc from "../lib/strats/flowmomentum.ts?raw";
 import registrySrc from "../lib/strats/registry.ts?raw";
 
 type StratKind = "py" | "rs" | "ts";
@@ -36,9 +37,10 @@ interface ViewerStrat {
 const asSource = (v: unknown): string => (typeof v === "string" ? v : "");
 
 const BUILTIN: ViewerStrat[] = [
-  { id: "copytrader", kind: "ts", source: asSource(copytraderSrc), editable: false, label: "copytrader — reference impl" },
-  { id: "base",       kind: "ts", source: asSource(baseSrc),       editable: false, label: "base — Strat interface" },
-  { id: "registry",   kind: "ts", source: asSource(registrySrc),   editable: false, label: "registry — active binding" },
+  { id: "copytrader",   kind: "ts", source: asSource(copytraderSrc),   editable: false, label: "copytrader — mirror strat" },
+  { id: "flowmomentum", kind: "ts", source: asSource(flowmomentumSrc), editable: false, label: "flowmomentum — history strat" },
+  { id: "base",         kind: "ts", source: asSource(baseSrc),         editable: false, label: "base — Strat class" },
+  { id: "registry",     kind: "ts", source: asSource(registrySrc),     editable: false, label: "registry — class binding" },
 ];
 
 const keyOf = (s: { id: string; kind: StratKind }) => `${s.id}.${s.kind}`;

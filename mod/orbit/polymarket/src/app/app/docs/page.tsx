@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+// ── Reference data ───────────────────────────────────────────────
+
 interface Endpoint {
   method: "GET" | "POST";
   path: string;
@@ -10,6 +12,106 @@ interface Endpoint {
   body?: { name: string; type: string; desc: string }[];
   example?: string;
 }
+
+// The five hooks of the Strat class — src/app/app/lib/strats/base.ts.
+const STRAT_HOOKS = [
+  {
+    hook: "maxPerCycle()",
+    returns: "number",
+    desc: "Per-cycle BUY budget. Top-N sampling keeps only this many BUYs by score (SELLs always execute). The single most important fee-control knob.",
+    def: "params.maxPerCycle ?? 3",
+  },
+  {
+    hook: "shouldMirror(trade, history)",
+    returns: "boolean",
+    desc: "Pre-filter observed upstream trades before scoring/sizing. False = skip entirely.",
+    def: "marketQuery + tradeFilters gates from params",
+  },
+  {
+    hook: "scoreCandidate(trade, stats, history)",
+    returns: "number ($ edge)",
+    desc: "Rank BUY candidates by expected dollars of edge. The engine copies the top maxPerCycle; the same number drives EP-based capital rotation. ≤ 0 never executes.",
+    def: "trader ROI × mirror$ (roi × notional × copyRatio)",
+  },
+  {
+    hook: "sizeAndPrice(trade, constraints, history)",
+    returns: "{ mirrorNotional, limitPrice, reason? }",
+    desc: "Final USD size + limit price for a candidate that already won the rank race. mirrorNotional 0 = skip with reason.",
+    def: "proportional mirror clamped to user floor/ceiling + CLOB per-price min",
+  },
+  {
+    hook: "propose(history, constraints)",
+    returns: "ProposedTrade[]",
+    desc: "ORIGINATE trades from history alone — no upstream trade required. Runs once per cycle after the mirror pass with the complete watchlist history. This is how momentum / mean-reversion / market-making strats plug into the same engine.",
+    def: "[] (pure copy strat)",
+  },
+];
+
+// StratHistory — what every hook receives. src/app/app/lib/strats/base.ts.
+const HISTORY_FIELDS = [
+  { name: "trades", type: "TraderTrade[]", desc: "Observed upstream trades across ALL watched traders inside the lookback window (backtestDays), newest-first. Each carries trader address, watchlist weight, proportional copyRatio, and $ notional." },
+  { name: "traderStats", type: "Record<address, TraderRoiStats>", desc: "Per-trader window ROI / stdev / Sharpe / sample size — same stats that drive scoring." },
+  { name: "positions", type: "PolymarketPosition[]", desc: "Open positions in the trading wallet. Fetched per-cycle only for strats that override propose; empty otherwise (and in backtests)." },
+  { name: "balance", type: "number | null", desc: "Usable USDC in the trading wallet. null = not read yet (backtests)." },
+  { name: "capital", type: "number", desc: "The strat's allocated capital in USD." },
+  { name: "watchlist", type: "IndexTrader[]", desc: "Enabled traders with their weights." },
+  { name: "cycle / now", type: "number", desc: "Engine cycle counter (0 in backtest) and the history's assembly clock (ms epoch)." },
+];
+
+const PROPOSED_FIELDS = [
+  { name: "conditionId", type: "string", desc: "Market condition id — the engine resolves outcome → CLOB token id." },
+  { name: "outcome", type: "\"Yes\" | \"No\"", desc: "Defaults to Yes." },
+  { name: "market", type: "string", desc: "Market title, for the execution log." },
+  { name: "side", type: "\"BUY\" | \"SELL\"", desc: "Direction." },
+  { name: "notional", type: "number", desc: "Order size in USD. Engine clamps up to the CLOB per-price floor (max($1, 5 × price))." },
+  { name: "limitPrice", type: "number", desc: "0–1; engine tick-rounds to the 1¢ grid." },
+  { name: "reason", type: "string?", desc: "Shown verbatim in the execution log next to the order." },
+];
+
+const BUILTIN_STRATS = [
+  {
+    name: "copytrader",
+    kind: "mirror",
+    desc: "The reference subclass. Mirrors watched traders' fills proportionally, ranked by ROI-weighted expected profit. Overrides ONE hook (adjustPrice: slippage-widened limit pricing) — everything else is inherited base behavior.",
+    params: "maxPerCycle · marketQuery · tradeFilters · slippageBps · minSampleSize",
+  },
+  {
+    name: "flowmomentum",
+    kind: "history-driven",
+    desc: "The reference propose() strat. Never mirrors per-trade — aggregates window flow across the watchlist and originates entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
+    params: "lookbackMinutes · minTraders · minFlowUsd · maxPositions · marketQuery",
+  },
+];
+
+const CUSTOM_STRAT_EXAMPLE = `// my_strat.ts — drop next to base.ts, register in registry.ts
+import { Strat, StratParams, StratHistory, ProposedTrade,
+         SizeConstraints, tickRoundPrice } from "./base";
+
+export interface MyOpts extends StratParams {
+  minEdge?: number;          // your tunables are ordinary class params
+}
+
+export class MyStrat extends Strat<MyOpts> {
+  readonly name = "my_strat";
+
+  // Take ANY history of the data and propose trades…
+  propose(h: StratHistory, c: SizeConstraints): ProposedTrade[] {
+    const out: ProposedTrade[] = [];
+    // …aggregate h.trades / h.traderStats / h.positions however you like…
+    return out;
+  }
+
+  // …or re-score the mirror candidates against that history.
+  scoreCandidate(trade, stats, h: StratHistory): number {
+    const flowInMarket = h.trades
+      .filter((t) => t.conditionId === trade.conditionId && t.side === "BUY")
+      .reduce((s, t) => s + t.notional, 0);
+    const base = stats ? stats.roi * trade.notional * trade.copyRatio : 0;
+    return base * (1 + Math.log1p(flowInMarket) / 10);
+  }
+}
+
+// registry.ts:  my_strat: MyStrat as StratClass,`;
 
 const ENDPOINTS: Endpoint[] = [
   {
@@ -165,6 +267,8 @@ const CLI_COMMANDS = [
   { cmd: "m polymarket/status", desc: "Check service status" },
 ];
 
+// ── Small building blocks ────────────────────────────────────────
+
 function MethodBadge({ method }: { method: "GET" | "POST" }) {
   return (
     <span
@@ -178,6 +282,48 @@ function MethodBadge({ method }: { method: "GET" | "POST" }) {
     </span>
   );
 }
+
+function SectionTitle({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <div id={id} className="flex items-center gap-2 px-1 scroll-mt-16">
+      <span className="text-[12px] text-pixel-white tracking-widest">{children}</span>
+    </div>
+  );
+}
+
+function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: string }[]; cols: [string, string, string] }) {
+  return (
+    <table className="pixel-table">
+      <thead>
+        <tr>
+          <th>{cols[0]}</th>
+          <th>{cols[1]}</th>
+          <th>{cols[2]}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            <td className="text-pixel-white font-mono whitespace-nowrap">{r.name}</td>
+            <td className="text-pixel-gray font-mono">{r.type}</td>
+            <td className="text-pixel-gray-light">{r.desc}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────
+
+const NAV = [
+  ["#strategy", "STRATEGY CLASS"],
+  ["#engine", "LIVE ENGINE"],
+  ["#api", "API"],
+  ["#cli", "CLI"],
+  ["#types", "TYPES"],
+  ["#auth", "AUTH"],
+] as const;
 
 export default function DocsPage() {
   return (
@@ -194,60 +340,163 @@ export default function DocsPage() {
             </Link>
             <div className="flex flex-col">
               <span className="text-pixel-white text-[13px] tracking-wider leading-tight">
-                API Documentation
+                Documentation
               </span>
               <span className="text-pixel-gray text-[10px] tracking-widest leading-tight">
-                POLYMARKET
+                POLYMARKET · STRAT ENGINE
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-pixel-gray">
-            <div className="w-1.5 h-1.5 bg-pixel-white animate-pulse" />
-            <span className="text-pixel-white">v1.0</span>
-            <span className="text-pixel-border">|</span>
-            <span>POLYGON CLOB</span>
-          </div>
+          <nav className="hidden md:flex items-center gap-3 text-[10px] tracking-wider">
+            {NAV.map(([href, label]) => (
+              <a key={href} href={href} className="text-pixel-gray hover:text-green-400 transition-colors">
+                {label}
+              </a>
+            ))}
+          </nav>
         </div>
       </header>
 
       <div className="p-4 space-y-6">
-        {/* Overview */}
+        {/* ── Overview ── */}
         <div className="pixel-panel p-4 space-y-3">
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>
           <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
             <p>
-              The Polymarket API proxy provides read access to the Gamma API (market data, events,
-              search) and the Data API (positions, trades, leaderboards), plus authenticated
-              write access to the CLOB API (order placement, cancellation).
+              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is a class</span>:
+              the engine is parameterized by it, constructs it with its params, and drives it through five hooks. Every hook
+              receives the full observed history of the data — trades across the watchlist, per-trader stats, open positions,
+              balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
+              <span className="text-pixel-white">propose</span> its own from any aggregation of that history.
             </p>
             <p>
-              All endpoints are proxied through Next.js API routes to avoid CORS issues.
-              The app uses two proxy routes:
+              The same class runs everywhere: the BACKTEST preview, the top-N sampling shown in the feed, and the LIVE
+              engine all construct the identical class from the registry, so what you backtest is what trades.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-1">/api/polymarket</div>
-              <div className="text-[7px] text-pixel-gray leading-relaxed">
-                Proxies to Gamma API (gamma-api.polymarket.com) for market data, search, events.
-                Also proxies to Data API (data-api.polymarket.com) for positions, trades, leaderboards.
-              </div>
+        </div>
+
+        {/* ── Strategy class ── */}
+        <div className="space-y-4">
+          <SectionTitle id="strategy">STRATEGY CLASS</SectionTitle>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                <code className="text-pixel-white">abstract class Strat&lt;P extends StratParams&gt;</code> —{" "}
+                <span className="font-mono">src/app/app/lib/strats/base.ts</span>. The generic parameter{" "}
+                <code className="text-pixel-white">P</code> declares the class&apos;s tunables; the registry constructs the class with
+                them and <code className="text-pixel-white">this.params</code> carries them at runtime. All five hooks have working
+                defaults — a custom strategy overrides only what it changes.
+              </p>
             </div>
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-1">/api/clob</div>
-              <div className="text-[7px] text-pixel-gray leading-relaxed">
-                Proxies to CLOB API (clob.polymarket.com) for order book data, price queries,
-                and authenticated trading operations (order placement, cancellation).
-              </div>
+            <FieldTable
+              cols={["HOOK", "RETURNS", "WHAT IT DECIDES"]}
+              rows={STRAT_HOOKS.map((h) => ({ name: h.hook, type: h.returns, desc: `${h.desc} Default: ${h.def}.` }))}
+            />
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-white">StratHistory — what every hook receives</div>
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+              The &quot;any history of the data&quot; contract. Aggregate flow, detect momentum, compare against your own book —
+              whatever the logic needs. Complete for the whole watchlist by sizing and propose time.
+            </div>
+            <FieldTable cols={["FIELD", "TYPE", "DESCRIPTION"]} rows={HISTORY_FIELDS} />
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-white">ProposedTrade — originating trades from history</div>
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+              Returned from <code className="text-pixel-white">propose(history, constraints)</code>. The engine resolves the
+              token id, tick-rounds the price, clamps to the CLOB floor, caps to maxPerCycle, submits through the same order
+              path mirrors use, and applies a 30-minute per-market cooldown so an unfilled GTC entry isn&apos;t re-stacked
+              every cycle.
+            </div>
+            <FieldTable cols={["FIELD", "TYPE", "DESCRIPTION"]} rows={PROPOSED_FIELDS} />
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-white">Built-in classes</div>
+            <table className="pixel-table">
+              <thead>
+                <tr>
+                  <th>CLASS</th>
+                  <th>KIND</th>
+                  <th>BEHAVIOR</th>
+                  <th>PARAMS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BUILTIN_STRATS.map((s, i) => (
+                  <tr key={i}>
+                    <td className="text-pixel-white font-mono whitespace-nowrap">{s.name}</td>
+                    <td className="text-pixel-gray whitespace-nowrap">{s.kind}</td>
+                    <td className="text-pixel-gray-light">{s.desc}</td>
+                    <td className="text-pixel-gray font-mono">{s.params}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-[10px] text-pixel-gray leading-relaxed">
+              Sources are readable in-app: STRAT → SOURCE tab. Uploaded mod.py / mod.rs strats are editable there and
+              shareable by CID from the HUB tab.
+            </div>
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-white">Write your own</div>
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+              1 — extend <code className="text-pixel-white">Strat&lt;YourOpts&gt;</code> and override any subset of the hooks. 2 —
+              add the class to <span className="font-mono">registry.ts</span>. 3 — done: backtest, top-N sampling, and the
+              live engine all pick it up. Python authors: the same shape exists at{" "}
+              <span className="font-mono">src/strats/base/mod.py</span> (sync → signal → execute).
+            </div>
+            <pre className="text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-3 border border-pixel-border overflow-x-auto leading-[1.5]">
+              {CUSTOM_STRAT_EXAMPLE}
+            </pre>
+          </div>
+        </div>
+
+        {/* ── Live engine ── */}
+        <div className="space-y-4">
+          <SectionTitle id="engine">LIVE ENGINE</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                The engine (<span className="font-mono">copyEngine.ts</span>) owns everything that is NOT strategy: the cycle
+                loop, balance gate + EP-driven capital rotation, deposit-wallet resolution, CLOB submission, retries, logging,
+                and ROI stats refresh. Each cycle:
+              </p>
+            </div>
+            <table className="pixel-table">
+              <tbody>
+                <tr><td className="text-pixel-white font-mono whitespace-nowrap">0 · history</td><td className="text-pixel-gray-light">Assemble StratHistory: balance, stats, watchlist, positions (when the strat proposes).</td></tr>
+                <tr><td className="text-pixel-white font-mono whitespace-nowrap">1 · collect</td><td className="text-pixel-gray-light">Poll each watched trader, feed their lookback window into the history, pre-filter with shouldMirror.</td></tr>
+                <tr><td className="text-pixel-white font-mono whitespace-nowrap">2 · rank</td><td className="text-pixel-gray-light">Score every BUY candidate (scoreCandidate), keep the top maxPerCycle with positive expected profit. Every loser is logged with why.</td></tr>
+                <tr><td className="text-pixel-white font-mono whitespace-nowrap">3 · execute</td><td className="text-pixel-gray-light">SELLs first (free capital), then winning BUYs — sizeAndPrice decides final notional + limit; the engine places and logs.</td></tr>
+                <tr><td className="text-pixel-white font-mono whitespace-nowrap">4 · propose</td><td className="text-pixel-gray-light">History-driven strats originate trades (propose) — same submission path, per-market cooldown.</td></tr>
+              </tbody>
+            </table>
+            <div className="text-[10px] text-pixel-gray leading-relaxed">
+              Execution is DRY RUN until enabled — toggle live execution in the LIVE tab. Resolved positions can&apos;t be
+              sold (no order book): cash out via REDEEM.
             </div>
           </div>
         </div>
 
-        {/* Endpoints */}
+        {/* ── API endpoints ── */}
         <div className="space-y-4">
-          <div className="flex items-center gap-2 px-1">
-            <span className="text-[12px] text-pixel-white tracking-widest">ENDPOINTS</span>
-            <span className="text-[11px] text-pixel-gray">{ENDPOINTS.length} TOTAL</span>
+          <SectionTitle id="api">
+            API <span className="text-[11px] text-pixel-gray ml-2">{ENDPOINTS.length} ENDPOINTS</span>
+          </SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+              Read access to the Gamma API (market data, events, search) and Data API (positions, trades, leaderboards),
+              plus authenticated write access to the CLOB API (orders) — all proxied to avoid CORS:{" "}
+              <span className="font-mono text-pixel-white">/api/polymarket</span> (Gamma + Data),{" "}
+              <span className="font-mono text-pixel-white">/api/clob</span> (order book, prices, trading).
+            </div>
           </div>
 
           {ENDPOINTS.map((ep, i) => (
@@ -331,104 +580,110 @@ export default function DocsPage() {
           ))}
         </div>
 
-        {/* CLI Commands */}
-        <div className="pixel-panel p-4 space-y-3">
-          <div className="text-[12px] text-pixel-white tracking-wider">CLI COMMANDS</div>
-          <div className="text-[11px] text-pixel-gray-light leading-relaxed mb-2">
-            All functions are accessible via the mod CLI. Requires the polymarket module.
-          </div>
-          <table className="pixel-table">
-            <thead>
-              <tr>
-                <th>COMMAND</th>
-                <th>DESCRIPTION</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CLI_COMMANDS.map((c, i) => (
-                <tr key={i}>
-                  <td className="text-pixel-white font-mono whitespace-nowrap">{c.cmd}</td>
-                  <td className="text-pixel-gray-light">{c.desc}</td>
+        {/* ── CLI ── */}
+        <div className="space-y-4">
+          <SectionTitle id="cli">CLI</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed mb-2">
+              All functions are accessible via the mod CLI. Requires the polymarket module.
+            </div>
+            <table className="pixel-table">
+              <thead>
+                <tr>
+                  <th>COMMAND</th>
+                  <th>DESCRIPTION</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {CLI_COMMANDS.map((c, i) => (
+                  <tr key={i}>
+                    <td className="text-pixel-white font-mono whitespace-nowrap">{c.cmd}</td>
+                    <td className="text-pixel-gray-light">{c.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Data Types */}
-        <div className="pixel-panel p-4 space-y-3">
-          <div className="text-[12px] text-pixel-white tracking-wider">DATA TYPES</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-2">PolymarketMarket</div>
-              <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
-                <div>id: string</div>
-                <div>conditionId: string</div>
-                <div>question: string</div>
-                <div>category: string</div>
-                <div>endDate: string (ISO)</div>
-                <div>volume: number</div>
-                <div>liquidity: number</div>
-                <div>outcomePrices: number[]</div>
-                <div>outcomes: string[]</div>
-                <div>active: boolean</div>
+        {/* ── Data types ── */}
+        <div className="space-y-4">
+          <SectionTitle id="types">DATA TYPES</SectionTitle>
+          <div className="pixel-panel p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="pixel-panel p-3">
+                <div className="text-[11px] text-pixel-white mb-2">TraderTrade <span className="text-pixel-gray">(strat hook input)</span></div>
+                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                  <div>…PolymarketTrade fields, plus:</div>
+                  <div>trader: string (watched address)</div>
+                  <div>weight: number (watchlist weight)</div>
+                  <div>weightFraction: number</div>
+                  <div>copyRatio: number (proportional sizing)</div>
+                  <div>notional: number (price × size, USD)</div>
+                </div>
               </div>
-            </div>
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-2">PolymarketPosition</div>
-              <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
-                <div>conditionId: string</div>
-                <div>market: string</div>
-                <div>outcome: string</div>
-                <div>size: number</div>
-                <div>avgPrice: number</div>
-                <div>currentPrice: number</div>
-                <div>value: number</div>
-                <div>pnlUsd: number</div>
+              <div className="pixel-panel p-3">
+                <div className="text-[11px] text-pixel-white mb-2">TraderRoiStats</div>
+                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                  <div>address: string</div>
+                  <div>windowDays: number</div>
+                  <div>roi: number (0.12 = +12%)</div>
+                  <div>stdev: number</div>
+                  <div>sampleSize: number</div>
+                  <div>sharpe: number</div>
+                  <div>cashDeployed: number</div>
+                </div>
               </div>
-            </div>
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-2">PolymarketTrade</div>
-              <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
-                <div>id: string</div>
-                <div>market: string</div>
-                <div>conditionId: string</div>
-                <div>side: BUY | SELL</div>
-                <div>price: number</div>
-                <div>size: number</div>
-                <div>pnl: number</div>
-                <div>timestamp: number</div>
+              <div className="pixel-panel p-3">
+                <div className="text-[11px] text-pixel-white mb-2">PolymarketTrade</div>
+                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                  <div>id: string</div>
+                  <div>market: string</div>
+                  <div>conditionId: string</div>
+                  <div>side: BUY | SELL</div>
+                  <div>price: number</div>
+                  <div>size: number</div>
+                  <div>pnl: number</div>
+                  <div>timestamp: number</div>
+                  <div>outcome?: string</div>
+                </div>
               </div>
-            </div>
-            <div className="pixel-panel p-3">
-              <div className="text-[11px] text-pixel-white mb-2">AuthState</div>
-              <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
-                <div>connected: boolean</div>
-                <div>address: string | null</div>
-                <div>chainId: number | null</div>
-                <div>authenticated: boolean</div>
-                <div>clobCreds: ClobCredentials | null</div>
+              <div className="pixel-panel p-3">
+                <div className="text-[11px] text-pixel-white mb-2">PolymarketPosition</div>
+                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                  <div>conditionId: string</div>
+                  <div>tokenId: string</div>
+                  <div>market: string</div>
+                  <div>outcome: string</div>
+                  <div>size / avgPrice / currentPrice</div>
+                  <div>value: number</div>
+                  <div>pnlUsd: number</div>
+                  <div>negRisk: boolean</div>
+                  <div>redeemable: boolean</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Auth */}
-        <div className="pixel-panel p-4 space-y-3">
-          <div className="text-[12px] text-pixel-white tracking-wider">AUTHENTICATION</div>
-          <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
-            <p>
-              Read endpoints (markets, search, events, leaderboard) require no authentication.
-            </p>
-            <p>
-              Trading endpoints (order, market-order, cancel) require CLOB API credentials
-              derived by signing an EIP-712 message with your wallet. The app handles this
-              automatically via the wallet connect flow.
-            </p>
-            <p>
-              For CLOB POST requests, include these headers: POLY_API_KEY, POLY_PASSPHRASE,
-              POLY_TIMESTAMP, POLY_SIGNATURE.
-            </p>
+        {/* ── Auth ── */}
+        <div className="space-y-4">
+          <SectionTitle id="auth">AUTHENTICATION</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                Read endpoints (markets, search, events, leaderboard) require no authentication.
+              </p>
+              <p>
+                Trading endpoints (order, market-order, cancel) require CLOB API credentials
+                derived by signing an EIP-712 message with your wallet. The app handles this
+                automatically via the wallet connect flow.
+              </p>
+              <p>
+                For CLOB POST requests, include these headers: POLY_API_KEY, POLY_PASSPHRASE,
+                POLY_TIMESTAMP, POLY_SIGNATURE.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -441,7 +696,7 @@ export default function DocsPage() {
               Polymarket
             </Link>
             <span className="text-pixel-border">|</span>
-            <span>API Docs</span>
+            <span>Strat Engine Docs</span>
           </div>
           <span>Powered by mod</span>
         </div>

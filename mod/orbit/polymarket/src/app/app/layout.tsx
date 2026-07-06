@@ -3,11 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "./context/AuthContext";
 import { CopyEngineProvider } from "./context/CopyEngineContext";
 import { FiltersProvider } from "./context/FiltersContext";
-import { SidebarProvider } from "./context/SidebarContext";
-import { SplitProvider } from "./context/SplitContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
-import SplitShell from "./components/SplitShell";
-import SidebarShell from "./components/SidebarShell";
 import LeftNav from "./components/LeftNav";
 import MarketTicker from "./components/MarketTicker";
 import BuildBadge from "./components/BuildBadge";
@@ -37,34 +33,28 @@ export default function RootLayout({
           <AuthProvider>
             <CopyEngineProvider>
             <FiltersProvider>
-              <SidebarProvider>
-                <SplitProvider>
-                  {/* Auto-restart the copy engine if the user reloaded the
-                      page while a live session was running. Reads the
-                      poly_live_session localStorage record + AuthContext's
-                      rehydrated CLOB creds; no-op if either is missing.
-                      Explicit STOP clears the record, so accidental reloads
-                      auto-resume but deliberate stops stay stopped. */}
-                  <LiveAutoResume />
-                  <div className="crt-overlay" />
-                  <div className="crt-screen min-h-screen">
-                    <MarketTicker />
-                    {/* Global expandable left nav + page content. The rail is a
-                        flex sibling so content reflows when it expands. */}
-                    <div className="flex items-stretch">
-                      <LeftNav />
-                      <div className="flex-1 min-w-0">
-                        <SidebarShell>
-                          <SplitShell>
-                            <main>{children}</main>
-                          </SplitShell>
-                        </SidebarShell>
-                      </div>
-                    </div>
-                    <BuildBadge />
+              {/* Auto-restart the copy engine if the user reloaded the
+                  page while a live session was running. Reads the
+                  poly_live_session localStorage record + AuthContext's
+                  rehydrated CLOB creds; no-op if either is missing.
+                  Explicit STOP clears the record, so accidental reloads
+                  auto-resume but deliberate stops stay stopped. */}
+              <LiveAutoResume />
+              <div className="crt-overlay" />
+              <div className="crt-screen min-h-screen">
+                <MarketTicker />
+                {/* Global expandable left nav + page content. The rail is a
+                    flex sibling so content reflows when it expands. Account
+                    and wallet chrome live inside the STRAT page — there is
+                    no global right sidebar. */}
+                <div className="flex items-stretch">
+                  <LeftNav />
+                  <div className="flex-1 min-w-0">
+                    <main>{children}</main>
                   </div>
-                </SplitProvider>
-              </SidebarProvider>
+                </div>
+                <BuildBadge />
+              </div>
             </FiltersProvider>
             </CopyEngineProvider>
           </AuthProvider>

@@ -45,15 +45,19 @@ interface Snapshot {
   pos: number;     // sum of position market values
 }
 
-const HISTORY_KEY = "poly_portfolio_history_v1";
+// History is keyed PER ACCOUNT. One shared key meant signing in with a
+// different wallet inherited the previous account's curve, then appended
+// this account's (possibly $0) snapshots — rendering as a fake collapse
+// to zero. v1 (unkeyed) entries are ignored; the curve restarts per EOA.
+const historyKey = (eoa: string) => `poly_portfolio_history_v2:${eoa.toLowerCase()}`;
 // ~12h at 15s cadence. Faster cadence = livelier cash + position numbers
 // so a fill or withdrawal shows up within seconds instead of half a minute.
 const PORTFOLIO_HISTORY_CAP = 3000;
 const POLL_MS = 30_000;
 
-function loadHistory(): Snapshot[] {
+function loadHistory(eoa: string): Snapshot[] {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(historyKey(eoa));
     if (!raw) return [];
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr.filter((s) => typeof s?.t === "number") : [];
@@ -62,9 +66,9 @@ function loadHistory(): Snapshot[] {
   }
 }
 
-function saveHistory(history: Snapshot[]): void {
+function saveHistory(eoa: string, history: Snapshot[]): void {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    localStorage.setItem(historyKey(eoa), JSON.stringify(history));
   } catch {}
 }
 
@@ -248,7 +252,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [liq, setLiq] = useState(0);
   const [posValue, setPosValue] = useState(0);
   const [positions, setPositions] = useState<PositionLite[]>([]);
-  const [history, setHistory] = useState<Snapshot[]>(() => loadHistory());
+  const [history, setHistory] = useState<Snapshot[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [selling, setSelling] = useState(false);
   const [sellStatus, setSellStatus] = useState<string | null>(null);
@@ -257,9 +261,16 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
 
   const eoa = auth.address;
 
+  // (Re)load the persisted curve whenever the signed-in account changes so
+  // one account's history never bleeds into another's chart.
+  useEffect(() => {
+    setHistory(eoa ? loadHistory(eoa) : []);
+  }, [eoa]);
+
   const refresh = useCallback(async () => {
     if (!eoa) return;
     let nextLiq = 0;
+    let liqOk = false; // wallet-info call actually succeeded
     let nextPosVal = 0;
     let nextPositions: PositionLite[] = [];
 
@@ -274,6 +285,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         const j = (await r.json()) as DepositWalletInfo;
         wallet = j.depositWallet;
         nextLiq = Number(j.usdcBalance) / 1_000_000;
+        liqOk = true;
       }
     } catch (e) {
       setLastError(`liquidity: ${e instanceof Error ? e.message : String(e)}`);
@@ -333,13 +345,14 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     } else if (valueTotal != null) {
       nextPosVal = valueTotal;
       posValueOk = true;
-    } else if (listOk) {
-      nextPosVal = 0; // empty list and no /value reading → truly flat
-      posValueOk = true;
     }
+    // NOTE: empty list + no /value reading is AMBIGUOUS (both endpoints get
+    // throttled together) — treating it as "truly flat" used to punch a false
+    // $0 into the curve. Now we simply keep the previous reading.
 
-    // Cash is a reliable on-chain RPC read, so always update it.
-    setLiq(nextLiq);
+    // Cash — only trust it when the wallet-info call actually succeeded;
+    // a failed fetch is not a $0 balance.
+    if (liqOk) setLiq(nextLiq);
     if (posValueOk) setPosValue(nextPosVal);
     // Only replace the breakdown list when it has rows, or when /value confirms
     // a genuine zero — so a stale-empty list never wipes a populated breakdown.
@@ -347,11 +360,11 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       setPositions(nextPositions);
     }
 
-    // 3) Snapshot for the time-series view — only on a real positions total, so
-    // a rate-limited tick can't punch a false $0 dip into the P&L curve.
+    // 3) Snapshot for the time-series view — only when BOTH readings are real,
+    // so a rate-limited tick can't punch a false $0 dip into the P&L curve.
     // De-dupe back-to-back identical snapshots (a paused engine shouldn't
     // pollute the curve with thousands of flatlined points).
-    if (posValueOk) {
+    if (liqOk && posValueOk) {
       const snap: Snapshot = { t: Date.now(), liq: nextLiq, pos: nextPosVal };
       setHistory((prev) => {
         const last = prev[prev.length - 1];
@@ -359,7 +372,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           return prev;
         }
         const next = [...prev, snap].slice(-PORTFOLIO_HISTORY_CAP);
-        saveHistory(next);
+        saveHistory(eoa, next);
         return next;
       });
     }
@@ -612,7 +625,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                       `redeemed ${j.conditions ?? 0} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} skipped` : ""}`,
                     );
                     // Curves redraw from the post-redeem state.
-                    try { localStorage.removeItem(HISTORY_KEY); } catch {}
+                    try { localStorage.removeItem(historyKey(eoa)); } catch {}
                     setHistory([]);
                   } else {
                     setRedeemStatus(null);
@@ -718,7 +731,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                 // post-sell state instead of dragging the old positions
                 // wedge across the time axis.
                 if (ok > 0) {
-                  try { localStorage.removeItem(HISTORY_KEY); } catch {}
+                  try { localStorage.removeItem(historyKey(eoa)); } catch {}
                   setHistory([]);
                 }
                 setTimeout(refresh, 4_000);

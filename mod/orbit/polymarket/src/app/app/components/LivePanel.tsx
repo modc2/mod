@@ -13,6 +13,7 @@ import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
 import ThemeToggle from "./ThemeToggle";
 import PortfolioPanel from "./PortfolioPanel";
+import PositionsHistoryPanel from "./PositionsHistoryPanel";
 
 const ERC20_BAL_ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -501,8 +502,8 @@ export default function LivePanel() {
 
   return (
     <div className="space-y-1">
-      {/* Trading wallet (deposit/withdraw) lives permanently in the account
-          SidebarShell now (#sidebar-wallet-panel) — not duplicated here. */}
+      {/* Trading wallet (deposit/withdraw) lives in the STRAT page's account
+          column (#sidebar-wallet-panel) — not duplicated here. */}
 
       {/* ── Header ── */}
       <div className="pixel-panel border-2 border-pixel-border">
@@ -749,6 +750,10 @@ export default function LivePanel() {
           not just free capital), the performance-over-time curve, and every
           open position's live P&L stay visible on every tab. */}
       {auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
+
+      {/* ── Full position record — every position this account ever held,
+          open AND closed, each with its own (unrealized or realized) P&L. */}
+      {auth.connected && <PositionsHistoryPanel />}
 
       {/* BackendSignerPanel removed — the V1 Safe-co-owner flow that
           panel managed isn't needed for V2 trading. The V2 deposit

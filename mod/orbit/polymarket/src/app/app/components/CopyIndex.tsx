@@ -7,7 +7,7 @@ import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardP
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
 import { getStrat } from "../lib/strats/registry";
-import type { TraderTrade as StratTraderTrade } from "../lib/strats/base";
+import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/base";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams, useFilters } from "../context/FiltersContext";
@@ -1259,6 +1259,40 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return out;
   }, [watchlist, traderTrades, traderData, marketQuery]);
 
+  // ── Backtest StratHistory — same shape the live engine hands hooks ──
+  // Every strat hook takes the full observed history, so history-aware
+  // strats score identically in backtest and live. Positions/balance are
+  // unknowable in a backtest preview — empty/null by contract.
+  const backtestHistory = useMemo((): StratHistory => {
+    const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
+    const windowCutoffMs = Date.now() - backtestDays * 86400_000;
+    const trades: StratTraderTrade[] = [];
+    const stats: Record<string, TraderRoiStats> = {};
+    for (const addr of watchlist) {
+      const weight = traderWeights[addr] || 0;
+      const st = traderStatsMap.get(addr);
+      if (st) stats[addr.toLowerCase()] = st;
+      for (const t of traderTrades.get(addr) || []) {
+        if (t.timestamp < windowCutoffMs) continue;
+        trades.push({
+          ...t, trader: addr, weight, weightFraction: weight / totalW,
+          copyRatio: 0, notional: t.price * t.size,
+        });
+      }
+    }
+    trades.sort((a, b) => b.timestamp - a.timestamp);
+    return {
+      trades,
+      traderStats: stats,
+      positions: [],
+      balance: null,
+      capital,
+      watchlist: watchlist.map((a) => ({ address: a, weight: traderWeights[a] || 0 })),
+      cycle: 0,
+      now: Date.now(),
+    };
+  }, [watchlist, traderTrades, traderStatsMap, traderWeights, backtestDays, capital]);
+
   // ── Top-N sampling: which BUY IDs survive the strat's filter ──
   // Goes through the SAME strat class the live engine uses (registry).
   // Swapping the strat in registry.ts updates BOTH live behavior AND
@@ -1286,8 +1320,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         };
         // Same pre-filter the live engine applies — a filtered BUY never
         // enters the rank race, so it drops out of the backtest curve too.
-        if (!strat.shouldMirror(stratTrade)) continue;
-        const score = strat.scoreCandidate(stratTrade, stats);
+        if (!strat.shouldMirror(stratTrade, backtestHistory)) continue;
+        const score = strat.scoreCandidate(stratTrade, stats, backtestHistory);
         buys.push({ id: t.id, ts: t.timestamp, score });
       }
     }
@@ -1307,7 +1341,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       }
     }
     return kept;
-  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, backtestDays, backtestStrat, traderWeights]);
+  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, backtestDays, backtestStrat, backtestHistory, traderWeights]);
 
   // ── Combined FIFO PnL curve (scaled to user's capital) ──
   const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
@@ -1485,7 +1519,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
             ...t, trader: addr, weight, weightFraction,
             copyRatio: 0, notional: t.price * t.size,
           };
-          const s = backtestStrat.scoreCandidate(stratTrade, stats);
+          const s = backtestStrat.scoreCandidate(stratTrade, stats, backtestHistory);
           if (s > 0) score = s;
         }
         allEntries.push({
@@ -1552,7 +1586,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       runningPnl = Math.round((runningPnl + t.realized) * 100) / 100;
       return { ...t, runningPnl };
     });
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, marketQuery]);
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, backtestHistory, marketQuery]);
 
   // liveCurve — built from the engine's actual order log. Each successful
   // COPY_BUY / COPY_SELL becomes a point. P&L is a FIFO-realized running
@@ -1778,9 +1812,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     <div className="min-w-0 space-y-2">
       {/* ── Header: tabs ──
           Wallet/token/QR + go-live checklist + the strat list all live in
-          the permanent left SidebarShell (ACCOUNT / STRATS tabs) — this
-          column stays to the strat tabs and their content, nothing
-          duplicated here. */}
+          the STRAT page's account column (strats/page.tsx) — this column
+          stays to the strat tabs and their content, nothing duplicated
+          here. */}
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
         <div className="flex items-center gap-2">
@@ -2229,7 +2263,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
       {/* ── Strategy Hub (HUB tab) ──
           Your own dedicated tab: publish / community / fork (UserStratsPanel).
-          FUND lives permanently in the account sidebar now — this tab stays to
+          FUND lives in the STRAT page's account column — this tab stays to
           its actual job (publish/fork) instead of duplicating wallet chrome. */}
       {mode === "HUB" && (
         <div className="pixel-panel border-2 border-pixel-border">

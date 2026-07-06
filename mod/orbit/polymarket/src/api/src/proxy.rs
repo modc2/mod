@@ -17,7 +17,7 @@ const DATA_API: &str = "https://data-api.polymarket.com";
 // authenticated (API-key-gated) endpoint for the caller's own fills and
 // returns 401 for anyone else's market history.
 const DATA_PREFIXES: &[&str] = &[
-    "positions", "trades", "activity", "value", "holders", "users/", "v1/", "market-trades",
+    "positions", "closed-positions", "trades", "activity", "value", "holders", "users/", "v1/", "market-trades",
 ];
 const CLOB_PREFIXES: &[&str] = &[
     "prices-history", "book", "books", "midpoint", "midpoints", "price",
