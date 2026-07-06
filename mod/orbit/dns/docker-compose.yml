@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  dns:
+    build: .
+    container_name: dns
+    ports:
+      - "${GATEWAY_PORT:-5382}:${GATEWAY_PORT:-5382}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-5382}
+    volumes:
+      - dns-data:/app/data
+
+volumes:
+  dns-data:

@@ -1,0 +1,13 @@
+{
+    "name": "securescan",
+    "version": "1.0.0",
+    "description": "Agent-powered security scanner for repositories",
+    "fns": [
+        "forward",
+        "scan",
+        "health",
+        "status",
+        "write_report"
+    ],
+    "schema": "QmdsPQHDTMsdvLVj6pTb8eNwv69SysQHnzrPjSvVtdpRK3"
+}

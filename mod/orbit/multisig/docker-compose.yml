@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  multisig:
+    build: .
+    container_name: multisig
+    ports:
+      - "${GATEWAY_PORT:-3100}:${GATEWAY_PORT:-3100}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3100}
+    volumes:
+      - multisig-data:/app/data
+
+volumes:
+  multisig-data:

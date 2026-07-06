@@ -1,0 +1,25 @@
+{
+    "name": "coplay",
+    "version": "1.0.0",
+    "description": "Organize pickup games with crypto entry fees via smart contract",
+    "fns": [
+        "forward",
+        "games",
+        "get_game",
+        "get_config",
+        "create_game",
+        "join_game",
+        "leave_game",
+        "my_games",
+        "cancel_game",
+        "complete_game",
+        "stats",
+        "info"
+    ],
+    "urls": {
+        "api": "http://localhost:50118",
+        "app": "http://localhost:3118"
+    },
+    "schema": "QmXTYAbN94L9qmembyXdiBgE2Lkmyni9U1E1DF1bW3YA51",
+    "gateway_port": 3118
+}

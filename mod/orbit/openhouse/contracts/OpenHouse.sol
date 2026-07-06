@@ -1,174 +1,123 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
-/**
- * @title OpenHouse - Collective Asset Ownership Smart Contract
- * @notice Allows people to collectively own assets by pooling liquidity
- * @dev Managed by a registered legal entity (trust/company) with fiduciary responsibility
- */
+/// @title OpenHouse — rent-to-own, on-chain
+/// @notice Renters pay monthly. Every payment is recorded as PRINCIPAL toward the
+///         home, not profit for a landlord. Each quarter the contract redistributes
+///         ownership in proportion to principal paid off. The current owner routes
+///         pooled payments into low-risk yield (lowfi), earning interest while
+///         renters build equity. Pay 100% of the price → own the house outright.
 contract OpenHouse {
-    // State variables
-    address public authority; // Legal entity address (trust/company)
-    string public propertyDetails; // Property information
-    uint256 public totalShares;
-    uint256 public sharePrice;
-    bool public isActive;
-    
-    mapping(address => uint256) public shares; // User shares
-    mapping(address => uint256) public contributions; // User contributions in wei
-    address[] public shareholders;
-    
-    // Events
-    event SharesPurchased(address indexed buyer, uint256 amount, uint256 shareCount);
-    event PropertyManaged(string action, uint256 timestamp);
-    event DividendsDistributed(uint256 totalAmount);
-    event AuthorityTransferred(address indexed oldAuthority, address indexed newAuthority);
-    
-    // Modifiers
-    modifier onlyAuthority() {
-        require(msg.sender == authority, "Only authority can call this");
+    // ─────────────────────────────────────────── The home ──
+    string  public description;          // the property
+    uint256 public immutable homePrice;  // principal required to own outright (wei)
+    address public owner;                // current legal owner / asset provider
+    address public yieldVault;           // lowfi vault idle funds are routed to
+
+    // ───────────────────────────────────── Rent-to-own ─────
+    uint256 public totalPrincipalPaid;                 // across all renters
+    mapping(address => uint256) public principalPaid;  // per renter
+    address[] public renters;
+    mapping(address => bool) private _known;
+
+    // ─────────────────────────────── Quarterly cadence ─────
+    uint256 public constant QUARTER = 90 days;
+    uint256 public lastRedistribution;
+    uint256 public quarter;              // redistribution epoch counter
+
+    // ─────────────────────────────────────────── Events ────
+    event RentPaid(address indexed renter, uint256 amount, uint256 principalToDate);
+    event FundsRoutedToYield(address indexed vault, uint256 amount);
+    event Redistributed(uint256 indexed quarter, uint256 totalPrincipal, uint256 timestamp);
+    event HomeFullyOwned(uint256 timestamp);
+    event YieldVaultSet(address indexed vault);
+    event OwnerTransferred(address indexed from, address indexed to);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "OpenHouse: not owner");
         _;
     }
-    
-    modifier whenActive() {
-        require(isActive, "Contract is not active");
-        _;
+
+    constructor(string memory _description, uint256 _homePrice, address _yieldVault) {
+        require(_homePrice > 0, "OpenHouse: zero price");
+        description = _description;
+        homePrice = _homePrice;
+        owner = msg.sender;
+        yieldVault = _yieldVault;
+        lastRedistribution = block.timestamp;
     }
-    
-    /**
-     * @notice Initialize the OpenHouse contract
-     * @param _authority Address of the legal entity managing the property
-     * @param _propertyDetails Details about the property
-     * @param _totalShares Total number of shares available
-     * @param _sharePrice Price per share in wei
-     */
-    constructor(
-        address _authority,
-        string memory _propertyDetails,
-        uint256 _totalShares,
-        uint256 _sharePrice
-    ) {
-        require(_authority != address(0), "Invalid authority address");
-        require(_totalShares > 0, "Total shares must be greater than 0");
-        require(_sharePrice > 0, "Share price must be greater than 0");
-        
-        authority = _authority;
-        propertyDetails = _propertyDetails;
-        totalShares = _totalShares;
-        sharePrice = _sharePrice;
-        isActive = true;
+
+    // ─────────────────────────────────────── Pay rent ──────
+
+    /// @notice Pay rent. The full payment is credited as principal toward ownership
+    ///         and routed to the owner's low-risk yield vault (lowfi).
+    function payRent() external payable {
+        require(msg.value > 0, "OpenHouse: no payment");
+        require(totalPrincipalPaid + msg.value <= homePrice, "OpenHouse: home already paid off");
+
+        _track(msg.sender);
+        principalPaid[msg.sender] += msg.value;
+        totalPrincipalPaid += msg.value;
+        emit RentPaid(msg.sender, msg.value, principalPaid[msg.sender]);
+
+        // Route funds to lowfi yield so idle capital earns interest for the owner.
+        address sink = yieldVault != address(0) ? yieldVault : owner;
+        (bool ok, ) = sink.call{value: msg.value}("");
+        require(ok, "OpenHouse: routing failed");
+        if (sink == yieldVault) emit FundsRoutedToYield(yieldVault, msg.value);
+
+        if (totalPrincipalPaid == homePrice) emit HomeFullyOwned(block.timestamp);
     }
-    
-    /**
-     * @notice Purchase shares in the property
-     * @param _shareCount Number of shares to purchase
-     */
-    function purchaseShares(uint256 _shareCount) external payable whenActive {
-        require(_shareCount > 0, "Must purchase at least 1 share");
-        uint256 cost = _shareCount * sharePrice;
-        require(msg.value >= cost, "Insufficient payment");
-        require(getAvailableShares() >= _shareCount, "Not enough shares available");
-        
-        // Add to shareholders list if new
-        if (shares[msg.sender] == 0) {
-            shareholders.push(msg.sender);
-        }
-        
-        shares[msg.sender] += _shareCount;
-        contributions[msg.sender] += msg.value;
-        
-        // Refund excess payment
-        if (msg.value > cost) {
-            payable(msg.sender).transfer(msg.value - cost);
-        }
-        
-        emit SharesPurchased(msg.sender, msg.value, _shareCount);
+
+    // ─────────────────────────── Quarterly redistribution ──
+
+    /// @notice Once per quarter, checkpoint ownership from principal paid off.
+    ///         Stakes are always derivable from principal; this anchors them to a
+    ///         fixed 90-day cadence and emits the snapshot on-chain.
+    function redistribute() external {
+        require(block.timestamp >= lastRedistribution + QUARTER, "OpenHouse: quarter not elapsed");
+        lastRedistribution = block.timestamp;
+        quarter += 1;
+        emit Redistributed(quarter, totalPrincipalPaid, block.timestamp);
     }
-    
-    /**
-     * @notice Get available shares for purchase
-     */
-    function getAvailableShares() public view returns (uint256) {
-        uint256 allocated = 0;
-        for (uint256 i = 0; i < shareholders.length; i++) {
-            allocated += shares[shareholders[i]];
-        }
-        return totalShares - allocated;
+
+    // ─────────────────────────────────────────── Views ─────
+
+    /// @notice A renter's equity in basis points (10000 = 100% of the home).
+    function equityBps(address renter) public view returns (uint256) {
+        return (principalPaid[renter] * 10_000) / homePrice;
     }
-    
-    /**
-     * @notice Distribute dividends to shareholders (rental income, etc.)
-     */
-    function distributeDividends() external payable onlyAuthority {
-        require(msg.value > 0, "No dividends to distribute");
-        require(shareholders.length > 0, "No shareholders");
-        
-        uint256 totalAllocated = totalShares - getAvailableShares();
-        
-        for (uint256 i = 0; i < shareholders.length; i++) {
-            address shareholder = shareholders[i];
-            uint256 shareholderShares = shares[shareholder];
-            if (shareholderShares > 0) {
-                uint256 dividend = (msg.value * shareholderShares) / totalAllocated;
-                payable(shareholder).transfer(dividend);
-            }
-        }
-        
-        emit DividendsDistributed(msg.value);
+
+    /// @notice Share of the home owned by renters so far, in basis points.
+    function ownedBps() external view returns (uint256) {
+        return (totalPrincipalPaid * 10_000) / homePrice;
     }
-    
-    /**
-     * @notice Record property management action
-     * @param _action Description of the management action
-     */
-    function recordManagementAction(string memory _action) external onlyAuthority {
-        emit PropertyManaged(_action, block.timestamp);
+
+    /// @notice Principal still owed before the home is fully owned.
+    function remainingPrincipal() external view returns (uint256) {
+        return homePrice - totalPrincipalPaid;
     }
-    
-    /**
-     * @notice Transfer authority to new legal entity
-     * @param _newAuthority Address of new authority
-     */
-    function transferAuthority(address _newAuthority) external onlyAuthority {
-        require(_newAuthority != address(0), "Invalid new authority");
-        address oldAuthority = authority;
-        authority = _newAuthority;
-        emit AuthorityTransferred(oldAuthority, _newAuthority);
+
+    function renterCount() external view returns (uint256) { return renters.length; }
+    function fullyOwned() external view returns (bool) { return totalPrincipalPaid == homePrice; }
+    function quarterReady() external view returns (bool) { return block.timestamp >= lastRedistribution + QUARTER; }
+
+    // ─────────────────────────────────────── Governance ────
+
+    function setYieldVault(address vault) external onlyOwner {
+        yieldVault = vault;
+        emit YieldVaultSet(vault);
     }
-    
-    /**
-     * @notice Get shareholder information
-     * @param _shareholder Address of shareholder
-     */
-    function getShareholderInfo(address _shareholder) external view returns (
-        uint256 shareCount,
-        uint256 contribution,
-        uint256 ownershipPercentage
-    ) {
-        shareCount = shares[_shareholder];
-        contribution = contributions[_shareholder];
-        uint256 totalAllocated = totalShares - getAvailableShares();
-        ownershipPercentage = totalAllocated > 0 ? (shareCount * 100) / totalAllocated : 0;
+
+    function transferOwnership(address to) external onlyOwner {
+        require(to != address(0), "OpenHouse: zero address");
+        emit OwnerTransferred(owner, to);
+        owner = to;
     }
-    
-    /**
-     * @notice Get contract balance
-     */
-    function getBalance() external view returns (uint256) {
-        return address(this).balance;
-    }
-    
-    /**
-     * @notice Toggle contract active status
-     */
-    function toggleActive() external onlyAuthority {
-        isActive = !isActive;
-    }
-    
-    /**
-     * @notice Get total number of shareholders
-     */
-    function getShareholderCount() external view returns (uint256) {
-        return shareholders.length;
+
+    // ─────────────────────────────────────────── Internal ──
+
+    function _track(address who) internal {
+        if (!_known[who]) { _known[who] = true; renters.push(who); }
     }
 }

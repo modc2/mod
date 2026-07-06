@@ -1,0 +1,55 @@
+{
+    "name": "neartensor",
+    "description": "NearTensor \u2014 Bittensor-inspired subnet protocol on NEAR Protocol. Register subnets, run validators, stake NEAR, and follow consensus/emissions.",
+    "port": 50180,
+    "app_port": 50181,
+    "urls": {
+        "api": "http://localhost:50180",
+        "app": "http://localhost:50181"
+    },
+    "network": "testnet",
+    "contracts": {
+        "near_testnet": {}
+    },
+    "schema": "QmS8Din4GsLWEbbNU7S2D48vasSBTx54w1dmGzjioW41rh",
+    "endpoints": {
+        "GET /health": "Liveness probe",
+        "GET /status": "Deployment status",
+        "POST /neartensor/status": "Deployment status",
+        "POST /neartensor/subnets": "List all registered subnets",
+        "POST /neartensor/validators": "Validator leaderboard for a subnet",
+        "POST /neartensor/consensus_state": "Consensus state for a subnet",
+        "POST /neartensor/register_validator": "Register a validator on a subnet",
+        "POST /neartensor/stake_on": "Stake NEAR on a validator",
+        "POST /neartensor/checkin": "Validator checkin",
+        "POST /neartensor/produce_block": "Produce a block"
+    },
+    "fns": [
+        "forward",
+        "health",
+        "status",
+        "subnets",
+        "subnet_info",
+        "validators",
+        "leaderboard",
+        "consensus_state",
+        "register_validator",
+        "stake_on",
+        "unstake_from",
+        "checkin",
+        "produce_block",
+        "register_subnet",
+        "boost_subnet",
+        "build",
+        "deploy",
+        "serve",
+        "kill",
+        "serve_api",
+        "kill_api",
+        "serve_app",
+        "kill_app",
+        "register",
+        "deregister"
+    ],
+    "gateway_port": 50181
+}

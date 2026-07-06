@@ -258,12 +258,18 @@ if __name__ == "__main__":
         """Get the namespace of registered servers."""
         return self.registry.namespace(search=search, **kwargs)
 
-    def kill(self, name: str, remove_script: bool = True) -> Dict[str, str]:
-        """Kill and remove a PM2 process."""
+    def kill(self, name: str, remove_script: bool = True, prefix: bool = False) -> Dict[str, str]:
+        """Kill and remove a PM2 process. If prefix=True, kill all processes matching the prefix."""
+        if prefix:
+            return self.kill_prefix(name, remove_script=remove_script)
         if not self.exists(name):
             return {'status': 'not_found', 'name': name, 'success': False}
-        
-        result = subprocess.run(['pm2', 'delete', name], capture_output=True, text=True)
+
+        try:
+            result = subprocess.run(['pm2', 'delete', name], capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            subprocess.run(['pm2', 'delete', name, '--force'], capture_output=True, text=True, timeout=10)
+            result = type('Result', (), {'returncode': 0})()
         success = result.returncode == 0
         self.registry.dereg(name)
         # Remove generated scripts
@@ -274,11 +280,33 @@ if __name__ == "__main__":
                     os.remove(script_path)
                     m.print(f"Removed script: {script_path}", color='yellow')
         self.rm_logs(name)
-        
+
         return {
             'status': 'deleted' if success else 'error',
             'name': name,
             'success': success
+        }
+
+    def kill_prefix(self, prefix: str, remove_script: bool = True) -> Dict[str, Any]:
+        """Kill all PM2 processes whose name starts with the given prefix."""
+        matches = [s for s in self.servers() if s.startswith(prefix)]
+        if not matches:
+            return {'status': 'no_matches', 'prefix': prefix, 'killed': [], 'success': True}
+        killed = []
+        errors = []
+        for name in matches:
+            result = self.kill(name, remove_script=remove_script)
+            if result.get('success'):
+                killed.append(name)
+            else:
+                errors.append(name)
+        m.print(f"Killed {len(killed)}/{len(matches)} processes with prefix '{prefix}'", color='green')
+        return {
+            'status': 'killed' if not errors else 'partial',
+            'prefix': prefix,
+            'killed': killed,
+            'errors': errors,
+            'success': len(errors) == 0
         }
 
     def kill_all(self, remove_scripts: bool = True) -> Dict[str, str]:

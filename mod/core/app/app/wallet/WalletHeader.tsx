@@ -318,7 +318,7 @@ export function WalletHeader() {
         </AnimatePresence>
       </div>
 
-      {/* Expanded pill bar */}
+      {/* Expanded pill bar — address hidden for privacy, only shown inside sidebar */}
       {barExpanded && (
       <div className="relative" style={{ fontFamily: 'var(--font-digital), monospace' }}>
         <motion.div
@@ -335,29 +335,18 @@ export function WalletHeader() {
             boxShadow: `0 0 16px ${userColor}18, 0 2px 8px rgba(0,0,0,0.25)`,
           }}
         >
-          {/* Address */}
+          {/* Wallet icon — click to open sidebar with address */}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="flex items-center gap-1.5 h-full pl-3.5 pr-2.5 transition-all hover:brightness-125"
-            title={address}
+            className="flex items-center gap-1.5 h-full pl-3 pr-2 transition-all hover:brightness-125"
+            title="Open wallet"
           >
-            <span className="tabular-nums font-bold" style={{ fontSize: '11px', color: 'var(--text-tertiary)', letterSpacing: '0.02em' }}>
-              {shortAddress}
-            </span>
-            <span
-              onClick={(e) => { e.stopPropagation(); copyAddress() }}
-              className="flex items-center justify-center transition-all hover:scale-110"
-              style={{ color: copiedAddress ? '#4ade80' : 'var(--text-tertiary)', opacity: copiedAddress ? 1 : 0.4 }}
-              title={`Copy: ${address}`}
-            >
-              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                {copiedAddress ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                )}
-              </svg>
-            </span>
+            <div className="flex-shrink-0" style={{ color: userColor, filter: `drop-shadow(0 0 4px ${userColor}60)` }}>
+              <WalletModeLogo mode={walletMode || keyMode} size={14} />
+            </div>
+            <svg className={`w-2.5 h-2.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke={userColor} strokeWidth={2.5} style={{ opacity: 0.5 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
 
           {/* Divider */}

@@ -1,5 +1,5 @@
 import { ApiPromise, WsProvider } from '@polkadot/api'
-import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
+// dynamic import: @polkadot/extension-dapp accesses window at load time
 
 const networks = [
     { id: 'test', label: 'Modchain Devnet', url: 'wss://dev.api.modchain.ai' },
@@ -175,10 +175,11 @@ export class Network
     }
 
     async getInjector(walletAddress: string) : Promise<any> {
+        const { web3Enable, web3FromAddress } = await import('@polkadot/extension-dapp')
         const extensions = await web3Enable('MOD')
         if (extensions.length === 0)
           throw new Error('SubWallet not found. Please install it.')
-        
+
         const injector = await web3FromAddress(walletAddress)
         if (!injector?.signer)
           throw new Error('No signer available from SubWallet')

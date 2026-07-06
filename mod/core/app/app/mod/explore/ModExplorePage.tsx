@@ -1,33 +1,40 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import ModCard from '../ModCard'
 import { ModCardSettings } from '../ModCardSettings'
 import { ModuleType } from '@/types'
 import { useSearchContext } from '@/context/SearchContext'
 import { userContext } from '@/context'
-import { RotateCcw, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { RotateCcw, X } from 'lucide-react'
 import { CubeIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
 
 type SortKey = 'recent' | 'name' | 'author' | 'balance' | 'updated' | 'created'
 
-// Simple in-memory cache for mod listings
-const modsCache: Record<string, { data: ModuleType[], time: number }> = {}
-const CACHE_TTL = 30_000 // 30 seconds
+/** Sync mods from backend into config/mods.json via the API route */
+export async function syncModsConfig(token?: string) {
+  try {
+    await fetch('/api/mods', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token || '' }),
+    })
+  } catch {}
+}
 
 export function clearModsCache() {
-  Object.keys(modsCache).forEach(k => delete modsCache[k])
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('mods-cache-cleared'))
   }
 }
 
 export default function ModExplorePage() {
-  const { client } = userContext()
+  const { client, user } = userContext()
   const { searchFilters, handleSearch } = useSearchContext()
 
   const [mods, setMods] = useState<ModuleType[]>([])
+  const [allMods, setAllMods] = useState<ModuleType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sort, setSort] = useState<SortKey>(() => {
@@ -44,10 +51,19 @@ export default function ModExplorePage() {
   })
 
   const [selectedOwners, setSelectedOwners] = useState<string[]>([])
-  const [currentPage, setCurrentPage] = useState(0) // API uses 0-based pagination
-  const [itemsPerPage] = useState(20)
+  const [ownerInitialized, setOwnerInitialized] = useState(false)
+
+  // Default to filtering by the logged-in user's key
+  useEffect(() => {
+    if (!ownerInitialized && user?.key) {
+      setSelectedOwners([user.key])
+      setOwnerInitialized(true)
+    }
+  }, [user?.key, ownerInitialized])
+  const [visibleCount, setVisibleCount] = useState(20)
   const [totalMods, setTotalMods] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const searchTermToUse = searchFilters.searchTerm?.trim() || ''
 
@@ -55,8 +71,12 @@ export default function ModExplorePage() {
   useEffect(() => {
     const handleCacheClear = () => setRefreshKey(k => k + 1)
     const handleTx = () => {
-      Object.keys(modsCache).forEach(k => delete modsCache[k])
-      setRefreshKey(k => k + 1)
+      // Sync from backend on transaction events
+      if (client?.token) {
+        syncModsConfig(client.token).then(() => setRefreshKey(k => k + 1))
+      } else {
+        setRefreshKey(k => k + 1)
+      }
     }
     window.addEventListener('mods-cache-cleared', handleCacheClear)
     window.addEventListener('mod:tx', handleTx)
@@ -64,7 +84,7 @@ export default function ModExplorePage() {
       window.removeEventListener('mods-cache-cleared', handleCacheClear)
       window.removeEventListener('mod:tx', handleTx)
     }
-  }, [])
+  }, [client])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -107,90 +127,97 @@ export default function ModExplorePage() {
   }, [sort])
 
   const fetchAll = useCallback(async () => {
-    if (!client) {
-      setError('Client not initialized')
-      return
-    }
     setError(null)
-
-    const params: any = {
-      page: currentPage,
-      page_size: itemsPerPage
-    }
-    if (searchTermToUse) {
-      params.search = searchTermToUse
-    }
-    if (selectedOwners.length === 1) {
-      params.key = selectedOwners[0]
-    }
-
-    const cacheKey = JSON.stringify(params)
-    const cached = modsCache[cacheKey]
-
-    // Show cached data immediately if available
-    if (cached && Date.now() - cached.time < CACHE_TTL) {
-      const sorted = sortModules(cached.data)
-      setMods(sorted)
-      const pageMods = cached.data
-      if (pageMods.length < itemsPerPage && currentPage === 0) {
-        setTotalMods(pageMods.length)
-      } else if (pageMods.length < itemsPerPage) {
-        setTotalMods(currentPage * itemsPerPage + pageMods.length)
-      } else {
-        setTotalMods((currentPage + 2) * itemsPerPage)
-      }
-      return
-    }
-
-    // Show stale cache while loading if available
-    if (cached) {
-      setMods(sortModules(cached.data))
-    }
-
     setLoading(true)
     try {
-      const raw = (await client.call('mods', params)) as ModuleType[]
-      // Deduplicate by name+key (backend may return dupes from registry casing issues)
+      // Read from cached config/mods.json
+      let res = await fetch('/api/mods')
+      let data = (await res.json()) as ModuleType[]
+
+      // If cache is empty, sync from backend and save to config
+      if (data.length === 0) {
+        res = await fetch('/api/mods', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: client?.token || '' }),
+        })
+        data = (await res.json()) as ModuleType[]
+      }
+
+      // Deduplicate by name+key
       const seen = new Set<string>()
-      const pageMods = (Array.isArray(raw) ? raw : []).filter(mod => {
+      data = data.filter(mod => {
         const k = `${(mod.name || '').toLowerCase()}:${(mod.key || '').toLowerCase()}`
         if (seen.has(k)) return false
         seen.add(k)
         return true
       })
 
-      // Update cache
-      modsCache[cacheKey] = { data: pageMods, time: Date.now() }
-
-      if (pageMods.length < itemsPerPage && currentPage === 0) {
-        setTotalMods(pageMods.length)
-      } else if (pageMods.length < itemsPerPage) {
-        setTotalMods(currentPage * itemsPerPage + pageMods.length)
-      } else {
-        setTotalMods((currentPage + 2) * itemsPerPage)
-      }
-
-      const sorted = sortModules(pageMods)
-      setMods(sorted)
+      setAllMods(data)
     } catch (err: any) {
       console.error('Error fetching modules:', err)
       setError(err?.message || 'Failed to load modules')
     } finally {
       setLoading(false)
     }
-  }, [client, searchTermToUse, selectedOwners, sortModules, currentPage, itemsPerPage, refreshKey])
+  }, [client, refreshKey])
 
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
 
-  const uniqueOwners = Array.from(new Set(mods.map(m => m.key).filter(Boolean) as string[])).sort()
+  // Derive displayed mods from allMods based on filters, sort, pagination
+  useEffect(() => {
+    let filtered = [...allMods]
 
-  const totalPages = Math.ceil(totalMods / itemsPerPage)
+    if (searchTermToUse) {
+      const term = searchTermToUse.toLowerCase()
+      filtered = filtered.filter(m =>
+        m.name?.toLowerCase().includes(term) ||
+        m.key?.toLowerCase().includes(term)
+      )
+    }
+
+    if (selectedOwners.length === 1) {
+      filtered = filtered.filter(m =>
+        m.key?.toLowerCase() === selectedOwners[0].toLowerCase()
+      )
+    }
+
+    const sorted = sortModules(filtered)
+    setTotalMods(sorted.length)
+
+    setMods(sorted.slice(0, visibleCount))
+  }, [allMods, searchTermToUse, selectedOwners, sortModules, visibleCount])
+
+  const uniqueOwners = Array.from(new Set([
+    ...(user?.key ? [user.key] : []),
+    ...allMods.map(m => m.key).filter(Boolean) as string[],
+    ...selectedOwners,
+  ])).sort()
 
   useEffect(() => {
-    setCurrentPage(0) // Reset to first page (0-based)
+    setVisibleCount(20)
   }, [searchTermToUse, selectedOwners, sort])
+
+  // Infinite scroll: load more when user scrolls near the bottom
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      if (scrollHeight - scrollTop - clientHeight < 300) {
+        setVisibleCount(prev => {
+          if (prev >= totalMods) return prev
+          return prev + 20
+        })
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [totalMods])
 
 
   const toggleOwner = (owner: string) => {
@@ -212,7 +239,8 @@ export default function ModExplorePage() {
 
   return (
     <div
-      className="min-h-screen"
+      ref={scrollContainerRef}
+      className="h-screen overflow-y-auto"
       style={{
         fontFamily: 'var(--font-digital), monospace',
         backgroundColor: 'var(--bg-primary)',
@@ -232,6 +260,7 @@ export default function ModExplorePage() {
             selectedOwners={selectedOwners}
             onToggleOwner={toggleOwner}
             onClearFilters={clearOwnerFilters}
+            userKey={user?.key}
           />
           <div className="flex-1" />
           <Link
@@ -324,66 +353,18 @@ export default function ModExplorePage() {
           ))}
         </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 pt-10 pb-4">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
-              disabled={currentPage === 0}
-              className="flex items-center gap-1.5 px-4 py-2 disabled:opacity-20 disabled:cursor-not-allowed transition-all text-sm font-bold uppercase tracking-wider rounded-md"
-              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontFamily: 'var(--font-digital)' }}
-            >
-              <ChevronLeft size={14} strokeWidth={3} />
-              PREV
-            </button>
+        {mods.length > 0 && mods.length < totalMods && (
+          <div className="flex items-center justify-center py-8">
+            <ArrowPathIcon className="w-5 h-5 animate-spin" style={{ color: 'var(--text-tertiary)' }} />
+            <span className="ml-2 text-xs font-bold uppercase" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-digital)' }}>
+              {mods.length} / {totalMods}
+            </span>
+          </div>
+        )}
 
-            <div className="flex items-center gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageIndex: number
-                if (totalPages <= 5) {
-                  pageIndex = i
-                } else if (currentPage <= 2) {
-                  pageIndex = i
-                } else if (currentPage >= totalPages - 3) {
-                  pageIndex = totalPages - 5 + i
-                } else {
-                  pageIndex = currentPage - 2 + i
-                }
-
-                const displayNum = pageIndex + 1
-
-                return (
-                  <button
-                    key={pageIndex}
-                    onClick={() => setCurrentPage(pageIndex)}
-                    className="w-9 h-9 text-sm font-bold transition-all rounded-md"
-                    style={
-                      currentPage === pageIndex
-                        ? {
-                            color: 'var(--text-primary)',
-                            background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.2), rgba(103, 232, 249, 0.1))',
-                            border: '1px solid rgba(167, 139, 250, 0.3)',
-                            fontFamily: 'var(--font-digital)',
-                          }
-                        : { color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontFamily: 'var(--font-digital)' }
-                    }
-                  >
-                    {displayNum}
-                  </button>
-                )
-              })}
-            </div>
-
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
-              disabled={currentPage === totalPages - 1}
-              className="flex items-center gap-1.5 px-4 py-2 disabled:opacity-20 disabled:cursor-not-allowed transition-all text-sm font-bold uppercase tracking-wider rounded-md"
-              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', fontFamily: 'var(--font-digital)' }}
-            >
-              NEXT
-              <ChevronRight size={14} strokeWidth={3} />
-            </button>
-
-            <span className="ml-2 text-xs font-bold uppercase px-3 py-2 rounded-md" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-digital)' }}>
+        {mods.length > 0 && mods.length >= totalMods && (
+          <div className="flex items-center justify-center py-8">
+            <span className="text-xs font-bold uppercase" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-digital)' }}>
               {totalMods} total
             </span>
           </div>

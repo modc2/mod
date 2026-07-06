@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  goldfi:
+    build: .
+    container_name: goldfi
+    ports:
+      - "${GATEWAY_PORT:-3095}:${GATEWAY_PORT:-3095}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3095}
+    volumes:
+      - goldfi-data:/app/data
+
+volumes:
+  goldfi-data:

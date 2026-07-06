@@ -2,19 +2,29 @@ networks:
   default:
     external: true
     name: modnet
+
 services:
   claude:
+    build:
+      context: .
+      args:
+        BUILD_CID: "${BUILD_CID:-}"
+        BUILD_TIME: "${BUILD_TIME:-}"
     container_name: claude
-    deploy: {}
-    entrypoint: bash -c "m serve port=50116 key=claude remote=0 mod=claude"
-    image: claude
+    image: claude:latest
     ports:
-    - 50116:50116
+      - "8823:8823"
     restart: unless-stopped
-    shm_size: 100g
+    # Linux needs an explicit alias; Mac/Windows resolve host.docker.internal automatically.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - API_PORT=8820
+      - APP_PORT=8823
+      - CLAUDE_JOBS_LOCAL=1
     volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
-    - ~/mod/mod/_orbit/claude:/root/mod/mod/_orbit/claude
-    working_dir: /root/mod/mod/_orbit/claude
-version: '3.8'
+      - "${HOME}/.claude:/host-claude"
+      - "${HOME}/.mod/claude:/home/node/.mod/claude"
+      - "${HOME}/.mod/api:/home/node/.mod/api"
+      - "${HOME}/mod:/home/node/mod"
+      - "./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro"

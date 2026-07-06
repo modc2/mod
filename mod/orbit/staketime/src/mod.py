@@ -1,10 +1,14 @@
 """
 StakeTime — Delegated staking + Consensus (pluggable) on EVM (Base Sepolia).
 
-Contracts:
-  Subnet     — ERC20 native token (each subnet IS a token)
-  StakeTime  — Stake Subnet tokens ON validators, earn STT
-  Consensus  — Mints new Subnet tokens as emissions each epoch
+Primitives:
+  Mod        — ERC20 token (zero initial supply, minter decided by consensus)
+  Staking    — Stake Mod tokens ON validators, earn STT
+  Consensus  — Mints new Mod tokens as emissions each epoch
+  Inflation  — Pluggable emission curves (halving, flat, linear, sigmoid)
+  Registry   — Competitive 420-slot subnet directory
+
+Backend: Rust (alloy + PyO3) — mod.py interfaces via staketime_rs native module.
 
 Usage:
   m.fn('staketime/status')()
@@ -18,6 +22,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
 
 import mod as m
@@ -39,14 +44,38 @@ def _run(cmd, cwd=None, timeout=120):
     return result.stdout.strip()
 
 
+def _load_engine():
+    """Load the Rust StakeTimeEngine via PyO3."""
+    try:
+        from staketime_rs import StakeTimeEngine
+    except ImportError:
+        # Add the src directory to path for the .so
+        rs_parent = str(DIR)
+        if rs_parent not in sys.path:
+            sys.path.insert(0, rs_parent)
+        try:
+            from staketime_rs import StakeTimeEngine
+        except ImportError:
+            raise ImportError(
+                "staketime_rs not built. Run: cd src/rs && ./build.sh"
+            )
+    rpc = os.environ.get('BASE_TESTNET_RPC_URL', 'https://sepolia.base.org')
+    pk = os.environ.get('PRIVATE_KEY')
+    network = os.environ.get('NETWORK', 'base_sepolia')
+    engine = StakeTimeEngine(str(ROOT), rpc, pk, network)
+    engine.init()
+    return engine
+
+
 class Mod:
-    description = "StakeTime + Consensus — Delegated staking with pluggable consensus modules (Yuma, Linear, Staked)."
+    description = "StakeTime + Consensus — Delegated staking with pluggable consensus modules (Yuma, Linear, Staked). Rust backend via PyO3."
 
     def __init__(self, config=None, **kwargs):
         self.module_dir = ROOT
         self.api_port = API_PORT
         self.app_port = APP_PORT
         self.config = config or self._load_config()
+        self._engine = None
 
     def _load_config(self):
         cfg_path = self.module_dir / 'config.json'
@@ -54,6 +83,13 @@ class Mod:
             with open(cfg_path) as f:
                 return json.load(f)
         return {}
+
+    @property
+    def engine(self):
+        """Lazy-init the Rust engine."""
+        if self._engine is None:
+            self._engine = _load_engine()
+        return self._engine
 
     # ── Default entry point ───────────────────────────────────────────
 
@@ -64,13 +100,13 @@ class Mod:
 
     def compile(self):
         _run('npx hardhat compile', cwd=str(self.module_dir))
-        st_abi = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'StakeTime.sol' / 'StakeTime.json'
-        sub_abi = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Subnet.sol' / 'Subnet.json'
+        st_abi = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Staking.sol' / 'Staking.json'
+        sub_abi = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Mod.sol' / 'Mod.json'
         con_abi = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'consensus' / 'yuma' / 'ConsensusYuma.sol' / 'ConsensusYuma.json'
         return {
             'compiled': True,
-            'stakeTime_abi': str(st_abi),
-            'subnet_abi': str(sub_abi),
+            'staking_abi': str(st_abi),
+            'mod_abi': str(sub_abi),
             'consensus_abi': str(con_abi),
         }
 
@@ -85,6 +121,7 @@ class Mod:
             with open(deploy_path) as f:
                 data = json.load(f)
             self.config = data
+            self._engine = None  # Reset engine to pick up new addresses
             return {
                 'contracts': data.get('contracts', {}).get(network, {}),
                 'network': network,
@@ -95,6 +132,11 @@ class Mod:
     def test(self):
         output = _run('npx hardhat test', cwd=str(self.module_dir), timeout=300)
         return {'output': output}
+
+    def build_rs(self):
+        """Build the Rust PyO3 module."""
+        output = _run('./build.sh', cwd=str(self.module_dir / 'src' / 'rs'), timeout=300)
+        return {'output': output, 'built': True}
 
     # ── Serve ─────────────────────────────────────────────────────────
 
@@ -113,7 +155,7 @@ class Mod:
         api_dir = self.module_dir / 'src' / 'api'
         mod_root = str(self.module_dir.parent.parent)
         env = os.environ.copy()
-        env['PYTHONPATH'] = f"{mod_root}:{self.module_dir}:{env.get('PYTHONPATH', '')}"
+        env['PYTHONPATH'] = f"{mod_root}:{self.module_dir}:{DIR}:{env.get('PYTHONPATH', '')}"
         env['PORT'] = str(api_port)
 
         api_log = open(log_dir / 'api.log', 'w')
@@ -144,7 +186,6 @@ class Mod:
             results['app'] = app_url
             results['app_log'] = str(log_dir / 'app.log')
 
-        # Save urls to config
         self._save_urls(api_url, app_url)
 
         results['dev'] = dev
@@ -177,325 +218,137 @@ class Mod:
                 pass
         return {'killed': killed}
 
-    # ── Contract loaders ──────────────────────────────────────────────
-
-    def _load_deployment(self, network=None):
-        from web3 import Web3
-        deploy_path = self.module_dir / 'config.json'
-        if not deploy_path.exists():
-            raise RuntimeError("Not deployed. Run deploy() first.")
-        with open(deploy_path) as f:
-            data = json.load(f)
-        network = network or os.environ.get('NETWORK', 'base_sepolia')
-        contracts = data.get('contracts', {})
-        if network in contracts:
-            deploy = contracts[network]
-        else:
-            # Fallback: first available network
-            for key in contracts:
-                if isinstance(contracts[key], dict) and 'stakeTime' in contracts[key]:
-                    deploy = contracts[key]
-                    break
-            else:
-                raise RuntimeError(f"No contracts found for network '{network}'")
-        rpc = os.environ.get('BASE_TESTNET_RPC_URL', 'https://sepolia.base.org')
-        w3 = Web3(Web3.HTTPProvider(rpc))
-        pk = os.environ.get('PRIVATE_KEY')
-        account = w3.eth.account.from_key(pk) if pk else None
-        return w3, deploy, account
-
-    def _load_subnet(self):
-        from web3 import Web3
-        w3, deploy, account = self._load_deployment()
-        abi_path = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Subnet.sol' / 'Subnet.json'
-        with open(abi_path) as f:
-            artifact = json.load(f)
-        contract = w3.eth.contract(
-            address=Web3.to_checksum_address(deploy['subnet']),
-            abi=artifact['abi'],
-        )
-        return w3, contract, account
-
-    def _load_staketime(self):
-        from web3 import Web3
-        w3, deploy, account = self._load_deployment()
-        abi_path = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'StakeTime.sol' / 'StakeTime.json'
-        with open(abi_path) as f:
-            artifact = json.load(f)
-        contract = w3.eth.contract(
-            address=Web3.to_checksum_address(deploy['stakeTime']),
-            abi=artifact['abi'],
-        )
-        return w3, contract, account
-
-    def _load_consensus(self):
-        from web3 import Web3
-        w3, deploy, account = self._load_deployment()
-        abi_path = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'consensus' / 'yuma' / 'ConsensusYuma.sol' / 'ConsensusYuma.json'
-        with open(abi_path) as f:
-            artifact = json.load(f)
-        contract = w3.eth.contract(
-            address=Web3.to_checksum_address(deploy['consensus']),
-            abi=artifact['abi'],
-        )
-        return w3, contract, account
-
-    def _send_tx(self, contract_loader, fn):
-        w3, contract, account = contract_loader()
-        if not account:
-            raise RuntimeError("PRIVATE_KEY env var required for transactions")
-        tx = fn(contract).build_transaction({
-            'from': account.address,
-            'nonce': w3.eth.get_transaction_count(account.address),
-            'gas': 500000,
-        })
-        signed = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-        return {'success': receipt.status == 1, 'tx_hash': tx_hash.hex()}
-
-    # ── StakeTime: Validator methods ──────────────────────────────────
+    # ── Staking: Validator methods (Rust backend) ─────────────────────
 
     def register(self, key, key_type=0, commission_bps=1000):
-        """Register a validator (via StakeTime)."""
-        return self._send_tx(
-            self._load_staketime,
-            lambda c: c.functions.registerValidatorAdmin(key, key_type, commission_bps),
-        )
+        """Register a validator (via Rust engine)."""
+        result = self.engine.register(key, int(key_type), int(commission_bps))
+        return json.loads(result)
 
-    # ── StakeTime: Staking methods ────────────────────────────────────
+    # ── Staking: Staking methods (Rust backend) ──────────────────────
 
     def stake_on(self, validator_key, amount, lock_blocks=0):
-        """Stake Subnet tokens on a validator (via StakeTime)."""
-        from web3 import Web3
-        amount_wei = Web3.to_wei(amount, 'ether') if isinstance(amount, (int, float)) else int(amount)
-        return self._send_tx(
-            self._load_staketime,
-            lambda c: c.functions.stakeOn(validator_key, amount_wei, lock_blocks),
-        )
+        """Stake Mod tokens on a validator (via Rust engine)."""
+        if isinstance(amount, (int, float)) and amount < 1e15:
+            amount_wei = str(int(amount * 10**18))
+        else:
+            amount_wei = str(int(amount))
+        result = self.engine.stake_on(validator_key, amount_wei, int(lock_blocks))
+        return json.loads(result)
 
     def unstake_from(self, stake_id):
-        """Unstake a position after lock period (via StakeTime)."""
-        return self._send_tx(
-            self._load_staketime,
-            lambda c: c.functions.unstakeFrom(stake_id),
-        )
+        """Unstake a position after lock period (via Rust engine)."""
+        result = self.engine.unstake_from(int(stake_id))
+        return json.loads(result)
 
-    # ── Consensus methods ─────────────────────────────────────────────
+    # ── Consensus methods (Rust backend) ──────────────────────────────
 
     def checkin(self, key):
-        """Validator heartbeat checkin (via Consensus)."""
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.batchCheckin([key]),
-        )
+        """Validator heartbeat checkin (via Rust engine)."""
+        result = self.engine.checkin(key)
+        return json.loads(result)
 
     def batch_checkin(self, keys):
-        """Batch checkin for multiple validators (via Consensus)."""
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.batchCheckin(keys),
-        )
+        """Batch checkin for multiple validators (via Rust engine)."""
+        result = self.engine.batch_checkin(keys)
+        return json.loads(result)
 
     def produce_block(self):
-        """Produce the next consensus block."""
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.produceBlock(),
-        )
+        """Produce the next consensus block (via Rust engine)."""
+        result = self.engine.produce_block()
+        return json.loads(result)
 
     def distribute(self):
-        """Distribute emissions (via Consensus)."""
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.distributeEmissions(),
-        )
+        """Distribute emissions (via Rust engine)."""
+        result = self.engine.distribute()
+        return json.loads(result)
 
-    # ── Reward claims ─────────────────────────────────────────────────
+    # ── Reward claims (Rust backend) ──────────────────────────────────
 
     def claim_staker_rewards(self):
-        """Claim accumulated staker rewards."""
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.claimStakerRewards(),
-        )
+        """Claim accumulated staker rewards (via Rust engine)."""
+        result = self.engine.claim_staker_rewards()
+        return json.loads(result)
 
     def claim_validator_rewards(self, key, to=None):
-        """Claim validator commission rewards."""
-        if to is None:
-            _, _, account = self._load_consensus()
-            to = account.address
-        return self._send_tx(
-            self._load_consensus,
-            lambda c: c.functions.claimValidatorRewards(key, to),
-        )
+        """Claim validator commission rewards (via Rust engine)."""
+        result = self.engine.claim_validator_rewards(key, to)
+        return json.loads(result)
 
-    # ── StakeTime: Views ──────────────────────────────────────────────
+    # ── Staking: Views (Rust backend) ─────────────────────────────────
 
     def validator(self, key):
-        """Get validator info from StakeTime."""
-        _, contract, _ = self._load_staketime()
-        r = contract.functions.getValidator(key).call()
-        return {
-            'key': r[0], 'keyType': r[1],
-            'registeredBlock': r[2],
-            'commissionBps': r[3], 'active': r[4],
-        }
+        """Get validator info from Staking (via Rust engine)."""
+        result = self.engine.get_validator(key)
+        return json.loads(result)
 
     def stake_position(self, stake_id):
-        _, contract, _ = self._load_staketime()
-        r = contract.functions.getStakePosition(stake_id).call()
-        return {
-            'staker': r[0], 'validatorKeyHash': r[1].hex(),
-            'amount': str(r[2]), 'startBlock': r[3],
-            'lockBlocks': r[4], 'stakeTimeBalance': str(r[5]),
-            'blocksRemaining': r[6],
-        }
+        """Get a stake position."""
+        result = self.engine.get_stake_position(int(stake_id))
+        return json.loads(result)
 
     def user_stakes(self, address):
-        from web3 import Web3
-        _, contract, _ = self._load_staketime()
-        return contract.functions.getUserStakeIds(
-            Web3.to_checksum_address(address)
-        ).call()
+        """Get all stake positions for an address."""
+        result = self.engine.get_user_stakes(address)
+        return json.loads(result)
 
     def validator_stakes(self, key):
-        _, contract, _ = self._load_staketime()
-        return contract.functions.getValidatorStakeIds(key).call()
+        """Get validator info including stakes."""
+        return self.validator(key)
 
     def validator_total_stake_time(self, key):
-        _, contract, _ = self._load_staketime()
-        return str(contract.functions.getValidatorTotalStakeTime(key).call())
+        """Get total STT for a validator."""
+        info = self.validator(key)
+        return info.get('totalSTT', '0')
 
-    # ── Consensus: Views ──────────────────────────────────────────────
+    # ── Consensus: Views (Rust backend) ───────────────────────────────
 
     def consensus_state(self):
-        """Get consensus state."""
-        _, contract, _ = self._load_consensus()
-        r = contract.functions.getBlock().call()
-        return {
-            'currentBlock': r[0],
-            'lastEmissionBlock': r[1],
-            'totalBlocktime': r[2],
-            'emissionRate': str(r[3]),
-            'epochLength': r[4],
-        }
+        """Get consensus state (via Rust engine)."""
+        result = self.engine.get_consensus()
+        return json.loads(result)
 
     def leaderboard(self, limit=20):
-        _, contract, _ = self._load_consensus()
-        keys, scores = contract.functions.getLeaderboard(limit).call()
-        return [{'keyHash': k.hex(), 'score': s} for k, s in zip(keys, scores)]
+        """Get validators sorted by score."""
+        validators = json.loads(self.engine.get_validators())
+        validators.sort(key=lambda v: int(v.get('blocktimeScore', 0)), reverse=True)
+        return validators[:int(limit)]
 
     def staker_rewards(self, address):
-        from web3 import Web3
-        _, contract, _ = self._load_consensus()
-        return str(contract.functions.getStakerRewards(
-            Web3.to_checksum_address(address)
-        ).call())
+        """Get staker rewards (via Rust engine)."""
+        return self.engine.get_staker_rewards(address)
 
     def validator_balance(self, key):
-        _, contract, _ = self._load_consensus()
-        return str(contract.functions.getValidatorBalance(key).call())
+        """Get validator balance."""
+        info = self.validator(key)
+        return info.get('balance', '0')
 
-    # ── Registry ──────────────────────────────────────────────────────
-
-    def _load_registry(self):
-        from web3 import Web3
-        w3, deploy, account = self._load_deployment()
-        if 'registry' not in deploy:
-            raise RuntimeError("Registry not deployed. Redeploy with Registry.")
-        abi_path = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Registry.sol' / 'Registry.json'
-        with open(abi_path) as f:
-            artifact = json.load(f)
-        contract = w3.eth.contract(
-            address=Web3.to_checksum_address(deploy['registry']),
-            abi=artifact['abi'],
-        )
-        return w3, contract, account
-
-    def _load_governance_token(self):
-        from web3 import Web3
-        w3, deploy, account = self._load_deployment()
-        abi_path = self.module_dir / 'artifacts' / 'src' / 'contracts' / 'Subnet.sol' / 'Subnet.json'
-        with open(abi_path) as f:
-            artifact = json.load(f)
-        contract = w3.eth.contract(
-            address=Web3.to_checksum_address(deploy['governanceToken']),
-            abi=artifact['abi'],
-        )
-        return w3, contract, account
+    # ── Registry (Rust backend) ───────────────────────────────────────
 
     def register_subnet(self, name, subnet_addr, stake_time, consensus_addr):
-        """Register a subnet in the Registry (locks governance token)."""
-        from web3 import Web3
-        w3, registry, account = self._load_registry()
-        if not account:
-            raise RuntimeError("PRIVATE_KEY env var required for transactions")
-
-        # Approve governance token for registration cost
-        cost = registry.functions.getRegistrationCost().call()
-        if cost > 0:
-            _, gov, _ = self._load_governance_token()
-            approve_tx = gov.functions.approve(registry.address, cost).build_transaction({
-                'from': account.address,
-                'nonce': w3.eth.get_transaction_count(account.address),
-                'gas': 100000,
-            })
-            signed = account.sign_transaction(approve_tx)
-            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-
-        return self._send_tx(
-            self._load_registry,
-            lambda c: c.functions.registerSubnet(
-                name,
-                Web3.to_checksum_address(subnet_addr),
-                Web3.to_checksum_address(stake_time),
-                Web3.to_checksum_address(consensus_addr),
-            ),
-        )
+        """Register a subnet in the Registry (via Rust engine)."""
+        result = self.engine.register_subnet(name, subnet_addr, stake_time, consensus_addr)
+        return json.loads(result)
 
     def deregister_subnet(self, subnet_id):
-        """Deregister a subnet from the Registry."""
-        return self._send_tx(
-            self._load_registry,
-            lambda c: c.functions.deregisterSubnet(int(subnet_id)),
-        )
+        """Deregister a subnet from the Registry (via Rust engine)."""
+        result = self.engine.deregister_subnet(int(subnet_id))
+        return json.loads(result)
 
     def subnets(self):
-        """List all active subnets."""
-        _, contract, _ = self._load_registry()
-        raw = contract.functions.getAllSubnets().call()
-        result = []
-        for s in raw:
-            score = contract.functions.getStakeScore(s[0]).call()
-            immune = contract.functions.isImmune(s[0]).call()
-            result.append({
-                'id': s[0], 'owner': s[1], 'name': s[2],
-                'subnet': s[3], 'stakeTime': s[4], 'consensus': s[5],
-                'registeredBlock': s[6], 'active': s[7],
-                'stakeScore': str(score), 'immune': immune,
-            })
-        return result
+        """List all active subnets (via Rust engine)."""
+        result = self.engine.get_subnets()
+        return json.loads(result)
 
     def subnet_info(self, subnet_id):
-        """Get a single subnet's info."""
-        _, contract, _ = self._load_registry()
-        r = contract.functions.getSubnet(int(subnet_id)).call()
-        score = contract.functions.getStakeScore(int(subnet_id)).call()
-        immune = contract.functions.isImmune(int(subnet_id)).call()
-        return {
-            'id': r[0], 'owner': r[1], 'name': r[2],
-            'subnet': r[3], 'stakeTime': r[4], 'consensus': r[5],
-            'registeredBlock': r[6], 'active': r[7],
-            'stakeScore': str(score), 'immune': immune,
-        }
+        """Get a single subnet's info (via Rust engine)."""
+        result = self.engine.get_subnet(int(subnet_id))
+        return json.loads(result)
 
     def weakest_subnet(self):
-        """Show which subnet would be replaced at capacity."""
-        _, contract, _ = self._load_registry()
-        weak_id, weak_score, found = contract.functions.getWeakestSubnet().call()
-        return {'id': weak_id, 'score': str(weak_score), 'found': found}
+        """Show which subnet would be replaced at capacity (via Rust engine)."""
+        result = self.engine.get_weakest_subnet()
+        return json.loads(result)
 
     # ── Status ────────────────────────────────────────────────────────
 
@@ -512,12 +365,34 @@ class Mod:
             'network': network,
             'urls': data.get('urls', {}),
             'contracts': contracts,
+            'backend': 'rust+pyo3',
         }
         if contracts:
-            info['subnet_explorer'] = f"https://sepolia.basescan.org/address/{contracts.get('subnet', '')}"
+            info['mod_explorer'] = f"https://sepolia.basescan.org/address/{contracts.get('mod', contracts.get('subnet', ''))}"
             info['consensus_explorer'] = f"https://sepolia.basescan.org/address/{contracts.get('consensus', '')}"
         try:
             info['consensus_state'] = self.consensus_state()
         except Exception:
             pass
         return info
+
+    # ── API client ────────────────────────────────────────────────────
+
+    def call(self, fn='health', params=None, timeout=10):
+        """Call the staketime FastAPI server directly via HTTP."""
+        import requests as req
+        url = f'http://localhost:{self.api_port}/{fn}'
+        method = 'GET' if fn == 'health' else 'POST'
+        try:
+            if method == 'GET':
+                resp = req.get(url, timeout=timeout)
+            else:
+                resp = req.post(url, json=params or {}, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except req.ConnectionError:
+            return {'error': f'API not running on port {self.api_port}. Run serve() first.'}
+        except Exception as e:
+            return {'error': str(e)}
+
+    c = call

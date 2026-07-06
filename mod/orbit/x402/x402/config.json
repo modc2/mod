@@ -1,9 +1,0 @@
-{
-    "receiver": "",
-    "network": "base",
-    "price": "1",
-    "currency": "USDC",
-    "protected_fns": [],
-    "whitelist_mode": "offchain",
-    "facilitator_url": "https://x402.org/facilitator"
-}

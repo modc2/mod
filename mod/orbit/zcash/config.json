@@ -1,66 +1,25 @@
 {
-  "name": "zcash",
-  "version": "1.0.0",
-  "description": "Zcash blockchain explorer - blocks, transactions, addresses, network stats",
-  "fns": ["info", "block", "tx", "address", "mempool", "price", "network", "search", "status", "serve", "kill", "test"],
-  "schema": {
-    "info": {
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get Zcash blockchain overview stats"
+    "name": "zcash",
+    "version": "1.0.0",
+    "description": "Zcash blockchain explorer - blocks, transactions, addresses, network stats",
+    "fns": [
+        "info",
+        "block",
+        "tx",
+        "address",
+        "mempool",
+        "price",
+        "network",
+        "search",
+        "status",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "schema": "QmR8N4URpcVZS48cpyCZHKDpS4d6LJQkNxbxQhH6SMvokM",
+    "urls": {
+        "api": "http://localhost:8930",
+        "app": "http://localhost:3930"
     },
-    "block": {
-      "input": [
-        {"name": "height", "type": "int", "value": null},
-        {"name": "hash", "type": "str", "value": null}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Get block details by height or hash"
-    },
-    "tx": {
-      "input": [
-        {"name": "txid", "type": "str", "value": ""}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Get transaction details by txid"
-    },
-    "address": {
-      "input": [
-        {"name": "addr", "type": "str", "value": ""}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Get address balance and transaction summary"
-    },
-    "mempool": {
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get current mempool stats"
-    },
-    "price": {
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get current ZEC price data"
-    },
-    "network": {
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get network health and mining stats"
-    },
-    "search": {
-      "input": [
-        {"name": "query", "type": "str", "value": ""}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Search for a block, tx, or address"
-    },
-    "status": {
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Check status of running API and app services"
-    }
-  },
-  "urls": {
-    "api": "http://localhost:8930",
-    "app": "http://localhost:3930"
-  }
+    "gateway_port": 3930
 }

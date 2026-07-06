@@ -1,83 +1,99 @@
 const hre = require("hardhat");
 
 async function main() {
-  // Deploy NativeToken (1M supply)
-  const initialSupply = hre.ethers.parseEther("1000000");
-  const NativeToken = await hre.ethers.getContractFactory("NativeToken");
-  const nativeToken = await NativeToken.deploy(initialSupply);
-  await nativeToken.waitForDeployment();
-  const nativeTokenAddress = await nativeToken.getAddress();
-  console.log(`NativeToken deployed to: ${nativeTokenAddress}`);
+  const [deployer] = await hre.ethers.getSigners();
+  console.log(`Deploying with: ${deployer.address}`);
 
-  // StakeTime params
+  let nonce = await deployer.getNonce();
+  const send = (opts) => ({ ...opts, nonce: nonce++ });
+
+  // ── 1. Deploy Subnet ERC20 token (1M initial supply) ──────────────
+  const initialSupply = hre.ethers.parseEther("1000000");
+  const Subnet = await hre.ethers.getContractFactory("Subnet");
+  const subnet = await Subnet.deploy("StakeTimeNet", "STN", initialSupply, send({}));
+  await subnet.waitForDeployment();
+  const subnetAddress = await subnet.getAddress();
+  console.log(`Subnet (ERC20) deployed to: ${subnetAddress}`);
+
+  // ── 2. Deploy Staking (validator registration + staking) ──────────
   const maxLockBlocks = 100000;
   const maxStakersPerValidator = 100;
   const defaultCommissionBps = 1000;   // 10%
-  const epochLength = 43200;           // ~1 day on Base
 
-  // Deploy StakeTime (staking primitive)
-  const StakeTime = await hre.ethers.getContractFactory("StakeTime");
-  const stakeTime = await StakeTime.deploy(
-    nativeTokenAddress,
+  const Staking = await hre.ethers.getContractFactory("Staking");
+  const staking = await Staking.deploy(
+    subnetAddress,       // nativeToken (staked token)
     maxLockBlocks,
     maxStakersPerValidator,
     defaultCommissionBps,
-    epochLength
+    send({})
   );
-  await stakeTime.waitForDeployment();
-  const stakeTimeAddress = await stakeTime.getAddress();
-  console.log(`StakeTime deployed to: ${stakeTimeAddress}`);
+  await staking.waitForDeployment();
+  const stakingAddress = await staking.getAddress();
+  console.log(`Staking deployed to: ${stakingAddress}`);
 
-  // Incentive params
+  // ── 3. Deploy ConsensusYuma (scoring + emissions) ─────────────────
+  const epochLength = 43200;           // ~1 day on Base
   const emissionRate = hre.ethers.parseEther("100"); // 100 tokens per epoch
   const decayBps = 500;                              // 5% decay
 
-  // Deploy Subnet (emission layer)
-  const Subnet = await hre.ethers.getContractFactory("Subnet");
-  const incentive = await Subnet.deploy(
-    stakeTimeAddress,
-    nativeTokenAddress,
+  const ConsensusYuma = await hre.ethers.getContractFactory("ConsensusYuma");
+  const consensus = await ConsensusYuma.deploy(
+    subnetAddress,       // subnet (emission token)
+    stakingAddress,      // staking contract (reads validator/stake data)
     emissionRate,
     decayBps,
-    epochLength
+    epochLength,
+    send({})
   );
-  await incentive.waitForDeployment();
-  const incentiveAddress = await incentive.getAddress();
-  console.log(`Subnet deployed to: ${incentiveAddress}`);
+  await consensus.waitForDeployment();
+  const consensusAddress = await consensus.getAddress();
+  console.log(`ConsensusYuma deployed to: ${consensusAddress}`);
 
-  // Transfer StakeTime ownership to Subnet (so it can advanceEpoch)
-  await stakeTime.transferOwnership(incentiveAddress);
-  console.log(`StakeTime ownership transferred to Subnet`);
+  // ── 4. Wire permissions ───────────────────────────────────────────
+  // ConsensusYuma mints new Subnet tokens for emissions
+  await (await subnet.setMinter(consensusAddress, send({}))).wait();
+  console.log(`Subnet minter set to ConsensusYuma`);
 
-  // Fund Subnet with emission tokens
-  const fundAmount = hre.ethers.parseEther("500000");
-  await nativeToken.transfer(incentiveAddress, fundAmount);
-  console.log(`Funded Subnet with ${hre.ethers.formatEther(fundAmount)} NTV for emissions`);
+  // ── 5. Deploy governance token for Registry ───────────────────────
+  const govToken = await Subnet.deploy("Governance", "GOV", hre.ethers.parseEther("10000000"), send({}));
+  await govToken.waitForDeployment();
+  const govTokenAddress = await govToken.getAddress();
+  console.log(`Governance token deployed to: ${govTokenAddress}`);
 
-  // Deploy Registry (subnet registry with 420 cap, NativeToken lock)
-  const immunityPeriod = 43200; // ~1 day on Base (same as epoch)
-  const registrationCost = hre.ethers.parseEther("1000"); // 1000 NTV to register a subnet
+  // ── 6. Deploy Registry ────────────────────────────────────────────
+  const immunityPeriod = 43200;
+  const registrationCost = hre.ethers.parseEther("1000");
+
   const Registry = await hre.ethers.getContractFactory("Registry");
-  const registry = await Registry.deploy(immunityPeriod, nativeTokenAddress, registrationCost);
+  const registry = await Registry.deploy(immunityPeriod, govTokenAddress, registrationCost, send({}));
   await registry.waitForDeployment();
   const registryAddress = await registry.getAddress();
   console.log(`Registry deployed to: ${registryAddress}`);
 
-  // Approve and register initial subnet (subnet #0)
-  await nativeToken.approve(registryAddress, registrationCost);
-  await registry.registerSubnet("genesis", stakeTimeAddress, incentiveAddress);
-  console.log(`Genesis subnet registered in Registry (locked ${hre.ethers.formatEther(registrationCost)} NTV)`);
+  // ── 7. Register genesis subnet ────────────────────────────────────
+  await (await govToken.approve(registryAddress, registrationCost, send({}))).wait();
+  await (await registry.registerSubnet("genesis", subnetAddress, stakingAddress, consensusAddress, send({}))).wait();
+  console.log(`Genesis subnet registered (locked ${hre.ethers.formatEther(registrationCost)} GOV)`);
 
-  // Write deployment info
+  // ── 8. Save deployment info (network-specific) ────────────────────
   const fs = require("fs");
   const path = require("path");
-  const info = {
-    nativeToken: nativeTokenAddress,
-    stakeTime: stakeTimeAddress,
-    incentive: incentiveAddress,
+  const configPath = path.join(__dirname, "..", "config.json");
+  const network = hre.network.name;
+
+  let config = {};
+  if (fs.existsSync(configPath)) {
+    config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  }
+
+  if (!config.contracts) config.contracts = {};
+  config.contracts[network] = {
+    subnet: subnetAddress,
+    staking: stakingAddress,
+    consensus: consensusAddress,
+    governanceToken: govTokenAddress,
     registry: registryAddress,
-    address: stakeTimeAddress, // primary
-    network: hre.network.name,
     chainId: hre.network.config.chainId,
     emissionRate: emissionRate.toString(),
     decayBps,
@@ -89,11 +105,9 @@ async function main() {
     defaultCommissionBps,
     deployedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(
-    path.join(__dirname, "..", "config.json"),
-    JSON.stringify(info, null, 2)
-  );
-  console.log("Deployment info saved to config.json");
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  console.log(`Deployment info saved to config.json [${network}]`);
 }
 
 main().catch((error) => {

@@ -1,0 +1,6 @@
+{
+    "name": "namespace",
+    "description": "Server namespace \u2014 service discovery for registered servers. Wraps server.namespace to provide reg/dereg/lookup of server addresses.",
+    "version": "0.1.0",
+    "schema": "QmTx2JPPrY3ofU1c5ok7fX2MpkCoUkkGsaS3jkKfai5fPa"
+}

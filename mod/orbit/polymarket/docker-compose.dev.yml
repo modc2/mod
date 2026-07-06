@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  polymarket-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: polymarket-dev
+    ports:
+      # Map host PORT/API_PORT onto the ports the dev entrypoint actually
+      # binds inside the container: Next.js dev on 3091, Rust API on 50091.
+      - "${PORT:-4200}:3091"
+      - "${API_PORT:-4201}:50091"
+    volumes:
+      - ./src/app:/app/src/app:delegated
+      - ./src/api:/app/src/api:delegated
+      - ./config.json:/app/config.json:ro
+      - /app/src/app/node_modules
+      - /app/src/app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_STRAT_HMAC_SECRET=${STRAT_HMAC_SECRET:-polymarket_strats_default_hmac_key_2024}
+      # The Rust polymarket-api binary isn't built into the dev image. Point
+      # Next's /api/polymarket rewrite at the prod container's Rust API
+      # (reachable over the shared modnet network — see `networks` below).
+      - POLYMARKET_API_URL=${POLYMARKET_API_URL:-http://polymarket:50091}
+    networks:
+      - default
+      - modnet
+    restart: unless-stopped
+
+networks:
+  default:
+  modnet:
+    external: true
+    name: modnet

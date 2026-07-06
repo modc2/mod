@@ -1,0 +1,17 @@
+{
+    admin localhost:2096
+}
+
+# Listener port is parametrised. Default is :3000 (canonical mod-protocol
+# proxy port). `m whitepaper/serve` will pick the first free port from
+# {3000, 3030, 3031, ...} and pass it in via WHITEPAPER_PROXY_PORT.
+:{$WHITEPAPER_PROXY_PORT:3000} {
+    @whitepaper_api path /api/whitepaper /api/whitepaper/*
+    handle @whitepaper_api {
+        uri strip_prefix /api/whitepaper
+        reverse_proxy localhost:{$WHITEPAPER_API_PORT:50106}
+    }
+    handle /whitepaper* {
+        reverse_proxy localhost:{$WHITEPAPER_APP_PORT:3106}
+    }
+}

@@ -2,19 +2,27 @@ networks:
   default:
     external: true
     name: modnet
+
 services:
   dev:
+    build:
+      context: .
+      args:
+        BUILD_CID: "${BUILD_CID:-}"
+        BUILD_TIME: "${BUILD_TIME:-}"
     container_name: dev
-    deploy: {}
-    entrypoint: bash -c "m serve port=50116 key=dev remote=0 mod=dev"
-    image: mod:latest
-    ports:
-    - 50116:50116
+    image: dev:latest
+    expose:
+      - "8870"
+      - "8871"
     restart: unless-stopped
-    shm_size: 100g
+    environment:
+      - API_PORT=8870
+      - APP_PORT=8871
+      - CLAUDE_API=http://claude:8820
+      - CODEX_API=http://codex:8830
     volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
-    - ~/mod/mod/orbit/dev:/root/mod/mod/orbit/dev
-    working_dir: /root/mod/mod/orbit/dev
-version: '3.8'
+      # Per-wallet ciphertext store (AES-GCM(api_key)) — server stores
+      # opaque ciphertext keyed by wallet address. Plaintext is reconstructed
+      # only at request time using the caller's wallet signature.
+      - "${HOME}/.mod/dev:/home/node/.mod/dev"

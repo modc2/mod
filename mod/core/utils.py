@@ -497,17 +497,11 @@ def sample( options:list, n=2):
     return options[:n]
 
 def round_decimals( x:Union[float, int], decimals: int=6, small_value: float=1.0e-9):
-    
-    import math
     """
-    Rounds x to the number of {sig} digits
-    :param x:
-    :param sig: signifant digit
-    :param small_value: smallest possible value
-    :return:
+    Rounds x to the given number of decimal places.
     """
     x = float(x)
-    return round(x, decimals)
+    return _builtin_round(x, decimals)
 
 required_libs = []
 
@@ -2672,12 +2666,14 @@ def getsourcelines( module = None, search=None, *args, **kwargs) -> Union[str, D
         module = cls
     return inspect.getsourcelines(module)
 
+_builtin_round = __builtins__['round'] if isinstance(__builtins__, dict) else __builtins__.round
+
 def round(x, sig=6, small_value=1.0e-9):
     import math
     """
     rounds a number to a certain number of significant figures
     """
-    return round(x, sig - int(math.floor(math.log10(max(abs(x), abs(small_value))))) - 1)
+    return _builtin_round(x, sig - int(math.floor(math.log10(max(abs(x), abs(small_value))))) - 1)
 
 
 

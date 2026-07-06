@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  vali:
+    build: .
+    container_name: vali
+    ports:
+      - "${GATEWAY_PORT:-50101}:${GATEWAY_PORT:-50101}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50101}
+    volumes:
+      - vali-data:/app/data
+
+volumes:
+  vali-data:

@@ -15,7 +15,7 @@ import { Billing } from '@/user/billing'
 import Create from '@/user/create'
 import { Txs } from '@/user/txs'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import MarketABI from '@/contracts//market/Market.sol/Market.json'
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 
@@ -82,8 +82,7 @@ export default function UserPage() {
         
         if (user?.key && typeof window !== 'undefined' && window.ethereum) {
           try {
-            const network = 'testnet'
-            const chainConfig = modConfig.chain?.[network]
+            const chainConfig = getChainConfig()
             if (!chainConfig) throw new Error('Chain config not found')
             
             const provider = new ethers.BrowserProvider(window.ethereum)

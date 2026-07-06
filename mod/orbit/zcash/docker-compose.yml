@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  zcash:
+    build: .
+    container_name: zcash
+    ports:
+      - "${GATEWAY_PORT:-3930}:${GATEWAY_PORT:-3930}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3930}
+    volumes:
+      - zcash-data:/app/data
+
+volumes:
+  zcash-data:

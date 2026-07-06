@@ -1,21 +1,38 @@
 #!/bin/bash
+# Build + launch the claude module under pm2 (as root, for cross-module editing).
+#
+#   ./start.sh                 # prod: build the Rust binary + Next app, then pm2 start
+#   CLAUDE_MODE=dev ./start.sh # dev: skip the Next build, run `next dev`
+#
+# Run this as root so claude-api can edit sibling modules. Cross-module writes
+# still require a per-operation sudo signature from the owner key — pm2/root only
+# grants the *capability*; sudo.rs enforces *authorization*.
+#
+# (The per-service src/api/start.sh + src/app/start.sh remain for unauthenticated
+#  host-only dev; this top-level script is the real pm2 deployment.)
+set -euo pipefail
 cd "$(dirname "$0")"
 
-# Stop any existing instances
-bash stop.sh 2>/dev/null
+MODE="${CLAUDE_MODE:-prod}"
+API_DIR="src/api"
+APP_DIR="src/app"
 
-# Start API
-bash ./src/api/start.sh &
-API_PID=$!
+echo "▸ building claude-api (release)…"
+( cd "$API_DIR" && cargo build --release )
 
-# Start App
-bash ./src/app/start.sh &
-APP_PID=$!
+echo "▸ installing app deps…"
+( cd "$APP_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1 || npm install )
 
-trap "kill $API_PID $APP_PID 2>/dev/null" EXIT
+if [ "$MODE" = "prod" ]; then
+  echo "▸ building Next app (prod bundle — avoids ChunkLoadError over the gateway)…"
+  # Wipe .next first: a stale partial build trips a /_document PageNotFoundError
+  # during page-data collection.
+  ( cd "$APP_DIR" && rm -rf .next && NEXT_PUBLIC_BASE_PATH="${NEXT_PUBLIC_BASE_PATH:-/claude}" npx next build )
+fi
 
-echo "API:  http://localhost:8820"
-echo "App:  http://localhost:8821"
-echo "Press Ctrl+C to stop."
+echo "▸ (re)starting pm2 processes claude-api + claude-app…"
+pm2 delete claude-api claude-app >/dev/null 2>&1 || true
+CLAUDE_MODE="$MODE" pm2 start ecosystem.config.js
 
-wait
+pm2 save >/dev/null 2>&1 || true
+echo "✓ claude up — API :${CLAUDE_API_PORT:-8820}  APP :${CLAUDE_APP_PORT:-8823}  (pm2 ls)"

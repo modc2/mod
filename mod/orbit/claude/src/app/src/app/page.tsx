@@ -1,9 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import dynamic from "next/dynamic";
+import { VersionsPanel } from "../components/VersionsPanel";
+import AuthBadge from "../components/AuthBadge";
+import {
+  AppIcon,
+  CodeIcon,
+  OverviewIcon,
+  FilesIcon,
+  VersionsIcon,
+  HubIcon,
+  TasksIcon,
+  ClaudeMark,
+  prettyModName,
+} from "../components/Icons";
+import { qrSvg } from "./lib/qr";
 
 const WalletModal = dynamic(() => import("../components/WalletModal"), { ssr: false });
+const SudoModal = dynamic(() => import("../components/SudoModal"), { ssr: false });
 
 import {
   getNetworkName,
@@ -12,7 +27,19 @@ import {
   switchNetwork,
 } from "../utils/wallet";
 
-const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8820";
+const DEFAULT_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/claude";
+// The browser must reach the API through the relative gateway path
+// (`/api/claude`, served by the host Caddy and the next.config rewrite). A
+// localhost/127.0.0.1 value of NEXT_PUBLIC_API_URL points the fetch at the
+// *visitor's* own machine — so sign-in/job submits fail for everyone except a
+// browser running on the host. Ignore such values and fall back to the
+// relative path; a genuine external API host is still honored.
+const _ENV_API_URL = process.env.NEXT_PUBLIC_API_URL;
+const DEFAULT_API_URL =
+  _ENV_API_URL && !/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(_ENV_API_URL)
+    ? _ENV_API_URL
+    : `/api${DEFAULT_BASE_PATH}`;
+const API_PORT = parseInt(process.env.NEXT_PUBLIC_API_PORT || "8820", 10);
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -27,6 +54,7 @@ interface Job {
   pid: number | null;
   created_at: number;
   updated_at: number;
+  user_address?: string;
   asks?: Array<{ question: string; answer?: string; timestamp?: number }>;
 }
 
@@ -58,7 +86,60 @@ interface Personality {
   builtin?: boolean;
 }
 
+// A named system-prompt block. Blocks toggled `on` are chained (concatenated
+// in list order) into the single system prompt sent with every task. Content
+// is edited in the SYSTEM PROMPTS manager modal — never shown inline.
+interface SysPromptBlock {
+  id: string;
+  name: string;
+  text: string;
+  on: boolean;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
+
+// While dragging/resizing a floating panel, embedded APP iframes must not
+// swallow mousemove events (they go to the iframe's document, freezing the
+// gesture) — toggle their pointer events off for the gesture's duration.
+function setIframesInert(inert: boolean) {
+  document.querySelectorAll("iframe").forEach((f) => {
+    (f as HTMLElement).style.pointerEvents = inert ? "none" : "";
+  });
+}
+
+// Safe localStorage write — never throws. When the browser quota is
+// exhausted (claude_personalities, claude_saved_prompts, the auto-saved
+// jobs cache, etc. can balloon), we evict the biggest claude_* keys
+// except the ones that hold the auth session, then retry the write.
+function safeSetItem(key: string, value: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    const isQuota = e instanceof Error && /quota/i.test(e.name + e.message);
+    if (!isQuota) return false;
+    const PRESERVE = new Set([
+      "claude_jobs_token", "claude_jobs_address", "claude_jobs_wallet_type",
+      "claude_jobs_seed", "claude_jobs_theme",
+    ]);
+    try {
+      const sizes: Array<[string, number]> = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (!k || PRESERVE.has(k) || k === key) continue;
+        if (!k.startsWith("claude_")) continue;
+        sizes.push([k, (window.localStorage.getItem(k) || "").length]);
+      }
+      sizes.sort((a, b) => b[1] - a[1]);
+      for (const [k] of sizes.slice(0, 3)) window.localStorage.removeItem(k);
+      window.localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 
 function timeSince(ts: number): string {
   const s = Math.floor(Date.now() / 1000 - ts);
@@ -70,6 +151,34 @@ function timeSince(ts: number): string {
 
 function formatDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
+}
+
+// Compact run-time label for a finished job (updated_at − created_at).
+function formatDuration(secs: number): string {
+  const s = Math.max(0, Math.floor(secs));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+function shortCaller(addr?: string): string {
+  if (!addr) return "local";
+  const a = addr.trim();
+  if (!a) return "local";
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function shortHost(p?: string): string {
+  if (!p) return "—";
+  const m = p.match(/\/orbit\/([^/]+)(\/.*)?$/);
+  if (m) {
+    const rest = m[2] ? m[2].replace(/\/$/, "") : "";
+    return rest ? `${m[1]}${rest}` : m[1];
+  }
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= 2) return p;
+  return `…/${parts.slice(-2).join("/")}`;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -103,6 +212,61 @@ const STATUS_COLOR_LIGHT: Record<string, string> = {
   failed: "#ef4444",
   cancelled: "#94a3b8",
 };
+
+// ── Models ──────────────────────────────────────────────────────────
+// Specific model IDs the user can pick. Value is what we hand to the CLI's
+// --model flag (accepts both family aliases and full names like
+// claude-opus-4-7). Keep first item = current default (Fable 5).
+const MODEL_OPTIONS = [
+  { value: "claude-fable-5",    label: "Fable 5",    family: "fable",  color: "#f472b6" },
+  { value: "claude-opus-4-8",   label: "Opus 4.8",   family: "opus",   color: "#c4b5fd" },
+  { value: "claude-opus-4-7",   label: "Opus 4.7",   family: "opus",   color: "#a78bfa" },
+  { value: "claude-opus-4-6",   label: "Opus 4.6",   family: "opus",   color: "#9f7aea" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6", family: "sonnet", color: "#60a5fa" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5", family: "sonnet", color: "#3b82f6" },
+  { value: "claude-haiku-4-5",  label: "Haiku 4.5",  family: "haiku",  color: "#34d399" },
+];
+
+// Legacy aliases (saved by older builds / older jobs) → upgraded value.
+// Family aliases resolve to the newest of that family. `fable` now resolves to
+// the live Claude Fable 5 model (Mythos access is generally available).
+const MODEL_ALIAS_UPGRADE: Record<string, string> = {
+  opus: "claude-opus-4-8",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+  fable: "claude-fable-5",
+};
+
+// Map any stored/legacy model string to a currently-selectable model value,
+// falling back to the default when it's unknown or gated. Mirrors the saved-
+// model restore guard so replays/edits never resurrect an unavailable model.
+function normalizeModelValue(m: string): string {
+  if (!m) return MODEL_OPTIONS[0].value;
+  const upgraded = MODEL_ALIAS_UPGRADE[m] || m;
+  return MODEL_OPTIONS.some(o => o.value === upgraded) ? upgraded : MODEL_OPTIONS[0].value;
+}
+
+// Pretty label for any model string (handles legacy aliases too).
+function modelLabel(m: string): string {
+  if (!m) return "—";
+  const chip = MODEL_OPTIONS.find(o => o.value === m);
+  if (chip) return chip.label;
+  if (m === "opus") return "Opus 4.6";       // historical default
+  if (m === "sonnet") return "Sonnet 4.5";   // historical default
+  if (m === "haiku") return "Haiku 4.5";
+  return m;
+}
+
+// ── Agent engines ───────────────────────────────────────────────────
+// The "engine" is which agent harness module is driving the work. Today the
+// app runs claude-code; the dropdown stays here so the same UI can later
+// route to aider / codex / cursor without a redesign.
+const ENGINE_OPTIONS = [
+  { value: "claude-code", label: "Claude Code", icon: "⬡", color: "#a78bfa", available: true,  hint: "Anthropic's claude-code CLI (this module)" },
+  { value: "aider",       label: "Aider",       icon: "✦", color: "#60a5fa", available: false, hint: "orbit/aider — coming soon" },
+  { value: "codex",       label: "Codex",       icon: "◇", color: "#fbbf24", available: false, hint: "orbit/codex — coming soon" },
+  { value: "cursor",      label: "Cursor",      icon: "◆", color: "#f472b6", available: false, hint: "orbit/cursor — coming soon" },
+];
 
 // ── Personalities ────────────────────────────────────────────────────
 
@@ -167,8 +331,22 @@ export default function Home() {
   const [dragOverJobId, setDragOverJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("opus");
+  const [model, setModel] = useState("claude-fable-5");
   const [agentType, setAgentType] = useState("default");
+  // Chainable system prompts: named blocks, each toggleable on/off. All
+  // active blocks are concatenated in order and sent as the system prompt
+  // with every task (winning over a personality). PARAMS shows only name
+  // chips — the content lives in a separate manager modal.
+  const [sysPrompts, setSysPrompts] = useState<SysPromptBlock[]>([]);
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [showSysPromptManager, setShowSysPromptManager] = useState(false);
+  const [editingSysPrompt, setEditingSysPrompt] = useState<SysPromptBlock | null>(null);
+  const [creatingSysPrompt, setCreatingSysPrompt] = useState(false);
+  const [sysPromptDraft, setSysPromptDraft] = useState({ name: "", text: "" });
+  // The agent "engine" — i.e. which agent harness module drives the work.
+  // Defaults to claude-code (this module); we expose the toggle so the same UI
+  // can later swap in aider / codex / cursor without ripping out the panel.
+  const [engine, setEngine] = useState("claude-code");
 
   const [workDir, setWorkDir] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -184,6 +362,35 @@ export default function Home() {
   const [moduleName, setModuleName] = useState("");
   const [creationMode, setCreationMode] = useState<"edit" | "fork" | "new">("edit");
   const [selectedModule, setSelectedModule] = useState("claude");
+  // True when this console is itself running inside an iframe. claude's APP tab
+  // embeds the real claude app (/claude); since the claude app IS this console,
+  // the embedded copy must NOT re-iframe /claude again or it recurses forever —
+  // so when embedded we break the chain by falling back to the web front-door.
+  const [isEmbedded, setIsEmbedded] = useState(false);
+  useEffect(() => {
+    try { setIsEmbedded(window.self !== window.top); } catch { setIsEmbedded(true); }
+  }, []);
+  // Most-recently-opened modules (names, newest first) — powers the left nav
+  // rail's quick-switch list. Persisted so the rail is useful on reload.
+  const [recentModules, setRecentModules] = useState<string[]>([]);
+  // Left navigation rail (HUB + recent modules) open/closed.
+  const [leftRailOpen, setLeftRailOpen] = useState(true);
+  // Rail width — the rail/content divider is a drag handle. Persisted.
+  const [leftRailWidth, setLeftRailWidth] = useState(212);
+  const [isRailDragging, setIsRailDragging] = useState(false);
+  // Expand the embedded module APP to a full-viewport overlay (hides the
+  // console chrome so you get the module's app edge-to-edge).
+  const [appExpanded, setAppExpanded] = useState(false);
+  // Rail in-progress task rows: which task hash was just copied (✓ flash).
+  const [copiedTaskHash, setCopiedTaskHash] = useState<string | null>(null);
+  // Rail task lists start collapsed; the ⚙N badge toggles each module open.
+  const [expandedTaskMods, setExpandedTaskMods] = useState<Set<string>>(new Set());
+  const toggleTaskMod = (name: string) =>
+    setExpandedTaskMods((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
   const [githubUrl, setGithubUrl] = useState("");
   const [anchorDir, setAnchorDir] = useState("~/mod");
   const [modules, setModules] = useState<string[]>([]);
@@ -192,6 +399,7 @@ export default function Home() {
     app_url: string | null; api_url: string | null; description: string | null;
     fns: string[]; has_app_dir: boolean; has_server_dir: boolean; has_api_dir: boolean;
     owner: string | null; version: string | null; cid: string | null; created_at: number | null;
+    deps?: string[] | null;
   }>>([]);
   const [moduleSearch, setModuleSearch] = useState("");
   const [showModuleDropdown, setShowModuleDropdown] = useState(false);
@@ -203,15 +411,113 @@ export default function Home() {
   const [togglingModule, setTogglingModule] = useState(false);
   const [togglingApi, setTogglingApi] = useState(false);
   const [togglingApp, setTogglingApp] = useState(false);
+  const [moduleLogs, setModuleLogs] = useState<Record<string, string>>({});
+  const [moduleLogsOpen, setModuleLogsOpen] = useState<"api" | "app" | null>(null);
+  const [moduleLogsLoading, setModuleLogsLoading] = useState(false);
+  const [moduleLogsAutoRefresh, setModuleLogsAutoRefresh] = useState(false);
+  // ── Module hub ────────────────────────────────────────────────────
+  // Landing grid of every module: pick one to start editing it, with a live
+  // online/offline dot per module. Statuses are probed in the background while
+  // the hub is open (app port via the same-origin /api/service route, API via
+  // its /health). `autoRestartAfterEdit` restarts a module through pm2 as soon
+  // as an edit job targeting it completes, so changes actually take effect.
+  const [moduleStatuses, setModuleStatuses] = useState<Record<string, { app: boolean | null; api: boolean | null }>>({});
+  const [hubSearch, setHubSearch] = useState("");
+  // Hub layout: "grid" is the card wall; "graph" lays modules out by their
+  // declared `deps` (config.json) as a dependency graph, leaving modules with
+  // no edges as isolated nodes.
+  const [hubGraphMode, setHubGraphMode] = useState(false);
+  const [autoRestartAfterEdit, setAutoRestartAfterEdit] = useState(true);
+  // ── Add-Module modal: import a fresh module from a GitHub repo or a
+  //    snapshot CID (POST /modules/import). ───────────────────────────
+  const [addOpen, setAddOpen] = useState(false);
+  const [addSource, setAddSource] = useState<"github" | "cid">("github");
+  const [addUrl, setAddUrl] = useState("");
+  const [addCid, setAddCid] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [restartNotice, setRestartNotice] = useState<string | null>(null);
+  const prevJobStatusRef = useRef<Record<string, string>>({});
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
   const [expandedJobImage, setExpandedJobImage] = useState<string | null>(null);
   const [images, setImages] = useState<Array<{ name: string; data: string }>>(
     []
   );
-  const [theme, setTheme] = useState<"dark" | "light" | "matrix" | "cyberpunk" | "amber" | "ocean" | "ibm" | "win95">("dark");
-  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [showUserDetails, setShowUserDetails] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+
+  // Snapshot chain of the currently-selected module — polls every 30s and
+  // drives the versions count badge; the full VersionsPanel handles
+  // fork/restore actions.
+  type VersionChainEntry = {
+    cid: string;
+    message: string;
+    author: string;
+    timestamp: number;
+    parent: string | null;
+    action?: string;
+  };
+  const [agentVersions, setAgentVersions] = useState<VersionChainEntry[]>([]);
+
+  // Owner-managed whitelist of EOAs that may sign in to this module.
+  // Backed by GET/POST/DELETE /whitelist on the Rust API. Non-owners
+  // see the list read-only; owner gets a delete X per row + an add box.
+  const [whitelist, setWhitelist] = useState<string[]>([]);
+  const [whitelistInput, setWhitelistInput] = useState("");
+  const [whitelistBusy, setWhitelistBusy] = useState(false);
+  const [whitelistError, setWhitelistError] = useState<string | null>(null);
+
+  // ── Time-boxed edit grants (QR hand-off) ──────────────────────────
+  // The owner mints a grant → a QR-shareable invite that confers temporary
+  // edit access (default 1h), optionally gated by a locally-generated key the
+  // owner shares out of band. Backed by GET/POST/DELETE /grants on the API.
+  type GrantRow = { id: string; exp: number; ttl: number; label?: string | null; created: number; key_required: boolean };
+  type RedemptionRow = { address: string; exp: number; grant: string; redeemed: number };
+  const [grants, setGrants] = useState<GrantRow[]>([]);
+  const [grantRedemptions, setGrantRedemptions] = useState<RedemptionRow[]>([]);
+  const [grantTtl, setGrantTtl] = useState(3600); // seconds; default 1h
+  const [grantKey, setGrantKey] = useState("");
+  const [grantLabel, setGrantLabel] = useState("");
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  // The just-minted grant we're showing a QR for (id + the key to share OOB).
+  const [activeGrant, setActiveGrant] = useState<{ id: string; exp: number; key?: string; key_required: boolean } | null>(null);
+  const [grantCopied, setGrantCopied] = useState<string | null>(null);
+  // Now (seconds) ticking for live countdowns on grants.
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+
+  // Redemption side: an invite link (`?grant=<id>`) lands a non-owner here.
+  // We capture it on mount and offer a "redeem" banner that threads the grant
+  // through sign-in. The key (if required) is typed by the visitor.
+  const [pendingGrant, setPendingGrant] = useState<string | null>(null);
+  const [redeemKey, setRedeemKey] = useState("");
+  const pendingGrantRef = useRef<{ id: string; key: string } | null>(null);
+  // Walletless guest sessions (POST /grants/:id/redeem): unix expiry of the
+  // guest access, driving the countdown pill + auto sign-out at grant end.
+  const [guestExp, setGuestExp] = useState<number | null>(null);
+
+  // ── Phone sign-in (session handoff QR) ─────────────────────────────
+  // A signed-in browser mints a single-use, 5-min code bound to its OWN
+  // identity (POST /auth/handoff); scanning the QR opens `?handoff=<code>`,
+  // which the mount hook below trades for a bearer token as the SAME address
+  // — so your phone signs in without a wallet or any signing. Distinct from
+  // grants, which invite someone ELSE in.
+  const [handoff, setHandoff] = useState<{ code: string; exp: number } | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+
+  // ── Share-anything QR ───────────────────────────────────────────────
+  // One overlay that turns any shareable string — a snapshot CID/hash, a
+  // module's app link, an import deep-link — into a locally-rendered QR
+  // (qrSvg; the payload never leaves the browser). `options` are alternate
+  // payload forms the user flips between (APP / IMPORT / CID / …).
+  type QrShareOption = { label: string; value: string; hint?: string };
+  const [qrShare, setQrShare] = useState<{ title: string; options: QrShareOption[] } | null>(null);
+  const [qrShareIdx, setQrShareIdx] = useState(0);
+  const [qrShareCopied, setQrShareCopied] = useState(false);
 
   // File viewer state
   const [viewingFile, setViewingFile] = useState<string | null>(null);
@@ -237,10 +543,40 @@ export default function Home() {
   const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
   const [loadingTokenStats, setLoadingTokenStats] = useState(false);
 
+  // Sudo authorization modal (privileged cross-module ops)
+  const [sudoReq, setSudoReq] = useState<{ action: string; target: string } | null>(null);
+  const [sudoStatus, setSudoStatus] = useState<"review" | "signing" | "success" | "error">("review");
+  const [sudoError, setSudoError] = useState<string | null>(null);
+  const sudoResolver = useRef<{ resolve: (t: string) => void; reject: (e: any) => void } | null>(null);
+  // Sudo session + owner policy — one signature unlocks privileged ops for a
+  // window (default 1h); the owner tailors duration / always-ask in ACCOUNT.
+  const [sudoInfo, setSudoInfo] = useState<{
+    active: boolean;
+    expires: number | null;
+    sessionSecs: number;
+    alwaysAsk: string[];
+  } | null>(null);
+  const [sudoPolicyBusy, setSudoPolicyBusy] = useState(false);
+  const [sudoPolicyErr, setSudoPolicyErr] = useState<string | null>(null);
+
   // Wallet modal
-  const [showWalletModal, setShowWalletModal] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
-  const [showWalletSidebar, setShowWalletSidebar] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  // Sign-in drawer — shown as a right-side panel inside the hub when there's no
+  // session (replaces the old full-screen sign-in takeover). Re-opens whenever
+  // the session drops to null; dismissible so the hub stays browsable behind it.
+  const [signInOpen, setSignInOpen] = useState(true);
+
+  // Account sidebar (persistent right panel). This single panel now carries
+  // BOTH the owner controls and the wallet view, toggled by `accountTab` —
+  // there is no longer a separate wallet sidebar.
+  const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
+  const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
+  const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
+  const [accountTab, setAccountTab] = useState<"owner" | "wallet">("owner");
+  const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
   const [currentChainId, setCurrentChainId] = useState<number>(1);
@@ -298,8 +634,17 @@ export default function Home() {
   // New UI state
   const [moduleTab, setModuleTab] = useState<"app" | "api" | "changelog">("app");
   const [taskSubTab, setTaskSubTab] = useState<"tasks" | "input" | "output" | "deltas">("input");
+  // Sub-tab inside an open task: raw OUTPUT, the file EDITS it made, or an
+  // AUDIT trail of every tool action (bash / reads / searches / subtasks).
+  const [taskDetailTab, setTaskDetailTab] = useState<"output" | "edits" | "audit">("output");
   const [viewMode, setViewMode] = useState<"output" | "code">("output");
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [directoryTreeError, setDirectoryTreeError] = useState<string | null>(null);
+  // Snapshot-scheme tree CID of the whole browsed dir (sha256 of the sorted
+  // manifest) — matches what a VERSIONS snapshot of this dir would produce.
+  const [treeRootHash, setTreeRootHash] = useState<string | null>(null);
+  // Which CID chip was just click-copied (path or "root"), for ✓ feedback.
+  const [copiedCid, setCopiedCid] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   // Agent sidebar state (persistent right panel)
@@ -307,14 +652,62 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [isLeftDragging, setIsLeftDragging] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"tasks" | "app" | "api" | "overview" | "files">("overview");
+  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  // Inner tab inside the OVERVIEW view — keeps the identity hero always
+  // visible while INFO / ACCESS / LOGS / CONFIG swap below it instead of
+  // stacking into one long scroll.
+  const [overviewTab, setOverviewTab] = useState<"info" | "access" | "logs" | "config">("info");
+  // Sub-view inside the merged CODE tab: the file tree vs. the snapshot
+  // version history. Versions used to be its own top-level mod tab; it's
+  // now folded into CODE alongside the files browser.
+  const [codeView, setCodeView] = useState<"files" | "versions">("files");
+
+  // ── Terminal tab state (owner-only shell access) ────────────────────
+  // Each history entry is one executed command plus its captured output.
+  // The terminal runs commands inside the selected module's working dir
+  // via /api/terminal — no PTY, just one-shot `bash -c` exec, which keeps
+  // the surface small and matches the existing /api/service pattern.
+  type TerminalEntry = {
+    id: string;
+    cmd: string;
+    cwd: string;
+    stdout: string;
+    stderr: string;
+    code: number | null;
+    durationMs: number;
+    pending: boolean;
+    // Which nix env the command ran inside ("flake" | "shell"), or null/undefined
+    // for the bare host shell. Set from the /api/terminal response.
+    nix?: string | null;
+  };
+  const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([]);
+  const [terminalInput, setTerminalInput] = useState("");
+  const [terminalRunning, setTerminalRunning] = useState(false);
+  const [terminalRecallIdx, setTerminalRecallIdx] = useState<number | null>(null);
+  // Owner session token for the host shell — minted by /api/terminal/auth after
+  // the owner signs with their wallet. Without it the terminal route 401s.
+  const [terminalToken, setTerminalToken] = useState<string | null>(null);
+  const [terminalTokenExp, setTerminalTokenExp] = useState<number>(0);
+  const [terminalAuthing, setTerminalAuthing] = useState(false);
+  const [terminalAuthError, setTerminalAuthError] = useState<string | null>(null);
 
   // Left sidebar (agent) and right sidebar (wallet)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(420);
-  const [agentEnabled, setAgentEnabled] = useState(true);
-  const [agentFullscreen, setAgentFullscreen] = useState(false);
-  const [agentSidebarOpen, setAgentSidebarOpen] = useState(true);
+
+  // Mobile viewport detector — drives the AGENT-panel overlay vs. side-
+  // by-side layout, single vs. two-col bento, etc. Matches Tailwind's
+  // `md` breakpoint (768px) so the JS-driven inline styles align with
+  // any future `md:` class additions.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const [sidebarSide, setSidebarSide] = useState<"left" | "right">("right");
 
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
@@ -324,9 +717,27 @@ export default function Home() {
   const [showHeaderModuleDropdown, setShowHeaderModuleDropdown] = useState(false);
   const [headerModuleSearch, setHeaderModuleSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
-  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | null>(null);
+  const [folderSuggestions, setFolderSuggestions] = useState<Array<{
+    name: string; path: string; display: string; score: number; preview: string;
+    has_config: boolean; has_mod: boolean;
+  }>>([]);
+  const [folderList, setFolderList] = useState<Array<{
+    name: string; path: string; display: string; has_config: boolean; has_mod: boolean;
+  }>>([]);
+  const [selectorMode, setSelectorMode] = useState<"modules" | "folders">("modules");
+  const [showHeaderCreateForm, setShowHeaderCreateForm] = useState<"create" | "fork" | "edit" | "import" | null>(null);
   const [headerNewName, setHeaderNewName] = useState("");
   const [headerGithubUrl, setHeaderGithubUrl] = useState("");
+  const [headerEditPrompt, setHeaderEditPrompt] = useState("");
+  // IMPORT tab — deterministic add from an existing GitHub repo or snapshot
+  // CID (same POST /modules/import path the HUB "Add a module" modal uses).
+  const [headerImportSource, setHeaderImportSource] = useState<"github" | "cid">("github");
+  const [headerCid, setHeaderCid] = useState("");
+  // Where the BUILD/FORK/EDIT/IMPORT form renders: the header "+" popover
+  // (mobile / collapsed rail), compressed inline at the bottom of the left
+  // nav rail (desktop default), or popping up from the composer dock's "+"
+  // button. Same state + submit path in all three.
+  const [createAnchor, setCreateAnchor] = useState<"header" | "rail" | "composer">("header");
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -350,6 +761,15 @@ export default function Home() {
   const filesPanelDrag = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const filesPanelResize = useRef<{ startX: number; startY: number; origW: number; origH: number; edge: string } | null>(null);
 
+  // Floating composer dock — the bottom ask bar can pop out to a movable,
+  // width-resizable panel, or collapse to a small pill tool (bottom-right).
+  const [composerFloating, setComposerFloating] = useState(false);
+  const [composerMinimized, setComposerMinimized] = useState(false);
+  const [composerPos, setComposerPos] = useState({ x: 120, y: 120 });
+  const [composerW, setComposerW] = useState(720);
+  const composerDrag = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const composerResize = useRef<{ startX: number; origW: number; origX: number; edge: string } | null>(null);
+
   // Kill process dialog state (host key: Cmd+K)
   const [showKillDialog, setShowKillDialog] = useState(false);
   const [killInput, setKillInput] = useState("");
@@ -358,17 +778,39 @@ export default function Home() {
   const [killResult, setKillResult] = useState<any>(null);
   const [killLoading, setKillLoading] = useState(false);
   const killInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
+  // Composer dock — publish its live height as a CSS var so the mobile
+  // fullscreen task overlay can stop right above it (keeps the prompt
+  // visible + typeable on phones while tasks are open).
+  const composerDockRO = useRef<ResizeObserver | null>(null);
+  const composerDockRef = useCallback((el: HTMLDivElement | null) => {
+    composerDockRO.current?.disconnect();
+    composerDockRO.current = null;
+    if (!el) {
+      document.documentElement.style.setProperty("--composer-dock-h", "0px");
+      return;
+    }
+    const apply = () =>
+      document.documentElement.style.setProperty("--composer-dock-h", `${el.offsetHeight}px`);
+    apply();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(apply);
+      ro.observe(el);
+      composerDockRO.current = ro;
+    }
+  }, []);
 
   const headerCreateRef = useRef<HTMLDivElement>(null);
+  const railCreateRef = useRef<HTMLDivElement>(null);
+  const composerCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
-  const themeRef = useRef<HTMLDivElement>(null);
   const userDetailsRef = useRef<HTMLDivElement>(null);
   const tokenStatsRef = useRef<HTMLDivElement>(null);
 
   // Theme-aware helpers
-  const isLight = theme === "light" || (!["dark", "matrix", "cyberpunk", "amber", "ocean", "ibm"].includes(theme) && theme !== "win95");
+  const isLight = theme === "light";
   const STATUS_COLOR = isLight ? STATUS_COLOR_LIGHT : STATUS_COLOR_DARK;
   const tintBg = isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)";
   const tintBgStrong = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
@@ -402,8 +844,14 @@ export default function Home() {
   const jsonCopiedColor = isLight ? "#059669" : "#50fa7b";
   const jsonCopiedBg = isLight ? "rgba(5,150,105,0.1)" : "rgba(80,250,123,0.1)";
 
-  // Pick the best default tab for a module based on its capabilities
-  const getBestTab = useCallback((info: typeof moduleList[0] | null): "overview" | "app" | "api" | "files" => {
+  // Pick the best default tab for a module based on its capabilities.
+  // We land on APP (the live module interface) whenever the module has one —
+  // the real thing first, OVERVIEW chrome only when there's no app to show.
+  // claude's APP embeds the real claude app (see appModName in
+  // renderAppApiTab); an embedded copy falls back to the web front-door so it
+  // doesn't iframe itself forever.
+  const getBestTab = useCallback((info: typeof moduleList[0] | null): "hub" | "overview" | "app" | "api" | "files" => {
+    if (info?.app_url || info?.has_app_dir) return "app";
     return "overview";
   }, []);
 
@@ -437,9 +885,59 @@ export default function Home() {
     setExpandedDirs(new Set());
     // JSON tree
     setCollapsedPaths(new Set());
+    // A freshly opened module starts un-expanded.
+    setAppExpanded(false);
     // Auto-select the best tab for the new module
     setSidebarView(getBestTab(newModuleInfo || null));
   }, [getBestTab]);
+
+  // Track recently-opened modules (newest first, deduped, capped) whenever the
+  // selection changes, and persist so the rail survives reloads.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("claude_recent_modules");
+      if (saved) {
+        // Dedupe + sanitize on load: an earlier build could persist the same
+        // name over and over (a rail full of "registry"), and stored dupes
+        // otherwise survive forever because updates only filter the newly
+        // selected name. A polluted cache heals itself here.
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setRecentModules(
+            [...new Set(parsed.filter((n): n is string => typeof n === "string" && n.length > 0))].slice(0, 15),
+          );
+        }
+      }
+      const railOpen = localStorage.getItem("claude_left_rail_open");
+      if (railOpen !== null) setLeftRailOpen(railOpen === "true");
+    } catch { /* ignore corrupt cache */ }
+  }, []);
+  useEffect(() => {
+    safeSetItem("claude_left_rail_open", String(leftRailOpen));
+  }, [leftRailOpen]);
+  // Esc exits the full-viewport app overlay.
+  useEffect(() => {
+    if (!appExpanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setAppExpanded(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [appExpanded]);
+  useEffect(() => {
+    if (!selectedModule) return;
+    setRecentModules((prev) => {
+      const next = [selectedModule, ...prev.filter((n) => n !== selectedModule)].slice(0, 15);
+      return next;
+    });
+  }, [selectedModule]);
+  useEffect(() => {
+    // Never persist the initial empty state: this effect fires on mount
+    // before the loaded list lands, and writing "[]" here clobbers the
+    // stored recents (StrictMode's second mount then re-reads the empty
+    // value and the rail forgets everything). Recents only ever grow or
+    // reorder, so an empty list is always "not loaded yet", never data.
+    if (recentModules.length === 0) return;
+    safeSetItem("claude_recent_modules", JSON.stringify(recentModules));
+  }, [recentModules]);
 
   // Detect wallet extensions client-side only (avoids hydration mismatch)
   useEffect(() => {
@@ -476,14 +974,14 @@ export default function Home() {
   // Apply theme to document root
   useEffect(() => {
     const savedTheme = localStorage.getItem("claude_jobs_theme");
-    if (savedTheme) {
-      setTheme(savedTheme as typeof theme);
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
     }
   }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem("claude_jobs_theme", theme);
+    safeSetItem("claude_jobs_theme", theme);
   }, [theme]);
 
   // Keyboard shortcuts for inline file search
@@ -518,6 +1016,14 @@ export default function Home() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // The read-only /files/* endpoints default-deny unauthenticated callers, so
+  // every browse/search fetch must carry the bearer token (local mode excepted).
+  const fileAuthHeaders = useCallback(
+    (): Record<string, string> =>
+      token && token !== "local" ? { Authorization: `Bearer ${token}` } : {},
+    [token]
+  );
+
   // Inline search debounce effect
   useEffect(() => {
     if (inlineSearchMode === "off" || !inlineSearchQuery.trim()) {
@@ -526,18 +1032,19 @@ export default function Home() {
     }
     const tid = setTimeout(async () => {
       setInlineSearchLoading(true);
-      const sd = selectedJob
-        ? jobs.find((j) => j.id === selectedJob)?.work_dir || workDir || "~/mod"
-        : workDir || "~/mod";
+      const sd = workDir
+        || (selectedJob ? jobs.find((j) => j.id === selectedJob)?.work_dir : "")
+        || "~/mod";
       try {
         if (inlineSearchMode === "files") {
           const r = await fetch(
-            `${apiUrl}/files/search?path=${encodeURIComponent(sd)}&query=${encodeURIComponent(inlineSearchQuery)}`
+            `${apiUrl}/files/search?path=${encodeURIComponent(sd)}&query=${encodeURIComponent(inlineSearchQuery)}`,
+            { headers: fileAuthHeaders() }
           );
           if (r.ok) { const d = await r.json(); setInlineSearchResults(d.results || []); }
         } else {
           const p = new URLSearchParams({ path: sd, query: inlineSearchQuery });
-          const r = await fetch(`${apiUrl}/files/grep?${p}`);
+          const r = await fetch(`${apiUrl}/files/grep?${p}`, { headers: fileAuthHeaders() });
           if (r.ok) { const d = await r.json(); setInlineSearchResults(d.matches || []); }
         }
       } catch { /* ignore */ }
@@ -545,14 +1052,11 @@ export default function Home() {
       setInlineSelectedIndex(0);
     }, 300);
     return () => clearTimeout(tid);
-  }, [inlineSearchQuery, inlineSearchMode, workDir, selectedJob, jobs, apiUrl]);
+  }, [inlineSearchQuery, inlineSearchMode, workDir, selectedJob, jobs, apiUrl, fileAuthHeaders]);
 
   // Close menus when clicking outside
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
-        setShowThemeMenu(false);
-      }
       if (userDetailsRef.current && !userDetailsRef.current.contains(e.target as Node)) {
         setShowUserDetails(false);
       }
@@ -562,7 +1066,11 @@ export default function Home() {
       if (headerModuleRef.current && !headerModuleRef.current.contains(e.target as Node)) {
         setShowHeaderModuleDropdown(false);
       }
-      if (headerCreateRef.current && !headerCreateRef.current.contains(e.target as Node)) {
+      if (
+        (!headerCreateRef.current || !headerCreateRef.current.contains(e.target as Node)) &&
+        (!railCreateRef.current || !railCreateRef.current.contains(e.target as Node)) &&
+        (!composerCreateRef.current || !composerCreateRef.current.contains(e.target as Node))
+      ) {
         setShowHeaderCreateForm(null);
       }
     };
@@ -573,10 +1081,60 @@ export default function Home() {
   // Load saved model and backend URL
   useEffect(() => {
     const savedModel = localStorage.getItem("claude_jobs_model");
-    if (savedModel) setModel(savedModel);
+    if (savedModel) {
+      // Upgrade old family aliases (opus/sonnet/haiku) to the full model ID
+      // so users don't get silently bumped to a different version on update.
+      let upgraded = MODEL_ALIAS_UPGRADE[savedModel] || savedModel;
+      // Drop any saved value that's no longer a selectable model (e.g. a model
+      // pulled for being gated/unavailable) so jobs never run with one.
+      if (!MODEL_OPTIONS.some(o => o.value === upgraded)) upgraded = MODEL_OPTIONS[0].value;
+      setModel(upgraded);
+      if (upgraded !== savedModel) safeSetItem("claude_jobs_model", upgraded);
+    }
 
     const savedAgent = localStorage.getItem("claude_jobs_agent");
     if (savedAgent) setAgentType(savedAgent);
+
+    // Load the system-prompt chain; migrate the legacy single saved prompt
+    // into it as the first block (already on) so it keeps applying.
+    let loadedChain: SysPromptBlock[] = [];
+    try {
+      const rawChain = localStorage.getItem("claude_system_prompts");
+      if (rawChain) loadedChain = JSON.parse(rawChain);
+    } catch {}
+    if (!loadedChain.length) {
+      const legacy = localStorage.getItem("claude_system_prompt");
+      if (legacy && legacy.trim()) {
+        loadedChain = [{ id: "migrated", name: "SAVED", text: legacy, on: true }];
+        safeSetItem("claude_system_prompts", JSON.stringify(loadedChain));
+        try { localStorage.removeItem("claude_system_prompt"); } catch {}
+      }
+    }
+    if (loadedChain.length) setSysPrompts(loadedChain);
+    // Restore the PARAMS panel's open/closed preference. With no saved
+    // preference, default to open only when a chain is active (so it stays
+    // discoverable the first time).
+    const savedSystemPromptOpen = localStorage.getItem("claude_system_prompt_open");
+    if (savedSystemPromptOpen !== null) {
+      setSystemPromptOpen(savedSystemPromptOpen === "1");
+    } else if (loadedChain.some(p => p.on)) {
+      setSystemPromptOpen(true);
+    }
+
+    const savedTermTok = localStorage.getItem("claude_terminal_token");
+    const savedTermExp = Number(localStorage.getItem("claude_terminal_token_exp") || "0");
+    if (savedTermTok && savedTermExp > Date.now()) {
+      setTerminalToken(savedTermTok);
+      setTerminalTokenExp(savedTermExp);
+    } else {
+      localStorage.removeItem("claude_terminal_token");
+      localStorage.removeItem("claude_terminal_token_exp");
+    }
+
+    const savedEngine = localStorage.getItem("claude_jobs_engine");
+    if (savedEngine && ENGINE_OPTIONS.some(e => e.value === savedEngine && e.available)) {
+      setEngine(savedEngine);
+    }
 
     const savedUrl = localStorage.getItem("claude_backend_url");
     if (savedUrl) setApiUrl(savedUrl);
@@ -613,35 +1171,63 @@ export default function Home() {
     if (savedLeft !== null) setLeftSidebarOpen(savedLeft === "true");
     const savedLeftW = localStorage.getItem("claude_left_sidebar_width");
     if (savedLeftW) setLeftSidebarWidth(parseInt(savedLeftW, 10));
-    const savedAgent = localStorage.getItem("claude_agent_enabled");
-    if (savedAgent !== null) setAgentEnabled(savedAgent === "true");
     const savedSide = localStorage.getItem("claude_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
+    const savedAccountTab = localStorage.getItem("claude_account_tab");
+    if (savedAccountTab === "owner" || savedAccountTab === "wallet") setAccountTab(savedAccountTab);
+    const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
+    if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
+    const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
+    if (savedOwnerWidth) setOwnerSidebarWidth(parseInt(savedOwnerWidth, 10));
+    const savedRailWidth = localStorage.getItem("claude_left_rail_width");
+    if (savedRailWidth) {
+      const w = parseInt(savedRailWidth, 10);
+      if (Number.isFinite(w)) setLeftRailWidth(Math.max(160, Math.min(480, w)));
+    }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("claude_tasks_sidebar_open", String(tasksSidebarOpen));
+    safeSetItem("claude_tasks_sidebar_open", String(tasksSidebarOpen));
   }, [tasksSidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem("claude_tasks_sidebar_width", String(sidebarWidth));
+    safeSetItem("claude_tasks_sidebar_width", String(sidebarWidth));
   }, [sidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("claude_left_sidebar_open", String(leftSidebarOpen));
+    safeSetItem("claude_left_sidebar_open", String(leftSidebarOpen));
   }, [leftSidebarOpen]);
 
   useEffect(() => {
-    localStorage.setItem("claude_left_sidebar_width", String(leftSidebarWidth));
+    safeSetItem("claude_left_sidebar_width", String(leftSidebarWidth));
   }, [leftSidebarWidth]);
 
   useEffect(() => {
-    localStorage.setItem("claude_agent_enabled", String(agentEnabled));
-  }, [agentEnabled]);
+    safeSetItem("claude_sidebar_side", sidebarSide);
+  }, [sidebarSide]);
 
   useEffect(() => {
-    localStorage.setItem("claude_sidebar_side", sidebarSide);
-  }, [sidebarSide]);
+    safeSetItem("claude_account_tab", accountTab);
+  }, [accountTab]);
+
+  useEffect(() => {
+    safeSetItem("claude_owner_sidebar_open", String(showOwnerSidebar));
+  }, [showOwnerSidebar]);
+
+  useEffect(() => {
+    safeSetItem("claude_owner_sidebar_width", String(ownerSidebarWidth));
+  }, [ownerSidebarWidth]);
+
+  useEffect(() => {
+    safeSetItem("claude_left_rail_width", String(leftRailWidth));
+  }, [leftRailWidth]);
+
+  // Whenever the session drops (initial load with no token, or after sign-out)
+  // surface the sign-in drawer again. Fires only on token transitions, so a
+  // manual dismiss while signed-out stays dismissed.
+  useEffect(() => {
+    if (!token) setSignInOpen(true);
+  }, [token]);
 
   // Check saved token or detect local mode
   useEffect(() => {
@@ -654,6 +1240,8 @@ export default function Home() {
       setWalletType(savedWalletType);
       return;
     }
+    // The user explicitly signed out — stay on the auth screen
+    if (localStorage.getItem("claude_jobs_signed_out") === "1") return;
     // Probe server — if local mode is on, skip auth entirely
     fetch(`${apiUrl}/health`)
       .then((r) => r.json())
@@ -667,9 +1255,9 @@ export default function Home() {
           setToken("local");
           setAddress("local");
           setWalletType("local");
-          localStorage.setItem("claude_jobs_token", "local");
-          localStorage.setItem("claude_jobs_address", "local");
-          localStorage.setItem("claude_jobs_wallet_type", "local");
+          safeSetItem("claude_jobs_token", "local");
+          safeSetItem("claude_jobs_address", "local");
+          safeSetItem("claude_jobs_wallet_type", "local");
         }
       })
       .catch(() => { /* server not reachable, show auth screen */ });
@@ -682,12 +1270,328 @@ export default function Home() {
     }
   }, [address]);
 
-  // Check owner status when address changes
+  // Poll the snapshot chain for the currently-selected module so the
+  // versions count badge stays fresh without opening the full VersionsPanel.
   useEffect(() => {
-    // Everyone is an owner
-    setIsOwner(true);
-    setOwnerAddress(address);
-  }, [address]);
+    const mod = selectedModule || "claude";
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${apiUrl}/modules/${encodeURIComponent(mod)}/versions`);
+        const d = await r.json();
+        if (cancelled) return;
+        setAgentVersions(Array.isArray(d.versions) ? d.versions.slice().reverse() : []);
+      } catch {
+        if (!cancelled) setAgentVersions([]);
+      }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [apiUrl, selectedModule]);
+
+  // Load the whitelist on mount + after any owner-driven mutation.
+  const loadWhitelist = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/whitelist`);
+      const d = await r.json();
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+    } catch {
+      setWhitelist([]);
+    }
+  }, [apiUrl]);
+  useEffect(() => { loadWhitelist(); }, [loadWhitelist]);
+
+  const addToWhitelist = useCallback(async (addr: string) => {
+    const clean = addr.trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(clean)) {
+      setWhitelistError("address must be 0x + 40 hex chars");
+      return;
+    }
+    setWhitelistBusy(true);
+    setWhitelistError(null);
+    try {
+      const r = await fetch(`${apiUrl}/whitelist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ address: clean }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+      setWhitelistInput("");
+    } catch (e) {
+      setWhitelistError((e as Error).message);
+    } finally {
+      setWhitelistBusy(false);
+    }
+  }, [apiUrl, token]);
+
+  const removeFromWhitelist = useCallback(async (addr: string) => {
+    setWhitelistBusy(true);
+    setWhitelistError(null);
+    try {
+      const r = await fetch(`${apiUrl}/whitelist/${encodeURIComponent(addr)}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setWhitelist(Array.isArray(d.whitelist) ? d.whitelist : []);
+    } catch (e) {
+      setWhitelistError((e as Error).message);
+    } finally {
+      setWhitelistBusy(false);
+    }
+  }, [apiUrl, token]);
+
+  // ── Grants: owner mints / lists / revokes time-boxed edit invites ──
+  const loadGrants = useCallback(async () => {
+    if (!token || !isOwner) { setGrants([]); setGrantRedemptions([]); return; }
+    try {
+      const r = await fetch(`${apiUrl}/grants`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      setGrants(Array.isArray(d.grants) ? d.grants : []);
+      setGrantRedemptions(Array.isArray(d.redemptions) ? d.redemptions : []);
+    } catch { /* transient */ }
+  }, [apiUrl, token, isOwner]);
+  useEffect(() => { loadGrants(); }, [loadGrants]);
+
+  // Generate a short, URL-safe key locally (the "further restriction").
+  const genKey = useCallback(() => {
+    const bytes = new Uint8Array(8);
+    (globalThis.crypto || (window as any).crypto).getRandomValues(bytes);
+    const k = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    setGrantKey(k);
+  }, []);
+
+  const createGrant = useCallback(async () => {
+    setGrantBusy(true);
+    setGrantError(null);
+    try {
+      const key = grantKey.trim();
+      const r = await fetch(`${apiUrl}/grants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ttl: grantTtl, key: key || undefined, label: grantLabel.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setActiveGrant({ id: d.id, exp: d.exp, key: key || undefined, key_required: !!d.key_required });
+      await loadGrants();
+    } catch (e) {
+      setGrantError((e as Error).message);
+    } finally {
+      setGrantBusy(false);
+    }
+  }, [apiUrl, token, grantTtl, grantKey, grantLabel, loadGrants]);
+
+  const revokeGrant = useCallback(async (id: string) => {
+    setGrantBusy(true);
+    setGrantError(null);
+    try {
+      const r = await fetch(`${apiUrl}/grants/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) { const d = await safeJson(r); throw new Error(d.error || `HTTP ${r.status}`); }
+      if (activeGrant?.id === id) setActiveGrant(null);
+      await loadGrants();
+    } catch (e) {
+      setGrantError((e as Error).message);
+    } finally {
+      setGrantBusy(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, token, activeGrant, loadGrants]);
+
+  // Build the invite URL a grantee opens. The id (a capability) travels in the
+  // QR; the key never does — it's shared out of band, so a leaked QR is inert.
+  const grantInviteUrl = useCallback((id: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${DEFAULT_BASE_PATH}?grant=${encodeURIComponent(id)}`;
+  }, []);
+
+  const copyGrantBit = useCallback((label: string, value: string) => {
+    navigator.clipboard?.writeText(value).catch(() => {});
+    setGrantCopied(label);
+    setTimeout(() => setGrantCopied((c) => (c === label ? null : c)), 1400);
+  }, []);
+
+  // Tick a clock once a second so grant countdowns stay live.
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Capture an inbound `?grant=<id>` invite once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const p = params.get("grant");
+    if (p) setPendingGrant(p);
+    // `?import=<cid>` — a scanned share-QR lands here: open the Add-module
+    // form prefilled with the snapshot CID (+ optional suggested name), so
+    // scanning a code on another machine is all it takes to pull a module in.
+    const imp = params.get("import");
+    if (imp) {
+      setAddSource("cid");
+      setAddCid(imp);
+      const n = params.get("name");
+      if (n) setAddName(n);
+      setAddOpen(true);
+    }
+  }, []);
+
+  // ── Share-anything QR: open the overlay with non-empty payloads ─────
+  const openQrShare = useCallback(
+    (title: string, options: Array<{ label: string; value?: string | null; hint?: string }>) => {
+      const opts = options.filter((o): o is { label: string; value: string; hint?: string } => !!o.value);
+      if (!opts.length) return;
+      setQrShare({ title, options: opts });
+      setQrShareIdx(0);
+      setQrShareCopied(false);
+    },
+    []
+  );
+
+  // Share a module: its public app link, an import deep-link (opens this
+  // console with the Add-module form prefilled), and the raw snapshot CID.
+  const shareModuleQr = useCallback(
+    (name: string, cid?: string | null) => {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      openQrShare(`Share · ${name}`, [
+        { label: "App", value: `${origin}/${name}`, hint: "Public app link — scan to open this module" },
+        {
+          label: "Import",
+          value: cid
+            ? `${origin}${DEFAULT_BASE_PATH}?import=${encodeURIComponent(cid)}&name=${encodeURIComponent(name)}`
+            : null,
+          hint: "Scan to open this console with the import form prefilled",
+        },
+        { label: "CID", value: cid, hint: "Raw snapshot CID" },
+      ]);
+    },
+    [openQrShare]
+  );
+
+  // Share a hash/CID: import deep-link first (most useful on a phone), then
+  // the raw hash, then an IPFS gateway link when the caller has one.
+  const shareCidQr = useCallback(
+    (cid: string, name?: string | null, gateway?: string | null) => {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const nameQ = name ? `&name=${encodeURIComponent(name)}` : "";
+      openQrShare(name ? `Share · ${name} snapshot` : "Share · snapshot", [
+        {
+          label: "Import",
+          value: `${origin}${DEFAULT_BASE_PATH}?import=${encodeURIComponent(cid)}${nameQ}`,
+          hint: "Scan to open this console with the import form prefilled",
+        },
+        { label: "CID", value: cid, hint: "Raw snapshot CID / hash" },
+        { label: "Gateway", value: gateway, hint: "IPFS gateway link" },
+      ]);
+    },
+    [openQrShare]
+  );
+
+  // Human countdown for grant/redemption expiries (shared by the whitelist
+  // timed rows and the share-access card).
+  const fmtTimeLeft = useCallback((exp: number) => {
+    let s = Math.max(0, exp - nowSec);
+    if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+    if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+    if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${s}s`;
+  }, [nowSec]);
+
+  // ── Phone sign-in (session handoff) ────────────────────────────────
+
+  // Mint a single-use handoff code for THIS session's identity. The code is
+  // a capability for the whole identity, so it's rendered as a QR locally
+  // (qrSvg) and never touches any third-party service.
+  const createHandoff = useCallback(async () => {
+    if (!token) return;
+    setHandoffBusy(true);
+    setHandoffError(null);
+    try {
+      const r = await fetch(`${apiUrl}/auth/handoff`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "HANDOFF MINT FAILED");
+      if (!d.code || typeof d.exp !== "number") throw new Error("INVALID HANDOFF RESPONSE");
+      setHandoff({ code: d.code, exp: d.exp });
+    } catch (e) {
+      setHandoffError((e as Error).message);
+    } finally {
+      setHandoffBusy(false);
+    }
+  }, [apiUrl, token]);
+
+  const handoffUrl = useCallback((code: string) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}${DEFAULT_BASE_PATH}?handoff=${encodeURIComponent(code)}`;
+  }, []);
+
+  // Redeem an inbound `?handoff=<code>` once on mount: trade the code for a
+  // bearer token as the minting session's address — the phone signs in with
+  // no wallet and no signature. The param is stripped from the URL/history
+  // immediately (the code is single-use, but don't leave it lying around).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = new URLSearchParams(window.location.search).get("handoff");
+    if (!code) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("handoff");
+    window.history.replaceState({}, "", url.toString());
+    (async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      try {
+        const r = await fetch(`${apiUrl}/auth/handoff/redeem`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "SIGN-IN CODE REJECTED");
+        if (!d.token || !d.address) throw new Error("INVALID HANDOFF RESPONSE");
+        setToken(d.token);
+        setAddress(d.address);
+        setWalletType(null);
+        localStorage.removeItem("claude_jobs_signed_out");
+        localStorage.removeItem("claude_jobs_wallet_type");
+        safeSetItem("claude_jobs_token", d.token);
+        safeSetItem("claude_jobs_address", d.address);
+      } catch (e) {
+        const msg = (e as Error).message;
+        setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg);
+      } finally {
+        setAuthLoading(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reflect the configured owner (config.json, exposed via the API /owner
+  // endpoint) and treat the connected wallet as owner only when it matches.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/owner`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const owner = data?.owner ? String(data.owner).toLowerCase() : null;
+        if (cancelled) return;
+        setOwnerAddress(owner);
+        setIsOwner(!!(owner && address && address.toLowerCase() === owner));
+      } catch { /* keep previous owner state on transient errors */ }
+    })();
+    return () => { cancelled = true; };
+  }, [address, apiUrl]);
 
   // ── Auth ──────────────────────────────────────────────────────────
 
@@ -715,23 +1619,34 @@ export default function Home() {
 
     const signature = await signFn(message);
 
+    // If the visitor arrived via a QR edit-invite, thread its id + key so the
+    // API redeems the grant during verify and lets a non-whitelisted address in.
+    const grant = pendingGrantRef.current;
     const verifyRes = await fetch(`${apiUrl}/auth/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address: addr, signature, message }),
+      body: JSON.stringify({
+        address: addr,
+        signature,
+        message,
+        ...(grant ? { grant: grant.id, grant_key: grant.key || undefined } : {}),
+      }),
     });
 
     const verifyData = await safeJson(verifyRes);
     if (!verifyRes.ok) {
       throw new Error(verifyData.error || "SIGNATURE VERIFICATION FAILED");
     }
+    // Invite consumed — clear it so a later re-sign doesn't re-thread it.
+    if (grant) { pendingGrantRef.current = null; setPendingGrant(null); }
 
     const { token: newToken, address: verifiedAddr } = verifyData;
     if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
     setToken(newToken);
     setAddress(verifiedAddr);
-    localStorage.setItem("claude_jobs_token", newToken);
-    localStorage.setItem("claude_jobs_address", verifiedAddr);
+    localStorage.removeItem("claude_jobs_signed_out");
+    safeSetItem("claude_jobs_token", newToken);
+    safeSetItem("claude_jobs_address", verifiedAddr);
 
     // Check if this user became the owner
     if (!wasOwnerSet) {
@@ -768,7 +1683,7 @@ export default function Home() {
           });
         });
         setWalletType("subwallet");
-        localStorage.setItem("claude_jobs_wallet_type", "subwallet");
+        safeSetItem("claude_jobs_wallet_type", "subwallet");
       } else {
         // MetaMask or default provider
         const accounts: string[] = await ethereum.request({
@@ -784,7 +1699,7 @@ export default function Home() {
           });
         });
         setWalletType("metamask");
-        localStorage.setItem("claude_jobs_wallet_type", "metamask");
+        safeSetItem("claude_jobs_wallet_type", "metamask");
       }
     } catch (e: any) {
       const msg = e.message || "";
@@ -793,6 +1708,68 @@ export default function Home() {
       setAuthLoading(false);
     }
   };
+
+  // Redeem an inbound QR edit-invite: stash {id,key} where signChallenge reads
+  // it, then run the normal wallet sign-in (which threads the grant to verify).
+  const redeemInvite = useCallback(async (walletKind: "metamask" | "subwallet" = "metamask") => {
+    if (!pendingGrant) return;
+    pendingGrantRef.current = { id: pendingGrant, key: redeemKey.trim() };
+    await connectWallet(walletKind);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingGrant, redeemKey]);
+
+  // Walletless entry: trade the grant id (+ optional key) for a guest bearer
+  // token via the public redeem endpoint. No wallet, no signature — possession
+  // of the QR is the capability; access ends when the grant expires.
+  const enterAsGuest = useCallback(async () => {
+    if (!pendingGrant) return;
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const r = await fetch(`${apiUrl}/grants/${encodeURIComponent(pendingGrant)}/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: redeemKey.trim() || undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "INVITE REDEMPTION FAILED");
+      if (!d.token || !d.address) throw new Error("INVALID REDEEM RESPONSE");
+      setToken(d.token);
+      setAddress(d.address);
+      setWalletType(null);
+      setGuestExp(typeof d.exp === "number" ? d.exp : null);
+      localStorage.removeItem("claude_jobs_signed_out");
+      safeSetItem("claude_jobs_token", d.token);
+      safeSetItem("claude_jobs_address", d.address);
+      if (typeof d.exp === "number") safeSetItem("claude_jobs_guest_exp", String(d.exp));
+      setPendingGrant(null);
+      pendingGrantRef.current = null;
+    } catch (e) {
+      const msg = (e as Error).message;
+      setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg);
+    } finally {
+      setAuthLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, pendingGrant, redeemKey]);
+
+  // Restore a guest session's expiry across reloads; drop it for wallet users.
+  useEffect(() => {
+    if (address && address.startsWith("guest_")) {
+      const saved = Number(localStorage.getItem("claude_jobs_guest_exp") || "");
+      setGuestExp(Number.isFinite(saved) && saved > 0 ? saved : null);
+    } else {
+      setGuestExp(null);
+    }
+  }, [address]);
+
+  // Guest access is time-boxed server-side; mirror it client-side so the UI
+  // signs out the moment the grant window closes instead of on the next 401.
+  useEffect(() => {
+    if (!address || !address.startsWith("guest_") || !guestExp) return;
+    if (nowSec >= guestExp) disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowSec, address, guestExp]);
 
   const connectWithPassword = async (password: string) => {
     setAuthLoading(true);
@@ -808,7 +1785,7 @@ export default function Home() {
         return await wallet.signMessage(msg);
       });
       setWalletType("password");
-      localStorage.setItem("claude_jobs_wallet_type", "password");
+      safeSetItem("claude_jobs_wallet_type", "password");
     } catch (e: any) {
       const msg = e.message || "";
       setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg || "PASSWORD KEY DERIVATION FAILED");
@@ -828,7 +1805,7 @@ export default function Home() {
       if (!mnemonic) {
         const wallet = ethers.Wallet.createRandom();
         mnemonic = wallet.mnemonic!.phrase;
-        localStorage.setItem("claude_jobs_seed", mnemonic);
+        safeSetItem("claude_jobs_seed", mnemonic);
         isNew = true;
       }
 
@@ -840,7 +1817,7 @@ export default function Home() {
       });
 
       setWalletType("local");
-      localStorage.setItem("claude_jobs_wallet_type", "local");
+      safeSetItem("claude_jobs_wallet_type", "local");
 
       if (isNew) {
         console.log(
@@ -864,9 +1841,14 @@ export default function Home() {
     setSelectedJob(null);
     setStreamOutput("");
     setTokenStats(null);
+    setGuestExp(null);
     localStorage.removeItem("claude_jobs_token");
     localStorage.removeItem("claude_jobs_address");
     localStorage.removeItem("claude_jobs_wallet_type");
+    localStorage.removeItem("claude_jobs_guest_exp");
+    // Persist the sign-out so the local-mode probe on next load
+    // doesn't silently reconnect us.
+    safeSetItem("claude_jobs_signed_out", "1");
     if (esRef.current) esRef.current.close();
   };
 
@@ -950,6 +1932,32 @@ export default function Home() {
     [token, apiUrl]
   );
 
+  // Pull the sudo session + policy so the ACCOUNT card and the Sudo sheet can
+  // show what one signature actually buys. Owner-only server-side; anyone else
+  // (or local mode) just clears the card.
+  const refreshSudoStatus = useCallback(async () => {
+    try {
+      const r = await authFetch("/sudo/status");
+      if (!r.ok) { setSudoInfo(null); return; }
+      const d = await r.json();
+      if (d?.local) { setSudoInfo(null); return; }
+      setSudoInfo({
+        active: !!d.session_active,
+        expires: d.expires ?? null,
+        sessionSecs: d.policy?.session_secs ?? 3600,
+        alwaysAsk: Array.isArray(d.policy?.always_ask) ? d.policy.always_ask : [],
+      });
+    } catch {
+      /* transient — keep whatever we last knew */
+    }
+  }, [authFetch]);
+
+  // Keep the sudo card honest: fetch when the owner opens ACCOUNT (and once on
+  // owner sign-in so the Sudo sheet can announce the session it will open).
+  useEffect(() => {
+    if (token && token !== "local" && isOwner) refreshSudoStatus();
+  }, [token, isOwner, showOwnerSidebar, refreshSudoStatus]);
+
   // ── Dynamic API Lifecycle ───────────────────────────────────────────
 
   const touchApiActivity = useCallback(() => {
@@ -967,14 +1975,14 @@ export default function Home() {
 
   const startApiServer = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "start",
           type: "api",
-          port: parseInt(apiUrl.split(":").pop() || "8820"),
-          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`,
+          port: API_PORT,
+          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`,
         }),
       });
       const data = await res.json();
@@ -986,8 +1994,8 @@ export default function Home() {
 
   const stopApiServer = useCallback(async () => {
     try {
-      const port = parseInt(apiUrl.split(":").pop() || "8820");
-      await fetch("/api/service", {
+      const port = API_PORT;
+      await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", port }),
@@ -1004,15 +2012,15 @@ export default function Home() {
     }
     setApiStatus("starting");
     // Try starting via start.sh (the Rust binary)
-    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/api`;
+    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`;
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "start",
           type: "api",
-          port: parseInt(apiUrl.split(":").pop() || "8820"),
+          port: API_PORT,
           workDir: apiDir,
         }),
       });
@@ -1072,10 +2080,14 @@ export default function Home() {
     setViewingFileLoading(true);
     setEditingFile(false);
     try {
-      const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(filePath)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setViewingFileContent(data.content || "");
+        if (data.error) {
+          setViewingFileContent(`// ${data.error}`);
+        } else {
+          setViewingFileContent(data.content || "");
+        }
       } else {
         setViewingFileContent("// Failed to load file");
       }
@@ -1084,29 +2096,30 @@ export default function Home() {
     } finally {
       setViewingFileLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, fileAuthHeaders]);
 
   const saveFile = useCallback(async () => {
     if (!viewingFile || !token) return;
     setSavingFile(true);
     try {
-      const res = await authFetch("/files/write", {
-        method: "POST",
-        body: JSON.stringify({ path: viewingFile, content: editBuffer }),
-      });
+      // Editing a module OTHER than claude is privileged: authFetchSudo signs a
+      // fresh owner authorization bound to this exact path and retries if the
+      // server demands it. Saving inside claude itself needs no extra step.
+      const body = JSON.stringify({ path: viewingFile, content: editBuffer });
+      const res = await authFetchSudo("/files/write", { method: "POST", body });
       if (res.ok) {
         setViewingFileContent(editBuffer);
         setEditingFile(false);
       } else {
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({} as any));
         setError(data.error || "Failed to save file");
       }
-    } catch {
-      setError("Error saving file");
+    } catch (e: any) {
+      setError(e?.message || "Error saving file");
     } finally {
       setSavingFile(false);
     }
-  }, [viewingFile, editBuffer, token, authFetch]);
+  }, [viewingFile, editBuffer, token, authFetch, address, walletType]);
 
   // Navigate file tree to show the parent folder of a file and expand all ancestor dirs
   const navigateToFile = useCallback(async (filePath: string) => {
@@ -1116,7 +2129,7 @@ export default function Home() {
 
     // Fetch the tree for the parent directory so we see sibling files
     try {
-      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(parentDir)}`);
+      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(parentDir)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const tree = data.tree || [];
@@ -1142,16 +2155,23 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to navigate to file:", e);
     }
-  }, [apiUrl]);
+  }, [apiUrl, fileAuthHeaders]);
 
   const fetchDirectoryTree = useCallback(async (path?: string) => {
     try {
-      const targetPath = path || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : workDir) || "~/mod";
-      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(targetPath)}`);
+      // workDir wins over the selected job's work_dir so an explicit module
+      // switch in the header always re-syncs FILES; the job dir is only a
+      // fallback for the pre-selection initial state.
+      const targetPath = path || workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : null) || "~/mod";
+      const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(targetPath)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         const tree = data.tree || [];
         setDirectoryTree(tree);
+        setTreeRootHash(data.root_hash || null);
+        // /files/tree reports auth/path failures as { tree: [], error } with a
+        // 200 status — surface it instead of rendering a silent empty tree.
+        setDirectoryTreeError(tree.length === 0 && data.error ? data.error : null);
         // Start with all folders collapsed
         setExpandedDirs(new Set());
         // Auto-select config.json
@@ -1163,7 +2183,12 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to fetch directory tree:", e);
     }
-  }, [selectedJob, jobs, workDir, apiUrl, loadFileContent]);
+  }, [selectedJob, jobs, workDir, apiUrl, loadFileContent, fileAuthHeaders]);
+
+  // Reset the open-task sub-tab to OUTPUT whenever a different task is opened.
+  useEffect(() => {
+    setTaskDetailTab("output");
+  }, [selectedJob]);
 
   // Load directory tree on mount and when relevant state changes
   useEffect(() => {
@@ -1204,6 +2229,52 @@ export default function Home() {
       document.body.style.userSelect = '';
     };
   }, [isLeftDragging]);
+
+  // Handle OWNER sidebar resize dragging. Sits at the far right; drag handle
+  // on the LEFT edge — dragging left grows the panel.
+  useEffect(() => {
+    if (!isOwnerSidebarDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const ww = window.innerWidth;
+      const newWidth = ww - e.clientX;
+      const maxWidth = Math.max(380, ww * 0.7);
+      setOwnerSidebarWidth(Math.max(300, Math.min(maxWidth, newWidth)));
+    };
+    const handleMouseUp = () => setIsOwnerSidebarDragging(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isOwnerSidebarDragging]);
+
+  // Handle nav-rail resize dragging. The rail sits at the far left; the drag
+  // handle rides its RIGHT edge (the rail/content divider) — dragging right
+  // grows the rail.
+  useEffect(() => {
+    if (!isRailDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setLeftRailWidth(Math.max(160, Math.min(480, e.clientX)));
+    };
+    const handleMouseUp = () => setIsRailDragging(false);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    setIframesInert(true);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setIframesInert(false);
+    };
+  }, [isRailDragging]);
 
   // Handle right panel resize dragging
   useEffect(() => {
@@ -1258,6 +2329,7 @@ export default function Home() {
         filesPanelResize.current = null;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        setIframesInert(false);
       }
     };
     document.addEventListener('mousemove', handleMouseMove);
@@ -1281,9 +2353,82 @@ export default function Home() {
     }
   }, []);
 
+  // Skip the save effect's first run: on mount it still closes over the
+  // default state, and writing that would clobber the just-loaded values
+  // (StrictMode re-runs effects, so the load effect re-reads storage).
+  const filesPanelSaveReady = useRef(false);
   useEffect(() => {
-    localStorage.setItem("claude_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
+    if (!filesPanelSaveReady.current) { filesPanelSaveReady.current = true; return; }
+    safeSetItem("claude_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
   }, [filesPanelPos, filesPanelSize, filesPanelFloating]);
+
+  // Handle floating composer dock drag & resize (width only — the bar's
+  // height follows its content: params panel, image chips, the band)
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (composerDrag.current) {
+        const d = composerDrag.current;
+        setComposerPos({
+          x: Math.max(0, Math.min(window.innerWidth - 240, d.origX + e.clientX - d.startX)),
+          y: Math.max(0, Math.min(window.innerHeight - 60, d.origY + e.clientY - d.startY)),
+        });
+      }
+      if (composerResize.current) {
+        const r = composerResize.current;
+        const dx = e.clientX - r.startX;
+        if (r.edge === "e") {
+          setComposerW(Math.max(360, Math.min(window.innerWidth - 40, r.origW + dx)));
+        } else {
+          // west edge — grow leftward, keep the right side anchored
+          // (cap at the right edge's position so clamping x never lets
+          // the width keep growing past it)
+          const w = Math.max(360, Math.min(window.innerWidth - 40, Math.min(r.origW - dx, r.origX + r.origW)));
+          setComposerW(w);
+          setComposerPos((p) => ({ ...p, x: Math.max(0, r.origX + (r.origW - w)) }));
+        }
+      }
+    };
+    const handleMouseUp = () => {
+      if (composerDrag.current || composerResize.current) {
+        composerDrag.current = null;
+        composerResize.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        setIframesInert(false);
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  // Persist floating composer position/width/mode — clamped on load so a
+  // stale saved position can never strand the bar off-screen
+  useEffect(() => {
+    const saved = localStorage.getItem("claude_composer_dock");
+    if (!saved) return;
+    try {
+      const { pos, w, floating, min } = JSON.parse(saved);
+      if (w) setComposerW(Math.max(360, Math.min(window.innerWidth - 40, w)));
+      if (pos) setComposerPos({
+        x: Math.max(0, Math.min(window.innerWidth - 240, pos.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 60, pos.y)),
+      });
+      if (floating !== undefined) setComposerFloating(!!floating);
+      if (min !== undefined) setComposerMinimized(!!min);
+    } catch {}
+  }, []);
+
+  // First run still closes over default state — skip it so the loaded
+  // values are never clobbered (see the files-panel note above).
+  const composerSaveReady = useRef(false);
+  useEffect(() => {
+    if (!composerSaveReady.current) { composerSaveReady.current = true; return; }
+    safeSetItem("claude_composer_dock", JSON.stringify({ pos: composerPos, w: composerW, floating: composerFloating, min: composerMinimized }));
+  }, [composerPos, composerW, composerFloating, composerMinimized]);
 
   // ── Jobs ──────────────────────────────────────────────────────────
 
@@ -1318,7 +2463,7 @@ export default function Home() {
     setPersonalities(ps);
     // Only persist non-default or modified builtins
     const toSave = ps.filter(p => !p.builtin || DEFAULT_PERSONALITIES.find(d => d.id === p.id)?.prompt !== p.prompt);
-    localStorage.setItem("claude_personalities", JSON.stringify(toSave));
+    safeSetItem("claude_personalities", JSON.stringify(toSave));
   };
 
   const savePersonality = () => {
@@ -1344,7 +2489,7 @@ export default function Home() {
     persistPersonalities(personalities.filter(x => x.id !== id));
     if (agentType === id) {
       setAgentType("default");
-      localStorage.setItem("claude_jobs_agent", "default");
+      safeSetItem("claude_jobs_agent", "default");
     }
   };
 
@@ -1367,10 +2512,68 @@ export default function Home() {
   // Derive AGENT_OPTIONS from personalities for backward compat
   const AGENT_OPTIONS = personalities.map(p => ({ value: p.id, label: p.name, icon: p.icon }));
 
+  // ── System-prompt chain ────────────────────────────────────────────
+  // Every mutation persists immediately — blocks are "included already":
+  // no save step, active blocks apply to every task on submit.
+  const persistSysPrompts = (ps: SysPromptBlock[]) => {
+    setSysPrompts(ps);
+    safeSetItem("claude_system_prompts", JSON.stringify(ps));
+  };
+
+  const toggleSysPrompt = (id: string) =>
+    persistSysPrompts(sysPrompts.map(p => (p.id === id ? { ...p, on: !p.on } : p)));
+
+  const deleteSysPrompt = (id: string) =>
+    persistSysPrompts(sysPrompts.filter(p => p.id !== id));
+
+  // Reorder within the chain — order is meaning: blocks concatenate top→down.
+  const moveSysPrompt = (id: string, dir: -1 | 1) => {
+    const i = sysPrompts.findIndex(p => p.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= sysPrompts.length) return;
+    const next = [...sysPrompts];
+    [next[i], next[j]] = [next[j], next[i]];
+    persistSysPrompts(next);
+  };
+
+  const saveSysPromptDraft = () => {
+    const name = sysPromptDraft.name.trim();
+    if (!name) return;
+    if (editingSysPrompt) {
+      persistSysPrompts(sysPrompts.map(p =>
+        p.id === editingSysPrompt.id ? { ...p, name, text: sysPromptDraft.text } : p
+      ));
+    } else {
+      const id = `sp-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
+      persistSysPrompts([...sysPrompts, { id, name, text: sysPromptDraft.text, on: true }]);
+    }
+    setEditingSysPrompt(null);
+    setCreatingSysPrompt(false);
+    setSysPromptDraft({ name: "", text: "" });
+  };
+
+  const startEditSysPrompt = (p: SysPromptBlock) => {
+    setEditingSysPrompt(p);
+    setCreatingSysPrompt(false);
+    setSysPromptDraft({ name: p.name, text: p.text });
+    setShowSysPromptManager(true);
+  };
+
+  const startNewSysPrompt = () => {
+    setEditingSysPrompt(null);
+    setCreatingSysPrompt(true);
+    setSysPromptDraft({ name: "", text: "" });
+    setShowSysPromptManager(true);
+  };
+
+  // The chain: active blocks concatenated in order — this is what tasks get.
+  const activeSysPrompts = sysPrompts.filter(p => p.on && p.text.trim());
+  const chainedSystemPrompt = activeSysPrompts.map(p => p.text.trim()).join("\n\n");
+
   // ── Prompt Management ──────────────────────────────────────────────
   const persistPrompts = (prompts: SavedPrompt[]) => {
     setSavedPrompts(prompts);
-    localStorage.setItem("claude_saved_prompts", JSON.stringify(prompts));
+    safeSetItem("claude_saved_prompts", JSON.stringify(prompts));
   };
 
   const savePromptFn = (title: string, body: string, tags?: string[], promptModel?: string, promptAgentType?: string) => {
@@ -1477,8 +2680,11 @@ export default function Home() {
       touchApiActivity();
       const body: any = { prompt: prompt.trim(), model };
 
-      // Send personality system prompt if active
-      if (activePersonality && activePersonality.prompt) {
+      // The chained system prompts win; otherwise fall back to an active
+      // personality.
+      if (chainedSystemPrompt) {
+        body.system_prompt = chainedSystemPrompt;
+      } else if (activePersonality && activePersonality.prompt) {
         body.system_prompt = activePersonality.prompt;
       }
       if (agentType && agentType !== "default") body.agent_type = agentType;
@@ -1555,6 +2761,9 @@ export default function Home() {
       setModuleName("");
       setGithubUrl("");
       setSelectedJob(job.id);
+      // Watch progress in the full-page TASKS view (tasks are no longer a
+      // side-panel tab).
+      setSidebarView("tasks");
       fetchJobs();
       startStream(job.id);
     } catch (e: any) {
@@ -1563,6 +2772,38 @@ export default function Home() {
       setSubmitting(false);
     }
   };
+
+  // Minimal job submission used by the profile panel's NEW tab — a plain
+  // prompt/model/agent-type task against the default work_dir, bypassing the
+  // edit/fork/new-module branching in submitJob() above. Returns true/false
+  // instead of relying on the composer's own prompt/model/agentType state.
+  const quickSubmitJob = useCallback(async (promptText: string, modelValue: string, agentTypeValue: string): Promise<boolean> => {
+    const text = promptText.trim();
+    if (!text || !token) return false;
+    setSubmitting(true);
+    try {
+      const apiReady = await ensureApi();
+      if (!apiReady) {
+        setError("API SERVER COULD NOT BE STARTED — check api/start.sh");
+        return false;
+      }
+      touchApiActivity();
+      const body: any = { prompt: text, model: modelValue };
+      if (agentTypeValue && agentTypeValue !== "default") body.agent_type = agentTypeValue;
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("SUBMIT FAILED");
+      const job = await res.json();
+      setSelectedJob(job.id);
+      fetchJobs();
+      startStream(job.id);
+      return true;
+    } catch (e: any) {
+      setError(e.message);
+      return false;
+    } finally {
+      setSubmitting(false);
+    }
+  }, [token, ensureApi, touchApiActivity, authFetch, fetchJobs]);
 
   const startStream = (jobId: string) => {
     if (esRef.current) esRef.current.close();
@@ -1617,40 +2858,11 @@ export default function Home() {
   };
 
   const [confirmDeleteModule, setConfirmDeleteModule] = useState<string | null>(null);
-  const [renamingModule, setRenamingModule] = useState<string | null>(null);
-  const [renameInput, setRenameInput] = useState("");
-  const [moduleManageSearch, setModuleManageSearch] = useState("");
-
-  const renameModule = async (oldName: string, newName: string) => {
-    if (!token || !newName.trim()) return;
-    try {
-      const res = await authFetch(`/modules/${encodeURIComponent(oldName)}/rename`, {
-        method: "PUT",
-        body: JSON.stringify({ new_name: newName.trim() }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: "Rename failed" }));
-        setError(data.error || "RENAME FAILED");
-        return;
-      }
-      setRenamingModule(null);
-      setRenameInput("");
-      if (selectedModule === oldName) {
-        setSelectedModule(newName.trim());
-        setSelectedModuleInfo(null);
-        setModuleConfig(null);
-        fetchModuleConfig(newName.trim());
-      }
-      fetchModules();
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
 
   const deleteModule = async (name: string) => {
     if (!token) return;
     try {
-      const res = await authFetch(`/modules/${encodeURIComponent(name)}`, { method: "DELETE" });
+      const res = await authFetchSudo(`/modules/${encodeURIComponent(name)}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: "Delete failed" }));
         setError(data.error || "DELETE FAILED");
@@ -1695,7 +2907,8 @@ export default function Home() {
 
   // ── Task Actions (Copy/Edit/Fork/Create) ───────────────────────────
   const extractModuleFromWorkDir = (workDir: string): string | null => {
-    const match = workDir.match(/\/orbit\/([^/]+)/);
+    // Modules live under both orbit/ and core/ — attribute jobs to either.
+    const match = workDir.match(/\/(?:orbit|core)\/([^/]+)/);
     return match ? match[1] : null;
   };
 
@@ -1777,33 +2990,88 @@ export default function Home() {
   };
 
   const headerCreateOrFork = async () => {
-    if (!headerNewName.trim() || !token) return;
+    if (!token) return;
+    if (showHeaderCreateForm === "import") {
+      // Deterministic import (no agent job) — mirrors submitAddModule but
+      // reads the header panel's fields, then jumps into the new module.
+      const name = (headerNewName.trim() || (headerImportSource === "github" ? deriveNameFromUrl(headerGithubUrl) : "")).trim();
+      if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) { setError("ENTER A MODULE NAME (LETTERS, NUMBERS, - OR _)"); return; }
+      if (headerImportSource === "github" && !/^https?:\/\//i.test(headerGithubUrl.trim())) { setError("ENTER AN HTTP(S) GIT URL"); return; }
+      if (headerImportSource === "cid" && !headerCid.trim()) { setError("ENTER A SNAPSHOT CID"); return; }
+      setSubmitting(true);
+      try {
+        const body: Record<string, string> = { source: headerImportSource, name };
+        if (headerImportSource === "github") body.url = headerGithubUrl.trim();
+        else body.cid = headerCid.trim();
+        // git clone can be slow — give it a generous timeout.
+        const res = await authFetch("/modules/import", { method: "POST", body: JSON.stringify(body) }, 200000);
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok || data?.error) throw new Error(data?.error || `IMPORT FAILED (HTTP ${res.status})`);
+        setHeaderNewName(""); setHeaderGithubUrl(""); setHeaderCid("");
+        setShowHeaderCreateForm(null);
+        await fetchModules("");
+        const opened = (data.module as string) || name;
+        const m = {
+          name: opened,
+          path: (data.path as string) || "",
+          category: (data.category as string) || "orbit",
+          description: "",
+        } as typeof moduleList[0];
+        resetModuleState(m);
+        setSelectedModule(opened);
+        setSelectedModuleInfo(m);
+        setWorkDir(m.path);
+        fetchModuleConfig(opened);
+        setSidebarView("overview");
+      } catch (e: any) {
+        setError(e?.message === "NOT AUTHENTICATED" ? "SIGN IN TO IMPORT A MODULE" : (e?.message || "IMPORT FAILED"));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+    if (showHeaderCreateForm === "edit") {
+      if (!headerEditPrompt.trim() || !selectedModule) return;
+    } else {
+      if (!headerNewName.trim()) return;
+    }
     setSubmitting(true);
     try {
-      let finalName = headerNewName.trim();
-      if (!isOwner && !finalName.startsWith("peers/")) {
-        finalName = `peers/${finalName}`;
-      }
-
-      const defaultPrompt = showHeaderCreateForm === "fork"
-        ? `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`
-        : `Create a new module called "${finalName}". Set up the standard module structure with config.json, mod.py, and a README.md.`;
-
       const body: any = {
-        prompt: defaultPrompt,
         model,
-        module_name: finalName,
-        creation_mode: "new",
         anchor_dir: anchorDir,
       };
 
-      if (showHeaderCreateForm === "fork" && selectedModule) {
-        body.prompt = `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`;
-        body.fork_from = selectedModule;
-      }
+      if (showHeaderCreateForm === "edit") {
+        if (!isOwner && !selectedModule.includes("peers/") && !selectedModule.startsWith("peers.")) {
+          setError("NON-OWNERS CAN ONLY EDIT MODULES IN PEERS FOLDER");
+          setSubmitting(false);
+          return;
+        }
+        body.prompt = headerEditPrompt.trim();
+        body.work_dir = `${anchorDir}/mod/orbit/${selectedModule}`;
+        body.creation_mode = "edit";
+      } else {
+        let finalName = headerNewName.trim();
+        if (!isOwner && !finalName.startsWith("peers/")) {
+          finalName = `peers/${finalName}`;
+        }
 
-      if (headerGithubUrl.trim()) {
-        body.github_url = headerGithubUrl.trim();
+        const defaultPrompt = showHeaderCreateForm === "fork"
+          ? `Fork the module "${selectedModule}" into a new module called "${finalName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.`
+          : `Create a new module called "${finalName}". Set up the standard module structure with config.json, mod.py, and a README.md.`;
+
+        body.prompt = defaultPrompt;
+        body.module_name = finalName;
+        body.creation_mode = "new";
+
+        if (showHeaderCreateForm === "fork" && selectedModule) {
+          body.fork_from = selectedModule;
+        }
+
+        if (headerGithubUrl.trim()) {
+          body.github_url = headerGithubUrl.trim();
+        }
       }
 
       const res = await authFetch("/jobs", {
@@ -1814,12 +3082,13 @@ export default function Home() {
       const job = await res.json();
       setHeaderNewName("");
       setHeaderGithubUrl("");
+      setHeaderEditPrompt("");
       setShowHeaderCreateForm(null);
       setSelectedJob(job.id);
       fetchJobs();
       startStream(job.id);
-      // Open agent sidebar to see progress
-      setAgentSidebarOpen(true);
+      // Jump to the full-page TASKS view to watch progress
+      setSidebarView("tasks");
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -1832,8 +3101,12 @@ export default function Home() {
     if (!token) return;
     setSubmitting(true);
     try {
-      const body: any = { prompt: job.prompt, model: job.model };
+      const body: any = { prompt: job.prompt, model: normalizeModelValue(job.model) };
       if (job.work_dir) body.work_dir = job.work_dir;
+      // Apply whatever system prompt is currently configured (the chain
+      // wins, else an active personality) so replays aren't bare.
+      if (chainedSystemPrompt) body.system_prompt = chainedSystemPrompt;
+      else if (activePersonality && activePersonality.prompt) body.system_prompt = activePersonality.prompt;
       const res = await authFetch("/jobs", {
         method: "POST",
         body: JSON.stringify(body),
@@ -1848,6 +3121,22 @@ export default function Home() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Load a finished/failed task back into the composer so it can be tweaked and
+  // re-submitted as a NEW task (the original is left untouched). Mirrors the
+  // model-normalization guard so a stale/gated model never gets reloaded.
+  const editTask = (job: Job) => {
+    setPrompt(job.prompt || "");
+    if (job.model) setModel(normalizeModelValue(job.model));
+    if (job.work_dir) {
+      setWorkDir(job.work_dir);
+      setCreationMode("edit");
+    }
+    setSelectedJob(null);
+    setStreamOutput("");
+    setComposerMinimized(false);
+    setTimeout(() => composerInputRef.current?.focus(), 50);
   };
 
   const togglePromptExpand = (jobId: string, e: React.MouseEvent) => {
@@ -1889,6 +3178,39 @@ export default function Home() {
     } catch { /* ignore */ }
   }, [anchorDir, apiUrl]);
 
+  const fetchFolders = useCallback(async (q: string = "", path?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (path) params.set("path", path);
+      params.set("depth", "3");
+      const res = await fetch(`${apiUrl}/folders?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFolderList(data.folders || []);
+      }
+    } catch { /* ignore */ }
+  }, [apiUrl]);
+
+  const suggestFolderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchFolderSuggestions = useCallback(async (query: string, path?: string) => {
+    if (!query.trim()) { setFolderSuggestions([]); return; }
+    if (suggestFolderDebounceRef.current) clearTimeout(suggestFolderDebounceRef.current);
+    suggestFolderDebounceRef.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams();
+        params.set("query", query);
+        if (path) params.set("path", path);
+        params.set("top_k", "8");
+        const res = await fetch(`${apiUrl}/suggest_folders?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          setFolderSuggestions(data.suggestions || []);
+        }
+      } catch { /* ignore */ }
+    }, 300);
+  }, [apiUrl]);
+
   const fetchModuleConfig = useCallback(async (name: string) => {
     setLoadingConfig(true);
     setModuleConfig(null);
@@ -1903,6 +3225,102 @@ export default function Home() {
     } catch { /* ignore */ }
     finally { setLoadingConfig(false); }
   }, [anchorDir, apiUrl]);
+
+  // Canonical "open this module for editing" flow — mirrors the HUB card click
+  // so the left nav rail (and anywhere else) selects a module identically.
+  const selectModule = useCallback((m: typeof moduleList[0]) => {
+    resetModuleState(m);
+    setSelectedModule(m.name);
+    setSelectedModuleInfo(m);
+    setWorkDir(m.path);
+    fetchModuleConfig(m.name);
+    setSidebarView(getBestTab(m));
+  }, [resetModuleState, getBestTab, fetchModuleConfig]);
+
+  // Header name+search suggestions: substring-filter the catalog on the typed
+  // query and rank most-recently-opened modules first, so an empty query
+  // surfaces your recents and Enter always picks the top visible suggestion.
+  const rankedHeaderModules = useCallback((q: string) => {
+    const query = q.trim().toLowerCase();
+    let list = ownerFilter ? moduleList.filter((m) => m.owner === ownerFilter) : moduleList;
+    if (query) list = list.filter((m) => m.name.toLowerCase().includes(query));
+    const recency = new Map<string, number>(recentModules.map((n, i) => [n, i]));
+    return [...list].sort((a, b) => {
+      const ra = recency.has(a.name) ? (recency.get(a.name) as number) : Infinity;
+      const rb = recency.has(b.name) ? (recency.get(b.name) as number) : Infinity;
+      if (ra !== rb) return ra - rb;
+      if (query) {
+        const pa = a.name.toLowerCase().startsWith(query) ? 0 : 1;
+        const pb = b.name.toLowerCase().startsWith(query) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [moduleList, recentModules, ownerFilter]);
+
+  // Derive a sensible default module name from a git URL's last path
+  // segment (".git" stripped) so the user rarely has to type one.
+  const deriveNameFromUrl = (url: string): string => {
+    try {
+      const tail = url.trim().replace(/\/+$/, "").split("/").pop() || "";
+      return tail.replace(/\.git$/i, "").toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "");
+    } catch { return ""; }
+  };
+
+  // Import a brand-new module from a GitHub repo or a snapshot CID, then
+  // refresh the catalog and jump straight into the new module.
+  const submitAddModule = useCallback(async () => {
+    setAddError(null);
+    const name = (addName.trim() || (addSource === "github" ? deriveNameFromUrl(addUrl) : "")).trim();
+    if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+      setAddError("Enter a module name (letters, numbers, - or _).");
+      return;
+    }
+    if (addSource === "github" && !/^https?:\/\//i.test(addUrl.trim())) {
+      setAddError("Enter an http(s) git URL.");
+      return;
+    }
+    if (addSource === "cid" && !addCid.trim()) {
+      setAddError("Enter a snapshot CID.");
+      return;
+    }
+    setAddBusy(true);
+    try {
+      const body: Record<string, string> = { source: addSource, name };
+      if (addSource === "github") body.url = addUrl.trim();
+      else body.cid = addCid.trim();
+      // git clone can be slow — give it a generous timeout.
+      const res = await authFetch("/modules/import", { method: "POST", body: JSON.stringify(body) }, 200000);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        setAddError(data?.error || `Import failed (HTTP ${res.status})`);
+        setAddBusy(false);
+        return;
+      }
+      // Success — close the modal, reset its fields, refresh the catalog.
+      setAddOpen(false);
+      setAddUrl(""); setAddCid(""); setAddName(""); setAddError(null);
+      await fetchModules("");
+      // Open the freshly imported module.
+      const opened = (data.module as string) || name;
+      const m = {
+        name: opened,
+        path: (data.path as string) || "",
+        category: (data.category as string) || "orbit",
+        description: "",
+      } as typeof moduleList[0];
+      resetModuleState(m);
+      setSelectedModule(opened);
+      setSelectedModuleInfo(m);
+      setWorkDir(m.path);
+      fetchModuleConfig(opened);
+      setSidebarView("overview");
+    } catch (e: any) {
+      setAddError(e?.message === "NOT AUTHENTICATED" ? "Sign in to import a module." : (e?.message || "Import failed"));
+    } finally {
+      setAddBusy(false);
+    }
+  }, [addName, addSource, addUrl, addCid, authFetch, fetchModules, resetModuleState, fetchModuleConfig]);
 
   // Fetch direct config from /config endpoint on mount
   const fetchDirectConfig = useCallback(async () => {
@@ -1923,13 +3341,26 @@ export default function Home() {
     fetchModules();
   }, [fetchModules]);
 
+  // The HUB grid renders from `moduleList` — the same state the header
+  // module-search box narrows via fetchModules(query). Without this, a prior
+  // header search (e.g. "polymarket") leaves moduleList = [that one match],
+  // so opening the hub shows a single card while its own filter box is empty.
+  // Reload the unfiltered list every time the hub opens so it always shows
+  // every module; the hub's own `hubSearch` box does any in-view filtering.
+  useEffect(() => {
+    if (sidebarView === "hub") fetchModules("");
+  }, [sidebarView, fetchModules]);
+
   // Auto-select default module and keep selectedModuleInfo in sync with moduleList
   useEffect(() => {
     if (selectedModule && moduleList.length > 0) {
       const match = moduleList.find((m) => m.name === selectedModule);
       if (match) {
-        if (!selectedModuleInfo) {
-          // First load: set info, workDir, fetch config, and auto-select best tab
+        if (selectedModuleInfo?.name !== selectedModule) {
+          // Module switched (or first load): point workDir at the new module's
+          // path so the FILES tab tracks it, refetch its config, and pick a
+          // default tab. Without this, switching modules in a code path that
+          // doesn't itself call setWorkDir leaves FILES showing the prior mod.
           setWorkDir(match.path);
           fetchModuleConfig(match.name);
           setSidebarView(getBestTab(match));
@@ -1958,14 +3389,20 @@ export default function Home() {
     if (!selectedModuleInfo?.app_url) {
       setAppRunning(null);
     } else {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 2000);
-        const res = await fetch(selectedModuleInfo.app_url, { signal: controller.signal });
-        clearTimeout(timeout);
-        setAppRunning(res.ok || res.status < 500);
-      } catch {
-        setAppRunning(false);
+      // Probe via the same-origin /api/service route (uses net.createServer
+      // to check port occupancy, no HTTP request to the app — avoids CORS).
+      const portMatch = selectedModuleInfo.app_url.match(/:(\d+)/);
+      const port = portMatch?.[1];
+      if (!port) {
+        setAppRunning(null);
+      } else {
+        try {
+          const res = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
+          const data = await res.json();
+          setAppRunning(!!data.running);
+        } catch {
+          setAppRunning(false);
+        }
       }
     }
   }, [selectedModuleInfo]);
@@ -1978,84 +3415,227 @@ export default function Home() {
   }, [checkModuleHealth]);
 
   // ── Process control: start / stop / restart for API and App separately ──
-  const getPortForTarget = useCallback((target: "api" | "app"): string | null => {
-    const config = moduleConfig?.config || directConfig;
-    if (target === "api") {
-      const apiUrl = selectedModuleInfo?.api_url || config?.urls?.api || config?.api_url || config?.servers?.["claude-api"];
-      const portMatch = apiUrl?.match(/:(\d+)/);
-      return config?.port?.toString() || portMatch?.[1] || null;
-    } else {
-      const appUrl = selectedModuleInfo?.app_url || config?.urls?.app || config?.app_url || config?.servers?.["claude-app"];
-      const portMatch = appUrl?.match(/:(\d+)/);
-      return portMatch?.[1] || null;
-    }
-  }, [selectedModuleInfo, moduleConfig, directConfig]);
+  // Drive the selected module's lifecycle through pm2 (the real supervisor) via
+  // the API's /modules/{name}/process endpoint. Going through pm2 makes "stop"
+  // actually stay stopped and "restart" reliable — unlike a raw port kill, which
+  // pm2's autorestart immediately reverses. Cross-module actions surface the
+  // owner Sudo sheet automatically through authFetchSudo.
+  // authFetchSudo is defined further down the component; reach it through a ref
+  // (kept current each render) so this callback doesn't reference a not-yet-
+  // initialized const in its dependency array (temporal dead zone at render).
+  const authFetchSudoRef = useRef<
+    ((path: string, opts?: RequestInit, timeoutMs?: number) => Promise<Response>) | null
+  >(null);
 
-  const stopProcess = useCallback(async (target: "api" | "app") => {
+  const moduleProcessAction = useCallback(async (
+    target: "api" | "app",
+    action: "stop" | "start" | "restart",
+  ) => {
     if (!selectedModuleInfo || !token) return;
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch) return;
     const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
     setToggling(true);
     try {
-      const port = getPortForTarget(target);
-      if (port) {
-        await authFetch("/kill", {
-          method: "POST",
-          body: JSON.stringify({ port: parseInt(port), signal: "SIGKILL" }),
-        });
-      }
-      setTimeout(() => { checkModuleHealth(); setToggling(false); }, 2000);
+      // start/restart may rebuild a prod (next start) app server-side first, so
+      // allow plenty of time; stop is quick.
+      await doFetch(`/modules/${selectedModuleInfo.name}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action, target }),
+      }, action === "stop" ? 60000 : 300000);
+      // Give pm2 a moment to settle, then re-check health.
+      setTimeout(() => { checkModuleHealth(); setToggling(false); }, action === "stop" ? 1500 : 3000);
     } catch { setToggling(false); }
-  }, [selectedModuleInfo, token, getPortForTarget, authFetch, checkModuleHealth]);
+  }, [selectedModuleInfo, token, checkModuleHealth]);
 
-  const startProcess = useCallback(async (target: "api" | "app") => {
-    if (!selectedModuleInfo || !token) return;
-    const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
-    setToggling(true);
-    try {
-      const config = moduleConfig?.config || directConfig;
-      if (target === "api") {
-        const startScript = config?.scripts?.start;
-        await authFetch("/jobs", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt: startScript
-              ? `Run the API start script in the background: bash ${startScript} &`
-              : `Start this module's API server. Look for start.sh in the current directory or scripts/start.sh and run it in the background. If there is no start.sh, look for a Python module with mod.py and run: python -m uvicorn {module_name}.mod:app --host 0.0.0.0 --port {port} where you determine the module_name and port from config.json`,
-            model: "haiku",
-            work_dir: selectedModuleInfo.path,
-          }),
-        });
-      } else {
-        const port = getPortForTarget("app");
-        await authFetch("/jobs", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt: `Start this module's Next.js app. Run: cd app && npm install --if-present && npx next dev -p ${port || "3000"} in the background.`,
-            model: "haiku",
-            work_dir: selectedModuleInfo.path,
-          }),
-        });
-      }
-      setTimeout(() => { checkModuleHealth(); setToggling(false); }, 3000);
-    } catch { setToggling(false); }
-  }, [selectedModuleInfo, token, moduleConfig, directConfig, getPortForTarget, authFetch, checkModuleHealth]);
+  const stopProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "stop"),
+    [moduleProcessAction],
+  );
 
-  const restartProcess = useCallback(async (target: "api" | "app") => {
-    const setToggling = target === "api" ? setTogglingApi : setTogglingApp;
-    setToggling(true);
-    const port = getPortForTarget(target);
+  const startProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "start"),
+    [moduleProcessAction],
+  );
+
+  const restartProcess = useCallback(
+    (target: "api" | "app") => moduleProcessAction(target, "restart"),
+    [moduleProcessAction],
+  );
+
+  // ── Module hub: status probing ─────────────────────────────────────
+  // "Real" modules are the ones worth showing on the hub — anything with a
+  // config, a service dir, or a live url. Bare folders are skipped.
+  const isRealModule = useCallback((m: typeof moduleList[0]) => (
+    m.has_config || m.has_api_dir || m.has_app_dir || m.has_server_dir || !!m.app_url || !!m.api_url
+  ), []);
+
+  // Probe one module's liveness without a cross-origin app request: the app is
+  // checked by port occupancy through the same-origin /api/service route, the
+  // API by its /health (same pattern as checkModuleHealth for the selected mod).
+  const probeModuleStatus = useCallback(async (m: typeof moduleList[0]) => {
+    let app: boolean | null = null;
+    let api: boolean | null = null;
+    const port = m.app_url?.match(/:(\d+)/)?.[1];
     if (port) {
       try {
-        await authFetch("/kill", {
-          method: "POST",
-          body: JSON.stringify({ port: parseInt(port), signal: "SIGKILL" }),
-        });
-      } catch { /* ignore kill errors */ }
-      await new Promise(r => setTimeout(r, 1500));
+        const r = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
+        const d = await r.json();
+        app = !!d.running;
+      } catch { app = false; }
     }
-    setToggling(false);
-    await startProcess(target);
-  }, [getPortForTarget, authFetch, startProcess]);
+    if (m.api_url) {
+      try {
+        const r = await fetch(`${m.api_url}/health`, { signal: AbortSignal.timeout(2500) });
+        api = r.ok;
+      } catch { api = false; }
+    }
+    return { app, api };
+  }, []);
+
+  // Probe a list of modules in small concurrent batches, committing results as
+  // each batch lands so dots fill in progressively rather than all-at-once.
+  const probeHubStatuses = useCallback(async (mods: typeof moduleList) => {
+    const BATCH = 8;
+    for (let i = 0; i < mods.length; i += BATCH) {
+      const slice = mods.slice(i, i + BATCH);
+      const results = await Promise.all(
+        slice.map(async (m) => [m.name, await probeModuleStatus(m)] as const),
+      );
+      setModuleStatuses((prev) => {
+        const next = { ...prev };
+        for (const [name, st] of results) next[name] = st;
+        return next;
+      });
+    }
+  }, [probeModuleStatus]);
+
+  // Probe while the hub is open; refresh on an interval so dots stay live.
+  useEffect(() => {
+    if (sidebarView !== "hub") return;
+    const real = moduleList.filter(isRealModule);
+    if (!real.length) return;
+    probeHubStatuses(real);
+    const iv = setInterval(() => probeHubStatuses(real), 8000);
+    return () => clearInterval(iv);
+  }, [sidebarView, moduleList, isRealModule, probeHubStatuses]);
+
+  // pm2 lifecycle for any module by name (the account panel's list isn't tied
+  // to the selected module the way moduleProcessAction is). Cross-module
+  // actions surface the owner Sudo sheet automatically through authFetchSudo.
+  const walletModuleAction = useCallback(async (
+    name: string,
+    action: "start" | "stop" | "restart",
+  ) => {
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch || !token) return;
+    try {
+      await doFetch(`/modules/${encodeURIComponent(name)}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      }, action === "stop" ? 60000 : 300000);
+    } catch { /* status re-probe below reflects the real outcome */ }
+    const m = moduleList.find((x) => x.name === name);
+    if (m) {
+      setTimeout(async () => {
+        const st = await probeModuleStatus(m);
+        setModuleStatuses((prev) => ({ ...prev, [name]: st }));
+      }, action === "stop" ? 1500 : 3000);
+    }
+  }, [token, moduleList, probeModuleStatus]);
+
+  // ── Auto-restart after an edit ─────────────────────────────────────
+  // Restart a module's processes through pm2 (the real supervisor) so a fresh
+  // edit is actually live. Skips "claude" itself — restarting the console we're
+  // driving would kill this very UI mid-action.
+  const triggerModuleRestart = useCallback(async (name: string) => {
+    const doFetch = authFetchSudoRef.current;
+    if (!doFetch) return;
+    setRestartNotice(`↻ restarting ${name} to apply edits…`);
+    try {
+      // A prod-built (next start) module is rebuilt server-side before the
+      // restart so the edit is actually served — that can take a while, so we
+      // give this a generous timeout (a dev-mode module just restarts fast).
+      const res = await doFetch(`/modules/${name}/process`, {
+        method: "POST",
+        body: JSON.stringify({ action: "restart" }),
+      }, 300000);
+      const data = await res.json().catch(() => ({}));
+      const built = typeof data?.output === "string" && data.output.includes("rebuilt prod app");
+      setRestartNotice(
+        res.ok && data?.ok !== false
+          ? `✓ ${name} ${built ? "rebuilt + restarted" : "restarted"} — edits live`
+          : `⚠ couldn't restart ${name}${data?.output ? `: ${String(data.output).split("\n")[0]}` : ""}`,
+      );
+    } catch {
+      setRestartNotice(`⚠ couldn't restart ${name}`);
+    }
+    setTimeout(() => setRestartNotice(null), 6000);
+    if (selectedModule === name) setTimeout(checkModuleHealth, 3000);
+  }, [selectedModule, checkModuleHealth]);
+
+  // Watch the jobs list: when an edit job for a module flips to "completed",
+  // restart that module. A ref of prior statuses means we only fire on the
+  // running→completed *transition*, not for jobs already done on first load.
+  useEffect(() => {
+    const prev = prevJobStatusRef.current;
+    const next: Record<string, string> = {};
+    const justCompleted: typeof jobs = [];
+    for (const j of jobs) {
+      next[j.id] = j.status;
+      if (prev[j.id] && prev[j.id] !== j.status && j.status === "completed") justCompleted.push(j);
+    }
+    prevJobStatusRef.current = next;
+    if (!autoRestartAfterEdit) return;
+    const seen = new Set<string>();
+    for (const j of justCompleted) {
+      const mod = j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null;
+      if (!mod || mod === "claude" || seen.has(mod)) continue;
+      seen.add(mod);
+      triggerModuleRestart(mod);
+    }
+  }, [jobs, autoRestartAfterEdit, triggerModuleRestart]);
+
+  // Fetch module logs (API and App)
+  const fetchModuleLogs = useCallback(async () => {
+    if (!selectedModule || !token) return;
+    setModuleLogsLoading(true);
+    try {
+      const res = await authFetch(`/modules/${selectedModule}/logs`, {
+        method: "POST",
+        body: JSON.stringify({ lines: 200 }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && typeof data === "object" && !data.error) {
+        setModuleLogs(typeof data === "string" ? { stdout: data } : data);
+      } else {
+        setModuleLogs({ error: data?.error || `Failed to load logs (HTTP ${res.status})` });
+      }
+    } catch (e) {
+      setModuleLogs({ error: e instanceof Error ? e.message : "Failed to load logs" });
+    }
+    setModuleLogsLoading(false);
+  }, [selectedModule, token, authFetch]);
+
+  // Auto-refresh logs (in overview's inline logs panel or the dedicated LOGS tab)
+  useEffect(() => {
+    const inLogsTab = sidebarView === "logs";
+    if (!moduleLogsAutoRefresh || (!moduleLogsOpen && !inLogsTab)) return;
+    const iv = setInterval(fetchModuleLogs, 4000);
+    return () => clearInterval(iv);
+  }, [moduleLogsAutoRefresh, moduleLogsOpen, sidebarView, fetchModuleLogs]);
+
+  // Fetch logs when opened or when entering the LOGS tab
+  useEffect(() => {
+    if (moduleLogsOpen || sidebarView === "logs") fetchModuleLogs();
+  }, [moduleLogsOpen, sidebarView]);
+
+  // Reset logs when switching modules
+  useEffect(() => {
+    setModuleLogs({});
+    setModuleLogsOpen(null);
+    setModuleLogsAutoRefresh(false);
+  }, [selectedModule]);
 
   // Legacy toggle (used by old single button, kept for compat)
   const toggleModule = useCallback(async () => {
@@ -2085,6 +3665,9 @@ export default function Home() {
       }
       if (inlineModuleRef.current && !inlineModuleRef.current.contains(e.target as Node)) {
         setShowInlineModuleDropdown(false);
+      }
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
@@ -2151,6 +3734,66 @@ export default function Home() {
       }
       return <span key={i} style={{ color: "var(--text-primary)" }}>{line}{"\n"}</span>;
     });
+  };
+
+  // ── Task output parsers ────────────────────────────────────────────
+  // The job output stream embeds structured markers the API emits per tool
+  // call (see jobs.rs format_tool_input): EDIT/WRITE diff blocks, "$ " bash
+  // commands, and "⚡ " tool-use lines. These two parsers re-derive the
+  // EDITS and AUDIT views from that single stream — no extra backend data.
+
+  type TaskEdit = { kind: "edit" | "write"; file: string; removed: string[]; added: string[]; lineCount: number };
+
+  const parseTaskEdits = (text: string): TaskEdit[] => {
+    if (!text) return [];
+    const EDIT = "┌─ EDIT: ", WRITE = "┌─ WRITE: ";
+    const edits: TaskEdit[] = [];
+    let cur: TaskEdit | null = null;
+    let phase: "removed" | "added" = "removed";
+    for (const line of text.split("\n")) {
+      if (line.startsWith(EDIT)) {
+        cur = { kind: "edit", file: line.slice(EDIT.length).trim(), removed: [], added: [], lineCount: 0 };
+        phase = "removed";
+        continue;
+      }
+      if (line.startsWith(WRITE)) {
+        const rest = line.slice(WRITE.length).trim();
+        const m = rest.match(/^(.*) \((\d+) lines\)$/);
+        edits.push({ kind: "write", file: m ? m[1] : rest, removed: [], added: [], lineCount: m ? parseInt(m[2], 10) : 0 });
+        cur = null;
+        continue;
+      }
+      if (!cur) continue;
+      if (line === "│───") { phase = "added"; continue; }
+      if (line === "└─") { edits.push(cur); cur = null; continue; }
+      if (phase === "removed" && line.startsWith("│- ")) cur.removed.push(line.slice(3));
+      else if (phase === "added" && line.startsWith("│+ ")) cur.added.push(line.slice(3));
+    }
+    if (cur) edits.push(cur); // block still streaming (job running) — show what we have
+    return edits;
+  };
+
+  type AuditEvent = { type: "edit" | "write" | "bash" | "read" | "search" | "task"; label: string; detail?: string };
+
+  const parseTaskAudit = (text: string): AuditEvent[] => {
+    if (!text) return [];
+    const EDIT = "┌─ EDIT: ", WRITE = "┌─ WRITE: ";
+    const READ = "⚡ Read ", GLOB = "⚡ Glob ", GREP = "⚡ Grep ", TASK = "⚡ Task ";
+    const events: AuditEvent[] = [];
+    for (const line of text.split("\n")) {
+      if (line.startsWith(EDIT)) events.push({ type: "edit", label: line.slice(EDIT.length).trim() });
+      else if (line.startsWith(WRITE)) events.push({ type: "write", label: line.slice(WRITE.length).trim() });
+      else if (line.startsWith("$ ")) {
+        const body = line.slice(2);
+        const sep = body.lastIndexOf(" # ");
+        if (sep >= 0) events.push({ type: "bash", label: body.slice(0, sep), detail: body.slice(sep + 3) });
+        else events.push({ type: "bash", label: body });
+      }
+      else if (line.startsWith(READ)) events.push({ type: "read", label: line.slice(READ.length).trim() });
+      else if (line.startsWith(GLOB) || line.startsWith(GREP)) events.push({ type: "search", label: line.slice(GLOB.length).trim() });
+      else if (line.startsWith(TASK)) events.push({ type: "task", label: line.slice(TASK.length).trim() });
+    }
+    return events;
   };
 
   // Effective config: prefer moduleConfig, fallback to directConfig (hoisted before early return)
@@ -2369,70 +4012,13 @@ export default function Home() {
   // AUTH SCREEN — IBM BOOT STYLE
   // ═══════════════════════════════════════════════════════════════════
 
-  if (!token) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-        {/* Ambient glow */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: isLight
-              ? "radial-gradient(ellipse at center, rgba(0,0,0,0.02) 0%, transparent 70%)"
-              : "radial-gradient(ellipse at center, rgba(16,185,129,0.03) 0%, transparent 70%)",
-          }}
-        />
-
-        <div className="relative z-10 flex flex-col items-center gap-6 max-w-2xl w-full px-4">
-          {/* Boot Art */}
-          <pre
-            className="text-crt-green leading-none select-none whitespace-pre transition-opacity duration-700"
-            style={{
-              fontSize: "9px",
-              textShadow: "none",
-              opacity: bootPhase >= 1 ? 1 : 0,
-            }}
-          >
-            {BOOT_ART}
-          </pre>
-
-          {/* Boot Messages */}
-          <div
-            className="w-full max-w-lg transition-opacity duration-500"
-            style={{ opacity: bootPhase >= 2 ? 1 : 0 }}
-          >
-            <div className="rounded-xl p-4 space-y-2" style={{ background: tintBg, border: `1px solid ${subtleBorder}` }}>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>System Check — OK</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Claude Engine — Ready</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>Job Scheduler — Active</div>
-              <div className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>SSE Stream — Enabled</div>
-              <div className="text-[13px] font-medium mt-2" style={{ color: "var(--crt-amber)" }}>
-                Wallet signature required for access
-              </div>
-              {!hasMetaMask && !hasSubWallet && (
-                <div className="text-[13px]" style={{ color: "var(--text-tertiary)" }}>
-                  No web3 wallet detected — local key mode available
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Auth Card */}
-          <div
-            className="w-full max-w-lg transition-all duration-500"
-            style={{
-              opacity: bootPhase >= 3 ? 1 : 0,
-              transform: bootPhase >= 3 ? "translateY(0)" : "translateY(10px)",
-            }}
-          >
-            <div
-              className="rounded-2xl p-6"
-              style={{
-                background: "var(--bg-secondary)",
-                border: `1px solid ${subtleBorder}`,
-                boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
-              }}
-            >
-              <div className="flex items-center gap-3 mb-4">
+  // Connect-wallet panel — rendered as a right-side sign-in drawer inside the
+  // hub when there's no session (replaces the old full-screen takeover).
+  const renderConnectPanel = () => (
+    <div className="h-full flex flex-col overflow-y-auto" style={{ background: "var(--bg-secondary)" }}>
+          <div className="flex-1 flex flex-col justify-center p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "rgba(245,158,11,0.1)" }}>
                   <span className="text-crt-amber text-[16px]">🔐</span>
                 </div>
@@ -2443,131 +4029,137 @@ export default function Home() {
                   Connect Wallet
                 </h2>
               </div>
+              <button
+                onClick={() => setSignInOpen(false)}
+                className="text-[18px] leading-none px-2 py-1"
+                style={{ color: "var(--text-tertiary)" }}
+                title="Hide — browse the hub"
+              >
+                ×
+              </button>
+            </div>
 
-              <div className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                Sign a cryptographic challenge to authenticate.
-                Your signature is verified server-side via ecrecover and
-                becomes a 24-hour bearer token for all API requests.
+            <div className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+              Sign a cryptographic challenge to authenticate.
+              Your signature is verified server-side via ecrecover and
+              becomes a 24-hour bearer token for all API requests.
+            </div>
+
+            <div className="flex flex-col items-center gap-4">
+              {(hasMetaMask || hasSubWallet) && (
+                <>
+                  <div className="flex gap-2 w-full">
+                    {hasMetaMask && (
+                      <button
+                        onClick={() => connectWallet("metamask")}
+                        disabled={authLoading}
+                        className="pixel-btn pixel-btn-amber flex-1 text-[13px] py-3"
+                        style={{ letterSpacing: "0.04em" }}
+                      >
+                        {authLoading ? (
+                          <span className="animate-pulse">SIGNING...</span>
+                        ) : (
+                          "MetaMask"
+                        )}
+                      </button>
+                    )}
+                    {hasSubWallet && (
+                      <button
+                        onClick={() => connectWallet("subwallet")}
+                        disabled={authLoading}
+                        className="pixel-btn pixel-btn-blue flex-1 text-[13px] py-3"
+                        style={{ letterSpacing: "0.04em" }}
+                      >
+                        {authLoading ? (
+                          <span className="animate-pulse">SIGNING...</span>
+                        ) : (
+                          "SubWallet"
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="flex-1 border-t border-crt-green/10" />
+                    <span className="text-[13px] text-crt-green/20">OR</span>
+                    <div className="flex-1 border-t border-crt-green/10" />
+                  </div>
+                </>
+              )}
+
+              <button
+                onClick={connectLocal}
+                disabled={authLoading}
+                className="pixel-btn w-full text-[13px] py-3"
+                style={{ letterSpacing: "0.04em" }}
+              >
+                {authLoading && !hasMetaMask && !hasSubWallet ? (
+                  <span className="animate-pulse">GENERATING KEY...</span>
+                ) : (
+                  "Use Local Key"
+                )}
+              </button>
+
+              <div className="flex items-center gap-3 w-full">
+                <div className="flex-1 border-t border-crt-green/10" />
+                <span className="text-[13px] text-crt-green/20">OR</span>
+                <div className="flex-1 border-t border-crt-green/10" />
               </div>
 
-              <div className="flex flex-col items-center gap-4">
-                {(hasMetaMask || hasSubWallet) && (
-                  <>
-                    <div className="flex gap-2 w-full max-w-xs">
-                      {hasMetaMask && (
-                        <button
-                          onClick={() => connectWallet("metamask")}
-                          disabled={authLoading}
-                          className="pixel-btn pixel-btn-amber flex-1 text-[13px] py-3"
-                          style={{ letterSpacing: "0.04em" }}
-                        >
-                          {authLoading ? (
-                            <span className="animate-pulse">SIGNING...</span>
-                          ) : (
-                            "MetaMask"
-                          )}
-                        </button>
-                      )}
-                      {hasSubWallet && (
-                        <button
-                          onClick={() => connectWallet("subwallet")}
-                          disabled={authLoading}
-                          className="pixel-btn pixel-btn-blue flex-1 text-[13px] py-3"
-                          style={{ letterSpacing: "0.04em" }}
-                        >
-                          {authLoading ? (
-                            <span className="animate-pulse">SIGNING...</span>
-                          ) : (
-                            "SubWallet"
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full max-w-xs">
-                      <div className="flex-1 border-t border-crt-green/10" />
-                      <span className="text-[13px] text-crt-green/20">OR</span>
-                      <div className="flex-1 border-t border-crt-green/10" />
-                    </div>
-                  </>
-                )}
-
+              {!showPasswordInput ? (
                 <button
-                  onClick={connectLocal}
-                  disabled={authLoading}
-                  className="pixel-btn w-full max-w-xs text-[13px] py-3"
+                  onClick={() => setShowPasswordInput(true)}
+                  className="pixel-btn w-full text-[13px] py-3"
                   style={{ letterSpacing: "0.04em" }}
                 >
-                  {authLoading && !hasMetaMask && !hasSubWallet ? (
-                    <span className="animate-pulse">GENERATING KEY...</span>
-                  ) : (
-                    "Use Local Key"
-                  )}
+                  Use Password Key
                 </button>
-
-                <div className="flex items-center gap-3 w-full max-w-xs">
-                  <div className="flex-1 border-t border-crt-green/10" />
-                  <span className="text-[13px] text-crt-green/20">OR</span>
-                  <div className="flex-1 border-t border-crt-green/10" />
-                </div>
-
-                {!showPasswordInput ? (
+              ) : (
+                <div className="w-full space-y-2">
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter password..."
+                    className="w-full px-3 py-2 text-[13px] bg-crt-dark text-crt-green border-2 border-crt-amber/40 font-pixel"
+                    style={{ letterSpacing: "0.01em" }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && passwordInput.trim()) connectWithPassword(passwordInput.trim());
+                    }}
+                  />
                   <button
-                    onClick={() => setShowPasswordInput(true)}
-                    className="pixel-btn w-full max-w-xs text-[13px] py-3"
+                    onClick={() => passwordInput.trim() && connectWithPassword(passwordInput.trim())}
+                    disabled={authLoading || !passwordInput.trim()}
+                    className="pixel-btn pixel-btn-amber w-full text-[13px] py-3"
                     style={{ letterSpacing: "0.04em" }}
                   >
-                    Use Password Key
+                    {authLoading ? (
+                      <span className="animate-pulse">DERIVING KEY...</span>
+                    ) : (
+                      "Connect with Password"
+                    )}
                   </button>
-                ) : (
-                  <div className="w-full max-w-xs space-y-2">
-                    <input
-                      type="password"
-                      value={passwordInput}
-                      onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Enter password..."
-                      className="w-full px-3 py-2 text-[13px] bg-crt-dark text-crt-green border-2 border-crt-amber/40 font-pixel"
-                      style={{ letterSpacing: "0.01em" }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && passwordInput.trim()) connectWithPassword(passwordInput.trim());
-                      }}
-                    />
-                    <button
-                      onClick={() => passwordInput.trim() && connectWithPassword(passwordInput.trim())}
-                      disabled={authLoading || !passwordInput.trim()}
-                      className="pixel-btn pixel-btn-amber w-full text-[13px] py-3"
-                      style={{ letterSpacing: "0.04em" }}
-                    >
-                      {authLoading ? (
-                        <span className="animate-pulse">DERIVING KEY...</span>
-                      ) : (
-                        "Connect with Password"
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                <div className="text-[13px] text-crt-green/25">
-                  Password derives a deterministic wallet key via keccak256
-                </div>
-              </div>
-
-              {authError && (
-                <div className="mt-4 border-2 border-crt-red/60 p-3" style={{ background: "rgba(239,68,68,0.05)" }}>
-                  <div className="text-[14px] text-crt-red text-center">{authError}</div>
                 </div>
               )}
+
+              <div className="text-[13px] text-crt-green/25 text-center">
+                Password derives a deterministic wallet key via keccak256
+              </div>
             </div>
+
+            {authError && (
+              <div className="mt-4 border-2 border-crt-red/60 p-3" style={{ background: "rgba(239,68,68,0.05)" }}>
+                <div className="text-[14px] text-crt-red text-center">{authError}</div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
-          <div className="text-[12px] mt-4" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+          <div className="p-4 text-[12px] text-center" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
             Bismillah — Mod AI v1.0 — Powered by Rust + Next.js
           </div>
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 
   // ═══════════════════════════════════════════════════════════════════
   // RENDER FUNCTIONS
@@ -2604,6 +4196,16 @@ export default function Home() {
             <span className="truncate font-code" style={{ fontSize: "14px", color: isDir ? "var(--crt-green)" : getFileTypeColor(item.name) }}>
               {item.name}
             </span>
+            {!isDir && item.cid && (
+              <span
+                onClick={(e) => { e.stopPropagation(); copyCid(item.path, item.cid); }}
+                className="ml-auto shrink-0 font-code text-[11px] px-1 transition-opacity hover:opacity-100"
+                style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === item.path ? 1 : 0.35 }}
+                title={`CID ${item.cid} — click to copy`}
+              >
+                {copiedCid === item.path ? "✓" : item.cid.slice(0, 8)}
+              </span>
+            )}
           </div>
           {isDir && isExpanded && item.children && renderDirectoryTree(item.children, depth + 1)}
         </div>
@@ -2748,9 +4350,20 @@ export default function Home() {
                     {versionDetail.version?.description || "No description"}
                   </div>
 
-                  {/* CID with link */}
+                  {/* CID with link + share QR */}
                   <div className="mb-3">
-                    <div className="text-[14px] text-crt-green/30 mb-1" style={{ letterSpacing: "0.01em" }}>IPFS CID</div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[14px] text-crt-green/30" style={{ letterSpacing: "0.01em" }}>IPFS CID</div>
+                      {versionDetail.version?.cid && (
+                        <button
+                          onClick={() => shareCidQr(versionDetail.version.cid, selectedModule, versionDetail.gateway)}
+                          className="text-[11px] px-1.5 py-0.5 border border-crt-green/25 text-crt-green/50 hover:text-crt-green hover:border-crt-green/50 transition-all"
+                          title="Share this snapshot as a QR code"
+                        >
+                          ⛶ QR
+                        </button>
+                      )}
+                    </div>
                     <a
                       href={versionDetail.gateway}
                       target="_blank"
@@ -2793,85 +4406,104 @@ export default function Home() {
     );
   };
 
-  const renderDirectoryTab = () => {
-    const fileWorkDir = selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir || workDir : workDir || "~/mod";
+  // Click-to-copy for CID chips, with brief ✓ feedback keyed by chip id.
+  const copyCid = (key: string, value: string) => {
+    navigator.clipboard?.writeText(value);
+    setCopiedCid(key);
+    setTimeout(() => setCopiedCid((p) => (p === key ? null : p)), 1200);
+  };
 
+  // Path of the dir the FILES browser is showing, "~"-abbreviated for display.
+  const filesDisplayPath = () => {
+    const p = workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : "") || "~/mod";
+    return p.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~").replace(/^\/root(?=\/|$)/, "~");
+  };
+
+  // Compact control cluster (root hash + search/grep/refresh/float) shared by
+  // the docked CODE toolbar row and the floating FILES panel title bar.
+  // `float: false` hides the float-toggle where a dock button already exists.
+  const filesToolbarControls = (opts: { float?: boolean } = {}) => (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {treeRootHash && (
+        <button
+          onClick={() => copyCid("root", treeRootHash)}
+          className="text-[11px] px-1.5 py-0.5 border font-code transition-all"
+          style={{
+            borderColor: "color-mix(in srgb, var(--crt-purple, #c084fc) 35%, transparent)",
+            color: "var(--crt-purple, #c084fc)",
+            background: "color-mix(in srgb, var(--crt-purple, #c084fc) 6%, transparent)",
+            letterSpacing: "0.02em",
+          }}
+          title={`Root tree hash (snapshot CID of this dir): ${treeRootHash} — click to copy`}
+        >
+          {copiedCid === "root" ? "✓ copied" : `⌬ ${treeRootHash.slice(0, 10)}`}
+        </button>
+      )}
+      <button
+        onClick={() => {
+          setInlineSearchMode((prev) => prev === "off" ? "files" : "off");
+          setInlineSearchQuery("");
+          setInlineSearchResults([]);
+          setTimeout(() => inlineSearchRef.current?.focus(), 50);
+        }}
+        className={`text-[13px] px-1.5 py-0.5 border transition-all uppercase ${
+          inlineSearchMode !== "off"
+            ? "border-crt-blue text-crt-blue bg-crt-blue/10"
+            : "border-crt-blue/30 text-crt-blue/60 hover:text-crt-blue hover:border-crt-blue"
+        }`}
+        title="Search — file names (Ctrl+P) or contents (Ctrl+Shift+F)"
+        style={{ letterSpacing: "0" }}
+      >
+        🔍
+      </button>
+      <button
+        onClick={() => fetchDirectoryTree()}
+        className="text-[13px] px-1.5 py-0.5 border border-crt-green/20 text-crt-green/40 hover:text-crt-green/70 hover:border-crt-green/40 transition-all"
+        title="Refresh"
+      >
+        ↻
+      </button>
+      {opts.float !== false && (
+        <button
+          onClick={() => setFilesPanelFloating(f => !f)}
+          className={`text-[13px] px-1.5 py-0.5 border transition-all ${
+            filesPanelFloating
+              ? "border-crt-amber/50 text-crt-amber/70 hover:text-crt-amber hover:border-crt-amber"
+              : "border-crt-green/20 text-crt-green/40 hover:text-crt-green/70 hover:border-crt-green/40"
+          }`}
+          title={filesPanelFloating ? "Dock panel" : "Float panel"}
+        >
+          {filesPanelFloating ? "⊡" : "⊞"}
+        </button>
+      )}
+    </div>
+  );
+
+  const renderDirectoryTab = () => {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Directory Header with Inline Search */}
-        <div
-          style={{
-            borderBottom: `1px solid ${subtleBorder}`,
-            background: tintBg,
-          }}
-        >
-          <div className="px-3 py-2 flex items-center gap-2">
-            <span className="text-[14px] text-crt-green/70 flex-1" style={{ letterSpacing: "0.02em" }}>
-              📁 FILES
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => {
-                  setInlineSearchMode((prev) => prev === "files" ? "off" : "files");
-                  setInlineSearchQuery("");
-                  setInlineSearchResults([]);
-                  setTimeout(() => inlineSearchRef.current?.focus(), 50);
-                }}
-                className={`text-[13px] px-1.5 py-0.5 border transition-all uppercase ${
-                  inlineSearchMode === "files"
-                    ? "border-crt-blue text-crt-blue bg-crt-blue/10"
-                    : "border-crt-blue/30 text-crt-blue/60 hover:text-crt-blue hover:border-crt-blue"
-                }`}
-                title="Search files by name (Ctrl+P)"
-                style={{ letterSpacing: "0" }}
-              >
-                🔍
-              </button>
-              <button
-                onClick={() => {
-                  setInlineSearchMode((prev) => prev === "grep" ? "off" : "grep");
-                  setInlineSearchQuery("");
-                  setInlineSearchResults([]);
-                  setTimeout(() => inlineSearchRef.current?.focus(), 50);
-                }}
-                className={`text-[13px] px-1.5 py-0.5 border transition-all uppercase ${
-                  inlineSearchMode === "grep"
-                    ? "border-crt-blue text-crt-blue bg-crt-blue/10"
-                    : "border-crt-blue/30 text-crt-blue/60 hover:text-crt-blue hover:border-crt-blue"
-                }`}
-                title="Search file contents (Ctrl+Shift+F)"
-                style={{ letterSpacing: "0" }}
-              >
-                🔎
-              </button>
-              <button
-                onClick={() => fetchDirectoryTree()}
-                className="text-[13px] px-1.5 py-0.5 border border-crt-green/20 text-crt-green/40 hover:text-crt-green/70 hover:border-crt-green/40 transition-all"
-                title="Refresh"
-              >
-                ↻
-              </button>
-              <button
-                onClick={() => setFilesPanelFloating(f => !f)}
-                className={`text-[13px] px-1.5 py-0.5 border transition-all ${
-                  filesPanelFloating
-                    ? "border-crt-amber/50 text-crt-amber/70 hover:text-crt-amber hover:border-crt-amber"
-                    : "border-crt-green/20 text-crt-green/40 hover:text-crt-green/70 hover:border-crt-green/40"
-                }`}
-                title={filesPanelFloating ? "Dock panel" : "Float panel"}
-              >
-                {filesPanelFloating ? "⊡" : "⊞"}
-              </button>
-            </div>
-          </div>
-
-          {/* Search expand below header */}
-          {inlineSearchMode !== "off" && (
-            <div className="px-3 pb-2" style={{ borderTop: `1px solid ${subtleBorder}` }}>
+        {/* Inline search (toggled from the CODE toolbar / floating title bar) */}
+        {inlineSearchMode !== "off" && (
+          <div className="px-3 pb-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
               <div className="flex items-center gap-2 px-2 py-1 mt-1 border border-crt-blue/30 bg-black/40" style={{ borderRadius: "8px" }}>
-                <span className="text-[13px] text-crt-blue/60">
-                  {inlineSearchMode === "files" ? "🔍" : "🔎"}
-                </span>
+                {/* Mode toggle lives in the bar — the toolbar has a single search button */}
+                {(["files", "grep"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      setInlineSearchMode(mode);
+                      inlineSearchRef.current?.focus();
+                    }}
+                    className={`text-[10px] px-1.5 py-0.5 border uppercase transition-all shrink-0 ${
+                      inlineSearchMode === mode
+                        ? "border-crt-blue text-crt-blue bg-crt-blue/10"
+                        : "border-crt-blue/20 text-crt-blue/40 hover:text-crt-blue/70 hover:border-crt-blue/50"
+                    }`}
+                    title={mode === "files" ? "Search file names (Ctrl+P)" : "Search file contents (Ctrl+Shift+F)"}
+                  >
+                    {mode === "files" ? "NAME" : "TEXT"}
+                  </button>
+                ))}
                 <input
                   ref={inlineSearchRef}
                   type="text"
@@ -2950,14 +4582,6 @@ export default function Home() {
               )}
             </div>
           )}
-        </div>
-
-        {/* Path display */}
-        {(selectedJob || workDir) && (
-          <div className="px-3 py-1 border-b text-[14px] text-crt-green/30 truncate font-code" style={{ borderColor: "var(--border-color)" }}>
-            {fileWorkDir}
-          </div>
-        )}
 
         {/* Side-by-side: file tree + file content */}
         <div className="flex-1 flex overflow-hidden">
@@ -2974,7 +4598,15 @@ export default function Home() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <span className="text-[13px] text-crt-green/50">📂 No files loaded</span>
-                <span className="text-[14px] text-crt-green/30">Select a module above or click refresh</span>
+                {directoryTreeError ? (
+                  <span className="text-[13px] text-crt-amber/70 text-center px-4">
+                    {directoryTreeError.includes("auth token")
+                      ? "⚠ Sign in to browse files — the file API requires authentication"
+                      : `⚠ ${directoryTreeError}`}
+                  </span>
+                ) : (
+                  <span className="text-[14px] text-crt-green/30">Select a module above or click refresh</span>
+                )}
                 <button
                   onClick={() => fetchDirectoryTree()}
                   className="text-[14px] px-3 py-1.5 border border-crt-green/30 text-crt-green/60 hover:text-crt-green hover:border-crt-green transition-all"
@@ -2994,12 +4626,22 @@ export default function Home() {
                 style={{ borderColor: "var(--border-color)", background: "rgba(59,130,246,0.03)" }}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[13px] text-crt-blue font-bold truncate font-code">
+                  <span className="text-[13px] text-crt-blue font-bold shrink-0 font-code">
                     {viewingFile.split("/").pop()}
                   </span>
                   <span className="text-[14px] text-crt-green/30 uppercase shrink-0 font-code">
                     {getLanguageFromPath(viewingFile)}
                   </span>
+                  {/* Toolbar already shows the browse dir — only render the part it doesn't */}
+                  {(() => {
+                    const root = filesDisplayPath();
+                    const rel = viewingFile.startsWith(root + "/") ? viewingFile.slice(root.length + 1) : viewingFile;
+                    return rel === viewingFile.split("/").pop() ? null : (
+                      <span className="text-[12px] text-crt-green/20 truncate font-code" title={viewingFile}>
+                        {rel}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[14px] text-crt-green/20 font-code">
@@ -3040,10 +4682,6 @@ export default function Home() {
                     ✕
                   </button>
                 </div>
-              </div>
-              {/* File path */}
-              <div className="px-3 py-0.5 text-[14px] text-crt-green/20 truncate border-b shrink-0 font-code" style={{ borderColor: "var(--bg-tint)" }}>
-                {viewingFile}
               </div>
               {/* File content */}
               <div className="flex-1 overflow-auto">
@@ -3264,7 +4902,7 @@ export default function Home() {
                           </div>
                           <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); localStorage.setItem("claude_jobs_agent", p.id); }}
+                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); safeSetItem("claude_jobs_agent", p.id); }}
                               className="text-[10px] px-2 py-1 border rounded transition-colors"
                               style={{ borderColor: "rgba(96,165,250,0.3)", color: "#60a5fa" }}
                               title="Set as active"
@@ -3418,19 +5056,20 @@ export default function Home() {
                 className="flex items-center gap-2 px-3 py-2 border-t border-crt-amber/20 shrink-0"
                 style={{ background: darkOverlayStrong }}
               >
-                {/* Model selector */}
+                {/* Model selector — actual versions, not just families */}
                 <select
                   value={model}
                   onChange={(e) => {
                     setModel(e.target.value);
-                    localStorage.setItem("claude_jobs_model", e.target.value);
+                    safeSetItem("claude_jobs_model", e.target.value);
                   }}
                   className="px-2 py-1 text-[13px] bg-transparent text-crt-green border border-crt-green/20 font-pixel uppercase cursor-pointer hover:border-crt-green/40 transition-colors"
-                  style={{ maxWidth: "160px" }}
+                  style={{ maxWidth: "180px" }}
+                  title={`Model: ${modelLabel(model)} (${model})`}
                 >
-                  <option value="opus">Opus 4.6</option>
-                  <option value="sonnet">Sonnet 4.5</option>
-                  <option value="haiku">Haiku 4.5</option>
+                  {MODEL_OPTIONS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
                 </select>
 
                 {/* Agent/Personality selector */}
@@ -3439,7 +5078,7 @@ export default function Home() {
                     value={agentType}
                     onChange={(e) => {
                       setAgentType(e.target.value);
-                      localStorage.setItem("claude_jobs_agent", e.target.value);
+                      safeSetItem("claude_jobs_agent", e.target.value);
                     }}
                     className="px-2 py-1 text-[13px] bg-transparent text-crt-blue border border-crt-blue/20 font-pixel uppercase cursor-pointer hover:border-crt-blue/40 transition-colors rounded-l"
                     style={{ maxWidth: "160px", borderRight: "none" }}
@@ -3455,6 +5094,83 @@ export default function Home() {
                   >
                     ...
                   </button>
+                </div>
+
+                {/* Active module picker — click to switch the module being edited */}
+                <div ref={inlineModuleRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineModuleDropdown((v) => !v)}
+                    className="px-2 py-1 text-[12px] font-pixel uppercase tracking-wide border rounded flex items-center gap-1.5 hover:bg-amber-400/10 transition-colors"
+                    style={{
+                      color: "#fbbf24",
+                      borderColor: "rgba(251,191,36,0.35)",
+                      background: "rgba(251,191,36,0.08)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title={selectedModule ? `Module: ${selectedModule} — click to switch` : "Pick a module to edit"}
+                  >
+                    <span>{selectedModule || "pick module"}</span>
+                    <span className="text-[9px] opacity-60">▾</span>
+                  </button>
+                  {showInlineModuleDropdown && (
+                    <div
+                      className="absolute z-50 mt-1 left-0 w-[280px] border rounded shadow-xl"
+                      style={{
+                        background: "var(--bg-primary, #0a0a0a)",
+                        borderColor: "rgba(251,191,36,0.35)",
+                      }}
+                    >
+                      <input
+                        type="text"
+                        autoFocus
+                        value={moduleSearch}
+                        onChange={(e) => setModuleSearch(e.target.value)}
+                        placeholder="search modules..."
+                        className="w-full px-2 py-1.5 text-[12px] bg-transparent border-b font-mono outline-none"
+                        style={{
+                          borderColor: "rgba(251,191,36,0.2)",
+                          color: "#fbbf24",
+                        }}
+                        spellCheck={false}
+                      />
+                      <div className="max-h-[280px] overflow-y-auto">
+                        {moduleList
+                          .filter((m) => !moduleSearch.trim() || m.name.toLowerCase().includes(moduleSearch.toLowerCase()))
+                          .slice(0, 200)
+                          .map((m) => (
+                            <button
+                              key={m.name}
+                              type="button"
+                              onClick={() => {
+                                resetModuleState(m);
+                                setSelectedModule(m.name);
+                                setSelectedModuleInfo(m);
+                                setWorkDir(m.path);
+                                fetchModuleConfig(m.name);
+                                setShowInlineModuleDropdown(false);
+                                setModuleSearch("");
+                              }}
+                              className="w-full px-2 py-1.5 text-left text-[12px] font-code flex items-center gap-2 hover:bg-amber-400/10 transition-colors"
+                              style={{
+                                color: m.name === selectedModule ? "#fbbf24" : "var(--text-secondary)",
+                                background: m.name === selectedModule ? "rgba(251,191,36,0.08)" : "transparent",
+                              }}
+                            >
+                              <span className="truncate flex-1">{m.name}</span>
+                              {m.category && (
+                                <span className="text-[9px] opacity-50 shrink-0 uppercase">{m.category}</span>
+                              )}
+                            </button>
+                          ))}
+                        {moduleList.filter((m) => !moduleSearch.trim() || m.name.toLowerCase().includes(moduleSearch.toLowerCase())).length === 0 && (
+                          <div className="px-2 py-3 text-[11px] text-center opacity-50 font-pixel uppercase">
+                            no matches
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Mode selector: edit/ fork/ new/ */}
@@ -3738,7 +5454,7 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      const matchesModule = !selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude")));
+      const matchesModule = !selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "claude");
       return matchesSearch && matchesStatus && matchesModule;
     });
 
@@ -3755,7 +5471,7 @@ export default function Home() {
           />
           <div className="flex gap-1.5 shrink-0 items-center">
             {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
-              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude"))))).length;
+              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "claude"))).length;
               if (count === 0) return null;
               const isActive = statusFilter === status;
               return (
@@ -3830,7 +5546,7 @@ export default function Home() {
                           {STATUS_LABEL[job.status]}
                         </span>
                         <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.4 }}>
-                          {job.model === "opus" ? "Opus 4.6" : job.model === "sonnet" ? "Sonnet 4.5" : job.model === "haiku" ? "Haiku 4.5" : job.model}
+                          {modelLabel(job.model)}
                         </span>
                         {job.work_dir && moduleName && moduleName !== "claude" && (
                           <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>
@@ -3942,6 +5658,9 @@ export default function Home() {
     );
   };
 
+  // Full-page TASKS view (like the HUB) — tasks from ALL modules, each row
+  // carrying its module pill. The docked agent side panel this once powered
+  // is gone; TASKS in the nav is the one home for agent jobs now.
   const renderAgentTab = () => {
     const filteredJobs = jobs.filter((j) => {
       const q = searchQuery.toLowerCase();
@@ -3953,252 +5672,1468 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      const matchesModule = !selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude")));
-      return matchesSearch && matchesStatus && matchesModule;
+      return matchesSearch && matchesStatus;
     });
+
+    const runningCount = filteredJobs.filter(j => j.status === "running").length;
+    const isRunning = selectedJobData?.status === "running";
+    const output = streamOutput || selectedJobData?.output || "";
+    // Derived views for the open task's EDITS / AUDIT sub-tabs.
+    const taskEdits = parseTaskEdits(output);
+    const taskAudit = parseTaskAudit(output);
+    const activeModelChip = MODEL_OPTIONS.find(m => m.value === model)
+      || MODEL_OPTIONS.find(m => m.family === model)
+      || MODEL_OPTIONS[0];
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden" style={{ background: "var(--bg-primary)" }}>
-        {/* Top: Input Area */}
-        <div className="border-b flex flex-col shrink-0" style={{ borderColor: subtleBorder, background: tintBg }}>
-          <div className="p-3">
-            <div
-              className="border relative flex flex-col overflow-hidden rounded-xl"
-              style={{ background: darkOverlay, borderColor: subtleBorder }}
-            >
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what Claude should do... [Enter=submit, Shift+Enter=newline]"
-                className="w-full p-4 pb-2 text-[15px] resize-none rounded-none bg-transparent border-0 outline-none"
-                style={{ lineHeight: "1.6", color: "var(--text-primary)", minHeight: "60px", maxHeight: "200px" }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitJob();
-                  }
+        {/* ── Full-page TASKS toolbar — mirrors the HUB toolbar ── */}
+          <div
+            className="flex items-center gap-3 px-4 py-2.5 shrink-0 flex-wrap"
+            style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-blue) 4%, transparent)" }}
+          >
+            <span className="text-[14px] font-bold font-code" style={{ color: "var(--crt-blue)", letterSpacing: "0.04em" }}>
+              ▤ TASKS
+            </span>
+            <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
+              {filteredJobs.length} task{filteredJobs.length === 1 ? "" : "s"}
+              {runningCount > 0 && (
+                <> · <span style={{ color: "var(--crt-blue)" }}>{runningCount} running</span></>
+              )}
+            </span>
+            {address && address !== "local" && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-[3px] ml-auto"
+                style={{
+                  color: "var(--crt-green)",
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 28%, transparent)",
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
                 }}
-                onPaste={(e) => {
-                  const items = e.clipboardData?.items;
-                  if (!items) return;
-                  for (let i = 0; i < items.length; i++) {
-                    if (items[i].type.startsWith("image/")) {
-                      e.preventDefault();
-                      const file = items[i].getAsFile();
-                      if (!file) continue;
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        const base64 = reader.result as string;
-                        setImages((prev) => [...prev, { name: file.name || `image-${Date.now()}.png`, data: base64 }]);
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }
+                title={`Signed in as: ${address}`}
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }} />
+                {address.slice(0, 6)}…{address.slice(-4)}
+              </span>
+            )}
+          </div>
+
+        {/* ── Main content area (TASKS — full-page view) ── */}
+        <div ref={outputRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+          {selectedJobData ? (
+            <div className="flex flex-col h-full fade-in">
+              {/* Job header */}
+              {(() => {
+                const statusColor = STATUS_COLOR[selectedJobData.status];
+                const moduleName = selectedJobData.work_dir
+                  ? extractModuleFromWorkDir(selectedJobData.work_dir)
+                  : null;
+                const { cleanPrompt } = parsePromptImages(selectedJobData.prompt);
+                const displayPrompt = cleanPrompt || selectedJobData.prompt;
+                return (
+              <div
+                className="px-4 py-3 shrink-0 space-y-2.5"
+                style={{
+                  borderBottom: `1px solid ${subtleBorder}`,
+                  background: `linear-gradient(180deg, ${statusColor}0e, ${tintBg})`,
                 }}
-              />
-              <div className="flex items-center gap-2 px-3 py-2 border-t border-crt-amber/20 shrink-0" style={{ background: darkOverlayStrong }}>
-                <select
-                  value={model}
-                  onChange={(e) => { setModel(e.target.value); localStorage.setItem("claude_jobs_model", e.target.value); }}
-                  className="px-2 py-1 text-[13px] bg-transparent border font-pixel uppercase cursor-pointer hover:border-opacity-60 transition-colors"
-                  style={{ borderColor: "var(--border-color)", color: "var(--crt-green)", maxWidth: "160px" }}
-                >
-                  <option value="opus">Opus 4.6</option>
-                  <option value="sonnet">Sonnet 4.5</option>
-                  <option value="haiku">Haiku 4.5</option>
-                </select>
-                <select
-                  value={agentType}
-                  onChange={(e) => { setAgentType(e.target.value); localStorage.setItem("claude_jobs_agent", e.target.value); }}
-                  className="px-2 py-1 text-[13px] bg-transparent border font-pixel uppercase cursor-pointer hover:border-opacity-60 transition-colors"
-                  style={{ borderColor: "var(--border-color)", color: "var(--crt-blue, #60a5fa)", maxWidth: "160px" }}
-                >
-                  {AGENT_OPTIONS.map((a) => (
-                    <option key={a.value} value={a.value}>{a.icon} {a.label}</option>
-                  ))}
-                </select>
-                {images.length > 0 && (
-                  <div className="flex items-center">
-                    <span className="text-[14px] px-2 py-1 border border-crt-blue/30 text-crt-blue/70 uppercase" style={{ letterSpacing: "0" }}>
-                      {images.length} IMG{images.length > 1 ? "S" : ""}
+              >
+                {/* Row 1 — status pill + action buttons */}
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full"
+                    style={{
+                      background: `${statusColor}1a`,
+                      border: `1px solid ${statusColor}40`,
+                    }}
+                  >
+                    <span
+                      className={`inline-block w-1.5 h-1.5 rounded-full ${isRunning ? "soft-pulse" : ""}`}
+                      style={{
+                        background: statusColor,
+                        boxShadow: isRunning ? `0 0 6px ${statusColor}` : "none",
+                      }}
+                    />
+                    <span className="text-[10px] font-bold uppercase" style={{ color: statusColor, letterSpacing: "0.08em" }}>
+                      {STATUS_LABEL[selectedJobData.status]}
                     </span>
-                    <button onClick={() => setImages([])} className="text-[14px] text-crt-red/60 hover:text-crt-red ml-1 transition-colors" title="Clear all images">✕</button>
-                  </div>
-                )}
-                <div className="flex-1" />
-                {selectedJobData && (
-                  <div className="flex items-center gap-2 mr-2">
-                    <span className="text-[13px]" style={{ color: STATUS_COLOR[selectedJobData.status] }}>
-                      {STATUS_ICON[selectedJobData.status]} {STATUS_LABEL[selectedJobData.status]}
-                    </span>
-                    {(selectedJobData.status === "running" || selectedJobData.status === "pending") && (
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isRunning && (
                       <button
                         onClick={() => cancelJob(selectedJobData.id)}
-                        className="text-[10px] px-1.5 py-0.5 border border-red-500/20 text-red-400/50 hover:bg-red-500/10 hover:text-red-400 transition-all uppercase"
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                        style={{
+                          color: "var(--crt-red)",
+                          border: "1px solid rgba(239,68,68,0.35)",
+                          background: "rgba(239,68,68,0.08)",
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.18)")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "rgba(239,68,68,0.08)")}
                       >
-                        CANCEL
+                        STOP
+                      </button>
+                    )}
+                    {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
+                      <button
+                        onClick={(e) => rerunTask(selectedJobData, e)}
+                        disabled={submitting}
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring disabled:opacity-40"
+                        style={{
+                          color: activeModelChip.color,
+                          border: `1px solid ${activeModelChip.color}55`,
+                          background: `${activeModelChip.color}14`,
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = `${activeModelChip.color}28`)}
+                        onMouseLeave={e => (e.currentTarget.style.background = `${activeModelChip.color}14`)}
+                        title="Run this exact task again as a new job"
+                      >
+                        ↻ REPLAY
+                      </button>
+                    )}
+                    <button
+                      onClick={() => editTask(selectedJobData)}
+                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                      style={{
+                        color: "var(--text-secondary)",
+                        border: `1px solid ${subtleBorder}`,
+                        background: "var(--bg-secondary)",
+                        letterSpacing: "0.05em",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = "var(--text-primary)";
+                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = "var(--text-secondary)";
+                        e.currentTarget.style.borderColor = subtleBorder;
+                      }}
+                      title="Load this task into the composer to edit and re-submit"
+                    >
+                      ✎ EDIT
+                    </button>
+                    {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
+                      <button
+                        onClick={() => deleteJob(selectedJobData.id)}
+                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                        style={{
+                          color: "var(--text-tertiary)",
+                          border: `1px solid ${subtleBorder}`,
+                          background: "transparent",
+                          letterSpacing: "0.05em",
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = "var(--bg-secondary)";
+                          e.currentTarget.style.color = "var(--crt-red)";
+                          e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.color = "var(--text-tertiary)";
+                          e.currentTarget.style.borderColor = subtleBorder;
+                        }}
+                      >
+                        DELETE
                       </button>
                     )}
                     <button
                       onClick={() => { setSelectedJob(null); setStreamOutput(""); }}
-                      className="text-[13px] text-crt-green/30 hover:text-crt-red transition-colors"
-                      title="Deselect"
+                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
+                      style={{
+                        color: "var(--text-secondary)",
+                        border: `1px solid ${subtleBorder}`,
+                        background: "var(--bg-secondary)",
+                        letterSpacing: "0.05em",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.color = "var(--text-primary)";
+                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.color = "var(--text-secondary)";
+                        e.currentTarget.style.borderColor = subtleBorder;
+                      }}
+                      title="Back to job list"
                     >
-                      ✕
+                      ← BACK
                     </button>
                   </div>
-                )}
-                <button
-                  onClick={submitJob}
-                  disabled={submitting || !prompt.trim()}
-                  className="pixel-btn text-[13px] py-1.5 px-6 uppercase"
-                  style={{ letterSpacing: "0.02em" }}
+                </div>
+
+                {/* Row 2 — model · id · time · module */}
+                <div className="flex items-center gap-1.5 flex-wrap text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                  <span className="uppercase font-semibold tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    {modelLabel(selectedJobData.model)}
+                  </span>
+                  <span className="opacity-30">·</span>
+                  <span
+                    className="font-mono px-1.5 py-[1px] rounded"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      opacity: 0.85,
+                    }}
+                    title={selectedJobData.id}
+                  >
+                    #{selectedJobData.id.slice(0, 8)}
+                  </span>
+                  <span className="opacity-30">·</span>
+                  <span className="font-mono" title={formatDate(selectedJobData.created_at)}>
+                    {timeSince(selectedJobData.created_at)}
+                  </span>
+                  {moduleName && moduleName !== "claude" && (
+                    <>
+                      <span className="opacity-30">·</span>
+                      <span
+                        className="uppercase font-mono px-1.5 py-[1px] rounded"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 22%, transparent)",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {moduleName}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Row 3 — caller · host */}
+                <div className="flex items-stretch gap-2 text-[10px]">
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                    }}
+                  >
+                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
+                      caller
+                    </span>
+                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.user_address || "local"}>
+                      {shortCaller(selectedJobData.user_address)}
+                    </span>
+                  </div>
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0 flex-1"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                    }}
+                  >
+                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
+                      host
+                    </span>
+                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.work_dir || "—"}>
+                      {shortHost(selectedJobData.work_dir)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Prompt preview */}
+                <div
+                  className="px-2.5 py-2 rounded-md"
+                  style={{
+                    background: tintBg,
+                    borderLeft: `2px solid ${statusColor}66`,
+                    border: `1px solid ${subtleBorder}`,
+                    borderLeftWidth: 2,
+                    borderLeftColor: `${statusColor}66`,
+                  }}
                 >
-                  {submitting ? <span className="animate-pulse">...</span> : "Run"}
-                </button>
+                  <p
+                    className="text-[12px] leading-relaxed m-0"
+                    style={{
+                      color: "var(--text-secondary)",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {displayPrompt}
+                  </p>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
+                );
+              })()}
 
-        {/* Bottom: Output (left) | Tasks (right) split */}
-        <div className="flex-1 flex flex-row overflow-hidden min-w-0">
-          {/* Left: Output Area */}
-          <div ref={outputRef} className="flex-1 overflow-y-auto">
-            {selectedJobData ? (
-              <pre
-                className="px-6 pt-4 pb-8 m-0 whitespace-pre-wrap text-[13px] leading-relaxed font-mono"
-                style={{ color: "var(--text-primary)" }}
+              {/* Sub-tab strip — OUTPUT · EDITS · AUDIT */}
+              <div
+                className="flex items-center gap-1 px-3 pt-2 shrink-0"
+                style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
               >
-                {(streamOutput || selectedJobData.output)
-                  ? renderOutput(streamOutput || selectedJobData.output)
-                  : (selectedJobData.status === "pending" ? (
-                    <span style={{ color: "var(--crt-amber)", opacity: 0.7 }}>{"Queued — waiting for worker...\n\n"}</span>
-                  ) : selectedJobData.status === "running" ? (
-                    <span className="led-pulse" style={{ color: "var(--crt-green)", opacity: 0.7 }}>{"Running...\n\n"}</span>
-                  ) : (
-                    <span style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>No output</span>
-                  ))}
-              </pre>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center gap-4">
-                <span className="text-[40px] opacity-5">⬡</span>
-                <span className="text-[13px] uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.2, letterSpacing: "0.08em" }}>
-                  Submit a task or select one from the list
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Right: Task List */}
-          <div className="flex flex-col overflow-hidden" style={{ width: "40%", borderLeft: `1px solid var(--border-color)`, background: "var(--bg-secondary)" }}>
-            {/* Search & Filter */}
-            <div className="border-b px-3 py-1.5 flex items-center gap-2 shrink-0" style={{ borderColor: subtleBorder }}>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter tasks..."
-                className="flex-1 min-w-0 px-1 py-0.5 text-[11px] border-none bg-transparent focus:outline-none placeholder:opacity-20 transition-colors"
-                style={{ color: "var(--text-secondary)" }}
-              />
-              <div className="flex gap-1.5 shrink-0 items-center">
-                {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
-                  const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir && (j.work_dir.includes(`/orbit/${selectedModule}`) || j.work_dir.includes("/orbit/claude"))))).length;
-                  if (count === 0) return null;
-                  const isActive = statusFilter === status;
+                {([
+                  ["output", "OUTPUT", null],
+                  ["edits", "EDITS", taskEdits.length],
+                  ["audit", "AUDIT", taskAudit.length],
+                ] as const).map(([key, label, count]) => {
+                  const active = taskDetailTab === key;
                   return (
                     <button
-                      key={status}
-                      onClick={() => setStatusFilter(isActive ? null : status)}
-                      className="text-[10px] transition-all whitespace-nowrap border-none bg-transparent cursor-pointer"
-                      style={{ color: STATUS_COLOR[status], opacity: isActive ? 0.9 : 0.3 }}
+                      key={key}
+                      onClick={() => setTaskDetailTab(key)}
+                      className="flex items-center gap-1.5 text-[10px] font-bold uppercase px-2.5 py-1.5 rounded-t-md focus-ring"
+                      style={{
+                        color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                        borderBottom: `2px solid ${active ? activeModelChip.color : "transparent"}`,
+                        background: active ? "color-mix(in srgb, var(--bg-secondary) 60%, transparent)" : "transparent",
+                        letterSpacing: "0.06em",
+                        marginBottom: "-1px",
+                      }}
+                      onMouseEnter={e => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
+                      onMouseLeave={e => { if (!active) e.currentTarget.style.color = "var(--text-tertiary)"; }}
                     >
-                      {STATUS_ICON[status]}{count}
+                      {label}
+                      {count != null && count > 0 && (
+                        <span
+                          className="text-[9px] font-mono px-1 rounded-full"
+                          style={{
+                            color: active ? activeModelChip.color : "var(--text-tertiary)",
+                            background: active ? `${activeModelChip.color}1f` : "var(--bg-secondary)",
+                            border: `1px solid ${active ? `${activeModelChip.color}40` : subtleBorder}`,
+                          }}
+                        >
+                          {count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
-            </div>
 
-            {/* Job List */}
-            <div className="flex-1 overflow-y-auto">
-              {loading && !jobs.length ? (
-                <div className="p-8 text-center">
-                  <p className="text-[11px] cursor-blink" style={{ color: "var(--text-tertiary)" }}>LOADING JOBS</p>
-                </div>
-              ) : filteredJobs.length === 0 ? (
-                <div className="p-8 text-center">
-                  <p className="text-[11px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>No agent tasks found</p>
-                </div>
-              ) : (
-                filteredJobs.map((job) => {
-                  const isSelected = selectedJob === job.id;
-                  const color = STATUS_COLOR[job.status];
-                  const moduleName = job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null;
-                  const { cleanPrompt } = parsePromptImages(job.prompt);
-                  const isDragOver = dragOverJobId === job.id && draggedJobId !== job.id;
-                  return (
-                    <div
-                      key={job.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, job.id)}
-                      onDragEnd={handleDragEnd}
-                      onDragOver={(e) => handleDragOver(e, job.id)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, job.id)}
-                      onClick={() => viewJob(job)}
-                      className="cursor-pointer transition-all duration-150"
-                      style={{
-                        borderBottom: `1px solid ${subtleBorder}`,
-                        borderLeft: isSelected ? `3px solid ${color}` : "3px solid transparent",
-                        borderTop: isDragOver ? "2px solid var(--crt-blue, #60a5fa)" : "2px solid transparent",
-                        background: isSelected ? `${color}08` : isDragOver ? "rgba(96,165,250,0.05)" : "transparent",
-                      }}
-                    >
-                      <div className="px-3 py-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className="text-[10px] cursor-grab active:cursor-grabbing select-none"
-                              style={{ color: "var(--text-tertiary)", opacity: 0.3 }}
-                              title="Drag to reorder"
-                            >⠿</span>
-                            <span className={`text-[11px] ${job.status === "running" ? "led-pulse" : ""}`} style={{ color }}>{STATUS_ICON[job.status]}</span>
-                            <span className="text-[11px] font-pixel" style={{ color, letterSpacing: "0" }}>{STATUS_LABEL[job.status]}</span>
-                            <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.4 }}>
-                              {job.model === "opus" ? "Op" : job.model === "sonnet" ? "So" : job.model === "haiku" ? "Ha" : job.model}
+              {/* Tab content */}
+              <div className="flex-1 overflow-y-auto p-3">
+                {/* OUTPUT — raw stream */}
+                {taskDetailTab === "output" && (output ? (
+                  <div
+                    className="rounded-xl px-3 py-2.5"
+                    style={{
+                      border: `1px solid ${subtleBorder}`,
+                      background: "color-mix(in srgb, var(--bg-secondary) 55%, transparent)",
+                    }}
+                  >
+                    <pre className="m-0 whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: "var(--text-primary)", fontFamily: "monospace", wordBreak: "break-word" }}>
+                      {renderOutput(output)}
+                      {isRunning && <span className="inline-block animate-pulse" style={{ color: STATUS_COLOR.running }}>&#9610;</span>}
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-32">
+                    {isRunning ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6", animationDelay: "0.2s" }} />
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6", animationDelay: "0.4s" }} />
+                      </div>
+                    ) : (
+                      <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No output</p>
+                    )}
+                  </div>
+                ))}
+
+                {/* EDITS — the file changes this task made, as diffs */}
+                {taskDetailTab === "edits" && (taskEdits.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 gap-1.5">
+                    <span className="text-[18px] opacity-30">✎</span>
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      {isRunning ? "No file edits yet…" : "This task made no file edits"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {/* Summary */}
+                    <div className="text-[10px] font-mono px-0.5" style={{ color: "var(--text-tertiary)" }}>
+                      {taskEdits.length} change{taskEdits.length === 1 ? "" : "s"} across {new Set(taskEdits.map(e => e.file)).size} file{new Set(taskEdits.map(e => e.file)).size === 1 ? "" : "s"}
+                    </div>
+                    {taskEdits.map((ed, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg overflow-hidden"
+                        style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
+                      >
+                        {/* Edit header */}
+                        <div
+                          className="flex items-center gap-2 px-2.5 py-1.5"
+                          style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                        >
+                          <span
+                            className="text-[8px] font-bold uppercase px-1.5 py-[1px] rounded-full shrink-0"
+                            style={{
+                              color: ed.kind === "write" ? "var(--accent-color)" : "var(--crt-amber)",
+                              background: ed.kind === "write" ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "color-mix(in srgb, var(--crt-amber) 12%, transparent)",
+                              border: `1px solid ${ed.kind === "write" ? "color-mix(in srgb, var(--accent-color) 30%, transparent)" : "color-mix(in srgb, var(--crt-amber) 30%, transparent)"}`,
+                              letterSpacing: "0.05em",
+                            }}
+                          >
+                            {ed.kind}
+                          </span>
+                          <span className="text-[11px] font-mono truncate flex-1" style={{ color: "var(--text-primary)" }} title={ed.file}>
+                            {ed.file}
+                          </span>
+                          {ed.kind === "edit" ? (
+                            <span className="text-[9px] font-mono shrink-0 flex items-center gap-1.5">
+                              {ed.added.length > 0 && <span style={{ color: "var(--accent-color)" }}>+{ed.added.length}</span>}
+                              {ed.removed.length > 0 && <span style={{ color: "var(--crt-red)" }}>−{ed.removed.length}</span>}
                             </span>
-                            {job.work_dir && moduleName && moduleName !== "claude" && (
-                              <span className="text-[9px] uppercase" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>{moduleName}</span>
-                            )}
-                          </div>
-                          <span className="text-[10px]" style={{ color: faintGreenText, opacity: 0.5 }}>{timeSince(job.created_at)}</span>
+                          ) : (
+                            <span className="text-[9px] font-mono shrink-0" style={{ color: "var(--accent-color)" }}>{ed.lineCount} lines</span>
+                          )}
                         </div>
-                        <p className="text-[12px] leading-relaxed" style={{ color: "var(--text-secondary)", opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {cleanPrompt.length > 60 ? cleanPrompt.slice(0, 60) + "..." : cleanPrompt}
-                        </p>
+                        {/* Diff body (edits only) */}
+                        {ed.kind === "edit" && (ed.removed.length > 0 || ed.added.length > 0) && (
+                          <pre className="m-0 px-2.5 py-1.5 text-[10.5px] leading-relaxed overflow-x-auto" style={{ fontFamily: "monospace" }}>
+                            {ed.removed.map((l, j) => (
+                              <span key={`r${j}`} style={{ color: "var(--crt-red)" }}>{"- " + l}{"\n"}</span>
+                            ))}
+                            {ed.added.map((l, j) => (
+                              <span key={`a${j}`} style={{ color: "var(--accent-color)" }}>{"+ " + l}{"\n"}</span>
+                            ))}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                {/* AUDIT — ordered trail of every tool action the task took */}
+                {taskDetailTab === "audit" && (taskAudit.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-32 gap-1.5">
+                    <span className="text-[18px] opacity-30">⊙</span>
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      {isRunning ? "No actions recorded yet…" : "No tool actions recorded for this task"}
+                    </p>
+                  </div>
+                ) : (() => {
+                  const META: Record<AuditEvent["type"], { icon: string; color: string; verb: string }> = {
+                    edit:   { icon: "✎", color: "var(--crt-amber)",   verb: "edit" },
+                    write:  { icon: "✚", color: "var(--accent-color)", verb: "write" },
+                    bash:   { icon: "$", color: "var(--crt-blue)",    verb: "bash" },
+                    read:   { icon: "◇", color: "var(--text-tertiary)", verb: "read" },
+                    search: { icon: "⌕", color: "var(--crt-amber)",   verb: "search" },
+                    task:   { icon: "→", color: "var(--text-secondary)", verb: "task" },
+                  };
+                  const counts = taskAudit.reduce((acc, ev) => { acc[ev.type] = (acc[ev.type] || 0) + 1; return acc; }, {} as Record<string, number>);
+                  return (
+                    <div className="space-y-2">
+                      {/* Summary chips */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {(Object.keys(META) as AuditEvent["type"][]).filter(t => counts[t]).map(t => (
+                          <span
+                            key={t}
+                            className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-[2px] rounded-full"
+                            style={{ color: META[t].color, background: `color-mix(in srgb, ${META[t].color} 10%, transparent)`, border: `1px solid color-mix(in srgb, ${META[t].color} 28%, transparent)` }}
+                          >
+                            <span style={{ fontWeight: "bold" }}>{META[t].icon}</span>
+                            {counts[t]} {META[t].verb}{counts[t] === 1 ? "" : "s"}
+                          </span>
+                        ))}
+                      </div>
+                      {/* Timeline */}
+                      <div className="space-y-px font-mono">
+                        {taskAudit.map((ev, i) => {
+                          const m = META[ev.type];
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-baseline gap-2 px-2 py-1 rounded"
+                              style={{ background: i % 2 === 0 ? "transparent" : "color-mix(in srgb, var(--bg-secondary) 50%, transparent)" }}
+                            >
+                              <span className="text-[10px] tabular-nums shrink-0 w-6 text-right opacity-40" style={{ color: "var(--text-tertiary)" }}>{i + 1}</span>
+                              <span className="text-[11px] shrink-0 w-3.5 text-center font-bold" style={{ color: m.color }} title={m.verb}>{m.icon}</span>
+                              <span className="text-[10.5px] truncate flex-1" style={{ color: "var(--text-secondary)" }} title={ev.label}>{ev.label}</span>
+                              {ev.detail && (
+                                <span className="text-[9.5px] truncate shrink-0 max-w-[40%] italic opacity-60" style={{ color: "var(--text-tertiary)" }} title={ev.detail}>{ev.detail}</span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
-                })
+                })())}
+
+                {selectedJobData.error && (
+                  <div className="mt-3 p-2.5 rounded-lg" style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                    <span className="text-[9px] font-bold uppercase" style={{ color: "var(--crt-red)" }}>Error</span>
+                    <pre className="m-0 mt-1 whitespace-pre-wrap text-[10px]" style={{ color: "var(--crt-red)", fontFamily: "monospace" }}>
+                      {selectedJobData.error}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Job list */
+            <div className="fade-in">
+              {/* Filter bar */}
+              <div
+                className="flex items-center gap-2 px-3.5 py-2 sticky top-0 z-10"
+                style={{
+                  borderBottom: `1px solid ${subtleBorder}`,
+                  background: "color-mix(in srgb, var(--bg-primary) 92%, transparent)",
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                <span className="text-[11px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>⌕</span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="filter tasks…"
+                  className="flex-1 min-w-0 px-1 py-0.5 text-[11.5px] border-none bg-transparent focus:outline-none placeholder:opacity-30"
+                  style={{ color: "var(--text-primary)", boxShadow: "none" }}
+                />
+                <div className="flex gap-1 shrink-0 items-center">
+                  {["running", "pending", "completed", "failed"].map((status) => {
+                    const count = filteredJobs.filter(j => j.status === status).length;
+                    if (count === 0) return null;
+                    const isActive = statusFilter === status;
+                    return (
+                      <button
+                        key={status}
+                        onClick={() => setStatusFilter(isActive ? null : status)}
+                        className="text-[10px] font-mono px-1.5 py-[2px] rounded-full cursor-pointer"
+                        style={{
+                          color: STATUS_COLOR[status],
+                          opacity: isActive ? 1 : 0.45,
+                          background: isActive ? `${STATUS_COLOR[status]}1f` : "transparent",
+                          border: `1px solid ${isActive ? `${STATUS_COLOR[status]}50` : "transparent"}`,
+                          transition: "opacity 150ms ease, background 150ms ease, border-color 150ms ease",
+                        }}
+                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.opacity = "0.85"; }}
+                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.opacity = "0.45"; }}
+                        title={`${STATUS_LABEL[status]}: ${count}`}
+                      >
+                        {STATUS_ICON[status]} {count}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {filteredJobs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <span
+                    className="inline-flex items-center justify-center"
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 12,
+                      background: "rgba(167,139,250,0.08)",
+                      border: "1px solid rgba(167,139,250,0.18)",
+                      color: "#a78bfa",
+                      fontSize: 22,
+                      boxShadow: "0 0 24px -6px rgba(167,139,250,0.4)",
+                    }}
+                  >
+                    ⬡
+                  </span>
+                  <p className="text-[11px] font-bold uppercase" style={{ color: "var(--text-secondary)", letterSpacing: "0.16em" }}>
+                    No tasks yet
+                  </p>
+                  <p className="text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+                    Submit a prompt below to get started
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full max-w-[920px] mx-auto px-3 py-3 flex flex-col gap-2.5">
+                  {filteredJobs.map((job, idx) => {
+                    const color = STATUS_COLOR[job.status];
+                    const moduleName = job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null;
+                    const { cleanPrompt, imagePaths } = parsePromptImages(job.prompt);
+                    const jobModelChip = MODEL_OPTIONS.find(o => o.value === job.model || o.family === job.model);
+                    const finished = ["completed", "failed", "cancelled"].includes(job.status);
+                    const runSecs = finished ? job.updated_at - job.created_at : null;
+                    return (
+                      <button
+                        key={job.id}
+                        onClick={() => viewJob(job)}
+                        className={`task-card w-full text-left group focus-ring ${job.status === "running" ? "task-card--running" : ""}`}
+                        style={{ "--task-accent": color, animationDelay: `${Math.min(idx, 10) * 28}ms` } as React.CSSProperties}
+                      >
+                        <div className="pl-4 pr-3.5 py-3">
+                          {/* Row 1 — status pill · model · module · attachments · time */}
+                          <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                            <span className="status-pill" style={{ "--pill-accent": color } as React.CSSProperties}>
+                              <span className={`status-pill__dot ${job.status === "running" ? "soft-pulse" : ""}`} />
+                              {STATUS_LABEL[job.status]}
+                            </span>
+                            <span
+                              className="task-chip"
+                              style={{ "--chip-accent": jobModelChip?.color || "var(--text-tertiary)" } as React.CSSProperties}
+                              title={job.model}
+                            >
+                              {modelLabel(job.model)}
+                            </span>
+                            {moduleName && moduleName !== "claude" && (
+                              <span
+                                className="task-chip font-mono"
+                                style={{ "--chip-accent": "var(--crt-amber)" } as React.CSSProperties}
+                                title={job.work_dir}
+                              >
+                                ◈ {moduleName}
+                              </span>
+                            )}
+                            {imagePaths.length > 0 && (
+                              <span className="task-chip" title={`${imagePaths.length} image attachment${imagePaths.length === 1 ? "" : "s"}`}>
+                                ⧉ {imagePaths.length}
+                              </span>
+                            )}
+                            <span className="ml-auto inline-flex items-center gap-2 shrink-0 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              {runSecs != null && runSecs > 0 && (
+                                <span style={{ opacity: 0.7 }} title="Run time">⏱ {formatDuration(runSecs)}</span>
+                              )}
+                              <span title={formatDate(job.created_at)}>{timeSince(job.created_at)}</span>
+                            </span>
+                          </div>
+                          {/* Prompt — 2-line clamp */}
+                          <p
+                            className="text-[12px] leading-relaxed m-0"
+                            style={{
+                              color: "var(--text-primary)",
+                              opacity: 0.92,
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                              wordBreak: "break-word",
+                            }}
+                          >
+                            {cleanPrompt || job.prompt}
+                          </p>
+                          {/* Footer — id + hover actions */}
+                          <div className="flex items-center justify-between gap-2 mt-2 min-h-[20px]">
+                            <span className="text-[9.5px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }} title={job.id}>
+                              #{job.id.slice(0, 8)}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {(job.status === "running" || job.status === "pending") && (
+                                <span
+                                  className="task-action"
+                                  style={{ "--action-accent": "var(--crt-red)" } as React.CSSProperties}
+                                  onClick={(e) => { e.stopPropagation(); cancelJob(job.id); }}
+                                >
+                                  ✕ Cancel
+                                </span>
+                              )}
+                              {finished && (
+                                <>
+                                  <span
+                                    className="task-action"
+                                    style={{ "--action-accent": jobModelChip?.color || "var(--accent-color)" } as React.CSSProperties}
+                                    onClick={(e) => { e.stopPropagation(); rerunTask(job, e); }}
+                                    title="Run this exact task again as a new job"
+                                  >
+                                    ↻ Replay
+                                  </span>
+                                  <span
+                                    className="task-action"
+                                    onClick={(e) => { e.stopPropagation(); deleteJob(job.id); }}
+                                  >
+                                    Delete
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                        {job.status === "running" && <span aria-hidden className="task-card__progress" />}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
-          </div>
-
+          )}
         </div>
+
       </div>
     );
   };
 
-  const renderAppTab = () => {
+  // ── Compact BUILD/FORK/EDIT/IMPORT form ──────────────────────────────
+  // One form, two anchors: the left rail's bottom actions and the composer
+  // dock's "+" popover both render this. Shares the header popover's state
+  // and submit path, so behavior is identical — only the surface differs.
+  const renderCompactCreateForm = () => {
+                  const isEdit = showHeaderCreateForm === "edit";
+                  const accent = isEdit
+                    ? "var(--crt-blue)"
+                    : showHeaderCreateForm === "fork"
+                    ? "var(--crt-amber)"
+                    : showHeaderCreateForm === "import"
+                    ? "#22d3ee"
+                    : "var(--crt-green)";
+                  const sources = [
+                    { key: "new", label: "NEW", active: showHeaderCreateForm === "create", disabled: false },
+                    { key: "fork", label: "FORK", active: showHeaderCreateForm === "fork", disabled: !selectedModule },
+                    { key: "git", label: "GIT", active: showHeaderCreateForm === "import" && headerImportSource === "github", disabled: false },
+                    { key: "cid", label: "CID", active: showHeaderCreateForm === "import" && headerImportSource === "cid", disabled: false },
+                  ];
+                  const pickSource = (key: string) => {
+                    if (key === "new") {
+                      setHeaderNewName(""); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("create");
+                    } else if (key === "fork") {
+                      if (!selectedModule) return;
+                      setHeaderNewName(selectedModule + "-fork"); setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("fork");
+                    } else {
+                      setHeaderNewName("");
+                      setHeaderImportSource(key === "git" ? "github" : "cid");
+                      setShowHeaderCreateForm("import");
+                    }
+                  };
+                  const canGo = isEdit
+                    ? !!headerEditPrompt.trim() && !!selectedModule
+                    : showHeaderCreateForm === "import"
+                    ? (headerImportSource === "github" ? !!headerGithubUrl.trim() : !!headerCid.trim())
+                    : !!headerNewName.trim();
+                  const onFormKeys = (e: React.KeyboardEvent) => {
+                    const inTextarea = e.target instanceof HTMLTextAreaElement;
+                    if (e.key === "Enter" && (!inTextarea || e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                    if (e.key === "Escape") setShowHeaderCreateForm(null);
+                  };
+                  const inputStyle: React.CSSProperties = {
+                    borderColor: `color-mix(in srgb, ${accent} 30%, transparent)`,
+                    color: "var(--text-primary)",
+                    background: "var(--bg-primary)",
+                  };
+                  return (
+                    <div className="flex flex-col gap-1.5 pb-1" onKeyDown={onFormKeys}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="text-[10px] font-bold font-code uppercase truncate"
+                          style={{ color: accent, letterSpacing: "0.08em" }}
+                        >
+                          {isEdit
+                            ? `✎ EDIT ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "fork"
+                            ? `⑂ FORK ${selectedModule || "?"}`
+                            : showHeaderCreateForm === "import"
+                            ? "⇩ IMPORT MODULE"
+                            : "+ BUILD MODULE"}
+                        </span>
+                        <button
+                          onClick={() => setShowHeaderCreateForm(null)}
+                          className="text-[10px] shrink-0 hover:brightness-125"
+                          style={{ color: "var(--text-tertiary)" }}
+                          aria-label="Close create form"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {!isEdit && (
+                        <div className="flex gap-1">
+                          {sources.map((s) => (
+                            <button
+                              key={s.key}
+                              onClick={() => pickSource(s.key)}
+                              disabled={s.disabled}
+                              title={s.disabled ? "Select a module to fork" : s.label}
+                              className="flex-1 text-[10px] font-bold py-1 font-code border rounded-sm transition-all disabled:cursor-not-allowed"
+                              style={{
+                                letterSpacing: "0.04em",
+                                color: s.active ? accent : "var(--text-secondary, var(--text-tertiary))",
+                                opacity: s.disabled ? 0.35 : 1,
+                                borderColor: s.active ? `color-mix(in srgb, ${accent} 50%, transparent)` : "var(--border-color)",
+                                background: s.active ? `color-mix(in srgb, ${accent} 10%, transparent)` : "transparent",
+                              }}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {isEdit ? (
+                        <textarea
+                          autoFocus
+                          value={headerEditPrompt}
+                          onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                          placeholder="describe the edit… (⌘↵ runs)"
+                          rows={3}
+                          className="px-2 py-1.5 text-[12px] border font-code outline-none resize-none rounded-sm"
+                          style={inputStyle}
+                        />
+                      ) : (
+                        <>
+                          {showHeaderCreateForm === "import" && (
+                            headerImportSource === "github" ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerGithubUrl}
+                                onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                                placeholder="https://github.com/user/repo"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            ) : (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={headerCid}
+                                onChange={(e) => setHeaderCid(e.target.value)}
+                                placeholder="snapshot cid…"
+                                className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                                style={inputStyle}
+                              />
+                            )
+                          )}
+                          <input
+                            type="text"
+                            autoFocus={showHeaderCreateForm !== "import"}
+                            value={headerNewName}
+                            onChange={(e) => setHeaderNewName(e.target.value)}
+                            placeholder={
+                              showHeaderCreateForm === "import" && headerImportSource === "github"
+                                ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "name (auto from url)…")
+                                : "module name…"
+                            }
+                            className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                            style={inputStyle}
+                          />
+                          {showHeaderCreateForm === "create" && (
+                            <input
+                              type="text"
+                              value={headerGithubUrl}
+                              onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                              placeholder="github url (optional)…"
+                              className="px-2 py-1.5 text-[12px] border font-code outline-none rounded-sm"
+                              style={inputStyle}
+                            />
+                          )}
+                        </>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        {showHeaderCreateForm !== "import" && (
+                          <select
+                            value={model}
+                            onChange={(e) => {
+                              setModel(e.target.value);
+                              safeSetItem("claude_jobs_model", e.target.value);
+                            }}
+                            className="min-w-0 flex-1 px-1 py-1 text-[10px] bg-transparent border font-code uppercase cursor-pointer rounded-sm"
+                            style={{ color: accent, borderColor: "var(--border-color)" }}
+                            title={`Model: ${modelLabel(model)} (${model})`}
+                          >
+                            {MODEL_OPTIONS.map((m) => (
+                              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          onClick={headerCreateOrFork}
+                          disabled={!canGo || submitting}
+                          className="pixel-btn text-[11px] py-1 px-3 uppercase shrink-0 disabled:cursor-not-allowed"
+                          style={{
+                            opacity: canGo && !submitting ? 1 : 0.4,
+                            marginLeft: showHeaderCreateForm === "import" ? "auto" : undefined,
+                          }}
+                        >
+                          {submitting
+                            ? "…"
+                            : isEdit
+                            ? "EDIT"
+                            : showHeaderCreateForm === "fork"
+                            ? "FORK"
+                            : showHeaderCreateForm === "import"
+                            ? "IMPORT"
+                            : "BUILD"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+  };
+
+  // ── Composer dock ─────────────────────────────────────────────────────
+  // The ask box + savable system prompt, docked at the bottom of the whole
+  // console (spans the app view and the tasks sidebar) so the prompt always
+  // lives at the bottom, like a chat app — on desktop and phone alike.
+  // Extracted from the agent panel: EDIT now reads app (main) + tasks
+  // (sidebar) + prompt (bottom).
+  const renderComposerDock = () => {
+    const activeModelChip = MODEL_OPTIONS.find(m => m.value === model)
+      || MODEL_OPTIONS.find(m => m.family === model)
+      || MODEL_OPTIONS[0];
+    // Minimized to a tool — the pill that restores it renders at the mount
+    // site so it survives this early return.
+    if (composerMinimized) return null;
+    const inner = (
+      <>
+          {/* ── PARAMS — auth + the request params sent with every task
+              (agent mod, model, agent personality, system prompt). Expands
+              ABOVE the one-line band; toggled from the PARAMS chip in it. ── */}
+            {systemPromptOpen && (
+              <div
+                className="mb-2 rounded-lg px-3 py-2.5"
+                style={{ background: darkOverlay, border: `1px solid ${subtleBorder}` }}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)", letterSpacing: "0.08em" }}>
+                    PARAMS
+                  </span>
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => { setSystemPromptOpen(false); safeSetItem("claude_system_prompt_open", "0"); }}
+                    className="text-[11px] px-1.5 rounded focus-ring"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title="Close params"
+                    aria-label="Close params"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {/* AUTH — who this request is signed as */}
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    AUTH
+                  </span>
+                  <span
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full"
+                    style={{
+                      color: address ? "var(--text-secondary)" : "var(--crt-red)",
+                      border: `1px solid ${subtleBorder}`,
+                      background: "var(--bg-secondary)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title={address ? `Signed in as ${address}${walletType ? ` via ${walletType}` : ""}` : "Not signed in"}
+                  >
+                    {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}…${address.slice(-4)}`) : "SIGNED OUT"}
+                    {walletType && <span style={{ opacity: 0.55 }}> · {walletType}</span>}
+                  </span>
+                  {address && (
+                    <span
+                      className="text-[9px] font-bold uppercase px-2 py-[2px] rounded-full"
+                      style={isOwner ? {
+                        color: "var(--crt-green)",
+                        border: "1px solid rgba(52,211,153,0.35)",
+                        background: "rgba(52,211,153,0.08)",
+                        letterSpacing: "0.06em",
+                      } : {
+                        color: "var(--crt-amber)",
+                        border: "1px solid rgba(251,191,36,0.3)",
+                        background: "rgba(251,191,36,0.06)",
+                        letterSpacing: "0.06em",
+                      }}
+                      title={isOwner ? "You are the configured owner — full edit access" : "Guest — edits limited to peers/ modules"}
+                    >
+                      {isOwner ? "OWNER" : "GUEST · PEERS EDIT"}
+                    </span>
+                  )}
+                  {ownerAddress && !isOwner && (
+                    <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.7 }} title={`Configured owner: ${ownerAddress}`}>
+                      owner {ownerAddress.slice(0, 6)}…{ownerAddress.slice(-4)}
+                    </span>
+                  )}
+                  <span
+                    className="inline-block w-1.5 h-1.5 rounded-full"
+                    style={{
+                      background: token ? "var(--crt-green)" : "var(--crt-red)",
+                      boxShadow: token ? "0 0 5px var(--crt-green)" : "none",
+                    }}
+                    title={token ? "Auth token active" : "No auth token"}
+                  />
+                  {/* Claude credential status — lives here now, not on the band */}
+                  <AuthBadge inline />
+                </div>
+                {/* Request params — MOD / MODEL / AGENT */}
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    MOD
+                  </span>
+                  <select
+                    value={selectedModule}
+                    onChange={(e) => {
+                      const m = moduleList.find((x) => x.name === e.target.value);
+                      if (!m) return;
+                      resetModuleState(m);
+                      setSelectedModule(m.name);
+                      setSelectedModuleInfo(m);
+                      setWorkDir(m.path);
+                      fetchModuleConfig(m.name);
+                    }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer max-w-[180px]"
+                    style={{
+                      color: "#fbbf24",
+                      border: "1px solid rgba(251,191,36,0.3)",
+                      background: "rgba(251,191,36,0.08)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title={`Agent works on module: ${selectedModule || "none"}`}
+                  >
+                    {selectedModule && !moduleList.some((m) => m.name === selectedModule) && (
+                      <option value={selectedModule}>{selectedModule}</option>
+                    )}
+                    {moduleList.map((m) => (
+                      <option key={m.name} value={m.name}>{m.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    MODEL
+                  </span>
+                  <select
+                    value={model}
+                    onChange={(e) => { setModel(e.target.value); safeSetItem("claude_jobs_model", e.target.value); }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer"
+                    style={{
+                      color: activeModelChip.color,
+                      border: `1px solid ${activeModelChip.color}55`,
+                      background: `${activeModelChip.color}14`,
+                      letterSpacing: "0.04em",
+                    }}
+                    title={`Model: ${activeModelChip.label} (${activeModelChip.value})`}
+                  >
+                    {MODEL_OPTIONS.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-[9px] font-bold uppercase w-[48px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    AGENT
+                  </span>
+                  <select
+                    value={agentType}
+                    onChange={(e) => { setAgentType(e.target.value); safeSetItem("claude_jobs_agent", e.target.value); }}
+                    className="text-[10px] font-mono px-2 py-[2px] rounded-full outline-none cursor-pointer max-w-[160px]"
+                    style={{
+                      color: "var(--text-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      background: "var(--bg-secondary)",
+                      letterSpacing: "0.04em",
+                    }}
+                    title="Agent personality sent as the fallback system prompt"
+                  >
+                    {AGENT_OPTIONS.map(a => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* SYSTEM — the prompt chain as name-only chips. Click a chip
+                    to toggle it in/out of the chain; content is edited in the
+                    separate SYSTEM PROMPTS modal. Active chips show their
+                    chain position (concatenation order). */}
+                <div className="flex items-start gap-x-2">
+                  <span
+                    className="text-[9px] font-bold uppercase w-[48px] shrink-0 mt-[5px]"
+                    style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}
+                  >
+                    SYSTEM
+                  </span>
+                  <div className="flex-1 flex items-center flex-wrap gap-1.5">
+                    {sysPrompts.map(p => {
+                      const chainIdx = activeSysPrompts.findIndex(a => a.id === p.id);
+                      const active = chainIdx >= 0;
+                      return (
+                        <span
+                          key={p.id}
+                          className="inline-flex items-center rounded-full overflow-hidden"
+                          style={active ? {
+                            border: `1px solid ${activeModelChip.color}66`,
+                            background: `${activeModelChip.color}18`,
+                          } : {
+                            border: `1px solid ${subtleBorder}`,
+                            background: "var(--bg-secondary)",
+                          }}
+                        >
+                          <button
+                            onClick={() => toggleSysPrompt(p.id)}
+                            className="text-[10px] font-mono px-2 py-[2px] focus-ring"
+                            style={{
+                              color: active ? activeModelChip.color : "var(--text-tertiary)",
+                              letterSpacing: "0.04em",
+                              opacity: active ? 1 : 0.75,
+                            }}
+                            title={`${active ? "Remove from" : "Add to"} the chain — ${p.text.trim().slice(0, 140) || "(empty)"}`}
+                            aria-pressed={active}
+                          >
+                            {active && <span style={{ opacity: 0.6 }}>{chainIdx + 1}·</span>}
+                            {p.name}
+                          </button>
+                          <button
+                            onClick={() => startEditSysPrompt(p)}
+                            className="text-[10px] pr-2 pl-0.5 py-[2px] focus-ring"
+                            style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
+                            title={`Edit "${p.name}"`}
+                            aria-label={`Edit system prompt ${p.name}`}
+                          >
+                            ✎
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <button
+                      onClick={startNewSysPrompt}
+                      className="text-[10px] font-bold uppercase px-2 py-[2px] rounded-full focus-ring"
+                      style={{
+                        color: "var(--text-secondary)",
+                        border: `1px dashed ${subtleBorder}`,
+                        letterSpacing: "0.06em",
+                      }}
+                      title="Add a system prompt to the chain"
+                    >
+                      + ADD
+                    </button>
+                    {sysPrompts.length > 1 && (
+                      <button
+                        onClick={() => { setEditingSysPrompt(null); setCreatingSysPrompt(false); setShowSysPromptManager(true); }}
+                        className="text-[10px] font-bold uppercase px-2 py-[2px] rounded-full focus-ring"
+                        style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em" }}
+                        title="Manage & reorder the prompt chain"
+                      >
+                        CHAIN…
+                      </button>
+                    )}
+                    {sysPrompts.length === 0 && (
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                        no prompts — personality applies
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          {/* ── The band — everything lives on ONE line at the bottom:
+              [+] [ask agent…] [imgs] [PARAMS] [▶] — module/model/agent/auth
+              chips live inside the PARAMS panel, not on the band. ── */}
+          <div
+            className="flex gap-1.5 items-stretch rounded-xl"
+            style={{
+              background: darkOverlay,
+              border: `1px solid ${submitting ? `${activeModelChip.color}55` : subtleBorder}`,
+              boxShadow: submitting
+                ? `0 0 0 3px ${activeModelChip.color}1a, 0 4px 16px -6px ${activeModelChip.color}40`
+                : "0 1px 3px rgba(0,0,0,0.3)",
+              transition: "border-color 150ms ease, box-shadow 150ms ease",
+              padding: 4,
+            }}
+          >
+            {/* "+" — build / fork / import a module, right where you type.
+                Opens the same compact create form as the rail, popping up
+                above the composer. */}
+            <div className="relative flex shrink-0" ref={composerCreateRef}>
+              {showHeaderCreateForm && createAnchor === "composer" && (
+                <div
+                  className="absolute bottom-full left-0 mb-2 border rounded-lg p-2 z-[120] w-[300px] max-w-[80vw]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                    boxShadow: "0 12px 40px rgba(0,0,0,0.45)",
+                  }}
+                >
+                  {renderCompactCreateForm()}
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  if (showHeaderCreateForm && createAnchor === "composer") {
+                    setShowHeaderCreateForm(null);
+                    return;
+                  }
+                  setCreateAnchor("composer");
+                  setHeaderNewName("");
+                  setHeaderGithubUrl("");
+                  setShowHeaderCreateForm("create");
+                }}
+                className="h-full flex items-center justify-center rounded-lg transition-all hover:brightness-125 focus-ring"
+                style={{
+                  width: 32,
+                  border: `1px solid ${showHeaderCreateForm && createAnchor === "composer" ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 45%, transparent)"}`,
+                  color: showHeaderCreateForm && createAnchor === "composer" ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 80%, var(--text-secondary))",
+                  background: showHeaderCreateForm && createAnchor === "composer" ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  fontSize: 17,
+                  lineHeight: 1,
+                }}
+                title="Build, fork or import a module"
+                aria-expanded={!!(showHeaderCreateForm && createAnchor === "composer")}
+                aria-label="Build, fork or import a module"
+              >
+                +
+              </button>
+            </div>
+            <input
+              ref={composerInputRef}
+              type="text"
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitJob(); } }}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith("image/")) {
+                    e.preventDefault();
+                    const file = items[i].getAsFile();
+                    if (!file) continue;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const base64 = reader.result as string;
+                      setImages((prev) => [...prev, { name: file.name || `image-${Date.now()}.png`, data: base64 }]);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }
+              }}
+              placeholder="ask agent…"
+              disabled={submitting}
+              className="flex-1 min-w-0 px-3 py-2 sm:px-4 sm:py-2.5 bg-transparent border-0 outline-none text-[16px]"
+              style={{
+                color: "var(--text-primary)",
+                fontFamily: "'JetBrains Mono', monospace",
+                boxShadow: "none",
+              }}
+              onFocus={e => {
+                const wrap = e.currentTarget.parentElement as HTMLElement;
+                if (wrap) {
+                  wrap.style.borderColor = activeModelChip.color + "80";
+                  wrap.style.boxShadow = `0 0 0 3px ${activeModelChip.color}1f, 0 4px 16px -6px ${activeModelChip.color}40`;
+                }
+              }}
+              onBlur={e => {
+                const wrap = e.currentTarget.parentElement as HTMLElement;
+                if (wrap) {
+                  wrap.style.borderColor = subtleBorder;
+                  wrap.style.boxShadow = "0 1px 3px rgba(0,0,0,0.3)";
+                }
+              }}
+            />
+            {/* Attached images — inline chip on the band, no extra line */}
+            {images.length > 0 && (
+              <span
+                className="self-center shrink-0 inline-flex items-center gap-1 text-[9px] font-mono px-2 py-[2px] rounded-full"
+                style={{
+                  border: "1px solid rgba(96,165,250,0.35)",
+                  background: "rgba(96,165,250,0.08)",
+                  color: "rgba(147,197,253,0.9)",
+                  fontWeight: 600,
+                  letterSpacing: "0.05em",
+                }}
+                title={`${images.length} image${images.length > 1 ? "s" : ""} attached`}
+              >
+                {images.length} IMG{images.length > 1 ? "S" : ""}
+                <button
+                  onClick={() => setImages([])}
+                  className="transition-opacity"
+                  style={{ color: "var(--crt-red)", opacity: 0.6, lineHeight: 1 }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "0.6")}
+                  title="Clear images"
+                  aria-label="Clear images"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {/* PARAMS chip — right side of the band; toggles the params panel
+                (auth + module/model/agent + system prompt) above it */}
+            <button
+              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
+              className="shrink-0 text-[9px] font-bold uppercase px-1.5 rounded-lg focus-ring inline-flex items-center gap-1"
+              style={activeSysPrompts.length > 0 ? {
+                color: activeModelChip.color,
+                letterSpacing: "0.06em",
+                border: `1px solid ${activeModelChip.color}66`,
+                background: `${activeModelChip.color}18`,
+              } : {
+                color: "var(--text-secondary)",
+                letterSpacing: "0.06em",
+                border: `1px solid ${subtleBorder}`,
+              }}
+              title="Auth + params sent with every task (module, model, agent, system prompts)"
+              aria-expanded={systemPromptOpen}
+            >
+              <span style={{ opacity: 0.7 }}>{systemPromptOpen ? "▾" : "▸"}</span>
+              PARAMS
+              {activeSysPrompts.length > 0 && (
+                <span
+                  className="inline-flex items-center justify-center text-[8px] font-mono rounded-full px-1"
+                  style={{
+                    minWidth: 12,
+                    background: `${activeModelChip.color}30`,
+                    color: activeModelChip.color,
+                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
+                  }}
+                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
+                >
+                  {activeSysPrompts.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={submitJob}
+              disabled={!prompt.trim() || submitting}
+              className="px-5 rounded-lg font-bold disabled:opacity-30 focus-ring shrink-0"
+              style={{
+                backgroundColor: !prompt.trim() || submitting
+                  ? `${activeModelChip.color}14`
+                  : `${activeModelChip.color}28`,
+                border: `1px solid ${activeModelChip.color}55`,
+                color: activeModelChip.color,
+                fontSize: 18,
+                transition: "background-color 150ms ease, transform 100ms ease",
+              }}
+              onMouseEnter={e => {
+                if (!e.currentTarget.disabled) {
+                  e.currentTarget.style.backgroundColor = `${activeModelChip.color}3a`;
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.backgroundColor = !prompt.trim() || submitting
+                  ? `${activeModelChip.color}14`
+                  : `${activeModelChip.color}28`;
+              }}
+              title={submitting ? "Submitting…" : "Send (Enter)"}
+            >
+              {submitting ? <span className="animate-spin inline-block">⟳</span> : "▶"}
+            </button>
+            {/* Float / minimize — pop the bar out to a movable panel, or
+                collapse it to a pill tool (bottom-right) */}
+            {!composerFloating && (
+              <button
+                onClick={() => {
+                  const w = Math.min(composerW, window.innerWidth - 40);
+                  setComposerPos({
+                    x: Math.max(8, Math.round((window.innerWidth - w) / 2)),
+                    y: Math.max(8, window.innerHeight - 200),
+                  });
+                  setComposerFloating(true);
+                }}
+                className="self-center shrink-0 hidden sm:inline-flex text-[12px] px-1 rounded focus-ring"
+                style={{ color: "var(--text-tertiary)" }}
+                onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+                onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+                title="Float the ask bar — drag it anywhere, resize from the edges"
+                aria-label="Float the ask bar"
+              >
+                ⊞
+              </button>
+            )}
+            <button
+              onClick={() => setComposerMinimized(true)}
+              className="self-center shrink-0 text-[12px] px-1 rounded focus-ring"
+              style={{ color: "var(--text-tertiary)" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+              title="Minimize the ask bar to a tool"
+              aria-label="Minimize the ask bar"
+            >
+              ─
+            </button>
+          </div>
+      </>
+    );
+    // Floating — a movable, width-resizable panel; height follows content
+    if (composerFloating) {
+      return (
+        <div
+          className="fixed flex flex-col"
+          style={{
+            left: composerPos.x,
+            top: composerPos.y,
+            width: composerW,
+            maxWidth: "calc(100vw - 16px)",
+            zIndex: 95,
+            background: "var(--bg-primary)",
+            border: `1px solid ${subtleBorder}`,
+            borderRadius: 12,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.1)",
+          }}
+        >
+          {/* Drag handle title bar */}
+          <div
+            className="flex items-center justify-between px-3 py-1 shrink-0 select-none"
+            style={{
+              background: "var(--bg-secondary)",
+              borderBottom: `1px solid ${subtleBorder}`,
+              borderRadius: "12px 12px 0 0",
+              cursor: "grab",
+            }}
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).closest("button")) return;
+              e.preventDefault();
+              composerDrag.current = { startX: e.clientX, startY: e.clientY, origX: composerPos.x, origY: composerPos.y };
+              document.body.style.cursor = 'grabbing';
+              document.body.style.userSelect = 'none';
+              setIframesInert(true);
+            }}
+          >
+            <span className="text-[10px] font-code uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.1em" }}>
+              ⠿ ASK
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setComposerMinimized(true)}
+                className="text-[11px] px-1.5 py-0.5 rounded focus-ring"
+                style={{ color: "var(--text-tertiary)" }}
+                onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+                onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+                title="Minimize to a tool"
+                aria-label="Minimize the ask bar"
+              >
+                ─
+              </button>
+              <button
+                onClick={() => setComposerFloating(false)}
+                className="text-[11px] px-1.5 py-0.5 rounded focus-ring"
+                style={{ color: "var(--text-tertiary)" }}
+                onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+                onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+                title="Dock back to the bottom"
+                aria-label="Dock the ask bar"
+              >
+                ⊡
+              </button>
+            </div>
+          </div>
+          <div className="px-2.5 py-2">{inner}</div>
+          {/* Resize edges — width only */}
+          <div
+            className="absolute top-0 bottom-0 right-0 w-1.5"
+            style={{ cursor: "e-resize" }}
+            onMouseDown={(e) => { e.preventDefault(); composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "e" }; document.body.style.cursor = 'e-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
+          />
+          <div
+            className="absolute top-0 bottom-0 left-0 w-1.5"
+            style={{ cursor: "w-resize" }}
+            onMouseDown={(e) => { e.preventDefault(); composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "w" }; document.body.style.cursor = 'w-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
+          />
+        </div>
+      );
+    }
+    // Docked — the classic full-width bar at the bottom of the console.
+    // The nav rail is fixed full-height on the left, so the dock starts to
+    // its right instead of running underneath its bottom controls.
+    return (
+      <div
+        ref={composerDockRef}
+        className="shrink-0 px-2.5 sm:px-3.5 py-2 sm:py-3"
+        style={{
+          position: "relative",
+          zIndex: 80,
+          marginLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) : undefined,
+          borderTop: `1px solid ${subtleBorder}`,
+          background: `linear-gradient(0deg, var(--bg-primary), ${tintBg})`,
+        }}
+      >
+        {inner}
+      </div>
+    );
+  };
+
+  const renderAppTab = (gatewayUrl: string) => {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* App Content */}
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url ? (
             <iframe
-              src={selectedModuleInfo.app_url}
+              src={gatewayUrl}
               className="w-full h-full border-0"
               title="Module App"
             />
@@ -4408,211 +7343,1423 @@ export default function Home() {
     );
   };
 
-  const renderModulesTab = () => {
-    const filtered = moduleList.filter(m =>
-      !moduleManageSearch || m.name.toLowerCase().includes(moduleManageSearch.toLowerCase())
-    );
-    const canManage = (m: typeof moduleList[0]) =>
-      isOwner || (m.owner && address && m.owner.toLowerCase() === address.toLowerCase());
+  // Sign a message with the currently-connected wallet — mirrors connectWallet's
+  // per-type signing so terminal auth reuses the same key the owner signed in with.
+  const signTerminalMessage = async (msg: string): Promise<string> => {
+    if (!address) throw new Error("connect your wallet first");
+    if (walletType === "metamask" || walletType === "subwallet") {
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) throw new Error("no wallet provider found");
+      const provider =
+        walletType === "subwallet" && ethereum.providers
+          ? ethereum.providers.find((p: any) => p.isSubWallet) || ethereum
+          : ethereum;
+      return await provider.request({ method: "personal_sign", params: [msg, address] });
+    }
+    if (walletType === "local") {
+      const { ethers } = await import("ethers");
+      const seed = localStorage.getItem("claude_jobs_seed");
+      if (!seed) throw new Error("no local wallet seed found — reconnect");
+      return await ethers.Wallet.fromPhrase(seed).signMessage(msg);
+    }
+    throw new Error(`reconnect with MetaMask or a local wallet to authorize the terminal (current: ${walletType || "none"})`);
+  };
+
+  // ── Sudo authorization ────────────────────────────────────────────────
+  // Privileged cross-module operations (editing/deleting modules OTHER than
+  // claude) require a *fresh* owner signature bound to the exact (action, target)
+  // — verified once and replay-rejected server-side (src/api/src/sudo.rs). This
+  // builds the byte-for-byte message the Rust side reconstructs.
+  const buildSudoMessage = (action: string, target: string, time: number, nonce: string): string =>
+    [
+      "MOD Claude Sudo Authorization",
+      `action: ${action}`,
+      `target: ${target}`,
+      `time: ${time}`,
+      `nonce: ${nonce}`,
+      "",
+      "Authorizing a privileged cross-module operation as the owner. Free signature, not a transaction.",
+    ].join("\n");
+
+  const base64UrlEncode = (s: string): string =>
+    btoa(unescape(encodeURIComponent(s)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+  // Sign one privileged operation and return the base64url `x-sudo` token. Throws
+  // if the connected wallet can't sign (e.g. a read-only session).
+  const mintSudoToken = async (action: string, target: string): Promise<string> => {
+    if (!address) throw new Error("connect the owner wallet to authorize this");
+    const time = Math.floor(Date.now() / 1000);
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const signature = await signTerminalMessage(buildSudoMessage(action, target, time, nonce));
+    return base64UrlEncode(JSON.stringify({ action, target, time, nonce, key: address, signature }));
+  };
+
+  // Open the Sudo Authorization sheet and resolve with a signed x-sudo token once
+  // the owner approves (or reject if they cancel). The signing itself happens in
+  // confirmSudo so the modal can show signing / success / error states.
+  const requestSudo = (action: string, target: string): Promise<string> =>
+    new Promise<string>((resolve, reject) => {
+      sudoResolver.current = { resolve, reject };
+      setSudoError(null);
+      setSudoStatus("review");
+      setSudoReq({ action, target });
+    });
+
+  const confirmSudo = async () => {
+    if (!sudoReq) return;
+    setSudoStatus("signing");
+    setSudoError(null);
+    try {
+      const tok = await mintSudoToken(sudoReq.action, sudoReq.target);
+      setSudoStatus("success");
+      sudoResolver.current?.resolve(tok);
+      sudoResolver.current = null;
+      // Let the "Authorized" checkmark breathe, then close.
+      setTimeout(() => setSudoReq(null), 620);
+      // The server opens the sudo session when it verifies this signature —
+      // give the retried request a beat to land, then reflect it in ACCOUNT.
+      setTimeout(() => { refreshSudoStatus(); }, 1200);
+    } catch (e: any) {
+      setSudoStatus("error");
+      setSudoError(e?.message || "Signature was rejected");
+    }
+  };
+
+  const cancelSudo = () => {
+    sudoResolver.current?.reject(new Error("sudo cancelled"));
+    sudoResolver.current = null;
+    setSudoReq(null);
+  };
+
+  // authFetch that handles the privileged path: if the server replies
+  // 401 { sudo_required }, raise the Sudo Authorization sheet, get a fresh owner
+  // signature bound to the exact (action, target), and retry once. If the owner
+  // cancels, the original 401 is returned so the caller surfaces the reason.
+  const authFetchSudo = async (
+    path: string,
+    opts: RequestInit = {},
+    timeoutMs?: number,
+  ): Promise<Response> => {
+    const res = await authFetch(path, opts, timeoutMs);
+    if (res.status !== 401) return res;
+    const data = await res.clone().json().catch(() => ({} as any));
+    if (!data?.sudo_required) return res;
+    try {
+      const sudoTok = await requestSudo(data.action || "write", data.target || path);
+      return await authFetch(
+        path,
+        { ...opts, headers: { ...(opts.headers as Record<string, string>), "x-sudo": sudoTok } },
+        timeoutMs,
+      );
+    } catch {
+      return res; // cancelled — let the caller show the server's sudo_required message
+    }
+  };
+  // Keep the ref current so earlier-declared callbacks (e.g. module process
+  // control) can invoke the latest authFetchSudo without a render-time TDZ.
+  authFetchSudoRef.current = authFetchSudo;
+
+  // Owner-tailored sudo policy. Changing it ALWAYS demands a fresh signature
+  // (the server refuses to let a cached session loosen the auth rules), so this
+  // goes through authFetchSudo and will raise the Sudo sheet.
+  const setSudoPolicy = async (patch: { session_secs?: number; always_ask?: string[] }) => {
+    setSudoPolicyBusy(true);
+    setSudoPolicyErr(null);
+    try {
+      const res = await authFetchSudo("/sudo/policy", { method: "POST", body: JSON.stringify(patch) });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(d?.error || "policy update failed");
+      await refreshSudoStatus();
+    } catch (e: any) {
+      if (e?.message !== "sudo cancelled") setSudoPolicyErr(e?.message || "policy update failed");
+    } finally {
+      setSudoPolicyBusy(false);
+    }
+  };
+
+  // Re-lock sudo immediately ("sudo -k") — free, no signature needed.
+  const lockSudo = async () => {
+    try { await authFetch("/sudo/lock", { method: "POST" }); } catch {}
+    await refreshSudoStatus();
+  };
+
+  // Prove ownership by signing, then store the minted session token.
+  const authorizeTerminal = async () => {
+    if (!address) { setTerminalAuthError("connect your wallet first"); return; }
+    setTerminalAuthing(true);
+    setTerminalAuthError(null);
+    try {
+      const ts = Date.now();
+      const msg = [
+        "MOD Terminal Authorization",
+        `address: ${address.toLowerCase()}`,
+        `ts: ${ts}`,
+        "",
+        "Sign to use the owner terminal on this server. This is a free signature, not a transaction.",
+      ].join("\n");
+      const signature = await signTerminalMessage(msg);
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, ts, signature }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `auth failed (HTTP ${res.status})`);
+      setTerminalToken(data.token);
+      setTerminalTokenExp(data.expiresAt);
+      safeSetItem("claude_terminal_token", data.token);
+      safeSetItem("claude_terminal_token_exp", String(data.expiresAt));
+    } catch (e: any) {
+      setTerminalAuthError(e?.message || "authorization failed");
+    } finally {
+      setTerminalAuthing(false);
+    }
+  };
+
+  const clearTerminalAuth = () => {
+    setTerminalToken(null);
+    setTerminalTokenExp(0);
+    localStorage.removeItem("claude_terminal_token");
+    localStorage.removeItem("claude_terminal_token_exp");
+  };
+
+  const runTerminalCommand = async (rawCmd: string) => {
+    const cmd = rawCmd.trim();
+    if (!cmd || terminalRunning) return;
+    const cwd = selectedModuleInfo?.path || workDir || "~";
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const start = Date.now();
+
+    // Client-side built-ins so they feel instant and don't bother the server.
+    if (cmd === "clear" || cmd === "cls") {
+      setTerminalHistory([]);
+      setTerminalInput("");
+      setTerminalRecallIdx(null);
+      return;
+    }
+
+    setTerminalHistory(h => [...h, {
+      id, cmd, cwd, stdout: "", stderr: "", code: null, durationMs: 0, pending: true,
+    }]);
+    setTerminalInput("");
+    setTerminalRecallIdx(null);
+    setTerminalRunning(true);
+    try {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(terminalToken ? { "x-terminal-token": terminalToken } : {}),
+        },
+        body: JSON.stringify({ cmd, cwd }),
+      });
+      if (res.status === 401) {
+        // Session missing/expired — drop it so the gate prompts a re-sign.
+        clearTerminalAuth();
+        setTerminalAuthError("session expired — authorize again");
+        setTerminalHistory(h => h.filter(e => e.id !== id));
+        setTerminalRunning(false);
+        return;
+      }
+      const data = await res.json();
+      setTerminalHistory(h => h.map(e => e.id === id ? {
+        ...e,
+        stdout: data.stdout || "",
+        stderr: data.stderr || (res.ok ? "" : (data.error || `HTTP ${res.status}`)),
+        code: typeof data.code === "number" ? data.code : (res.ok ? 0 : 1),
+        durationMs: Date.now() - start,
+        pending: false,
+        nix: data.nix ?? null,
+      } : e));
+    } catch (err: any) {
+      setTerminalHistory(h => h.map(e => e.id === id ? {
+        ...e,
+        stderr: err?.message || String(err),
+        code: 1,
+        durationMs: Date.now() - start,
+        pending: false,
+      } : e));
+    } finally {
+      setTerminalRunning(false);
+    }
+  };
+
+  const renderTerminalTab = () => {
+    const cwd = selectedModuleInfo?.path || workDir || "~";
+    const prompt = `${selectedModule || "shell"} $`;
+    const termAuthed = !!terminalToken && terminalTokenExp > Date.now();
+    const termHoursLeft = termAuthed ? Math.max(1, Math.round((terminalTokenExp - Date.now()) / 3600000)) : 0;
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div
-          className="px-4 py-3 border-b shrink-0"
-          style={{
-            borderColor: "rgba(59,130,246,0.15)",
-            background: "linear-gradient(180deg, rgba(59,130,246,0.06) 0%, rgba(59,130,246,0.01) 100%)",
-          }}
+          className="px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "color-mix(in srgb, var(--crt-blue) 3%, transparent)" }}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-bold" style={{ color: "var(--crt-blue)", letterSpacing: "0.04em", textShadow: "none" }}>
-              MODULES
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] leading-none" style={{ color: "var(--crt-blue)" }}>▶_</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-blue)" }}>
+              {selectedModule || "module"} TERMINAL
             </span>
-            <span className="text-[12px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
-              {filtered.length} module{filtered.length !== 1 ? "s" : ""}
+            <span className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
+              {cwd}
             </span>
           </div>
-          <input
-            type="text"
-            value={moduleManageSearch}
-            onChange={(e) => setModuleManageSearch(e.target.value)}
-            placeholder="filter modules..."
-            className="w-full px-2 py-1.5 text-[13px] bg-transparent border font-code outline-none"
-            style={{
-              borderColor: "rgba(59,130,246,0.2)",
-              color: "var(--text-primary)",
-            }}
-          />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded-sm uppercase font-bold"
+              style={{
+                color: termAuthed ? "var(--crt-green)" : "var(--crt-amber)",
+                background: `color-mix(in srgb, ${termAuthed ? "var(--crt-green)" : "var(--crt-amber)"} 10%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${termAuthed ? "var(--crt-green)" : "var(--crt-amber)"} 30%, transparent)`,
+                letterSpacing: "0.08em",
+              }}
+              title={termAuthed ? `Owner session active — ~${termHoursLeft}h left` : "Owner-only — authorize with your wallet to run commands"}
+            >
+              {termAuthed ? `OWNER ${termHoursLeft}h` : "LOCKED"}
+            </span>
+            {termAuthed && (
+              <button
+                onClick={clearTerminalAuth}
+                className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+                style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+                title="End the terminal session"
+              >
+                LOCK
+              </button>
+            )}
+            <button
+              onClick={() => { setTerminalHistory([]); setTerminalRecallIdx(null); }}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+              title="Clear terminal output"
+            >
+              CLEAR
+            </button>
+          </div>
         </div>
 
-        {/* Module List */}
-        <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <div className="flex items-center justify-center p-8">
-              <span className="text-[13px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
-                {moduleList.length === 0 ? "Loading modules..." : "No modules match filter"}
-              </span>
+        {/* Scrollback */}
+        <div
+          ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+          className="flex-1 overflow-auto px-4 py-3 text-[12px]"
+          style={{
+            fontFamily: "var(--font-code, monospace)",
+            lineHeight: "1.5",
+            background: "var(--bg-primary)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {terminalHistory.length === 0 ? (
+            <div style={{ color: "var(--text-tertiary)" }}>
+              <div>{`# shell access in ${cwd}`}</div>
+              <div>{`# commands run via bash -lc — owner-only, single-shot (no PTY).`}</div>
+              <div>{`# if the module ships a flake.nix/shell.nix, commands auto-enter its nix env (⬢).`}</div>
+              <div>{`# try: ls, cat config.json, git status, pwd`}</div>
+              <div>{`# 'clear' wipes the scrollback.`}</div>
             </div>
-          ) : (
-            filtered.map((m) => (
-              <div
-                key={m.name}
-                className="border-b transition-colors"
+          ) : terminalHistory.map(e => (
+            <div key={e.id} className="mb-2">
+              <div className="flex gap-2">
+                <span style={{ color: "var(--crt-green)", flexShrink: 0 }}>{prompt}</span>
+                <span style={{ color: "var(--text-primary)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{e.cmd}</span>
+              </div>
+              {e.pending ? (
+                <div style={{ color: "var(--text-tertiary)" }}>…running…</div>
+              ) : (
+                <>
+                  {e.stdout && (
+                    <pre className="m-0" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--text-secondary)" }}>{e.stdout}</pre>
+                  )}
+                  {e.stderr && (
+                    <pre className="m-0" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", color: "var(--crt-red)" }}>{e.stderr}</pre>
+                  )}
+                  <div className="text-[10px] flex items-center gap-2" style={{ color: "var(--text-tertiary)" }}>
+                    <span>exit {e.code} · {e.durationMs}ms</span>
+                    {e.nix && (
+                      <span
+                        title={`ran inside the module's nix ${e.nix} environment`}
+                        style={{ color: "var(--crt-blue)" }}
+                      >⬢ nix:{e.nix}</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Authorize gate — shown until the owner has a valid session */}
+        {!termAuthed ? (
+          <div
+            className="border-t flex flex-col items-center justify-center gap-3 px-4 py-6 shrink-0"
+            style={{ borderColor: "var(--border-color)", background: "var(--bg-secondary, var(--bg-primary))" }}
+          >
+            <div className="text-[11px] text-center max-w-sm" style={{ color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+              This terminal runs shell commands on the host. Sign with the owner wallet to unlock it for ~24h.
+            </div>
+            <button
+              onClick={authorizeTerminal}
+              disabled={terminalAuthing || !address}
+              className="text-[11px] px-4 py-2 rounded-sm border uppercase font-bold transition-all"
+              style={{
+                borderColor: "color-mix(in srgb, var(--crt-blue) 55%, transparent)",
+                color: "var(--crt-blue)",
+                background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
+                opacity: terminalAuthing || !address ? 0.5 : 1,
+                letterSpacing: "0.08em",
+              }}
+            >
+              {terminalAuthing ? "SIGN IN WALLET…" : !address ? "CONNECT WALLET FIRST" : "▶ AUTHORIZE WITH WALLET"}
+            </button>
+            {terminalAuthError && (
+              <div className="text-[10px] text-center" style={{ color: "var(--crt-red)" }}>{terminalAuthError}</div>
+            )}
+          </div>
+        ) : (
+        <form
+          onSubmit={(ev) => { ev.preventDefault(); runTerminalCommand(terminalInput); }}
+          className="border-t flex items-center gap-2 px-4 py-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "var(--bg-secondary, var(--bg-primary))" }}
+        >
+          <span className="text-[12px] font-mono" style={{ color: "var(--crt-green)" }}>{prompt}</span>
+          <input
+            value={terminalInput}
+            onChange={(ev) => { setTerminalInput(ev.target.value); setTerminalRecallIdx(null); }}
+            onKeyDown={(ev) => {
+              // ArrowUp / ArrowDown walk through prior commands, bash-style.
+              if (ev.key === "ArrowUp") {
+                if (terminalHistory.length === 0) return;
+                ev.preventDefault();
+                const next = terminalRecallIdx === null ? terminalHistory.length - 1 : Math.max(0, terminalRecallIdx - 1);
+                setTerminalRecallIdx(next);
+                setTerminalInput(terminalHistory[next].cmd);
+              } else if (ev.key === "ArrowDown") {
+                if (terminalRecallIdx === null) return;
+                ev.preventDefault();
+                const next = terminalRecallIdx + 1;
+                if (next >= terminalHistory.length) {
+                  setTerminalRecallIdx(null);
+                  setTerminalInput("");
+                } else {
+                  setTerminalRecallIdx(next);
+                  setTerminalInput(terminalHistory[next].cmd);
+                }
+              }
+            }}
+            disabled={terminalRunning}
+            autoFocus
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            placeholder={terminalRunning ? "running…" : "type a command, ↑/↓ for history"}
+            className="flex-1 bg-transparent outline-none text-[12px] font-mono"
+            style={{ color: "var(--text-primary)" }}
+          />
+          <button
+            type="submit"
+            disabled={terminalRunning || !terminalInput.trim()}
+            className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all"
+            style={{
+              borderColor: "color-mix(in srgb, var(--crt-blue) 50%, transparent)",
+              color: "var(--crt-blue)",
+              background: "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
+              opacity: terminalRunning || !terminalInput.trim() ? 0.4 : 1,
+            }}
+          >
+            {terminalRunning ? "…" : "RUN"}
+          </button>
+        </form>
+        )}
+      </div>
+    );
+  };
+
+  const renderLogsTab = () => {
+    const info = selectedModuleInfo;
+    const hasApi = !!(info?.api_url || info?.has_api_dir);
+    const hasApp = !!(info?.app_url || info?.has_app_dir);
+    // Default to whichever side exists; prefer api.
+    const active = moduleLogsOpen || (hasApi ? "api" : hasApp ? "app" : "api") as "api" | "app";
+    const keys = Object.keys(moduleLogs);
+    const matchKey = keys.find(k => k.toLowerCase().includes(active));
+    const logContent = matchKey
+      ? (moduleLogs[matchKey] || "(empty)")
+      : keys.length > 0
+        ? (moduleLogs[keys[0]] || "(empty)")
+        : moduleLogsLoading ? "Loading..." : "(no logs found — start the service to begin capturing output)";
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between gap-2 shrink-0"
+          style={{ borderColor: "var(--border-color)", background: "color-mix(in srgb, var(--crt-amber) 3%, transparent)" }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] leading-none" style={{ color: "var(--crt-amber)" }}>▤</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-amber)" }}>
+              {selectedModule || "claude"} LOGS
+            </span>
+            <span className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
+              /tmp/mod-{active}-{selectedModule || "claude"}.log
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Source tabs */}
+            {hasApi && (
+              <button
+                onClick={() => setModuleLogsOpen("api")}
+                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
                 style={{
-                  borderColor: "var(--border-color)",
-                  background: m.name === selectedModule ? "rgba(59,130,246,0.06)" : "transparent",
+                  borderColor: active === "api" ? "color-mix(in srgb, var(--crt-blue) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                  color: active === "api" ? "var(--crt-blue)" : "var(--text-tertiary)",
+                  background: active === "api" ? "color-mix(in srgb, var(--crt-blue) 8%, transparent)" : "transparent",
                 }}
               >
-                {renamingModule === m.name ? (
-                  /* Rename mode */
-                  <div className="px-4 py-3 flex flex-col gap-2">
-                    <div className="text-[11px] uppercase" style={{ color: "var(--crt-amber)", letterSpacing: "0.01em" }}>
-                      RENAME MODULE
-                    </div>
-                    <input
-                      autoFocus
-                      type="text"
-                      value={renameInput}
-                      onChange={(e) => setRenameInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && renameInput.trim()) renameModule(m.name, renameInput);
-                        if (e.key === "Escape") { setRenamingModule(null); setRenameInput(""); }
-                      }}
-                      className="px-2 py-1.5 text-[13px] bg-transparent border font-code outline-none"
-                      style={{
-                        borderColor: "rgba(245,158,11,0.4)",
-                        color: "var(--text-primary)",
-                      }}
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => renameModule(m.name, renameInput)}
-                        disabled={!renameInput.trim() || renameInput.trim() === m.name}
-                        className="text-[12px] px-3 py-1 border transition-all hover:brightness-125 uppercase"
-                        style={{
-                          borderColor: "rgba(245,158,11,0.4)",
-                          color: "var(--crt-amber)",
-                          opacity: renameInput.trim() && renameInput.trim() !== m.name ? 1 : 0.3,
-                          letterSpacing: "0",
-                        }}
-                      >
-                        Rename
-                      </button>
-                      <button
-                        onClick={() => { setRenamingModule(null); setRenameInput(""); }}
-                        className="text-[12px] px-3 py-1 border border-crt-green/20 text-crt-green/50 hover:text-crt-green hover:border-crt-green/40 transition-all uppercase"
-                        style={{ letterSpacing: "0" }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Normal mode */
-                  <div className="px-4 py-2.5">
-                    <div className="flex items-center justify-between">
-                      <div
-                        className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
-                        onClick={() => {
-                          resetModuleState(m);
-                          setSelectedModule(m.name);
-                          setSelectedModuleInfo(m);
-                          setWorkDir(m.path);
-                          fetchModuleConfig(m.name);
-                        }}
-                      >
-                        <span className="text-[14px] font-code truncate" style={{ color: m.name === selectedModule ? "var(--crt-blue)" : "var(--crt-green)" }}>
+                API
+              </button>
+            )}
+            {hasApp && (
+              <button
+                onClick={() => setModuleLogsOpen("app")}
+                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                style={{
+                  borderColor: active === "app" ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                  color: active === "app" ? "var(--crt-amber)" : "var(--text-tertiary)",
+                  background: active === "app" ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
+                }}
+              >
+                APP
+              </button>
+            )}
+            <div className="w-px h-4 mx-1" style={{ background: "var(--border-color)" }} />
+            <button
+              onClick={() => setModuleLogsAutoRefresh(!moduleLogsAutoRefresh)}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{
+                borderColor: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                color: moduleLogsAutoRefresh ? "var(--crt-green)" : "var(--text-tertiary)",
+                background: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+              }}
+              title="Auto-refresh every 4s"
+            >
+              {moduleLogsAutoRefresh ? "● LIVE" : "AUTO"}
+            </button>
+            <button
+              onClick={fetchModuleLogs}
+              className="text-[10px] px-2 py-1 rounded-sm border uppercase font-bold transition-all"
+              style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+            >
+              {moduleLogsLoading ? "..." : "REFRESH"}
+            </button>
+          </div>
+        </div>
+
+        {/* Log content */}
+        <pre
+          className="flex-1 overflow-auto px-4 py-3 text-[12px] m-0"
+          style={{
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-code, monospace)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            lineHeight: "1.5",
+            background: "var(--bg-primary)",
+          }}
+          ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+        >
+          {logContent}
+        </pre>
+      </div>
+    );
+  };
+
+  // ── Dependency graph layout ─────────────────────────────────────────
+  // Lay modules out by the `deps` they declare in config.json. Edge A→B means
+  // "A depends on B"; dependents float above their dependencies. Modules with
+  // no edge in either direction are pulled out into an "isolated" strip.
+  const renderHubGraph = (
+    mods: typeof moduleList,
+    liveOf: (name: string) => boolean | null,
+    openModule: (m: typeof moduleList[0]) => void,
+  ) => {
+    const present = new Set(mods.map((m) => m.name));
+    const byName = new Map(mods.map((m) => [m.name, m] as const));
+    // Resolved dependency edges (only to modules that actually exist here).
+    const depsOf = (name: string): string[] =>
+      (byName.get(name)?.deps || []).filter((d) => d !== name && present.has(d));
+    // Who depends on a given module (reverse edges).
+    const dependents = new Map<string, string[]>();
+    for (const m of mods) {
+      for (const d of depsOf(m.name)) {
+        dependents.set(d, [...(dependents.get(d) || []), m.name]);
+      }
+    }
+    const hasEdge = (name: string) =>
+      depsOf(name).length > 0 || (dependents.get(name)?.length || 0) > 0;
+    const connected = mods.filter((m) => hasEdge(m.name));
+    const isolated = mods.filter((m) => !hasEdge(m.name));
+
+    // Layer = longest dependency chain below a node. Leaves (no deps) sit at
+    // depth 0; the deeper a node's dependency chain, the higher its layer.
+    // Memoized with a cycle guard so a bad config can't loop forever.
+    const depthCache = new Map<string, number>();
+    const depthOf = (name: string, stack: Set<string>): number => {
+      if (depthCache.has(name)) return depthCache.get(name)!;
+      if (stack.has(name)) return 0; // cycle — break it
+      stack.add(name);
+      const ds = depsOf(name);
+      const d = ds.length === 0 ? 0 : 1 + Math.max(...ds.map((x) => depthOf(x, stack)));
+      stack.delete(name);
+      depthCache.set(name, d);
+      return d;
+    };
+
+    const NODE_W = 156, NODE_H = 46, GAP_X = 30, GAP_Y = 72, PAD = 16;
+    const maxDepth = connected.reduce((mx, m) => Math.max(mx, depthOf(m.name, new Set())), 0);
+    // Bucket connected nodes by row (dependents on top → row 0).
+    const rows: string[][] = Array.from({ length: maxDepth + 1 }, () => []);
+    for (const m of connected) {
+      const row = maxDepth - depthOf(m.name, new Set());
+      rows[row].push(m.name);
+    }
+    rows.forEach((r) => r.sort((a, b) => a.localeCompare(b)));
+    const widest = rows.reduce((mx, r) => Math.max(mx, r.length), 1);
+    const canvasW = widest * NODE_W + (widest - 1) * GAP_X + PAD * 2;
+    const canvasH = rows.length * NODE_H + (rows.length - 1) * GAP_Y + PAD * 2;
+    // Node center positions.
+    const pos = new Map<string, { x: number; y: number; cx: number; cy: number }>();
+    rows.forEach((r, ri) => {
+      const rowW = r.length * NODE_W + (r.length - 1) * GAP_X;
+      const startX = (canvasW - rowW) / 2;
+      r.forEach((name, i) => {
+        const x = startX + i * (NODE_W + GAP_X);
+        const y = PAD + ri * (NODE_H + GAP_Y);
+        pos.set(name, { x, y, cx: x + NODE_W / 2, cy: y + NODE_H / 2 });
+      });
+    });
+    const edges: Array<{ from: string; to: string }> = [];
+    for (const m of connected) for (const d of depsOf(m.name)) edges.push({ from: m.name, to: d });
+
+    const nodeColor = (name: string) =>
+      liveOf(name) === true ? "var(--crt-green)" : liveOf(name) === false ? "#888" : "var(--crt-amber)";
+
+    const NodeCard = ({ name, mini }: { name: string; mini?: boolean }) => {
+      const m = byName.get(name)!;
+      const live = liveOf(name);
+      const isSel = name === selectedModule;
+      const dot = live === true ? "var(--crt-green)" : live === false ? "#888" : "color-mix(in srgb, var(--crt-amber) 60%, transparent)";
+      return (
+        <button
+          onClick={() => openModule(m)}
+          className={`text-left border rounded transition-all flex flex-col justify-center group ${mini ? "px-2 py-1.5" : "px-3 py-2"}`}
+          style={{
+            width: mini ? undefined : NODE_W,
+            height: mini ? undefined : NODE_H,
+            borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)",
+            background: isSel ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "var(--bg-secondary, var(--bg-primary))",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 55%, transparent)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"; }}
+          title={m.description || name}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`shrink-0 ${live === true ? "led-pulse" : ""}`} style={{ color: dot, fontSize: "9px" }}>●</span>
+            <span className="font-code font-bold text-[12px] truncate" style={{ color: "var(--text-primary)" }}>{name}</span>
+          </div>
+          {!mini && (depsOf(name).length > 0 || (dependents.get(name)?.length || 0) > 0) && (
+            <span className="text-[9px] font-code mt-0.5" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+              {depsOf(name).length > 0 ? `↑ ${depsOf(name).join(", ")}` : `${dependents.get(name)!.length} dependent${dependents.get(name)!.length === 1 ? "" : "s"}`}
+            </span>
+          )}
+        </button>
+      );
+    };
+
+    return (
+      <div className="flex flex-col gap-5">
+        {connected.length > 0 ? (
+          <div className="relative mx-auto" style={{ width: canvasW, height: canvasH }}>
+            <svg width={canvasW} height={canvasH} className="absolute inset-0 pointer-events-none" style={{ overflow: "visible" }}>
+              <defs>
+                <marker id="hub-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                  <path d="M0,0 L7,3.5 L0,7 Z" fill="color-mix(in srgb, var(--crt-green) 55%, transparent)" />
+                </marker>
+              </defs>
+              {edges.map((e, i) => {
+                const a = pos.get(e.from), b = pos.get(e.to);
+                if (!a || !b) return null;
+                // From the dependent's bottom to the dependency's top.
+                const x1 = a.cx, y1 = a.y + NODE_H, x2 = b.cx, y2 = b.y;
+                const my = (y1 + y2) / 2;
+                return (
+                  <path
+                    key={i}
+                    d={`M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`}
+                    fill="none"
+                    stroke="color-mix(in srgb, var(--crt-green) 35%, transparent)"
+                    strokeWidth={1.4}
+                    markerEnd="url(#hub-arrow)"
+                  />
+                );
+              })}
+            </svg>
+            {connected.map((m) => {
+              const p = pos.get(m.name)!;
+              return (
+                <div key={m.name} className="absolute" style={{ left: p.x, top: p.y }}>
+                  <NodeCard name={m.name} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center text-[12px] font-code py-6" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+            No dependency edges declared yet — add a <span className="text-crt-green">&quot;deps&quot;</span> array to a module&apos;s config.json.
+          </div>
+        )}
+
+        {isolated.length > 0 && (
+          <div className="border-t pt-4" style={{ borderColor: "var(--border-color)" }}>
+            <div className="text-[11px] font-code uppercase tracking-[0.14em] mb-2.5" style={{ color: "var(--text-tertiary)" }}>
+              ○ isolated · {isolated.length}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isolated.map((m) => <NodeCard key={m.name} name={m.name} mini />)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── Module hub ──────────────────────────────────────────────────────
+  // Landing grid of every real module. Click a card to load it for editing
+  // (same select flow as the header dropdown), with a live online/offline dot.
+  const renderHubView = () => {
+    const openModule = (m: typeof moduleList[0]) => {
+      resetModuleState(m);
+      setSelectedModule(m.name);
+      setSelectedModuleInfo(m);
+      setWorkDir(m.path);
+      fetchModuleConfig(m.name);
+      setSidebarView(getBestTab(m));
+    };
+
+    const q = hubSearch.trim().toLowerCase();
+    let mods = moduleList.filter(isRealModule);
+    if (q) {
+      mods = mods.filter(
+        (m) => m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q),
+      );
+    }
+    // Owner filter — distinct owners across all real modules. `ownerFilter`
+    // holds the selected owner address (set to the connected wallet for the
+    // "mine" pill), or null for "all". Reused from the header dropdown.
+    const me = address && address !== "local" ? address.toLowerCase() : null;
+    const hubOwners = [...new Set(
+      moduleList.filter(isRealModule).map((m) => m.owner).filter(Boolean) as string[],
+    )];
+    // The owner string (with config's original casing) that belongs to the
+    // connected wallet, so the "mine" pill matches m.owner exactly.
+    const myOwner = me ? hubOwners.find((o) => o.toLowerCase() === me) ?? null : null;
+    const otherOwners = hubOwners.filter((o) => o !== myOwner);
+    if (ownerFilter) {
+      mods = mods.filter((m) => m.owner === ownerFilter);
+    }
+    const liveOf = (name: string): boolean | null => {
+      const st = moduleStatuses[name];
+      if (!st) return null;
+      if (st.app === true || st.api === true) return true;
+      if (st.app === false || st.api === false) return false;
+      return null;
+    };
+    // Online modules first, then alphabetical — the things you're running
+    // float to the top.
+    mods = [...mods].sort((a, b) => {
+      const la = liveOf(a.name) === true ? 0 : 1;
+      const lb = liveOf(b.name) === true ? 0 : 1;
+      return la - lb || a.name.localeCompare(b.name);
+    });
+    const onlineCount = mods.filter((m) => liveOf(m.name) === true).length;
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Hub toolbar */}
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 shrink-0 flex-wrap"
+          style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-green) 4%, transparent)" }}
+        >
+          <span className="text-[14px] font-bold font-code text-crt-green flex items-center gap-1.5" style={{ letterSpacing: "0.04em" }}>
+            <HubIcon size={14} /> HUB
+          </span>
+          <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
+            {mods.length} modules · <span className="text-crt-green">{onlineCount} online</span>
+          </span>
+          <button
+            onClick={() => { setAddError(null); setAddOpen(true); }}
+            className="flex items-center gap-1.5 text-[11px] font-code px-3 py-1.5 rounded-md transition-all font-bold"
+            style={{
+              color: "#fff",
+              background: "linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)))",
+              boxShadow: "0 2px 12px color-mix(in srgb, var(--accent-color) 35%, transparent)",
+              letterSpacing: "0.03em",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(1.1)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; e.currentTarget.style.transform = "none"; }}
+            title="Import a module from a GitHub repo or a snapshot CID"
+          >
+            <span style={{ fontSize: "13px", lineHeight: 1 }}>＋</span> ADD MODULE
+          </button>
+          <input
+            type="text"
+            value={hubSearch}
+            onChange={(e) => setHubSearch(e.target.value)}
+            placeholder="filter modules…"
+            className="px-2.5 py-1 bg-transparent text-crt-green border border-crt-green/30 font-code outline-none text-[12px] rounded"
+            style={{ minWidth: "180px" }}
+          />
+          {/* Grid / dependency-graph layout toggle */}
+          <div className="flex items-center border rounded overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+            {([["grid", "▦ grid"], ["graph", "◆ graph"]] as const).map(([mode, label]) => {
+              const on = hubGraphMode === (mode === "graph");
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setHubGraphMode(mode === "graph")}
+                  className="text-[11px] font-code px-2.5 py-1 transition-colors"
+                  style={{
+                    color: on ? "var(--crt-green)" : "var(--text-tertiary)",
+                    background: on ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  }}
+                  title={mode === "graph" ? "Lay modules out by their config.json deps; modules with no edges float as isolated nodes." : "Card grid of every module."}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Owner filter — "all" / "mine" + a single dropdown for everyone
+              else, so the row stays on one line instead of a pill per owner. */}
+          {hubOwners.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-code uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>owner:</span>
+              <button
+                onClick={() => setOwnerFilter(null)}
+                className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${!ownerFilter ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+              >all</button>
+              {myOwner && (
+                <button
+                  onClick={() => setOwnerFilter(ownerFilter === myOwner ? null : myOwner)}
+                  className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${ownerFilter === myOwner ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+                  title={myOwner}
+                >mine</button>
+              )}
+              {otherOwners.length > 0 && (
+                <select
+                  value={ownerFilter && otherOwners.includes(ownerFilter) ? ownerFilter : ""}
+                  onChange={(e) => setOwnerFilter(e.target.value || null)}
+                  title="Filter by another owner"
+                  className={`text-[11px] px-2 py-0.5 border rounded font-mono bg-transparent outline-none transition-colors ${ownerFilter && otherOwners.includes(ownerFilter) ? "border-crt-blue/50 text-crt-blue bg-crt-blue/10" : "border-crt-green/15 text-crt-green/40 hover:border-crt-green/30"}`}
+                >
+                  <option value="">others…</option>
+                  {otherOwners.map((o) => (
+                    <option key={o} value={o}>{o.slice(0, 6)}..{o.slice(-4)}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {/* Auto-restart-after-edit toggle */}
+          <button
+            onClick={() => setAutoRestartAfterEdit((v) => !v)}
+            className="ml-auto flex items-center gap-1.5 text-[11px] font-code px-2.5 py-1 border rounded transition-colors"
+            style={{
+              borderColor: autoRestartAfterEdit ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "var(--border-color)",
+              color: autoRestartAfterEdit ? "var(--crt-green)" : "var(--text-tertiary)",
+              background: autoRestartAfterEdit ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+            }}
+            title="When on, a module is restarted via pm2 as soon as an edit job targeting it completes, so changes go live."
+          >
+            <span>{autoRestartAfterEdit ? "●" : "○"}</span>
+            auto-restart after edit
+          </button>
+        </div>
+
+        {/* Module grid */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {mods.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
+              <span className="text-[40px]" style={{ color: "var(--crt-green)", opacity: 0.15 }}>▦</span>
+              <span className="text-[13px] font-code" style={{ color: "var(--text-tertiary)" }}>
+                {moduleList.length ? "No modules match your filter." : "Loading modules…"}
+              </span>
+            </div>
+          ) : hubGraphMode ? (
+            renderHubGraph(mods, liveOf, openModule)
+          ) : (
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+            >
+              <button
+                onClick={() => { setAddError(null); setAddOpen(true); }}
+                className="text-left rounded p-3 transition-all flex flex-col items-center justify-center gap-1.5 group min-h-[104px]"
+                style={{
+                  border: "1px dashed color-mix(in srgb, var(--accent-color) 40%, transparent)",
+                  background: "color-mix(in srgb, var(--accent-color) 4%, transparent)",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent-color)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 9%, transparent)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent-color) 40%, transparent)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 4%, transparent)"; }}
+                title="Import from GitHub or a snapshot CID"
+              >
+                <span className="text-[24px] leading-none" style={{ color: "var(--accent-color)" }}>＋</span>
+                <span className="text-[12px] font-code font-bold" style={{ color: "var(--accent-color)" }}>Add a module</span>
+                <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)" }}>GitHub · CID</span>
+              </button>
+              {mods.map((m) => {
+                const live = liveOf(m.name);
+                const isSel = m.name === selectedModule;
+                const dotColor = live === true ? "var(--crt-green)" : live === false ? "#888" : "color-mix(in srgb, var(--crt-amber) 60%, transparent)";
+                return (
+                  <button
+                    key={m.name}
+                    onClick={() => openModule(m)}
+                    className="text-left border rounded p-3 transition-all flex flex-col gap-2 group"
+                    style={{
+                      borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)",
+                      background: isSel ? "color-mix(in srgb, var(--crt-green) 7%, transparent)" : "var(--bg-secondary, transparent)",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 45%, transparent)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)"; }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`shrink-0 ${live === true ? "led-pulse" : ""}`}
+                          style={{ color: dotColor, fontSize: "10px" }}
+                          title={live === true ? "online" : live === false ? "offline" : "checking…"}
+                        >●</span>
+                        <span className="font-code font-bold text-[14px] truncate" style={{ color: "var(--text-primary)" }}>
                           {m.name}
                         </span>
-                        {m.cid && (
-                          <span className="text-[11px] px-1.5 py-0.5 border font-code shrink-0 border-crt-green/15 text-crt-green/25" title={m.cid}>
-                            {m.cid.slice(0, 6)}..{m.cid.slice(-4)}
-                          </span>
-                        )}
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        {m.app_url && (
-                          <span className="text-[10px] px-1 py-0.5 border border-crt-blue/30 text-crt-blue/60">APP</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* span, not button: the whole card is already a <button> */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); shareModuleQr(m.name, m.cid); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); shareModuleQr(m.name, m.cid); } }}
+                          className="text-[8px] px-1 py-0.5 border border-crt-green/20 text-crt-green/40 rounded-sm font-code opacity-0 group-hover:opacity-100 hover:text-crt-green hover:border-crt-green/50 transition-all cursor-pointer"
+                          title={`Share ${m.name} as a QR code (app link / import / CID)`}
+                        >
+                          ⛶ QR
+                        </span>
+                        {(m.app_url || m.has_app_dir) && (
+                          <span className="text-[8px] px-1 py-0.5 border border-crt-blue/30 text-crt-blue/60 rounded-sm font-code">APP</span>
                         )}
-                        {m.api_url && (
-                          <span className="text-[10px] px-1 py-0.5 border border-crt-amber/30 text-crt-amber/60">API</span>
+                        {(m.api_url || m.has_api_dir || m.has_server_dir) && (
+                          <span className="text-[8px] px-1 py-0.5 border border-crt-amber/30 text-crt-amber/60 rounded-sm font-code">API</span>
                         )}
                       </div>
                     </div>
-                    {m.description && (
-                      <div className="text-[12px] mt-1 truncate" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
-                        {m.description}
-                      </div>
-                    )}
-                    {m.owner && (
-                      <div className="text-[11px] mt-0.5 font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.3 }}>
-                        {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
-                      </div>
-                    )}
-                    {/* Action buttons */}
-                    {canManage(m) && (
-                      <div className="flex items-center gap-2 mt-2">
-                        <button
-                          onClick={() => {
-                            setRenamingModule(m.name);
-                            setRenameInput(m.name);
-                          }}
-                          className="text-[11px] px-2 py-0.5 border transition-all hover:brightness-125 uppercase"
-                          style={{
-                            borderColor: "rgba(245,158,11,0.25)",
-                            color: "rgba(245,158,11,0.6)",
-                            letterSpacing: "0",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(245,158,11,0.5)"; e.currentTarget.style.color = "var(--crt-amber)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(245,158,11,0.25)"; e.currentTarget.style.color = "rgba(245,158,11,0.6)"; }}
-                        >
-                          Rename
-                        </button>
-                        {m.name !== "claude" && (
-                          confirmDeleteModule === m.name ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] text-crt-red/70">Delete?</span>
-                              <button
-                                onClick={() => deleteModule(m.name)}
-                                className="text-[11px] px-2 py-0.5 border border-crt-red/50 text-crt-red bg-crt-red/10 hover:bg-crt-red/20 transition-all uppercase"
-                                style={{ letterSpacing: "0" }}
-                              >
-                                Yes
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteModule(null)}
-                                className="text-[11px] px-2 py-0.5 border border-crt-green/20 text-crt-green/50 hover:text-crt-green transition-all uppercase"
-                                style={{ letterSpacing: "0" }}
-                              >
-                                No
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteModule(m.name)}
-                              className="text-[11px] px-2 py-0.5 border transition-all uppercase"
-                              style={{
-                                borderColor: "rgba(239,68,68,0.2)",
-                                color: "rgba(239,68,68,0.4)",
-                                letterSpacing: "0",
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.5)"; e.currentTarget.style.color = "var(--crt-red)"; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.2)"; e.currentTarget.style.color = "rgba(239,68,68,0.4)"; }}
-                            >
-                              Delete
-                            </button>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
+                    <div className="text-[11px] leading-snug font-code line-clamp-2 min-h-[28px]" style={{ color: "var(--text-tertiary)" }}>
+                      {m.description || <span style={{ opacity: 0.4 }}>{m.path.replace(/^.*\/mod\/orbit\//, "orbit/").replace(/^.*\/mod\/core\//, "core/")}</span>}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      {m.owner ? (
+                        <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.5 }} title={m.owner}>
+                          {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
+                        </span>
+                      ) : <span />}
+                      <span className="text-[10px] font-code text-crt-green opacity-0 group-hover:opacity-100 transition-opacity">edit →</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
+    );
+  };
+
+  // ── Share-QR overlay ─────────────────────────────────────────────────
+  // The anti-copy-paste path: any hash / CID / module link becomes a
+  // scannable code, rendered locally (qrSvg — the payload never leaves the
+  // browser). Pills flip between payload forms (App / Import / CID / …);
+  // the payload row is one tap to copy for when a camera isn't handy.
+  const renderQrShareModal = () => {
+    if (!qrShare) return null;
+    const opt = qrShare.options[Math.min(qrShareIdx, qrShare.options.length - 1)];
+    let svg: string | null = null;
+    try {
+      svg = qrSvg(opt.value, 220);
+    } catch {
+      svg = null; // payload too large for a QR — copy row still works
+    }
+    return (
+      <div
+        className="fixed inset-0 z-[300] flex items-center justify-center p-4"
+        style={{ background: "rgba(7, 7, 13, 0.65)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+        onClick={() => setQrShare(null)}
+      >
+        <div
+          className="rounded-2xl w-full max-w-sm flex flex-col overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: "color-mix(in srgb, var(--glass-bg, var(--bg-primary)) 92%, transparent)",
+            border: "1px solid var(--border-color-strong)",
+            boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+            backdropFilter: "blur(18px) saturate(150%)",
+            WebkitBackdropFilter: "blur(18px) saturate(150%)",
+          }}
+        >
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border-color)" }}>
+            <span className="text-[12px] uppercase font-bold tracking-[0.14em] truncate" style={{ color: "var(--text-primary)" }}>
+              {qrShare.title}
+            </span>
+            <button
+              onClick={() => setQrShare(null)}
+              className="text-[13px] px-1.5 transition-colors"
+              style={{ color: "var(--text-tertiary)" }}
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-col items-center gap-3 p-4">
+            {qrShare.options.length > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                {qrShare.options.map((o, i) => {
+                  const on = i === Math.min(qrShareIdx, qrShare.options.length - 1);
+                  return (
+                    <button
+                      key={o.label}
+                      onClick={() => { setQrShareIdx(i); setQrShareCopied(false); }}
+                      className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                      style={{
+                        color: on ? "var(--bg-primary)" : "var(--text-secondary)",
+                        background: on ? "var(--accent-color, #cc785c)" : "var(--bg-secondary)",
+                        border: `1px solid ${on ? "var(--accent-color, #cc785c)" : "var(--border-color)"}`,
+                      }}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {svg ? (
+              <div className="rounded-lg p-2 bg-white" dangerouslySetInnerHTML={{ __html: svg }} />
+            ) : (
+              <div
+                className="rounded-lg px-4 py-6 text-[11px] text-center"
+                style={{ color: "var(--text-tertiary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+              >
+                Too long for a QR code — use the copy button below.
+              </div>
+            )}
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(opt.value).catch(() => {});
+                setQrShareCopied(true);
+                setTimeout(() => setQrShareCopied(false), 1400);
+              }}
+              className="w-full text-[10px] px-2 py-1.5 rounded font-mono break-all text-left transition-all"
+              style={{
+                color: qrShareCopied ? "var(--crt-green)" : "var(--text-secondary)",
+                background: "var(--bg-primary)",
+                border: `1px solid ${qrShareCopied ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"}`,
+              }}
+              title="Copy to clipboard"
+            >
+              {qrShareCopied ? "✓ copied" : opt.value}
+            </button>
+            {opt.hint && (
+              <div className="text-[10px] text-center leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                {opt.hint}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Add-Module modal ─────────────────────────────────────────────────
+  // A sleek glass sheet for importing a fresh module straight from a
+  // GitHub repo (shallow clone) or a snapshot CID (shared blob store).
+  const renderAddModuleModal = () => {
+    const sources: Array<{ k: "github" | "cid"; label: string; glyph: string; hint: string }> = [
+      { k: "github", label: "GitHub", glyph: "⎇", hint: "Clone a public git repo" },
+      { k: "cid", label: "CID / Snapshot", glyph: "◈", hint: "Restore from a snapshot CID" },
+    ];
+    const derived = addSource === "github" ? deriveNameFromUrl(addUrl) : "";
+    return (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }}
+        onClick={() => !addBusy && setAddOpen(false)}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-[460px] rounded-2xl overflow-hidden flex flex-col"
+          style={{
+            background: "var(--glass-bg-strong, var(--bg-secondary))",
+            border: "1px solid var(--glass-border-strong, var(--border-color-strong))",
+            boxShadow: "var(--shadow-lg)",
+            backdropFilter: "blur(24px) saturate(160%)",
+            WebkitBackdropFilter: "blur(24px) saturate(160%)",
+          }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-5 py-3.5"
+            style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--accent-color) 6%, transparent)" }}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-[16px]" style={{ color: "var(--accent-color)" }}>＋</span>
+              <span className="text-[14px] font-bold font-code" style={{ color: "var(--text-primary)", letterSpacing: "0.02em" }}>Add a module</span>
+            </div>
+            <button
+              onClick={() => !addBusy && setAddOpen(false)}
+              className="text-[18px] leading-none transition-opacity hover:opacity-100"
+              style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
+              title="Close"
+            >×</button>
+          </div>
+
+          <div className="p-5 flex flex-col gap-4">
+            {/* Source selector */}
+            <div className="grid grid-cols-2 gap-2">
+              {sources.map((s) => {
+                const on = addSource === s.k;
+                return (
+                  <button
+                    key={s.k}
+                    onClick={() => { setAddSource(s.k); setAddError(null); }}
+                    className="flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-lg transition-all text-left"
+                    style={{
+                      border: `1px solid ${on ? "var(--accent-color)" : "var(--border-color)"}`,
+                      background: on ? "color-mix(in srgb, var(--accent-color) 10%, transparent)" : "transparent",
+                    }}
+                  >
+                    <span className="text-[12px] font-bold font-code flex items-center gap-1.5" style={{ color: on ? "var(--accent-color)" : "var(--text-secondary)" }}>
+                      <span style={{ fontSize: "13px" }}>{s.glyph}</span> {s.label}
+                    </span>
+                    <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)" }}>{s.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Source-specific input */}
+            {addSource === "github" ? (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>Repository URL</span>
+                <input
+                  autoFocus
+                  type="text"
+                  value={addUrl}
+                  onChange={(e) => setAddUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                  placeholder="https://github.com/owner/repo"
+                  className="px-3 py-2 rounded-lg bg-transparent font-code outline-none text-[12px]"
+                  style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+                />
+              </label>
+            ) : (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>Snapshot CID</span>
+                <input
+                  autoFocus
+                  type="text"
+                  value={addCid}
+                  onChange={(e) => setAddCid(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                  placeholder="content id of a module snapshot"
+                  className="px-3 py-2 rounded-lg bg-transparent font-mono outline-none text-[12px]"
+                  style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+                />
+              </label>
+            )}
+
+            {/* Module name */}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider font-code" style={{ color: "var(--text-tertiary)" }}>
+                Module name {derived && !addName.trim() && <span style={{ opacity: 0.7 }}>· defaults to “{derived}”</span>}
+              </span>
+              <input
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !addBusy) submitAddModule(); }}
+                placeholder={derived || "my-module"}
+                className="px-3 py-2 rounded-lg bg-transparent font-code outline-none text-[12px]"
+                style={{ border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+              />
+            </label>
+
+            {!isOwner && (
+              <div className="text-[10px] font-code leading-snug px-2.5 py-1.5 rounded" style={{ color: "var(--text-tertiary)", background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, transparent)" }}>
+                As a non-owner your module is imported into your personal <span className="font-bold">portal/</span> namespace.
+              </div>
+            )}
+
+            {addError && (
+              <div className="text-[11px] font-code leading-snug px-2.5 py-2 rounded" style={{ color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)" }}>
+                {addError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => !addBusy && setAddOpen(false)}
+                className="text-[12px] font-code px-3.5 py-2 rounded-lg transition-colors"
+                style={{ color: "var(--text-secondary)", border: "1px solid var(--border-color)" }}
+              >Cancel</button>
+              <button
+                onClick={() => submitAddModule()}
+                disabled={addBusy}
+                className="text-[12px] font-code font-bold px-4 py-2 rounded-lg transition-all flex items-center gap-2"
+                style={{
+                  color: "#fff",
+                  background: addBusy ? "var(--text-tertiary)" : "linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)))",
+                  boxShadow: addBusy ? "none" : "0 2px 12px color-mix(in srgb, var(--accent-color) 35%, transparent)",
+                  opacity: addBusy ? 0.7 : 1,
+                  cursor: addBusy ? "wait" : "pointer",
+                }}
+              >
+                {addBusy ? (<><span className="led-pulse">●</span> Importing…</>) : (<>＋ Import</>)}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Share Edit Access card — owner mints a QR invite that confers
+  //    TEMPORARY edit rights (default 1h), optionally protected by a
+  //    locally-generated key shared out of band. The id rides the QR;
+  //    the key never does. Backed by GET/POST/DELETE /grants. Rendered
+  //    in BOTH the module OVERVIEW tab and the ACCOUNT sidebar; owner-
+  //    only: it renders nothing for anyone else.
+  const renderShareAccessCard = () => {
+    if (!isOwner) return null;
+                const TTL_OPTS = [
+                  { l: "15m", v: 900 },
+                  { l: "1h", v: 3600 },
+                  { l: "8h", v: 28800 },
+                  { l: "24h", v: 86400 },
+                  { l: "7d", v: 604800 },
+                ];
+                const fmtLeft = (exp: number) => {
+                  let s = Math.max(0, exp - nowSec);
+                  if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+                  if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+                  if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+                  return `${s}s`;
+                };
+                const accent = "var(--accent-color, #cc785c)";
+                return (
+                <div className="section-card" data-accent="green" style={{ ["--card-accent" as any]: accent }}>
+                  <span className="section-card__bar" style={{ background: accent }} />
+                  <div className="section-card__head">
+                    <div className="section-card__title min-w-0">
+                      <span className="section-card__glyph" style={{ color: accent }}>⧉</span>
+                      Share Edit Access
+                      <span
+                        className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
+                        style={{
+                          color: accent,
+                          background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+                          border: `1px solid color-mix(in srgb, ${accent} 28%, transparent)`,
+                        }}
+                      >
+                        {grants.length}
+                      </span>
+                    </div>
+                    <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      QR invite
+                    </span>
+                  </div>
+                  <div className="pl-5 pr-4 py-3 flex flex-col gap-3">
+                    <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                      Mint a QR that grants <span style={{ color: "var(--text-secondary)" }}>temporary access</span> to
+                      anyone who scans it — no wallet needed (guests get an anonymous pass; wallet sign-in ties access to
+                      their address). Access ends automatically when the timer runs out. Add a key for a second factor you
+                      share separately (a leaked QR alone won&apos;t work).
+                    </div>
+
+                    {/* Duration picker */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>Duration</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {TTL_OPTS.map((o) => {
+                          const on = grantTtl === o.v;
+                          return (
+                            <button
+                              key={o.v}
+                              onClick={() => setGrantTtl(o.v)}
+                              className="text-[11px] px-2.5 py-1 rounded font-mono transition-all"
+                              style={{
+                                color: on ? "var(--bg-primary)" : "var(--text-secondary)",
+                                background: on ? accent : "var(--bg-secondary)",
+                                border: `1px solid ${on ? accent : "var(--border-color)"}`,
+                              }}
+                            >
+                              {o.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Optional key (second factor) */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                        Key — optional second factor
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={grantKey}
+                          onChange={(e) => setGrantKey(e.target.value)}
+                          placeholder="none — open to anyone with the QR"
+                          className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                          style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                        />
+                        <button
+                          onClick={genKey}
+                          className="text-[10px] px-2.5 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
+                          style={{ color: accent, background: `color-mix(in srgb, ${accent} 10%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)` }}
+                          title="Generate a random key locally"
+                        >
+                          Generate
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Optional label */}
+                    <input
+                      type="text"
+                      value={grantLabel}
+                      onChange={(e) => setGrantLabel(e.target.value)}
+                      placeholder="label (optional) — e.g. “Sam, design review”"
+                      className="px-2 py-1.5 text-[11px] rounded outline-none"
+                      style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                    />
+
+                    <button
+                      onClick={createGrant}
+                      disabled={grantBusy}
+                      className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                      style={{ color: "var(--bg-primary)", background: accent, border: `1px solid ${accent}` }}
+                    >
+                      {grantBusy ? "…" : "Create Invite QR"}
+                    </button>
+                    {grantError && (
+                      <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{grantError}</div>
+                    )}
+
+                    {/* Freshly-minted invite: QR + shareables */}
+                    {activeGrant && (
+                      <div
+                        className="rounded-lg p-3 flex flex-col items-center gap-2.5"
+                        style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                      >
+                        <div
+                          className="rounded-lg p-2 bg-white"
+                          dangerouslySetInnerHTML={{ __html: qrSvg(grantInviteUrl(activeGrant.id), 200) }}
+                        />
+                        <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          expires in <span style={{ color: accent }}>{fmtLeft(activeGrant.exp)}</span>
+                        </div>
+                        <button
+                          onClick={() => copyGrantBit("link", grantInviteUrl(activeGrant.id))}
+                          className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
+                          style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                          title="Copy invite link"
+                        >
+                          {grantCopied === "link" ? "✓ copied link" : grantInviteUrl(activeGrant.id)}
+                        </button>
+                        {activeGrant.key && (
+                          <button
+                            onClick={() => copyGrantBit("key", activeGrant.key!)}
+                            className="w-full text-[10px] px-2 py-1.5 rounded font-mono transition-all flex items-center justify-between gap-2"
+                            style={{ color: accent, background: `color-mix(in srgb, ${accent} 8%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                            title="Copy key — share this SEPARATELY from the QR"
+                          >
+                            <span className="uppercase tracking-wider text-[8px] font-bold">key · share separately</span>
+                            <span className="truncate">{grantCopied === "key" ? "✓ copied" : activeGrant.key}</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setActiveGrant(null)}
+                          className="text-[9px] uppercase tracking-wider"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          done
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Active invites */}
+                    {grants.length > 0 && (
+                      <div className="flex flex-col gap-1.5 mt-1">
+                        <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                          Active invites
+                        </span>
+                        {grants.map((g) => {
+                          const used = grantRedemptions.filter((r) => r.grant === g.id).length;
+                          return (
+                            <div
+                              key={g.id}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded"
+                              style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                            >
+                              <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: accent }} />
+                              <button
+                                onClick={() => setActiveGrant({ id: g.id, exp: g.exp, key_required: g.key_required })}
+                                className="flex-1 min-w-0 text-left"
+                                title="Show QR"
+                              >
+                                <div className="font-mono text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
+                                  {g.label || `${g.id.slice(0, 8)}…`}
+                                </div>
+                                <div className="text-[9px] flex items-center gap-1.5" style={{ color: "var(--text-tertiary)" }}>
+                                  <span>{fmtLeft(g.exp)} left</span>
+                                  {g.key_required && <span style={{ color: accent }}>· 🔑 key</span>}
+                                  {used > 0 && <span>· {used} active</span>}
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => revokeGrant(g.id)}
+                                disabled={grantBusy}
+                                className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
+                                style={{ color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)" }}
+                                title="Revoke this invite (cuts every session it opened)"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
     );
   };
 
@@ -4626,237 +8773,425 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto">
           {sidebarView === "overview" && (
             <div className="p-4 flex flex-col gap-4">
-              {/* Status Cards - only show if module has API or App */}
-              {(info?.api_url || info?.app_url) && (
-              <div className={`grid gap-3 ${info?.api_url && info?.app_url ? "grid-cols-2" : "grid-cols-1"}`}>
-                {info?.api_url && (
-                <div className="p-3 border rounded" style={{ borderColor: moduleRunning ? "color-mix(in srgb, var(--crt-green) 25%, transparent)" : "color-mix(in srgb, var(--crt-red) 25%, transparent)", background: moduleRunning ? "color-mix(in srgb, var(--crt-green) 3%, transparent)" : "color-mix(in srgb, var(--crt-red) 3%, transparent)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>API</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-sm uppercase font-bold" style={{ color: moduleRunning ? "var(--crt-green)" : "var(--crt-red)", background: moduleRunning ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "color-mix(in srgb, var(--crt-red) 10%, transparent)" }}>
-                      {moduleRunning ? "Online" : "Offline"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: moduleRunning ? "var(--crt-green)" : "var(--crt-red)", boxShadow: moduleRunning ? "0 0 6px var(--crt-green)" : "none" }} />
-                    <span className="text-[12px] text-crt-green/30 font-mono truncate">{info.api_url}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 50%, transparent)" }}>
-                    {moduleRunning ? (
-                      <>
-                        <button onClick={() => stopProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                          {togglingApi ? "..." : "Stop"}
-                        </button>
-                        <button onClick={() => restartProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                          {togglingApi ? "..." : "Restart"}
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => startProcess("api")} disabled={togglingApi} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                        {togglingApi ? "..." : "Start"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                )}
-                {info?.app_url && (
-                <div className="p-3 border rounded" style={{ borderColor: appRunning ? "color-mix(in srgb, var(--crt-green) 25%, transparent)" : "color-mix(in srgb, var(--crt-red) 25%, transparent)", background: appRunning ? "color-mix(in srgb, var(--crt-green) 3%, transparent)" : "color-mix(in srgb, var(--crt-red) 3%, transparent)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>APP</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-sm uppercase font-bold" style={{ color: appRunning ? "var(--crt-green)" : "var(--crt-red)", background: appRunning ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "color-mix(in srgb, var(--crt-red) 10%, transparent)" }}>
-                      {appRunning ? "Online" : "Offline"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-2 cursor-pointer" onClick={() => setSidebarView("app")}>
-                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: appRunning ? "var(--crt-green)" : "var(--crt-red)", boxShadow: appRunning ? "0 0 6px var(--crt-green)" : "none" }} />
-                    <span className="text-[12px] text-crt-green/30 font-mono truncate">{info.app_url}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 50%, transparent)" }}>
-                    {appRunning ? (
-                      <>
-                        <button onClick={() => stopProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                          {togglingApp ? "..." : "Stop"}
-                        </button>
-                        <button onClick={() => restartProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                          {togglingApp ? "..." : "Restart"}
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => startProcess("app")} disabled={togglingApp} className="text-[10px] px-2 py-0.5 rounded-sm border uppercase font-bold transition-all hover:brightness-125" style={{ borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                        {togglingApp ? "..." : "Start"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                )}
-              </div>
-              )}
 
-              {/* Module Info */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>MODULE INFO</span>
+              {/* Module Info — definition list on top, big stats grid on
+                  bottom. Section header gets an accent bar + glyph so it
+                  reads at a glance instead of fading into the muted tone. */}
+              <div className="section-card">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">◇</span>
+                    Module
+                  </div>
                 </div>
-                <div className="p-3 flex flex-col gap-2 text-[13px]">
+                <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
+                  {selectedModule && (
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Name</span>
+                      <span className="flex items-center gap-1.5 text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                        <ClaudeMark size={14} />
+                        {cfg?.title || prettyModName(selectedModule)}
+                      </span>
+                    </div>
+                  )}
                   {info?.path && (
                     <div className="flex items-start gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Path</span>
-                      <span className="text-crt-green/60 font-mono text-[12px] break-all">{info.path.replace(/^\/Users\/[^/]+\//, "~/")}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Path</span>
+                      <span className="font-mono text-[12px] break-all" style={{ color: "var(--text-secondary)" }}>{info.path.replace(/^\/Users\/[^/]+\//, "~/")}</span>
                     </div>
                   )}
                   {cfg?.owner && (
                     <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Owner</span>
-                      <span className="text-crt-green/60 font-mono text-[12px]">{cfg.owner.slice(0, 6)}...{cfg.owner.slice(-4)}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Owner</span>
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(cfg.owner).catch(() => {})}
+                        title={`Click to copy\n${cfg.owner}`}
+                        className="font-mono text-[12px] transition-colors cursor-pointer"
+                        style={{ color: "var(--crt-green)", background: "transparent", border: "none", padding: 0 }}
+                      >
+                        {cfg.owner.slice(0, 6)}…{cfg.owner.slice(-4)}
+                      </button>
                     </div>
                   )}
                   {info?.category && (
                     <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 shrink-0 w-20">Category</span>
-                      <span className="text-crt-green/60">{info.category}</span>
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Cat</span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-bold"
+                        style={{
+                          color: "var(--accent-color)",
+                          background: "color-mix(in srgb, var(--accent-color) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--accent-color) 22%, transparent)",
+                        }}
+                      >
+                        {info.category}
+                      </span>
                     </div>
                   )}
-                  <div className="flex items-center gap-6 mt-1">
-                    {cfg?.fns && cfg.fns.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">Functions</span>
-                        <span className="text-crt-amber font-bold">{cfg.fns.length}</span>
-                      </div>
-                    )}
-                    {cfg?.endpoints && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">Endpoints</span>
-                        <span className="text-crt-amber font-bold">{Object.keys(cfg.endpoints).length}</span>
-                      </div>
-                    )}
-                    {info?.has_app_dir !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">App</span>
-                        <span style={{ color: info.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)" }}>{info.has_app_dir ? "Yes" : "No"}</span>
-                      </div>
-                    )}
-                    {(info?.has_api_dir || info?.has_server_dir) !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-crt-green/30">API</span>
-                        <span style={{ color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)" }}>{(info?.has_api_dir || info?.has_server_dir) ? "Yes" : "No"}</span>
-                      </div>
-                    )}
-                  </div>
                   {info?.cid && (
-                    <div className="flex items-start gap-3 mt-1 pt-2" style={{ borderTop: "1px solid var(--border-color)" }}>
-                      <span className="text-crt-green/30 shrink-0 w-20">CID</span>
-                      <span className="text-crt-green/40 font-mono text-[11px] break-all">{info.cid}</span>
+                    <div className="flex items-start gap-3">
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>CID</span>
+                      <span className="font-mono text-[11px] break-all" style={{ color: "var(--text-tertiary)" }}>{info.cid}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Stat grid — punchier than the inline row. */}
+                <div
+                  className="grid grid-cols-4 gap-px"
+                  style={{
+                    background: "var(--border-color)",
+                    borderTop: "1px solid var(--border-color)",
+                  }}
+                >
+                  {[
+                    { label: "fns", value: cfg?.fns?.length ?? 0, color: "var(--crt-amber)" },
+                    { label: "endpoints", value: cfg?.endpoints ? Object.keys(cfg.endpoints).length : 0, color: "var(--crt-amber)" },
+                    {
+                      label: "app",
+                      value: info?.has_app_dir ? "yes" : "no",
+                      color: info?.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)",
+                    },
+                    {
+                      label: "api",
+                      value: (info?.has_api_dir || info?.has_server_dir) ? "yes" : "no",
+                      color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)",
+                    },
+                  ].map((s) => (
+                    <div key={s.label} className="flex flex-col items-center justify-center py-2.5" style={{ background: "var(--bg-primary)" }}>
+                      <span className="text-[18px] font-bold leading-none" style={{ color: s.color, letterSpacing: "-0.02em" }}>{s.value}</span>
+                      <span className="text-[9px] uppercase mt-1 tracking-wider" style={{ color: "var(--text-tertiary)" }}>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Whitelist — owner-managed list of EOAs trusted to EDIT the
+                  orbit (sign in + owner-level edit access: host files,
+                  unsandboxed jobs, core/+orbit/ writes). Owner-only powers
+                  (whitelist mgmt, kill, delete/rename) stay with the owner.
+                  Backed by GET/POST/DELETE /whitelist on the Rust API;
+                  non-owners see read-only rows + a hint.
+                  Owner gets a click-to-remove X per row and a 0x… input
+                  with ADD. Always-visible: a new caller checking whether
+                  they were granted access shouldn't need owner perms to
+                  read the list. */}
+              <div className="section-card" data-accent="green">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title min-w-0">
+                    <span className="section-card__glyph">◐</span>
+                    Whitelist
+                    <span
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
+                      style={{
+                        color: "var(--crt-green)",
+                        background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                        border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
+                      }}
+                    >
+                      {whitelist.length}
+                    </span>
+                  </div>
+                  <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                    {isOwner ? "owner edit" : "read-only"}
+                  </span>
+                </div>
+                <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
+                  {whitelist.length === 0 ? (
+                    <div className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
+                      No editors whitelisted yet. Whitelisted addresses get owner-level edit access to the orbit. The configured owner is always allowed.
+                    </div>
+                  ) : (
+                    whitelist.map((addr) => {
+                      const isCaller = address && address.toLowerCase() === addr.toLowerCase();
+                      return (
+                        <div
+                          key={addr}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded"
+                          style={{
+                            background: isCaller ? "color-mix(in srgb, var(--crt-green) 6%, transparent)" : "var(--bg-secondary)",
+                            border: `1px solid ${isCaller ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "var(--border-color)"}`,
+                          }}
+                        >
+                          <span
+                            className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: "var(--crt-green)", boxShadow: isCaller ? "0 0 4px var(--crt-green)" : "none" }}
+                          />
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(addr).catch(() => {})}
+                            className="font-mono text-[11px] truncate flex-1 text-left transition-colors cursor-pointer"
+                            style={{ color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
+                            title={`${addr} — click to copy`}
+                          >
+                            {addr}
+                          </button>
+                          {isCaller && (
+                            <span
+                              className="text-[8px] font-bold uppercase tracking-widest px-1 py-[1px] rounded shrink-0"
+                              style={{ background: "var(--crt-green)", color: "var(--bg-primary)" }}
+                            >
+                              YOU
+                            </span>
+                          )}
+                          {isOwner && (
+                            <button
+                              onClick={() => removeFromWhitelist(addr)}
+                              disabled={whitelistBusy}
+                              className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
+                              style={{
+                                color: "var(--crt-red)",
+                                background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                              }}
+                              title={`Remove ${addr.slice(0, 6)}…${addr.slice(-4)} from the whitelist`}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                  {isOwner && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <input
+                        type="text"
+                        value={whitelistInput}
+                        onChange={(e) => { setWhitelistInput(e.target.value); setWhitelistError(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter" && whitelistInput.trim()) addToWhitelist(whitelistInput); }}
+                        placeholder="0x… address to whitelist"
+                        disabled={whitelistBusy}
+                        className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                        style={{
+                          color: "var(--text-primary)",
+                          background: "var(--bg-secondary)",
+                          border: `1px solid ${whitelistError ? "color-mix(in srgb, var(--crt-red) 45%, transparent)" : "var(--border-color)"}`,
+                        }}
+                      />
+                      <button
+                        onClick={() => addToWhitelist(whitelistInput)}
+                        disabled={whitelistBusy || !whitelistInput.trim()}
+                        className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                        style={{
+                          color: "var(--crt-green)",
+                          background: "color-mix(in srgb, var(--crt-green) 12%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
+                        }}
+                      >
+                        {whitelistBusy ? "…" : "Add"}
+                      </button>
+                    </div>
+                  )}
+                  {whitelistError && (
+                    <div className="text-[10px] mt-1" style={{ color: "var(--crt-red)" }}>
+                      {whitelistError}
+                    </div>
+                  )}
+                  {!isOwner && (
+                    <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: "var(--text-tertiary)" }}>
+                      Only the configured owner ({cfg?.owner ? `${cfg.owner.slice(0, 6)}…${cfg.owner.slice(-4)}` : "—"}) can edit this list.
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Quick Actions */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>QUICK ACTIONS</span>
-                </div>
-                <div className="p-3 flex flex-col gap-3">
-                  {/* Process Controls */}
-                  {(info?.api_url || info?.app_url) && (
-                    <div className="flex flex-col gap-2">
-                      {info?.api_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-crt-green/30 uppercase w-8 shrink-0">API</span>
-                          <div className="flex items-center gap-1.5">
-                            {moduleRunning ? (
-                              <>
-                                <button onClick={() => stopProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                                  {togglingApi ? "..." : "Stop"}
-                                </button>
-                                <button onClick={() => restartProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                                  {togglingApi ? "..." : "Restart"}
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => startProcess("api")} disabled={togglingApi} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                                {togglingApi ? "..." : "Start"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {info?.app_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-crt-green/30 uppercase w-8 shrink-0">APP</span>
-                          <div className="flex items-center gap-1.5">
-                            {appRunning ? (
-                              <>
-                                <button onClick={() => stopProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-red) 40%, transparent)", color: "var(--crt-red)", background: "color-mix(in srgb, var(--crt-red) 6%, transparent)" }}>
-                                  {togglingApp ? "..." : "Stop"}
-                                </button>
-                                <button onClick={() => restartProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-amber) 40%, transparent)", color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 6%, transparent)" }}>
-                                  {togglingApp ? "..." : "Restart"}
-                                </button>
-                              </>
-                            ) : (
-                              <button onClick={() => startProcess("app")} disabled={togglingApp} className="text-[12px] px-3 py-1.5 rounded-sm border transition-all hover:brightness-125 uppercase font-bold" style={{ letterSpacing: "0.02em", borderColor: "color-mix(in srgb, var(--crt-green) 40%, transparent)", color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 6%, transparent)" }}>
-                                {togglingApp ? "..." : "Start"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {/* Utility actions */}
-                  <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={fetchDirectConfig}
-                    className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-amber/25 text-crt-amber/70 hover:text-crt-amber hover:border-crt-amber/50 transition-all uppercase font-bold"
-                    style={{ letterSpacing: "0.02em", background: "color-mix(in srgb, var(--crt-amber) 4%, transparent)" }}
-                  >
-                    Reload Config
-                  </button>
-                  <button
-                    onClick={() => checkModuleHealth()}
-                    className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-blue/25 text-crt-blue/70 hover:text-crt-blue hover:border-crt-blue/50 transition-all uppercase font-bold"
-                    style={{ letterSpacing: "0.02em", background: "color-mix(in srgb, var(--crt-blue) 4%, transparent)" }}
-                  >
-                    Check Health
-                  </button>
-                  {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
-                    confirmDeleteModule === selectedModule ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-crt-red/70 uppercase font-bold">Delete?</span>
-                        <button
-                          onClick={() => deleteModule(selectedModule)}
-                          className="text-[12px] px-2 py-1 rounded-sm border border-crt-red/50 text-crt-red bg-crt-red/10 hover:bg-crt-red/20 transition-all uppercase font-bold"
-                          style={{ letterSpacing: "0.02em" }}
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteModule(null)}
-                          className="text-[12px] px-2 py-1 rounded-sm border border-crt-green/25 text-crt-green/60 hover:text-crt-green hover:border-crt-green/50 transition-all uppercase font-bold"
-                          style={{ letterSpacing: "0.02em" }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
+              {renderShareAccessCard()}
+
+              {/* Utility toolbar — process start/stop/restart already live
+                  on the API/APP tiles above, so this is just the cross-
+                  cutting actions: reload config (re-pulls config.json),
+                  check health (probes /health), delete (owner only). Flat
+                  toolbar feels lighter than a section card and matches the
+                  density a header bar should have. */}
+              <div
+                className="rounded-xl flex items-center gap-2 p-2.5 flex-wrap"
+                style={{
+                  border: "1px solid var(--border-color)",
+                  background: "color-mix(in srgb, var(--glass-bg) 70%, transparent)",
+                  backdropFilter: "blur(10px) saturate(140%)",
+                  WebkitBackdropFilter: "blur(10px) saturate(140%)",
+                }}
+              >
+                <span className="text-[10.5px] uppercase font-bold tracking-[0.16em] pl-2 pr-1.5" style={{ color: "var(--text-tertiary)" }}>
+                  Actions
+                </span>
+                <button
+                  onClick={fetchDirectConfig}
+                  className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
+                  style={{
+                    border: "1px solid color-mix(in srgb, var(--crt-amber) 28%, transparent)",
+                    color: "var(--crt-amber)",
+                    background: "color-mix(in srgb, var(--crt-amber) 7%, transparent)",
+                  }}
+                  title="Re-fetch config.json from disk"
+                >
+                  <span style={{ opacity: 0.85 }}>↻</span> Reload Config
+                </button>
+                <button
+                  onClick={() => checkModuleHealth()}
+                  className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
+                  style={{
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
+                    color: "var(--crt-blue)",
+                    background: "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
+                  }}
+                  title="Probe the module's /health endpoint"
+                >
+                  <span style={{ opacity: 0.85 }}>♡</span> Check Health
+                </button>
+                <div className="flex-1" />
+                {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
+                  confirmDeleteModule === selectedModule ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: "var(--crt-red)" }}>Delete?</span>
                       <button
-                        onClick={() => setConfirmDeleteModule(selectedModule)}
-                        className="text-[12px] px-3 py-1.5 rounded-sm border border-crt-red/20 text-crt-red/40 hover:text-crt-red hover:border-crt-red/40 transition-all uppercase font-bold"
-                        style={{ letterSpacing: "0.02em" }}
+                        onClick={() => deleteModule(selectedModule)}
+                        className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                        style={{
+                          border: "1px solid var(--crt-red)",
+                          color: "#fff",
+                          background: "var(--crt-red)",
+                        }}
                       >
-                        Delete Module
+                        Confirm
                       </button>
-                    )
-                  )}
+                      <button
+                        onClick={() => setConfirmDeleteModule(null)}
+                        className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                        style={{
+                          border: "1px solid var(--border-color)",
+                          color: "var(--text-tertiary)",
+                          background: "transparent",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteModule(selectedModule)}
+                      className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all"
+                      style={{
+                        border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                        color: "color-mix(in srgb, var(--crt-red) 60%, var(--text-tertiary))",
+                        background: "transparent",
+                      }}
+                      title="Permanently remove this module"
+                    >
+                      ✕ Delete Module
+                    </button>
+                  )
+                )}
+              </div>
+
+              {/* Logs */}
+              {(info?.api_url || info?.app_url) && (
+              <div className="section-card" data-accent="amber">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">▤</span>
+                    Logs
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => { setModuleLogsAutoRefresh(!moduleLogsAutoRefresh); if (!moduleLogsOpen) setModuleLogsOpen("api"); }}
+                      className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold transition-all"
+                      style={{
+                        borderColor: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                        color: moduleLogsAutoRefresh ? "var(--crt-green)" : "var(--text-tertiary)",
+                        background: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                      }}
+                    >
+                      {moduleLogsAutoRefresh ? "LIVE" : "AUTO"}
+                    </button>
+                    {moduleLogsOpen && (
+                      <button
+                        onClick={fetchModuleLogs}
+                        className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold transition-all"
+                        style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
+                      >
+                        {moduleLogsLoading ? "..." : "REFRESH"}
+                      </button>
+                    )}
                   </div>
                 </div>
+                <div className="p-3 flex flex-col gap-2">
+                  {/* Source tabs */}
+                  <div className="flex items-center gap-1.5">
+                    {info?.api_url && (
+                      <button
+                        onClick={() => setModuleLogsOpen(moduleLogsOpen === "api" ? null : "api")}
+                        className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                        style={{
+                          borderColor: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                          color: moduleLogsOpen === "api" ? "var(--crt-blue)" : "var(--text-tertiary)",
+                          background: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 8%, transparent)" : "transparent",
+                        }}
+                      >
+                        API LOGS
+                      </button>
+                    )}
+                    {info?.app_url && (
+                      <button
+                        onClick={() => setModuleLogsOpen(moduleLogsOpen === "app" ? null : "app")}
+                        className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
+                        style={{
+                          borderColor: moduleLogsOpen === "app" ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                          color: moduleLogsOpen === "app" ? "var(--crt-amber)" : "var(--text-tertiary)",
+                          background: moduleLogsOpen === "app" ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
+                        }}
+                      >
+                        APP LOGS
+                      </button>
+                    )}
+                  </div>
+                  {/* Log output */}
+                  {moduleLogsOpen && (
+                    <div className="border rounded overflow-hidden" style={{ borderColor: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 25%, transparent)" : "color-mix(in srgb, var(--crt-amber) 25%, transparent)" }}>
+                      <div className="flex items-center justify-between px-3 py-1" style={{ background: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 4%, transparent)" : "color-mix(in srgb, var(--crt-amber) 4%, transparent)", borderBottom: "1px solid var(--border-color)" }}>
+                        <span className="text-[9px] font-bold uppercase" style={{ color: moduleLogsOpen === "api" ? "var(--crt-blue)" : "var(--crt-amber)", letterSpacing: "0.05em" }}>
+                          {moduleLogsOpen.toUpperCase()} LOGS
+                        </span>
+                        <button onClick={() => setModuleLogsOpen(null)} className="text-[9px] font-bold uppercase" style={{ color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer" }}>
+                          CLOSE
+                        </button>
+                      </div>
+                      <pre
+                        className="px-3 py-2 text-[11px] overflow-auto"
+                        style={{
+                          color: "var(--text-secondary)",
+                          fontFamily: "var(--font-code, monospace)",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-all",
+                          lineHeight: "1.5",
+                          maxHeight: "300px",
+                          background: "var(--bg-primary)",
+                          margin: 0,
+                        }}
+                        ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+                      >
+                        {(() => {
+                          const keys = Object.keys(moduleLogs);
+                          const matchKey = keys.find(k => k.toLowerCase().includes(moduleLogsOpen));
+                          return matchKey ? moduleLogs[matchKey] || "(empty)" : keys.length > 0 ? moduleLogs[keys[0]] || "(empty)" : moduleLogsLoading ? "Loading..." : "(no logs found)";
+                        })()}
+                      </pre>
+                    </div>
+                  )}
+                </div>
               </div>
+              )}
 
               {/* Scripts & Ports */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>SCRIPTS & PORTS</span>
+              <div className="section-card" data-accent="green">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">▸</span>
+                    Scripts &amp; Ports
+                  </div>
                 </div>
                 <div className="p-3 flex flex-col gap-1.5 text-[12px] font-mono">
                   {cfg?.scripts?.start && (
@@ -4897,48 +9232,52 @@ export default function Home() {
               </div>
 
               {/* Config */}
-              <div className="border rounded" style={{ borderColor: "var(--border-color)", background: "var(--bg-tint)" }}>
-                <div className="px-3 py-2 border-b flex items-center gap-1.5" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-[11px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>CONFIG</span>
-                  <div className="ml-auto flex items-center gap-1">
+              <div className="section-card" data-accent="amber">
+                <span className="section-card__bar" />
+                <div className="section-card__head">
+                  <div className="section-card__title">
+                    <span className="section-card__glyph">{"{}"}</span>
+                    Config
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => collapseAll(cfg)}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
-                      style={{ color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, transparent)" }}
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
+                      style={{ color: "var(--crt-amber)", background: "color-mix(in srgb, var(--crt-amber) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-amber) 26%, transparent)" }}
                     >
-                      COLLAPSE
+                      Collapse
                     </button>
                     <button
                       onClick={expandAll}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
-                      style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 20%, transparent)" }}
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
+                      style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 7%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 26%, transparent)" }}
                     >
-                      EXPAND
+                      Expand
                     </button>
                     <button
                       onClick={() => copyValue("$root", cfg)}
-                      className="text-[11px] px-1.5 py-0.5 rounded-sm transition-all hover:brightness-125"
+                      className="text-[10px] px-2.5 py-1 rounded-md uppercase font-bold tracking-wider transition-all hover:brightness-125"
                       style={{
                         color: copiedPath === "$root" ? jsonCopiedColor : "var(--crt-blue)",
-                        background: copiedPath === "$root" ? jsonCopiedBg : "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
-                        border: `1px solid ${copiedPath === "$root" ? `color-mix(in srgb, ${jsonCopiedColor} 30%, transparent)` : "color-mix(in srgb, var(--crt-blue) 20%, transparent)"}`,
+                        background: copiedPath === "$root" ? jsonCopiedBg : "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
+                        border: `1px solid ${copiedPath === "$root" ? `color-mix(in srgb, ${jsonCopiedColor} 30%, transparent)` : "color-mix(in srgb, var(--crt-blue) 26%, transparent)"}`,
                       }}
                     >
-                      {copiedPath === "$root" ? "COPIED" : "COPY"}
+                      {copiedPath === "$root" ? "Copied" : "Copy"}
                     </button>
                   </div>
                 </div>
                 {cfg ? (
                   <div
-                    className="overflow-y-auto overflow-x-auto px-1 py-2 text-[13px] font-mono leading-[1.5]"
+                    className="overflow-y-auto overflow-x-auto px-3 py-3 text-[13px] font-mono leading-[1.55]"
                     style={{ color: "var(--crt-green)", maxHeight: "400px" }}
                   >
                     {renderJsonNode(null, cfg, "$", 0, true, false)}
                   </div>
                 ) : (
-                  <div className="p-3 text-center">
+                  <div className="p-4 text-center">
                     <span className="text-[13px] text-crt-green/30 uppercase">
-                      {loadingConfig ? "Loading config..." : "No config loaded"}
+                      {loadingConfig ? "Loading config…" : "No config loaded"}
                     </span>
                   </div>
                 )}
@@ -5324,6 +9663,190 @@ export default function Home() {
     );
   };
 
+  // Combined APP / API tab — a single tab that hosts both the live app
+  // (iframe) and the API explorer, with a segmented toggle to flip
+  // between them. `sidebarView` ("app" | "api") doubles as the toggle
+  // state so deep-links and the service-tile URL clicks still land on
+  // the right sub-view. The toggle only appears when the module has
+  // both an app and an api; otherwise we render whichever exists.
+  const renderAppApiTab = () => {
+    const hasApp = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
+    // App-only: the API explorer and its toggle were removed, so this tab
+    // always shows the live app.
+    const hasApi = false;
+    const sub: "app" | "api" = "app";
+    // Gateway URL the user can copy/open for this agent. Caddy proxies the
+    // module path → the agent's app. Two cases:
+    //  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
+    //    explicit port): use the page origin verbatim — e.g.
+    //    https://modc2.com/claude. The :3000 gateway port is internal and
+    //    NOT publicly exposed, so appending it (the old behavior) produced a
+    //    dead "modc2.com:3000" link.
+    //  • LAN/dev (served on a non-standard port like :8823): the local
+    //    gateway listens on :3000, so point there — e.g.
+    //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
+    const modName = selectedModule || "claude";
+    // claude's APP tab points at the real claude app (/claude). The console IS
+    // the claude module, so at the top level this simply re-shows the claude
+    // app in the iframe. To avoid infinite nesting, an already-embedded copy
+    // (this console running inside an iframe) breaks the chain by falling back
+    // to the web front-door instead of iframing /claude again.
+    const appModName = modName === "claude" ? (isEmbedded ? "web" : "claude") : modName;
+    const gatewayUrl = (() => {
+      if (typeof window === "undefined") return `http://localhost:3000/${appModName}`;
+      const loc = window.location;
+      const behindPublicProxy =
+        loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
+      return behindPublicProxy
+        ? `${loc.origin}/${appModName}`
+        : `http://${loc.hostname}:3000/${appModName}`;
+    })();
+    const showUrl = sub === "app" && !!selectedModuleInfo?.app_url;
+    const logsOpen = moduleLogsOpen !== null;
+    // Logs follow the active sub-view, so the APP/API toggle doubles as a
+    // "logs of each" switch: flip to APP → app logs, flip to API → api logs.
+    const openLogs = (which?: "app" | "api") => {
+      setModuleLogsOpen(which ?? sub);
+      setModuleLogsAutoRefresh(true);
+    };
+    const logsText = (() => {
+      const keys = Object.keys(moduleLogs);
+      const matchKey = keys.find((k) => k.toLowerCase().includes(sub));
+      return matchKey
+        ? moduleLogs[matchKey] || "(empty)"
+        : keys.length > 0
+          ? moduleLogs[keys[0]] || "(empty)"
+          : moduleLogsLoading
+            ? "Loading..."
+            : "(no logs found)";
+    })();
+    return (
+      <div
+        className="flex-1 flex flex-col overflow-hidden"
+        style={
+          appExpanded
+            ? { position: "fixed", inset: 0, zIndex: 200, background: "var(--bg-primary)" }
+            : undefined
+        }
+      >
+        {/* Single control row: APP/API toggle + the copyable gateway URL + LOGS. */}
+        {(hasApp || hasApi) && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 shrink-0"
+            style={{
+              borderBottom: "1px solid var(--border-color)",
+              background: "linear-gradient(180deg, var(--bg-tint), transparent)",
+            }}
+          >
+            {/* URL strip — copyable, click-to-open in new tab. Lets phone
+                users grab the route without leaving the APP view. */}
+            {showUrl && (
+              <>
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
+                <button
+                  onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+                  className="flex-1 min-w-0 font-mono text-[11px] truncate text-left transition-colors"
+                  style={{
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 4,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                  }}
+                  title={`${gatewayUrl} — click to copy`}
+                >
+                  {gatewayUrl}
+                </button>
+                <a
+                  href={gatewayUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                  style={{
+                    color: "var(--crt-green)",
+                    background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                    textDecoration: "none",
+                  }}
+                  title="Open in new tab"
+                >
+                  ↗
+                </a>
+              </>
+            )}
+            {/* LOGS toggle — shows the live pm2 logs for the active service
+                (APP or API). The APP/API toggle above switches which. */}
+            <button
+              onClick={() => (logsOpen ? setModuleLogsOpen(null) : openLogs())}
+              className={`text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0 ${showUrl ? "" : "ml-auto"}`}
+              style={{
+                color: logsOpen ? "var(--crt-amber)" : "var(--text-tertiary)",
+                background: logsOpen ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "transparent",
+                border: `1px solid ${logsOpen ? "color-mix(in srgb, var(--crt-amber) 40%, transparent)" : "var(--border-color)"}`,
+              }}
+              title={`Show ${sub.toUpperCase()} logs`}
+            >
+              {logsOpen ? "✕ LOGS" : "▤ LOGS"}
+            </button>
+            {/* EXPAND — blow the embedded app up to a full-viewport overlay
+                (hides the console chrome). Toggles back to MINIMIZE. */}
+            {hasApp && (
+              <button
+                onClick={() => setAppExpanded((v) => !v)}
+                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                style={{
+                  color: appExpanded ? "var(--crt-green)" : "var(--text-tertiary)",
+                  background: appExpanded ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                  border: `1px solid ${appExpanded ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"}`,
+                }}
+                title={appExpanded ? "Exit full screen" : "Expand app to full screen"}
+              >
+                {appExpanded ? "⤡ MINIMIZE" : "⤢ EXPAND"}
+              </button>
+            )}
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          {logsOpen ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div
+                className="flex items-center justify-between px-3 py-1.5 shrink-0"
+                style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-amber) 4%, transparent)" }}
+              >
+                <span className="text-[9px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--crt-amber)" }}>
+                  {sub.toUpperCase()} LOGS{moduleLogsAutoRefresh ? " · LIVE" : ""}
+                </span>
+                <button
+                  onClick={fetchModuleLogs}
+                  className="text-[9px] font-bold uppercase tracking-wider"
+                  style={{ color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
+                  title="Refresh now"
+                >
+                  {moduleLogsLoading ? "…" : "↻ REFRESH"}
+                </button>
+              </div>
+              <pre
+                className="flex-1 overflow-auto px-3 py-2 m-0 text-[11px]"
+                style={{
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-code, monospace)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  lineHeight: 1.5,
+                  background: "var(--bg-primary)",
+                }}
+                ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+              >
+                {logsText}
+              </pre>
+            </div>
+          ) : renderAppTab(gatewayUrl)}
+        </div>
+      </div>
+    );
+  };
+
   // ═══════════════════════════════════════════════════════════════════
   // DASHBOARD
   // ═══════════════════════════════════════════════════════════════════
@@ -5336,74 +9859,322 @@ export default function Home() {
         color: "var(--text-primary)",
       }}
     >
+      {/* Inbound QR edit-invite banner — a `?grant=<id>` link landed here.
+          Offer to redeem: optional key + connect-wallet, which threads the
+          grant through sign-in for time-boxed edit access. Hidden once the
+          invite is consumed (signChallenge clears pendingGrant) or dismissed. */}
+      {pendingGrant && !isOwner && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
+          style={{
+            maxWidth: "min(92vw, 560px)",
+            background: "color-mix(in srgb, var(--glass-bg, #11131a) 88%, transparent)",
+            border: "1px solid color-mix(in srgb, #cc785c 45%, transparent)",
+            backdropFilter: "blur(14px) saturate(150%)",
+            WebkitBackdropFilter: "blur(14px) saturate(150%)",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.45)",
+          }}
+        >
+          <span className="text-[18px] leading-none shrink-0" style={{ color: "#cc785c" }}>⧉</span>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="text-[11.5px] font-bold" style={{ color: "var(--text-primary)" }}>
+              You&apos;ve been invited
+            </div>
+            <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              Enter instantly as a guest, or connect a wallet — access is temporary either way.
+            </div>
+          </div>
+          <input
+            type="text"
+            value={redeemKey}
+            onChange={(e) => setRedeemKey(e.target.value)}
+            placeholder="key (if given)"
+            className="px-2 py-1.5 text-[11px] font-mono rounded outline-none w-[110px] shrink-0"
+            style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+          />
+          <button
+            onClick={enterAsGuest}
+            disabled={authLoading}
+            className="text-[11px] px-3 py-1.5 rounded uppercase font-bold tracking-wider shrink-0 transition-all disabled:opacity-40"
+            style={{ color: "#0b0b0c", background: "#cc785c", border: "1px solid #cc785c" }}
+            title="No wallet needed — a guest pass that expires with the invite"
+          >
+            {authLoading ? "…" : "Enter"}
+          </button>
+          <button
+            onClick={() => redeemInvite("metamask")}
+            disabled={authLoading}
+            className="text-[11px] px-3 py-1.5 rounded uppercase font-bold tracking-wider shrink-0 transition-all disabled:opacity-40"
+            style={{
+              color: "#cc785c",
+              background: "color-mix(in srgb, #cc785c 12%, transparent)",
+              border: "1px solid color-mix(in srgb, #cc785c 45%, transparent)",
+            }}
+            title="Sign in with your wallet so the access is tied to your address"
+          >
+            Wallet
+          </button>
+          <button
+            onClick={() => { setPendingGrant(null); pendingGrantRef.current = null; }}
+            className="text-[14px] px-1 shrink-0"
+            style={{ color: "var(--text-tertiary)" }}
+            title="Dismiss"
+          >
+            ✕
+          </button>
+          {authError && (
+            <div className="absolute -bottom-6 left-0 text-[10px] px-2" style={{ color: "var(--crt-red)" }}>
+              {authError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Guest session pill — live countdown to the grant's expiry. The server
+          cuts access at the same moment; this keeps the deadline visible. */}
+      {address && address.startsWith("guest_") && guestExp && (
+        <div
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[999] flex items-center gap-2 px-3 py-1.5 rounded-full"
+          style={{
+            background: "color-mix(in srgb, var(--glass-bg, #11131a) 88%, transparent)",
+            border: "1px solid color-mix(in srgb, #cc785c 40%, transparent)",
+            backdropFilter: "blur(14px) saturate(150%)",
+            WebkitBackdropFilter: "blur(14px) saturate(150%)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.4)",
+          }}
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{ background: "#cc785c", boxShadow: "0 0 6px #cc785c" }}
+          />
+          <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: "var(--text-primary)" }}>
+            Guest
+          </span>
+          <span className="text-[10px] font-mono" style={{ color: "#cc785c" }}>
+            {(() => {
+              const s = Math.max(0, guestExp - nowSec);
+              if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+              if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+              if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
+              return `${s}s`;
+            })()} left
+          </span>
+        </div>
+      )}
+
+      {/* Add-Module modal — top-level so a scanned `?import=<cid>` deep link
+          can open it from any view, not just the hub. */}
+      {addOpen && renderAddModuleModal()}
+
+      {/* Share-QR overlay — scan instead of copy/paste */}
+      {qrShare && renderQrShareModal()}
+
+      {/* Versions overlay (mod-protocol, storage-agnostic) */}
+      {showVersions && selectedModule && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(7, 7, 13, 0.65)",
+            backdropFilter: "blur(8px)",
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "48px 24px",
+            overflowY: "auto",
+          }}
+          onClick={() => setShowVersions(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 1100, width: "100%" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 16,
+                color: "var(--text-primary)",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 13, color: "var(--text-tertiary)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Mod Protocol · Version Control
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 600, marginTop: 4 }}>{prettyModName(selectedModule)}</div>
+              </div>
+              <button
+                className="glass-btn ghost"
+                onClick={() => setShowVersions(false)}
+                title="Close"
+              >
+                close
+              </button>
+            </div>
+            <VersionsPanel
+              apiBase={apiUrl}
+              module={selectedModule}
+              authHeader={token ? { Authorization: `Bearer ${token}` } : undefined}
+              onForked={(m) => { setShowVersions(false); setSelectedModule(m); }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ── Compact Nav Bar ───────────────────────────────────────── */}
       <div
-        className="flex items-center px-4 py-1.5 shrink-0"
+        className={isMobile ? "flex flex-col shrink-0" : "flex flex-row items-center shrink-0"}
         style={{
           background: "var(--bg-secondary)",
           borderBottom: `1px solid ${subtleBorder}`,
+          // The nav rail spans the full viewport height (fixed, far left),
+          // so the header starts to its right instead of underneath it.
+          paddingLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) : undefined,
         }}
       >
+        {/* Module selector + mod tabs (app/code/overview). On desktop this is
+            the ONLY header row — the account controls sit inline at its right
+            edge (a separate top row would be an empty bar with one chip). On
+            phone it stacks BELOW the HUB/TASKS + account row via flex
+            `order`. */}
+        <div
+          className={`flex items-center py-0.5 ${isMobile ? "px-4" : "pl-4 pr-2 flex-1 min-w-0"}`}
+          style={{ order: isMobile ? 2 : 1 }}
+        >
           <div className="flex items-center gap-3">
-            {/* Brand */}
-            <span style={{ color: "var(--text-tertiary)", opacity: 0.15 }}>│</span>
-            {/* Module selector dropdown */}
+            {/* Module/Folder selector dropdown */}
             <div className="relative" ref={headerModuleRef}>
               {showHeaderModuleDropdown ? (
-                <input
-                  type="text"
-                  autoFocus
-                  value={headerModuleSearch}
-                  onChange={(e) => {
-                    setHeaderModuleSearch(e.target.value);
-                    fetchModules(e.target.value);
-                  }}
-                  onFocus={(e) => {
-                    e.target.select();
-                    if (!moduleList.length) fetchModules(headerModuleSearch);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && moduleList.length > 0) {
-                      const firstModule = moduleList[0];
-                      resetModuleState(firstModule);
-                      setSelectedModule(firstModule.name);
-                      setSelectedModuleInfo(firstModule);
-                      setWorkDir(firstModule.path);
-                      setHeaderModuleSearch("");
-                      setShowHeaderModuleDropdown(false);
-                      fetchModuleConfig(firstModule.name);
-                    }
-                    if (e.key === "Escape") {
-                      setShowHeaderModuleDropdown(false);
-                      setHeaderModuleSearch("");
-                    }
-                  }}
-                  placeholder="search modules..."
-                  className="px-3 py-1 bg-transparent text-crt-green border border-crt-green/40 font-code outline-none w-[220px]"
-                  style={{ letterSpacing: "0.01em", fontSize: "20px" }}
-                />
+                <div className="flex items-center gap-0">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={headerModuleSearch}
+                    onChange={(e) => {
+                      setHeaderModuleSearch(e.target.value);
+                      if (selectorMode === "modules") {
+                        fetchModules(e.target.value);
+                      } else {
+                        fetchFolders(e.target.value);
+                        fetchFolderSuggestions(e.target.value);
+                      }
+                    }}
+                    onFocus={(e) => {
+                      e.target.select();
+                      if (selectorMode === "modules") {
+                        if (!moduleList.length) fetchModules(headerModuleSearch);
+                      } else {
+                        fetchFolders(headerModuleSearch);
+                        if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        const next = selectorMode === "modules" ? "folders" : "modules";
+                        setSelectorMode(next);
+                        if (next === "folders") { fetchFolders(headerModuleSearch); if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch); }
+                        else { fetchModules(headerModuleSearch); }
+                      }
+                      if (e.key === "Enter") {
+                        if (selectorMode === "modules") {
+                          // Pick the top VISIBLE suggestion (recents ranked
+                          // first), not the raw fetch order.
+                          const firstModule = rankedHeaderModules(headerModuleSearch)[0];
+                          if (firstModule) {
+                            resetModuleState(firstModule);
+                            setSelectedModule(firstModule.name);
+                            setSelectedModuleInfo(firstModule);
+                            setWorkDir(firstModule.path);
+                            setHeaderModuleSearch("");
+                            setShowHeaderModuleDropdown(false);
+                            fetchModuleConfig(firstModule.name);
+                          }
+                        } else if (selectorMode === "folders") {
+                          const pick = folderSuggestions[0] || folderList[0];
+                          if (pick) {
+                            setWorkDir(pick.path);
+                            setSelectedModule(pick.name.split("/").pop() || pick.name);
+                            setHeaderModuleSearch("");
+                            setShowHeaderModuleDropdown(false);
+                          }
+                        }
+                      }
+                      if (e.key === "Escape") {
+                        setShowHeaderModuleDropdown(false);
+                        setHeaderModuleSearch("");
+                      }
+                    }}
+                    placeholder={selectorMode === "modules" ? (prettyModName(selectedModule) || "search modules...") : "search folders..."}
+                    className="px-3 py-0.5 bg-transparent text-crt-green border border-crt-green/40 font-code outline-none w-[220px]"
+                    style={{ letterSpacing: "0.01em", fontSize: "14px" }}
+                  />
+                  {/* Mode toggle: modules vs folders */}
+                  <div className="flex ml-1 border border-crt-green/20 rounded overflow-hidden">
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); setSelectorMode("modules"); fetchModules(headerModuleSearch); }}
+                      className={`text-[10px] px-2 py-1 font-code transition-colors ${selectorMode === "modules" ? "bg-crt-green/15 text-crt-green" : "text-crt-green/30 hover:text-crt-green/50"}`}
+                    >MOD</button>
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); setSelectorMode("folders"); fetchFolders(headerModuleSearch); if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch); }}
+                      className={`text-[10px] px-2 py-1 font-code transition-colors ${selectorMode === "folders" ? "bg-crt-blue/15 text-crt-blue" : "text-crt-green/30 hover:text-crt-green/50"}`}
+                    >DIR</button>
+                  </div>
+                </div>
               ) : (
-                <button
-                  onClick={() => {
-                    setShowHeaderModuleDropdown(true);
-                    setHeaderModuleSearch("");
-                    if (!moduleList.length) fetchModules("");
-                  }}
-                  className="flex items-center gap-2 font-bold text-crt-green font-code cursor-pointer hover:text-crt-green/80 transition-colors group"
-                  style={{ letterSpacing: "0.01em", fontSize: "20px" }}
-                  title="Click to switch module"
-                >
-                  {selectedModule || "claude"}
-                  <span style={{ color: "var(--crt-green)", opacity: 0.25, fontSize: "11px", transition: "opacity 0.2s" }} className="group-hover:!opacity-50">▾</span>
-                </button>
+                <div className="flex items-center gap-0.5">
+                  {/* Merged name+search: the module name IS the search box.
+                      Clicking it swaps it for the search input in place
+                      (recents suggested immediately, filter as you type).
+                      On desktop the mark keeps the nav-rail toggle. */}
+                  {!isMobile && (
+                    <button
+                      onClick={() => setLeftRailOpen((o) => !o)}
+                      className="cursor-pointer transition-opacity hover:opacity-70 mr-1.5"
+                      title={leftRailOpen ? "Collapse nav rail" : "Open nav rail"}
+                      aria-label={leftRailOpen ? "Collapse nav rail" : "Open nav rail"}
+                    >
+                      <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowHeaderModuleDropdown(true);
+                      setHeaderModuleSearch("");
+                      if (selectorMode === "modules") {
+                        if (!moduleList.length) fetchModules("");
+                      } else {
+                        fetchFolders("");
+                      }
+                    }}
+                    className="flex items-center gap-1.5 font-bold text-crt-green font-code cursor-pointer hover:text-crt-green/80 transition-colors"
+                    style={{ letterSpacing: "0.01em", fontSize: "14px" }}
+                    title="Search / switch module (Tab toggles folders)"
+                  >
+                    {isMobile && (
+                      <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
+                    )}
+                    {prettyModName(selectedModule) || "Claude"}
+                    <span style={{ opacity: 0.25, fontSize: "9px", lineHeight: 1 }} aria-hidden>▾</span>
+                  </button>
+                </div>
               )}
-              {showHeaderModuleDropdown && moduleList.length > 0 && (() => {
+              {/* Modules dropdown */}
+              {showHeaderModuleDropdown && selectorMode === "modules" && moduleList.length > 0 && (() => {
                 const owners = [...new Set(moduleList.map(m => m.owner).filter(Boolean))] as string[];
-                const filtered = ownerFilter ? moduleList.filter(m => m.owner === ownerFilter) : moduleList;
+                // Substring-filtered (the server-side /modules?q= ranking can
+                // be fuzzy, but the dropdown should only show names that
+                // literally contain what you typed) and ranked with the
+                // most-recently-opened modules first.
+                const filtered = rankedHeaderModules(headerModuleSearch);
+                const recentSet = new Set(recentModules);
+                const firstNonRecentIdx = filtered.findIndex(m => !recentSet.has(m.name));
                 return (
                 <div
-                  className="absolute left-0 top-full mt-1 border border-crt-green/20 max-h-[400px] overflow-y-auto z-50 rounded min-w-[340px]"
-                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)", backdropFilter: "blur(12px)" }}
+                  className="absolute left-0 top-full mt-1 border border-crt-green/20 max-h-[400px] overflow-y-auto z-[80] rounded min-w-[340px]"
+                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)" }}
                 >
                   {owners.length > 1 && (
                     <div className="px-3 py-2 border-b border-crt-green/20 flex flex-wrap gap-1.5 items-center sticky top-0 z-10" style={{ background: "var(--bg-primary)" }}>
@@ -5422,9 +10193,21 @@ export default function Home() {
                       ))}
                     </div>
                   )}
-                  {filtered.map((m) => (
+                  {filtered.length === 0 && (
+                    <div className="px-3 py-2 text-[12px] text-crt-green/30 font-code">no modules match “{headerModuleSearch.trim()}”</div>
+                  )}
+                  {/* Keyed by name+path: the catalog holds duplicate names
+                      (orbit/app vs core/app) and duplicate keys make React
+                      leave stale rows behind when the query narrows. */}
+                  {filtered.map((m, i) => (
+                    <Fragment key={`${m.name}|${m.path || i}`}>
+                    {i === 0 && recentSet.has(m.name) && (
+                      <div className="px-3 py-1 border-b border-crt-green/10 text-[10px] text-crt-amber/50 uppercase font-code tracking-wider">recent</div>
+                    )}
+                    {i === firstNonRecentIdx && firstNonRecentIdx > 0 && (
+                      <div className="px-3 py-1 border-b border-crt-green/10 text-[10px] text-crt-green/30 uppercase font-code tracking-wider">all modules</div>
+                    )}
                     <div
-                      key={m.name}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         resetModuleState(m);
@@ -5475,37 +10258,151 @@ export default function Home() {
                         )}
                       </div>
                     </div>
+                    </Fragment>
                   ))}
                 </div>
                 );
               })()}
+              {/* Folders dropdown with embedding suggestions */}
+              {showHeaderModuleDropdown && selectorMode === "folders" && (folderList.length > 0 || folderSuggestions.length > 0) && (
+                <div
+                  className="absolute left-0 top-full mt-1 border border-crt-blue/20 max-h-[450px] overflow-y-auto z-[80] rounded min-w-[380px]"
+                  style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)" }}
+                >
+                  {/* Embedding suggestions section */}
+                  {folderSuggestions.length > 0 && (
+                    <>
+                      <div className="px-3 py-1.5 border-b border-crt-blue/20 sticky top-0 z-10" style={{ background: "var(--bg-primary)" }}>
+                        <span className="text-[10px] text-crt-blue/50 uppercase font-code">Suggested by similarity</span>
+                      </div>
+                      {folderSuggestions.map((f) => (
+                        <div
+                          key={`suggest-${f.path}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setWorkDir(f.path);
+                            const folderName = f.name.split("/").pop() || f.name;
+                            setSelectedModule(folderName);
+                            setSelectedModuleInfo(null);
+                            setHeaderModuleSearch("");
+                            setShowHeaderModuleDropdown(false);
+                            // try to load config if it's a module
+                            if (f.has_config || f.has_mod) fetchModuleConfig(folderName);
+                          }}
+                          className={`px-3 py-2 cursor-pointer hover:bg-crt-blue/8 transition-colors border-b border-crt-blue/5 ${f.path === workDir ? 'bg-crt-blue/6' : ''}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] text-crt-blue/40 shrink-0">◈</span>
+                              <span className="text-[13px] font-code text-crt-blue/80 truncate">{f.name}</span>
+                              <span className="text-[9px] px-1 py-0.5 border border-crt-blue/20 text-crt-blue/40 font-mono shrink-0">
+                                {(f.score * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              {f.has_config && (
+                                <span className="text-[9px] px-1 py-0.5 border border-crt-amber/25 text-crt-amber/50 rounded-sm">CFG</span>
+                              )}
+                              {f.has_mod && (
+                                <span className="text-[9px] px-1 py-0.5 border border-crt-green/25 text-crt-green/50 rounded-sm">MOD</span>
+                              )}
+                            </div>
+                          </div>
+                          {f.preview && (
+                            <div className="text-[10px] text-crt-blue/20 mt-0.5 truncate font-mono">{f.preview}</div>
+                          )}
+                          <div className="text-[10px] font-mono text-crt-blue/15 mt-0.5 truncate" title={f.path}>
+                            {f.display || f.path.replace(/^\/Users\/[^/]+/, "~")}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {/* Folder listing */}
+                  {folderList.length > 0 && (
+                    <>
+                      <div className="px-3 py-1.5 border-b border-crt-green/20 sticky top-0 z-10" style={{ background: "var(--bg-primary)" }}>
+                        <span className="text-[10px] text-crt-green/40 uppercase font-code">Folders</span>
+                      </div>
+                      {folderList.slice(0, 30).map((f) => (
+                        <div
+                          key={`folder-${f.path}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setWorkDir(f.path);
+                            const folderName = f.name.split("/").pop() || f.name;
+                            setSelectedModule(folderName);
+                            setSelectedModuleInfo(null);
+                            setHeaderModuleSearch("");
+                            setShowHeaderModuleDropdown(false);
+                            if (f.has_config || f.has_mod) fetchModuleConfig(folderName);
+                          }}
+                          className={`px-3 py-1.5 cursor-pointer hover:bg-crt-green/8 transition-colors border-b border-crt-green/5 ${f.path === workDir ? 'bg-crt-green/6' : ''}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] text-crt-green/30 shrink-0">▸</span>
+                              <span className="text-[12px] font-code text-crt-green/70 truncate">{f.name}</span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              {f.has_config && (
+                                <span className="text-[9px] px-1 py-0.5 border border-crt-amber/20 text-crt-amber/40 rounded-sm">CFG</span>
+                              )}
+                              {f.has_mod && (
+                                <span className="text-[9px] px-1 py-0.5 border border-crt-green/20 text-crt-green/40 rounded-sm">MOD</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-[10px] font-mono text-crt-green/15 truncate" title={f.path}>
+                            {f.display || f.path.replace(/^\/Users\/[^/]+/, "~")}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {folderList.length === 0 && folderSuggestions.length === 0 && (
+                    <div className="px-3 py-4 text-[12px] text-crt-green/30 text-center font-code">
+                      No folders found. Type to search.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            {selectedModule && effectiveConfig?.owner && (
-              <span
-                className="text-[13px] px-1.5 py-0.5 text-crt-green/35 truncate max-w-[140px] font-mono"
-                title={effectiveConfig.owner}
-                style={{ letterSpacing: "0" }}
-              >
-                {effectiveConfig.owner.slice(0, 6)}··{effectiveConfig.owner.slice(-4)}
-              </span>
-            )}
 
           </div>
 
-          {/* Navigation Tabs — inline with module selector */}
-          <div className="flex items-center gap-0 ml-4">
+          {/* Mod tabs — inline with the module selector on the second-level
+              row (HUB/TASKS moved up to the top-level row). On phone the row
+              may wrap; `flex-wrap` keeps everything on-screen. */}
+          <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
           {([
-            { key: "overview" as const, label: "OVERVIEW", icon: "◆", color: "var(--crt-amber)" },
-            ...(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir ? [{ key: "app" as const, label: "APP", icon: "◈", color: "var(--crt-green)" }] : []),
-            ...(selectedModuleInfo?.api_url || selectedModuleInfo?.has_api_dir || moduleConfig?.config?.endpoints ? [{ key: "api" as const, label: "API", icon: "⚡", color: "var(--crt-red)" }] : []),
-            { key: "files" as const, label: "FILES", icon: "◇", color: "var(--text-primary)" },
+            // APP leads — the live module interface is the first thing you see.
+            // Shown whenever the module exposes an app.
+            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
+              ? [{
+                  key: "app" as const,
+                  label: "APP",
+                  icon: <AppIcon size={13} />,
+                  color: "var(--crt-green)",
+                  activeKeys: ["app", "api"],
+                  target: "app",
+                }]
+              : []),
+            // CODE merges the file browser and the version history into one
+            // tab (the sub-toggle inside picks between Files and Versions).
+            { key: "files" as const, label: "CODE", icon: <CodeIcon size={13} />, color: "var(--text-primary)" },
+            // OVERVIEW is the module's profile/chrome — kept last now that the
+            // app leads. (The EDIT view moved out of the tab row: it's the
+            // rail's EDIT button.)
+            { key: "overview" as const, label: "OVERVIEW", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
           ]).map((tab) => {
-            const isActive = sidebarView === tab.key;
+            const t = tab as any;
+            const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
             return (
               <button
                 key={tab.key}
-                onClick={() => setSidebarView(tab.key)}
-                className="text-[15px] font-bold transition-all px-3 py-2 font-code flex items-center gap-1.5 relative"
+                onClick={() => setSidebarView(t.target || tab.key)}
+                className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
                 style={{
                   letterSpacing: "0.02em",
                   color: isActive ? tab.color : "var(--text-tertiary)",
@@ -5527,105 +10424,1087 @@ export default function Home() {
                   }
                 }}
               >
-                <span className="text-[13px]">{tab.icon}</span>
+                <span className="flex items-center">{tab.icon}</span>
                 {tab.label}
               </button>
             );
           })}
           </div>
+        </div>
 
-          {/* Address chip + Agent toggle */}
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (address && address !== "local") {
-                  navigator.clipboard.writeText(address);
-                  setCopiedAddress(true);
-                  setTimeout(() => setCopiedAddress(false), 1500);
-                }
-              }}
-              className="text-[12px] font-bold font-mono px-2 py-1 transition-all"
-              style={{
-                color: "var(--crt-green)",
-                opacity: 0.5,
-              }}
-              title={copiedAddress ? "Copied!" : `Copy: ${address}`}
-            >
-              {copiedAddress ? "COPIED" : address === "local" ? "LOCAL" : `${address?.slice(0, 6)}··${address?.slice(-4)}`}
-            </button>
-            {/* Agent toggle — opens/closes right sidebar */}
-            <button
-              onClick={() => setAgentSidebarOpen(!agentSidebarOpen)}
-              className="text-[15px] font-bold transition-all px-3 py-2 font-code flex items-center gap-1.5 relative"
-              style={{
-                letterSpacing: "0.02em",
-                color: agentSidebarOpen ? "var(--crt-blue)" : "var(--text-tertiary)",
-                opacity: agentSidebarOpen ? 1 : 0.4,
-                borderBottom: agentSidebarOpen ? "2px solid var(--crt-blue)" : "2px solid transparent",
-                background: agentSidebarOpen ? "color-mix(in srgb, var(--crt-blue) 6%, transparent)" : "transparent",
-                marginBottom: "-1px",
-              }}
-              onMouseEnter={(e) => {
-                if (!agentSidebarOpen) {
-                  e.currentTarget.style.opacity = "0.7";
-                  e.currentTarget.style.color = "var(--crt-blue)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!agentSidebarOpen) {
-                  e.currentTarget.style.opacity = "0.4";
-                  e.currentTarget.style.color = "var(--text-tertiary)";
-                }
-              }}
-            >
-              <span className="text-[13px]">⬡</span>
-              AGENT
-            </button>
-            {/* Sidebar side toggle */}
-            <button
-              onClick={() => setSidebarSide(sidebarSide === "right" ? "left" : "right")}
-              className="text-[13px] px-2 py-1.5 transition-all font-code"
-              style={{
-                color: "var(--text-tertiary)",
-                opacity: 0.4,
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.8"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.4"; }}
-              title={`Move sidebar to ${sidebarSide === "right" ? "left" : "right"}`}
-            >
-              {sidebarSide === "right" ? "◧" : "◨"}
-            </button>
+        {/* ── Account controls. On desktop they sit inline at the right end
+            of the single header row (no standalone top bar). On phone this
+            becomes its own row ABOVE the module row (flex `order: 1`) and
+            also carries the HUB/TASKS buttons — desktop covers those via the
+            left nav rail (toggled from the module name / its own « tab). */}
+        <div
+          className={`flex items-center py-1 ${isMobile ? "px-4" : "pl-2 pr-4 shrink-0"}`}
+          style={isMobile ? { order: 1, borderBottom: `1px solid ${subtleBorder}` } : { order: 2 }}
+        >
+          {isMobile && (
+          <div className="flex items-center gap-0">
+            {(() => {
+              const hubActive = sidebarView === "hub";
+              const tasksActive = sidebarView === "tasks";
+              const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+              const topTabs = [
+                {
+                  key: "hub",
+                  label: "HUB",
+                  icon: <HubIcon size={13} />,
+                  color: "var(--crt-green)",
+                  active: hubActive,
+                  badge: null as number | null,
+                  onClick: () => setSidebarView("hub"),
+                },
+                {
+                  key: "tasks",
+                  label: "TASKS",
+                  icon: <TasksIcon size={13} />,
+                  color: "var(--crt-blue)",
+                  active: tasksActive,
+                  badge: runningCount > 0 ? runningCount : null,
+                  onClick: () => {
+                    setSidebarView("tasks");
+                  },
+                },
+              ];
+              return topTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={tab.onClick}
+                  className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
+                  style={{
+                    letterSpacing: "0.02em",
+                    color: tab.active ? tab.color : "var(--text-tertiary)",
+                    opacity: tab.active ? 1 : 0.45,
+                    borderBottom: tab.active ? `2px solid ${tab.color}` : "2px solid transparent",
+                    background: tab.active ? `color-mix(in srgb, ${tab.color} 6%, transparent)` : "transparent",
+                    marginBottom: "-1px",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!tab.active) {
+                      e.currentTarget.style.opacity = "0.75";
+                      e.currentTarget.style.color = tab.color;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!tab.active) {
+                      e.currentTarget.style.opacity = "0.45";
+                      e.currentTarget.style.color = "var(--text-tertiary)";
+                    }
+                  }}
+                  title={tab.key === "tasks" ? "Open the full-page tasks view" : "Open the module hub"}
+                >
+                  <span className="flex items-center">{tab.icon}</span>
+                  {tab.label}
+                  {tab.badge != null && (
+                    <span
+                      className="text-[9px] font-mono px-1 py-[1px] rounded"
+                      style={{
+                        color: tab.color,
+                        background: `color-mix(in srgb, ${tab.color} 14%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${tab.color} 35%, transparent)`,
+                      }}
+                    >
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              ));
+            })()}
           </div>
+          )}
+
+          {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          {/* Wrench: BUILD / FORK / EDIT actions side panel.
+              Lives on the RIGHT of the header. Clicking opens a
+              tabbed panel anchored under the icon (right-aligned). */}
+            <div className="relative flex items-center gap-1.5" ref={headerCreateRef}>
+              {/* "+" opens the BUILD / FORK / EDIT / IMPORT panel. On desktop
+                  with the nav rail open, these actions live compressed at the
+                  bottom of the rail instead — the header button only shows on
+                  mobile or when the rail is collapsed. */}
+              {(isMobile || !leftRailOpen) && (
+              <button
+                onClick={() => {
+                  setCreateAnchor("header");
+                  setShowHeaderCreateForm((f) => (f ? null : "create"));
+                }}
+                className="flex items-center justify-center transition-all hover:brightness-125 rounded-sm"
+                style={{
+                  width: 28,
+                  height: 28,
+                  border: `1px solid ${showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.25)"}`,
+                  color: showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.55)",
+                  background: showHeaderCreateForm ? "rgba(16,185,129,0.10)" : "transparent",
+                  fontSize: 15,
+                  lineHeight: 1,
+                }}
+                title="Build / fork / edit / import a module"
+                aria-expanded={!!showHeaderCreateForm}
+                aria-label="Build, fork, edit or import a module"
+              >
+                +
+              </button>
+              )}
+              {/* The wrench that used to live here is gone — the edit view is
+                  reached via the rail's bottom EDIT action. */}
+
+              {showHeaderCreateForm && createAnchor === "header" && (
+                <div
+                  className="absolute right-0 top-full mt-1 border z-50 flex flex-col min-w-[320px]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: showHeaderCreateForm === "fork"
+                      ? "rgba(245,158,11,0.3)"
+                      : showHeaderCreateForm === "edit"
+                      ? "rgba(59,130,246,0.3)"
+                      : showHeaderCreateForm === "import"
+                      ? "rgba(34,211,238,0.3)"
+                      : "rgba(16,185,129,0.3)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.20)",
+                  }}
+                >
+                  {/* Tabs */}
+                  <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    {([
+                      { key: "create" as const, label: "+ BUILD", color: "var(--crt-green)", rgb: "16,185,129" },
+                      { key: "fork"   as const, label: "⑂ FORK",  color: "var(--crt-amber)", rgb: "245,158,11" },
+                      { key: "edit"   as const, label: "✎ EDIT",  color: "var(--crt-blue)",  rgb: "59,130,246" },
+                      { key: "import" as const, label: "⇩ IMPORT", color: "#22d3ee",         rgb: "34,211,238" },
+                    ]).map((tab) => {
+                      const isActive = showHeaderCreateForm === tab.key;
+                      const disabled = tab.key === "edit" && !selectedModule;
+                      return (
+                        <button
+                          key={tab.key}
+                          onClick={() => {
+                            if (disabled) return;
+                            if (tab.key === "fork") {
+                              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
+                              setHeaderGithubUrl("");
+                            } else if (tab.key === "create") {
+                              setHeaderNewName("");
+                              setHeaderGithubUrl("");
+                            } else if (tab.key === "import") {
+                              setHeaderNewName("");
+                              setHeaderGithubUrl("");
+                              setHeaderCid("");
+                            } else {
+                              setHeaderEditPrompt("");
+                            }
+                            setShowHeaderCreateForm(tab.key);
+                          }}
+                          disabled={disabled}
+                          className="flex-1 text-[11px] font-bold py-1.5 px-2 font-code transition-all disabled:cursor-not-allowed"
+                          style={{
+                            letterSpacing: "0.02em",
+                            color: isActive ? tab.color : `rgba(${tab.rgb}, ${disabled ? 0.2 : 0.5})`,
+                            background: isActive ? `rgba(${tab.rgb}, 0.08)` : "transparent",
+                            borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
+                          }}
+                          title={disabled ? "Select a module to edit" : tab.label}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Active form */}
+                  <div className="p-3 flex flex-col gap-2">
+                    <div className="text-[12px] font-bold uppercase" style={{
+                      letterSpacing: "0.02em",
+                      color: showHeaderCreateForm === "fork"
+                        ? "var(--crt-amber)"
+                        : showHeaderCreateForm === "edit"
+                        ? "var(--crt-blue)"
+                        : showHeaderCreateForm === "import"
+                        ? "#22d3ee"
+                        : "var(--crt-green)",
+                    }}>
+                      {showHeaderCreateForm === "fork"
+                        ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}`
+                        : showHeaderCreateForm === "edit"
+                        ? `✎ EDIT ${selectedModule?.toUpperCase() || "?"}`
+                        : showHeaderCreateForm === "import"
+                        ? "⇩ IMPORT MODULE"
+                        : "+ BUILD MODULE"}
+                    </div>
+                    {showHeaderCreateForm === "edit" ? (
+                      <textarea
+                        autoFocus
+                        value={headerEditPrompt}
+                        onChange={(e) => setHeaderEditPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="describe the edit..."
+                        rows={3}
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none resize-none"
+                        style={{
+                          borderColor: "rgba(59,130,246,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    ) : showHeaderCreateForm === "import" ? (
+                      <>
+                        {/* Source toggle — clone a git repo or restore a snapshot CID */}
+                        <div className="flex gap-1">
+                          {(["github", "cid"] as const).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setHeaderImportSource(s)}
+                              className="flex-1 text-[11px] font-bold py-1 px-2 font-code border transition-all"
+                              style={{
+                                letterSpacing: "0.02em",
+                                color: headerImportSource === s ? "#22d3ee" : "rgba(34,211,238,0.45)",
+                                borderColor: headerImportSource === s ? "rgba(34,211,238,0.5)" : "rgba(34,211,238,0.15)",
+                                background: headerImportSource === s ? "rgba(34,211,238,0.08)" : "transparent",
+                              }}
+                            >
+                              {s === "github" ? "GITHUB" : "CID"}
+                            </button>
+                          ))}
+                        </div>
+                        {headerImportSource === "github" ? (
+                          <input
+                            type="text"
+                            autoFocus
+                            value={headerGithubUrl}
+                            onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") headerCreateOrFork();
+                              if (e.key === "Escape") setShowHeaderCreateForm(null);
+                            }}
+                            placeholder="https://github.com/user/repo.git"
+                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            autoFocus
+                            value={headerCid}
+                            onChange={(e) => setHeaderCid(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") headerCreateOrFork();
+                              if (e.key === "Escape") setShowHeaderCreateForm(null);
+                            }}
+                            placeholder="snapshot cid..."
+                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          value={headerNewName}
+                          onChange={(e) => setHeaderNewName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") headerCreateOrFork();
+                            if (e.key === "Escape") setShowHeaderCreateForm(null);
+                          }}
+                          placeholder={
+                            headerImportSource === "github"
+                              ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "module name (auto from url)...")
+                              : "module name..."
+                          }
+                          className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                          style={{ borderColor: "rgba(34,211,238,0.2)", color: "var(--text-primary)" }}
+                        />
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={headerNewName}
+                        onChange={(e) => setHeaderNewName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="module name..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
+                        style={{
+                          borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
+                          color: "var(--text-primary)",
+                        }}
+                      />
+                    )}
+                    {showHeaderCreateForm === "create" && (
+                      <input
+                        type="text"
+                        value={headerGithubUrl}
+                        onChange={(e) => setHeaderGithubUrl(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") headerCreateOrFork();
+                          if (e.key === "Escape") setShowHeaderCreateForm(null);
+                        }}
+                        placeholder="github url (optional)..."
+                        className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
+                        style={{ color: "var(--text-primary)" }}
+                      />
+                    )}
+                    {/* Model selector — drives the same shared model state the
+                        composer uses, so EDIT/FORK/BUILD jobs run on the model
+                        picked here (previously this panel had no picker and
+                        silently inherited the composer's choice). IMPORT is a
+                        deterministic clone/restore — no agent, no model. */}
+                    {showHeaderCreateForm !== "import" && (
+                    <select
+                      value={model}
+                      onChange={(e) => {
+                        setModel(e.target.value);
+                        safeSetItem("claude_jobs_model", e.target.value);
+                      }}
+                      className="px-2 py-1 text-[12px] bg-transparent text-crt-green border border-crt-green/20 font-code uppercase cursor-pointer hover:border-crt-green/40 transition-colors self-start"
+                      title={`Model: ${modelLabel(model)} (${model})`}
+                    >
+                      {MODEL_OPTIONS.map(m => (
+                        <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={headerCreateOrFork}
+                        disabled={(showHeaderCreateForm === "edit"
+                          ? !headerEditPrompt.trim()
+                          : showHeaderCreateForm === "import"
+                          ? (headerImportSource === "github" ? !headerGithubUrl.trim() : !headerCid.trim())
+                          : !headerNewName.trim()) || submitting}
+                        className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
+                        style={{
+                          letterSpacing: "0.01em",
+                          opacity: (showHeaderCreateForm === "edit"
+                            ? headerEditPrompt.trim()
+                            : showHeaderCreateForm === "import"
+                            ? (headerImportSource === "github" ? headerGithubUrl.trim() : headerCid.trim())
+                            : headerNewName.trim()) ? 1 : 0.4,
+                        }}
+                      >
+                        {submitting
+                          ? "..."
+                          : showHeaderCreateForm === "fork"
+                          ? "FORK"
+                          : showHeaderCreateForm === "edit"
+                          ? "EDIT"
+                          : showHeaderCreateForm === "import"
+                          ? "IMPORT"
+                          : "BUILD"}
+                      </button>
+                      <button
+                        onClick={() => setShowHeaderCreateForm(null)}
+                        className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
+                      >
+                        ESC
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Single identity chip — owner + user are one panel. The module
+                owner's identity (for non-owner viewers) lives inside the
+                profile dropdown below, so the top-right corner never shows a
+                separate OWNER chip alongside the user chip. */}
+            {/* User profile chip — when a wallet is connected, clicking
+                pops out the full wallet sidebar (mirrors the AGENT
+                toggle pattern). For local/no-wallet sessions it opens
+                the small profile dropdown instead. */}
+            <div ref={profileMenuRef} className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // No session yet — this chip reads "SIGN IN" and toggles the
+                  // connect-wallet drawer.
+                  if (!token) {
+                    setSignInOpen(o => !o);
+                    return;
+                  }
+                  // Unified entry point for owner AND user: one click opens the
+                  // merged account panel already expanded — no intermediate
+                  // dropdown (its actions all live inside the panel now).
+                  setShowOwnerSidebar(o => !o);
+                }}
+                className="text-[12px] font-bold font-mono px-2 py-1 transition-all flex items-center gap-1.5"
+                style={isOwner ? {
+                  color: "var(--crt-green)",
+                  background: showOwnerSidebar
+                    ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
+                    : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                  borderRadius: 4,
+                  letterSpacing: "0.02em",
+                } : {
+                  color: "var(--crt-green)",
+                  opacity: showOwnerSidebar ? 1 : 0.5,
+                  borderRadius: 4,
+                  background: showOwnerSidebar ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                }}
+                title={token
+                  ? (showOwnerSidebar ? "Close account panel" : "Open account panel")
+                  : "Sign in"}
+                aria-expanded={showOwnerSidebar}
+              >
+                {isOwner && (
+                  <span
+                    className="shrink-0 inline-block rounded-full"
+                    style={{ width: "6px", height: "6px", background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }}
+                  />
+                )}
+                {isOwner && <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>}
+                {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
+                <span className="text-[9px]" style={{ opacity: 0.6 }}>
+                  {showOwnerSidebar ? "◨" : "◧"}
+                </span>
+              </button>
+              {profileMenuOpen && (
+                <div
+                  className="absolute right-0 mt-1.5 flex flex-col rounded-md z-50 profile-menu-expand-left"
+                  style={{
+                    minWidth: 280,
+                    background: "var(--bg-primary)",
+                    border: "1px solid var(--border-color)",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                    overflow: "hidden",
+                    transformOrigin: "top right",
+                  }}
+                  role="menu"
+                >
+                  {/* Header */}
+                  <div
+                    className="flex items-center gap-2.5 px-3 py-2.5"
+                    style={{
+                      borderBottom: "1px solid var(--border-color)",
+                      background: "color-mix(in srgb, var(--crt-green) 4%, transparent)",
+                    }}
+                  >
+                    <span
+                      className="shrink-0 inline-block rounded-full"
+                      style={{
+                        width: 8, height: 8,
+                        background: "var(--crt-green)",
+                        boxShadow: "0 0 8px var(--crt-green)",
+                      }}
+                    />
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span className="text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                        {walletType === "metamask" ? "MetaMask"
+                          : walletType === "subwallet" ? "SubWallet"
+                          : walletType === "password" ? "Password Key"
+                          : walletType ? walletType : address ? "Connected" : "Not signed in"}
+                      </span>
+                      <span className="text-[11px] font-mono truncate" style={{ color: "var(--text-secondary)" }}>
+                        {address || "—"}
+                      </span>
+                    </div>
+                    {isOwner && (
+                      <span
+                        className="text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                        }}
+                      >
+                        OWNER
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Address copy */}
+                  {address && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(address).catch(() => {});
+                        setCopiedAddress(true);
+                        setTimeout(() => setCopiedAddress(false), 1500);
+                      }}
+                      className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                      style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span className="font-mono truncate mr-2">{address}</span>
+                      <span className="text-[10px] uppercase tracking-[0.1em] shrink-0" style={{ color: copiedAddress ? "var(--crt-green)" : "var(--text-tertiary)" }}>
+                        {copiedAddress ? "copied" : "copy"}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Actions */}
+                  {address && address !== "local" && walletType && (
+                    <button
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setAccountTab("wallet");
+                        setShowOwnerSidebar(true);
+                      }}
+                      className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                      style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <span>Open wallet panel</span>
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>↗</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      setAccountTab("owner");
+                      setShowOwnerSidebar(v => !v);
+                    }}
+                    className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
+                    style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border-color)" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "var(--bg-secondary)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span className="flex flex-col min-w-0">
+                      <span className="flex items-center gap-2">
+                        <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                        {showOwnerSidebar ? "Close owner panel" : "Open owner panel"}
+                      </span>
+                      {/* For non-owner viewers, show the module owner address
+                          here so the identity from the old standalone chip
+                          isn't lost now that everything lives in one panel. */}
+                      {!isOwner && effectiveConfig?.owner && (
+                        <span className="font-mono text-[10px] mt-0.5 ml-[1.1rem]" style={{ color: "var(--text-tertiary)" }}>
+                          {`${effectiveConfig.owner.slice(0, 6)}··${effectiveConfig.owner.slice(-4)}`}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>{showOwnerSidebar ? "✕" : "↗"}</span>
+                  </button>
+                  {address ? (
+                    <button
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        disconnect();
+                      }}
+                      className="px-3 py-2 text-[11px] text-left transition-colors"
+                      style={{ color: "var(--crt-red)" }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    >
+                      Sign out
+                    </button>
+                  ) : (
+                    <div className="px-3 py-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      No session — connect a wallet or use a local key
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
 
       {error && (
-        <div className="mx-4 mt-2 p-3 border-2 border-crt-red/50" style={{ background: "rgba(239,68,68,0.05)" }}>
+        <div
+          className="mr-4 mt-2 p-3 border-2 border-crt-red/50"
+          style={{
+            background: "rgba(239,68,68,0.05)",
+            marginLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) + 16 : 16,
+          }}
+        >
           <div className="text-[14px] text-crt-red flex items-center gap-2">
             <span>⚠</span> {error}
           </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-row overflow-hidden">
+      <div className="flex-1 flex flex-row overflow-hidden relative">
+
+        {/* ── Left nav rail: recent modules + bottom HUB/TASKS nav ─────
+            Quick-draw navigation on the far left. The recent list lets
+            you flip between the modules you've been working on without
+            reopening the hub; the HUB/TASKS pills live at the BOTTOM of
+            the rail (with the create/edit actions) so they don't clash
+            with the mod tabs in the header above.
+            Desktop only — on phone the header HUB button / module picker
+            cover this in the limited width. */}
+        {/* Spacer — the rail itself is position:fixed so it can span the
+            entire viewport height (over the header); this holds its width
+            in the flex row so the main content doesn't slide under it. */}
+        {!isMobile && (
+          <div className="shrink-0" style={{ order: 0, width: leftRailOpen ? leftRailWidth : 22 }} />
+        )}
+        {!isMobile && (
+          leftRailOpen ? (
+            <div
+              className="flex flex-col overflow-hidden"
+              style={{
+                position: "fixed",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                zIndex: 40,
+                width: leftRailWidth,
+                background: "var(--bg-secondary, var(--bg-primary))",
+                borderRight: "1px solid var(--border-color)",
+              }}
+            >
+              {/* Drag handle — the rail/content divider. Rides the right
+                  edge; drag to resize the rail. */}
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setIsRailDragging(true);
+                }}
+                onDoubleClick={() => setLeftRailWidth(212)}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  right: 0,
+                  width: 6,
+                  cursor: "col-resize",
+                  zIndex: 5,
+                  background: isRailDragging ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "transparent",
+                  transition: "background 0.15s ease",
+                }}
+                onMouseEnter={(e) => { if (!isRailDragging) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 22%, transparent)"; }}
+                onMouseLeave={(e) => { if (!isRailDragging) e.currentTarget.style.background = "transparent"; }}
+                title="Drag to resize (double-click to reset)"
+              />
+              {/* Rail top row — the rail spans the full viewport height now,
+                  so this is the top-left corner of the screen. The rail no
+                  longer carries its own search box: this search-glass pill
+                  opens the ONE module search (the header selector), whose
+                  query also live-filters the rail list below. */}
+              <div className="px-2 pt-2 shrink-0 flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    setSelectorMode("modules");
+                    setShowHeaderModuleDropdown(true);
+                    setHeaderModuleSearch("");
+                    if (!moduleList.length) fetchModules("");
+                  }}
+                  className="flex items-center gap-1.5 px-2 rounded-md flex-1 min-w-0 text-left transition-all hover:brightness-125"
+                  style={{ border: "1px solid var(--border-color)", background: "var(--bg-primary)" }}
+                  title="Search modules"
+                  aria-label="Search modules"
+                >
+                  <span
+                    className="text-[13px] shrink-0"
+                    style={{ color: "var(--crt-green)", textShadow: "0 0 5px color-mix(in srgb, var(--crt-green) 45%, transparent)" }}
+                    aria-hidden
+                  >
+                    ⌕
+                  </span>
+                  <span className="font-code text-[12px] py-1.5 truncate" style={{ color: "var(--text-tertiary)" }}>
+                    Search modules…
+                  </span>
+                </button>
+              </div>
+
+              {/* Module list: search matches, or MINE (owned by the signed-in
+                  wallet) + RECENT when the search box is empty. */}
+              <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1 flex flex-col gap-0.5">
+                {(() => {
+                  const sectionHeader = (label: string) => (
+                    <div
+                      key={`hdr-${label}`}
+                      className="px-1 pt-2 pb-1 text-[10px] font-bold font-code uppercase shrink-0"
+                      style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}
+                    >
+                      {label}
+                    </div>
+                  );
+                  // In-progress work (pending/running jobs), grouped by the
+                  // module its work_dir points at — rendered under that
+                  // module's rail row so you can see, copy, and QR-share the
+                  // task hash without leaving the rail.
+                  const activeByMod = new Map<string, Job[]>();
+                  for (const j of jobs) {
+                    if (j.status !== "running" && j.status !== "pending") continue;
+                    const mod = j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null;
+                    if (!mod) continue;
+                    const list = activeByMod.get(mod) || [];
+                    list.push(j);
+                    activeByMod.set(mod, list);
+                  }
+                  const row = (name: string, info: typeof moduleList[0] | undefined, keyPrefix: string) => {
+                    const st = moduleStatuses[name];
+                    const live = st ? (st.app === true || st.api === true ? true : (st.app === false || st.api === false ? false : null)) : null;
+                    const active = name === selectedModule && sidebarView !== "hub";
+                    const activeJobs = activeByMod.get(name) || [];
+                    const tasksOpen = expandedTaskMods.has(name);
+                    return (
+                      <div key={`${keyPrefix}-${name}`} className="flex flex-col">
+                      <button
+                        onClick={() => {
+                          if (info) selectModule(info);
+                          else setSelectedModule(name);
+                        }}
+                        className="group flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
+                        style={{
+                          color: active ? "var(--accent-color)" : "var(--text-secondary, var(--text-tertiary))",
+                          background: active ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "transparent",
+                          border: `1px solid ${active ? "color-mix(in srgb, var(--accent-color) 35%, transparent)" : "transparent"}`,
+                        }}
+                        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 7%, transparent)"; }}
+                        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                        title={info?.description || name}
+                      >
+                        <span
+                          className="shrink-0"
+                          style={{
+                            width: 7, height: 7, borderRadius: 999,
+                            background: live === true ? "var(--crt-green)" : live === false ? "color-mix(in srgb, var(--crt-red, #ef4444) 70%, transparent)" : "var(--text-tertiary)",
+                            opacity: live === null ? 0.4 : 1,
+                            boxShadow: live === true ? "0 0 6px var(--crt-green)" : "none",
+                          }}
+                        />
+                        <span className="truncate">{name}</span>
+                        {activeJobs.length > 0 && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); toggleTaskMod(name); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); toggleTaskMod(name); } }}
+                            className="shrink-0 px-1 rounded-sm font-code font-bold led-pulse cursor-pointer hover:brightness-125"
+                            style={{
+                              fontSize: 9,
+                              color: "var(--crt-amber, #fbbf24)",
+                              border: "1px solid color-mix(in srgb, var(--crt-amber, #fbbf24) 40%, transparent)",
+                            }}
+                            title={`${activeJobs.length} task${activeJobs.length > 1 ? "s" : ""} in progress — click to ${tasksOpen ? "collapse" : "expand"}`}
+                            aria-label={`${tasksOpen ? "Collapse" : "Expand"} ${activeJobs.length} in-progress task${activeJobs.length > 1 ? "s" : ""}`}
+                            aria-expanded={tasksOpen}
+                          >
+                            {tasksOpen ? "▾" : "▸"}⚙{activeJobs.length}
+                          </span>
+                        )}
+                        {/* span, not button: the row is already a <button> */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); shareModuleQr(name, info?.cid); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); shareModuleQr(name, info?.cid); } }}
+                          className="ml-auto shrink-0 opacity-30 group-hover:opacity-100 hover:!opacity-100 transition-opacity cursor-pointer"
+                          style={{ fontSize: 11, lineHeight: 1 }}
+                          title={`Share ${name} as a QR code (app link / import / CID)`}
+                          aria-label={`Share ${name} as QR`}
+                        >
+                          ⛶
+                        </span>
+                      </button>
+                      {/* In-progress tasks/edits for this module: hash to
+                          copy + QR, click opens the task's live output.
+                          Collapsed by default — the ⚙N badge expands. */}
+                      {tasksOpen && activeJobs.map((j) => (
+                        <div
+                          key={`${keyPrefix}-${name}-job-${j.id}`}
+                          className="flex items-center gap-1.5 pl-6 pr-2 py-1 font-code cursor-pointer rounded-md transition-all"
+                          style={{ fontSize: 10, color: "var(--text-tertiary)" }}
+                          onClick={() => { viewJob(j); setSidebarView("tasks"); }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-amber, #fbbf24) 7%, transparent)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                          title={`${j.status} · ${j.prompt.slice(0, 140)}`}
+                        >
+                          <span
+                            className={j.status === "running" ? "led-pulse" : ""}
+                            style={{ color: "var(--crt-amber, #fbbf24)", fontSize: 8 }}
+                          >●</span>
+                          <span className="truncate font-mono" style={{ color: "var(--text-secondary, var(--text-tertiary))" }}>
+                            {j.id.slice(0, 8)}
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="ml-auto shrink-0 hover:brightness-150 cursor-pointer"
+                            style={{ color: copiedTaskHash === j.id ? "var(--crt-green)" : "var(--text-tertiary)", fontSize: 10 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard?.writeText(j.id).catch(() => {});
+                              setCopiedTaskHash(j.id);
+                              setTimeout(() => setCopiedTaskHash((c) => (c === j.id ? null : c)), 1200);
+                            }}
+                            title={copiedTaskHash === j.id ? "Copied!" : `Copy task hash ${j.id}`}
+                            aria-label="Copy task hash"
+                          >
+                            {copiedTaskHash === j.id ? "✓" : "⧉"}
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="shrink-0 hover:brightness-150 cursor-pointer"
+                            style={{ color: "var(--text-tertiary)", fontSize: 10 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openQrShare(`Task · ${name} · ${j.id.slice(0, 8)}`, [
+                                { label: "Hash", value: j.id, hint: `${j.status} task on ${name} — full job hash` },
+                              ]);
+                            }}
+                            title={`Show task hash ${j.id.slice(0, 8)}… as a QR code`}
+                            aria-label="Show task hash as QR"
+                          >
+                            ⛶
+                          </span>
+                        </div>
+                      ))}
+                      </div>
+                    );
+                  };
+                  // The same name can appear under both core/ and orbit/
+                  // (registry, app, web) — one rail row per name, first hit
+                  // wins, so the list never shows identical twins.
+                  const dedupeByName = (list: typeof moduleList) => {
+                    const seen = new Set<string>();
+                    return list.filter((m) => (seen.has(m.name) ? false : (seen.add(m.name), true)));
+                  };
+                  // The header selector is the one search box — while it's
+                  // open in module mode its query filters the rail too.
+                  const q = (showHeaderModuleDropdown && selectorMode === "modules" ? headerModuleSearch : "").trim().toLowerCase();
+                  if (q) {
+                    const matches = dedupeByName(moduleList
+                      .filter(isRealModule)
+                      .filter((m) => m.name.toLowerCase().includes(q) || (m.description || "").toLowerCase().includes(q)));
+                    if (matches.length === 0) {
+                      return (
+                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                          No modules match “{headerModuleSearch.trim()}”.
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        {sectionHeader(`Matches · ${matches.length}`)}
+                        {matches.map((m) => row(m.name, m, "match"))}
+                      </>
+                    );
+                  }
+                  const me = address && address !== "local" ? address.toLowerCase() : null;
+                  // RECENT leads the rail — it's the quick-draw list you
+                  // actually navigate with. Belt-and-braces dedupe here too:
+                  // localStorage is shared across every modc2 module, so a
+                  // stale writer can still hand us the same name many times.
+                  const recents = [...new Set(recentModules)];
+                  const recentNames = new Set(recents);
+                  // MINE follows, minus anything already listed above. Every
+                  // scanned module is attributed to the host owner, so when
+                  // the owner signs in this is "everything else", not a
+                  // second copy of the recents.
+                  const owned = me
+                    ? dedupeByName(moduleList.filter(isRealModule).filter((m) => m.owner && m.owner.toLowerCase() === me))
+                        .filter((m) => !recentNames.has(m.name))
+                    : [];
+                  return (
+                    <>
+                      {recents.length > 0 ? (
+                        <>
+                          {sectionHeader(`Recent · ${recents.length}`)}
+                          {recents.map((name) => row(name, moduleList.find((m) => m.name === name), "recent"))}
+                        </>
+                      ) : (
+                        <>
+                          {sectionHeader("Recent")}
+                          <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                            Modules you open show up here.
+                          </div>
+                        </>
+                      )}
+                      {owned.length > 0 && (
+                        <>
+                          {sectionHeader(`Mine · ${owned.length}`)}
+                          {owned.map((m) => row(m.name, m, "mine"))}
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Rail footer — actions + nav. First the header's four-tab BUILD/FORK/EDIT/IMPORT
+                  popover compressed into two buttons: CREATE (build from
+                  scratch, fork the selected module, or import via github/cid
+                  — picked with a small source segment) and EDIT (agent edit
+                  of the selected module). Shares the header panel's state and
+                  submit path, so behavior is identical — only the surface is
+                  smaller. */}
+              <div
+                ref={railCreateRef}
+                className="shrink-0 px-2 py-2 flex flex-col gap-1.5"
+                style={{ borderTop: "1px solid var(--border-color)" }}
+              >
+                {showHeaderCreateForm && createAnchor === "rail" && renderCompactCreateForm()}
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => {
+                      if (showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail") {
+                        setShowHeaderCreateForm(null);
+                        return;
+                      }
+                      setCreateAnchor("rail");
+                      setHeaderNewName("");
+                      setHeaderGithubUrl("");
+                      setShowHeaderCreateForm("create");
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all"
+                    style={{
+                      color: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
+                      background: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                      border: `1px solid ${showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+                      letterSpacing: "0.04em",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 8%, transparent)"; }}
+                    onMouseLeave={(e) => { if (!(showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
+                    title="Build, fork or import a module"
+                  >
+                    + CREATE
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!selectedModule) return;
+                      if (showHeaderCreateForm === "edit" && createAnchor === "rail") {
+                        setShowHeaderCreateForm(null);
+                        return;
+                      }
+                      setCreateAnchor("rail");
+                      setHeaderEditPrompt("");
+                      setShowHeaderCreateForm("edit");
+                    }}
+                    disabled={!selectedModule}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all disabled:cursor-not-allowed"
+                    style={{
+                      color: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
+                      opacity: selectedModule ? 1 : 0.35,
+                      background: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 12%, transparent)" : "transparent",
+                      border: `1px solid ${showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
+                      letterSpacing: "0.04em",
+                    }}
+                    onMouseEnter={(e) => { if (selectedModule) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 8%, transparent)"; }}
+                    onMouseLeave={(e) => { if (!(showHeaderCreateForm === "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
+                    title={selectedModule ? `Edit ${selectedModule} with the agent` : "Select a module to edit"}
+                  >
+                    ✎ EDIT
+                  </button>
+                </div>
+                {/* Rail nav — HUB / TASKS + collapse. Moved down from the top
+                    of the rail so they don't read as a second tab row right
+                    under the mod tabs. */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setSidebarView("hub")}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
+                    style={{
+                      color: sidebarView === "hub" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
+                      background: sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 14%, transparent)" : "transparent",
+                      border: `1px solid ${sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+                      letterSpacing: "0.04em",
+                    }}
+                    onMouseEnter={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 7%, transparent)"; }}
+                    onMouseLeave={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "transparent"; }}
+                    title="Open the module hub"
+                  >
+                    <span style={{ fontSize: 13, lineHeight: 1 }}>▦</span> HUB
+                  </button>
+                  {(() => {
+                    const tasksPageActive = sidebarView === "tasks";
+                    const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+                    return (
+                      <button
+                        onClick={() => setSidebarView("tasks")}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
+                        style={{
+                          color: tasksPageActive ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
+                          background: tasksPageActive ? "color-mix(in srgb, var(--crt-blue) 14%, transparent)" : "transparent",
+                          border: `1px solid ${tasksPageActive ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
+                          letterSpacing: "0.04em",
+                        }}
+                        onMouseEnter={(e) => { if (!tasksPageActive) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 7%, transparent)"; }}
+                        onMouseLeave={(e) => { if (!tasksPageActive) e.currentTarget.style.background = "transparent"; }}
+                        title="Open the full-page tasks view"
+                      >
+                        <span style={{ fontSize: 13, lineHeight: 1 }}>▤</span> TASKS
+                        {runningCount > 0 && (
+                          <span
+                            className="text-[10px] font-mono px-1 py-[1px] rounded"
+                            style={{
+                              color: "var(--crt-blue)",
+                              background: "color-mix(in srgb, var(--crt-blue) 14%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
+                            }}
+                          >
+                            {runningCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
+                  <button
+                    onClick={() => setLeftRailOpen(false)}
+                    className="flex items-center justify-center shrink-0 transition-all hover:brightness-125"
+                    style={{ width: 20, height: 20, color: "var(--text-tertiary)" }}
+                    title="Collapse nav rail"
+                    aria-label="Collapse nav rail"
+                  >
+                    «
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Collapsed: a thin reopen tab on the far left (full height,
+            // like the open rail).
+            <button
+              onClick={() => setLeftRailOpen(true)}
+              className="flex items-center justify-center transition-all hover:brightness-125"
+              style={{
+                position: "fixed",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                zIndex: 40,
+                width: 22,
+                background: "var(--bg-secondary, var(--bg-primary))",
+                borderRight: "1px solid var(--border-color)",
+                color: "var(--text-tertiary)",
+                writingMode: "vertical-rl",
+                fontSize: 10,
+                letterSpacing: "0.18em",
+                fontFamily: "var(--font-code, monospace)",
+              }}
+              title="Open nav rail (HUB + tasks + recent)"
+              aria-label="Open nav rail"
+            >
+              ▦ NAV »
+            </button>
+          )
+        )}
 
         {/* ── Main Content ──────────────────────── */}
         <div
           className="flex-1 flex flex-col overflow-hidden min-w-0"
-          style={{ background: "var(--bg-primary)" }}
+          style={{ background: "var(--bg-primary)", order: 1 }}
         >
-            {sidebarView === "overview" ? (
+            {sidebarView === "hub" ? (
+              renderHubView()
+            ) : sidebarView === "tasks" ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {renderAgentTab()}
+              </div>
+            ) : sidebarView === "overview" ? (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderProfileTab()}
               </div>
-            ) : sidebarView === "api" ? (
+            ) : (sidebarView === "api" || sidebarView === "app") ? (
               <div className="flex-1 flex flex-col overflow-hidden">
-                {renderApiTab()}
+                {renderAppApiTab()}
               </div>
-            ) : sidebarView === "app" ? (
+            ) : sidebarView === "logs" ? (
               <div className="flex-1 flex flex-col overflow-hidden">
-                {renderAppTab()}
+                {renderLogsTab()}
               </div>
             ) : sidebarView === "files" ? (
               filesPanelFloating ? (
@@ -5634,7 +11513,73 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  {renderDirectoryTab()}
+                  {/* Sub-toggle: file browser vs. version history, both folded
+                      into the merged CODE tab. */}
+                  <div
+                    className="flex items-center gap-1 px-3 py-1.5 shrink-0"
+                    style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                  >
+                    {([
+                      { k: "files" as const, label: "Files", icon: <FilesIcon size={13} /> },
+                      { k: "versions" as const, label: "Versions", icon: <VersionsIcon size={13} /> },
+                    ]).map((s) => {
+                      const on = codeView === s.k;
+                      return (
+                        <button
+                          key={s.k}
+                          onClick={() => setCodeView(s.k)}
+                          className="text-[13px] px-2.5 py-1 border transition-all flex items-center gap-1.5 font-code uppercase"
+                          style={{
+                            letterSpacing: "0.02em",
+                            color: on ? "var(--text-primary)" : "var(--text-tertiary)",
+                            borderColor: on ? "var(--crt-green)" : "transparent",
+                            background: on ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                            opacity: on ? 1 : 0.5,
+                          }}
+                        >
+                          <span className="flex items-center">{s.icon}</span>
+                          {s.label}
+                          {s.k === "versions" && agentVersions.length > 0 && (
+                            <span className="text-[11px] opacity-60">{agentVersions.length}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {codeView === "files" && (
+                      <>
+                        <span
+                          className="flex-1 min-w-0 truncate text-right font-code text-[12px]"
+                          style={{ color: "var(--text-tertiary)", opacity: 0.55 }}
+                          title={filesDisplayPath()}
+                        >
+                          {filesDisplayPath()}
+                        </span>
+                        {filesToolbarControls()}
+                      </>
+                    )}
+                  </div>
+                  {codeView === "versions" ? (
+                    selectedModule ? (
+                      <VersionsPanel
+                        apiBase={apiUrl}
+                        module={selectedModule}
+                        authHeader={token ? { Authorization: `Bearer ${token}` } : undefined}
+                        onForked={(m) => setSelectedModule(m)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 p-6">
+                        <span className="text-[48px]" style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.15 }}>⌬</span>
+                        <span className="text-[14px] uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.02em" }}>
+                          No module selected
+                        </span>
+                        <p className="text-[13px] text-center max-w-xs" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                          Pick a module to see its snapshot history and on-chain registry CIDs.
+                        </p>
+                      </div>
+                    )
+                  ) : (
+                    renderDirectoryTab()
+                  )}
                 </div>
               )
             ) : (
@@ -5644,78 +11589,1109 @@ export default function Home() {
             )}
         </div>
 
-        {/* ── Sidebar: Agent (collapsible) ──────────────────────── */}
-        <div
-          className="shrink-0"
-          style={{
-            width: agentSidebarOpen ? "1px" : "0px",
-            flexShrink: 0,
-            background: "rgba(96,165,250,0.2)",
-            boxShadow: agentSidebarOpen ? "0 0 8px rgba(96,165,250,0.1), 0 0 2px rgba(96,165,250,0.15)" : "none",
-            transition: "width 0.2s ease, box-shadow 0.2s ease",
-            order: sidebarSide === "left" ? -2 : undefined,
-          }}
-        />
-        <div
-          className="flex flex-col overflow-hidden shrink-0"
-          style={{
-            width: agentSidebarOpen ? "520px" : "0px",
-            minWidth: agentSidebarOpen ? "380px" : "0px",
-            maxWidth: "60vw",
-            background: "var(--bg-primary)",
-            transition: "width 0.25s ease, min-width 0.25s ease",
-            order: sidebarSide === "left" ? -3 : undefined,
-          }}
-        >
-          {agentSidebarOpen && renderAgentTab()}
-        </div>
-
-        {/* ── Right Sidebar: Wallet ──────────────────────── */}
-        {showWalletSidebar && address && address !== "local" && walletType && (
-          <>
-            <div
-              className="shrink-0"
-              style={{
-                width: "1px",
-                flexShrink: 0,
-                background: "rgba(59,130,246,0.2)",
-                boxShadow: "0 0 8px rgba(59,130,246,0.1), 0 0 2px rgba(59,130,246,0.15)",
-              }}
-            />
-            <div
-              className="flex flex-col overflow-hidden shrink-0"
-              style={{
-                width: "380px",
-                minWidth: "320px",
-                maxWidth: "50vw",
-                background: "var(--bg-primary)",
-              }}
-            >
-              {/* Inline WalletModal */}
-              <WalletModal
-                address={address}
-                walletType={walletType}
-                onClose={() => setShowWalletSidebar(false)}
-                onDisconnect={() => {
-                  setShowWalletSidebar(false);
-                  disconnect();
-                }}
-                inline={true}
-                isOwner={isOwner}
-                onNetworkChange={() => {
-                  const ethereum = (window as any).ethereum;
-                  if (ethereum) {
-                    ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
-                      setCurrentChainId(parseInt(cid, 16));
-                    }).catch(() => {});
-                  }
-                }}
-              />
-            </div>
-          </>
+        {/* Auto-restart toast — surfaces the post-edit pm2 restart from any view */}
+        {restartNotice && (
+          <div
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[120] px-4 py-2 rounded border font-code text-[12px]"
+            style={{
+              borderColor: "color-mix(in srgb, var(--crt-green) 45%, transparent)",
+              background: "var(--bg-primary)",
+              color: "var(--crt-green)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+            }}
+          >
+            {restartNotice}
+          </div>
         )}
 
+        {/* The wallet sidebar is no longer a separate panel — its UI is now
+            embedded as the "Wallet" tab inside the merged account sidebar
+            below (see WalletModal embedded render). */}
+
+        {/* ── Right Sidebar: Account (Owner + Wallet) ──────────────────
+            Mirrors wallet pattern — flex sibling on desktop (pushes main
+            content, drag-to-resize on left edge), fullscreen overlay on
+            phone. Sits at the far right when both wallet and owner are
+            open. */}
+        {isMobile && showOwnerSidebar && (
+          <div
+            onClick={() => setShowOwnerSidebar(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              backdropFilter: "blur(2px)",
+              zIndex: 60,
+            }}
+            aria-label="Close owner panel"
+          />
+        )}
+        <div
+          className="flex flex-col overflow-hidden"
+          style={
+            isMobile
+              ? {
+                  position: showOwnerSidebar ? "fixed" : "static",
+                  inset: showOwnerSidebar ? 0 : "auto",
+                  width: showOwnerSidebar ? "100vw" : "0px",
+                  height: showOwnerSidebar ? "100dvh" : "0px",
+                  maxWidth: "100vw",
+                  background: "var(--bg-primary)",
+                  zIndex: 70,
+                  boxShadow: showOwnerSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
+                  transition: "none",
+                  order: 3,
+                }
+              : {
+                  position: "relative",
+                  order: 3,
+                  width: showOwnerSidebar ? `${ownerSidebarWidth}px` : "0px",
+                  minWidth: showOwnerSidebar ? "300px" : "0px",
+                  maxWidth: "100%",
+                  flexShrink: 0,
+                  background: "var(--bg-primary)",
+                  borderLeft: showOwnerSidebar ? "1px solid rgba(251,191,36,0.30)" : "none",
+                  boxShadow: showOwnerSidebar
+                    ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
+                    : "none",
+                  transition: isOwnerSidebarDragging ? "none" : "width 0.25s ease",
+                }
+          }
+        >
+          {!isMobile && showOwnerSidebar && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsOwnerSidebarDragging(true);
+              }}
+              style={{
+                position: "absolute",
+                top: 0,
+                bottom: 0,
+                left: -3,
+                width: 6,
+                cursor: "col-resize",
+                zIndex: 1,
+                background: isOwnerSidebarDragging ? "rgba(251,191,36,0.40)" : "transparent",
+                transition: "background 0.15s ease",
+              }}
+              title="Drag to resize"
+            />
+          )}
+          {showOwnerSidebar && (() => {
+            const cfg = effectiveConfig;
+            const cfgOwner: string | null = cfg?.owner || null;
+            const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
+            const moduleInfo = selectedModuleInfo;
+            // The merged panel shows the wallet section only for real wallet
+            // sessions (not local/password-less). Without one, only the owner
+            // controls render.
+            const hasWallet = !!(address && address !== "local" && walletType);
+            return (
+              <div className="flex flex-col h-full overflow-hidden">
+                {/* Header */}
+                <div
+                  className="flex items-center justify-between px-4 py-3 shrink-0"
+                  style={{
+                    borderBottom: "1px solid color-mix(in srgb, var(--crt-amber) 16%, var(--border-color))",
+                    background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-amber) 5%, transparent), transparent)",
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      style={{
+                        fontSize: 14,
+                        color: "var(--crt-amber)",
+                        textShadow: "0 0 12px color-mix(in srgb, var(--crt-amber) 65%, transparent)",
+                      }}
+                    >
+                      ◈
+                    </span>
+                    <span
+                      className="text-[12px] font-bold uppercase tracking-[0.12em] truncate leading-tight"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      Account
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowOwnerSidebar(false)}
+                    className="flex items-center justify-center focus-ring shrink-0 transition-all"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 999,
+                      color: "var(--text-tertiary)",
+                      border: "1px solid transparent",
+                      background: "transparent",
+                      fontSize: 11,
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.color = "var(--crt-red)";
+                      e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 35%, transparent)";
+                      e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 10%, transparent)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.color = "var(--text-tertiary)";
+                      e.currentTarget.style.borderColor = "transparent";
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                    title="Close panel"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Merged account body — one continuous scroll. The wallet view
+                    (for real wallet sessions) flows directly above the owner
+                    controls; there is no longer an Owner/Wallet tab toggle. */}
+                <div className="flex-1 overflow-y-auto flex flex-col">
+                {hasWallet && (
+                  <>
+                    <div
+                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      <span style={{ color: "var(--crt-green)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-green) 55%, transparent)" }}>◇</span>
+                      Wallet
+                      <span
+                        className="flex-1 h-px ml-1.5"
+                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-green) 22%, transparent), transparent)" }}
+                        aria-hidden
+                      />
+                    </div>
+                    {/* Embedded wallet view in flow mode — its own header/scroll
+                        are suppressed so it shares this panel's single scroll. */}
+                    <WalletModal
+                      address={address}
+                      walletType={walletType}
+                      inline
+                      embedded
+                      flow
+                      onClose={() => setShowOwnerSidebar(false)}
+                      onDisconnect={() => {
+                        setShowOwnerSidebar(false);
+                        disconnect();
+                      }}
+                      onNetworkChange={() => {
+                        const ethereum = (window as any).ethereum;
+                        if (ethereum) {
+                          ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
+                            setCurrentChainId(parseInt(cid, 16));
+                          }).catch(() => {});
+                        }
+                      }}
+                    />
+                    <div
+                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                      style={{ color: "var(--text-tertiary)", borderTop: `1px solid ${subtleBorder}` }}
+                    >
+                      <span style={{ color: "var(--crt-amber)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-amber) 55%, transparent)" }}>◈</span>
+                      Owner
+                      <span
+                        className="flex-1 h-px ml-1.5"
+                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-amber) 22%, transparent), transparent)" }}
+                        aria-hidden
+                      />
+                    </div>
+                  </>
+                )}
+                <div className="p-4 flex flex-col gap-3">
+                  {/* Owner identity — gradient avatar derived from the address;
+                      the whole row is click-to-copy. Hidden when the connected
+                      wallet IS the owner and its address already shows in the
+                      wallet card above (the YOU badge covers it). */}
+                  {cfgOwner && !(hasWallet && youAreOwner) && (() => {
+                    const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
+                    const h1 = seed % 360;
+                    const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
+                    const justCopied = copiedWlAddr === cfgOwner;
+                    return (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard?.writeText(cfgOwner).catch(() => {});
+                          setCopiedWlAddr(cfgOwner);
+                          setTimeout(() => setCopiedWlAddr(c => (c === cfgOwner ? null : c)), 1200);
+                        }}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-[14px] text-left transition-all cursor-pointer shrink-0"
+                        style={{
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 20%, var(--border-color))",
+                          background: "linear-gradient(135deg, color-mix(in srgb, var(--crt-amber) 6%, transparent), transparent 65%)",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 38%, var(--border-color))")}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 20%, var(--border-color))")}
+                        title={justCopied ? "Copied!" : `${cfgOwner} — click to copy`}
+                      >
+                        <span
+                          className="shrink-0 rounded-full"
+                          style={{
+                            width: 34,
+                            height: 34,
+                            background: `linear-gradient(135deg, hsl(${h1} 75% 58%), hsl(${h2} 70% 38%))`,
+                            boxShadow: "0 0 14px -3px color-mix(in srgb, var(--crt-amber) 55%, transparent), inset 0 0 0 1px rgba(255,255,255,0.18)",
+                          }}
+                          aria-hidden
+                        />
+                        <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                          <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+                            Module owner{youAreOwner ? " · you" : ""}
+                          </span>
+                          <span
+                            className="font-mono text-[12px] truncate"
+                            style={{ color: justCopied ? "var(--crt-green)" : "var(--text-primary)" }}
+                          >
+                            {cfgOwner.length > 26 ? `${cfgOwner.slice(0, 12)}…${cfgOwner.slice(-10)}` : cfgOwner}
+                          </span>
+                        </span>
+                        <span
+                          className="text-[10px] font-mono shrink-0"
+                          style={{ color: justCopied ? "var(--crt-green)" : "var(--text-tertiary)" }}
+                        >
+                          {justCopied ? "✓ copied" : "⧉"}
+                        </span>
+                      </button>
+                    );
+                  })()}
+
+                  {/* Phone sign-in — hand this session to another device via a
+                      single-use QR. Any signed-in user (you can only hand off
+                      yourself); hidden in local mode where auth is disabled. */}
+                  {token && token !== "local" && address && (() => {
+                    const accent = "var(--crt-green)";
+                    const live = handoff && handoff.exp > nowSec ? handoff : null;
+                    const left = live ? Math.max(0, live.exp - nowSec) : 0;
+                    const fmtMMSS = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+                    return (
+                      <div className="section-card" data-accent="green">
+                        <span className="section-card__bar" />
+                        <div className="section-card__head">
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">⇄</span>
+                            Phone Sign-In
+                          </div>
+                          <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                            QR handoff
+                          </span>
+                        </div>
+                        <div className="section-card__body flex flex-col gap-2.5">
+                          <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                            Scan with your phone to open this console <span style={{ color: "var(--text-secondary)" }}>already signed in as you</span> —
+                            no wallet or signing there. The code is single-use and dies in 5 minutes.
+                          </div>
+                          {live ? (
+                            <div
+                              className="rounded-lg p-3 flex flex-col items-center gap-2"
+                              style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                            >
+                              <div
+                                className="rounded-lg p-2 bg-white"
+                                dangerouslySetInnerHTML={{ __html: qrSvg(handoffUrl(live.code), 180) }}
+                              />
+                              <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                                single-use · expires in <span style={{ color: accent }}>{fmtMMSS}</span>
+                              </div>
+                              <button
+                                onClick={() => copyGrantBit("handoff", handoffUrl(live.code))}
+                                className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
+                                style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                                title="Copy sign-in link (treat it like a password)"
+                              >
+                                {grantCopied === "handoff" ? "✓ copied link" : handoffUrl(live.code)}
+                              </button>
+                              <button
+                                onClick={() => setHandoff(null)}
+                                className="text-[9px] uppercase tracking-wider"
+                                style={{ color: "var(--text-tertiary)" }}
+                              >
+                                done
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={createHandoff}
+                              disabled={handoffBusy}
+                              className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                              style={{
+                                color: "var(--bg-primary)",
+                                background: accent,
+                                border: `1px solid ${accent}`,
+                              }}
+                            >
+                              {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
+                            </button>
+                          )}
+                          {handoffError && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{handoffError}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Sudo session & policy — one signature unlocks privileged
+                      cross-module ops for a window (default 1 hour); the owner
+                      tailors the window and which actions always re-ask. */}
+                  {token && token !== "local" && youAreOwner && (() => {
+                    const accent = "#cc785c"; // claude clay, matches the Sudo sheet
+                    const info = sudoInfo;
+                    const left = info?.active && info.expires ? Math.max(0, info.expires - nowSec) : 0;
+                    const unlocked = left > 0;
+                    const fmtLeft =
+                      left >= 3600
+                        ? `${Math.floor(left / 3600)}h ${Math.floor((left % 3600) / 60)}m`
+                        : left >= 60
+                        ? `${Math.floor(left / 60)}m ${String(left % 60).padStart(2, "0")}s`
+                        : `${left}s`;
+                    const DURATIONS = [
+                      { label: "every time", secs: 0 },
+                      { label: "15 min", secs: 900 },
+                      { label: "1 hour", secs: 3600 },
+                      { label: "4 hours", secs: 14400 },
+                      { label: "8 hours", secs: 28800 },
+                    ];
+                    // Only actions that actually pass through sudo_gate — file
+                    // writes ride the plain owner session and never prompt.
+                    const SUDO_ACTIONS = ["delete", "rename", "restore", "kill", "process"];
+                    const alwaysAsk = info?.alwaysAsk || [];
+                    return (
+                      <div className="section-card" data-accent="amber">
+                        <span className="section-card__bar" />
+                        <div className="section-card__head">
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">⚿</span>
+                            Sudo
+                          </div>
+                          <span
+                            className="text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full"
+                            style={{
+                              color: unlocked ? accent : "var(--text-tertiary)",
+                              background: unlocked ? "color-mix(in srgb, #cc785c 14%, transparent)" : "var(--bg-secondary)",
+                              border: `1px solid ${unlocked ? "color-mix(in srgb, #cc785c 40%, transparent)" : "var(--border-color)"}`,
+                            }}
+                          >
+                            {unlocked ? `unlocked · ${fmtLeft}` : "locked"}
+                          </span>
+                        </div>
+                        <div className="section-card__body flex flex-col gap-2.5">
+                          <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                            Privileged cross-module ops need an owner signature. One signature{" "}
+                            <span style={{ color: "var(--text-secondary)" }}>
+                              {info && info.sessionSecs === 0
+                                ? "authorizes only that operation"
+                                : "unlocks sudo for the window below"}
+                            </span>
+                            {" "}— tailor how often you're asked.
+                          </div>
+                          {/* Re-ask window */}
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+                              Ask for a signature
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {DURATIONS.map((d) => {
+                                const selected = info ? info.sessionSecs === d.secs : d.secs === 3600;
+                                return (
+                                  <button
+                                    key={d.secs}
+                                    disabled={sudoPolicyBusy || selected}
+                                    onClick={() => setSudoPolicy({ session_secs: d.secs })}
+                                    className="text-[10px] px-2 py-1 rounded-full font-mono transition-all disabled:cursor-default"
+                                    style={{
+                                      color: selected ? "var(--bg-primary)" : "var(--text-secondary)",
+                                      background: selected ? accent : "var(--bg-secondary)",
+                                      border: `1px solid ${selected ? accent : "var(--border-color)"}`,
+                                      opacity: sudoPolicyBusy && !selected ? 0.5 : 1,
+                                    }}
+                                    title={d.secs === 0 ? "Sign every privileged operation" : `One signature covers privileged ops for ${d.label}`}
+                                  >
+                                    {d.secs === 0 ? d.label : `once / ${d.label}`}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          {/* Per-action overrides */}
+                          {info && info.sessionSecs > 0 && (
+                            <div className="flex flex-col gap-1.5">
+                              <span className="text-[9px] uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+                                Always ask anyway
+                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {SUDO_ACTIONS.map((a) => {
+                                  const on = alwaysAsk.includes(a);
+                                  return (
+                                    <button
+                                      key={a}
+                                      disabled={sudoPolicyBusy}
+                                      onClick={() =>
+                                        setSudoPolicy({
+                                          always_ask: on ? alwaysAsk.filter((x) => x !== a) : [...alwaysAsk, a],
+                                        })
+                                      }
+                                      className="text-[10px] px-2 py-1 rounded-full font-mono transition-all"
+                                      style={{
+                                        color: on ? "var(--crt-amber)" : "var(--text-tertiary)",
+                                        background: on ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "var(--bg-secondary)",
+                                        border: `1px solid ${on ? "color-mix(in srgb, var(--crt-amber) 45%, transparent)" : "var(--border-color)"}`,
+                                        opacity: sudoPolicyBusy ? 0.5 : 1,
+                                      }}
+                                      title={on ? `${a}: fresh signature every time (click to let the session cover it)` : `${a}: covered by the session (click to always ask)`}
+                                    >
+                                      {on ? "✓ " : ""}{a}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div className="text-[9.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                                Checked actions demand a fresh signature even while unlocked. Policy changes always do.
+                              </div>
+                            </div>
+                          )}
+                          {unlocked && (
+                            <button
+                              onClick={lockSudo}
+                              className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all self-start"
+                              style={{
+                                color: accent,
+                                background: "transparent",
+                                border: `1px solid color-mix(in srgb, #cc785c 45%, transparent)`,
+                              }}
+                              title="End the sudo session now — the next privileged op will ask for a signature"
+                            >
+                              ⚿ Lock now
+                            </button>
+                          )}
+                          {sudoPolicyErr && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{sudoPolicyErr}</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Module info */}
+                  {selectedModule && (
+                    <div className="section-card" data-accent="blue">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⌬</span>
+                          Module
+                        </div>
+                      </div>
+                      <div className="section-card__body flex flex-col text-[12px]">
+                        {(moduleInfo?.version || cfg?.version) && (
+                          <div className="flex items-center justify-between gap-3 py-1.5">
+                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                              Version
+                            </span>
+                            <span
+                              className="font-mono text-[11px] px-1.5 py-0.5 rounded"
+                              style={{
+                                color: "var(--crt-blue)",
+                                background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
+                              }}
+                            >
+                              v{String(moduleInfo?.version || cfg?.version).replace(/^v/i, "")}
+                            </span>
+                          </div>
+                        )}
+                        {(moduleInfo?.cid || cfg?.cid) && (() => {
+                          const cid = String(moduleInfo?.cid || cfg?.cid);
+                          const justCopied = copiedWlAddr === cid;
+                          return (
+                            <div
+                              className="flex items-center justify-between gap-3 py-1.5"
+                              style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
+                            >
+                              <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                                CID
+                              </span>
+                              <span className="flex items-center gap-1.5 min-w-0">
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(cid).catch(() => {});
+                                  setCopiedWlAddr(cid);
+                                  setTimeout(() => setCopiedWlAddr(c => (c === cid ? null : c)), 1200);
+                                }}
+                                className="font-mono text-[11px] truncate text-right cursor-pointer transition-colors"
+                                style={{
+                                  color: justCopied ? "var(--crt-green)" : "var(--text-secondary)",
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: 0,
+                                }}
+                                title={justCopied ? "Copied!" : `${cid} — click to copy`}
+                              >
+                                {justCopied ? "✓ copied" : (cid.length > 20 ? `${cid.slice(0, 9)}…${cid.slice(-8)}` : cid)}
+                              </button>
+                              <button
+                                onClick={() => shareCidQr(cid, selectedModule)}
+                                className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
+                                style={{
+                                  color: "var(--crt-green)",
+                                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                                }}
+                                title="Share this module's snapshot CID as a QR code"
+                              >
+                                ⛶
+                              </button>
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        {moduleInfo?.created_at && (
+                          <div
+                            className="flex items-center justify-between gap-3 py-1.5"
+                            style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
+                          >
+                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                              Created
+                            </span>
+                            <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                              {new Date(moduleInfo.created_at * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Whitelist — owner edits inline; non-owners get read-only
+                      rows and a hint about who can edit. Each row is
+                      click-to-copy; owner gets an X to revoke. */}
+                  <div className="section-card" data-accent="green">
+                    <span className="section-card__bar" />
+                    <div className="section-card__head">
+                      <div className="section-card__title">
+                        <span className="section-card__glyph">◎</span>
+                        Whitelist
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="text-[9px] uppercase tracking-[0.12em]"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          {isOwner ? "owner edit" : "read-only"}
+                        </span>
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                          style={{
+                            color: "var(--crt-green)",
+                            background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                            border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                          }}
+                        >
+                          {whitelist.length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="section-card__body flex flex-col gap-2">
+                      {whitelist.length === 0 ? (
+                        <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
+                          No editors whitelisted yet. Whitelisted addresses get owner-level edit access to the orbit. The configured owner is always allowed.
+                        </span>
+                      ) : (
+                        <div
+                          className="flex flex-col gap-1"
+                          style={{ maxHeight: 192, overflowY: "auto" }}
+                        >
+                          {whitelist.map((addr) => {
+                            const isCaller = !!(address && address.toLowerCase() === addr.toLowerCase());
+                            const justCopied = copiedWlAddr === addr;
+                            return (
+                              <div
+                                key={addr}
+                                className="flex items-center gap-1.5 px-1.5 py-1 rounded transition-colors"
+                                style={{
+                                  background: isCaller
+                                    ? "color-mix(in srgb, var(--crt-green) 7%, transparent)"
+                                    : "var(--bg-secondary)",
+                                  border: `1px solid ${isCaller ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "var(--border-color)"}`,
+                                }}
+                              >
+                                <span
+                                  className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                                  style={{
+                                    background: "var(--crt-green)",
+                                    boxShadow: isCaller ? "0 0 4px var(--crt-green)" : "none",
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(addr).catch(() => {});
+                                    setCopiedWlAddr(addr);
+                                    setTimeout(() => setCopiedWlAddr(c => (c === addr ? null : c)), 1200);
+                                  }}
+                                  className="font-mono text-[11px] truncate flex-1 text-left transition-colors cursor-pointer"
+                                  style={{
+                                    color: justCopied ? "var(--crt-green)" : "var(--text-secondary)",
+                                    background: "transparent",
+                                    border: "none",
+                                    padding: 0,
+                                  }}
+                                  title={justCopied ? "Copied!" : `${addr} — click to copy`}
+                                >
+                                  {addr.length > 22 ? `${addr.slice(0, 10)}…${addr.slice(-8)}` : addr}
+                                </button>
+                                {isCaller && (
+                                  <span
+                                    className="text-[8px] font-bold uppercase tracking-widest px-1 py-[1px] rounded shrink-0"
+                                    style={{ background: "var(--crt-green)", color: "var(--bg-primary)" }}
+                                  >
+                                    YOU
+                                  </span>
+                                )}
+                                {isOwner && (
+                                  <button
+                                    onClick={() => removeFromWhitelist(addr)}
+                                    disabled={whitelistBusy}
+                                    className="text-[10px] w-5 h-5 flex items-center justify-center rounded shrink-0 transition-all"
+                                    style={{
+                                      color: "var(--crt-red)",
+                                      background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
+                                      border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
+                                    }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 16%, transparent)")}
+                                    onMouseLeave={e => (e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 6%, transparent)")}
+                                    title={`Remove ${addr.slice(0, 6)}…${addr.slice(-4)} from the whitelist`}
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* Timed access — live QR-invite redemptions. These wallets
+                          (or walletless guest passes) are in RIGHT NOW on a
+                          countdown; a wallet can be promoted to the permanent
+                          whitelist in one tap. Owner-only: redemptions only
+                          load for the owner. */}
+                      {isOwner && grantRedemptions.some((r) => r.exp > nowSec) && (
+                        <div className="flex flex-col gap-1 mt-1">
+                          <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                            Timed access · via QR invite
+                          </span>
+                          {grantRedemptions.filter((r) => r.exp > nowSec).map((r) => {
+                            const isGuest = r.address.startsWith("guest_");
+                            const already = whitelist.some((w) => w.toLowerCase() === r.address.toLowerCase());
+                            return (
+                              <div
+                                key={`${r.grant}-${r.address}`}
+                                className="flex items-center gap-1.5 px-1.5 py-1 rounded"
+                                style={{
+                                  background: "color-mix(in srgb, #cc785c 6%, transparent)",
+                                  border: "1px solid color-mix(in srgb, #cc785c 26%, transparent)",
+                                }}
+                              >
+                                <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#cc785c" }} />
+                                <span className="font-mono text-[11px] truncate flex-1" style={{ color: "var(--text-secondary)" }} title={r.address}>
+                                  {isGuest ? `guest pass · ${r.address.slice(6)}` : `${r.address.slice(0, 10)}…${r.address.slice(-6)}`}
+                                </span>
+                                <span className="text-[9px] font-mono shrink-0" style={{ color: "#cc785c" }}>
+                                  {fmtTimeLeft(r.exp)}
+                                </span>
+                                {!isGuest && !already && (
+                                  <button
+                                    onClick={() => addToWhitelist(r.address)}
+                                    disabled={whitelistBusy}
+                                    className="text-[9px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider shrink-0 transition-all disabled:opacity-40"
+                                    style={{
+                                      color: "var(--crt-green)",
+                                      background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                                      border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                                    }}
+                                    title="Add this wallet to the permanent whitelist"
+                                  >
+                                    + WL
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {isOwner ? (
+                        <>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <input
+                              type="text"
+                              value={whitelistInput}
+                              onChange={(e) => { setWhitelistInput(e.target.value); setWhitelistError(null); }}
+                              onKeyDown={(e) => { if (e.key === "Enter" && whitelistInput.trim()) addToWhitelist(whitelistInput); }}
+                              placeholder="0x… address"
+                              disabled={whitelistBusy}
+                              className="flex-1 min-w-0 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
+                              style={{
+                                color: "var(--text-primary)",
+                                background: "var(--bg-secondary)",
+                                border: `1px solid ${whitelistError ? "color-mix(in srgb, var(--crt-red) 45%, transparent)" : "var(--border-color)"}`,
+                              }}
+                            />
+                            <button
+                              onClick={() => addToWhitelist(whitelistInput)}
+                              disabled={whitelistBusy || !whitelistInput.trim()}
+                              className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40 shrink-0"
+                              style={{
+                                color: "var(--crt-green)",
+                                background: "color-mix(in srgb, var(--crt-green) 12%, transparent)",
+                                border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
+                              }}
+                            >
+                              {whitelistBusy ? "…" : "Add"}
+                            </button>
+                          </div>
+                          {whitelistError && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>
+                              {whitelistError}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div
+                          className="text-[9px] uppercase tracking-[0.1em] mt-0.5"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          Only the configured owner
+                          {cfgOwner ? ` (${cfgOwner.slice(0, 6)}…${cfgOwner.slice(-4)})` : ""} can edit this list.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Share edit access — the same QR-invite minting card as the
+                      module OVERVIEW tab, surfaced here because this panel is
+                      where the owner manages who gets in. */}
+                  {renderShareAccessCard()}
+
+                  {/* Owner-only quick actions */}
+                  {isOwner && (
+                    <div className="section-card" data-accent="red">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⚙</span>
+                          Owner Actions
+                        </div>
+                      </div>
+                      <div className="section-card__body flex flex-col gap-2">
+                        <button
+                          onClick={() => {
+                            setShowOwnerSidebar(false);
+                            setShowKillDialog(true);
+                          }}
+                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                          style={{
+                            borderColor: "color-mix(in srgb, var(--crt-red) 26%, transparent)",
+                            background: "color-mix(in srgb, var(--crt-red) 5%, transparent)",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 13%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 45%, transparent)";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 5%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 26%, transparent)";
+                          }}
+                          title="Kill a process by PID or port (Cmd/Ctrl+K)"
+                        >
+                          <span
+                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                            style={{
+                              width: 26,
+                              height: 26,
+                              color: "var(--crt-red)",
+                              background: "color-mix(in srgb, var(--crt-red) 12%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--crt-red) 28%, transparent)",
+                            }}
+                            aria-hidden
+                          >
+                            ⏻
+                          </span>
+                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                            <span className="text-[12px]" style={{ color: "var(--crt-red)" }}>Kill process</span>
+                            <span className="text-[10px] truncate" style={{ color: "color-mix(in srgb, var(--crt-red) 55%, var(--text-tertiary))" }}>
+                              Stop a process by PID or port
+                            </span>
+                          </span>
+                          <span
+                            className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              color: "var(--crt-red)",
+                              border: "1px solid color-mix(in srgb, var(--crt-red) 30%, transparent)",
+                              opacity: 0.85,
+                            }}
+                          >
+                            ⌘K
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowOwnerSidebar(false);
+                            disconnect();
+                          }}
+                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                          style={{
+                            borderColor: "var(--border-color)",
+                            background: "var(--bg-secondary)",
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)";
+                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 30%, var(--border-color))";
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = "var(--bg-secondary)";
+                            e.currentTarget.style.borderColor = "var(--border-color)";
+                          }}
+                        >
+                          <span
+                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                            style={{
+                              width: 26,
+                              height: 26,
+                              color: "var(--text-secondary)",
+                              background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--text-tertiary) 25%, transparent)",
+                            }}
+                            aria-hidden
+                          >
+                            ⎋
+                          </span>
+                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                            <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Sign out</span>
+                            <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                              End this session and disconnect
+                            </span>
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Footer — anchors the empty space below the cards */}
+                  <div className="flex-1" />
+                  <div
+                    className="flex items-center justify-center gap-1.5 pt-3 pb-1 text-[9px] uppercase tracking-[0.18em] shrink-0"
+                    style={{ color: "var(--text-tertiary)", opacity: 0.55 }}
+                  >
+                    <span style={{ color: "var(--crt-amber)" }}>◈</span>
+                    owner controls
+                  </div>
+                </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
       </div>
+
+      {/* ── Composer dock — full-width prompt bar at the bottom of the
+          console. App renders above it, tasks live in the right sidebar,
+          and the PARAMS panel (auth + mod/model/agent + system prompt
+          chain) folds out of this bar. ── */}
+      {renderComposerDock()}
+
+      {/* ── SYSTEM PROMPTS manager — the separate home for prompt content.
+          The composer only shows name chips; here you add, edit, delete,
+          toggle and reorder the blocks that chain into one system prompt. ── */}
+      {showSysPromptManager && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div
+            className="w-[620px] max-w-full max-h-[85vh] border rounded-xl flex flex-col overflow-hidden"
+            style={{ background: "var(--bg-primary)", borderColor: subtleBorderStrong }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: subtleBorder, background: tintBg }}>
+              <span className="text-[13px] font-pixel uppercase" style={{ color: "var(--text-primary)" }}>
+                {editingSysPrompt ? "Edit System Prompt" : creatingSysPrompt ? "New System Prompt" : "System Prompt Chain"}
+              </span>
+              <button
+                onClick={() => { setShowSysPromptManager(false); setEditingSysPrompt(null); setCreatingSysPrompt(false); }}
+                className="text-[16px] transition-colors"
+                style={{ color: "var(--text-tertiary)" }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {!editingSysPrompt && !creatingSysPrompt ? (
+              /* Chain list — toggle, reorder, edit, delete */
+              <div className="flex flex-col overflow-hidden flex-1">
+                <div className="px-4 py-2 text-[11px] border-b" style={{ color: "var(--text-tertiary)", borderColor: `${subtleBorder}66` }}>
+                  Prompts marked ON are chained top→down into one system prompt and sent with every task.
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {sysPrompts.length === 0 && (
+                    <div className="px-4 py-6 text-[12px] text-center" style={{ color: "var(--text-tertiary)" }}>
+                      No system prompts yet — add one below. Your agent personality applies as the fallback.
+                    </div>
+                  )}
+                  {sysPrompts.map((p, i) => {
+                    const chainIdx = activeSysPrompts.findIndex(a => a.id === p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        className="group flex items-center gap-3 px-4 py-3 border-b transition-colors cursor-pointer"
+                        style={{ borderColor: `${subtleBorder}66`, opacity: p.on ? 1 : 0.6 }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = cardHoverBg)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        onClick={() => startEditSysPrompt(p)}
+                      >
+                        {/* Chain position + reorder */}
+                        <div className="flex flex-col items-center shrink-0 w-7">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); moveSysPrompt(p.id, -1); }}
+                            className="text-[10px] leading-none py-0.5 disabled:opacity-20"
+                            style={{ color: "var(--text-tertiary)" }}
+                            disabled={i === 0}
+                            title="Move up the chain"
+                            aria-label={`Move ${p.name} up`}
+                          >
+                            ▲
+                          </button>
+                          <span className="text-[11px] font-mono" style={{ color: chainIdx >= 0 ? "#60a5fa" : "var(--text-tertiary)" }}>
+                            {chainIdx >= 0 ? chainIdx + 1 : "·"}
+                          </span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); moveSysPrompt(p.id, 1); }}
+                            className="text-[10px] leading-none py-0.5 disabled:opacity-20"
+                            style={{ color: "var(--text-tertiary)" }}
+                            disabled={i === sysPrompts.length - 1}
+                            title="Move down the chain"
+                            aria-label={`Move ${p.name} down`}
+                          >
+                            ▼
+                          </button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-pixel uppercase" style={{ color: "var(--text-primary)" }}>
+                              {p.name}
+                            </span>
+                            {chainIdx >= 0 && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa" }}>
+                                in chain
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] mt-0.5 truncate" style={{ color: "var(--text-tertiary)" }}>
+                            {p.text.trim() ? p.text.trim().replace(/\s+/g, " ").slice(0, 100) + (p.text.trim().length > 100 ? "..." : "") : "(empty)"}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSysPrompt(p.id); }}
+                            className="text-[10px] px-2 py-1 border rounded transition-colors"
+                            style={p.on
+                              ? { borderColor: "rgba(52,211,153,0.4)", color: "var(--crt-green)" }
+                              : { borderColor: subtleBorder, color: "var(--text-tertiary)" }}
+                            title={p.on ? "Remove from the chain" : "Add to the chain"}
+                          >
+                            {p.on ? "ON" : "OFF"}
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteSysPrompt(p.id); }}
+                            className="text-[10px] px-2 py-1 border rounded transition-colors opacity-0 group-hover:opacity-100"
+                            style={{ borderColor: "rgba(239,68,68,0.3)", color: "#ef4444" }}
+                            title="Delete"
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Footer */}
+                <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: subtleBorder, background: tintBg }}>
+                  <span className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    {activeSysPrompts.length}/{sysPrompts.length} in chain
+                    {chainedSystemPrompt && ` · ${chainedSystemPrompt.length} chars`}
+                  </span>
+                  <button onClick={startNewSysPrompt} className="pixel-btn text-[12px] py-1.5 px-4 uppercase">
+                    + New
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Edit/Create form */
+              <div className="flex flex-col overflow-hidden flex-1">
+                <div className="flex flex-col gap-3 p-4 overflow-y-auto flex-1">
+                  <input
+                    type="text"
+                    value={sysPromptDraft.name}
+                    onChange={(e) => setSysPromptDraft(d => ({ ...d, name: e.target.value }))}
+                    placeholder="Prompt name (e.g. RUST REVIEWER, TERSE, HOUSE STYLE)"
+                    className="w-full px-3 py-2 text-[13px] border rounded bg-transparent outline-none"
+                    style={{ borderColor: subtleBorder, color: "var(--text-primary)" }}
+                    autoFocus={!editingSysPrompt}
+                  />
+                  <div className="flex flex-col gap-1 flex-1">
+                    <textarea
+                      value={sysPromptDraft.text}
+                      onChange={(e) => setSysPromptDraft(d => ({ ...d, text: e.target.value }))}
+                      placeholder="You are a senior Rust reviewer. Be terse. Cite file:line…"
+                      className="w-full px-3 py-2 text-[13px] border rounded bg-transparent outline-none resize-none font-mono"
+                      style={{ borderColor: subtleBorder, color: "var(--text-primary)", minHeight: "220px", lineHeight: "1.6" }}
+                    />
+                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+                      Saved prompts persist across sessions. Every prompt toggled ON is chained (in list order) into the system prompt for each task.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: subtleBorder, background: tintBg }}>
+                  <button
+                    onClick={() => { setEditingSysPrompt(null); setCreatingSysPrompt(false); setSysPromptDraft({ name: "", text: "" }); }}
+                    className="px-3 py-1.5 text-[12px] border rounded transition-colors"
+                    style={{ borderColor: subtleBorder, color: "var(--text-secondary)" }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={saveSysPromptDraft}
+                    disabled={!sysPromptDraft.name.trim()}
+                    className="pixel-btn text-[12px] py-1.5 px-4 uppercase"
+                  >
+                    {editingSysPrompt ? "Update" : "Add to chain"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Minimized composer — a small tool pill that restores the ask bar */}
+      {composerMinimized && (
+        <button
+          onClick={() => {
+            setComposerMinimized(false);
+            setTimeout(() => composerInputRef.current?.focus(), 50);
+          }}
+          className="fixed inline-flex items-center gap-1.5 px-3 py-2 rounded-full font-code focus-ring"
+          style={{
+            right: 16,
+            bottom: 16,
+            zIndex: 95,
+            background: "var(--bg-primary)",
+            border: "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)",
+            color: "var(--crt-green)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.45)",
+            fontSize: 11,
+            letterSpacing: "0.08em",
+          }}
+          title="Open the ask bar"
+          aria-label="Open the ask bar"
+        >
+          ▸ ASK
+        </button>
+      )}
 
       {/* ── Floating FILES Panel ──────────────────────────── */}
       {filesPanelFloating && (
@@ -5748,12 +12724,17 @@ export default function Home() {
               filesPanelDrag.current = { startX: e.clientX, startY: e.clientY, origX: filesPanelPos.x, origY: filesPanelPos.y };
               document.body.style.cursor = 'grabbing';
               document.body.style.userSelect = 'none';
+              setIframesInert(true);
             }}
           >
-            <span className="text-[12px] text-crt-green/50 font-code" style={{ letterSpacing: "0.05em" }}>
-              ⠿ FILES
+            <span className="text-[12px] text-crt-green/50 font-code flex items-center gap-1.5 min-w-0 truncate" style={{ letterSpacing: "0.05em" }}>
+              <span style={{ opacity: 0.6 }}>⠿</span> <FilesIcon size={13} /> FILES
+              <span className="truncate normal-case" style={{ opacity: 0.5, letterSpacing: 0 }} title={filesDisplayPath()}>
+                {filesDisplayPath()}
+              </span>
             </span>
             <div className="flex items-center gap-1">
+              {filesToolbarControls({ float: false })}
               <button
                 onClick={() => setFilesPanelFloating(false)}
                 className="text-[11px] px-1.5 py-0.5 border border-crt-amber/30 text-crt-amber/50 hover:text-crt-amber hover:border-crt-amber transition-all"
@@ -5784,6 +12765,7 @@ export default function Home() {
               filesPanelResize.current = { startX: e.clientX, startY: e.clientY, origW: filesPanelSize.w, origH: filesPanelSize.h, edge: "se" };
               document.body.style.cursor = 'se-resize';
               document.body.style.userSelect = 'none';
+              setIframesInert(true);
             }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" className="text-white/15 hover:text-white/30 transition-colors">
@@ -5793,229 +12775,15 @@ export default function Home() {
           </div>
           {/* Resize edges */}
           <div className="absolute top-0 right-0 bottom-0 w-1 cursor-e-resize"
-            onMouseDown={(e) => { e.preventDefault(); filesPanelResize.current = { startX: e.clientX, startY: e.clientY, origW: filesPanelSize.w, origH: filesPanelSize.h, edge: "e" }; document.body.style.cursor = 'e-resize'; document.body.style.userSelect = 'none'; }}
+            onMouseDown={(e) => { e.preventDefault(); filesPanelResize.current = { startX: e.clientX, startY: e.clientY, origW: filesPanelSize.w, origH: filesPanelSize.h, edge: "e" }; document.body.style.cursor = 'e-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
           />
           <div className="absolute bottom-0 left-0 right-0 h-1 cursor-s-resize"
-            onMouseDown={(e) => { e.preventDefault(); filesPanelResize.current = { startX: e.clientX, startY: e.clientY, origW: filesPanelSize.w, origH: filesPanelSize.h, edge: "s" }; document.body.style.cursor = 's-resize'; document.body.style.userSelect = 'none'; }}
+            onMouseDown={(e) => { e.preventDefault(); filesPanelResize.current = { startX: e.clientX, startY: e.clientY, origW: filesPanelSize.w, origH: filesPanelSize.h, edge: "s" }; document.body.style.cursor = 's-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
           />
         </div>
       )}
 
       {/* ── Status Bar ───────────────────────────────────────────── */}
-      <footer
-        className="flex items-center justify-between px-5 py-1"
-        style={{
-          background: "var(--bg-secondary)",
-          borderTop: "1px solid var(--border-color)",
-        }}
-      >
-        <div className="flex items-center gap-2 relative" ref={headerCreateRef}>
-          <button
-            onClick={() => {
-              setShowHeaderCreateForm(showHeaderCreateForm === "create" ? null : "create");
-              setHeaderNewName("");
-              setHeaderGithubUrl("");
-            }}
-            className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-            style={{
-              borderColor: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.2)",
-              color: showHeaderCreateForm === "create" ? "var(--crt-green)" : "rgba(16,185,129,0.5)",
-              background: showHeaderCreateForm === "create" ? "rgba(16,185,129,0.08)" : "transparent",
-              letterSpacing: "0.01em",
-            }}
-            title="Create new module"
-          >
-            + NEW
-          </button>
-          <button
-            onClick={() => {
-              setShowHeaderCreateForm(showHeaderCreateForm === "fork" ? null : "fork");
-              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
-              setHeaderGithubUrl("");
-            }}
-            className="text-[11px] font-bold px-2.5 py-1 border transition-all hover:brightness-125 font-code rounded-sm"
-            style={{
-              borderColor: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.2)",
-              color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "rgba(245,158,11,0.5)",
-              background: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.08)" : "transparent",
-              letterSpacing: "0.01em",
-            }}
-            title={`Fork ${selectedModule || "module"}`}
-          >
-            ⑂ FORK
-          </button>
-
-          {/* Create/Fork dropdown form */}
-          {showHeaderCreateForm && (
-            <div
-              className="absolute left-0 bottom-full mb-1 border z-50 p-3 flex flex-col gap-2 min-w-[300px]"
-              style={{
-                background: "var(--bg-primary)",
-                borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-              }}
-            >
-              <div className="text-[13px] font-bold uppercase" style={{
-                letterSpacing: "0.02em",
-                color: showHeaderCreateForm === "fork" ? "var(--crt-amber)" : "var(--crt-green)",
-              }}>
-                {showHeaderCreateForm === "fork" ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}` : "+ CREATE MODULE"}
-              </div>
-              <input
-                type="text"
-                autoFocus
-                value={headerNewName}
-                onChange={(e) => setHeaderNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") headerCreateOrFork();
-                  if (e.key === "Escape") setShowHeaderCreateForm(null);
-                }}
-                placeholder="module name..."
-                className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                style={{
-                  borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                  color: "var(--text-primary)",
-                }}
-              />
-              {showHeaderCreateForm === "create" && (
-                <input
-                  type="text"
-                  value={headerGithubUrl}
-                  onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") headerCreateOrFork();
-                    if (e.key === "Escape") setShowHeaderCreateForm(null);
-                  }}
-                  placeholder="github url (optional)..."
-                  className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
-                  style={{ color: "var(--text-primary)" }}
-                />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={headerCreateOrFork}
-                  disabled={!headerNewName.trim() || submitting}
-                  className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
-                  style={{ letterSpacing: "0.01em", opacity: headerNewName.trim() ? 1 : 0.4 }}
-                >
-                  {submitting ? "..." : showHeaderCreateForm === "fork" ? "FORK" : "CREATE"}
-                </button>
-                <button
-                  onClick={() => setShowHeaderCreateForm(null)}
-                  className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
-                >
-                  ESC
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {showBackendEditor ? (
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const url = backendInput.trim();
-                if (url) {
-                  setApiUrl(url);
-                  localStorage.setItem("claude_backend_url", url);
-                }
-                setShowBackendEditor(false);
-              }}
-            >
-              <span className="text-[13px]" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
-                BACKEND:
-              </span>
-              <input
-                autoFocus
-                className="text-[13px] bg-transparent border-b outline-none"
-                style={{
-                  color: "var(--accent-color)",
-                  borderColor: "var(--accent-color)",
-                  width: "220px",
-                  fontFamily: "inherit",
-                }}
-                value={backendInput}
-                onChange={(e) => setBackendInput(e.target.value)}
-                onBlur={() => setShowBackendEditor(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setShowBackendEditor(false);
-                }}
-                placeholder="http://localhost:8820"
-              />
-            </form>
-          ) : (
-            <span
-              className="text-[13px] cursor-pointer hover:opacity-70 transition-opacity"
-              style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-              onClick={() => {
-                setBackendInput(apiUrl);
-                setShowBackendEditor(true);
-              }}
-              title="Click to change backend URL"
-            >
-              BACKEND: {moduleApiUrl.replace(/^https?:\/\//, "")}
-            </span>
-          )}
-          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
-            │
-          </span>
-          {/* Theme Selector */}
-          <div className="relative" ref={themeRef}>
-            <button
-              onClick={() => setShowThemeMenu(!showThemeMenu)}
-              className="pixel-btn text-[13px] py-0.5 px-2"
-              style={{
-                background: "var(--accent-color)",
-                color: isLight ? "#fff" : "#000",
-              }}
-              title="Change theme"
-            >
-              {theme.toUpperCase()}
-            </button>
-            {showThemeMenu && (
-              <div
-                className="absolute right-0 bottom-full mb-1 border-2 z-50 min-w-[140px]"
-                style={{
-                  background: "var(--bg-primary)",
-                  borderColor: "var(--accent-color)",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                }}
-              >
-                {(["dark", "light", "matrix", "cyberpunk", "amber", "ocean", "ibm", "win95"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => {
-                      setTheme(t);
-                      setShowThemeMenu(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-[14px] hover:opacity-100 transition-all border-b"
-                    style={{
-                      color: "var(--text-primary)",
-                      opacity: theme === t ? 1 : 0.6,
-                      background: theme === t ? (isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)") : "transparent",
-                      borderColor: "var(--border-color)",
-                    }}
-                  >
-                    {theme === t && "▸ "}{t.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
-            │
-          </span>
-          <span
-            className="text-[13px]"
-            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-          >
-            {new Date().toLocaleTimeString()}
-          </span>
-        </div>
-      </footer>
-
       {/* Kill Process Dialog (Cmd+K) — owner-only */}
       {showKillDialog && isOwner && (
         <div style={{
@@ -6113,27 +12881,63 @@ export default function Home() {
         </div>
       )}
 
-      {/* Wallet Modal */}
-      {showWalletModal && address && address !== "local" && walletType && (
-        <WalletModal
-          address={address}
-          walletType={walletType}
-          onClose={() => setShowWalletModal(false)}
-          onDisconnect={() => {
-            setShowWalletModal(false);
-            disconnect();
+      {/* Sign-in drawer — connect a wallet when there's no session. Lives over
+          the hub as a right-side panel (the hub stays visible behind it)
+          instead of the old full-screen sign-in takeover. */}
+      {!token && signInOpen && (
+        <div
+          className="fixed top-0 right-0 h-full z-[150] flex flex-col"
+          style={{
+            width: 360,
+            maxWidth: "100vw",
+            borderLeft: `1px solid ${subtleBorder}`,
+            boxShadow: "-8px 0 32px rgba(0,0,0,0.45)",
           }}
-          onNetworkChange={() => {
-            const ethereum = (window as any).ethereum;
-            if (ethereum) {
-              ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
-                setCurrentChainId(parseInt(cid, 16));
-              }).catch(() => {});
-            }
+        >
+          {renderConnectPanel()}
+        </div>
+      )}
+      {/* Collapsed tab to re-open the drawer after it's been dismissed while
+          still signed out. */}
+      {!token && !signInOpen && (
+        <button
+          onClick={() => setSignInOpen(true)}
+          className="fixed top-1/2 right-0 -translate-y-1/2 z-[150] px-2 py-3 text-[11px] font-mono tracking-wider"
+          style={{
+            writingMode: "vertical-rl",
+            background: "var(--bg-secondary)",
+            color: "var(--crt-amber)",
+            border: `1px solid ${subtleBorder}`,
+            borderRight: "none",
+            borderRadius: "6px 0 0 6px",
           }}
-        />
+          title="Sign in"
+        >
+          SIGN IN
+        </button>
       )}
 
+      {/* The standalone wallet modal is gone — wallet UI lives only inside the
+          merged account sidebar (WalletModal rendered embedded above). */}
+
+      {/* Sudo Authorization — privileged cross-module operations */}
+      {sudoReq && (
+        <SudoModal
+          open={!!sudoReq}
+          action={sudoReq.action}
+          target={sudoReq.target}
+          status={sudoStatus}
+          error={sudoError}
+          signerLabel={address ? `${address.slice(0, 6)}…${address.slice(-4)}` : null}
+          sessionMins={
+            sudoInfo && sudoInfo.sessionSecs > 0 && !sudoInfo.alwaysAsk.includes(sudoReq.action)
+              ? Math.round(sudoInfo.sessionSecs / 60)
+              : null
+          }
+          onAuthorize={confirmSudo}
+          onCancel={cancelSudo}
+        />
+      )}
 
     </div>
   );

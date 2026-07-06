@@ -58,12 +58,10 @@ class TestNew:
 class TestFork:
     def test_fork_alias_works(self):
         """fork is an alias for new."""
-        from mod.core.mod.factory import FactoryMixin
-        assert FactoryMixin.fork is FactoryMixin.new
+        assert m.Mod.fork is m.Mod.new
 
     def test_create_alias_works(self):
-        from mod.core.mod.factory import FactoryMixin
-        assert FactoryMixin.create is FactoryMixin.new
+        assert m.Mod.create is m.Mod.new
 
 
 # ─── Token Identity ──────────────────────────────────────────────────
@@ -197,12 +195,12 @@ class TestStoreConfig:
         # store should be a localfs instance
         assert hasattr(reg.store, 'put')
         assert hasattr(reg.store, 'get')
-        assert reg.store.__class__.__name__ == 'LocalFS'
+        assert 'localfs' in reg.store.__class__.__module__
 
     def test_registry_accepts_store_override(self):
         from mod.core.registry.registry import Registry
         reg = Registry(store='localfs')
-        assert reg.store.__class__.__name__ == 'LocalFS'
+        assert 'localfs' in reg.store.__class__.__module__
 
     def test_localfs_put_get_roundtrip(self):
         store = m.mod('localfs')()
@@ -230,10 +228,14 @@ class TestStoreConfig:
 
 # ─── Mixin Structure ────────────────────────────────────────────────
 
-class TestMixinStructure:
-    def test_mod_inherits_fs_mixin(self):
-        from mod.core.mod.fs import FsMixin
-        assert issubclass(m.Mod, FsMixin)
+class TestModStructure:
+    """Verify Mod class has all expected methods (formerly from mixins)."""
+
+    def test_mod_has_fs_methods(self):
+        assert hasattr(m.Mod, 'abspath')
+        assert hasattr(m.Mod, 'files')
+        assert hasattr(m.Mod, 'dirpath')
+        assert hasattr(m.Mod, 'filepath')
 
     def test_mod_has_resolve_methods(self):
         assert hasattr(m.Mod, 'mod')
@@ -247,19 +249,11 @@ class TestMixinStructure:
         assert hasattr(m.Mod, 'schema')
         assert hasattr(m.Mod, 'fns')
 
-    def test_mod_inherits_deploy_mixin(self):
-        from mod.core.mod.deploy import DeployMixin
-        assert issubclass(m.Mod, DeployMixin)
+    def test_mod_has_deploy_methods(self):
+        assert hasattr(m.Mod, 'serve')
+        assert hasattr(m.Mod, 'kill')
 
-    def test_mod_inherits_factory_mixin(self):
-        from mod.core.mod.factory import FactoryMixin
-        assert issubclass(m.Mod, FactoryMixin)
-
-    def test_mod_package_files_exist(self):
-        mod_dir = os.path.dirname(m.Mod.__module__.replace('.', '/') + '.py')
-        # Just check the class has all expected methods from mixins
-        assert hasattr(m.Mod, 'abspath')     # FsMixin
-        assert hasattr(m.Mod, 'fn')           # resolve
-        assert hasattr(m.Mod, 'content')      # introspect
-        assert hasattr(m.Mod, 'serve')        # DeployMixin
-        assert hasattr(m.Mod, 'new')          # FactoryMixin
+    def test_mod_has_factory_methods(self):
+        assert hasattr(m.Mod, 'new')
+        assert hasattr(m.Mod, 'fork')
+        assert hasattr(m.Mod, 'create')

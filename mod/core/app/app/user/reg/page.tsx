@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { userContext } from '@/context/UserContext'
-import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
+// dynamic import: @polkadot/extension-dapp accesses window at load time
 import { stringToU8a, u8aToHex } from '@polkadot/util'
 import { Loader2, Upload } from 'lucide-react'
 import { Key } from '@/key'
@@ -60,11 +60,12 @@ export default function CreateModPage() {
         reg_payload = await client.call('reg_url', {'url': modUrl.trim(), 'key': walletAddress, 'payload': true})
         let messageToSign = JSON.stringify(reg_payload)
 
+        const { web3Enable, web3FromAddress } = await import('@polkadot/extension-dapp')
         const extensions = await web3Enable('MOD')
         if (extensions.length === 0) {
           throw new Error('SubWallet not found. Please install it.')
         }
-        
+
         const injector = await web3FromAddress(walletAddress)
         const signRaw = injector?.signer?.signRaw
         if (signRaw) {
@@ -95,7 +96,7 @@ export default function CreateModPage() {
 
       const response = await client.call('reg', {mod: previewData}, true, {}, 120000)
       
-      router.push(`/${response.name}`)
+      router.push(`/mod/${response.name}`)
     } catch (err: any) {
       console.error('Module creation error:', err)
       setError(err.message || 'Failed to create module')

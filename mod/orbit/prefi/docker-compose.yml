@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  prefi:
+    build: .
+    container_name: prefi
+    ports:
+      - "${GATEWAY_PORT:-8831}:${GATEWAY_PORT:-8831}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-8831}
+    volumes:
+      - prefi-data:/app/data
+
+volumes:
+  prefi-data:

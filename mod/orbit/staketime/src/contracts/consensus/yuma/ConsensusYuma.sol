@@ -15,7 +15,7 @@ import "../Consensus.sol";
  *      Selection: Weighted random — probability of producing a block is
  *      proportional to blocktimeScore / totalBlocktime.
  *
- *      Distribution: Each epoch, fresh Subnet tokens are minted and split
+ *      Distribution: Each epoch, fresh Mod tokens are minted and split
  *      across validators proportional to their blocktime score. Per validator,
  *      commission goes to the validator and the rest to stakers by STT.
  */
@@ -24,12 +24,12 @@ contract ConsensusYuma is Consensus {
     uint256 public decayBps; // basis points (500 = 5%)
 
     constructor(
-        address _subnet,
+        address _mod,
         address _stakeTime,
         uint256 _emissionRate,
         uint256 _decayBps,
         uint64  _epochLength
-    ) Consensus(_subnet, _stakeTime, _emissionRate, _epochLength) {
+    ) Consensus(_mod, _stakeTime, _emissionRate, _epochLength) {
         require(_decayBps < 10000, "decay must be < 100%");
         decayBps = _decayBps;
     }
@@ -55,11 +55,11 @@ contract ConsensusYuma is Consensus {
         )));
         uint256 target = rand % consensus.totalBlocktime;
 
-        uint256 len = stakeTime.validatorCount();
+        uint256 len = staking.validatorCount();
         uint256 cumulative = 0;
         for (uint256 i = 0; i < len; i++) {
-            bytes32 kh = stakeTime.getValidatorKeyHash(i);
-            if (!stakeTime.isValidatorActive(kh)) continue;
+            bytes32 kh = staking.getValidatorKeyHash(i);
+            if (!staking.isValidatorActive(kh)) continue;
             uint256 score = scores[kh].blocktimeScore;
             if (score == 0) continue;
 
@@ -75,11 +75,11 @@ contract ConsensusYuma is Consensus {
         if (consensus.totalBlocktime == 0) return;
 
         uint256 totalDistributed = 0;
-        uint256 len = stakeTime.validatorCount();
+        uint256 len = staking.validatorCount();
 
         for (uint256 i = 0; i < len; i++) {
-            bytes32 kh = stakeTime.getValidatorKeyHash(i);
-            if (!stakeTime.isValidatorActive(kh)) continue;
+            bytes32 kh = staking.getValidatorKeyHash(i);
+            if (!staking.isValidatorActive(kh)) continue;
 
             ValidatorScore storage s = scores[kh];
             if (s.blocktimeScore == 0) continue;
@@ -93,17 +93,17 @@ contract ConsensusYuma is Consensus {
         consensus.lastEmissionBlock = consensus.currentBlock;
         _recalcTotal();
 
-        try stakeTime.advanceEpoch() {} catch {}
+        try staking.advanceEpoch() {} catch {}
 
         emit EmissionsDistributed(consensus.currentBlock, totalDistributed);
     }
 
     function _recalcTotal() internal override {
         uint256 total = 0;
-        uint256 len = stakeTime.validatorCount();
+        uint256 len = staking.validatorCount();
         for (uint256 i = 0; i < len; i++) {
-            bytes32 kh = stakeTime.getValidatorKeyHash(i);
-            if (stakeTime.isValidatorActive(kh)) {
+            bytes32 kh = staking.getValidatorKeyHash(i);
+            if (staking.isValidatorActive(kh)) {
                 total += scores[kh].blocktimeScore;
             }
         }

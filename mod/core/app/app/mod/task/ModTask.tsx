@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { userContext } from '@/context'
 import { ModuleType, UserType } from '@/types'
 import { CopyButton } from '@/ui/CopyButton'
-import { Zap, Search, Clock, ChevronDown, ChevronUp, RefreshCw, X, Play, Copy, Users } from 'lucide-react'
+import { Zap, Search, Clock, ChevronDown, ChevronUp, RefreshCw, X, Play, Copy, Clipboard, Users } from 'lucide-react'
 
 const ADDRESS_PARAM_NAMES = ['key', 'address', 'owner', 'user', 'to', 'from', 'sender', 'receiver', 'recipient', 'wallet', 'account']
 
@@ -344,6 +344,11 @@ export default function ModTask({ mod, moduleColor = '#ffffff' }: ModTaskProps) 
     const fnName = task.fn || ''
     const payload = { fn: fnName, params: task.params || {} }
     navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+  }
+
+  const handleCopyInputs = (task: Task) => {
+    const inputs = task.params && typeof task.params === 'object' ? task.params : {}
+    navigator.clipboard.writeText(JSON.stringify(inputs, null, 2))
   }
 
   const handleCancelTask = async (cid: string) => {
@@ -844,6 +849,21 @@ export default function ModTask({ mod, moduleColor = '#ffffff' }: ModTaskProps) 
                           <Copy className="w-3 h-3" />
                           Copy
                         </button>
+                        {task.params && Object.keys(task.params).length > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCopyInputs(task) }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold font-mono uppercase tracking-wider transition-all"
+                            style={{
+                              border: '1px solid var(--border-color)',
+                              color: 'var(--text-secondary)',
+                              backgroundColor: 'transparent',
+                            }}
+                            title="Copy input params to clipboard"
+                          >
+                            <Clipboard className="w-3 h-3" />
+                            Copy Inputs
+                          </button>
+                        )}
                       </div>
 
                       {/* CID */}

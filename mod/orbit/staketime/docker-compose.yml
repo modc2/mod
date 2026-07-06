@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  staketime:
+    build: .
+    container_name: staketime
+    ports:
+      - "${GATEWAY_PORT:-8850}:${GATEWAY_PORT:-8850}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-8850}
+    volumes:
+      - staketime-data:/app/data
+
+volumes:
+  staketime-data:

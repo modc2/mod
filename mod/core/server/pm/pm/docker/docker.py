@@ -30,12 +30,12 @@ class PM:
         self.store = m.mod(store)(path)
 
 
-    def forward(self,  
-                mod : str ='api', 
-                port : int = None, 
+    def forward(self,
+                mod : str ='api',
+                port : int = None,
                 params : dict = None,
                 key : str = None,
-                image:str=None, 
+                image:str=None,
                 daemon:bool=True,
                 cwd : str = None, # the working directory to run docker-compose in
                 volumes : list = None,
@@ -44,8 +44,9 @@ class PM:
                 call_interval : float = 0.2, # time between calls to check if server is up
                 ):
         """
-        Runs a mod as a Docker container with port forwarding as a 
+        Runs a mod as a Docker container with port forwarding as a
         """
+        self.ensure_docker()
         params = params or {}
         port = port or m.free_port()
         params.update({'port': port, 'key': key or mod, 'remote': False, 'mod': mod})
@@ -115,7 +116,8 @@ class PM:
             ) -> Dict:
         """
         Generate and run a Docker container using docker-compose.
-        """ 
+        """
+        self.ensure_docker()
         network = self.ensure_network(network)
         compose_path = self.get_compose_path(name)
         if not os.path.exists(compose_path):
@@ -352,6 +354,7 @@ class PM:
         Build a Docker image from a Dockerfile.
         """
         mod = mod or 'mod'
+        self.ensure_docker()
         path = m.dirpath(mod)
         dockerfile_path = self.dockerfile_path(mod)
         if dockerfile_path is None:
@@ -374,12 +377,14 @@ class PM:
         """
         return name in self.ps()
         
-    def kill(self, name: str, update=True) -> Dict[str, str]:
+    def kill(self, name: str, update=True, prefix: bool = False) -> Dict[str, str]:
         """
-        Kill and remove a container.
+        Kill and remove a container. If prefix=True, kill all containers matching the prefix.
         """
         if name == 'all':
             return self.kill_all()
+        if prefix:
+            return self.kill_prefix(name, update=update)
         if not self.server_exists(name):
             return {'status': 'not_found', 'name': name}
         servers = self.ps(search=name)
@@ -399,6 +404,30 @@ class PM:
             self.kill(child, update=update)
         self.registry.dereg(name)
         return result
+
+    def kill_prefix(self, prefix: str, update=True) -> Dict[str, str]:
+        """Kill all Docker containers whose name starts with the given prefix."""
+        matches = [s for s in self.ps() if s.startswith(prefix)]
+        if not matches:
+            return {'status': 'no_matches', 'prefix': prefix, 'killed': []}
+        killed = []
+        errors = []
+        for name in matches:
+            try:
+                self.kill(name, update=False)
+                killed.append(name)
+            except Exception as e:
+                print(f'Error killing {name}: {e}', color='red')
+                errors.append(name)
+        if update and killed:
+            self.sync()
+        print(f"Killed {len(killed)}/{len(matches)} containers with prefix '{prefix}'", color='green')
+        return {
+            'status': 'killed' if not errors else 'partial',
+            'prefix': prefix,
+            'killed': killed,
+            'errors': errors
+        }
     
 
 
@@ -558,6 +587,7 @@ class PM:
         """
         List all running Docker containers.
         """
+        self.ensure_docker()
         try:
             text = m.cmd('docker ps')
             ps = []
@@ -812,23 +842,36 @@ class PM:
             return {'status': 'error', 'name': name, 'error': str(e)}
         
 
-    def start_docker_daemon(self, wait_time=5):
+    def ensure_docker(self, wait_time=30):
+        """
+        Ensure Docker daemon is running, starting it if needed.
+        """
+        if self.is_docker_daemon_on():
+            return True
+        print('Docker is not running. Starting Docker...', color='yellow')
+        self.start_docker_daemon(wait_time=wait_time)
+        return self.is_docker_daemon_on()
+
+    def start_docker_daemon(self, wait_time=30):
         """
         Start the Docker daemon if it is not already running.
         """
         import sys
+        if self.is_docker_daemon_on():
+            return "Docker daemon is already running."
         # if macos
         if sys.platform == 'darwin':
             m.cmd('open /Applications/Docker.app')
         elif sys.platform == 'win32':
             m.cmd('Start-Process "C:\\Program Files\\Docker\\Docker\\Docker Desktop')
         elif sys.platform == 'linux':
-            m.cmd('systemctl is-active --quiet docker')
+            m.cmd('sudo systemctl start docker')
         for i in range(wait_time):
             if self.is_docker_daemon_on():
+                print('Docker daemon is running.', color='green')
                 return "Docker daemon is running."
             m.sleep(1)
-        raise RuntimeError("Docker daemon is not running. Please start Docker and try again.")
+        raise RuntimeError("Docker daemon failed to start after {wait_time}s. Please start Docker manually.")
 
     def is_docker_daemon_on(self):
         """

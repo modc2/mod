@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  evocoin:
+    container_name: evocoin
+    image: mod:latest
+    ports:
+      - "${GATEWAY_PORT:-8420}:${GATEWAY_PORT:-8420}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-8420}
+    volumes:
+      - ~/mod:/root/mod:ro
+      - ~/.mod:/root/.mod
+    working_dir: /root/mod/mod/orbit/evocoin
+    entrypoint: ["bash", "/root/mod/mod/orbit/evocoin/docker-entrypoint.sh"]

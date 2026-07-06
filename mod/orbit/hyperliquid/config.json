@@ -1,96 +1,86 @@
 {
-  "name": "hyperliquid",
-  "version": "1.0.0",
-  "description": "Hyperliquid DEX - market data, trading, vaults, and trader analytics",
-  "fns": [
-    "forward",
-    "serve",
-    "kill",
-    "status",
-    "fetch_market_data",
-    "fetch_orderbook",
-    "fetch_candles",
-    "fetch_all_mids",
-    "fetch_user_state",
-    "fetch_user_funding",
-    "place_order",
-    "market_order",
-    "cancel_order",
-    "cancel_all_orders",
-    "modify_order",
-    "get_open_orders",
-    "get_user_fills",
-    "get_position",
-    "get_balance",
-    "close_position",
-    "list_vaults",
-    "get_vault_details",
-    "get_vault_performance",
-    "get_top_vaults",
-    "deposit_to_vault",
-    "withdraw_from_vault",
-    "analyze_vault",
-    "get_leaderboard",
-    "get_user_profile",
-    "get_user_pnl_history",
-    "search_traders_by_volume",
-    "analyze_trader"
-  ],
-  "schema": {
-    "forward": {
-      "input": [
-        {"name": "fn", "type": "str", "value": null},
-        {"name": "kwargs", "type": "dict", "value": {}}
-      ],
-      "output": {"type": "Any", "value": null},
-      "docs": "Generic function dispatch - call any fn by name"
+    "name": "hyperliquid",
+    "version": "0.3.0",
+    "description": "Hyperliquid full-stack \u2014 backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults",
+    "anchor": "src/mod.py",
+    "fns": [
+        "forward",
+        "serve",
+        "app",
+        "api",
+        "kill",
+        "status",
+        "build",
+        "logs",
+        "test",
+        "build_cid",
+        "publish_build",
+        "build_onchain",
+        "top_traders",
+        "analyze_trader",
+        "leaderboard",
+        "list_indexes",
+        "get_index",
+        "create_index",
+        "update_index",
+        "delete_index",
+        "index_perf",
+        "auto_index",
+        "list_follows",
+        "create_follow",
+        "update_follow",
+        "delete_follow",
+        "pause_follow",
+        "resume_follow",
+        "list_signals",
+        "list_vaults",
+        "vault_details",
+        "vault_perf",
+        "vault_intent",
+        "create_vault",
+        "vault_transfer",
+        "signer_address",
+        "approve_agent_intent",
+        "trade",
+        "cancel",
+        "cancel_by_cloid",
+        "modify",
+        "set_leverage",
+        "update_isolated_margin",
+        "schedule_cancel",
+        "action",
+        "usd_class_transfer",
+        "withdraw",
+        "usd_send",
+        "spot_send",
+        "set_referrer",
+        "live_start",
+        "live_stop",
+        "live_status",
+        "mids",
+        "meta",
+        "orderbook",
+        "candles",
+        "user_state",
+        "user_fills",
+        "user_pnl",
+        "user_orders",
+        "user_funding"
+    ],
+    "ports": {
+        "api": 8919,
+        "app": 3919
     },
-    "fetch_orderbook": {
-      "input": [
-        {"name": "symbol", "type": "str", "value": "BTC"}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Fetch L2 orderbook for a symbol"
+    "urls": {
+        "api": "http://localhost:8919",
+        "app": "http://localhost:3919/hyperliquid",
+        "gateway": "http://localhost:3000/hyperliquid"
     },
-    "place_order": {
-      "input": [
-        {"name": "symbol", "type": "str", "value": "_empty"},
-        {"name": "is_buy", "type": "bool", "value": true},
-        {"name": "size", "type": "float", "value": "_empty"},
-        {"name": "price", "type": "float", "value": "_empty"},
-        {"name": "order_type", "type": "str", "value": "limit"},
-        {"name": "reduce_only", "type": "bool", "value": false}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Place a limit order on Hyperliquid"
+    "layout": {
+        "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
+        "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine",
+        "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
     },
-    "market_order": {
-      "input": [
-        {"name": "symbol", "type": "str", "value": "_empty"},
-        {"name": "is_buy", "type": "bool", "value": true},
-        {"name": "size", "type": "float", "value": "_empty"},
-        {"name": "slippage", "type": "float", "value": 0.05}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Place a market order with slippage protection"
-    },
-    "analyze_trader": {
-      "input": [
-        {"name": "address", "type": "str", "value": "_empty"}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Comprehensive trader analysis (profile, positions, fills, PnL)"
-    },
-    "analyze_vault": {
-      "input": [
-        {"name": "vault_address", "type": "str", "value": "_empty"}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Comprehensive vault analysis (details, performance)"
-    }
-  },
-  "urls": {
-    "api": "http://localhost:8919",
-    "app": "http://localhost:3919"
-  }
+    "schema": "QmZnGZRuW8MY2vGvAGGAThTUfGe2VbmZ6gMNoemeqMK6Lf",
+    "gateway_port": 3919
 }

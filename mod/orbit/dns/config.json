@@ -1,0 +1,97 @@
+{
+  "name": "dns",
+  "version": "0.1.0",
+  "description": "Decentralized authoritative DNS server \u2014 P2P record sync via Kademlia DHT + GossipSub, no proprietary providers",
+  "port": 5380,
+  "app_port": 5382,
+  "dns_port": 15353,
+  "p2p_port": 5381,
+  "urls": {
+    "api": "http://localhost:5380",
+    "app": "http://localhost:5382"
+  },
+  "fns": [
+    "serve",
+    "serve_app",
+    "kill",
+    "kill_app",
+    "status",
+    "add",
+    "remove",
+    "get",
+    "records",
+    "zones",
+    "peers",
+    "stats",
+    "build"
+  ],
+  "endpoints": {
+    "health": {
+      "method": "GET",
+      "path": "/health",
+      "auth": false,
+      "docs": "Liveness check"
+    },
+    "zones": {
+      "method": "GET",
+      "path": "/zones",
+      "auth": false,
+      "docs": "List all DNS zones"
+    },
+    "records": {
+      "method": "GET",
+      "path": "/zones/:zone/records",
+      "auth": false,
+      "docs": "List all records in a zone"
+    },
+    "upsert": {
+      "method": "PUT",
+      "path": "/zones/:zone/records",
+      "auth": false,
+      "docs": "Add or update a DNS record",
+      "input": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "rtype",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "ttl",
+          "type": "int",
+          "required": false,
+          "default": 300
+        }
+      ]
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/zones/:zone/records/:name/:type",
+      "auth": false,
+      "docs": "Delete a DNS record"
+    },
+    "peers": {
+      "method": "GET",
+      "path": "/peers",
+      "auth": false,
+      "docs": "List connected P2P peers"
+    },
+    "stats": {
+      "method": "GET",
+      "path": "/stats",
+      "auth": false,
+      "docs": "Server stats (zones, records, peers, clock)"
+    }
+  },
+  "schema": "QmSgzkbfbMN1ukuV4tiTF5tpsdxmYDHZECV2ih26ivSKSh",
+  "gateway_port": 5382
+}

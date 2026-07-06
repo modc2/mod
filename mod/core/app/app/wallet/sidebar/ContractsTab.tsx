@@ -6,7 +6,7 @@ import { ethers } from 'ethers'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import { CopyButton } from '@/ui/CopyButton'
 import { toast } from 'react-toastify'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 
 // ABI imports
 import TreasuryABI from '@/contracts/treasury/Treasury.sol/Treasury.json'
@@ -40,7 +40,7 @@ interface FnInfo {
 }
 
 function getContracts(): { name: string; address: string }[] {
-  const chainConfig = (modConfig.chain as any)?.testnet
+  const chainConfig = getChainConfig()
   if (!chainConfig?.contracts) return []
   const entries = Object.entries(chainConfig.contracts) as [string, any][]
   const treasury = entries.find(([name]) => name === 'Treasury')

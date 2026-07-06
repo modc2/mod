@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>sshville — multi-wallet SSH manager</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #0b0f14;
+      color: #d8e1ec;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #1c2734;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f1620;
+      flex-wrap: wrap;
+    }
+    h1 { font-size: 18px; margin: 0; color: #10b981; letter-spacing: 0.5px; }
+    h2 { font-size: 14px; margin: 0 0 8px 0; color: #93a5bd; text-transform: uppercase; letter-spacing: 1px; }
+    .wallet-bar { display: flex; gap: 8px; align-items: center; }
+    .wallet { font-size: 12px; color: #93a5bd; }
+    .wallet b { color: #10b981; }
+    main { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: calc(100vh - 60px); }
+    aside { border-right: 1px solid #1c2734; padding: 16px; overflow-y: auto; }
+    section { padding: 16px 24px; overflow-y: auto; }
+    button {
+      background: #10b981;
+      color: #0b0f14;
+      border: 0;
+      padding: 8px 14px;
+      font: inherit;
+      font-weight: 600;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button.ghost { background: transparent; color: #93a5bd; border: 1px solid #1c2734; }
+    button.sub { background: #e6007a; color: #fff; }
+    button.danger { background: #ef4444; color: #fff; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    input, select, textarea {
+      width: 100%;
+      background: #0b1119;
+      color: #d8e1ec;
+      border: 1px solid #1c2734;
+      padding: 8px 10px;
+      font: inherit;
+      border-radius: 4px;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    label { display: block; font-size: 11px; color: #93a5bd; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .row { display: grid; grid-template-columns: 1fr 100px; gap: 10px; }
+    .conn {
+      border: 1px solid #1c2734;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      background: #0f1620;
+    }
+    .conn:hover { border-color: #10b981; }
+    .conn.active { border-color: #10b981; background: #102218; }
+    .conn .name { font-weight: 600; color: #d8e1ec; }
+    .conn .addr { font-size: 12px; color: #93a5bd; margin-top: 2px; }
+    .empty { color: #5a6b80; font-style: italic; padding: 20px 0; text-align: center; }
+    pre {
+      background: #0b1119;
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid #1c2734;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #1c2734; color: #93a5bd; }
+    .tag.eth { background: #1f2837; color: #f6851b; }
+    .tag.sub { background: #2a1626; color: #e6007a; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; color: #93a5bd; padding: 6px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SSHVILLE</h1>
+    <div class="wallet-bar">
+      <div class="wallet" id="wallet-info">no wallet connected</div>
+      <button id="connect-eth">Connect MetaMask</button>
+      <button class="sub" id="connect-sub">Connect SubWallet</button>
+      <button class="ghost" id="reload-btn" disabled>↻</button>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <h2>Connections</h2>
+      <div id="conn-list"><div class="empty">connect a wallet to load</div></div>
+    </aside>
+    <section>
+      <div id="panel">
+        <h2>About</h2>
+        <p style="color:#93a5bd">
+          Store, test, and run commands against SSH targets — gated by your
+          wallet. Two auth backends are supported:
+        </p>
+        <ul style="color:#93a5bd">
+          <li><b style="color:#f6851b">MetaMask</b> (Ethereum personal_sign)</li>
+          <li><b style="color:#e6007a">SubWallet / Polkadot.js</b> (sr25519, SS58 prefix 42 — Bittensor)</li>
+        </ul>
+        <p style="color:#93a5bd">
+          Passwords and private keys are encrypted in the browser with a key
+          derived from your wallet's signature before they leave the page.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+  const API = (location.port === "50181" || location.hostname === "localhost")
+    ? "http://localhost:50180"
+    : `${location.protocol}//${location.host}`;
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  let WALLET = null;          // { id, scheme: 'eth'|'sub', address }
+  let AUTH_HEADER = null;     // string to send as X-Mod-Auth
+  let SIG_BYTES = null;       // raw signature bytes for AES-key derivation
+  let CHALLENGE = "sshville-auth-v1";
+  let CONNS = [];
+  let SELECTED = null;
+
+  async function fetchChallenge() {
+    const r = await fetch(`${API}/challenge`);
+    const j = await r.json();
+    CHALLENGE = j.challenge;
+  }
+
+  // ── MetaMask (ETH personal_sign) ──────────────────────────────────────
+  async function connectMetaMask() {
+    if (!window.ethereum) { alert("MetaMask not detected"); return; }
+    await fetchChallenge();
+    const accts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const addr = accts[0].toLowerCase();
+    const sig = await window.ethereum.request({
+      method: "personal_sign",
+      params: [CHALLENGE, addr],
+    });
+    WALLET = { id: `eth:${addr}`, scheme: "eth", address: addr };
+    AUTH_HEADER = `eth ${sig}`;
+    SIG_BYTES = hexToBytes(sig.slice(2));
+    onConnected();
+  }
+
+  // ── SubWallet / Polkadot.js (sr25519 signRaw) ────────────────────────
+  async function connectSubstrate() {
+    await fetchChallenge();
+    // The polkadot.js extension API. SubWallet & Talisman implement the same
+    // global, so this same flow works for any of them.
+    let ext;
+    try {
+      ext = await import("https://esm.sh/@polkadot/extension-dapp@0.46.9");
+    } catch (e) {
+      alert("Could not load @polkadot/extension-dapp from esm.sh: " + e.message);
+      return;
+    }
+    const enabled = await ext.web3Enable("sshville");
+    if (!enabled.length) {
+      alert("No Substrate extension found. Install SubWallet or Polkadot.js.");
+      return;
+    }
+    const accts = await ext.web3Accounts({ ss58Format: 42 });
+    if (!accts.length) { alert("No accounts in extension"); return; }
+
+    // simple picker for now: first sr25519 account, prompt if more than one
+    const sr = accts.filter(a => (a.type || "sr25519") === "sr25519");
+    if (!sr.length) { alert("No sr25519 accounts available — only sr25519 is verified server-side"); return; }
+    let pick = sr[0];
+    if (sr.length > 1) {
+      const labels = sr.map((a, i) => `${i}: ${a.meta.name || "?"}  ${a.address}`).join("\n");
+      const idx = prompt(`Pick an account:\n${labels}`, "0");
+      pick = sr[parseInt(idx || "0", 10) || 0];
+    }
+    const injector = await ext.web3FromAddress(pick.address);
+    const { signature } = await injector.signer.signRaw({
+      type: "bytes",
+      data: hexFromString(CHALLENGE),
+      address: pick.address,
+    });
+
+    // We need the raw 32-byte sr25519 pubkey for the server. Decode the
+    // SS58 address (3 bytes prefix/header + 32 pubkey + 2 checksum) using
+    // the extension's helper.
+    const utilCrypto = await import("https://esm.sh/@polkadot/util-crypto@12.6.2");
+    const pubBytes = utilCrypto.decodeAddress(pick.address);
+    const pubkeyHex = Array.from(pubBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    const sigHex = signature.startsWith("0x") ? signature.slice(2) : signature;
+
+    WALLET = { id: `sub:${pick.address}`, scheme: "sub", address: pick.address };
+    AUTH_HEADER = `sub ${pubkeyHex} ${sigHex} 42`;
+    SIG_BYTES = hexToBytes(sigHex);
+    onConnected();
+  }
+
+  function onConnected() {
+    const tag = `<span class="tag ${WALLET.scheme}">${WALLET.scheme}</span>`;
+    const a = WALLET.address;
+    const short = a.length > 16 ? `${a.slice(0,6)}…${a.slice(-4)}` : a;
+    document.getElementById("wallet-info").innerHTML = `${tag} <b>${short}</b>`;
+    document.getElementById("reload-btn").disabled = false;
+    loadConnections().catch(e => alert(e.message));
+  }
+
+  // ── helpers ───────────────────────────────────────────────────────────
+  function hexToBytes(hex) {
+    const out = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i*2, 2), 16);
+    return out;
+  }
+  function hexFromString(s) {
+    return "0x" + Array.from(enc.encode(s)).map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+  function bytesToB64(b) { return btoa(String.fromCharCode(...new Uint8Array(b))); }
+  function b64ToBytes(s) { return new Uint8Array([...atob(s)].map(c => c.charCodeAt(0))); }
+
+  async function deriveKey() {
+    const base = await crypto.subtle.importKey(
+      "raw", SIG_BYTES, "PBKDF2", false, ["deriveKey"]
+    );
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: enc.encode(WALLET.id), iterations: 100000, hash: "SHA-256" },
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  }
+  async function encryptSecret(plaintext) {
+    const key = await deriveKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(plaintext));
+    return { ciphertext: bytesToB64(ct), iv: bytesToB64(iv) };
+  }
+  async function decryptSecret(ciphertext, iv) {
+    const key = await deriveKey();
+    const pt = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: b64ToBytes(iv) }, key, b64ToBytes(ciphertext)
+    );
+    return dec.decode(pt);
+  }
+
+  async function api(path, opts = {}) {
+    const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+    if (AUTH_HEADER) headers["X-Mod-Auth"] = AUTH_HEADER;
+    const r = await fetch(`${API}${path}`, { ...opts, headers });
+    const txt = await r.text();
+    let j; try { j = JSON.parse(txt); } catch { j = { raw: txt }; }
+    if (!r.ok) throw new Error(j.error || j.detail || `${r.status}`);
+    return j;
+  }
+
+  async function loadConnections() {
+    const j = await api("/connections");
+    CONNS = j.connections || [];
+    renderList();
+  }
+
+  function renderList() {
+    const el = document.getElementById("conn-list");
+    if (!CONNS.length) {
+      el.innerHTML = `<div class="empty">no connections yet</div>
+        <button id="new-btn" style="width:100%">+ New connection</button>`;
+      document.getElementById("new-btn").onclick = renderNewForm;
+      return;
+    }
+    el.innerHTML = CONNS.map(c => `
+      <div class="conn ${SELECTED === c.id ? 'active' : ''}" data-id="${c.id}">
+        <div class="name">${escape(c.name)}</div>
+        <div class="addr">${escape(c.user)}@${escape(c.host)}:${c.port} <span class="tag">${c.auth_type}</span></div>
+      </div>
+    `).join("") + `<button id="new-btn" style="margin-top:8px;width:100%">+ New connection</button>`;
+    el.querySelectorAll(".conn").forEach(n => {
+      n.onclick = () => { SELECTED = n.dataset.id; renderList(); renderDetail(SELECTED); };
+    });
+    document.getElementById("new-btn").onclick = renderNewForm;
+  }
+
+  function renderNewForm() {
+    SELECTED = null;
+    renderList();
+    document.getElementById("panel").innerHTML = `
+      <h2>New connection</h2>
+      <label>Name</label><input id="f-name" placeholder="prod web01" />
+      <div class="row">
+        <div><label>Host</label><input id="f-host" placeholder="1.2.3.4 or host.example.com" /></div>
+        <div><label>Port</label><input id="f-port" type="number" value="22" /></div>
+      </div>
+      <label>User</label><input id="f-user" placeholder="root" />
+      <label>Auth type</label>
+      <select id="f-authtype">
+        <option value="password">password</option>
+        <option value="key">private key</option>
+      </select>
+      <label id="f-secret-label">Password (encrypted client-side before upload)</label>
+      <textarea id="f-secret" placeholder="will be AES-GCM encrypted under a key derived from your wallet signature"></textarea>
+      <div style="margin-top:16px; display:flex; gap:8px;">
+        <button id="save-btn">Save (encrypted)</button>
+        <button class="ghost" id="cancel-btn">Cancel</button>
+      </div>
+      <details>
+        <summary>How the encryption works</summary>
+        <pre>1. wallet signs "${CHALLENGE}"
+   • MetaMask:  personal_sign (ECDSA secp256k1)
+   • SubWallet: signRaw       (sr25519, wrapped &lt;Bytes&gt;…&lt;/Bytes&gt;)
+2. signature bytes → PBKDF2(salt = wallet id) → AES-GCM-256 key
+3. password / key encrypted in browser, only ciphertext + iv leave
+4. server (Rust + axum) stores ciphertext; re-decrypted in-browser
+   on test/exec calls and POSTed in TLS body, used once, never persisted</pre>
+      </details>
+    `;
+    document.getElementById("f-authtype").onchange = (e) => {
+      document.getElementById("f-secret-label").textContent =
+        e.target.value === "key"
+          ? "Private key (-----BEGIN ... ----- block, encrypted client-side)"
+          : "Password (encrypted client-side before upload)";
+    };
+    document.getElementById("cancel-btn").onclick = () =>
+      document.getElementById("panel").innerHTML = `<div class="empty">select or add a connection</div>`;
+    document.getElementById("save-btn").onclick = saveConnection;
+  }
+
+  async function saveConnection() {
+    const name = document.getElementById("f-name").value.trim();
+    const host = document.getElementById("f-host").value.trim();
+    const port = parseInt(document.getElementById("f-port").value) || 22;
+    const user = document.getElementById("f-user").value.trim();
+    const authType = document.getElementById("f-authtype").value;
+    const secret = document.getElementById("f-secret").value;
+    if (!name || !host || !user || !secret) { alert("name, host, user, secret required"); return; }
+    const { ciphertext, iv } = await encryptSecret(secret);
+    await api("/connections/add", {
+      method: "POST",
+      body: JSON.stringify({ name, host, port, user, auth_type: authType, ciphertext, iv }),
+    });
+    await loadConnections();
+  }
+
+  async function renderDetail(cid) {
+    const conn = await api(`/connections/${encodeURIComponent(cid)}`);
+    document.getElementById("panel").innerHTML = `
+      <h2>${escape(conn.name)}</h2>
+      <div class="toolbar">
+        <span class="tag">${conn.user}@${conn.host}:${conn.port}</span>
+        <span class="tag">${conn.auth_type}</span>
+        <span style="flex:1"></span>
+        <button id="test-btn">Test</button>
+        <button class="danger" id="del-btn">Delete</button>
+      </div>
+      <label>Command</label>
+      <input id="cmd" placeholder="uname -a" value="uname -a" />
+      <div style="margin-top:8px;"><button id="exec-btn">Run</button></div>
+      <h2 style="margin-top:24px">Output</h2>
+      <pre id="out">—</pre>
+      <details>
+        <summary>Stored ciphertext (server-visible, opaque)</summary>
+        <pre>ciphertext: ${conn.ciphertext.slice(0,80)}…
+iv:         ${conn.iv}</pre>
+      </details>
+    `;
+    document.getElementById("test-btn").onclick = () => runRemote(conn, "whoami && uname -a");
+    document.getElementById("exec-btn").onclick = () =>
+      runRemote(conn, document.getElementById("cmd").value);
+    document.getElementById("del-btn").onclick = async () => {
+      if (!confirm(`Delete ${conn.name}?`)) return;
+      await api(`/connections/${encodeURIComponent(conn.id)}`, { method: "DELETE" });
+      SELECTED = null;
+      await loadConnections();
+      document.getElementById("panel").innerHTML = `<div class="empty">select or add a connection</div>`;
+    };
+  }
+
+  async function runRemote(conn, command) {
+    const out = document.getElementById("out");
+    out.textContent = "decrypting secret in browser…";
+    let secret;
+    try {
+      secret = await decryptSecret(conn.ciphertext, conn.iv);
+    } catch (e) {
+      out.textContent = `decrypt failed: ${e.message}
+
+You may need to re-sign with the wallet that saved this entry — the AES
+key is deterministic in the signature bytes, so a different signature
+(different wallet, or extension that randomised the sig) cannot decrypt.`;
+      return;
+    }
+    out.textContent = `running: ${command}
+…`;
+    try {
+      const r = await api(`/connections/${encodeURIComponent(conn.id)}/exec`, {
+        method: "POST",
+        body: JSON.stringify({ secret, command }),
+      });
+      out.textContent = formatResult(r);
+    } catch (e) {
+      out.textContent = `error: ${e.message}`;
+    }
+  }
+
+  function formatResult(r) {
+    if (r.error) return `error: ${r.error}`;
+    return `exit ${r.exit}
+
+=== stdout ===
+${r.stdout || ""}
+=== stderr ===
+${r.stderr || ""}`;
+  }
+
+  function escape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  document.getElementById("connect-eth").onclick = () => connectMetaMask().catch(e => alert(e.message));
+  document.getElementById("connect-sub").onclick = () => connectSubstrate().catch(e => alert(e.message));
+  document.getElementById("reload-btn").onclick = () => loadConnections().catch(e => alert(e.message));
+  fetchChallenge();
+  </script>
+</body>
+</html>

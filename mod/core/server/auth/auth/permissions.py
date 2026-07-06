@@ -32,7 +32,7 @@ class PermissionManager:
         """
         self.owner_address = owner_address or self._get_owner_address()
         self.mod_root = Path(mod_root) if mod_root else self._find_mod_root()
-        self.outer_path = self.mod_root / "mod" / "orbit" / "portal"
+        self.outer_path = self.mod_root / "mod" / "orbit" / "registry" / "mods"
 
     def _get_owner_address(self) -> str:
         """

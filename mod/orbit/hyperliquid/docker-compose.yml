@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  hyperliquid:
+    build: .
+    container_name: hyperliquid
+    ports:
+      - "${GATEWAY_PORT:-3919}:${GATEWAY_PORT:-3919}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3919}
+    volumes:
+      - hyperliquid-data:/app/data
+
+volumes:
+  hyperliquid-data:

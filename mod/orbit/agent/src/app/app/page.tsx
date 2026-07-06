@@ -16,9 +16,11 @@ type SidebarSide = 'left' | 'right'
 
 type FileEntry = { path: string; content: string; action: 'read' | 'created' | 'modified' | 'searched' }
 
-// ── Agent Types (mirrors claude module) ─────────────────────────────
+// ── Agent Types ─────────────────────────────────────────────────────
 
-const AGENT_OPTIONS: { value: string; label: string; icon: string }[] = [
+type AgentOption = { value: string; label: string; icon: string }
+
+const DEFAULT_AGENTS: AgentOption[] = [
   { value: "default", label: "Default", icon: ">_" },
   { value: "architect", label: "Architect", icon: "△" },
   { value: "reviewer", label: "Reviewer", icon: "◉" },
@@ -39,7 +41,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskEntry[]>([])
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>('tasks')
+  const [activeTab, setActiveTab] = useState<Tab>('output')
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
   const [composeFocused, setComposeFocused] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -48,9 +50,30 @@ export default function Home() {
 
   // agent & chain state
   const [agentType, setAgentType] = useState<string>('default')
+  const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
   const [chain, setChain] = useState<ChainStep[]>([])
   const [chainMode, setChainMode] = useState(false)
   const [showChainPresets, setShowChainPresets] = useState(false)
+  const [showChats, setShowChats] = useState(false)
+  const [freeMode, setFreeMode] = useState(false)
+  const [showCreateAgent, setShowCreateAgent] = useState(false)
+
+  // provider + model selection
+  type ProviderInfo = { key: string; models: string[]; default_model: string }
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [provider, setProvider] = useState<string>('openrouter')
+  const [model, setModel] = useState<string>('')
+  const [owner, setOwner] = useState<string | null>(null)
+
+  const providerModels = providers.find(p => p.key === provider)?.models || []
+
+  const onProviderChange = (p: string) => {
+    setProvider(p)
+    localStorage.setItem('agent_provider', p)
+    const def = providers.find(x => x.key === p)?.default_model || ''
+    setModel(def)
+    localStorage.setItem('agent_model', def)
+  }
 
   // layout mode: sidebar (split), fullscreen (agent only), minimized (hidden)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('sidebar')
@@ -127,10 +150,53 @@ export default function Home() {
     return () => window.removeEventListener('keydown', onKey)
   }, [agentFullscreen])
 
+  const [apiStatus, setApiStatus] = useState<'ok' | 'down' | 'loading'>('loading')
+
+  const fetchAgents = useCallback(() => {
+    fetch(`${API_URL}/agents`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => {
+        if (d.schemas && typeof d.schemas === 'object') {
+          const fetched: AgentOption[] = Object.entries(d.schemas).map(([key, val]: [string, any]) => ({
+            value: key,
+            label: val.name || key.charAt(0).toUpperCase() + key.slice(1),
+            icon: val.icon || '>_',
+          }))
+          if (fetched.length > 0) setAgentOptions(fetched)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   useEffect(() => {
-    fetch(`${API_URL}/skills`).then(r => r.json()).then(d => setSkills(d.schemas || {})).catch(() => {})
+    fetch(`${API_URL}/skills`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => { setSkills(d.schemas || {}); setApiStatus('ok') })
+      .catch(() => setApiStatus('down'))
+    fetchAgents()
+    // providers + models for the selector
+    fetch(`${API_URL}/providers`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => {
+        const list: ProviderInfo[] = d.providers || []
+        setProviders(list)
+        const savedP = localStorage.getItem('agent_provider')
+        const savedM = localStorage.getItem('agent_model')
+        const p = (savedP && list.find(x => x.key === savedP)) ? savedP : (d.default || list[0]?.key || 'openrouter')
+        setProvider(p)
+        const pd = list.find(x => x.key === p)
+        setModel(savedM || pd?.default_model || '')
+      })
+      .catch(() => {})
+    // owner / user info
+    fetch(`${API_URL}/owner`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => setOwner(d.owner || null))
+      .catch(() => {})
     const saved = localStorage.getItem('agent_type')
-    if (saved && AGENT_OPTIONS.some(a => a.value === saved)) setAgentType(saved)
+    if (saved) setAgentType(saved)
+    const savedFree = localStorage.getItem('agent_free')
+    if (savedFree === 'true') setFreeMode(true)
   }, [])
 
   useEffect(() => {
@@ -138,7 +204,7 @@ export default function Home() {
   }, [tasks, selectedTask])
 
   const currentTask = tasks.find(t => t.id === selectedTask)
-  const currentAgentDef = AGENT_OPTIONS.find(a => a.value === agentType)
+  const currentAgentDef = agentOptions.find(a => a.value === agentType)
 
   // chain management
   const addChainStep = (agentKey: string = 'default') => {
@@ -197,7 +263,7 @@ export default function Home() {
     const isChain = chainMode && chain.length > 0
     const userMsg: Message = {
       role: 'user',
-      text: isChain ? `[chain: ${chain.map(s => AGENT_OPTIONS.find(a => a.value === s.agent)?.label || s.agent).join(' → ')}] ${q}` : `[${agentLabel}] ${q}`
+      text: isChain ? `[chain: ${chain.map(s => agentOptions.find(a => a.value === s.agent)?.label || s.agent).join(' → ')}] ${q}` : `[${agentLabel}] ${q}`
     }
     const task: TaskEntry = { id, query: q, status: 'running', messages: [userMsg], agent_type: agentType, chain: isChain ? chain : undefined }
     setTasks(t => [task, ...t])
@@ -207,15 +273,31 @@ export default function Home() {
     if (sidebarCollapsed) setSidebarCollapsed(false)
 
     try {
+      // check API is reachable before long-running request
+      try {
+        const ping = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) })
+        if (!ping.ok) throw new Error()
+      } catch {
+        throw new Error(`API not reachable at ${API_URL}. Start with: m agent/serve`)
+      }
+
       const body: any = { query: q }
       if (isChain) body.chain = chain
       if (agentType && agentType !== 'default') body.agent_type = agentType
+      if (provider) body.provider = provider
+      if (model) body.model = model
+      if (freeMode) body.free = true
 
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000) // 5 min timeout
       const res = await fetch(`${API_URL}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
+      if (apiStatus !== 'ok') setApiStatus('ok')
       const data = await res.json()
 
       if (data.chain && data.results) {
@@ -224,7 +306,7 @@ export default function Home() {
         for (const cr of data.results) {
           const stepCount = cr.result?.length || 0
           totalSteps += stepCount
-          const agentName = AGENT_OPTIONS.find(a => a.value === cr.agent)?.label || cr.agent
+          const agentName = agentOptions.find(a => a.value === cr.agent)?.label || cr.agent
           msgs.push({
             role: 'agent',
             text: cr.error ? `[${agentName}] Error: ${cr.error}` : `[${agentName}] ${stepCount} step(s)${cr.summary ? ` — ${cr.summary}` : ''}`,
@@ -237,19 +319,45 @@ export default function Home() {
           : tk
         ))
       } else {
-        const stepCount = data.result?.length || 0
+        const steps = data.result || []
+        const stepCount = steps.length
+        // extract text from response steps (LLM replied without tool calls)
+        const responseText = steps
+          .filter((s: any) => s.tool === 'response' && s.result)
+          .map((s: any) => s.result)
+          .join('\n')
+        const finishSummary = steps
+          .filter((s: any) => s.tool === 'finish')
+          .map((s: any) => s.params?.summary)
+          .filter(Boolean)
+          .join('\n')
+        const errorText = steps
+          .filter((s: any) => s.tool === 'error' && s.error)
+          .map((s: any) => s.error)
+          .join('\n')
+        const hasError = !!errorText || !!data.error
+        const displayText = data.error
+          ? `Error: ${data.error}`
+          : errorText
+          ? `Error: ${errorText}`
+          : responseText || finishSummary || (stepCount ? `Completed ${stepCount} step(s)` : 'Done')
         const agentMsg: Message = {
-          role: 'agent',
-          text: stepCount ? `Completed ${stepCount} step(s)` : 'Done',
-          steps: data.result,
+          role: hasError ? 'system' : 'agent',
+          text: displayText,
+          steps: steps.filter((s: any) => !['response', 'error'].includes(s.tool)),
         }
         setTasks(t => t.map(tk => tk.id === id
-          ? { ...tk, status: 'done', stepCount, messages: [...tk.messages, agentMsg] }
+          ? { ...tk, status: hasError ? 'error' : 'done', stepCount, messages: [...tk.messages, agentMsg] }
           : tk
         ))
       }
     } catch (e: any) {
-      const errMsg: Message = { role: 'system', text: `Error: ${e.message}` }
+      const msg = e.name === 'AbortError'
+        ? 'Request timed out (5 min). The agent may still be running on the server.'
+        : e.message === 'Load failed' || e.message === 'Failed to fetch'
+        ? `API not reachable at ${API_URL}. Start with: m agent/serve`
+        : e.message
+      const errMsg: Message = { role: 'system', text: `Error: ${msg}` }
       setTasks(t => t.map(tk => tk.id === id
         ? { ...tk, status: 'error', messages: [...tk.messages, errMsg] }
         : tk
@@ -275,8 +383,18 @@ export default function Home() {
     if (!selectedTask) return
     setTasks(t => t.filter(tk => tk.id !== selectedTask))
     setSelectedTask(tasks.length > 1 ? tasks.find(t => t.id !== selectedTask)?.id || null : null)
-    setActiveTab('tasks')
+    setActiveTab('output')
     setViewingFile(null)
+  }
+
+  const continueTask = () => {
+    if (!currentTask || currentTask.status === 'running') return
+    // extract the last agent message output as context
+    const agentMsgs = currentTask.messages.filter(m => m.role === 'agent')
+    const lastOutput = agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1].text : ''
+    const prefix = `Continue from previous task "${currentTask.query}":\n\nPrevious output:\n${lastOutput}\n\nNext step: `
+    setQuery(prefix)
+    inputRef.current?.focus()
   }
 
   const toggleStep = (idx: number) => {
@@ -336,31 +454,62 @@ export default function Home() {
     return map[action] || { bg: 'bg-gray-500/15 border-gray-500/25', text: 'text-gray-400' }
   }
 
-  // --- Sidebar content (tasks list + compose) ---
+  // provider + model selectors (used in both sidebar and fullscreen bars)
+  const modelControls = (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <select
+        value={provider}
+        onChange={(e) => onProviderChange(e.target.value)}
+        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors shrink-0"
+        title="LLM provider"
+      >
+        {(providers.length ? providers.map(p => p.key) : ['openrouter', 'venice']).map(k => (
+          <option key={k} value={k} className="bg-[#111]">{k}</option>
+        ))}
+      </select>
+      <select
+        value={model}
+        onChange={(e) => { setModel(e.target.value); localStorage.setItem('agent_model', e.target.value) }}
+        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0"
+        style={{ maxWidth: '190px' }}
+        title="Model"
+      >
+        {(model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => (
+          <option key={mn} value={mn} className="bg-[#111]">{mn}</option>
+        ))}
+        {providerModels.length === 0 && !model && <option value="" className="bg-[#111]">default</option>}
+      </select>
+    </div>
+  )
+
+  // --- Compose bar (agent prompt) — rendered at the bottom of the sidebar ---
+  const composeBar = (
+    <div className={`border-t border-white/[0.06] px-4 py-3 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
+      <div className="flex gap-2 items-end">
+        <textarea
+          ref={inputRef}
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setComposeFocused(true)}
+          onBlur={() => setComposeFocused(false)}
+          placeholder={chainMode ? 'Main query for chain...' : `Ask ${currentAgentDef?.label || 'agent'}...`}
+          rows={2}
+          className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed"
+          disabled={loading}
+        />
+        <button onClick={run} disabled={loading || !query.trim() || apiStatus === 'down'}
+          className="text-sm bg-blue-600/80 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-md px-4 py-2 transition font-medium shrink-0"
+          title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
+          Run
+        </button>
+      </div>
+    </div>
+  )
+
+  // --- Sidebar content (conversations + compose + user info) ---
   const sidebarContent = (
     <div className="flex flex-col h-full">
-      {/* compose area */}
-      <div className={`border-b border-white/[0.06] px-4 py-3 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setComposeFocused(true)}
-            onBlur={() => setComposeFocused(false)}
-            placeholder={chainMode ? 'Main query for chain...' : `Ask ${currentAgentDef?.label || 'agent'}...`}
-            rows={2}
-            className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed"
-            disabled={loading}
-          />
-          <button onClick={run} disabled={loading || !query.trim()}
-            className="text-sm bg-blue-600/80 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-md px-4 py-2 transition font-medium shrink-0">
-            Run
-          </button>
-        </div>
-      </div>
-
       {/* agent selector + chain */}
       <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
         <select
@@ -369,7 +518,7 @@ export default function Home() {
           className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-sm text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors"
           style={{ maxWidth: '160px' }}
         >
-          {AGENT_OPTIONS.map((a) => (
+          {agentOptions.map((a) => (
             <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
           ))}
         </select>
@@ -393,7 +542,19 @@ export default function Home() {
           {chainMode ? 'chain on' : 'chain'}
         </button>
 
-        <div className="relative shrink-0 ml-auto">
+        <button
+          onClick={() => { setFreeMode(f => !f); localStorage.setItem('agent_free', (!freeMode).toString()) }}
+          className={`px-2 py-1.5 rounded-md text-xs font-medium transition shrink-0 ${
+            freeMode
+              ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-300'
+              : 'border border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20'
+          }`}
+          title={freeMode ? 'Using free OpenRouter model' : 'Click to use free models'}
+        >
+          {freeMode ? 'free' : '$'}
+        </button>
+
+        <div className="relative shrink-0 ml-auto flex items-center gap-1.5">
           <button
             onClick={() => setShowChainPresets(!showChainPresets)}
             className="border border-white/10 px-2 py-1.5 rounded-md text-xs text-gray-500 hover:text-gray-300 hover:border-white/20 transition"
@@ -414,8 +575,68 @@ export default function Home() {
               ))}
             </div>
           )}
+          <button
+            onClick={() => setShowCreateAgent(true)}
+            className="border border-white/10 w-7 h-7 rounded-md text-xs text-gray-500 hover:text-gray-300 hover:border-white/20 transition flex items-center justify-center"
+            title="Create new agent"
+          >
+            +
+          </button>
         </div>
       </div>
+
+      {/* provider + model selection */}
+      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
+        <span className="text-[10px] text-gray-600 uppercase tracking-wider font-medium shrink-0">model</span>
+        {modelControls}
+      </div>
+
+      {/* create agent modal */}
+      {showCreateAgent && (
+        <div className="border-b border-white/[0.06] px-4 py-3 shrink-0 bg-blue-500/[0.03]">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] text-blue-400 font-medium uppercase tracking-wider">New Agent</span>
+            <button onClick={() => setShowCreateAgent(false)} className="ml-auto text-gray-600 hover:text-gray-300 text-xs transition">cancel</button>
+          </div>
+          <form onSubmit={async (e) => {
+            e.preventDefault()
+            const form = e.target as HTMLFormElement
+            const name = (form.elements.namedItem('agentName') as HTMLInputElement).value.trim()
+            const desc = (form.elements.namedItem('agentDesc') as HTMLInputElement).value.trim()
+            const goal = (form.elements.namedItem('agentGoal') as HTMLTextAreaElement).value.trim()
+            const icon = (form.elements.namedItem('agentIcon') as HTMLInputElement).value.trim() || '>_'
+            if (!name) return
+            try {
+              const res = await fetch(`${API_URL}/agents`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description: desc, goal, icon }),
+              })
+              const data = await res.json()
+              if (data.error) { alert(data.error); return }
+              setShowCreateAgent(false)
+              fetchAgents()
+              setAgentType(name)
+              localStorage.setItem('agent_type', name)
+            } catch (err: any) { alert(err.message) }
+          }} className="space-y-2">
+            <div className="flex gap-2">
+              <input name="agentName" placeholder="name (slug)" required
+                className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none placeholder:text-gray-600" />
+              <input name="agentIcon" placeholder="icon" defaultValue=">_" maxLength={4}
+                className="w-14 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none text-center" />
+            </div>
+            <input name="agentDesc" placeholder="description"
+              className="w-full bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none placeholder:text-gray-600" />
+            <textarea name="agentGoal" placeholder="system prompt / goal..." rows={3}
+              className="w-full bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none placeholder:text-gray-600 resize-none" />
+            <button type="submit"
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600/80 hover:bg-blue-500 text-white transition">
+              Create
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* chain builder */}
       {chainMode && (
@@ -433,7 +654,7 @@ export default function Home() {
                   onChange={e => updateChainStep(i, 'agent', e.target.value)}
                   className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-[10px] text-gray-300 outline-none w-24 shrink-0"
                 >
-                  {AGENT_OPTIONS.map(a => (
+                  {agentOptions.map(a => (
                     <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
                   ))}
                 </select>
@@ -476,8 +697,73 @@ export default function Home() {
 
       {/* tab bar */}
       <div className="border-b border-white/[0.06] px-2 flex items-center shrink-0">
+        {/* chats dropdown (moved out of the tabs into the header) */}
+        <div className="relative shrink-0 mr-1">
+          <button
+            onClick={() => setShowChats(v => !v)}
+            className={`tab-btn flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium uppercase tracking-wider transition-colors ${
+              showChats ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+            }`}
+            title="Conversations"
+          >
+            chats
+            <span className="text-[9px] text-gray-600 normal-case">{tasks.length || ''}</span>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showChats ? 'rotate-180' : ''}`}>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {showChats && (
+            <div className="absolute left-0 top-full mt-1 w-72 max-h-[60vh] overflow-y-auto bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl p-1.5">
+              {tasks.length === 0 ? (
+                <div className="text-center text-gray-600 py-6 px-3">
+                  <p className="text-sm text-gray-500">No conversations yet</p>
+                  <div className="mt-3 flex gap-1.5 justify-center flex-wrap">
+                    {['read this file', 'search for TODO', 'run ls -la'].map(ex => (
+                      <button key={ex} onClick={() => { setQuery(ex); setShowChats(false); inputRef.current?.focus() }}
+                        className="px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                        {ex}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {tasks.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setShowChats(false) }}
+                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition group ${
+                        selectedTask === t.id
+                          ? 'bg-blue-500/10 border border-blue-500/20'
+                          : 'hover:bg-white/[0.04] border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
+                        {t.agent_type && t.agent_type !== 'default' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
+                            {agentOptions.find(a => a.value === t.agent_type)?.icon}
+                          </span>
+                        )}
+                        {t.chain && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
+                            chain
+                          </span>
+                        )}
+                        <span className="truncate flex-1 text-gray-300 group-hover:text-gray-200">{t.query}</span>
+                        {t.stepCount !== undefined && (
+                          <span className="text-[10px] text-gray-600 shrink-0">{t.stepCount}s</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <div className="flex items-center">
-          {(['tasks', 'output', 'deltas'] as Tab[]).map(tab => (
+          {(['output', 'deltas'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -495,6 +781,13 @@ export default function Home() {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-1.5 pr-1">
+          {selectedTask && currentTask && currentTask.status !== 'running' && (
+            <button onClick={continueTask}
+              className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-blue-400 hover:bg-blue-500/10 transition"
+              title="Continue this task">
+              ↳
+            </button>
+          )}
           {selectedTask && currentTask?.status === 'running' && (
             <button onClick={completeTask}
               className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition">
@@ -512,64 +805,30 @@ export default function Home() {
 
       {/* tab content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* TASKS tab */}
-        {activeTab === 'tasks' && (
-          <div className="p-2">
-            {tasks.length === 0 ? (
-              <div className="text-center text-gray-600 mt-12 px-4">
-                <p className="text-2xl mb-3 text-gray-700">{'>'}_ </p>
-                <p className="text-sm text-gray-500">No tasks yet</p>
-                <div className="mt-4 flex gap-1.5 justify-center flex-wrap">
-                  {['read this file', 'search for TODO', 'run ls -la'].map(ex => (
-                    <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                      className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {tasks.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => { setSelectedTask(t.id); setActiveTab('output') }}
-                    className={`w-full text-left px-3 py-3 rounded-lg text-sm transition group ${
-                      selectedTask === t.id
-                        ? 'bg-blue-500/10 border border-blue-500/20'
-                        : 'hover:bg-white/[0.04] border border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
-                      {t.agent_type && t.agent_type !== 'default' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
-                          {AGENT_OPTIONS.find(a => a.value === t.agent_type)?.icon}
-                        </span>
-                      )}
-                      {t.chain && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
-                          chain
-                        </span>
-                      )}
-                      <span className="truncate flex-1 text-gray-300 group-hover:text-gray-200">{t.query}</span>
-                      {t.stepCount !== undefined && (
-                        <span className="text-[10px] text-gray-600 shrink-0">{t.stepCount}s</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* OUTPUT tab */}
         {activeTab === 'output' && (
           <div className="p-3 space-y-2">
             {!currentTask ? (
-              <div className="text-center text-gray-600 mt-12">
-                <p className="text-sm">Select a task</p>
+              <div className="text-center text-gray-600 mt-12 px-4">
+                <p className="text-2xl mb-3 text-gray-700">{'>'}_ </p>
+                <p className="text-sm text-gray-500">
+                  {tasks.length === 0 ? 'No conversations yet' : 'Select a chat or ask below'}
+                </p>
+                <div className="mt-4 flex gap-1.5 justify-center flex-wrap">
+                  {tasks.length === 0 ? (
+                    ['read this file', 'search for TODO', 'run ls -la'].map(ex => (
+                      <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
+                        className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                        {ex}
+                      </button>
+                    ))
+                  ) : (
+                    <button onClick={() => setShowChats(true)}
+                      className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                      open chats ({tasks.length})
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <>
@@ -577,7 +836,7 @@ export default function Home() {
                   <span className={`text-xs ${statusIcon(currentTask.status)}`}>{statusDot(currentTask.status)}</span>
                   {currentTask.agent_type && currentTask.agent_type !== 'default' && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500">
-                      {AGENT_OPTIONS.find(a => a.value === currentTask.agent_type)?.icon} {AGENT_OPTIONS.find(a => a.value === currentTask.agent_type)?.label}
+                      {agentOptions.find(a => a.value === currentTask.agent_type)?.icon} {agentOptions.find(a => a.value === currentTask.agent_type)?.label}
                     </span>
                   )}
                   <span className="text-sm text-gray-400 font-medium truncate">{currentTask.query}</span>
@@ -586,7 +845,7 @@ export default function Home() {
                 {currentTask.chain && (
                   <div className="flex items-center gap-1 mb-2 overflow-x-auto px-1">
                     {currentTask.chain.map((step, i) => {
-                      const a = AGENT_OPTIONS.find(ao => ao.value === step.agent)
+                      const a = agentOptions.find(ao => ao.value === step.agent)
                       const chainMsgs = currentTask.messages.filter(m => m.chainStep)
                       const isDone = i < chainMsgs.length
                       const isActive = i === chainMsgs.length && currentTask.status === 'running'
@@ -617,7 +876,7 @@ export default function Home() {
                         <span className="text-xs text-gray-500">{msg.role}</span>
                         {msg.chainStep && (
                           <span className="text-[10px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-400">
-                            {AGENT_OPTIONS.find(a => a.value === msg.chainStep?.agent)?.icon} {AGENT_OPTIONS.find(a => a.value === msg.chainStep?.agent)?.label || msg.chainStep?.agent}
+                            {agentOptions.find(a => a.value === msg.chainStep?.agent)?.icon} {agentOptions.find(a => a.value === msg.chainStep?.agent)?.label || msg.chainStep?.agent}
                           </span>
                         )}
                       </div>
@@ -707,6 +966,28 @@ export default function Home() {
             )}
           </div>
         )}
+      </div>
+
+      {/* agent prompt — sits at the bottom of the sidebar */}
+      {composeBar}
+
+      {/* user info footer */}
+      <div className="border-t border-white/[0.06] px-4 py-2.5 shrink-0 flex items-center gap-2.5">
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${owner ? 'bg-blue-500/15 border border-blue-500/25 text-blue-300' : 'bg-white/5 border border-white/10 text-gray-500'}`}>
+          {owner ? owner.slice(2, 4).toUpperCase() : '··'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-gray-300 font-mono truncate" title={owner || 'no owner configured'}>
+            {owner ? `${owner.slice(0, 6)}…${owner.slice(-4)}` : 'no owner'}
+          </div>
+          <div className="text-[10px] text-gray-600 truncate">
+            {provider} · {model || 'default'} · {Object.keys(skills).length} skills
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'}`} />
+          <span className="text-[10px] text-gray-600">{apiStatus === 'ok' ? 'online' : apiStatus === 'down' ? 'offline' : '…'}</span>
+        </div>
       </div>
     </div>
   )
@@ -840,7 +1121,7 @@ export default function Home() {
                   <span className={`text-xs ${statusIcon(currentTask.status)}`}>{statusDot(currentTask.status)}</span>
                   {currentTask.agent_type && currentTask.agent_type !== 'default' && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500">
-                      {AGENT_OPTIONS.find(a => a.value === currentTask.agent_type)?.icon} {AGENT_OPTIONS.find(a => a.value === currentTask.agent_type)?.label}
+                      {agentOptions.find(a => a.value === currentTask.agent_type)?.icon} {agentOptions.find(a => a.value === currentTask.agent_type)?.label}
                     </span>
                   )}
                   <span className="text-sm text-gray-300 font-medium">{currentTask.query}</span>
@@ -849,7 +1130,7 @@ export default function Home() {
                 {currentTask.chain && (
                   <div className="flex items-center gap-1 mb-3 overflow-x-auto">
                     {currentTask.chain.map((step, i) => {
-                      const a = AGENT_OPTIONS.find(ao => ao.value === step.agent)
+                      const a = agentOptions.find(ao => ao.value === step.agent)
                       const chainMsgs = currentTask.messages.filter(m => m.chainStep)
                       const isDone = i < chainMsgs.length
                       const isActive = i === chainMsgs.length && currentTask.status === 'running'
@@ -880,7 +1161,7 @@ export default function Home() {
                         <span className="text-xs text-gray-500">{msg.role}</span>
                         {msg.chainStep && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">
-                            {AGENT_OPTIONS.find(a => a.value === msg.chainStep?.agent)?.icon} {AGENT_OPTIONS.find(a => a.value === msg.chainStep?.agent)?.label || msg.chainStep?.agent}
+                            {agentOptions.find(a => a.value === msg.chainStep?.agent)?.icon} {agentOptions.find(a => a.value === msg.chainStep?.agent)?.label || msg.chainStep?.agent}
                             {msg.chainStep?.prompt && `: ${msg.chainStep.prompt}`}
                           </span>
                         )}
@@ -964,17 +1245,20 @@ export default function Home() {
           className="w-full bg-transparent border-none outline-none text-sm resize-none placeholder:text-gray-600"
           disabled={loading}
         />
-        <div className="flex items-center justify-between mt-2">
-          <select
-            value={agentType}
-            onChange={(e) => { setAgentType(e.target.value); localStorage.setItem('agent_type', e.target.value) }}
-            className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors"
-            style={{ maxWidth: '160px' }}
-          >
-            {AGENT_OPTIONS.map((a) => (
-              <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
-            ))}
-          </select>
+        <div className="flex items-center justify-between mt-2 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <select
+              value={agentType}
+              onChange={(e) => { setAgentType(e.target.value); localStorage.setItem('agent_type', e.target.value) }}
+              className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors shrink-0"
+              style={{ maxWidth: '160px' }}
+            >
+              {agentOptions.map((a) => (
+                <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}</option>
+              ))}
+            </select>
+            {modelControls}
+          </div>
           <button onClick={run} disabled={loading || !query.trim()}
             className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-xs font-medium transition shrink-0 ml-3">
             Run
@@ -1008,7 +1292,7 @@ export default function Home() {
                   <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
                   {t.agent_type && t.agent_type !== 'default' && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
-                      {AGENT_OPTIONS.find(a => a.value === t.agent_type)?.icon} {AGENT_OPTIONS.find(a => a.value === t.agent_type)?.label}
+                      {agentOptions.find(a => a.value === t.agent_type)?.icon} {agentOptions.find(a => a.value === t.agent_type)?.label}
                     </span>
                   )}
                   {t.chain && (
@@ -1088,6 +1372,11 @@ export default function Home() {
             </span>
           )}
           <span className="text-[10px] text-gray-600">{Object.keys(skills).length} skills</span>
+          {apiStatus === 'down' && (
+            <span className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-md">
+              API offline
+            </span>
+          )}
 
           {/* fullscreen agent toggle */}
           <button
@@ -1200,7 +1489,7 @@ export default function Home() {
                   ) : (
                     <div className="flex flex-col h-full">
                       <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
-                        <span className="text-xs text-gray-600 uppercase tracking-wider font-medium">Tasks</span>
+                        <span className="text-xs text-gray-600 uppercase tracking-wider font-medium">Conversations</span>
                         <div className="flex items-center gap-0.5">
                           <button
                             onClick={() => setSidebarExpanded(e => !e)}

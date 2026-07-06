@@ -14,7 +14,7 @@ import mod as m
 @pytest.fixture(scope="session")
 def api():
     """Provide an Api instance for tests."""
-    from mod.core.app.api.mod import Api
+    from mod.core.api.mod import Api
     return Api(key='test', store='localfs')
 
 

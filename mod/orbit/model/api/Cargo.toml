@@ -1,0 +1,31 @@
+[package]
+name = "model-api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "model-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+
+# HTTP client + SSE bridging to upstream OpenAI-compatible providers
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures-util = "0.3"
+bytes = "1"
+
+# EIP-191 personal-sign verification for the ModelGate
+ethers = { version = "2", default-features = false, features = ["rustls"] }
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }

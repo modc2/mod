@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { ethers } from 'ethers'
 import { toast } from 'react-toastify'
-import modConfig from '@config'
+import { getChainConfig, getContracts, getRpcUrl } from '@/network/chainConfig'
 
 const ERC20_ABI = [
   'function transfer(address to, uint256 amount) returns (bool)',
@@ -12,12 +12,8 @@ const ERC20_ABI = [
   'function symbol() view returns (string)'
 ]
 
-const chainConfig = (modConfig.chain as any)?.testnet
-const RPC_URL = chainConfig?.url || 'https://sepolia.base.org'
-const CONTRACTS = chainConfig?.contracts || {}
-
 function getRpcProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(RPC_URL)
+  return new ethers.JsonRpcProvider(getRpcUrl())
 }
 
 const ORACLE_ABI = [
@@ -25,6 +21,7 @@ const ORACLE_ABI = [
 ]
 
 async function fetchEthPriceUSD(): Promise<number> {
+  const CONTRACTS = getContracts()
   const oracleAddr = CONTRACTS.ManualPriceOracle?.address
   if (!oracleAddr) return 0
   try {
@@ -39,6 +36,7 @@ async function fetchEthPriceUSD(): Promise<number> {
 
 async function fetchOnChainBalances(address: string): Promise<Record<string, number>> {
   const provider = getRpcProvider()
+  const CONTRACTS = getContracts()
   const balances: Record<string, number> = {}
 
   const tokenDefs: { symbol: string; address: string; decimals?: number }[] = [

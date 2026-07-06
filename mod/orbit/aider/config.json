@@ -1,0 +1,15 @@
+{
+    "name": "aider",
+    "version": "0.1.0",
+    "description": "Aider AI pair programmer (Rust contract)",
+    "lang": "rust",
+    "port": 8855,
+    "app_port": 8856,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "icon": "A",
+    "color": "#ef4444",
+    "binary": "aider",
+    "default_model": "gpt-4o",
+    "env_key": "AIDER_API_KEY",
+    "schema": "QmT9TZwcRjbb6zjix4ZYjnXQtsCX8yib5gompdqGKZzrtQ"
+}

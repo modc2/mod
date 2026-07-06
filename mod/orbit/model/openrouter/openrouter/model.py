@@ -11,6 +11,7 @@ class OpenRouter:
 
     api_path = 'apikeys' # path to store api keys (relative to storage_path)
     env_varname = 'OPENROUTER_API_KEY' # environment variable name for api key
+    provider = 'openrouter'
 
     @classmethod
     def create(cls, copy_from=None, **kwargs):
@@ -111,8 +112,11 @@ class OpenRouter:
         Returns:
         Generator[str] | str: A generator for streaming responses or the full streamed response.
         """
-        if free: 
-            model = self.free_models()[0]
+        if free:
+            free_list = self.free_models()
+            if not free_list:
+                raise ValueError("No free models available on OpenRouter. Try update=True or check your connection.")
+            model = free_list[0]
         model = model or self.model
         prompt = prompt or system_prompt
         if len(extra_text) > 0:
@@ -122,9 +126,9 @@ class OpenRouter:
         message = message + prompt if prompt else message
         model = self.resolve_model(model)
         model_info = self.model_info(model)
-        num_tokens = len(message)
-        print(f'Sending {num_tokens} tokens -> {model}')
-        max_tokens = min(max_tokens, model_info['context_length'] - num_tokens)
+        num_tokens = len(message) // 4  # rough char-to-token estimate
+        print(f'Sending ~{num_tokens} tokens -> {model}')
+        max_tokens = min(max_tokens, max(1024, model_info['context_length'] - num_tokens))
         messages = history.copy()
         messages.append({"role": "user", "content": message})
         result = self.client.chat.completions.create(model=model, messages=messages, stream= bool(stream), max_tokens = max_tokens, temperature= temperature  )
@@ -143,12 +147,13 @@ class OpenRouter:
         item['result'] = ''
         path = f"history/{item['hash']}"
         if stream:
-            def stream_generator( result):
+            def stream_generator(result):
                 for token in result:
                     if len(token.choices) > 0:
-                        token = token.choices[0].delta.content
-                        item['result'] += token
-                        yield token
+                        content = token.choices[0].delta.content
+                        if content is not None:
+                            item['result'] += content
+                            yield content
                 self.store.put(path, item)
             return stream_generator(result)
         else:
@@ -245,15 +250,42 @@ class OpenRouter:
     def models(self, search: str = None, path='models', update=False):
         return list(self.model2info(search=search, path=path, update=update).keys())
 
-    def free_models(self, search: str = None):
-        models = self.models()
-        free_models = [m for m in models if 'free' in m]
-        if search:
-            free_models = [m for m in free_models if search in m]
-        return free_models
+    def free_models(self, search: str = None, update=False, info=False):
+        """
+        Get all free models (prompt + completion cost = 0).
 
-    def free_model(self):
-        return m.choice(self.free_models())
+        Args:
+            search: Filter by substring in model id (e.g. 'google', 'claude')
+            update: Force refresh from OpenRouter API
+            info: Return full model info dicts instead of just ids
+
+        Returns:
+            list[str] | list[dict]: Model ids or full info dicts
+        """
+        model2info = self.model2info(path='models', update=update)
+        free = []
+        for mid, minfo in model2info.items():
+            pricing = minfo.get('pricing', {})
+            prompt_cost = float(pricing.get('prompt', '1') or '1')
+            completion_cost = float(pricing.get('completion', '1') or '1')
+            if prompt_cost == 0 and completion_cost == 0:
+                free.append(minfo)
+        if search:
+            terms = [s.strip().lower() for s in search.split(',')]
+            free = [f for f in free if any(t in f['id'].lower() for t in terms)]
+        if info:
+            return [{
+                'id': f['id'],
+                'name': f.get('name', f['id']),
+                'context_length': f.get('context_length', 0),
+                'architecture': f.get('architecture', {}).get('modality', ''),
+            } for f in free]
+        return [f['id'] for f in free]
+
+    def free_model(self, search: str = None):
+        """Pick a random free model, optionally filtered by search."""
+        models = self.free_models(search=search)
+        return m.choice(models) if models else None
     
     def model_infos(self, search: str = None, path='models',  update=False):
         return list(self.model2info(search=search, path=path, update=update).values())

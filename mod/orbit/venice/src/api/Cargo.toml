@@ -1,0 +1,52 @@
+[package]
+name = "venice-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "venice_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "venice-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization — preserve_order so we can re-serialize a parsed auth token's
+# `data` object in the exact key order it was signed in (signature depends on it).
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# HTTP client (Venice upstream + x402 facilitator). rustls so we don't need
+# the system OpenSSL at build time. `stream` for chat-completion passthrough.
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures = "0.3"
+tokio-stream = "0.1"
+
+# Error handling
+anyhow = "1"
+
+# Crypto:
+#  k256  — secp256k1 ECDSA recovery to verify wallet-signed mod-protocol tokens.
+#  sha3  — Keccak-256 for EIP-191 message hashing + Ethereum address derivation.
+#  aes-gcm — encrypt stored BYOK Venice keys at rest.
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+base64 = "0.22"
+
+# Concurrency / state
+dashmap = "6"
+parking_lot = "0.12"
+
+# Time + logging
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

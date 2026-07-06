@@ -6,7 +6,7 @@ import { Send, Zap, CheckCircle, AlertCircle, ArrowUpDown } from 'lucide-react'
 import { CopyButton } from '@/ui/CopyButton'
 import { text2color } from '@/utils'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import MarketABI from '@/contracts//market/Market.sol/Market.json'
 import { TransferHeader } from './TransferHeader'
 
@@ -134,7 +134,7 @@ export const Transfer: React.FC = () => {
     try {
       const url = localStorage.getItem('network_url') || 'http://localhost:8545'
       const provider = new ethers.JsonRpcProvider(url)
-      const chainConfig = modConfig.chain?.['testnet']
+      const chainConfig = getChainConfig()
       
       if (chainConfig?.contracts?.USDC?.address) {
         const usdcContract = new ethers.Contract(chainConfig.contracts.USDC.address, ERC20_ABI, provider)
@@ -158,7 +158,7 @@ export const Transfer: React.FC = () => {
     try {
       const url = localStorage.getItem('network_url') || 'http://localhost:8545'
       const provider = new ethers.JsonRpcProvider(url)
-      const chainConfig = modConfig.chain?.['testnet']
+      const chainConfig = getChainConfig()
       
       if (chainConfig?.contracts?.Market?.address) {
         const marketContract = new ethers.Contract(chainConfig.contracts.Market.address, MarketABI.abi, provider)

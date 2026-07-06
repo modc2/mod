@@ -1,9 +1,0 @@
-# Zstandard Compression Requirements
-# Core compression library
-zstandard>=0.22.0
-
-# Optional: For better performance
-cython>=3.0.0
-
-# Optional: For CLI tools
-click>=8.1.0

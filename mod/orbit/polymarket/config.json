@@ -1,121 +1,65 @@
 {
-  "name": "polymarket",
-  "version": "1.0.0",
-  "description": "Polymarket prediction market — trading, data, scraping, backtesting (Rust-powered)",
-  "port": 50091,
-  "urls": {
-    "api": "http://localhost:50091",
-    "app": "http://localhost:3091"
-  },
-  "fns": [
-    "search",
-    "markets",
-    "market",
-    "trending",
-    "by_liquidity",
-    "ending_soon",
-    "events",
-    "event",
-    "tags",
-    "orderbook",
-    "midpoint",
-    "last_trade_price",
-    "price_history",
-    "buy",
-    "sell",
-    "market_buy",
-    "market_sell",
-    "place_order",
-    "cancel",
-    "cancel_all",
-    "open_orders",
-    "positions",
-    "position_value",
-    "trades",
-    "get_user_positions",
-    "get_user_trades",
-    "discover",
-    "scrape",
-    "scrape_stop",
-    "scrape_status",
-    "stored_prices",
-    "stored_trades",
-    "stored_markets",
-    "store_stats",
-    "backtest",
-    "build",
-    "auth",
-    "serve",
-    "kill",
-    "status",
-    "test"
-  ],
-  "schema": {
-    "search": {
-      "input": [{"name": "query", "type": "str", "value": ""}],
-      "output": {"type": "list"},
-      "docs": "Search markets by keyword"
+    "name": "polymarket",
+    "version": "2.0.0",
+    "description": "Polymarket prediction market \u2014 Rust API + Next.js frontend",
+    "port": 50091,
+    "app_port": 3091,
+    "urls": {
+        "api": "http://localhost:50091",
+        "app": "http://localhost:3091/polymarket",
+        "gateway": "http://localhost:3000/polymarket"
     },
-    "markets": {
-      "input": [
-        {"name": "limit", "type": "int", "value": 100},
-        {"name": "active", "type": "bool", "value": true},
-        {"name": "order", "type": "str", "value": null}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get markets (sorted, filtered)"
+    "fns": [
+        "serve",
+        "kill",
+        "status",
+        "build",
+        "logs",
+        "search",
+        "markets",
+        "trending",
+        "events",
+        "active_traders",
+        "forward"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "docs": "Health check"
+        },
+        "/active-traders": {
+            "method": "GET",
+            "docs": "Active traders pipeline (streaming/paged/json)"
+        },
+        "/?endpoint=markets": {
+            "method": "GET",
+            "docs": "Proxy: list markets (gamma-api)"
+        },
+        "/?endpoint=events": {
+            "method": "GET",
+            "docs": "Proxy: list events (gamma-api)"
+        },
+        "/?endpoint=activity": {
+            "method": "GET",
+            "docs": "Proxy: user activity (data-api)"
+        },
+        "/?endpoint=positions": {
+            "method": "GET",
+            "docs": "Proxy: user positions (data-api)"
+        },
+        "/?endpoint=prices-history": {
+            "method": "GET",
+            "docs": "Proxy: price history (clob)"
+        },
+        "/user-strats/{id}/share": {
+            "method": "POST",
+            "docs": "Bundle a strat + store it content-addressably (localfs default) -> CID"
+        },
+        "/user-strats/import": {
+            "method": "POST",
+            "docs": "Import a strat by CID as a private copy you own"
+        }
     },
-    "market": {
-      "input": [{"name": "condition_id", "type": "str", "value": ""}],
-      "output": {"type": "dict"},
-      "docs": "Get single market by condition ID"
-    },
-    "trending": {
-      "input": [{"name": "limit", "type": "int", "value": 20}],
-      "output": {"type": "list"},
-      "docs": "Get trending markets by volume"
-    },
-    "buy": {
-      "input": [
-        {"name": "token_id", "type": "str", "value": ""},
-        {"name": "price", "type": "float", "value": 0.5},
-        {"name": "size", "type": "float", "value": 10}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Buy shares (requires private key)"
-    },
-    "sell": {
-      "input": [
-        {"name": "token_id", "type": "str", "value": ""},
-        {"name": "price", "type": "float", "value": 0.5},
-        {"name": "size", "type": "float", "value": 10}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Sell shares (requires private key)"
-    },
-    "backtest": {
-      "input": [
-        {"name": "start", "type": "int", "value": 0},
-        {"name": "end", "type": "int", "value": 0},
-        {"name": "strategy", "type": "str", "value": "threshold"},
-        {"name": "buy_threshold", "type": "float", "value": 0.3},
-        {"name": "sell_threshold", "type": "float", "value": 0.7}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Run backtest on stored history data"
-    }
-  },
-  "endpoints": {
-    "/health": {"method": "GET", "docs": "Health check"},
-    "/markets": {"method": "GET", "docs": "List markets"},
-    "/markets/{condition_id}": {"method": "GET", "docs": "Get single market"},
-    "/search": {"method": "GET", "docs": "Search markets"},
-    "/trending": {"method": "GET", "docs": "Trending by volume"},
-    "/orderbook/{token_id}": {"method": "GET", "docs": "Get order book"},
-    "/order": {"method": "POST", "docs": "Place limit order"},
-    "/market-order": {"method": "POST", "docs": "Place market order"},
-    "/positions": {"method": "GET", "docs": "Get positions"},
-    "/trades": {"method": "GET", "docs": "Get trade history"},
-    "/backtest": {"method": "POST", "docs": "Run backtest"}
-  }
+    "schema": "QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz",
+    "gateway_port": 3091
 }

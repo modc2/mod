@@ -1,1 +1,2 @@
-**/_tmp
+# Runtime data: provider config + BYOK master secret. Never commit.
+.dev-data/

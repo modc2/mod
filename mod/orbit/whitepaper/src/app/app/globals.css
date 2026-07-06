@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light theme (default). */
+:root {
+  color-scheme: light;
+  --paper:   250 250 247;  /* #FAFAF7 */
+  --panel:   244 244 240;
+  --rule:    220 220 215;
+  --ink:     17 17 17;     /* #111 */
+  --muted:   100 110 120;
+  --modblue: 30 58 95;     /* #1E3A5F */
+  --modcyan: 14 165 233;
+}
+
+/* Dark theme — applied when <html class="dark"> is set. */
+html.dark {
+  color-scheme: dark;
+  --paper:   11 13 16;     /* #0B0D10 */
+  --panel:   20 24 29;
+  --rule:    34 40 49;
+  --ink:     232 236 241;
+  --muted:   155 163 175;
+  --modblue: 122 184 255;  /* brighter blue for AA on dark */
+  --modcyan: 34 211 238;
+}
+
+html, body {
+  background: rgb(var(--paper));
+  color: rgb(var(--ink));
+}
+
+.prose-paper h1 { @apply text-4xl font-semibold tracking-tight mt-12 mb-4 text-ink; }
+.prose-paper h2 { @apply text-2xl font-semibold mt-10 mb-3 text-modblue; }
+.prose-paper h3 { @apply text-xl font-semibold mt-8 mb-2 text-modblue/85; }
+.prose-paper p  { @apply leading-relaxed my-3 text-[15px] text-ink/90; }
+.prose-paper li { @apply leading-relaxed my-1 text-[15px] text-ink/90; }
+.prose-paper code { @apply font-mono text-[13px] bg-panel text-ink px-1 py-0.5 rounded border border-rule; }
+.prose-paper pre  { @apply font-mono text-[12.5px] bg-panel text-ink p-4 rounded border border-rule overflow-x-auto my-4; }
+.prose-paper pre code { @apply bg-transparent border-0 p-0; }
+.prose-paper table { @apply w-full text-sm my-4; }
+.prose-paper th { @apply border-b border-rule px-2 py-1 text-left align-top text-modblue font-semibold; }
+.prose-paper td { @apply border-b border-rule/70 px-2 py-1 text-left align-top text-ink/90; }
+.prose-paper a { @apply text-modcyan underline; }
+.prose-paper ol, .prose-paper ul { @apply pl-6; }

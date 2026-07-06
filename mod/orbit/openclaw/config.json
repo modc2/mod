@@ -1,129 +1,28 @@
 {
-  "name": "openclaw",
-  "version": "1.0.0",
-  "description": "OpenClaw agent platform \u2014 import, load, and run AI agents in Docker",
-  "port": 50120,
-  "gateway_port": 18789,
-  "urls": {
-    "api": "http://localhost:50120",
-    "app": "http://localhost:50121"
-  },
-  "fns": [
-    "setup",
-    "kill",
-    "restart",
-    "status",
-    "agents",
-    "agent",
-    "import_agent",
-    "export_agent",
-    "send",
-    "forward",
-    "gateway",
-    "config",
-    "logs",
-    "test"
-  ],
-  "schema": {
-    "setup": {
-      "input": [
-        {
-          "name": "build",
-          "type": "bool",
-          "value": true
-        }
-      ],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Build and start the OpenClaw Docker container"
+    "name": "openclaw",
+    "version": "1.0.0",
+    "description": "OpenClaw agent platform \u2014 import, load, and run AI agents in Docker",
+    "port": 50120,
+    "gateway_port": 18789,
+    "urls": {
+        "api": "http://localhost:50120",
+        "app": "http://localhost:50121"
     },
-    "agent": {
-      "input": [
-        {
-          "name": "name",
-          "type": "str"
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "claude"
-        },
-        {
-          "name": "thinking",
-          "type": "str",
-          "value": "medium"
-        }
-      ],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Create or load an agent session"
-    },
-    "send": {
-      "input": [
-        {
-          "name": "message",
-          "type": "str"
-        },
-        {
-          "name": "agent",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Send a message to an OpenClaw agent"
-    },
-    "import_agent": {
-      "input": [
-        {
-          "name": "source",
-          "type": "str"
-        },
-        {
-          "name": "name",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Import an agent config from file or URL"
-    },
-    "export_agent": {
-      "input": [
-        {
-          "name": "name",
-          "type": "str"
-        },
-        {
-          "name": "dest",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Export an agent config to a local file"
-    },
-    "agents": {
-      "input": [],
-      "output": {
-        "type": "list"
-      },
-      "docs": "List all available agents/sessions"
-    },
-    "status": {
-      "input": [],
-      "output": {
-        "type": "dict"
-      },
-      "docs": "Check container and gateway status"
-    }
-  }
+    "fns": [
+        "setup",
+        "kill",
+        "restart",
+        "status",
+        "agents",
+        "agent",
+        "import_agent",
+        "export_agent",
+        "send",
+        "forward",
+        "gateway",
+        "config",
+        "logs",
+        "test"
+    ],
+    "schema": "Qmc3qHe2yChYyxHUnhu3oe81LgHarF1CgeVHEFG8rw7h5g"
 }

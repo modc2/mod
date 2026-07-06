@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  neartensor:
+    build: .
+    container_name: neartensor
+    ports:
+      - "${GATEWAY_PORT:-50141}:${GATEWAY_PORT:-50141}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50141}
+    volumes:
+      - neartensor-data:/app/data
+
+volumes:
+  neartensor-data:

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import dynamic from 'next/dynamic'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'react-toastify'
 import {
   ArrowsRightLeftIcon,
@@ -16,7 +15,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8840'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://modc2.com/api/bridge' : 'http://localhost:8840')
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === 'production' ? 'https://modc2.com/bridge' : 'http://localhost:8841')
 
 interface CommitResult {
   success?: boolean
@@ -49,8 +49,18 @@ interface SnapshotStats {
   total_addresses: number
   total_owed: number
   total_claimed: number
+  total_committed: number
   total_unclaimed: number
   claim_count: number
+  commitment_count: number
+}
+
+interface SnapshotAudit {
+  cid: string
+  updated_at: number
+  bytes: number
+  addresses: number
+  algo: string
 }
 
 async function api(fn: string, params: Record<string, any> = {}) {
@@ -67,6 +77,21 @@ async function api(fn: string, params: Record<string, any> = {}) {
   return data.result !== undefined ? data.result : data
 }
 
+// Paged GET — used for the snapshot loader. Fetches /balances?page=&limit= and
+// returns { balances, total }. Trailing slashes stripped to be reverse-proxy
+// safe (Caddy strips its own prefix; we don't want a double slash).
+async function apiGet(path: string): Promise<any> {
+  const res = await fetch(`${API_URL.replace(/\/$/, '')}${path}`, { method: 'GET' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || err.error || 'Request failed')
+  }
+  return res.json()
+}
+
+const PAGE_SIZE = 50
+const SEARCH_DEBOUNCE_MS = 250
+
 function isValidEvmAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr.trim())
 }
@@ -82,14 +107,16 @@ function BridgePageInner() {
   const [snapshotEntries, setSnapshotEntries] = useState<SnapshotEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [commitments, setCommitments] = useState<Record<string, CommitmentEntry>>({})
+  const [audit, setAudit] = useState<SnapshotAudit | null>(null)
 
   // ── Table state ─────────────────────────────────────────────────
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('balance')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [claimFilter, setClaimFilter] = useState<ClaimFilter>('all')
   const [page, setPage] = useState(0)
-  const PAGE_SIZE = 50
+  const [filteredTotal, setFilteredTotal] = useState(0)
 
   // ── Commit state ────────────────────────────────────────────────
   const [evmAddress, setEvmAddress] = useState('')
@@ -106,6 +133,9 @@ function BridgePageInner() {
   const [editingAddress, setEditingAddress] = useState<string | null>(null)
   const [editEvmAddress, setEditEvmAddress] = useState('')
 
+  // ── Network state ─────────────────────────────────────────────
+  const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
+
   // ── Helpers ─────────────────────────────────────────────────────
   const formatAddress = (addr: string) =>
     addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : ''
@@ -120,45 +150,77 @@ function BridgePageInner() {
   }
 
   // ── Data fetching ───────────────────────────────────────────────
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [statsData, balancesData, claimsData, commitmentsData] = await Promise.all([
-        api('status').catch(() => null),
-        api('get_total_balances').catch(() => ({})),
-        api('get_claims').catch(() => ({})),
-        api('get_commitments').catch(() => ({})),
-      ])
-      const claims = claimsData || {}
-      const comms = commitmentsData || {}
-      const claimedSet = new Set([...Object.keys(claims), ...Object.keys(comms)])
+  // Server-driven: every search/sort/filter/page change re-queries the
+  // bridge API for just the visible page. Nothing is loaded client-side
+  // up front — the snapshot has ~100k entries and they don't belong in
+  // the browser. Stats + commitments are loaded once and refreshed only
+  // when the user takes an action (commit / update).
 
-      if (statsData) {
-        const claimedCount = claimedSet.size
-        const totalClaimed = Object.values(comms as Record<string, any>).reduce((sum: number, c: any) => {
-          const addr = c?.source_address || ''
-          return sum + Number((balancesData || {} as any)[addr] || 0)
-        }, 0) + statsData.total_claimed
-        setSnapshotStats({ ...statsData, claim_count: claimedCount, total_claimed: totalClaimed })
-      }
-
-      const entries: SnapshotEntry[] = Object.entries(balancesData || {}).map(([addr, bal]) => {
-        const comm = (comms as Record<string, CommitmentEntry>)[addr]
-        return {
-          address: addr,
-          balance: Number(bal),
-          claimed: claimedSet.has(addr),
-          evm_address: comm?.evm_address,
-          source_type: comm?.source_type,
-        }
-      })
-      setSnapshotEntries(entries)
-      setCommitments(comms || {})
-    } catch { /* ignore */ }
-    setLoading(false)
+  // One-time loaders: stats, commitments, audit.
+  const refreshStats = useCallback(async () => {
+    const [statsData, commitmentsData] = await Promise.all([
+      api('status').catch(() => null),
+      api('get_commitments').catch(() => ({})),
+    ])
+    if (statsData) setSnapshotStats(statsData)
+    setCommitments(commitmentsData || {})
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  // Debounce search so we don't hammer the API per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(id)
+  }, [search])
+
+  // Reset to page 0 whenever the query / filter / sort changes.
+  useEffect(() => { setPage(0) }, [debouncedSearch, claimFilter, sortKey, sortDir])
+
+  const fetchPage = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+        sort_by: sortKey,
+        dir: sortDir,
+        claim_filter: claimFilter,
+      })
+      if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
+
+      const res = await apiGet(`/balances?${params.toString()}`)
+      const entries: Array<{ address: string; balance: number; claimed: boolean }> =
+        res?.entries || []
+      const commsMap = commitments
+      setSnapshotEntries(entries.map(e => {
+        const comm = commsMap[e.address]
+        return {
+          address: e.address,
+          balance: Number(e.balance),
+          claimed: e.claimed,
+          evm_address: comm?.evm_address,
+          source_type: comm?.source_type,
+        } as SnapshotEntry
+      }))
+      setFilteredTotal(Number(res?.total || 0))
+    } catch { /* ignore — keep prior page on error */ }
+    setLoading(false)
+  }, [page, sortKey, sortDir, claimFilter, debouncedSearch, commitments])
+
+  // Initial load.
+  useEffect(() => {
+    refreshStats()
+    apiGet('/audit')
+      .then(a => a?.snapshot && setAudit(a.snapshot))
+      .catch(() => {})
+  }, [refreshStats])
+
+  useEffect(() => { fetchPage() }, [fetchPage])
+
+  // Pull fresh totals + the current page (used after a commit / update / manual refresh).
+  const refreshAfterAction = useCallback(() => {
+    refreshStats()
+    fetchPage()
+  }, [refreshStats, fetchPage])
 
   // ── Sorting ─────────────────────────────────────────────────────
   const toggleSort = (key: SortKey) => {
@@ -178,34 +240,9 @@ function BridgePageInner() {
       : <ChevronDownIcon className="w-3 h-3 text-white/60" />
   }
 
-  // ── Filtered + sorted entries ───────────────────────────────────
-  const processed = useMemo(() => {
-    let filtered = snapshotEntries
-
-    if (search) {
-      const q = search.toLowerCase()
-      filtered = filtered.filter(e =>
-        e.address.toLowerCase().includes(q) ||
-        (e.evm_address && e.evm_address.toLowerCase().includes(q))
-      )
-    }
-
-    if (claimFilter === 'claimed') filtered = filtered.filter(e => e.claimed)
-    else if (claimFilter === 'unclaimed') filtered = filtered.filter(e => !e.claimed)
-
-    const sorted = [...filtered].sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'address') cmp = a.address.localeCompare(b.address)
-      else if (sortKey === 'balance') cmp = a.balance - b.balance
-      else if (sortKey === 'claimed') cmp = (a.claimed ? 1 : 0) - (b.claimed ? 1 : 0)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-
-    return sorted
-  }, [snapshotEntries, search, claimFilter, sortKey, sortDir])
-
-  const totalPages = Math.ceil(processed.length / PAGE_SIZE)
-  const pageEntries = processed.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  // Server returns the visible page already filtered + sorted.
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE))
+  const pageEntries = snapshotEntries
 
   // ── Wallet connectors ──────────────────────────────────────────
   const connectSubWallet = useCallback(async () => {
@@ -267,14 +304,14 @@ function BridgePageInner() {
         source_address: sourceAddress, evm_address: target, signature: sigHex, source_type: sourceType,
       })
       setCommitResult(result)
-      if (result?.success) { toast.success('Commitment submitted!'); fetchAll() }
+      if (result?.success) { toast.success('Commitment submitted!'); refreshAfterAction() }
       else if (result?.error) toast.error(result.error)
     } catch (err: any) {
       const errResult = { error: err?.message || 'Commitment failed' }
       setCommitResult(errResult)
       toast.error(errResult.error)
     } finally { setCommitProcessing(false) }
-  }, [evmAddress, fetchAll])
+  }, [evmAddress, refreshAfterAction])
 
   const handleUpdate = useCallback(async (sourceAddress: string, sourceType: SourceType, newEvmAddress: string) => {
     if (!newEvmAddress || !isValidEvmAddress(newEvmAddress)) { toast.error('Enter a valid new EVM address'); return }
@@ -290,14 +327,14 @@ function BridgePageInner() {
         toast.success(`Updated: ${formatAddress(result.previous_evm || '')} -> ${formatAddress(newEvmAddress)}`)
         setEditingAddress(null)
         setEditEvmAddress('')
-        fetchAll()
+        refreshAfterAction()
       } else if (result?.error) toast.error(result.error)
     } catch (err: any) {
       const errResult = { error: err?.message || 'Update failed' }
       setCommitResult(errResult)
       toast.error(errResult.error)
     } finally { setCommitProcessing(false) }
-  }, [fetchAll])
+  }, [refreshAfterAction])
 
   const canEdit = (entry: SnapshotEntry): boolean => {
     if (!entry.evm_address) return false
@@ -338,6 +375,24 @@ function BridgePageInner() {
           >
             <LinkIcon className="w-4 h-4 inline mr-1.5 -mt-0.5" />
             Commit
+          </button>
+        </div>
+
+        {/* Network Selector */}
+        <div className="flex items-center gap-2">
+          <button
+            className="px-4 py-2 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
+          >
+            Testnet
+          </button>
+          <button
+            disabled
+            className="relative px-4 py-2 rounded-lg border text-xs font-bold uppercase tracking-wider border-white/5 bg-white/[0.02] text-white/20 cursor-not-allowed"
+          >
+            Mainnet
+            <span className="absolute -top-2 -right-2 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400/80 border border-amber-500/30">
+              Soon
+            </span>
           </button>
         </div>
 
@@ -470,11 +525,15 @@ function BridgePageInner() {
 
         {/* ── Stats ─────────────────────────────────────────────────── */}
         {snapshotStats && (() => {
+          // "Claimed" in the UI means: the source address has committed to an
+          // EVM address (the on-chain claim follows from the commitment).
+          const claimedAmount = snapshotStats.total_committed + snapshotStats.total_claimed
+          const claimedCount = snapshotStats.commitment_count + snapshotStats.claim_count
           const claimPct = snapshotStats.total_owed > 0
-            ? (snapshotStats.total_claimed / snapshotStats.total_owed) * 100
+            ? (claimedAmount / snapshotStats.total_owed) * 100
             : 0
           const walletPct = snapshotStats.total_addresses > 0
-            ? (snapshotStats.claim_count / snapshotStats.total_addresses) * 100
+            ? (claimedCount / snapshotStats.total_addresses) * 100
             : 0
 
           return (
@@ -494,7 +553,7 @@ function BridgePageInner() {
                   />
                 </div>
                 <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[10px] text-white/25">{formatBalance(snapshotStats.total_claimed)} claimed</span>
+                  <span className="text-[10px] text-white/25">{formatBalance(claimedAmount)} claimed</span>
                   <span className="text-[10px] text-white/25">{formatBalance(snapshotStats.total_owed)} total</span>
                 </div>
               </div>
@@ -510,11 +569,11 @@ function BridgePageInner() {
                   <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 mt-1">Total</p>
                 </div>
                 <div className="p-4 text-center border-r border-white/[0.06]">
-                  <p className="text-lg font-bold text-emerald-400 tabular-nums">{formatBalance(snapshotStats.total_claimed)}</p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 mt-1">Claimed ({snapshotStats.claim_count.toLocaleString()})</p>
+                  <p className="text-lg font-bold text-emerald-400 tabular-nums">{formatBalance(claimedAmount)}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 mt-1">Claimed ({claimedCount.toLocaleString()})</p>
                 </div>
                 <div className="p-4 text-center">
-                  <p className="text-lg font-bold text-white/40 tabular-nums">{formatBalance(snapshotStats.total_unclaimed)}</p>
+                  <p className="text-lg font-bold text-white/40 tabular-nums">{formatBalance(Math.max(snapshotStats.total_owed - claimedAmount, 0))}</p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 mt-1">Unclaimed</p>
                 </div>
               </div>
@@ -552,7 +611,7 @@ function BridgePageInner() {
             </div>
 
             <button
-              onClick={fetchAll}
+              onClick={refreshAfterAction}
               disabled={loading}
               className="p-2 rounded-lg border border-white/10 bg-white/5 text-white/40 hover:text-white/70 hover:bg-white/10 disabled:opacity-30 transition-colors"
             >
@@ -582,7 +641,7 @@ function BridgePageInner() {
               <ArrowPathIcon className="w-5 h-5 animate-spin text-white/20 mx-auto mb-2" />
               <span className="text-xs text-white/30">Loading snapshot...</span>
             </div>
-          ) : processed.length === 0 ? (
+          ) : filteredTotal === 0 ? (
             <div className="text-center py-12">
               <span className="text-xs text-white/30 uppercase tracking-wider">No entries found</span>
             </div>
@@ -704,7 +763,7 @@ function BridgePageInner() {
               </button>
               <span className="text-xs text-white/30">
                 {page + 1} / {totalPages}
-                <span className="ml-3 text-white/20">{processed.length} entries</span>
+                <span className="ml-3 text-white/20">{filteredTotal} entries</span>
               </span>
               <button
                 onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
@@ -717,13 +776,38 @@ function BridgePageInner() {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="text-center text-xs text-white/15 uppercase tracking-wider py-4">
-          Bridge Module
+        {/* Footer — public audit surface. Anyone can re-hash the snapshot
+            file on disk and verify the CID matches. */}
+        <div className="text-center text-xs text-white/15 uppercase tracking-wider py-4 space-y-1">
+          <div>Bridge Module</div>
+          {audit && (
+            <div className="flex items-center justify-center gap-3 normal-case tracking-normal">
+              <button
+                onClick={() => copyToClipboard(audit.cid, 'CID')}
+                className="font-mono text-white/30 hover:text-white/60 transition-colors"
+                title={`${audit.algo}:${audit.cid}`}
+              >
+                cid {audit.cid.slice(0, 10)}…{audit.cid.slice(-6)}
+              </button>
+              <span className="text-white/15">·</span>
+              <span className="font-mono text-white/30" title={new Date(audit.updated_at * 1000).toISOString()}>
+                updated {new Date(audit.updated_at * 1000).toLocaleString()}
+              </span>
+              <span className="text-white/15">·</span>
+              <span className="font-mono text-white/30">{audit.addresses.toLocaleString()} addrs</span>
+            </div>
+          )}
         </div>
+
+        {/* API URL debug — dev only */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="fixed bottom-3 right-3 text-[10px] font-mono text-white/20 bg-white/5 border border-white/10 rounded px-2 py-1">
+            API: {API_URL} | APP: {APP_URL}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-export default dynamic(() => Promise.resolve(BridgePageInner), { ssr: false })
+export default BridgePageInner

@@ -1,0 +1,24 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  copytensor:
+    build: .
+    container_name: copytensor
+    ports:
+      - "50150:50150"
+      - "3150:3150"
+    volumes:
+      - ./config.json:/app/config.json
+      - copytensor-data:/app/src/data
+      - ./src/app/app:/app/src/app/app:delegated
+    environment:
+      - PORT=50150
+      - APP_PORT=3150
+      - RUST_LOG=info
+    restart: unless-stopped
+
+volumes:
+  copytensor-data:

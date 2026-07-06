@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  routy:
+    build: .
+    container_name: routy
+    ports:
+      - "${GATEWAY_PORT:-3002}:${GATEWAY_PORT:-3002}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3002}
+    volumes:
+      - routy-data:/app/data
+
+volumes:
+  routy-data:

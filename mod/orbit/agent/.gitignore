@@ -1,1 +1,4 @@
-**/_tmp
+# runtime state — never commit
+.acl.json
+.agent_memory.json
+__pycache__/

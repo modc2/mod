@@ -1,0 +1,82 @@
+{
+    "name": "multistore",
+    "version": "1.0.0",
+    "description": "Unified storage facade \u2014 IPFS + Filecoin + Hippius + Arweave + local FS, with auto-detected backends and cross-backend replication.",
+    "port": 50160,
+    "app_port": 50161,
+    "urls": {
+        "api": "http://localhost:50160",
+        "app": "http://localhost:50161"
+    },
+    "fns": [
+        "backends",
+        "health",
+        "status",
+        "put",
+        "get",
+        "pin",
+        "rm",
+        "list",
+        "replicate",
+        "start_all",
+        "stop_all"
+    ],
+    "backends": [
+        "ipfs",
+        "filecoin",
+        "hippius",
+        "arweave",
+        "localfs"
+    ],
+    "endpoints": {
+        "backends": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List backends + alive state"
+        },
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Per-backend health"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Summary with per-backend counts"
+        },
+        "put": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Upload (multipart). backend='all' fans out to every alive backend."
+        },
+        "get": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Fetch a CID \u2014 falls back across backends until one returns"
+        },
+        "pin": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Pin a CID across one or every backend"
+        },
+        "rm": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Remove a CID from one or every backend"
+        },
+        "list": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Paginated + searchable cross-backend index"
+        },
+        "replicate": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Copy a CID from one backend to another"
+        }
+    },
+    "env": {
+        "MULTISTORE_PATH": "Local state dir (default ~/.multistore)"
+    },
+    "schema": "QmSjD3NhbqVuZPdDTjThiM4AcCS6m2VQxCoV9ic3nuLuod"
+}

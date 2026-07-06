@@ -1,86 +1,15 @@
 {
-  "name": "modify",
-  "version": "1.0.0",
-  "description": "Agent-powered module modifier. Applies suggestions, freeform instructions, and converts folders into mod protocol modules.",
-  "fns": [
-    "forward",
-    "modify_folder",
-    "apply_suggestions",
-    "suggest_and_apply",
-    "ensure_urls",
-    "ensure_serve",
-    "test"
-  ],
-  "schema": {
-    "modify_folder": {
-      "input": [
-        {"name": "path", "type": "str", "value": null},
-        {"name": "name", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "sonnet"},
-        {"name": "description", "type": "str", "value": null},
-        {"name": "background", "type": "bool", "value": false}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Turn any folder into a mod protocol module by generating a mod.py class file via Claude CLI."
-    },
-    "forward": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "path", "type": "str", "value": null},
-        {"name": "suggestion", "type": "dict", "value": null},
-        {"name": "query", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"},
-        {"name": "steps", "type": "int", "value": 5},
-        {"name": "safety", "type": "bool", "value": true}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Apply a single modification to a module from a suggestion or freeform query."
-    },
-    "apply_suggestions": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "path", "type": "str", "value": null},
-        {"name": "suggestions", "type": "list", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"},
-        {"name": "safety", "type": "bool", "value": true},
-        {"name": "max_apply", "type": "int", "value": 5}
-      ],
-      "output": {"type": "list", "value": null},
-      "docs": "Apply multiple suggestions from the suggest module."
-    },
-    "suggest_and_apply": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "path", "type": "str", "value": null},
-        {"name": "focus", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"},
-        {"name": "safety", "type": "bool", "value": true},
-        {"name": "max_apply", "type": "int", "value": 3}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Run suggest on a module, then apply the top suggestions automatically."
-    },
-    "ensure_urls": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "fix", "type": "bool", "value": true},
-        {"name": "host", "type": "str", "value": "localhost"}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Ensure modules have compliant urls: {api, app} map in config.json. Scans all orbit modules or a specific one."
-    },
-    "ensure_serve": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "fix", "type": "bool", "value": true}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Ensure modules with scripts/start.sh have a serve() method. Generates compliant serve() from mod protocol skill.md."
-    },
-    "test": {
-      "input": [],
-      "output": {"type": "dict", "value": null},
-      "docs": "Test with a dry modification."
-    }
-  }
+    "name": "modify",
+    "version": "1.0.0",
+    "description": "Agent-powered module modifier. Applies suggestions, freeform instructions, and converts folders into mod protocol modules.",
+    "fns": [
+        "forward",
+        "modify_folder",
+        "apply_suggestions",
+        "suggest_and_apply",
+        "ensure_urls",
+        "ensure_serve",
+        "test"
+    ],
+    "schema": "QmRD7omY9JNS2jrKE9bmLvCnjKVoVoj8CvDMarmGRpJodh"
 }

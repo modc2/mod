@@ -1,11 +1,11 @@
 """Safe contract module - multi-signature wallet deployment."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Safe contract module.
 
     Deploys Safe singleton, proxy factory, and creates proxy wallets

@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: #0a0a0f;
+  color: #e5e5e5;
+  font-family: 'SF Mono', 'Fira Code', 'IBM Plex Mono', monospace;
+  min-height: 100vh;
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #0a0a0f; }
+::-webkit-scrollbar-thumb { background: #1f1f2e; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2a2a3a; }
+
+/* Glow accent */
+.glow {
+  box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.15), 0 0 20px rgba(110, 231, 183, 0.08);
+}
+
+.btn {
+  background: #15151f;
+  border: 1px solid #2a2a3a;
+  color: #e5e5e5;
+  padding: 8px 14px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  font-family: inherit;
+}
+.btn:hover { background: #1f1f2e; border-color: #6ee7b7; color: #6ee7b7; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn:disabled:hover { background: #15151f; border-color: #2a2a3a; color: #e5e5e5; }
+
+.btn-primary {
+  background: rgba(110, 231, 183, 0.1);
+  border-color: #6ee7b7;
+  color: #6ee7b7;
+}
+.btn-primary:hover { background: rgba(110, 231, 183, 0.2); }
+
+.btn-danger {
+  border-color: #3a1f1f;
+  color: #f87171;
+}
+.btn-danger:hover { background: #1f1010; border-color: #f87171; color: #f87171; }
+
+.input, .textarea {
+  background: #0a0a0f;
+  border: 1px solid #2a2a3a;
+  color: #e5e5e5;
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  width: 100%;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.input:focus, .textarea:focus { border-color: #6ee7b7; }
+.textarea { resize: vertical; min-height: 80px; }
+
+.card {
+  background: #10101a;
+  border: 1px solid #1f1f2e;
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.tab {
+  padding: 10px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6b7280;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.tab:hover { color: #e5e5e5; }
+.tab.active { color: #6ee7b7; border-bottom-color: #6ee7b7; }
+
+.label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #6b7280;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.cid {
+  font-size: 11px;
+  color: #6ee7b7;
+  word-break: break-all;
+  background: rgba(110, 231, 183, 0.05);
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(110, 231, 183, 0.15);
+  display: inline-block;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  font-size: 12px;
+}
+.kv dt { color: #6b7280; }
+.kv dd { color: #e5e5e5; }

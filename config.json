@@ -1,16 +1,25 @@
 {
-        "name": "mod",
-        "version": "0.1.0",
-        "desc": "A Python package for mod utilities",
-        "shortcuts": {"local": "server"},
-        "expose" : ["forward", "info"],
-        "port_range": [50050, 50150],
-        "port": 50420,
-        "cost": {
-            "forward": 1,
-            "info": 0.5
-        },
-        "routes": {
-            "h": "api/h"
-        }
+    "name": "mod",
+    "version": "0.1.0",
+    "desc": "A Python package for mod utilities",
+    "shortcuts": {
+        "local": "server"
+    },
+    "expose": [
+        "forward",
+        "info"
+    ],
+    "port_range": [
+        50050,
+        50150
+    ],
+    "port": 50420,
+    "cost": {
+        "forward": 1,
+        "info": 0.5
+    },
+    "routes": {
+        "h": "api/h"
+    },
+    "schema": "QmThx9Yh3s94B4KSt4jxvhkAipWNdYJ8tfgKrZixWMrNEn"
 }

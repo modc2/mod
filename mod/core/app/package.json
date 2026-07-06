@@ -35,7 +35,6 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.474.0",
     "next": "14.0.4",
-    "node-pty": "^1.1.0",
     "qr-code-styling": "^1.9.2",
     "react": "^18",
     "react-dom": "^18",
@@ -44,6 +43,10 @@
     "react-toastify": "^10.0.5",
     "recharts": "^3.7.0"
   },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "os": ["linux", "darwin"],
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.10",
     "@types/node": "^20",

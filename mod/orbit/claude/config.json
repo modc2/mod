@@ -1,753 +1,205 @@
 {
-  "name": "claude",
-  "version": "2.0.0",
-  "description": "Programmable AI developer interface \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
-  "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
-  "port": 8820,
-  "default_path": "~/mod",
-  "servers": {
-    "claude-api": "http://localhost:8820",
-    "claude-app": "http://localhost:8821"
-  },
-  "fns": [
-    "forward",
-    "ask",
-    "analyze_code",
-    "generate_code",
-    "refactor",
-    "debug",
-    "edit_file",
-    "run_task",
-    "batch_process",
-    "bg",
-    "bg_status",
-    "bg_list",
-    "submit",
-    "create_module",
-    "edit_module",
-    "jobs",
-    "job",
-    "cancel",
-    "kill",
-    "kill_port",
-    "delete_job",
-    "tail",
-    "snapshot",
-    "changelog",
-    "show_changelog",
-    "get_version",
-    "restore_version",
-    "get_owner",
-    "set_owner",
-    "is_owner",
-    "health",
-    "modules",
-    "repos",
-    "files",
-    "owner",
-    "models",
-    "serve",
-    "test"
-  ],
-  "schema": {
-    "forward": {
-      "input": [
-        {
-          "name": "query",
-          "type": "str",
-          "value": "_empty"
+    "name": "claude",
+    "title": "Claude \u2726 Orbit Console",
+    "version": "2.1.0",
+    "description": "Programmable AI developer console \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "port": 8820,
+    "app_port": 8823,
+    "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
+    "chain_network": "testnet",
+    "bloctime_gate": true,
+    "bloctime_ttl": 60,
+    "onchain_registry": false,
+    "icon": "✦",
+    "color": "#cc785c",
+    "deps": [
+        "chain",
+        "store"
+    ],
+    "fns": [
+        "forward",
+        "ask",
+        "analyze_code",
+        "generate_code",
+        "refactor",
+        "debug",
+        "edit_file",
+        "run_task",
+        "batch_process",
+        "bg",
+        "bg_status",
+        "bg_list",
+        "submit",
+        "create_module",
+        "edit_module",
+        "jobs",
+        "job",
+        "cancel",
+        "kill",
+        "kill_port",
+        "module_process",
+        "module_status",
+        "restart_module",
+        "stop_module",
+        "start_module",
+        "delete_job",
+        "tail",
+        "snapshot",
+        "changelog",
+        "show_changelog",
+        "get_version",
+        "restore_version",
+        "get_owner",
+        "set_owner",
+        "is_owner",
+        "is_bloctime_owner",
+        "is_trusted",
+        "is_whitelisted",
+        "editors",
+        "add_editor",
+        "remove_editor",
+        "register_onchain",
+        "health",
+        "modules",
+        "folders",
+        "suggest_folders",
+        "repos",
+        "files",
+        "owner",
+        "models",
+        "serve",
+        "test",
+        "logs",
+        "install",
+        "setup",
+        "scan",
+        "fix"
+    ],
+    "schema": "QmTSZnUHEjpguuwZmV1g358FV2chitDkJsJpVp475V58pU",
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
         },
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
+        "/config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get module config.json"
         },
-        {
-          "name": "mod",
-          "type": "str",
-          "value": null
+        "/owner": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get owner address and status"
         },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
+        "/repos": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List git repositories"
         },
-        {
-          "name": "background",
-          "type": "bool",
-          "value": true
+        "/modules": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List orbit and core modules"
         },
-        {
-          "name": "stream",
-          "type": "bool",
-          "value": false
+        "/folders": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List folders under a path with optional search filter"
         },
-        {
-          "name": "key",
-          "type": "str",
-          "value": null
+        "/suggest_folders": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Suggest folders using embedcode similarity search"
+        },
+        "/files/tree": {
+            "method": "GET",
+            "auth": false,
+            "docs": "File tree browser"
+        },
+        "/jobs": {
+            "method": [
+                "POST",
+                "GET"
+            ],
+            "auth": "GET: false, POST: true",
+            "docs": "Submit a job (auth) or list ALL jobs (public — tasks form a public code ledger)"
+        },
+        "/jobs/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": "GET: false, DELETE: true",
+            "docs": "Get any job by id (public ledger; shareable via QR deep link ?job={id}) or delete your own job (auth)"
+        },
+        "/jobs/{id}/cancel": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Cancel a running job"
+        },
+        "/jobs/{id}/stream": {
+            "method": "GET",
+            "auth": false,
+            "docs": "SSE live stream of job output (public ledger)"
+        },
+        "/kill": {
+            "method": "POST",
+            "auth": true,
+            "sudo": true,
+            "docs": "Kill a process by PID or port (owner-only; requires x-sudo signature bound to pid:/port:)"
+        },
+        "/modules/{name}/process": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "cross-module",
+            "docs": "Manage a module's processes \u2014 body {action: status|stop|start|restart, target?: api|app}. Backend is pluggable per module (pm2|systemd|generic) via MOD_PM env or the target module's config.json `process_manager` field (default: auto-detect). Modules shipping a flake.nix/shell.nix get self-launched commands nix-wrapped. Owner-only; status is read-only, and mutating actions on a module other than claude require an x-sudo signature bound to process:{name}. Response includes the resolved `backend` and `nix_env`."
+        },
+        "/files/write": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "cross-module",
+            "docs": "Write a file. Untrusted callers are confined to their workspace; trusted callers (owner + whitelisted editors) may write anywhere under ~/mod (incl. core/+orbit/) with just their bearer session \u2014 no per-write sudo."
+        },
+        "/modules/{name}": {
+            "method": "DELETE",
+            "auth": true,
+            "sudo": "non-owned",
+            "docs": "Delete a module. Editing a module not personally owned by the caller requires an x-sudo signature from the owner key."
+        },
+        "/modules/{name}/restore": {
+            "method": "POST",
+            "auth": true,
+            "sudo": "non-claude",
+            "docs": "Restore a module from a snapshot CID (owner-only; x-sudo required for modules other than claude)."
+        },
+        "/whitelist": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "GET: false, POST: true",
+            "docs": "List edit-whitelist (GET, public) or add an address (POST, owner-only). Whitelisted addresses are trusted editors: owner-level EDIT access to the orbit (host filesystem, unsandboxed jobs, core/+orbit/ writes), but NOT owner-only powers (whitelist mgmt, set_owner, kill, delete/rename/restore). Stored off-tree in ~/.mod/claude/whitelist.json."
+        },
+        "/whitelist/{address}": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Remove an address from the edit whitelist (owner-only)."
+        },
+        "/changelog": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get version changelog"
+        },
+        "/versions/{version}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get a specific version entry"
         }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Run a Claude task. background=True submits to server, False runs CLI directly."
     },
-    "ask": {
-      "input": [
-        {
-          "name": "message",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "anthropic/claude-opus-4"
-        },
-        {
-          "name": "stream",
-          "type": "bool",
-          "value": false
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Conversational interface via OpenRouter."
+    "urls": {
+        "api": "http://localhost:8820",
+        "app": "http://localhost:8823"
     },
-    "analyze_code": {
-      "input": [
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "query",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "focus",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Analyze code at a path. Read-only, no owner required."
-    },
-    "generate_code": {
-      "input": [
-        {
-          "name": "description",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "language",
-          "type": "str",
-          "value": "python"
-        },
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        },
-        {
-          "name": "key",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Generate code from description. Write operation, requires owner."
-    },
-    "refactor": {
-      "input": [
-        {
-          "name": "path",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "instructions",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        },
-        {
-          "name": "key",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Refactor code at path. Write operation, requires owner."
-    },
-    "debug": {
-      "input": [
-        {
-          "name": "path",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "error",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Debug code at path. Read-only, no owner required."
-    },
-    "edit_file": {
-      "input": [
-        {
-          "name": "file_path",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "instructions",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        },
-        {
-          "name": "key",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Edit a file with instructions. Write operation, requires owner."
-    },
-    "run_task": {
-      "input": [
-        {
-          "name": "task",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Run an arbitrary task with Claude CLI."
-    },
-    "batch_process": {
-      "input": [
-        {
-          "name": "items",
-          "type": "list",
-          "value": "_empty"
-        },
-        {
-          "name": "instruction",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        }
-      ],
-      "output": {
-        "type": "list",
-        "value": null
-      },
-      "docs": "Process a batch of items with the same instruction."
-    },
-    "bg": {
-      "input": [
-        {
-          "name": "prompt",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "path",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "mod",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Run a local background job with nohup. Returns {pid, log_file}."
-    },
-    "bg_status": {
-      "input": [
-        {
-          "name": "pid",
-          "type": "int",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Check if a background process is still running."
-    },
-    "bg_list": {
-      "input": [
-        {
-          "name": "log_dir",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "list",
-        "value": null
-      },
-      "docs": "List local background job logs."
-    },
-    "submit": {
-      "input": [
-        {
-          "name": "prompt",
-          "type": "str",
-          "value": "_empty"
-        },
-        {
-          "name": "model",
-          "type": "str",
-          "value": "sonnet"
-        },
-        {
-          "name": "work_dir",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "module_name",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "creation_mode",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Submit a background job to the Rust job server."
-    },
-    "jobs": {
-      "input": [],
-      "output": {
-        "type": "list",
-        "value": null
-      },
-      "docs": "List all jobs from the Rust job server."
-    },
-    "job": {
-      "input": [
-        {
-          "name": "job_id",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Get details of a specific job."
-    },
-    "cancel": {
-      "input": [
-        {
-          "name": "job_id",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Cancel a running job."
-    },
-    "kill": {
-      "input": [
-        {
-          "name": "pid",
-          "type": "int",
-          "value": null
-        },
-        {
-          "name": "port",
-          "type": "int",
-          "value": null
-        },
-        {
-          "name": "sig",
-          "type": "str",
-          "value": "SIGKILL"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Kill a process by PID or port. Owner-only."
-    },
-    "kill_port": {
-      "input": [
-        {
-          "name": "port",
-          "type": "int",
-          "value": "_empty"
-        },
-        {
-          "name": "sig",
-          "type": "str",
-          "value": "SIGKILL"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Kill all processes on a port. Owner-only."
-    },
-    "delete_job": {
-      "input": [
-        {
-          "name": "job_id",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Delete a job from the server."
-    },
-    "tail": {
-      "input": [
-        {
-          "name": "job_id",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "None",
-        "value": null
-      },
-      "docs": "Live stream job output via SSE."
-    },
-    "snapshot": {
-      "input": [
-        {
-          "name": "description",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "version",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Take an IPFS snapshot of the module's source files."
-    },
-    "changelog": {
-      "input": [
-        {
-          "name": "limit",
-          "type": "int",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "list",
-        "value": null
-      },
-      "docs": "Get the version changelog (newest first)."
-    },
-    "show_changelog": {
-      "input": [
-        {
-          "name": "limit",
-          "type": "int",
-          "value": 20
-        }
-      ],
-      "output": {
-        "type": "None",
-        "value": null
-      },
-      "docs": "Display the version changelog in terminal."
-    },
-    "get_version": {
-      "input": [
-        {
-          "name": "version",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "cid",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Retrieve a version entry by version label or CID."
-    },
-    "restore_version": {
-      "input": [
-        {
-          "name": "version",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "cid",
-          "type": "str",
-          "value": null
-        },
-        {
-          "name": "dry_run",
-          "type": "bool",
-          "value": true
-        }
-      ],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Restore the module to a previous version from IPFS."
-    },
-    "set_owner": {
-      "input": [
-        {
-          "name": "address",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "None",
-        "value": null
-      },
-      "docs": "Set the owner address. Persists to config.json."
-    },
-    "get_owner": {
-      "input": [],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Get the owner address, or None if unset."
-    },
-    "is_owner": {
-      "input": [
-        {
-          "name": "address",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Check if address is the owner."
-    },
-    "health": {
-      "input": [],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Health check (requires server)."
-    },
-    "modules": {
-      "input": [
-        {
-          "name": "search",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "list",
-        "value": null
-      },
-      "docs": "List orbit/core modules. Falls back to m.mods() if server is down."
-    },
-    "test": {
-      "input": [],
-      "output": {
-        "type": "Dict",
-        "value": null
-      },
-      "docs": "Run self-tests. Returns {passed, failed, total, tests}."
-    }
-  },
-  "endpoints": {
-    "/health": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Health check"
-    },
-    "/config": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Get module config.json"
-    },
-    "/owner": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Get owner address and status"
-    },
-    "/repos": {
-      "method": "GET",
-      "auth": false,
-      "docs": "List git repositories"
-    },
-    "/modules": {
-      "method": "GET",
-      "auth": false,
-      "docs": "List orbit and core modules"
-    },
-    "/files/tree": {
-      "method": "GET",
-      "auth": false,
-      "docs": "File tree browser"
-    },
-    "/jobs": {
-      "method": [
-        "POST",
-        "GET"
-      ],
-      "auth": true,
-      "docs": "Submit or list jobs"
-    },
-    "/jobs/{id}": {
-      "method": [
-        "GET",
-        "DELETE"
-      ],
-      "auth": true,
-      "docs": "Get or delete job"
-    },
-    "/jobs/{id}/cancel": {
-      "method": "POST",
-      "auth": true,
-      "docs": "Cancel a running job"
-    },
-    "/jobs/{id}/stream": {
-      "method": "GET",
-      "auth": true,
-      "docs": "SSE live stream of job output"
-    },
-    "/kill": {
-      "method": "POST",
-      "auth": true,
-      "docs": "Kill a process by PID or port (owner-only)"
-    },
-    "/changelog": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Get version changelog"
-    },
-    "/versions/{version}": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Get a specific version entry"
-    }
-  },
-  "urls": {
-    "api": "http://localhost:8820",
-    "app": "http://localhost:8821"
-  },
-  "api_url": "http://localhost:8820",
-  "app_url": "http://localhost:8821"
+    "gateway_port": 3000
 }

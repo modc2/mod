@@ -1,334 +1,123 @@
 {
-  "name": "ipfs",
-  "version": "1.0.0",
-  "description": "IPFS node management and content-addressed storage via Kubo",
-  "port": 50079,
-  "urls": {
-    "api": "http://localhost:50079",
-    "app": "http://localhost:50080"
-  },
-  "fns": [
-    "add",
-    "get",
-    "put",
-    "rm",
-    "cat",
-    "pin_add",
-    "pin_rm",
-    "pins",
-    "pinned",
-    "cid",
-    "id",
-    "version",
-    "test",
-    "start_node",
-    "stop_node",
-    "restart_node",
-    "node_status",
-    "install"
-  ],
-  "schema": {
-    "add": {
-      "input": [
-        {
-          "name": "data",
-          "type": "dict",
-          "value": "_empty"
+    "name": "ipfs",
+    "version": "1.0.0",
+    "description": "IPFS node management and content-addressed storage via Kubo",
+    "port": 50079,
+    "urls": {
+        "api": "http://localhost:50079",
+        "app": "http://localhost:50080"
+    },
+    "fns": [
+        "put",
+        "get",
+        "pins",
+        "peers",
+        "swarm_addrs",
+        "connect",
+        "sync",
+        "propose_swap",
+        "accept_swap",
+        "cancel_swap",
+        "swaps",
+        "grants",
+        "grant",
+        "revoke",
+        "quota",
+        "balance",
+        "pin_for",
+        "unpin_for",
+        "bytes_size",
+        "rm",
+        "rm_all",
+        "owner",
+        "set_owner",
+        "is_owner",
+        "id",
+        "version",
+        "node_status",
+        "disconnect",
+        "bootstrap",
+        "cat",
+        "pin_add",
+        "pin_rm",
+        "pinned",
+        "cid",
+        "test",
+        "start_node",
+        "stop_node",
+        "restart_node",
+        "install"
+    ],
+    "schema": "QmZFGjgyKaGDJq43HZ2Z2irkF2ckfGbajW4sd2cXMN9qrc",
+    "endpoints": {
+        "pin": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Pin content to IPFS by CID",
+            "input": [
+                {
+                    "name": "cid",
+                    "type": "str",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "Pins": "list"
+            }
         },
-        {
-          "name": "pin",
-          "type": "bool",
-          "value": true
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Add a JSON object to IPFS and return its CID.",
-      "cost": 0
-    },
-    "get": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Retrieve a JSON object from IPFS by its CID.",
-      "cost": 0
-    },
-    "put": {
-      "input": [
-        {
-          "name": "data",
-          "type": "dict",
-          "value": "_empty"
+        "add_mod": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Add a mod's source files to IPFS",
+            "input": [
+                {
+                    "name": "mod",
+                    "type": "str",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "cid": "str"
+            }
         },
-        {
-          "name": "pin",
-          "type": "bool",
-          "value": true
+        "reg": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Register a mod on IPFS and return its CID",
+            "input": [
+                {
+                    "name": "mod",
+                    "type": "str",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "cid": "str"
+            }
+        },
+        "mod": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Retrieve a mod from IPFS by CID",
+            "input": [
+                {
+                    "name": "cid",
+                    "type": "str",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "data": "dict"
+            }
+        },
+        "pins": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List all pinned content",
+            "output": {
+                "Keys": "dict"
+            }
         }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Add a JSON object to IPFS and return its CID. Alias for add.",
-      "cost": 0
     },
-    "rm": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Remove (unpin) content from IPFS by its CID.",
-      "cost": 0
-    },
-    "cat": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "bytes",
-        "value": null
-      },
-      "docs": "Retrieve raw content from IPFS by CID.",
-      "cost": 0
-    },
-    "pin_add": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Pin content to the local IPFS node.",
-      "cost": 0
-    },
-    "pin_rm": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Unpin content from the local IPFS node.",
-      "cost": 0
-    },
-    "pins": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": null
-        }
-      ],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "List pinned content. Optionally filter by CID.",
-      "cost": 0
-    },
-    "pinned": {
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Check if content is pinned on the local node.",
-      "cost": 0
-    },
-    "cid": {
-      "input": [
-        {
-          "name": "data",
-          "type": "dict",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Get the CID for data without pinning it.",
-      "cost": 0
-    },
-    "id": {
-      "input": [],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Get IPFS node identity information.",
-      "cost": 0
-    },
-    "version": {
-      "input": [],
-      "output": {
-        "type": "dict",
-        "value": null
-      },
-      "docs": "Get IPFS version information.",
-      "cost": 0
-    },
-    "test": {
-      "input": [],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Test connection by adding and retrieving test data.",
-      "cost": 0
-    },
-    "start_node": {
-      "input": [],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Install IPFS if needed and start the daemon.",
-      "cost": 0
-    },
-    "stop_node": {
-      "input": [],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Stop the IPFS daemon.",
-      "cost": 0
-    },
-    "restart_node": {
-      "input": [],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Restart the IPFS daemon.",
-      "cost": 0
-    },
-    "node_status": {
-      "input": [],
-      "output": {
-        "type": "str",
-        "value": null
-      },
-      "docs": "Check if the IPFS daemon is running. Returns 'online' or 'offline'.",
-      "cost": 0
-    },
-    "install": {
-      "input": [],
-      "output": {
-        "type": "bool",
-        "value": null
-      },
-      "docs": "Install IPFS (Kubo) if not already installed.",
-      "cost": 0
-    }
-  },
-  "endpoints": {
-    "pin": {
-      "method": "POST",
-      "auth": false,
-      "docs": "Pin content to IPFS by CID",
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "Pins": "list"
-      }
-    },
-    "add_mod": {
-      "method": "POST",
-      "auth": false,
-      "docs": "Add a mod's source files to IPFS",
-      "input": [
-        {
-          "name": "mod",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "cid": "str"
-      }
-    },
-    "reg": {
-      "method": "POST",
-      "auth": false,
-      "docs": "Register a mod on IPFS and return its CID",
-      "input": [
-        {
-          "name": "mod",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "cid": "str"
-      }
-    },
-    "mod": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Retrieve a mod from IPFS by CID",
-      "input": [
-        {
-          "name": "cid",
-          "type": "str",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "data": "dict"
-      }
-    },
-    "pins": {
-      "method": "GET",
-      "auth": false,
-      "docs": "List all pinned content",
-      "output": {
-        "Keys": "dict"
-      }
-    }
-  }
+    "gateway_port": 50080
 }

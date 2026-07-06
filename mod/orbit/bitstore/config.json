@@ -1,0 +1,34 @@
+{
+    "name": "bitstore",
+    "port": 50130,
+    "app_port": 50131,
+    "description": "Anchor CIDs from IPFS/Filecoin/Hippius/LocalFS onto Bitcoin, Kaspa, and Bittensor",
+    "endpoints": [
+        "anchor",
+        "verify",
+        "lookup",
+        "history",
+        "status",
+        "from_ipfs",
+        "from_filecoin",
+        "from_hippius",
+        "from_localfs",
+        "bitcoin_anchor",
+        "kaspa_anchor",
+        "bittensor_anchor",
+        "batch_anchor",
+        "sources",
+        "chains"
+    ],
+    "schema": "QmUfMPtW7RpYgok9GdyfrZpc83eMHTNhYJZ6kvXhe5zbQ8",
+    "env": {
+        "BITCOIN_RPC": "http://user:pass@localhost:18332 (optional)",
+        "KASPA_RPC": "http://localhost:16110 (optional)"
+    },
+    "urls": {
+        "api": "http://localhost:50130",
+        "app": "http://localhost:50131"
+    },
+    "contracts": {},
+    "gateway_port": 50131
+}

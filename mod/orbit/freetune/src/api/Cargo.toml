@@ -1,0 +1,42 @@
+[package]
+name = "freetune-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "freetune_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "freetune-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors / logging
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time + concurrency
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6"
+parking_lot = "0.12"
+
+# Mod-protocol token auth (eip-191 ecdsa over secp256k1) — optional owner gate.
+# Same RustCrypto stack the polymarket module already uses, so it's proven here.
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+# BlocTime holder check — calls the chain module's API (GET /bloctime/owner).
+reqwest = { version = "0.12", features = ["json"] }

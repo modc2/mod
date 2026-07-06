@@ -8,11 +8,13 @@ import tempfile
 import pytest
 
 # Add parent for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _root)
+sys.path.insert(0, os.path.join(_root, 'onchain', 'src'))
 
 from registry.offchain import OffchainRegistry
-from registry.solana import SolanaRegistry
-from registry.near import NearRegistry
+from solana.solana import SolanaRegistry
+from near.near import NearRegistry
 
 
 @pytest.fixture

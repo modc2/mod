@@ -1,0 +1,11 @@
+{
+  "name": "qbit",
+  "port": 50100,
+  "app_port": 50101,
+  "urls": {
+    "api": "http://localhost:50100",
+    "app": "http://localhost:50101"
+  },
+  "schema": "QmdZ6QCT2q8b9PdntNf3AXJzhzmwhpHvyBJJp3awijytbx",
+  "gateway_port": 50101
+}

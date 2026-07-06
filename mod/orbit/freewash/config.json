@@ -1,0 +1,22 @@
+{
+    "name": "freewash",
+    "version": "0.1.0",
+    "description": "Free-roam WebGL game set in Washington Square Park \u2014 walk or skate around the marble arch, fountain and tree-lined paths. Renders entirely in the browser via three.js/WebGL.",
+    "icon": "\ud83d\udef9",
+    "color": "#a78bfa",
+    "port": 8799,
+    "fns": [
+        "play",
+        "serve",
+        "stop",
+        "url",
+        "path",
+        "test"
+    ],
+    "endpoints": {
+        "play": "Serve the game and open it in the browser",
+        "serve": "Start the static WebGL game server",
+        "stop": "Stop the running server"
+    },
+    "schema": "QmRB4rmxFj2tHmWpXDbTe8NPgHp45xS7Y79RigKTYbg4CM"
+}

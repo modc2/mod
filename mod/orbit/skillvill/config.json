@@ -1,0 +1,32 @@
+{
+    "name": "skillvill",
+    "version": "1.0.0",
+    "description": "Skill registry and management. Register, discover, and organize skills in local filesystem with module tree structure.",
+    "fns": [
+        "forward",
+        "register",
+        "unregister",
+        "list",
+        "get",
+        "search",
+        "tree",
+        "import_skill",
+        "export_skill",
+        "validate",
+        "serve",
+        "kill",
+        "status",
+        "health"
+    ],
+    "schema": "QmZw7Gh28a5zzX5B2YRsW9n8iQurd6rw3AQn5F8zDyJB6F",
+    "urls": {
+        "api": "http://localhost:50140",
+        "app": "http://localhost:3140"
+    },
+    "storage": {
+        "base_path": "~/.mod/skills",
+        "index_file": "~/.mod/skills/index.json",
+        "module_tree": "~/.mod/skills/modules"
+    },
+    "gateway_port": 3140
+}

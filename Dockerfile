@@ -1,22 +1,22 @@
 FROM python:3.12-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
-# All system deps in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl build-essential nodejs npm \
-    && npm install -g pm2 \
-    && curl https://sh.rustup.rs -sSf | sh -s -- -y \
+    git curl build-essential nodejs npm gnupg \
+    debian-keyring debian-archive-keyring apt-transport-https ca-certificates \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
+    && apt-get update && apt-get install -y caddy \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/root/.cargo/bin:$PATH"
-
-# Upgrade pip
-RUN pip install --upgrade pip setuptools wheel
+ENV MOD_DOCKER=1
 
 WORKDIR /root/mod
 COPY . .
 
-# Install mod
-RUN pip install -e ./
+RUN chmod +x setup.sh start.sh stop.sh && bash setup.sh
 
-CMD ["bash", "scripts/start.sh"]
+EXPOSE 3000
+
+ENTRYPOINT ["bash", "-c"]
+CMD ["./stop.sh 2>/dev/null; ./start.sh && pm2 logs --raw"]

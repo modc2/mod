@@ -1,10 +1,10 @@
 """Token contract module - ERC20 token deployment and interaction."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Token (ERC20) contract module.
 
     Deploys mock tokens for testnet/local (USDC, USDT, DAI, NativeToken).

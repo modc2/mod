@@ -1,0 +1,99 @@
+{
+    "name": "filecoin",
+    "version": "0.1.0",
+    "description": "Filecoin storage and retrieval \u2014 Lotus RPC + Lighthouse uploads + IPFS gateway reads, with FastAPI server and minimal web app.",
+    "port": 50150,
+    "app_port": 50150,
+    "api_port": 50150,
+    "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
+    "fns": [
+        "forward",
+        "serve",
+        "kill",
+        "status",
+        "info",
+        "put",
+        "put_file",
+        "get",
+        "get_file",
+        "list",
+        "rm",
+        "deals",
+        "chain_head",
+        "rpc",
+        "call"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module info and configured backends"
+        },
+        "/status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Backend connectivity status (Lotus / Lighthouse / gateway)"
+        },
+        "/put": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Store data on Filecoin (JSON body) or via multipart file upload",
+            "input": [
+                {
+                    "name": "data",
+                    "type": "any",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "cid": "str"
+            }
+        },
+        "/get/{cid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Retrieve content from Filecoin/IPFS by CID"
+        },
+        "/list": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List stored CIDs from local index"
+        },
+        "/rm/{cid}": {
+            "method": "DELETE",
+            "auth": false,
+            "docs": "Remove a CID from the local index (does not unpin remote)"
+        },
+        "/deals/{cid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List storage deals for a CID (Lighthouse / Lotus)"
+        },
+        "/chain/head": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Filecoin chain head (requires Lotus RPC)"
+        },
+        "/rpc": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Pass-through JSON-RPC to the configured Lotus node"
+        }
+    },
+    "env": {
+        "FILECOIN_RPC": "https://api.node.glif.io/rpc/v1 (default)",
+        "FILECOIN_TOKEN": "Optional bearer token for Lotus node",
+        "LIGHTHOUSE_API_KEY": "Optional \u2014 enables write/upload via Lighthouse",
+        "FILECOIN_GATEWAY": "https://gateway.lighthouse.storage (default retrieval gateway)"
+    },
+    "urls": {
+        "api": "http://localhost:50150/api",
+        "app": "http://localhost:50150/"
+    },
+    "schema": "QmWt5ncEmU1wkKAnp5aCg9mH8kd4FKAfL1Z2c2Ey5UfpnH"
+}

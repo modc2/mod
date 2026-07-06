@@ -111,13 +111,26 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const parsedUser = JSON.parse(storedUser) as UserType
           setUser(parsedUser)
 
-          if (!walletToken) {
+          // Validate stored token expiry before using it
+          let tokenValid = false
+          if (walletToken) {
+            try {
+              const auth = new Auth()
+              const tokenData = auth.token2data(walletToken)
+              const age = Math.abs(Date.now() / 1000 - parseFloat(tokenData.time))
+              tokenValid = age < TOKEN_VALIDITY_DURATION
+            } catch {
+              tokenValid = false
+            }
+          }
+
+          if (!tokenValid) {
             walletToken = await getOrGenerateToken(walletAddress, walletMode, walletType)
             localStorage.setItem('wallet_token', walletToken)
           } else {
-            // Cache existing token from localStorage
+            // Cache the still-valid token
             tokenCacheRef.current.set(walletAddress.toLowerCase(), {
-              token: walletToken,
+              token: walletToken!,
               timestamp: Date.now() / 1000,
               mode: walletMode,
               type: walletType,
@@ -125,7 +138,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           if (!cancelled) {
-            setClient(new Client(undefined, walletToken))
+            setClient(new Client(undefined, walletToken || undefined))
           }
         }
       } catch (err) {

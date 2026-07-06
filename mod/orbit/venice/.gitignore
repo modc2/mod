@@ -1,0 +1,15 @@
+# Rust build artifacts
+src/api/target/
+
+# Node / Next
+src/app/node_modules/
+src/app/.next/
+src/app/tsconfig.tsbuildinfo
+src/app/next-env.d.ts
+
+# Per-user BYOK keystore + at-rest master key — SECRETS, never commit
+.venice-data/
+*.master
+
+# logs
+*.log

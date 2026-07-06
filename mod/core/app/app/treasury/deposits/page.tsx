@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { BuildingLibraryIcon, ArrowDownTrayIcon, ClockIcon, UserIcon } from '@heroicons/react/24/outline'
 import { ethers, EventLog } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { CopyButton } from '@/ui/CopyButton'
 import { motion } from 'framer-motion'
 
@@ -26,8 +26,7 @@ export default function TreasuryDepositsPage() {
   const [uniqueFunders, setUniqueFunders] = useState(0)
 
   useEffect(() => {
-    const network = 'testnet'
-    const chainConfig = modConfig.chain?.[network]
+    const chainConfig = getChainConfig()
     if (chainConfig?.contracts?.Treasury?.address) {
       setTreasuryAddress(chainConfig.contracts.Treasury.address)
     }
@@ -41,8 +40,7 @@ export default function TreasuryDepositsPage() {
       try {
         setLoading(true)
         const provider = new ethers.BrowserProvider(window.ethereum)
-        const network = 'testnet'
-        const chainConfig = modConfig.chain?.[network]
+        const chainConfig = getChainConfig()
         
         const TreasuryABI = [
           'event TreasuryFunded(address indexed funder, address indexed token, uint256 amount)'

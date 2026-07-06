@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { userContext } from '@/context'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
-import { web3Accounts, web3Enable } from '@polkadot/extension-dapp'
+// dynamic import: @polkadot/extension-dapp accesses window at load time
 import { motion, AnimatePresence } from 'framer-motion'
 import { Key } from '@/key'
 import { XMarkIcon } from '@heroicons/react/24/outline'
@@ -88,6 +88,7 @@ export function WalletAuthButton({ showAuthSidebar, setShowAuthSidebar }: Wallet
 
   useEffect(() => {
     const checkWallets = async () => {
+      const { web3Enable, web3Accounts } = await import('@polkadot/extension-dapp')
       const extensions = await web3Enable('MOD')
       if (extensions.length > 0) {
         const allAccounts = await web3Accounts()
@@ -144,7 +145,8 @@ export function WalletAuthButton({ showAuthSidebar, setShowAuthSidebar }: Wallet
       await cryptoWaitReady()
       const account = accounts.find(acc => acc.address === selectedAccount)
       if (!account) throw new Error('Account not found')
-      const extensions = await web3Enable('MOD')
+      const { web3Enable: enable } = await import('@polkadot/extension-dapp')
+      const extensions = await enable('MOD')
       if (extensions.length === 0) throw new Error('No extension found')
       localStorage.setItem('wallet_mode', 'subwallet')
       localStorage.setItem('wallet_address', selectedAccount)

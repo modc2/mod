@@ -3,7 +3,7 @@
 import { ArrowPathIcon, ArrowsRightLeftIcon, PlusCircleIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CopyButton } from '@/ui/CopyButton'
-import modConfig from '@config'
+import { getContracts } from '@/network/chainConfig'
 
 type TransferTokenType = 'MARKET' | 'USDC' | 'USDT'
 
@@ -71,11 +71,11 @@ export function PortfolioTab({
   onRemoveCustomToken, onAddCustomToken
 }: PortfolioTabProps) {
   const tokenAddressMap: Record<string, string | undefined> = {
-    USDC: (modConfig.chain as any)?.testnet?.contracts?.USDC?.address,
-    USDT: (modConfig.chain as any)?.testnet?.contracts?.USDT?.address,
-    MARKET: (modConfig.chain as any)?.testnet?.contracts?.Market?.address,
-    NativeToken: (modConfig.chain as any)?.testnet?.contracts?.NativeToken?.address,
-    BridgeToken: (modConfig.chain as any)?.testnet?.contracts?.BridgeToken?.address,
+    USDC: getContracts()?.USDC?.address,
+    USDT: getContracts()?.USDT?.address,
+    MARKET: getContracts()?.Market?.address,
+    NativeToken: getContracts()?.NativeToken?.address,
+    BridgeToken: getContracts()?.BridgeToken?.address,
   }
 
   const allTokens: { key: string; symbol: string; balance: number; address?: string; decimals?: number; isCustom?: boolean; isETH?: boolean }[] = []

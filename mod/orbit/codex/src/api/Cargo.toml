@@ -1,0 +1,31 @@
+[package]
+name = "codex-jobs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "codex-jobs"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["macros"] }
+tower-http = { version = "0.5", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.30", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+libc = "0.2"
+tokio-stream = { version = "0.1", features = ["sync"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+hex = "0.4"
+rand = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+dirs = "5.0"
+reqwest = { version = "0.12", features = ["json"] }

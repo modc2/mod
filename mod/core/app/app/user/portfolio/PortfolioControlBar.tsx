@@ -4,16 +4,13 @@ import { useState, useRef, useEffect } from 'react'
 import { userContext } from '@/context'
 import { MagnifyingGlassIcon, CreditCardIcon, ArrowsRightLeftIcon, ArrowPathIcon, BanknotesIcon, FolderIcon, GlobeAltIcon } from '@heroicons/react/24/outline'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig, getContracts, getRpcUrl } from '@/network/chainConfig'
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)', 'function symbol() view returns (string)']
 
-const chainConfig = (modConfig.chain as any)?.testnet
-const RPC_URL = chainConfig?.url || 'https://sepolia.base.org'
-const CONTRACTS = chainConfig?.contracts || {}
-
 async function fetchOnChainBalances(address: string): Promise<Record<string, number>> {
-  const provider = new ethers.JsonRpcProvider(RPC_URL)
+  const provider = new ethers.JsonRpcProvider(getRpcUrl())
+  const CONTRACTS = getContracts()
   const balances: Record<string, number> = {}
 
   const tokenDefs: { symbol: string; address: string; decimals?: number }[] = [

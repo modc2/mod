@@ -1,7 +1,7 @@
 import { ethers } from 'ethers'
 import TreasuryABI from '@/contracts//treasury/Treasury.sol/Treasury.json'
 import TokenABI from '@/contracts//token/Token.sol/Token.json'
-import modConfig from '@config'
+import { getChainConfig } from './chainConfig'
 
 function getEthereumProvider(): ethers.BrowserProvider {
   if (typeof window === 'undefined') {
@@ -14,8 +14,7 @@ function getEthereumProvider(): ethers.BrowserProvider {
 }
 
 function getTreasuryAddress(): string {
-  const network = 'testnet'
-  const chainConfig = modConfig.chain?.[network] as any
+  const chainConfig = getChainConfig()
   if (!chainConfig?.contracts?.Treasury?.address) {
     throw new Error('Treasury address not found in config')
   }
@@ -23,8 +22,7 @@ function getTreasuryAddress(): string {
 }
 
 function getTokenAddress(tokenType: string): string {
-  const network = 'testnet'
-  const chainConfig = modConfig.chain?.[network] as any
+  const chainConfig = getChainConfig()
   if (!chainConfig) throw new Error('Chain config not found')
   const addr = chainConfig.contracts?.[tokenType]?.address
   if (!addr) throw new Error(`Token ${tokenType} not found in config`)

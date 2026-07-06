@@ -1,0 +1,20 @@
+{
+    "name": "embedcode",
+    "description": "Code embedding and semantic search with local models",
+    "version": "1.0.0",
+    "port": 8920,
+    "app_port": 3920,
+    "fns": [
+        "forward",
+        "embed",
+        "search",
+        "collections",
+        "info",
+        "delete",
+        "serve",
+        "app",
+        "kill",
+        "status"
+    ],
+    "schema": "QmTVHS6pxnRQXqNNXXAv4PC6P3gBerfj86a2bsQjtpoD2L"
+}

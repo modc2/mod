@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { userContext } from '@/context'
 import { ethers } from 'ethers'
 import { Wallet, TrendingUp, DollarSign } from 'lucide-react'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { PortfolioControlBar } from './PortfolioControlBar'
 
 const ERC20_ABI = ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)', 'function symbol() view returns (string)']
@@ -56,8 +56,7 @@ export function Portfolio() {
 
     try {
       const provider = new ethers.JsonRpcProvider(networkUrl)
-      const network = 'testnet'
-      const chainConfig = modConfig.chain?.[network]
+      const chainConfig = getChainConfig()
 
       if (!chainConfig) {
         throw new Error('Chain config not found')

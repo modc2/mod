@@ -40,7 +40,7 @@ class AuthJWT:
         assert key.crypto_type_name == self.crypto_type, f"Key crypto type {key.crypto_type} does not match expected {self.crypto_type}"
         return key
         
-    def token(self, data: dict={'hey': 1},  key:Optional[str]=None, expiration: int = 3600, mode='str') -> str:
+    def token(self, data: dict={'hey': 1},  key:Optional[str]=None, expiration: int = 86400, mode='str') -> str:
         """
         Generate a JWT token with the given data
         Args:

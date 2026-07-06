@@ -18,8 +18,9 @@ from typing import Dict, Any, Optional, List
 
 try:
     import mod as m
-    print = m.print
-except ImportError:
+    if hasattr(m, 'print'):
+        print = m.print
+except (ImportError, AttributeError):
     m = None
 
 
@@ -77,13 +78,14 @@ def chunk_text(text: str, chunk_size: int = 512, overlap: int = 64) -> List[str]
     """Split text into overlapping chunks by lines."""
     lines = text.split('\n')
     chunks = []
+    step = max(1, chunk_size - overlap)
     i = 0
     while i < len(lines):
         chunk_lines = lines[i:i + chunk_size]
         chunk = '\n'.join(chunk_lines)
         if chunk.strip():
             chunks.append(chunk)
-        i += chunk_size - overlap
+        i += step
     return chunks or [text]
 
 
@@ -297,7 +299,7 @@ class Mod:
                 if os.path.exists(meta_path):
                     with open(meta_path) as f:
                         meta = json.load(f)
-                    paths = list(set(m.get('path', '') for m in meta))
+                    paths = list(set(item.get('path', '') for item in meta))
                     cols.append({
                         'name': name,
                         'chunks': len(meta),
@@ -345,11 +347,14 @@ class Mod:
 
     # ── Serve / Kill / Status ──
 
-    def serve(self, port=None, dev=True):
-        """Start the embedcode FastAPI server."""
-        port = port or self.api_port
+    def serve(self, port=None, api_port=None, app_port=None, dev=True):
+        """Start the embedcode API and app."""
+        api_p = api_port or port or self.api_port
+        app_p = app_port or self.app_port
+
+        # Start API
         cwd = self._dir
-        cmd = f'uvicorn api:app --host 0.0.0.0 --port {port}'
+        cmd = f'uvicorn api:app --host 0.0.0.0 --port {api_p}'
         if dev:
             cmd += ' --reload'
 
@@ -360,16 +365,25 @@ class Mod:
 
         try:
             pm2 = m.mod('pm.pm2')()
-            name = 'embedcode-api'
-            if pm2.exists(name):
-                pm2.kill(name, remove_script=False)
-            pm2.start_script(name=name, script_path=script, cwd=cwd, interpreter='bash')
-            return {'status': 'running', 'port': port, 'manager': 'pm2',
-                    'url': f'http://localhost:{port}'}
+            if pm2.exists('embedcode-api'):
+                pm2.kill('embedcode-api', remove_script=False)
+            pm2.start_script(name='embedcode-api', script_path=script, cwd=cwd, interpreter='bash')
         except Exception:
-            proc = subprocess.Popen(['bash', script], cwd=cwd)
-            return {'status': 'running', 'port': port, 'manager': 'subprocess',
-                    'pid': proc.pid, 'url': f'http://localhost:{port}'}
+            subprocess.Popen(['bash', script], cwd=cwd)
+
+        # Start App
+        self.app(port=app_p, dev=dev)
+
+        return {
+            'status': 'running',
+            'port': api_p,
+            'app_port': app_p,
+            'urls': {
+                'api': f'http://localhost:{api_p}',
+                'app': f'http://localhost:{app_p}',
+            },
+            'url': f'http://localhost:{api_p}',
+        }
 
     def app(self, port=None, dev=True):
         """Start the embedcode web app."""

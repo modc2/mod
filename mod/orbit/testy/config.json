@@ -1,0 +1,6 @@
+{
+    "name": "testy",
+    "description": "Run tests for given modules in parallel. Usage: c testy mod1 mod2 mod3 c testy (runs all core modules)",
+    "version": "0.1.0",
+    "schema": "QmfGCYLSMw73BycamXnEA2k6DQGZHUKmiL4z5Lw9bd7zb4"
+}

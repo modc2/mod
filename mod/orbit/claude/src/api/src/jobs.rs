@@ -95,7 +95,22 @@ pub struct SubmitRequest {
 }
 
 fn default_model() -> String {
-    "sonnet".to_string()
+    "claude-fable-5".to_string()
+}
+
+/// Remap models the CLI can't actually run to a safe, available one.
+///
+/// Claude Fable 5 is now generally available, so `fable` resolves to the real
+/// `claude-fable-5` model instead of falling back to Opus. Empty stays the
+/// default. This is the single chokepoint every job passes through.
+fn normalize_model(model: &str) -> String {
+    let m = model.trim();
+    let base = m.strip_suffix("[1m]").unwrap_or(m);
+    match base {
+        "fable" => "claude-fable-5".to_string(),
+        "" => default_model(),
+        _ => model.to_string(),
+    }
 }
 
 // ── SQLite Job Store ─────────────────────────────────────────────────
@@ -351,6 +366,37 @@ impl ClaudeJobManager {
             req.prompt.clone()
         };
 
+        // Module-context note for EDIT jobs (work_dir = the module dir, no
+        // module_name). A single prompt may also fork this module or create
+        // brand-new modules — tell the agent where siblings live so it doesn't
+        // treat the cwd as a hard boundary. Non-owner jobs are still confined
+        // to peers/ by the uid sandbox below; the note just aims them there.
+        // Delivered via --append-system-prompt, NOT the job prompt, so it
+        // never shows up in the user-visible task text.
+        let module_note = if req.module_name.is_none() {
+            let orbit_root = std::path::PathBuf::from(&anchor_dir)
+                .join("mod/orbit")
+                .to_string_lossy()
+                .to_string();
+            if work_dir.starts_with(&format!("{}/", orbit_root)) {
+                let job_user = req.user_address.clone().unwrap_or_default();
+                let peers_only = !job_user.is_empty() && !crate::auth::is_owner(&job_user);
+                let create_root = if peers_only {
+                    format!("{}/peers", orbit_root)
+                } else {
+                    orbit_root.clone()
+                };
+                Some(format!(
+                    "You are working on the module at {}. If the request calls for it, you may also fork this module or create additional new modules in this same run — modules live under {}. To fork: copy this module's directory to a new name there, then update self-references (config.json name, ports, routes). To create a fresh module: scaffold a new directory there with a config.json and a mod.py or src/. Otherwise just edit this module in place.",
+                    work_dir, create_root
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Save attached images to temp dir and prepend paths to prompt
         let enhanced_prompt = if let Some(images) = &req.images {
             if !images.is_empty() {
@@ -422,12 +468,30 @@ impl ClaudeJobManager {
         let claude_bin = which_claude().unwrap_or_else(|| self.claude_bin.clone());
         let job_id = id.clone();
         let prompt = enhanced_prompt;
-        let model = req.model;
+        let model = normalize_model(&req.model);
         let agent_type = req.agent_type;
         let system_prompt = req.system_prompt;
 
+        // ── Privilege drop for peer jobs ────────────────────────────────────────
+        // The CLI runs with `--dangerously-skip-permissions`; `work_dir` is only a
+        // cwd, NOT a write boundary. Since the API now runs as root (pm2), a
+        // malicious PEER prompt could otherwise write absolute paths into the
+        // owner's modules. So any job from a peer (every authenticated non-owner,
+        // incl. whitelisted users) is spawned under an unprivileged uid that has no
+        // write access to the root-owned module tree — kernel-enforced containment
+        // no prompt can escape. Only the OWNER (and local-mode) jobs keep running as
+        // root so they can edit the orbit; peers are confined to their own root.
+        let job_user = req.user_address.clone().unwrap_or_default();
+        let local_mode = std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1";
+        let sandbox: Option<(u32, u32)> =
+            if !job_user.is_empty() && !local_mode && !crate::auth::is_owner(&job_user) {
+                Some(sandbox_ids())
+            } else {
+                None
+            };
+
         tokio::spawn(async move {
-            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), store, streams, cancelled, tx).await;
+            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), module_note.as_deref(), sandbox, store, streams, cancelled, tx).await;
         });
 
         self.store.get(&id).unwrap_or(job)
@@ -506,6 +570,41 @@ fn expand_tilde(path: &str) -> String {
 
 // ── Process Runner ───────────────────────────────────────────────────
 
+/// Unprivileged (uid, gid) used to sandbox non-owner jobs. Defaults to
+/// `nobody`/`nogroup` (65534), overridable via CLAUDE_SANDBOX_UID / _GID so a
+/// deployment can dedicate a purpose-built user. A process running as this id
+/// cannot write the root-owned module tree, which is the whole point.
+fn sandbox_ids() -> (u32, u32) {
+    let uid = std::env::var("CLAUDE_SANDBOX_UID")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(65534);
+    let gid = std::env::var("CLAUDE_SANDBOX_GID")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(65534);
+    (uid, gid)
+}
+
+/// Best-effort recursive chown so the dropped-privilege child can actually write
+/// inside its own workspace (which we created as root). Bounded depth to avoid
+/// pathological trees; failures are non-fatal (the job just may not be able to
+/// write pre-existing files, never a security risk).
+fn chown_tree(path: &std::path::Path, uid: u32, gid: u32, depth: usize) {
+    use std::os::unix::fs::chown;
+    if depth > 64 {
+        return;
+    }
+    let _ = chown(path, Some(uid), Some(gid));
+    if path.is_dir() && !path.is_symlink() {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                chown_tree(&entry.path(), uid, gid, depth + 1);
+            }
+        }
+    }
+}
+
 async fn run_claude_process(
     job_id: &str,
     prompt: &str,
@@ -514,6 +613,8 @@ async fn run_claude_process(
     claude_bin: &str,
     agent_type: Option<&str>,
     system_prompt: Option<&str>,
+    module_note: Option<&str>,
+    sandbox: Option<(u32, u32)>,
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
     cancelled: Arc<RwLock<HashSet<String>>>,
@@ -525,6 +626,12 @@ async fn run_claude_process(
         store.update_status(job_id, &JobStatus::Failed, Some(&err));
         tx.send(format!("[ERROR] {}\n", err)).ok();
         return;
+    }
+
+    // For a sandboxed (non-owner) job, hand its workspace to the unprivileged uid
+    // so the dropped-privilege child can write there — and nowhere root-owned.
+    if let Some((uid, gid)) = sandbox {
+        chown_tree(std::path::Path::new(work_dir), uid, gid, 0);
     }
 
     // Ensure /opt/homebrew/bin is in PATH for the child process
@@ -546,13 +653,25 @@ async fn run_claude_process(
         .arg("stream-json")
         .arg("--dangerously-skip-permissions");
 
-    // Personality system prompt takes priority over agent_type
-    if let Some(sp) = system_prompt {
-        if !sp.is_empty() {
-            cmd.arg("--append-system-prompt").arg(sp);
+    // Personality system prompt takes priority over agent_type; --agent still
+    // composes with --append-system-prompt, so the module note can ride along
+    // either way.
+    if system_prompt.is_none() {
+        if let Some(agent) = agent_type {
+            cmd.arg("--agent").arg(agent);
         }
-    } else if let Some(agent) = agent_type {
-        cmd.arg("--agent").arg(agent);
+    }
+    let mut append_sp = system_prompt.unwrap_or("").to_string();
+    if let Some(note) = module_note {
+        if !note.is_empty() {
+            if !append_sp.is_empty() {
+                append_sp.push_str("\n\n");
+            }
+            append_sp.push_str(note);
+        }
+    }
+    if !append_sp.is_empty() {
+        cmd.arg("--append-system-prompt").arg(&append_sp);
     }
 
     cmd.arg(prompt)
@@ -562,11 +681,74 @@ async fn run_claude_process(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    // Put child in its own process group so kill(-pid) works
+    // Prefer the OAuth subscription token (~/.claude/.credentials.json) over
+    // any inherited ANTHROPIC_API_KEY. Mirrors docker-entrypoint.sh so local
+    // serve mode behaves the same as the container. HOME is forwarded
+    // explicitly so the child resolves the credentials file in the right place
+    // even when the parent was spawned via runuser/su without env reset.
+    let home = std::env::var("HOME").unwrap_or_default();
+    match sandbox {
+        // Trusted (owner / local): prefer the OAuth subscription creds in root's
+        // HOME over any inherited ANTHROPIC_API_KEY.
+        None => {
+            if !home.is_empty() {
+                cmd.env("HOME", &home);
+                let creds_path = format!("{}/.claude/.credentials.json", home);
+                if std::path::Path::new(&creds_path).exists() {
+                    cmd.env_remove("ANTHROPIC_API_KEY");
+                }
+            }
+        }
+        // Sandboxed (non-owner): the dropped-privilege child cannot read root's
+        // 0600 credentials file, so point HOME at its own writable workspace and
+        // let it authenticate via the inherited ANTHROPIC_API_KEY (env survives
+        // setuid). As a fallback, forward the OAuth access token explicitly.
+        Some(_) => {
+            cmd.env("HOME", work_dir);
+            if std::env::var("ANTHROPIC_API_KEY").is_err() && !home.is_empty() {
+                let creds_path = format!("{}/.claude/.credentials.json", home);
+                if let Ok(raw) = std::fs::read_to_string(&creds_path) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                        if let Some(tok) = v
+                            .get("claudeAiOauth")
+                            .and_then(|o| o.get("accessToken"))
+                            .and_then(|t| t.as_str())
+                        {
+                            cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Put child in its own process group so kill(-pid) works; for sandboxed jobs,
+    // also irreversibly drop to the unprivileged uid/gid BEFORE exec so the CLI
+    // can never touch root-owned files no matter what the prompt asks.
     #[cfg(unix)]
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
             libc::setsid();
+            if let Some((uid, gid)) = sandbox {
+                // Drop supplementary groups, then gid, then uid — order matters:
+                // once uid is dropped we can no longer change gid/groups.
+                if libc::setgroups(0, std::ptr::null()) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::setgid(gid as libc::gid_t) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::setuid(uid as libc::uid_t) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // Defense in depth: confirm privileges are truly gone.
+                if libc::setuid(0) == 0 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "privilege drop failed: still able to regain root",
+                    ));
+                }
+            }
             Ok(())
         });
     }
@@ -635,6 +817,14 @@ async fn run_claude_process(
         match status {
             Ok(exit) if exit.success() => {
                 store.update_status(job_id, &JobStatus::Completed, None);
+                // Every completed job that touched a module leaves a
+                // content-addressed version behind: snapshot the module dir
+                // into the localfs blob store and log the CID (tagged with
+                // this job id so the EDIT tab can pair edit ↔ version).
+                // Identical tree ⇒ identical CID ⇒ no-op edits add no record.
+                if let Some((cid, module)) = snapshot_after_job(job_id, work_dir, prompt, &store) {
+                    tx.send(format!("[VERSION] {} → localfs cid {}\n", module, cid)).ok();
+                }
             }
             Ok(exit) => {
                 let code = exit.code().unwrap_or(-1);
@@ -651,6 +841,54 @@ async fn run_claude_process(
     // Clean up
     let mut s = streams.write().await;
     s.remove(job_id);
+}
+
+/// Snapshot the module a completed job worked on into the localfs blob store
+/// and append an "edit" version record carrying the job id. Returns
+/// (cid, module_name) when a new version was recorded; None when the job ran
+/// outside the module tree, the tree is unchanged, or the snapshot failed
+/// (all non-fatal — the job itself already completed).
+fn snapshot_after_job(
+    job_id: &str,
+    work_dir: &str,
+    prompt: &str,
+    store: &JobStore,
+) -> Option<(String, String)> {
+    use crate::snapshots::{
+        append_version, default_store, module_for_work_dir, read_versions, snapshot_dir,
+        VersionRecord,
+    };
+    let (module, root) = module_for_work_dir(work_dir)?;
+    let blob_store = default_store();
+    let (cid, _manifest) = snapshot_dir(&root, &blob_store).ok()?;
+    let history = read_versions(&module);
+    if history.last().map(|v| v.cid == cid).unwrap_or(false) {
+        return None; // job changed nothing — same tree, same CID
+    }
+    let parent = history.last().map(|v| v.cid.clone());
+    // The stored prompt may carry the injected "Note: you are working on…"
+    // suffix and image-path preamble — keep just the human request, one line.
+    let human = prompt.split("\n\nNote: you are working on").next().unwrap_or(prompt);
+    let line = human.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let message: String = if line.chars().count() > 120 {
+        format!("{}…", line.chars().take(119).collect::<String>())
+    } else {
+        line.to_string()
+    };
+    let author = store.get(job_id).map(|j| j.user_address).unwrap_or_default();
+    let record = VersionRecord {
+        cid: cid.clone(),
+        message,
+        author,
+        timestamp: Utc::now().timestamp().max(0) as u64,
+        parent,
+        registry_cid: None,
+        registry_prev: None,
+        action: Some("edit".to_string()),
+        job_id: Some(job_id.to_string()),
+    };
+    append_version(&module, record).ok()?;
+    Some((cid, module))
 }
 
 // ── Stateful Stream Parser ───────────────────────────────────────────

@@ -1,0 +1,17 @@
+{
+    "name": "whitepaper",
+    "description": "MOD whitepaper module: serves the off-chain Merkle-tree open-source management whitepaper as a Next.js app behind the protocol proxy.",
+    "port": 50106,
+    "app_port": 3106,
+    "urls": {
+        "api": "http://localhost:50106",
+        "app": "http://localhost:3106"
+    },
+    "proxy": {
+        "host": "localhost:3000",
+        "api_path": "/api/whitepaper",
+        "app_path": "/whitepaper"
+    },
+    "schema": "QmQQdHuUVasYCtHPrNBSNWmryzeDNVCpDavSu3rzpfuXEF",
+    "gateway_port": 3106
+}

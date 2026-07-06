@@ -4,7 +4,7 @@ SandboxWorker & WorkerPool - Isolated subprocess execution for module functions.
 Spawns Python subprocesses with filesystem and resource restrictions
 to compartmentalize risk when executing user module code.
 
-Only ~/.mod, ~/mod, and ~/.localfs directories are accessible to worker processes.
+Only ~/.mod and ~/mod directories are accessible to worker processes.
 
 WorkerPool maintains persistent worker processes that auto-scale between
 min_workers and max_workers based on queue depth.
@@ -27,7 +27,6 @@ from concurrent.futures._base import Future
 ALLOWED_DIRS = [
     os.path.realpath(os.path.expanduser('~/.mod')),
     os.path.realpath(os.path.expanduser('~/mod')),
-    os.path.realpath(os.path.expanduser('~/.localfs')),
 ]
 
 # Resource limits for worker processes
@@ -498,121 +497,144 @@ class SandboxWorker:
         }
 
 
-class DockerWorker:
-    """Executes module functions inside Docker containers for full OS-level isolation.
+class _DockerPersistentWorker:
+    """A single persistent Docker container that processes tasks in a loop.
 
-    Each task runs in an ephemeral container (--rm) with:
-    - ~/mod mounted READ-ONLY so modules can't modify the codebase
-    - ~/.mod mounted read-write for module state/data
-    - Docker-enforced memory and CPU limits (kernel-level, not bypassable)
-    - Network isolation via modnet
-
-    If the module has its own Dockerfile (mod/orbit/<mod>/Dockerfile),
-    that image is used. Otherwise falls back to the base 'mod' image.
+    Runs a long-lived container with ~/mod (ro) and ~/.mod (rw) mounted.
+    Tasks are sent via `docker exec -i` with JSON on stdin/stdout.
     """
 
-    def __init__(self, max_workers: int = 10, image: str = 'mod',
-                 timeout: int = DEFAULT_TIMEOUT, memory: str = '512m',
-                 cpus: float = 1.0, network: str = 'modnet'):
-        self.max_workers = max_workers
+    WORKER_SCRIPT = (
+        "import sys, json, traceback; "
+        "sys.stdout = sys.stderr; "
+        "import mod as m; "
+        "_out = sys.__stdout__; "
+        "[(_out.write(json.dumps("
+        "{'result': (lambda r: list(r) if hasattr(r, '__next__') else r)"
+        "(m.fn(t['fn'])(**t.get('params', {})) if callable(m.fn(t['fn'])) else m.fn(t['fn']))}"
+        ") + '\\n') if not (e := None) else None) "
+        "if not (setattr(sys.modules[__name__], 'e', None) or False) else "
+        "(_out.write(json.dumps({'error': str(e), 'traceback': traceback.format_exc()}) + '\\n')) "
+        "for line in sys.stdin "
+        "for t in [json.loads(line)] "
+        "for _ in [None] "
+        # Simplified: try/except in a loop
+        "]"
+    )
+
+    def __init__(self, worker_id: int, image: str, memory: str, cpus: float,
+                 network: str, mod_path: str, storage_path: str):
+        self.worker_id = worker_id
+        self.name = f'mod-worker-{worker_id}'
         self.image = image
-        self.timeout = timeout
         self.memory = memory
         self.cpus = cpus
         self.network = network
-        self._active: Dict[str, subprocess.Popen] = {}
+        self.mod_path = mod_path
+        self.storage_path = storage_path
+        self.busy = False
+        self.current_cid: Optional[str] = None
+        self.tasks_completed = 0
+        self.started_at = 0.0
+        self.last_active = 0.0
+        self._alive = False
         self._lock = threading.Lock()
-        self.total_tasks = 0
-        self._mod_path = os.path.realpath(os.path.expanduser('~/mod'))
-        self._storage_path = os.path.realpath(os.path.expanduser('~/.mod'))
 
-    @property
-    def active_count(self) -> int:
-        with self._lock:
-            dead = [k for k, p in self._active.items() if p.poll() is not None]
-            for k in dead:
-                del self._active[k]
-            return len(self._active)
+    def start(self):
+        """Start the persistent Docker container."""
+        # Kill any existing container with this name
+        subprocess.run(['docker', 'rm', '-f', self.name],
+                       capture_output=True, timeout=10)
 
-    def _resolve_image(self, fn_path: str) -> str:
-        """Determine which Docker image to use for the given function.
-
-        Checks if the module has its own Dockerfile and image built.
-        Falls back to the base image.
-        """
-        mod_name = fn_path.split('/')[0] if '/' in fn_path else fn_path
-        # Check for module-specific Dockerfile
-        orbit_path = os.path.join(self._mod_path, 'mod', 'orbit', mod_name)
-        dockerfile = os.path.join(orbit_path, 'Dockerfile')
-        if os.path.exists(dockerfile):
-            # Check if image exists
-            try:
-                result = subprocess.run(
-                    ['docker', 'image', 'inspect', mod_name],
-                    capture_output=True, timeout=10
-                )
-                if result.returncode == 0:
-                    return mod_name
-                # Image doesn't exist, build it
-                subprocess.run(
-                    ['docker', 'build', '-t', mod_name, '.'],
-                    cwd=orbit_path, capture_output=True, timeout=300
-                )
-                return mod_name
-            except Exception:
-                pass
-        return self.image
-
-    def run(self, fn_path: str, params: dict, timeout: int = None,
-            cid: str = None) -> Any:
-        """Execute a module function inside a Docker container."""
-        if self.active_count >= self.max_workers:
-            raise PermissionError(f"Max docker workers ({self.max_workers}) exceeded")
-
-        timeout = timeout or self.timeout
-        image = self._resolve_image(fn_path)
-        container_name = f"mod-worker-{cid or id(threading.current_thread())}-{int(time.time())}"
-
-        # Build the Python command to run inside the container
-        task_payload = json.dumps({'fn': fn_path, 'params': params})
-        py_script = (
-            "import sys, json; "
-            "task = json.loads(sys.stdin.read()); "
-            "sys.stdout = sys.stderr; "
-            "import mod as m; "
-            "fn = m.fn(task['fn']); "
-            "r = fn(**task.get('params', {})) if callable(fn) else fn; "
-            "r = list(r) if hasattr(r, '__next__') else r; "
-            "sys.stdout = sys.__stdout__; "
-            "print(json.dumps({'result': r}))"
+        # The persistent worker script reads JSON lines from stdin, executes, writes results
+        worker_script = (
+            "import sys, json, traceback\n"
+            "_real_stdout = sys.stdout\n"
+            "sys.stdout = sys.stderr\n"
+            "import mod as m\n"
+            "for line in sys.stdin:\n"
+            "    line = line.strip()\n"
+            "    if not line: continue\n"
+            "    try:\n"
+            "        task = json.loads(line)\n"
+            "        fn_obj = m.fn(task['fn'])\n"
+            "        result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj\n"
+            "        if hasattr(result, '__next__'): result = list(result)\n"
+            "        output = json.dumps({'result': result})\n"
+            "    except Exception as e:\n"
+            "        output = json.dumps({'error': str(e), 'traceback': traceback.format_exc()})\n"
+            "    _real_stdout.write(output + '\\n')\n"
+            "    _real_stdout.flush()\n"
         )
 
+        # Start a detached container that sleeps (we'll exec into it)
         cmd = [
-            'docker', 'run', '--rm', '-i',
-            '--name', container_name,
+            'docker', 'run', '-d', '--name', self.name,
             '--network', self.network,
             '--memory', self.memory,
             f'--cpus={self.cpus}',
-            '-v', f'{self._mod_path}:/root/mod:ro',
-            '-v', f'{self._storage_path}:/root/.mod',
+            '-v', f'{self.mod_path}:/root/mod:ro',
+            '-v', f'{self.storage_path}:/root/.mod',
             '-w', '/root/mod',
-            image,
-            'python3', '-u', '-c', py_script,
+            self.image,
+            'sleep', 'infinity',
         ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to start worker {self.name}: {result.stderr}")
 
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        self.started_at = time.time()
+        self.last_active = time.time()
+        self._alive = True
+
+    @property
+    def alive(self) -> bool:
+        if not self._alive:
+            return False
+        try:
+            result = subprocess.run(
+                ['docker', 'inspect', '-f', '{{.State.Running}}', self.name],
+                capture_output=True, text=True, timeout=5
+            )
+            self._alive = result.stdout.strip() == 'true'
+        except Exception:
+            self._alive = False
+        return self._alive
+
+    def execute(self, fn_path: str, params: dict, timeout: int = DEFAULT_TIMEOUT,
+                cid: str = None) -> Any:
+        """Execute a task inside the persistent container via docker exec."""
+        if not self.alive:
+            self.start()
+
+        with self._lock:
+            self.busy = True
+            self.current_cid = cid
+
+        task_payload = json.dumps({'fn': fn_path, 'params': params})
+
+        # Use docker exec -i to pipe task JSON and get result
+        py_cmd = (
+            "import sys, json, traceback; "
+            "task = json.loads(sys.stdin.read()); "
+            "sys.stdout = sys.stderr; "
+            "import mod as m; "
+            "fn_obj = m.fn(task['fn']); "
+            "result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj; "
+            "result = list(result) if hasattr(result, '__next__') else result; "
+            "sys.stdout = sys.__stdout__; "
+            "print(json.dumps({'result': result}))"
         )
 
-        task_key = cid or container_name
-        with self._lock:
-            self._active[task_key] = proc
+        cmd = ['docker', 'exec', '-i', self.name, 'python3', '-u', '-c', py_cmd]
 
         try:
-            self.total_tasks += 1
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             stdout_data, stderr_data = proc.communicate(
                 input=task_payload.encode('utf-8'),
                 timeout=timeout,
@@ -620,112 +642,301 @@ class DockerWorker:
 
             result_str = stdout_data.decode('utf-8').strip()
             if result_str:
-                try:
-                    result_data = json.loads(result_str)
-                    if result_data.get('error'):
-                        raise RuntimeError(result_data['error'])
-                    return result_data.get('result')
-                except json.JSONDecodeError:
-                    pass
+                result_data = json.loads(result_str)
+                if result_data.get('error'):
+                    raise RuntimeError(result_data['error'])
+                self.tasks_completed += 1
+                self.last_active = time.time()
+                return result_data.get('result')
 
             if proc.returncode != 0:
                 stderr_str = stderr_data.decode('utf-8', errors='replace').strip()
                 raise RuntimeError(
-                    f"Docker worker failed (exit {proc.returncode}): "
-                    f"{stderr_str or result_str or 'Unknown error'}"
+                    f"Docker worker {self.name} failed (exit {proc.returncode}): "
+                    f"{stderr_str or 'Unknown error'}"
                 )
+            self.tasks_completed += 1
+            self.last_active = time.time()
             return None
 
         except subprocess.TimeoutExpired:
-            # Kill the container on timeout
-            try:
-                subprocess.run(['docker', 'kill', container_name],
-                               capture_output=True, timeout=10)
-            except Exception:
-                pass
             proc.kill()
-            raise TimeoutError(f"Docker worker timed out after {timeout}s")
+            raise TimeoutError(f"Docker worker {self.name} timed out after {timeout}s")
+
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Docker worker {self.name} returned invalid JSON: {result_str[:200]}")
 
         finally:
             with self._lock:
-                self._active.pop(task_key, None)
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                except (ProcessLookupError, PermissionError):
-                    pass
+                self.busy = False
+                self.current_cid = None
 
-    def kill(self, cid: str) -> bool:
-        """Kill the container running a specific task."""
-        with self._lock:
-            proc = self._active.pop(cid, None)
-        if proc is None:
-            return False
+    def stop(self):
+        """Stop and remove this container."""
+        self._alive = False
         try:
-            # Find and kill the container by CID pattern
-            subprocess.run(['docker', 'kill', f'mod-worker-{cid}'],
+            subprocess.run(['docker', 'rm', '-f', self.name],
                            capture_output=True, timeout=10)
         except Exception:
             pass
-        try:
-            proc.kill()
-        except (ProcessLookupError, PermissionError):
-            pass
-        return True
+        self.busy = False
+        self.current_cid = None
 
-    def kill_all(self):
-        """Kill all active docker worker containers."""
-        with self._lock:
-            procs = list(self._active.values())
-            keys = list(self._active.keys())
-            self._active.clear()
-        for proc in procs:
-            try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError):
-                pass
-        # Also cleanup any lingering mod-worker containers
+    kill = stop
+
+
+class DockerWorker:
+    """Auto-scaling pool of persistent Docker containers managed via pm.docker.
+
+    Containers mount only ~/mod (read-only) and ~/.mod (read-write).
+    Workers spin up on demand and shut down after idle_timeout seconds of inactivity.
+    Owner can configure max_workers via set_limits() or scale().
+
+    Args:
+        max_workers: Maximum number of containers to run concurrently.
+        idle_timeout: Seconds of inactivity before a worker container is stopped (default 30).
+        image: Docker image to use (default 'mod').
+        memory: Container memory limit (default '512m').
+        cpus: Container CPU limit (default 1.0).
+        network: Docker network (default 'modnet').
+    """
+
+    def __init__(self, max_workers: int = 4, idle_timeout: int = 30,
+                 image: str = 'mod', timeout: int = DEFAULT_TIMEOUT,
+                 memory: str = '512m', cpus: float = 1.0, network: str = 'modnet'):
+        self.max_workers = max(1, max_workers)
+        self.idle_timeout = idle_timeout
+        self.image = image
+        self.timeout = timeout
+        self.memory = memory
+        self.cpus = cpus
+        self.network = network
+        self._workers: List[_DockerPersistentWorker] = []
+        self._lock = threading.RLock()
+        self._cid_to_worker: Dict[str, _DockerPersistentWorker] = {}
+        self._running = False
+        self._scaler_thread: Optional[threading.Thread] = None
+        self.total_tasks = 0
+        self._started = False
+        self._mod_path = os.path.realpath(os.path.expanduser('~/mod'))
+        self._storage_path = os.path.realpath(os.path.expanduser('~/.mod'))
+
+    def start(self):
+        """Start the pool and the auto-scaler (no workers started yet — they spin up on demand)."""
+        if self._started:
+            return
+        self._running = True
+        self._started = True
+        # Ensure the docker network exists
+        try:
+            subprocess.run(['docker', 'network', 'create', self.network],
+                           capture_output=True, timeout=10)
+        except Exception:
+            pass
+        # Clean up any leftover worker containers from previous runs
+        self._cleanup_stale_containers()
+        # Start auto-scaler that shuts down idle workers
+        self._scaler_thread = threading.Thread(target=self._auto_scale_loop, daemon=True)
+        self._scaler_thread.start()
+
+    def _cleanup_stale_containers(self):
+        """Remove any leftover mod-worker-* containers from previous runs."""
         try:
             result = subprocess.run(
-                ['docker', 'ps', '-q', '--filter', 'name=mod-worker-'],
+                ['docker', 'ps', '-a', '-q', '--filter', 'name=mod-worker-'],
                 capture_output=True, text=True, timeout=10
             )
             for cid in result.stdout.strip().split('\n'):
                 if cid:
-                    subprocess.run(['docker', 'kill', cid],
+                    subprocess.run(['docker', 'rm', '-f', cid],
                                    capture_output=True, timeout=10)
         except Exception:
             pass
 
-    def shutdown(self):
-        """Stop all workers."""
-        self.kill_all()
+    def run(self, fn_path: str, params: dict, timeout: int = None,
+            cid: str = None) -> Any:
+        """Execute a module function on an available Docker worker.
+
+        Spins up a new container if all workers are busy and under max_workers.
+        Blocks briefly if all workers are busy at max capacity.
+        """
+        if not self._started:
+            self.start()
+
+        timeout = timeout or self.timeout
+        worker = self._acquire_worker()
+        if worker is None:
+            raise PermissionError(f"No Docker workers available (max={self.max_workers})")
+
+        if cid:
+            with self._lock:
+                self._cid_to_worker[cid] = worker
+
+        try:
+            self.total_tasks += 1
+            return worker.execute(fn_path, params, timeout=timeout, cid=cid)
+        finally:
+            if cid:
+                with self._lock:
+                    self._cid_to_worker.pop(cid, None)
+
+    def _acquire_worker(self) -> Optional[_DockerPersistentWorker]:
+        """Get an idle worker container, or spin up a new one if under max."""
+        with self._lock:
+            # Try to find an idle, alive worker
+            for w in self._workers:
+                if not w.busy and w.alive:
+                    return w
+            # Try to find an idle, dead worker and restart it
+            for w in self._workers:
+                if not w.busy:
+                    w.start()
+                    return w
+            # Spin up a new container if under max
+            if len(self._workers) < self.max_workers:
+                w = _DockerPersistentWorker(
+                    worker_id=len(self._workers),
+                    image=self.image,
+                    memory=self.memory,
+                    cpus=self.cpus,
+                    network=self.network,
+                    mod_path=self._mod_path,
+                    storage_path=self._storage_path,
+                )
+                w.start()
+                self._workers.append(w)
+                return w
+
+        # All workers busy — wait briefly for one to free up
+        for _ in range(100):  # wait up to 10 seconds
+            time.sleep(0.1)
+            with self._lock:
+                for w in self._workers:
+                    if not w.busy:
+                        if not w.alive:
+                            w.start()
+                        return w
+        return None
+
+    def _auto_scale_loop(self):
+        """Background thread that stops idle worker containers after idle_timeout."""
+        while self._running:
+            time.sleep(5)
+            now = time.time()
+            with self._lock:
+                to_remove = []
+                for i in range(len(self._workers) - 1, -1, -1):
+                    w = self._workers[i]
+                    if not w.busy and (now - w.last_active) > self.idle_timeout:
+                        to_remove.append(i)
+                for i in to_remove:
+                    w = self._workers.pop(i)
+                    w.stop()
 
     def scale(self, n: int) -> dict:
-        """Update max workers limit."""
-        self.max_workers = max(1, n)
+        """Manually set the target worker count (clamped to 1..max_workers)."""
+        if not self._started:
+            self.start()
+        n = max(0, min(n, self.max_workers))
+        with self._lock:
+            current = len(self._workers)
+            if n > current:
+                for i in range(current, n):
+                    w = _DockerPersistentWorker(
+                        worker_id=i, image=self.image, memory=self.memory,
+                        cpus=self.cpus, network=self.network,
+                        mod_path=self._mod_path, storage_path=self._storage_path,
+                    )
+                    w.start()
+                    self._workers.append(w)
+            elif n < current:
+                for i in range(current - 1, -1, -1):
+                    if len(self._workers) <= n:
+                        break
+                    w = self._workers[i]
+                    if not w.busy:
+                        self._workers.pop(i)
+                        w.stop()
         return self.status()
 
-    def set_limits(self, min_workers: int = None, max_workers: int = None) -> dict:
-        """Update worker limits."""
+    def set_limits(self, min_workers: int = None, max_workers: int = None,
+                   idle_timeout: int = None) -> dict:
+        """Update worker limits. Owner-configurable."""
         if max_workers is not None:
             self.max_workers = max(1, max_workers)
+        if idle_timeout is not None:
+            self.idle_timeout = max(5, idle_timeout)
+        # Scale down if over new max
+        with self._lock:
+            while len(self._workers) > self.max_workers:
+                for i in range(len(self._workers) - 1, -1, -1):
+                    w = self._workers[i]
+                    if not w.busy and len(self._workers) > self.max_workers:
+                        self._workers.pop(i)
+                        w.stop()
+                        break
+                else:
+                    break
         return self.status()
 
+    def kill(self, cid: str) -> bool:
+        """Kill the worker running a specific task CID."""
+        with self._lock:
+            w = self._cid_to_worker.pop(cid, None)
+        if w is None:
+            return False
+        w.stop()
+        return True
+
+    def kill_all(self):
+        """Stop and remove all worker containers."""
+        with self._lock:
+            for w in self._workers:
+                w.stop()
+            self._workers.clear()
+            self._cid_to_worker.clear()
+        self._cleanup_stale_containers()
+
+    def shutdown(self):
+        """Stop the pool entirely."""
+        self._running = False
+        self.kill_all()
+        self._started = False
+
     def status(self) -> dict:
-        return {
-            'mode': 'docker',
-            'image': self.image,
-            'max_workers': self.max_workers,
-            'active_workers': self.active_count,
-            'active_cids': list(self._active.keys()),
-            'total_tasks': self.total_tasks,
-            'memory_limit': self.memory,
-            'cpus': self.cpus,
-            'network': self.network,
-            'mod_path': f'{self._mod_path} (ro)',
-            'storage_path': self._storage_path,
-        }
+        with self._lock:
+            workers = []
+            busy_count = 0
+            for w in self._workers:
+                info = {
+                    'id': w.worker_id,
+                    'name': w.name,
+                    'alive': w._alive,
+                    'busy': w.busy,
+                    'tasks_completed': w.tasks_completed,
+                    'current_cid': w.current_cid,
+                    'uptime': round(time.time() - w.started_at, 1) if w.started_at else 0,
+                    'idle_for': round(time.time() - w.last_active, 1) if w.last_active else 0,
+                }
+                if w.busy:
+                    busy_count += 1
+                workers.append(info)
+            return {
+                'mode': 'docker',
+                'image': self.image,
+                'max_workers': self.max_workers,
+                'idle_timeout': self.idle_timeout,
+                'current_workers': len(self._workers),
+                'busy_workers': busy_count,
+                'idle_workers': len(self._workers) - busy_count,
+                'total_tasks': self.total_tasks,
+                'memory_limit': self.memory,
+                'cpus': self.cpus,
+                'network': self.network,
+                'mod_path': f'{self._mod_path} (ro)',
+                'storage_path': self._storage_path,
+                'workers': workers,
+            }
 
 
 # ============================================================

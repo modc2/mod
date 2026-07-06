@@ -1,39 +1,40 @@
 {
-  "name": "claudegit",
-  "version": "1.0.0",
-  "description": "Claude Code + GitHub Integration - Automated AI code tasks with GitHub sync",
-  "urls": {
-    "app": "http://localhost:8831",
-    "api": "http://localhost:8830"
-  },
-  "fns": [
-    "forward",
-    "ask",
-    "analyze_code",
-    "generate_code",
-    "refactor",
-    "debug",
-    "edit_file",
-    "run_task",
-    "batch_process",
-    "bg",
-    "submit",
-    "create_module",
-    "fork_module",
-    "git_push",
-    "git_force_push",
-    "configure_github",
-    "sync_to_github"
-  ],
-  "endpoints": {
-    "/health": "Health check",
-    "/repos": "List git repositories",
-    "/auth/challenge": "Get signature challenge",
-    "/auth/verify": "Verify signature and get JWT",
-    "/jobs": "Submit and list jobs",
-    "/jobs/{id}": "Get job details",
-    "/jobs/{id}/cancel": "Cancel running job",
-    "/jobs/{id}/stream": "SSE stream of job output",
-    "/github/push": "Force push to GitHub"
-  }
+    "name": "claudegit",
+    "version": "1.0.0",
+    "description": "Claude Code + GitHub Integration - Automated AI code tasks with GitHub sync",
+    "urls": {
+        "app": "http://localhost:8831",
+        "api": "http://localhost:8830"
+    },
+    "fns": [
+        "forward",
+        "ask",
+        "analyze_code",
+        "generate_code",
+        "refactor",
+        "debug",
+        "edit_file",
+        "run_task",
+        "batch_process",
+        "bg",
+        "submit",
+        "create_module",
+        "fork_module",
+        "git_push",
+        "git_force_push",
+        "configure_github",
+        "sync_to_github"
+    ],
+    "endpoints": {
+        "/health": "Health check",
+        "/repos": "List git repositories",
+        "/auth/challenge": "Get signature challenge",
+        "/auth/verify": "Verify signature and get JWT",
+        "/jobs": "Submit and list jobs",
+        "/jobs/{id}": "Get job details",
+        "/jobs/{id}/cancel": "Cancel running job",
+        "/jobs/{id}/stream": "SSE stream of job output",
+        "/github/push": "Force push to GitHub"
+    },
+    "schema": "QmNYv2FTf2UZLsjZauwbxXoFe4vAWrwcb2NtvQYke72dmA"
 }

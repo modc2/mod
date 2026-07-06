@@ -1,0 +1,9 @@
+{
+    "name": "mariowait",
+    "version": "1.0.0",
+    "description": "ASCII Mario runner game \u2014 play while you wait!",
+    "endpoints": {
+        "play": "Launch the game"
+    },
+    "schema": "QmZYyLSf129z56REVSqntd8mM9f3BCc79CZe2hEbRdYhXM"
+}

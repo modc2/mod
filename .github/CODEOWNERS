@@ -1,0 +1,28 @@
+# Core modules — owner only
+/mod/core/ @broski
+
+# All orbit modules — owner only
+/mod/orbit/ @broski
+
+# Portal modules — owner only
+/mod/portal/ @broski
+
+# Root Docker infrastructure — owner only
+/Dockerfile @broski
+/docker-compose.yml @broski
+/Caddyfile.docker @broski
+
+# Generator script — owner only
+/scripts/dockerize.py @broski
+
+# Module Docker files — owner only
+/mod/orbit/*/Dockerfile @broski
+/mod/orbit/*/Dockerfile.* @broski
+/mod/orbit/*/docker-compose.yml @broski
+/mod/orbit/*/docker-compose.*.yml @broski
+/mod/orbit/*/docker-entrypoint.sh @broski
+/mod/orbit/*/docker-entrypoint.*.sh @broski
+/mod/orbit/*/Caddyfile @broski
+
+# CI/CD — owner only
+/.github/ @broski

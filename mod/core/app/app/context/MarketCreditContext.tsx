@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { userContext } from './UserContext'
 import { MarketAllowanceManager } from '@/network/marketAllowance'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 
 interface MarketCreditContextType {
   marketCredit: number
@@ -27,7 +27,7 @@ export function MarketCreditProvider({ children }: { children: ReactNode }) {
 
     try {
       setLoading(true)
-      const manager = new MarketAllowanceManager(modConfig.chain.testnet)
+      const manager = new MarketAllowanceManager(getChainConfig())
       const credit = await manager.checkMarketAllowance(user.key, 'USDC')
       setMarketCredit(credit)
     } catch (error) {

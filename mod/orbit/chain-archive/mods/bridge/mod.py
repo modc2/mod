@@ -1,11 +1,11 @@
 """Bridge contract module - cross-chain bridgeable token."""
 
-from mod.core.chain.chain.mods.base import ContractModule
+from mod.core.chain.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Bridge contract module.
 
     ERC20 token with owner-controlled mint/burn for cross-chain bridging.

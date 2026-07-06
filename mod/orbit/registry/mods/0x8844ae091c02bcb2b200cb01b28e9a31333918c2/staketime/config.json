@@ -1,0 +1,27 @@
+{
+  "urls": {
+    "api": "http://localhost:8849",
+    "app": "http://localhost:8850"
+  },
+  "contracts": {
+    "base_sepolia": {
+      "subnet": "0x4aD0c9b135D43263ff62894263d1C589Cc0A1497",
+      "stakeTime": "0x433E3104768B181dd9d574CCB18B45b303C10527",
+      "staking": "0xdb7f4733BC5eBE15653bf7bFF9fEa3464faa4627",
+      "consensus": "0xB14d42baBa2530b49686Cb563d4c108Be5df4cb3",
+      "governanceToken": "0x1f69D3820691a304c92C1a721d69d7cB29620adB",
+      "registry": "0xE37e8A8e3E39c16d234fd36B0376E2b384B814B8",
+      "chainId": 84532,
+      "emissionRate": "100000000000000000000",
+      "decayBps": 500,
+      "epochLength": 43200,
+      "immunityPeriod": 43200,
+      "registrationCost": "1000000000000000000000",
+      "maxLockBlocks": 100000,
+      "maxStakersPerValidator": 100,
+      "defaultCommissionBps": 1000,
+      "deployedAt": "2026-04-17T01:32:14.997Z"
+    }
+  },
+  "schema": "QmSBXL4bsUHEYh7JpSfpeAwMAc56u5WkxB6Jg9tY8akcj7"
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { ethers } from 'ethers'
 import { toast } from 'react-toastify'
 
@@ -32,7 +32,7 @@ export const TransferHeader: React.FC<TransferHeaderProps> = ({
       { address: 'ETH', symbol: 'ETH', decimals: 18 }
     ]
 
-    const chainConfig = modConfig.chain?.['testnet']
+    const chainConfig = getChainConfig()
     if (chainConfig?.contracts) {
       if (chainConfig.contracts.USDC?.address) {
         tokens.push({

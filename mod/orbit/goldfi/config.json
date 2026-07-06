@@ -1,137 +1,107 @@
 {
-  "name": "goldfi",
-  "version": "1.0.0",
-  "description": "Quadratic reward trading competition for precious metals — tracks gold/silver PnL on Hyperliquid & Uniswap, distributes inflation rewards using x² curve. Weekly epochs.",
-  "default_exchange": "hyperliquid",
-  "epoch_duration_days": 7,
-  "default_inflation_pool": 1000,
-  "urls": {
-    "api": "http://localhost:50095",
-    "app": "http://localhost:3095"
-  },
-  "fns": [
-    "forward",
-    "start_epoch",
-    "register",
-    "unregister",
-    "sync",
-    "leaderboard",
-    "status",
-    "end_epoch",
-    "rewards",
-    "history",
-    "get_prices",
-    "health",
-    "serve",
-    "kill",
-    "test"
-  ],
-  "schema": {
-    "forward": {
-      "input": [
-        {"name": "action", "type": "str", "value": null},
-        {"name": "kwargs", "type": "dict", "value": {}}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "CLI entry point — dispatch any action by name."
+  "data": {
+    "name": "goldfi",
+    "version": "1.0.0",
+    "description": "Quadratic reward trading competition for precious metals \u2014 tracks gold/silver PnL on Hyperliquid & Uniswap, distributes inflation rewards using x\u00b2 curve. Weekly epochs.",
+    "default_exchange": "hyperliquid",
+    "epoch_duration_days": 7,
+    "default_inflation_pool": 1000,
+    "urls": {
+      "api": "http://localhost:50095",
+      "app": "http://localhost:3095"
     },
-    "start_epoch": {
-      "input": [
-        {"name": "inflation_pool", "type": "float", "value": null}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Begin a new weekly epoch with an optional custom inflation pool."
-    },
-    "register": {
-      "input": [
-        {"name": "address", "type": "str", "value": "_empty"},
-        {"name": "exchange", "type": "str", "value": null}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Register a trader wallet for the competition."
-    },
-    "unregister": {
-      "input": [
-        {"name": "address", "type": "str", "value": "_empty"}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Remove a trader from the competition."
-    },
-    "sync": {
-      "input": [],
-      "output": {"type": "list", "value": null},
-      "docs": "Update all traders' PnL from their exchange."
-    },
-    "leaderboard": {
-      "input": [],
-      "output": {"type": "list", "value": null},
-      "docs": "Get current standings with quadratic scores and reward projections."
-    },
-    "status": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Get current epoch status, time remaining, and trader count."
-    },
-    "end_epoch": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Finalize epoch, compute quadratic rewards, and archive results."
-    },
-    "rewards": {
-      "input": [
-        {"name": "epoch_id", "type": "str", "value": null}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "View reward distribution for an epoch."
-    },
-    "history": {
-      "input": [],
-      "output": {"type": "list", "value": null},
-      "docs": "Get past epoch summaries."
-    },
-    "get_prices": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Get current prices for all tracked assets across exchanges."
-    },
-    "health": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Check if API and app services are running."
-    },
-    "serve": {
-      "input": [
-        {"name": "api_port", "type": "int", "value": null},
-        {"name": "app_port", "type": "int", "value": null}
-      ],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Start the FastAPI server and Next.js app."
-    },
-    "kill": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Stop all GoldFi services."
-    },
-    "test": {
-      "input": [],
-      "output": {"type": "Dict", "value": null},
-      "docs": "Run full integration test suite with mock data."
+    "fns": [
+      "forward",
+      "start_epoch",
+      "register",
+      "unregister",
+      "sync",
+      "leaderboard",
+      "status",
+      "end_epoch",
+      "rewards",
+      "history",
+      "get_prices",
+      "health",
+      "serve",
+      "kill",
+      "test"
+    ],
+    "schema": "QmeJwUZ2aydNRWWFK9atmawkCqZkwtE98S2igxqzWARfXZ",
+    "endpoints": {
+      "/health": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Service health check"
+      },
+      "/status": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Current epoch status"
+      },
+      "/leaderboard": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Live standings with quadratic scores"
+      },
+      "/assets": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Tracked asset registry"
+      },
+      "/prices": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Current prices for all tracked assets"
+      },
+      "/rewards": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Epoch reward distribution"
+      },
+      "/history": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Completed epoch history"
+      },
+      "/traders": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Registered traders list"
+      },
+      "/register": {
+        "method": "POST",
+        "auth": false,
+        "docs": "Register a trader"
+      },
+      "/unregister": {
+        "method": "POST",
+        "auth": false,
+        "docs": "Remove a trader"
+      },
+      "/sync": {
+        "method": "POST",
+        "auth": false,
+        "docs": "Refresh all trader PnL"
+      },
+      "/start_epoch": {
+        "method": "POST",
+        "auth": false,
+        "docs": "Begin new epoch"
+      },
+      "/end_epoch": {
+        "method": "POST",
+        "auth": false,
+        "docs": "Finalize epoch"
+      },
+      "/epoch/{epoch_id}": {
+        "method": "GET",
+        "auth": false,
+        "docs": "Load specific epoch data"
+      }
     }
   },
-  "endpoints": {
-    "/health": {"method": "GET", "auth": false, "docs": "Service health check"},
-    "/status": {"method": "GET", "auth": false, "docs": "Current epoch status"},
-    "/leaderboard": {"method": "GET", "auth": false, "docs": "Live standings with quadratic scores"},
-    "/assets": {"method": "GET", "auth": false, "docs": "Tracked asset registry"},
-    "/prices": {"method": "GET", "auth": false, "docs": "Current prices for all tracked assets"},
-    "/rewards": {"method": "GET", "auth": false, "docs": "Epoch reward distribution"},
-    "/history": {"method": "GET", "auth": false, "docs": "Completed epoch history"},
-    "/traders": {"method": "GET", "auth": false, "docs": "Registered traders list"},
-    "/register": {"method": "POST", "auth": false, "docs": "Register a trader"},
-    "/unregister": {"method": "POST", "auth": false, "docs": "Remove a trader"},
-    "/sync": {"method": "POST", "auth": false, "docs": "Refresh all trader PnL"},
-    "/start_epoch": {"method": "POST", "auth": false, "docs": "Begin new epoch"},
-    "/end_epoch": {"method": "POST", "auth": false, "docs": "Finalize epoch"},
-    "/epoch/{epoch_id}": {"method": "GET", "auth": false, "docs": "Load specific epoch data"}
-  }
+  "encrypted": false,
+  "timestamp": 1776540738.958824,
+  "gateway_port": 3095
 }

@@ -1,0 +1,82 @@
+{
+    "name": "web",
+    "version": "0.1.0",
+    "description": "The mod protocol front door \u2014 Rust (axum) catalog API + Next.js app. A live, searchable explorer of every module (orbit + core): browse the catalog, read each module's source tree, and open its running app, served under modc2.com/web.",
+    "port": 50420,
+    "app_port": 3420,
+    "icon": "m",
+    "color": "#7c8bff",
+    "urls": {
+        "api": "http://localhost:50420",
+        "app": "http://localhost:3420/web",
+        "gateway": "https://modc2.com/web"
+    },
+    "endpoints": {
+        "/": {
+            "method": "GET",
+            "docs": "Protocol info + live ecosystem stats"
+        },
+        "/health": {
+            "method": "GET",
+            "docs": "Liveness probe"
+        },
+        "/mods": {
+            "method": "GET",
+            "docs": "Live catalog of every orbit module"
+        },
+        "/mods/:name": {
+            "method": "GET",
+            "docs": "Single module detail (parsed config.json)"
+        },
+        "/mods/:name/tree": {
+            "method": "GET",
+            "docs": "Recursive source tree for a module (build output elided)"
+        },
+        "/mods/:name/file": {
+            "method": "GET",
+            "docs": "Read one source file, sandboxed to the module dir (?path=)"
+        },
+        "/stats": {
+            "method": "GET",
+            "docs": "Aggregate ecosystem stats"
+        },
+        "/search": {
+            "method": "GET",
+            "docs": "Filter the catalog by ?q="
+        },
+        "/registry": {
+            "method": "GET",
+            "docs": "On-chain Registry view via the chain module (which modules are registered)"
+        },
+        "/graph": {
+            "method": "GET",
+            "docs": "Module dependency graph (nodes + edges from each module's deps)"
+        },
+        "/owner/verify": {
+            "method": "POST",
+            "docs": "Owner-gated: confirm a bearer token (x-mod-owner) is the owner token"
+        },
+        "/modules/add": {
+            "method": "POST",
+            "docs": "Owner-gated: import a GitHub repo as a new module ({repo, name?}); clones into the orbit tree and rescans the catalog"
+        }
+    },
+    "deps": [
+        "chain"
+    ],
+    "fns": [
+        "info",
+        "health",
+        "mods",
+        "mod",
+        "tree",
+        "file",
+        "stats",
+        "search",
+        "registry",
+        "graph",
+        "owner_verify",
+        "modules_add"
+    ],
+    "schema": "QmWZLYz5QyunRkJBgbUVLfVUwfp3RyJNp8eF27ZAxTBfTv"
+}

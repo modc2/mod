@@ -17,8 +17,7 @@ export PYTHONPATH="$MOD_ROOT:$DIR"
 lsof -ti:$API_PORT | xargs kill -9 2>/dev/null || true
 
 echo "Bridge API  $API_URL"
-cd "$MOD_ROOT"
-python3 -m uvicorn server:app --host 0.0.0.0 --port "$API_PORT" --app-dir "$DIR/server" --reload &
+python3 -m uvicorn api:app --host 0.0.0.0 --port "$API_PORT" --app-dir "$DIR/api" --reload &
 
 echo "Bridge App  $APP_URL"
 cd "$DIR/app"

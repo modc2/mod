@@ -1,0 +1,50 @@
+services:
+  claude:
+    # Mount host source over the image's baked copy so edits hot-reload.
+    # docker-entrypoint.dev.sh swaps `next start` for `next dev`.
+    volumes:
+      - "./src/app/src:/app/src/app/src"
+      - "./src/app/next.config.js:/app/src/app/next.config.js:ro"
+      - "./src/app/tailwind.config.ts:/app/src/app/tailwind.config.ts:ro"
+      - "./src/app/postcss.config.js:/app/src/app/postcss.config.js:ro"
+      - "./src/app/tsconfig.json:/app/src/app/tsconfig.json:ro"
+      - "./docker-entrypoint.dev.sh:/app/docker-entrypoint.sh:ro"
+      # DooD: bind the host docker socket so claude can orchestrate sibling
+      # containers (m.up/down/build). Trade-off: any process inside the
+      # claude container is effectively root on the host. Acceptable for a
+      # single-user dev setup; not acceptable for shared infra.
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      # Static docker CLI (linux/arm64) provisioned out-of-band — the
+      # container has no outbound network on modnet (Docker Desktop
+      # quirk), so apt install is doomed. Stash the binary in ~/.mod/tools
+      # via:  curl -sL https://download.docker.com/linux/static/stable/aarch64/docker-27.3.1.tgz | tar xz -C /tmp && cp /tmp/docker/docker ~/.mod/tools/docker-linux-arm64
+      - "${HOME}/.mod/tools/docker-linux-arm64:/usr/local/bin/docker:ro"
+      # Staged claude-code tarballs (wrapper + linux/arm64 native). The
+      # entrypoint installs them on boot if the in-image version is older,
+      # so recreates don't roll back to the image's baked claude-code.
+      # Repopulate from `npm pack @anthropic-ai/claude-code@<v>` + the
+      # matching platform optionalDependency package.
+      - "${HOME}/.mod/tools/claude-code:/root/cc-stage:ro"
+    depends_on:
+      - mod-api
+
+  # ── mod core api sidecar ──────────────────────────────────────────────
+  # FastAPI surface for the mod protocol (registry, versions, content,
+  # auth, billing). Sits next to claude on the modnet bridge so the claude
+  # UI and the Caddy gateway can both call it under a stable hostname.
+  mod-api:
+    container_name: mod-api
+    image: mod:latest
+    networks:
+      default: {}
+    ports:
+      - "8000:8000"
+    volumes:
+      - "${HOME}/mod:/root/mod"
+      - "${HOME}/.mod:/root/.mod"
+      - "${HOME}/.claude:/root/host-claude:ro"
+    # Inherit image's working_dir (/root/mod) so the `mod` package resolves.
+    # m serve daemonizes via pm2 then returns — tail the log to keep PID 1
+    # alive (mirrors mod/orbit/ipfs/docker-entrypoint.sh).
+    entrypoint: ["bash", "-c", "m serve port=8000 key=api mod=api && exec tail -F /root/.pm2/logs/api-out.log /root/.pm2/logs/api-error.log"]
+    restart: unless-stopped

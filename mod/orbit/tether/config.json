@@ -1,0 +1,24 @@
+{
+    "name": "tether",
+    "version": "0.1.0",
+    "description": "Tether (USDT) on-chain integration \u2014 balance, transfers, allowances",
+    "port": 8850,
+    "app_port": 8851,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "icon": "\ud83d\udcb5",
+    "color": "#16a34a",
+    "image": "https://cdn.simpleicons.org/tether/ffffff",
+    "fns": [
+        "forward",
+        "info",
+        "balance",
+        "transfer",
+        "approve",
+        "health"
+    ],
+    "urls": {
+        "api": "http://localhost:8850",
+        "app": "http://localhost:8851"
+    },
+    "schema": "QmcXJra4DSLxjTc23yV4Q2yd4dx9hcxYapBEnjGHYFL5T6"
+}

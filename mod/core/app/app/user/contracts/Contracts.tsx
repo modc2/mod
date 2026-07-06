@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { userContext } from '@/context'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CopyButton } from '@/ui/CopyButton'
 import RegistryABI from '@/contracts//registry/Registry.sol/Registry.json'
@@ -75,7 +75,7 @@ export default function ContractsInterface() {
   const contractDropdownRef = useRef<HTMLDivElement>(null)
 
   const network = 'testnet'
-  const chainConfig = modConfig.chain?.[network]
+  const chainConfig = getChainConfig()
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

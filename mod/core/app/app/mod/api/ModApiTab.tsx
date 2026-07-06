@@ -6,6 +6,7 @@ import { userContext } from '@/context'
 import { text2color, colorWithOpacity, getModApiUrl } from '@/utils'
 import { SchemaParamsPanel } from '@/chat/components/SchemaParamsPanel'
 import { CopyButton } from '@/ui/CopyButton'
+import LogsPanel from '@/mod/LogsPanel'
 
 interface ModApiTabProps {
   mod: ModuleType
@@ -471,6 +472,9 @@ export default function ModApiTab({ mod, moduleColor }: ModApiTabProps) {
           )}
         </div>
       </div>
+
+      {/* Logs panel */}
+      <LogsPanel modName={mod.name || ''} moduleColor={modColor} filter="api" />
     </div>
   )
 }

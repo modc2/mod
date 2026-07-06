@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --uni-pink: #ff007a;
+  --uni-purple: #7b3fe4;
+  --uni-dark: #0d0d0d;
+  --uni-card: #1a1a2e;
+  --uni-border: #2a2a4a;
+  --uni-muted: #8888aa;
+  --uni-green: #4ade80;
+  --uni-red: #f87171;
+}
+
+body {
+  background: var(--uni-dark);
+  color: #e0e0e0;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--uni-dark); }
+::-webkit-scrollbar-thumb { background: var(--uni-border); border-radius: 3px; }
+
+/* Card */
+.card {
+  background: var(--uni-card);
+  border: 1px solid var(--uni-border);
+  border-radius: 12px;
+}
+
+/* Progress bar */
+.progress-bar {
+  height: 4px;
+  background: var(--uni-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--uni-pink), var(--uni-purple));
+  transition: width 0.3s ease;
+}
+
+/* Table */
+.trader-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--uni-muted);
+  border-bottom: 1px solid var(--uni-border);
+  cursor: pointer;
+  user-select: none;
+}
+.trader-table th:hover {
+  color: var(--uni-pink);
+}
+.trader-table td {
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--uni-border);
+}
+.trader-table tr:hover td {
+  background: rgba(123, 63, 228, 0.08);
+}
+
+/* Pill badge */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.badge-mev {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--uni-red);
+}
+.badge-chain {
+  background: rgba(123, 63, 228, 0.2);
+  color: #a78bfa;
+}
+
+/* Buttons */
+.btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid var(--uni-border);
+  background: var(--uni-card);
+  color: #e0e0e0;
+}
+.btn:hover {
+  border-color: var(--uni-pink);
+  color: var(--uni-pink);
+}
+.btn-active {
+  background: var(--uni-pink);
+  border-color: var(--uni-pink);
+  color: white;
+}
+.btn-active:hover {
+  background: #e5006d;
+  color: white;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}

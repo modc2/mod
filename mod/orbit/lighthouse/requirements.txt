@@ -1,2 +1,0 @@
-lighthouseweb3>=0.1.6
-requests

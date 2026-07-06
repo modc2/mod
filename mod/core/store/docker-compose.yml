@@ -1,20 +1,31 @@
-networks:
-  default:
-    external: true
-    name: modnet
 services:
   store:
-    container_name: store
-    deploy: {}
-    entrypoint: bash -c "m serve port=50112 key=store remote=0 mod=store"
-    image: mod:latest
+    build:
+      # Build context is the repo root so the Dockerfile can copy the
+      # whole `mod/` package (api proxies to orbit/filecoin, orbit/hippius).
+      context: ../../..
+      dockerfile: mod/core/store/Dockerfile
+    container_name: mod-store
     ports:
-    - 50112:50112
+      - "${STORE_API_PORT:-50150}:50150"
+      - "${STORE_APP_PORT:-50151}:50151"
     restart: unless-stopped
-    shm_size: 100g
+    environment:
+      STORE_API_PORT: 50150
+      STORE_APP_PORT: 50151
+      STORE_JWT_SECRET: ${STORE_JWT_SECRET:-}
+      STORE_DOMAIN: ${STORE_DOMAIN:-localhost:50151}
+      STORE_ORIGIN: ${STORE_ORIGIN:-http://localhost:50151}
+      # Backend gateways (optional — see filecoin/hippius skill.md)
+      FILECOIN_GATEWAY: ${FILECOIN_GATEWAY:-https://node.lighthouse.storage}
+      FILECOIN_GATEWAY_TOKEN: ${FILECOIN_GATEWAY_TOKEN:-}
+      HIPPIUS_S3_ENDPOINT: ${HIPPIUS_S3_ENDPOINT:-https://s3.hippius.com}
+      HIPPIUS_S3_KEY: ${HIPPIUS_S3_KEY:-}
+      HIPPIUS_S3_SECRET: ${HIPPIUS_S3_SECRET:-}
+      HIPPIUS_S3_BUCKET: ${HIPPIUS_S3_BUCKET:-mod}
+      HIPPIUS_IPFS_GATEWAY: ${HIPPIUS_IPFS_GATEWAY:-https://get.hippius.network}
     volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
-    - ~/mod/mod/core/store:/root/mod/mod/core/store
-    working_dir: /root/mod/mod/core/store
-version: '3.8'
+      - store-data:/data
+
+volumes:
+  store-data:

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search, FolderCode, Database, Trash2, Loader2, FileCode, ChevronDown, ChevronRight } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8920';
 
@@ -98,10 +97,10 @@ export default function Home() {
     } catch { }
   };
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'search', label: 'Search', icon: <Search size={16} /> },
-    { id: 'embed', label: 'Embed', icon: <FolderCode size={16} /> },
-    { id: 'collections', label: 'Collections', icon: <Database size={16} /> },
+  const tabItems: { id: Tab; label: string }[] = [
+    { id: 'search', label: 'Search' },
+    { id: 'embed', label: 'Embed' },
+    { id: 'collections', label: 'Collections' },
   ];
 
   return (
@@ -110,8 +109,8 @@ export default function Home() {
       <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-              <FileCode size={18} className="text-emerald-400" />
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-sm font-bold font-mono">
+              ec
             </div>
             <h1 className="text-lg font-semibold text-gray-100">embedcode</h1>
             <span className="text-xs text-gray-600 font-mono">local embeddings</span>
@@ -126,17 +125,16 @@ export default function Home() {
         </div>
         <div className="max-w-6xl mx-auto px-6">
           <nav className="flex gap-1">
-            {tabs.map(t => (
+            {tabItems.map(t => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   tab === t.id
                     ? 'border-emerald-400 text-emerald-400'
                     : 'border-transparent text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {t.icon}
                 {t.label}
               </button>
             ))}
@@ -146,21 +144,18 @@ export default function Home() {
 
       <main className="max-w-6xl mx-auto px-6 py-8">
 
-        {/* ── Search Tab ── */}
+        {/* Search Tab */}
         {tab === 'search' && (
           <div className="space-y-6">
             <div className="flex gap-3">
-              <div className="flex-1 relative">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                  placeholder="Search code semantically..."
-                  className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-11 pr-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20"
-                />
-              </div>
+              <input
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                placeholder="Search code semantically..."
+                className="flex-1 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20"
+              />
               {collections.length > 0 && (
                 <select
                   value={selectedCollection}
@@ -176,10 +171,9 @@ export default function Home() {
               <button
                 onClick={handleSearch}
                 disabled={searching || !query.trim()}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                Search
+                {searching ? 'Searching...' : 'Search'}
               </button>
             </div>
 
@@ -196,7 +190,7 @@ export default function Home() {
                       className="w-full px-4 py-3 flex items-center justify-between text-left"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        {expandedResult === i ? <ChevronDown size={14} className="text-gray-500 shrink-0" /> : <ChevronRight size={14} className="text-gray-500 shrink-0" />}
+                        <span className="text-gray-500 shrink-0 text-xs">{expandedResult === i ? 'v' : '>'}</span>
                         <span className="text-sm text-gray-300 truncate font-mono">{r.path}</span>
                         <span className="text-xs text-gray-600 shrink-0">
                           chunk {r.chunk_index + 1}/{r.total_chunks}
@@ -240,7 +234,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Embed Tab ── */}
+        {/* Embed Tab */}
         {tab === 'embed' && (
           <div className="max-w-2xl space-y-6">
             <div>
@@ -274,9 +268,8 @@ export default function Home() {
               <button
                 onClick={handleEmbed}
                 disabled={embedding || !embedPath.trim()}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                {embedding ? <Loader2 size={16} className="animate-spin" /> : <FolderCode size={16} />}
                 {embedding ? 'Embedding...' : 'Embed'}
               </button>
             </div>
@@ -303,7 +296,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Collections Tab ── */}
+        {/* Collections Tab */}
         {tab === 'collections' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -331,9 +324,9 @@ export default function Home() {
                       <h3 className="text-sm font-mono text-gray-200">{c.name}</h3>
                       <button
                         onClick={() => handleDelete(c.name)}
-                        className="text-gray-600 hover:text-red-400 transition-colors"
+                        className="text-gray-600 hover:text-red-400 transition-colors text-xs"
                       >
-                        <Trash2 size={14} />
+                        delete
                       </button>
                     </div>
                     <div className="flex gap-4 text-xs text-gray-500">

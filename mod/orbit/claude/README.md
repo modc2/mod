@@ -118,6 +118,42 @@ c.edit_module("mymod", prompt="Add rate limiting")
 c.modules()
 ```
 
+### Module process control
+
+Drive any other module's lifecycle through pm2 — the actual supervisor — so a
+stop stays stopped and a restart is reliable (a raw port kill is just undone by
+pm2's autorestart). Owner-only; cross-module actions require an owner sudo
+signature when the API runs under the pm2/root deployment.
+
+```python
+c.module_status("openplay")     # {running, processes:[{name, pm_id, status, ...}]}
+c.restart_module("openplay")    # kill + bring back up via pm2
+c.stop_module("openplay")       # stays down (no autorestart)
+c.start_module("openplay")      # pm2 start, or bootstrap from ecosystem.config.js / start.sh
+c.module_process("openplay", "restart")   # generic form; target a single service:
+# POST /modules/openplay/process {"action":"restart","target":"api"}
+```
+
+**Pluggable backend.** The supervisor is chosen per module so the calls above
+behave identically regardless of how a module is run:
+
+| Backend | How processes are found | Actions |
+|---|---|---|
+| `pm2` | pm2 procs whose cwd / exec / launch-arg lands inside the module dir (so Python modules launched from repo root via `--app-dir <module>/api` still resolve) | `pm2 stop/start/restart <id>` |
+| `systemd` | loaded units named `mod-<name>[-api/-app].service` | `systemctl stop/start/restart` |
+| `generic` | the PID *listening* on the module's `port` / `app_port` (via `ss`) | SIGTERM to stop; `start.sh` to (re)start |
+
+Selection order: `MOD_PM` env override → the module's `config.json`
+`"process_manager"` field → **auto** (pm2 if it has procs, else a loaded
+systemd unit, else generic). The JSON response reports the resolved `backend`.
+
+**Opt-in nix.** If a module ships a `flake.nix` (or `shell.nix`) and `nix` is
+installed, any launcher claude runs itself — the generic backend's `start.sh`,
+or the bootstrap fallback — is wrapped in `nix develop --command …` /
+`nix-shell --run …`, so the module starts inside its declared environment. pm2 /
+systemd units carry their own env and are left untouched. `nix_env` in the
+response flags whether the module declares one.
+
 ---
 
 ## Web UI
@@ -174,6 +210,8 @@ Rust server (Axum + SQLite) on port `8820`.
 | `POST` | `/jobs/{id}/cancel` | Cancel job |
 | `GET` | `/jobs/{id}/stream` | SSE output stream |
 | `POST` | `/files/write` | Write file |
+| `POST` | `/modules/{name}/process` | Manage a module's pm2 processes (status/stop/start/restart) |
+| `POST` | `/kill` | Kill a process by PID or port |
 
 </details>
 
@@ -195,6 +233,29 @@ curl -X POST http://localhost:8820/jobs \
 | **Wallet** | MetaMask / SubWallet / BIP-39 / password key | EIP-191 challenge-verify, HMAC bearer token (24h) |
 
 The first wallet to authenticate becomes the **owner**. Owners can edit any file and delete any module. Non-owners can only edit modules under `_outer/{their_address}/`. Read-only operations are always open.
+
+### Whitelist (trusted editors)
+
+Everything in the orbit belongs to the host owner. To let other people edit it, the owner whitelists their address. Whitelisted addresses are **trusted editors**: they get owner-level **edit** access — full host filesystem, unsandboxed jobs (run as root, not the workspace sandbox), and `core/`+`orbit/` writes — without needing per-write sudo signatures.
+
+Whitelisting does **not** grant owner-only *powers*: managing the whitelist, `set_owner`, killing processes, process control, and destructive module ops (delete/rename/restore) stay restricted to the configured owner.
+
+The whitelist lives off-tree in `~/.mod/claude/whitelist.json` (never committed — it's private auth state) and is read by both the Rust API and the Python SDK.
+
+| Action | Owner | Editor (whitelisted) | Other |
+|---|---|---|---|
+| Edit `orbit/`+`core/`, run host jobs | ✅ | ✅ | edit only own `_outer/` workspace |
+| Manage whitelist, `set_owner`, kill, delete/rename modules | ✅ | ❌ | ❌ |
+
+**Manage it** — owner-only:
+
+```bash
+m claude/add_editor 0xEditorAddress…      # grant edit access
+m claude/editors                          # list whitelisted editors (public)
+m claude/remove_editor 0xEditorAddress…   # revoke
+```
+
+REST (owner bearer token): `GET /whitelist` (public) · `POST /whitelist {address}` · `DELETE /whitelist/{address}`. The web UI's **Whitelist** panel (in the module detail / owner sidebar) wraps these with add/remove controls.
 
 ---
 

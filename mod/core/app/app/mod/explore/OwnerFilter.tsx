@@ -10,11 +10,12 @@ interface OwnerFilterProps {
   selectedOwners: string[]
   onToggleOwner: (owner: string) => void
   onClearFilters: () => void
+  userKey?: string
 }
 
 const FONT = "var(--font-digital), monospace"
 
-export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilters }: OwnerFilterProps) {
+export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilters, userKey }: OwnerFilterProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -47,7 +48,11 @@ export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilt
           }}
         >
           <KeyIcon className="w-3.5 h-3.5" style={{ strokeWidth: 2 }} />
-          {hasSelected ? `${selectedOwners.length} Owner${selectedOwners.length > 1 ? 's' : ''}` : 'Owner'}
+          {hasSelected
+            ? (selectedOwners.length === 1 && userKey && selectedOwners[0] === userKey
+              ? 'My Mods'
+              : `${selectedOwners.length} Owner${selectedOwners.length > 1 ? 's' : ''}`)
+            : 'All'}
           {isDropdownOpen
             ? <ChevronUp className="w-3 h-3" style={{ color: 'var(--text-tertiary)' }} />
             : <ChevronDown className="w-3 h-3" style={{ color: 'var(--text-tertiary)' }} />
@@ -65,9 +70,43 @@ export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilt
               boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
             }}
           >
-            {owners.map(owner => {
+            {/* ALL option */}
+            <button
+              onClick={() => { onClearFilters(); setIsDropdownOpen(false) }}
+              className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-all"
+              style={{
+                fontFamily: FONT,
+                fontSize: '12px',
+                borderBottom: '1px solid var(--border-color)',
+                backgroundColor: selectedOwners.length === 0 ? 'rgba(167, 139, 250, 0.08)' : 'transparent',
+              }}
+              onMouseEnter={(e) => { if (selectedOwners.length > 0) e.currentTarget.style.backgroundColor = 'var(--bg-input)' }}
+              onMouseLeave={(e) => { if (selectedOwners.length > 0) e.currentTarget.style.backgroundColor = 'transparent' }}
+            >
+              <div
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ backgroundColor: 'var(--text-tertiary)' }}
+              />
+              <code style={{ color: selectedOwners.length === 0 ? 'var(--text-primary)' : 'var(--text-secondary)', fontFamily: FONT }}>
+                ALL
+              </code>
+              {selectedOwners.length === 0 && (
+                <span className="ml-auto text-[10px] font-bold" style={{ color: 'var(--accent-primary, #a78bfa)' }}>
+                  ON
+                </span>
+              )}
+            </button>
+            {/* Sort owners: user's key first */}
+            {[...owners].sort((a, b) => {
+              if (userKey) {
+                if (a === userKey) return -1
+                if (b === userKey) return 1
+              }
+              return 0
+            }).map(owner => {
               const ownerColor = text2color(owner)
               const isSelected = selectedOwners.includes(owner)
+              const isMe = userKey && owner === userKey
               return (
                 <button
                   key={owner}
@@ -87,8 +126,13 @@ export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilt
                     style={{ backgroundColor: ownerColor, boxShadow: isSelected ? `0 0 6px ${ownerColor}` : 'none' }}
                   />
                   <code style={{ color: isSelected ? ownerColor : 'var(--text-secondary)', fontFamily: FONT }}>
-                    {shorten(owner, 6, 4)}
+                    {isMe ? 'ME' : shorten(owner, 6, 4)}
                   </code>
+                  {isMe && (
+                    <span className="text-[10px]" style={{ color: 'var(--text-tertiary)', fontFamily: FONT }}>
+                      {shorten(owner, 4, 4)}
+                    </span>
+                  )}
                   {isSelected && (
                     <span className="ml-auto text-[10px] font-bold" style={{ color: ownerColor }}>
                       ON
@@ -101,8 +145,8 @@ export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilt
         )}
       </div>
 
-      {/* Selected owner chips */}
-      {selectedOwners.map(owner => {
+      {/* Selected owner chips — hide when it's just the user's own key (shown as "My Mods" in button) */}
+      {selectedOwners.filter(o => !(selectedOwners.length === 1 && userKey && o === userKey)).map(owner => {
         const ownerColor = text2color(owner)
         return (
           <div
@@ -116,7 +160,7 @@ export function OwnerFilter({ owners, selectedOwners, onToggleOwner, onClearFilt
             }}
           >
             <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: ownerColor }} />
-            {shorten(owner, 4, 4)}
+            {userKey && owner === userKey ? 'ME' : shorten(owner, 4, 4)}
             <button
               onClick={() => onToggleOwner(owner)}
               className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"

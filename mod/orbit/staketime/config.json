@@ -5,12 +5,12 @@
   },
   "contracts": {
     "base_sepolia": {
-      "subnet": "0x774e448F4B212eCE4a9b2270B840f327ab1FAada",
-      "stakeTime": "0x153D2009F415330B3c860B9d511bF1ba8cBa2d56",
-      "consensus": "0x57eCc51d2a26fB95521A02b6579ECDbB591A9ec2",
-      "governanceToken": "0x21e8E4be4AF613F31EE385F50bC9aB3b16756352",
-      "registry": "0x075cA02b1AFAab3eCAC54AcFb705bAF348D59784",
-      "address": "0x774e448F4B212eCE4a9b2270B840f327ab1FAada",
+      "subnet": "0x4aD0c9b135D43263ff62894263d1C589Cc0A1497",
+      "stakeTime": "0x433E3104768B181dd9d574CCB18B45b303C10527",
+      "staking": "0xdb7f4733BC5eBE15653bf7bFF9fEa3464faa4627",
+      "consensus": "0xB14d42baBa2530b49686Cb563d4c108Be5df4cb3",
+      "governanceToken": "0x1f69D3820691a304c92C1a721d69d7cB29620adB",
+      "registry": "0xE37e8A8e3E39c16d234fd36B0376E2b384B814B8",
       "chainId": 84532,
       "emissionRate": "100000000000000000000",
       "decayBps": 500,
@@ -20,7 +20,9 @@
       "maxLockBlocks": 100000,
       "maxStakersPerValidator": 100,
       "defaultCommissionBps": 1000,
-      "deployedAt": "2026-04-14T13:54:03.350Z"
+      "deployedAt": "2026-04-17T01:32:14.997Z"
     }
-  }
+  },
+  "schema": "QmabUNsDNvU9Jn5ZDfhd2nB2ERphxiyPP6R4jpaipihDNY",
+  "gateway_port": 8850
 }

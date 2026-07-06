@@ -597,14 +597,15 @@ class TestAgent:
     def test_parse_steps_single(self):
         agent = self._make_agent()
         output = '<PLAN>\n<STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>\n</PLAN>'
-        steps = agent.parse_steps(output)
+        steps, raw = agent.parse_steps(output)
         assert len(steps) == 1
         assert steps[0]["tool"] == "bash"
+        assert raw == output
 
     def test_parse_steps_finish(self):
         agent = self._make_agent()
         output = '<PLAN>\n<STEP>{"tool": "finish", "params": {}}</STEP>\n</PLAN>'
-        steps = agent.parse_steps(output)
+        steps, raw = agent.parse_steps(output)
         assert len(steps) == 1
         assert steps[0]["tool"] == "finish"
 
@@ -616,19 +617,34 @@ class TestAgent:
             '<STEP>{"tool": "finish", "params": {}}</STEP>\n'
             '</PLAN>'
         )
-        steps = agent.parse_steps(output)
+        steps, raw = agent.parse_steps(output)
         assert len(steps) == 2
 
     def test_parse_steps_empty(self):
         agent = self._make_agent()
-        steps = agent.parse_steps("no steps here")
+        steps, raw = agent.parse_steps("no steps here")
         assert steps == []
+        assert raw == "no steps here"
 
     def test_parse_steps_bad_json(self):
         agent = self._make_agent()
         output = '<PLAN>\n<STEP>not json</STEP>\n</PLAN>'
-        steps = agent.parse_steps(output)
+        steps, raw = agent.parse_steps(output)
         assert steps == []
+
+    def test_parse_steps_trailing_comma_repaired(self):
+        agent = self._make_agent()
+        output = '<PLAN>\n<STEP>{"tool": "bash", "params": {"command": "ls"},}</STEP>\n</PLAN>'
+        steps, raw = agent.parse_steps(output)
+        assert len(steps) == 1
+        assert steps[0]["tool"] == "bash"
+
+    def test_parse_steps_code_fence_repaired(self):
+        agent = self._make_agent()
+        output = '<PLAN>\n<STEP>```json\n{"tool": "read", "params": {"file_path": "/tmp/x"}}\n```</STEP>\n</PLAN>'
+        steps, raw = agent.parse_steps(output)
+        assert len(steps) == 1
+        assert steps[0]["tool"] == "read"
 
     # ── _extract_step ──
 

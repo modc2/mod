@@ -2,29 +2,35 @@ import base64
 import hmac
 import json
 import time
+import threading
+import uuid
 from typing import Dict, Optional, Any
 import mod as m
 import hashlib
 
 class Auth:
 
-    features = ['data', 'time', 'key', 'signature']
-    sig_features = ['data', 'time']
+    features = ['data', 'time', 'nonce', 'key', 'signature']
+    sig_features = ['data', 'time', 'nonce']
 
-    def __init__(self, 
-                key=None, 
-                crypto_type='ecdsa', 
-                max_age=3_600 ):
-        
+    def __init__(self,
+                key=None,
+                crypto_type='ecdsa',
+                max_age=86_400 ):
+
         """
 
         Initialize the Auth class
         :param key: the key to use for signing
         :param crypto_type: the crypto type to use for signing
-        :param signature_keys: the keys to use for signing 
+        :param signature_keys: the keys to use for signing
         """
         self.set_key(key=key, crypto_type=crypto_type)
         self.max_age = max_age
+        # Replay protection: track used nonces with expiry
+        self._used_nonces: Dict[str, float] = {}
+        self._nonce_lock = threading.Lock()
+        self._last_nonce_cleanup = time.time()
 
 
     def infer_crypto_type(self, key):
@@ -69,9 +75,10 @@ class Auth:
         result = {
             'data': data,
             'time': str(time.time()),
+            'nonce': uuid.uuid4().hex,
             'key': key.address if key else self.key.address,
         }
-        
+
         return result
 
     def token(self,  data: dict = {},  key=None, mod='str') -> dict:
@@ -150,7 +157,20 @@ class Auth:
             signature=headers['signature'],
             address=headers['key'],
             crypto_type=crypto_type
-        ), f'Invalid signature {sig_data} {headers}'
+        ), f'Invalid signature'
+
+        # ── Replay protection: reject reused nonces ──
+        nonce = headers.get('nonce', '')
+        if nonce:
+            now = time.time()
+            with self._nonce_lock:
+                # Periodic cleanup of expired nonces
+                if now - self._last_nonce_cleanup > 300:
+                    cutoff = now - self.max_age
+                    self._used_nonces = {k: v for k, v in self._used_nonces.items() if v > cutoff}
+                    self._last_nonce_cleanup = now
+                assert nonce not in self._used_nonces, 'Replay detected: nonce already used'
+                self._used_nonces[nonce] = now
 
         return headers
     def get_key(self, key=None):

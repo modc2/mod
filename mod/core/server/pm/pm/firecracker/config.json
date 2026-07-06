@@ -1,0 +1,40 @@
+{
+  "name": "pm/firecracker",
+  "description": "Firecracker microVM lifecycle management and PM backend",
+  "version": "2.0.0",
+  "mode": "local",
+  "remote_host": null,
+  "kernel_image": "/usr/local/share/firecracker/vmlinux.bin",
+  "rootfs_image": "/usr/local/share/firecracker/rootfs.ext4",
+  "mod_rootfs": null,
+  "default_memory": 1024,
+  "default_vcpus": 2,
+  "network": {
+    "tap_prefix": "fc-tap",
+    "subnet": "172.16.0.0/24",
+    "gateway": "172.16.0.1"
+  },
+  "fns": [
+    "forward",
+    "serve",
+    "health",
+    "status",
+    "create",
+    "list",
+    "get",
+    "stop",
+    "delete",
+    "exec",
+    "logs",
+    "ps",
+    "servers",
+    "exists",
+    "kill",
+    "kill_all",
+    "namespace",
+    "restart",
+    "provision",
+    "deploy",
+    "build_rootfs"
+  ]
+}

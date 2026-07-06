@@ -75,6 +75,13 @@ pub struct VerifyRequest {
     pub address: String,
     pub signature: String,
     pub message: String,
+    /// Optional QR edit-grant id — lets a non-whitelisted address sign in for
+    /// the grant's window (and registers their time-boxed edit access).
+    #[serde(default)]
+    pub grant: Option<String>,
+    /// Optional second-factor key for the grant above.
+    #[serde(default)]
+    pub grant_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -124,38 +131,75 @@ pub async fn verify(
         challenges.remove(&addr);
     }
 
-    // If no owner is set, make this user the owner
-    let owner_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".mod")
-        .join("claude")
-        .join("owner.json");
-
-    let is_new_owner = if !owner_path.exists() {
-        // Create the directory if it doesn't exist
-        if let Some(parent) = owner_path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
-
-        // Set this user as owner
-        let owner_data = serde_json::json!({ "owner": addr });
-        if let Ok(json_str) = serde_json::to_string_pretty(&owner_data) {
-            std::fs::write(&owner_path, json_str).ok();
-            true
-        } else {
+    // Sign-in gate: owner → always; whitelisted addresses → allowed; else delegate
+    // to optional `gate_command` (owner-defined executable that returns 0 to allow).
+    // If no owner is set yet, this user claims ownership.
+    let existing_owner = get_owner_address();
+    let is_new_owner = match existing_owner {
+        Some(owner) => {
+            if owner != addr
+                && !read_whitelist().iter().any(|w| w == &addr)
+                && !run_gate_command(&addr)
+            {
+                // Last chance: a QR edit-grant. Redeeming one lets this address
+                // in for the grant's window and records its time-boxed access.
+                match req.grant.as_deref() {
+                    Some(gid) => {
+                        match redeem_grant(gid, req.grant_key.as_deref(), &addr) {
+                            Ok(exp) => {
+                                println!("✓ Grant redeemed: {} via {} (until {})", addr, gid, exp);
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Grant redemption failed for {}: {}", addr, e);
+                                return Err((
+                                    StatusCode::FORBIDDEN,
+                                    Json(serde_json::json!({ "error": e })),
+                                ));
+                            }
+                        }
+                    }
+                    None => {
+                        // Echo the verified signer + configured owner so a wrong active
+                        // MetaMask account is obvious. Log it too — this path was silent.
+                        eprintln!(
+                            "✗ Sign-in denied: signer {} is not owner ({}), not whitelisted, no gate matched",
+                            addr, owner
+                        );
+                        return Err((
+                            StatusCode::FORBIDDEN,
+                            Json(serde_json::json!({
+                                "error": format!(
+                                    "Sign-in not permitted: signed-in address {} is not the owner ({}), not whitelisted, and no gate matched. Check which account is active in your wallet.",
+                                    addr, owner
+                                )
+                            })),
+                        ));
+                    }
+                }
+            }
             false
         }
-    } else {
-        false
+        None => {
+            let owner_path = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".mod")
+                .join("claude")
+                .join("owner.json");
+            if let Some(parent) = owner_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            let owner_data = serde_json::json!({ "owner": addr });
+            match serde_json::to_string_pretty(&owner_data) {
+                Ok(json_str) => {
+                    std::fs::write(&owner_path, json_str).ok();
+                    true
+                }
+                Err(_) => false,
+            }
+        }
     };
 
-    // Generate bearer token: address:timestamp:hmac
-    let timestamp = chrono::Utc::now().timestamp();
-    let payload = format!("{}:{}", addr, timestamp);
-    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
-    mac.update(payload.as_bytes());
-    let sig = hex::encode(mac.finalize().into_bytes());
-    let token = format!("{}:{}", payload, sig);
+    let token = mint_token(&addr);
 
     if is_new_owner {
         println!("✓ First user authenticated - set as owner: {}", addr);
@@ -165,6 +209,16 @@ pub async fn verify(
         token,
         address: addr,
     }))
+}
+
+/// Mint a bearer token for an authenticated identity: address:timestamp:hmac.
+pub fn mint_token(address: &str) -> String {
+    let timestamp = chrono::Utc::now().timestamp();
+    let payload = format!("{}:{}", address, timestamp);
+    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+    mac.update(payload.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("{}:{}", payload, sig)
 }
 
 // ── Middleware ────────────────────────────────────────────────────────
@@ -227,9 +281,11 @@ pub fn validate_token(token: &str) -> Result<String, String> {
         .map_err(|_| "Invalid timestamp".to_string())?;
     let provided_sig = parts[2];
 
-    // Check expiry (24 hours)
+    // Check expiry (24 hours). Guest tokens (walletless QR redemption) are
+    // exempt here — they live and die with their grant, checked below.
+    let is_guest = address.starts_with(GUEST_PREFIX);
     let now = chrono::Utc::now().timestamp();
-    if now - timestamp > 86400 {
+    if !is_guest && now - timestamp > 86400 {
         return Err("Token expired".to_string());
     }
 
@@ -241,6 +297,12 @@ pub fn validate_token(token: &str) -> Result<String, String> {
 
     if expected != provided_sig {
         return Err("Invalid token signature".to_string());
+    }
+
+    // A guest identity only means anything while its grant redemption is live,
+    // so access ends the moment the grant expires or is revoked.
+    if is_guest && !grant_active(address) {
+        return Err("Guest access expired".to_string());
     }
 
     Ok(address.to_string())
@@ -387,9 +449,388 @@ pub fn is_owner(address: &str) -> bool {
     }
 }
 
+/// Check if an address is *trusted* to edit — the configured owner OR a
+/// whitelisted address. Trusted callers get the owner's wider edit surface
+/// (host filesystem access, unsandboxed jobs, core/ + orbit/ writes) because
+/// everything in the orbit belongs to the host owner and the whitelist is the
+/// owner's explicit delegation of edit rights.
+///
+/// Owner-only *powers* — managing the whitelist, changing the owner, killing
+/// processes, process control, and destructive module ops (delete/rename/
+/// restore) — stay gated on `is_owner`, NOT this. Only edit capability widens.
+pub fn is_trusted(address: &str) -> bool {
+    if address.is_empty() {
+        return false;
+    }
+    if is_owner(address) {
+        return true;
+    }
+    let addr = address.to_lowercase();
+    if read_whitelist().iter().any(|w| w == &addr) {
+        return true;
+    }
+    // Time-boxed QR grants: a holder who redeemed a still-valid edit grant gets
+    // the same edit surface as a whitelisted editor, until the grant expires.
+    grant_active(&addr)
+}
+
+// ── Time-boxed edit grants (QR hand-off) ─────────────────────────────
+//
+// The owner mints a *grant*: a short, random id that confers temporary
+// edit access (default 1h) to whoever redeems it, optionally protected by
+// a second-factor *key* the owner shares out of band. The id travels in a
+// QR code; the key is supplied separately so a leaked QR alone is useless.
+//
+// Redemption is bound to the redeemer's signed-in address (during sign-in),
+// so access cleaves an auditable trail and the grant can serve multiple
+// people. Everything lives off-repo in ~/.mod/claude/grants.json next to the
+// whitelist; the grant window is absolute (created → created+ttl), so the QR
+// stops working — and every redeemer's access ends — at the same moment.
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Grant {
+    /// Random, URL-safe id carried by the QR code.
+    pub id: String,
+    /// Unix expiry — access (and redemption) ends here.
+    pub exp: i64,
+    /// Seconds of life the owner asked for (for display/echo).
+    pub ttl: i64,
+    /// sha256(key) hex if the owner set a second-factor key; absent otherwise.
+    #[serde(default)]
+    pub key_hash: Option<String>,
+    /// Optional human label so the owner remembers what a grant was for.
+    #[serde(default)]
+    pub label: Option<String>,
+    pub created: i64,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Redemption {
+    pub address: String,
+    pub exp: i64,
+    pub grant: String,
+    pub redeemed: i64,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct GrantsFile {
+    #[serde(default)]
+    pub grants: Vec<Grant>,
+    #[serde(default)]
+    pub redemptions: Vec<Redemption>,
+}
+
+pub fn grants_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("grants.json"))
+}
+
+/// Read the grants file, tolerating a missing/corrupt file (returns empty).
+pub fn read_grants() -> GrantsFile {
+    let path = match grants_path() {
+        Some(p) => p,
+        None => return GrantsFile::default(),
+    };
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+pub fn write_grants(file: &GrantsFile) -> Result<(), String> {
+    let path = grants_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(file).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+fn sha256_hex(s: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    hex::encode(h.finalize())
+}
+
+/// Drop expired grants and redemptions, plus redemptions whose grant is gone or
+/// revoked. Returns the pruned file (callers persist it).
+fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
+    file.grants.retain(|g| !g.revoked && g.exp > now);
+    let live: std::collections::HashSet<String> =
+        file.grants.iter().map(|g| g.id.clone()).collect();
+    file.redemptions
+        .retain(|r| r.exp > now && live.contains(&r.grant));
+    file
+}
+
+/// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
+/// never stored in the clear. Returns the created grant.
+pub fn create_grant(
+    ttl: i64,
+    key: Option<&str>,
+    label: Option<&str>,
+) -> Result<Grant, String> {
+    let now = chrono::Utc::now().timestamp();
+    let id = hex::encode(rand::random::<[u8; 12]>());
+    let grant = Grant {
+        id,
+        exp: now + ttl,
+        ttl,
+        key_hash: key.map(sha256_hex),
+        label: label
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        created: now,
+        revoked: false,
+    };
+    let mut file = prune_grants(read_grants(), now);
+    file.grants.push(grant.clone());
+    write_grants(&file)?;
+    Ok(grant)
+}
+
+/// Active (unexpired, unrevoked) grants and live redemptions, for the owner UI.
+pub fn list_grants() -> GrantsFile {
+    let now = chrono::Utc::now().timestamp();
+    let pruned = prune_grants(read_grants(), now);
+    // Persist the prune so the file doesn't grow unbounded; ignore write errors.
+    let _ = write_grants(&pruned);
+    pruned
+}
+
+/// Revoke a grant by id (and cut every session it opened). Returns true if found.
+pub fn revoke_grant(id: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let before = file.grants.len();
+    file.grants.retain(|g| g.id != id);
+    let removed = file.grants.len() != before;
+    if removed {
+        file.redemptions.retain(|r| r.grant != id);
+        let _ = write_grants(&file);
+    }
+    removed
+}
+
+/// Redeem a grant for `address`. Validates existence, expiry, and the optional
+/// key, then records (or refreshes) the redemption. Returns the access expiry.
+pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let addr = address.to_lowercase();
+
+    let grant = file
+        .grants
+        .iter()
+        .find(|g| g.id == id)
+        .cloned()
+        .ok_or("Invalid or expired invite")?;
+
+    if let Some(expected) = &grant.key_hash {
+        let supplied = key.map(|k| k.trim()).filter(|k| !k.is_empty());
+        match supplied {
+            Some(k) if &sha256_hex(k) == expected => {}
+            Some(_) => return Err("Wrong key for this invite".to_string()),
+            None => return Err("This invite requires a key".to_string()),
+        }
+    }
+
+    // Upsert the redemption (re-redeeming just refreshes it to the grant window).
+    file.redemptions.retain(|r| !(r.address == addr && r.grant == id));
+    file.redemptions.push(Redemption {
+        address: addr,
+        exp: grant.exp,
+        grant: grant.id.clone(),
+        redeemed: now,
+    });
+    write_grants(&file)?;
+    Ok(grant.exp)
+}
+
+/// Prefix for walletless guest identities minted by QR redemption. Can never
+/// collide with a real signer: Ethereum addresses always start with "0x".
+pub const GUEST_PREFIX: &str = "guest_";
+
+/// Walletless redemption: anyone holding the grant id (from the QR) trades it
+/// for a fresh guest identity whose redemption — and therefore whose bearer
+/// token — expires with the grant. Returns (guest address, access expiry).
+pub fn redeem_grant_guest(id: &str, key: Option<&str>) -> Result<(String, i64), String> {
+    let guest = format!("{}{}", GUEST_PREFIX, hex::encode(rand::random::<[u8; 4]>()));
+    let exp = redeem_grant(id, key, &guest)?;
+    Ok((guest, exp))
+}
+
+/// True if `address` holds an unexpired redemption of a live grant.
+pub fn grant_active(address: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let addr = address.to_lowercase();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    file.redemptions
+        .iter()
+        .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+}
+
+// ── Session handoff (QR sign-in on another device) ──────────────────
+//
+// A signed-in browser mints a short-lived, SINGLE-USE code bound to its own
+// identity. The code rides a QR; another device (typically the same person's
+// phone) opens `?handoff=<code>` and trades it for a fresh bearer token as
+// the SAME address — no wallet or signature needed on that device. This is
+// distinct from grants: a grant invites *someone else* in (guest identity /
+// time-boxed access), a handoff moves *your own* session across devices.
+//
+// Codes live in memory only: they expire in minutes and are consumed on
+// first redemption, so a restart merely voids any un-scanned QR.
+
+struct Handoff {
+    address: String,
+    exp: i64,
+}
+
+static HANDOFFS: OnceLock<std::sync::Mutex<HashMap<String, Handoff>>> = OnceLock::new();
+
+/// How long a handoff QR stays scannable. Short on purpose: the code is a
+/// bearer capability for the minter's whole identity.
+pub const HANDOFF_TTL: i64 = 300;
+
+fn handoff_store() -> &'static std::sync::Mutex<HashMap<String, Handoff>> {
+    HANDOFFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Mint a single-use handoff code for `address`. Returns (code, expiry).
+pub fn create_handoff(address: &str) -> (String, i64) {
+    let now = chrono::Utc::now().timestamp();
+    let code = hex::encode(rand::random::<[u8; 16]>());
+    let exp = now + HANDOFF_TTL;
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.insert(
+        code.clone(),
+        Handoff {
+            address: address.to_lowercase(),
+            exp,
+        },
+    );
+    (code, exp)
+}
+
+/// Redeem (and consume) a handoff code. Returns the bound address.
+pub fn redeem_handoff(code: &str) -> Result<String, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.remove(code)
+        .map(|h| h.address)
+        .ok_or_else(|| "Invalid, expired, or already-used sign-in code".to_string())
+}
+
+/// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.
+/// Kept off-repo because the whitelist is private; mounted into the container as a volume.
+pub fn private_dir() -> Option<std::path::PathBuf> {
+    Some(dirs::home_dir()?.join(".mod").join("claude"))
+}
+
+pub fn whitelist_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("whitelist.json"))
+}
+
+fn gate_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("gate.json"))
+}
+
+/// Read the lowercased whitelist from ~/.mod/claude/whitelist.json (a JSON string array).
+/// Returns [] if the file is absent or malformed — never errors.
+pub fn read_whitelist() -> Vec<String> {
+    let path = match whitelist_path() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    // Accept either `["0x..", ..]` or `{"addresses": ["0x..", ..]}`.
+    let arr = parsed
+        .as_array()
+        .cloned()
+        .or_else(|| parsed.get("addresses").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default();
+    arr.into_iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+        .collect()
+}
+
+/// Persist the whitelist back to ~/.mod/claude/whitelist.json (used by the owner-only
+/// management endpoints in api.rs). Returns an error string on failure.
+pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
+    let path = whitelist_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(&addresses).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+/// Read the optional `gate_command` from ~/.mod/claude/gate.json — a shell command that the
+/// owner defines to authorize sign-in based on arbitrary logic (token-gated, NFT-gated, etc).
+/// File format: {"command": "..."}.
+fn read_gate_command() -> Option<String> {
+    let path = gate_path()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let data: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let cmd = data.get("command").and_then(|v| v.as_str())?.trim().to_string();
+    if cmd.is_empty() { None } else { Some(cmd) }
+}
+
+/// Invoke the owner-defined `gate_command` (if any). The address is passed as $1 and on
+/// stdin as `{"address":"0x.."}`. Exit code 0 ⇒ allow, anything else ⇒ deny.
+/// Returns false if no command is configured (deny by default).
+pub fn run_gate_command(address: &str) -> bool {
+    let cmd = match read_gate_command() {
+        Some(c) => c,
+        None => return false,
+    };
+    let payload = serde_json::json!({ "address": address }).to_string();
+    let mut child = match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .arg("--")
+        .arg(address)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gate_command spawn failed: {}", e);
+            return false;
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(payload.as_bytes());
+    }
+    match child.wait() {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
 // ── Ethereum Signature Recovery ──────────────────────────────────────
 
-fn recover_eth_address(message: &str, signature: &str) -> Result<String, String> {
+pub fn recover_eth_address(message: &str, signature: &str) -> Result<String, String> {
     // Strip 0x prefix
     let sig_hex = signature.strip_prefix("0x").unwrap_or(signature);
     let sig_bytes = hex::decode(sig_hex).map_err(|e| format!("Bad hex: {}", e))?;
@@ -554,6 +995,25 @@ mod tests {
             expected_address.to_lowercase(),
             "Recovered address doesn't match expected"
         );
+    }
+
+    #[test]
+    fn test_handoff_roundtrip_single_use() {
+        let addr = "0xABCDef1234567890abcdef1234567890abcdef12";
+        let (code, exp) = create_handoff(addr);
+        assert!(exp > chrono::Utc::now().timestamp());
+
+        // Redeems to the lowercased bound address…
+        let redeemed = redeem_handoff(&code).expect("redeem failed");
+        assert_eq!(redeemed, addr.to_lowercase());
+
+        // …and only once.
+        assert!(redeem_handoff(&code).is_err());
+    }
+
+    #[test]
+    fn test_handoff_unknown_code() {
+        assert!(redeem_handoff("nope").is_err());
     }
 
     #[test]

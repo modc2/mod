@@ -1,4 +1,4 @@
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 
 // ABI imports
 import TreasuryABI from '@/contracts/treasury/Treasury.sol/Treasury.json'
@@ -57,7 +57,7 @@ export function getReadFunctions(abi: any[]): { name: string; inputs: any[]; out
 }
 
 export function getContracts(): { name: string; address: string }[] {
-  const chainConfig = (modConfig.chain as any)?.testnet
+  const chainConfig = getChainConfig()
   if (!chainConfig?.contracts) return []
   const entries = Object.entries(chainConfig.contracts) as [string, any][]
   const treasury = entries.find(([name]) => name === 'Treasury')
@@ -69,7 +69,7 @@ export function getContracts(): { name: string; address: string }[] {
 }
 
 export function getSafeDeployment(): { singleton: string; factory: string } {
-  const chainConfig = (modConfig.chain as any)?.testnet
+  const chainConfig = getChainConfig()
   const safe = chainConfig?.contracts?.Safe
   return {
     singleton: safe?.singleton || '',

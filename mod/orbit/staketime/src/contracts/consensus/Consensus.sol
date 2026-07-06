@@ -5,14 +5,15 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "../Subnet.sol";
-import "../StakeTime.sol";
+import "../mod/Mod.sol";
+import "../staking/Staking.sol";
+import "../inflation/IInflationCurve.sol";
 
 /**
  * @title Consensus
- * @dev Abstract base for consensus modules that rotate a Subnet token.
+ * @dev Abstract base for consensus modules that rotate a Mod token.
  *
- *      Each epoch the consensus module mints new Subnet tokens as emissions
+ *      Each epoch the consensus module mints new Mod tokens as emissions
  *      and distributes them to validators (commission) and stakers
  *      (proportional to STT). Concrete implementations define scoring,
  *      proposer selection, and distribution behavior.
@@ -59,9 +60,10 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
 
     // ── State ────────────────────────────────────────────────────────────────
 
-    Subnet public subnet;
-    StakeTime public stakeTime;
+    Mod public mod_token;
+    Staking public staking;
     ConsensusState public consensus;
+    IInflationCurve public inflationCurve; // optional — address(0) means flat emissionRate
 
     mapping(bytes32 => ValidatorScore) public scores;
     mapping(bytes32 => uint256) public validatorBalances;
@@ -70,13 +72,13 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
     // ── Constructor ──────────────────────────────────────────────────────────
 
     constructor(
-        address _subnet,
-        address _stakeTime,
+        address _mod,
+        address _staking,
         uint256 _emissionRate,
         uint64  _epochLength
     ) {
-        subnet = Subnet(_subnet);
-        stakeTime = StakeTime(_stakeTime);
+        mod_token = Mod(_mod);
+        staking = Staking(_staking);
 
         consensus = ConsensusState({
             currentBlock: 0,
@@ -98,11 +100,11 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
 
     function checkin(string calldata key) external {
         bytes32 kh = keccak256(abi.encodePacked(key));
-        require(stakeTime.isValidatorActive(kh), "not registered");
+        require(staking.isValidatorActive(kh), "not registered");
 
-        (,uint8 keyType,,,) = stakeTime.getValidatorByHash(kh);
+        (,uint8 keyType,,,) = staking.getValidatorByHash(kh);
 
-        if (StakeTime.KeyType(keyType) == StakeTime.KeyType.Ecdsa) {
+        if (Staking.KeyType(keyType) == Staking.KeyType.Ecdsa) {
             require(
                 keccak256(abi.encodePacked(_addressToString(msg.sender))) ==
                 keccak256(abi.encodePacked(key)),
@@ -118,7 +120,7 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
     function batchCheckin(string[] calldata keys) external onlyOwner {
         for (uint256 i = 0; i < keys.length; i++) {
             bytes32 kh = keccak256(abi.encodePacked(keys[i]));
-            if (stakeTime.isValidatorActive(kh)) {
+            if (staking.isValidatorActive(kh)) {
                 _applyCheckin(kh);
             }
         }
@@ -153,16 +155,16 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
         uint256 amount = stakerRewards[msg.sender];
         require(amount > 0, "nothing to claim");
         stakerRewards[msg.sender] = 0;
-        IERC20(address(subnet)).safeTransfer(msg.sender, amount);
+        IERC20(address(mod_token)).safeTransfer(msg.sender, amount);
     }
 
     function claimValidatorRewards(string calldata key, address to) external {
         bytes32 kh = keccak256(abi.encodePacked(key));
-        require(stakeTime.isValidatorActive(kh), "not registered");
+        require(staking.isValidatorActive(kh), "not registered");
 
-        (,uint8 keyType,,,) = stakeTime.getValidatorByHash(kh);
+        (,uint8 keyType,,,) = staking.getValidatorByHash(kh);
 
-        if (StakeTime.KeyType(keyType) == StakeTime.KeyType.Ecdsa) {
+        if (Staking.KeyType(keyType) == Staking.KeyType.Ecdsa) {
             require(
                 keccak256(abi.encodePacked(_addressToString(msg.sender))) ==
                 keccak256(abi.encodePacked(key)),
@@ -176,7 +178,7 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
         require(amount > 0, "nothing to claim");
         validatorBalances[kh] = 0;
 
-        IERC20(address(subnet)).safeTransfer(to, amount);
+        IERC20(address(mod_token)).safeTransfer(to, amount);
         emit ValidatorRewardClaimed(kh, to, amount);
     }
 
@@ -184,14 +186,14 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
 
     /**
      * @dev Mint and distribute a validator's emission share between commission
-     *      and stakers. Mints fresh Subnet tokens for emissions.
+     *      and stakers. Mints fresh Mod tokens for emissions.
      */
     function _distributeValidatorShare(bytes32 kh, uint256 validatorShare) internal returns (uint256) {
-        subnet.mint(address(this), validatorShare);
+        mod_token.mint(address(this), validatorShare);
 
         ValidatorScore storage s = scores[kh];
-        uint256 totalSTT = stakeTime.getValidatorTotalStakeTimeByHash(kh);
-        uint256 commissionBps = stakeTime.getValidatorCommission(kh);
+        uint256 totalSTT = staking.getValidatorTotalMintedByHash(kh);
+        uint256 commissionBps = staking.getValidatorCommission(kh);
 
         if (totalSTT == 0) {
             validatorBalances[kh] += validatorShare;
@@ -203,12 +205,12 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
             validatorBalances[kh] += commission;
             s.earned += commission;
 
-            uint256[] memory stakeIds = stakeTime.getValidatorStakeIdsByHash(kh);
+            uint256[] memory stakeIds = staking.getValidatorStakeIdsByHash(kh);
             uint256 distributed = 0;
 
             for (uint256 j = 0; j < stakeIds.length; j++) {
                 (address staker,, uint256 amount,,, uint256 sttBalance,) =
-                    stakeTime.getStakePosition(stakeIds[j]);
+                    staking.getStakePosition(stakeIds[j]);
                 if (amount == 0) continue;
 
                 uint256 reward = (stakerPool * sttBalance) / totalSTT;
@@ -255,13 +257,13 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
     function getLeaderboard(uint256 limit) external view returns (
         bytes32[] memory keys, uint256[] memory topScores
     ) {
-        uint256 len = stakeTime.validatorCount();
+        uint256 len = staking.validatorCount();
         if (limit > len) limit = len;
 
         bytes32[] memory allKeys = new bytes32[](len);
         uint256[] memory allScores = new uint256[](len);
         for (uint256 i = 0; i < len; i++) {
-            allKeys[i] = stakeTime.getValidatorKeyHash(i);
+            allKeys[i] = staking.getValidatorKeyHash(i);
             allScores[i] = scores[allKeys[i]].blocktimeScore;
         }
 
@@ -288,6 +290,22 @@ abstract contract Consensus is ReentrancyGuard, Ownable {
 
     function setEmissionRate(uint256 rate) external onlyOwner {
         consensus.emissionRate = rate;
+    }
+
+    function setInflationCurve(address _curve) external onlyOwner {
+        inflationCurve = IInflationCurve(_curve);
+    }
+
+    /// @dev Returns effective emission for the current epoch. Uses inflation
+    ///      curve if set, otherwise falls back to flat emissionRate.
+    function getEffectiveEmission() public view returns (uint256) {
+        if (address(inflationCurve) != address(0)) {
+            uint64 epoch = consensus.epochLength > 0
+                ? consensus.currentBlock / consensus.epochLength
+                : 0;
+            return inflationCurve.getEmission(epoch);
+        }
+        return consensus.emissionRate;
     }
 
     function emergencyWithdraw(address token, uint256 amount) external onlyOwner {

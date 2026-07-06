@@ -1,11 +1,11 @@
 """Registry contract module - mod registration on-chain."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Registry contract module.
 
     Minimal registry for managing mod metadata on-chain.

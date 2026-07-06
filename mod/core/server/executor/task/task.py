@@ -52,10 +52,10 @@ class Task:
         try:
             result = self.fn(**self.params)
             self.status = 'complete'
+            self.future.set_result(result)
         except Exception as e:
-            result = detailed_error(e)
             self.status = 'failed'
-        self.future.set_result(result)
+            self.future.set_exception(e)
 
     def __lt__(self, other):
         return self.value < other.value

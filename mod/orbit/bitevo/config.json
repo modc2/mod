@@ -1,0 +1,66 @@
+{
+  "name": "bitevo",
+  "version": "1.0.0",
+  "description": "Bittensor subnet \u2014 miners generate YC-style startup ideas, validators judge them",
+  "port": 50120,
+  "app_port": 50121,
+  "urls": {
+    "api": "http://localhost:50120",
+    "app": "http://localhost:50121"
+  },
+  "fns": [
+    "forward",
+    "simulate",
+    "epoch",
+    "leaderboard",
+    "results",
+    "status",
+    "add_miner",
+    "challenge",
+    "score_idea",
+    "backends",
+    "test",
+    "serve",
+    "kill"
+  ],
+  "endpoints": {
+    "/health": {
+      "method": "GET",
+      "docs": "Health check"
+    },
+    "/status": {
+      "method": "GET",
+      "docs": "Module status and leaderboard"
+    },
+    "/simulate": {
+      "method": "POST",
+      "docs": "Run local simulation with N miners"
+    },
+    "/epoch": {
+      "method": "POST",
+      "docs": "Run a single validation epoch"
+    },
+    "/leaderboard": {
+      "method": "GET",
+      "docs": "Miner leaderboard sorted by EMA score"
+    },
+    "/results": {
+      "method": "GET",
+      "docs": "Get epoch results (query ?epoch=N)"
+    },
+    "/miner": {
+      "method": "POST",
+      "docs": "Add a local miner"
+    },
+    "/challenge": {
+      "method": "GET",
+      "docs": "Generate/preview a challenge"
+    },
+    "/score": {
+      "method": "POST",
+      "docs": "Score a single startup idea"
+    }
+  },
+  "schema": "QmRFDFs42TGf8hFxF47PqMr6XP3kez3gergoKEXMQTGDBP",
+  "gateway_port": 50121
+}

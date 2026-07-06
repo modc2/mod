@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>localfs</title>
+  <style>
+    :root {
+      --bg: #0a0a0a; --panel: #111; --border: #2a2a2a;
+      --fg: #e6e6e6; --muted: #8a8a8a; --accent: #4ade80;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+      font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    header {
+      display: flex; gap: 12px; align-items: center;
+      padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-size: 14px; margin: 0; color: var(--accent); }
+    header .muted { color: var(--muted); }
+    main { padding: 16px; display: grid; gap: 16px; max-width: 980px; margin: 0 auto; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px;
+    }
+    .card h2 { margin: 0 0 8px; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
+    textarea, input {
+      width: 100%; background: #000; color: var(--fg);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 6px 8px; font: inherit;
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    button {
+      background: var(--accent); color: #000; border: 0;
+      border-radius: 4px; padding: 6px 12px; cursor: pointer; font: inherit;
+    }
+    button.secondary { background: #222; color: var(--fg); }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > * { flex: 1; }
+    .row > button { flex: 0 0 auto; }
+    pre {
+      background: #000; border: 1px solid var(--border); border-radius: 4px;
+      padding: 8px; overflow: auto; margin: 0; color: var(--muted);
+    }
+    .pill { display: inline-block; padding: 1px 6px; border-radius: 999px;
+            background: #222; color: var(--muted); font-size: 11px; }
+    .stat { display: flex; justify-content: space-between; padding: 2px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>localfs</h1>
+    <span class="pill" id="api-pill">api: ?</span>
+    <span class="muted" id="storage-path"></span>
+  </header>
+  <main>
+    <section class="card">
+      <h2>stats</h2>
+      <div id="stats"></div>
+    </section>
+
+    <section class="card">
+      <h2>put</h2>
+      <textarea id="put-data" placeholder='{"hello": "world"}'></textarea>
+      <div class="row" style="margin-top: 6px">
+        <span class="muted">stores raw bytes or JSON, returns CID</span>
+        <button onclick="doPut()">put</button>
+      </div>
+      <pre id="put-out"></pre>
+    </section>
+
+    <section class="card">
+      <h2>get</h2>
+      <div class="row">
+        <input id="get-cid" placeholder="Qm…" />
+        <button onclick="doGet()">get</button>
+      </div>
+      <pre id="get-out"></pre>
+    </section>
+
+    <section class="card">
+      <h2>pins</h2>
+      <div class="row">
+        <span class="muted">currently pinned CIDs</span>
+        <button class="secondary" onclick="loadPins()">refresh</button>
+      </div>
+      <pre id="pins-out"></pre>
+    </section>
+  </main>
+
+  <script>
+    // API base resolution:
+    //   ?api=…              explicit override
+    //   served behind gateway (path starts with /localfs) → relative /api/localfs
+    //   otherwise            same host on port 8860 (direct serve)
+    const params = new URLSearchParams(location.search);
+    let API = params.get('api');
+    if (!API) {
+      if (location.pathname.replace(/\/+$/, '').startsWith('/localfs')) {
+        API = '/api/localfs';
+      } else {
+        API = location.protocol + '//' + location.hostname + ':8860';
+      }
+    }
+    document.getElementById('api-pill').textContent = 'api: ' + API;
+
+    async function call(path, opts = {}) {
+      const r = await fetch(API + path, opts);
+      const ct = r.headers.get('content-type') || '';
+      const body = ct.includes('application/json') ? await r.json() : await r.text();
+      if (!r.ok) throw new Error(typeof body === 'string' ? body : JSON.stringify(body));
+      return body;
+    }
+
+    async function loadStats() {
+      try {
+        const s = await call('/stats');
+        document.getElementById('storage-path').textContent = s.storage_path || '';
+        document.getElementById('stats').innerHTML = Object.entries(s)
+          .filter(([k]) => k !== 'storage_path')
+          .map(([k, v]) => `<div class="stat"><span class="muted">${k}</span><span>${v}</span></div>`)
+          .join('');
+      } catch (e) {
+        document.getElementById('stats').textContent = 'error: ' + e.message;
+      }
+    }
+
+    async function doPut() {
+      const raw = document.getElementById('put-data').value.trim();
+      let body = raw, ctype = 'text/plain';
+      try { JSON.parse(raw); ctype = 'application/json'; } catch (_) { /* keep text */ }
+      try {
+        const r = await call('/put', {
+          method: 'POST',
+          headers: { 'content-type': ctype },
+          body: raw,
+        });
+        document.getElementById('put-out').textContent = JSON.stringify(r, null, 2);
+        document.getElementById('get-cid').value = r.cid;
+        loadStats();
+      } catch (e) {
+        document.getElementById('put-out').textContent = 'error: ' + e.message;
+      }
+    }
+
+    async function doGet() {
+      const cid = document.getElementById('get-cid').value.trim();
+      if (!cid) return;
+      try {
+        const r = await call('/get/' + encodeURIComponent(cid));
+        document.getElementById('get-out').textContent =
+          typeof r === 'string' ? r : JSON.stringify(r, null, 2);
+      } catch (e) {
+        document.getElementById('get-out').textContent = 'error: ' + e.message;
+      }
+    }
+
+    async function loadPins() {
+      try {
+        const r = await call('/pins');
+        document.getElementById('pins-out').textContent = JSON.stringify(r, null, 2);
+      } catch (e) {
+        document.getElementById('pins-out').textContent = 'error: ' + e.message;
+      }
+    }
+
+    loadStats();
+    loadPins();
+  </script>
+</body>
+</html>

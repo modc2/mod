@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0a0b0e;
+  color: #e7e9ee;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2f3a;
+  border-radius: 8px;
+}
+
+.card {
+  background: linear-gradient(180deg, #14171d 0%, #0f1116 100%);
+  border: 1px solid #242833;
+  border-radius: 14px;
+}
+
+input,
+select,
+textarea {
+  background: #0d0f13;
+  border: 1px solid #242833;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #e7e9ee;
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #38bdf8;
+}
+
+button {
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn {
+  background: #1b2027;
+  border: 1px solid #2a2f3a;
+  color: #e7e9ee;
+  padding: 8px 14px;
+}
+.btn:hover:not(:disabled) {
+  border-color: #38bdf8;
+}
+.btn-primary {
+  background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+  color: #04241a;
+  border: none;
+  font-weight: 700;
+  padding: 9px 16px;
+}
+.btn-danger {
+  background: #2a1416;
+  border: 1px solid #5a2730;
+  color: #f9a8a8;
+  padding: 7px 12px;
+}
+
+.label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c8493;
+  margin-bottom: 4px;
+  display: block;
+}
+.mono-num {
+  font-variant-numeric: tabular-nums;
+}
+.pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid #2a2f3a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

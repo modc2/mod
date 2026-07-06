@@ -6,7 +6,7 @@ import { DollarSign, CreditCard, AlertCircle, CheckCircle, Zap, RefreshCw, Arrow
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { MarketAllowanceManager } from '@/network/marketAllowance'
 import { Market } from '@/network/Market'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { ethers } from 'ethers'
 import MarketABI from '@/contracts//market/Market.sol/Market.json'
 import WithdrawalPanel from './WithdrawalPanel'
@@ -35,8 +35,7 @@ export const Billing: React.FC = () => {
   const [isTransferring, setIsTransferring] = useState(false)
 
   useEffect(() => {
-    const network = 'testnet'
-    const chainConfig = modConfig.chain?.[network]
+    const chainConfig = getChainConfig()
     if (chainConfig) {
       setAllowanceManager(new MarketAllowanceManager(chainConfig))
       setMarket(new Market(chainConfig))

@@ -1,7 +1,7 @@
 {
   "urls": {
-    "api": "http://localhost:8820",
-    "app": "http://localhost:8821"
+    "api": "http://localhost:8851",
+    "app": "http://localhost:8852"
   },
   "api_url": "http://localhost:8820",
   "app_url": "http://localhost:8821"

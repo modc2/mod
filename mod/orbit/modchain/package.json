@@ -1,0 +1,16 @@
+{
+  "name": "modchain",
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "deploy": "npx hardhat run scripts/deploy.js --network base_sepolia",
+    "deploy:local": "npx hardhat run scripts/deploy.js --network ganache"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^4.9.3",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.19.0"
+  }
+}

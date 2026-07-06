@@ -70,41 +70,28 @@ export class TokenExpiryHandler {
   private hasNotifiedExpiry = false;
 
   /**
-   * Handle expired token based on wallet mode
+   * Handle expired token — attempt auto-refresh for all wallet types,
+   * only prompt user if refresh fails
    */
   private handleExpiredToken(): void {
-    const walletMode = localStorage.getItem('wallet_mode') || 'local';
-
-    if (walletMode === 'local') {
-      this.autoRefreshToken();
-    } else {
-      // Non-local wallets: don't prompt signing, just flag expiry once
-      if (typeof window !== 'undefined') {
-        (window as any).__tokenExpired = true;
-      }
-      if (!this.hasNotifiedExpiry) {
-        this.hasNotifiedExpiry = true;
-        toast.warning('Token expired — use the TOKEN button in your wallet to refresh', {
-          toastId: 'token-expired',
-          position: 'top-center',
-          autoClose: 10000,
-          closeOnClick: true,
-          closeButton: true,
-        });
-      }
-      this.stopMonitoring();
-    }
+    this.autoRefreshToken();
   }
 
   /**
-   * Auto-refresh token (local wallets only)
+   * Auto-refresh token for any wallet type, prompt user on failure
    */
   private async autoRefreshToken(): Promise<void> {
     try {
       const walletAddress = localStorage.getItem('wallet_address');
+      const walletMode = localStorage.getItem('wallet_mode') || 'local';
 
-      const newToken = await this.auth.token('', walletAddress, 'local');
+      const newToken = await this.auth.token('', walletAddress, walletMode);
       localStorage.setItem('wallet_token', newToken);
+
+      // Update per-account cache
+      if (walletAddress) {
+        localStorage.setItem(`wallet_token_${walletAddress.toLowerCase()}`, newToken);
+      }
 
       if (typeof window !== 'undefined' && (window as any).__userContextClient) {
         (window as any).__userContextClient.token = newToken;
@@ -121,12 +108,13 @@ export class TokenExpiryHandler {
         (window as any).__tokenExpired = true;
       }
 
+      // Only prompt if auto-refresh failed
       if (!this.hasNotifiedExpiry) {
         this.hasNotifiedExpiry = true;
-        toast.warning('Token expired — use the TOKEN button in your wallet to refresh', {
+        toast.warning('Token expired — tap refresh to renew', {
           toastId: 'token-expired',
           position: 'top-center',
-          autoClose: 10000,
+          autoClose: 8000,
           closeOnClick: true,
           closeButton: true,
         });

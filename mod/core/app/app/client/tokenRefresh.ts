@@ -10,7 +10,7 @@ export class TokenRefreshManager {
   constructor(
     auth: Auth,
     onTokenRefresh: (token: string) => void,
-    private refreshInterval: number = 3600000 // 1 hour in ms
+    private refreshInterval: number = 86400000 // 1 day in ms
   ) {
     this.auth = auth;
     this.onTokenRefresh = onTokenRefresh;

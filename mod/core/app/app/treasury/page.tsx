@@ -16,7 +16,7 @@ import {
 import { ethers, EventLog } from 'ethers'
 import TokenABI from '@/contracts/token/Token.sol/Token.json'
 import MarketABI from '@/contracts/market/Market.sol/Market.json'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { CopyButton } from '@/ui/CopyButton'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
@@ -174,8 +174,7 @@ export default function TreasuryPage() {
       setLastUpdate(new Date())
 
       try {
-        const network = 'testnet'
-        const nativeAddr = (modConfig.chain as any)?.[network]?.contracts?.NativeToken?.address
+        const nativeAddr = getChainConfig()?.contracts?.NativeToken?.address
         if (nativeAddr) {
           const tokenContract = new ethers.Contract(nativeAddr, TokenABI.abi, provider)
           const [bal, supply, sym, dec] = await Promise.all([
@@ -200,8 +199,7 @@ export default function TreasuryPage() {
       }
 
       try {
-        const network = 'testnet'
-        const blocTimeAddr = (modConfig.chain as any)?.[network]?.contracts?.BlocTime?.address
+        const blocTimeAddr = getChainConfig()?.contracts?.BlocTime?.address
         if (blocTimeAddr && walletAddress) {
           const blocTimeContract = new ethers.Contract(blocTimeAddr, BlocTimeABI.abi, provider)
           const balance = await blocTimeContract.balanceOf(walletAddress)
@@ -212,8 +210,7 @@ export default function TreasuryPage() {
       }
 
       try {
-        const network = 'testnet'
-        const chainConfig = (modConfig.chain as any)?.[network]
+        const chainConfig = getChainConfig()
         const marketAddr = chainConfig?.contracts?.Market?.address
         const usdcAddr = chainConfig?.contracts?.USDC?.address
         const usdtAddr = chainConfig?.contracts?.USDT?.address
@@ -389,9 +386,8 @@ export default function TreasuryPage() {
     try {
       setBlocTimeLoading(true)
       const provider = new ethers.BrowserProvider(window.ethereum)
-      const network = 'testnet'
-      const blocTimeAddr = (modConfig.chain as any)?.[network]?.contracts?.BlocTime?.address
-      const nativeAddr = (modConfig.chain as any)?.[network]?.contracts?.NativeToken?.address
+      const blocTimeAddr = getChainConfig()?.contracts?.BlocTime?.address
+      const nativeAddr = getChainConfig()?.contracts?.NativeToken?.address
 
       if (!blocTimeAddr) return
 
@@ -516,9 +512,7 @@ export default function TreasuryPage() {
     let tokenAddr = getTokenAddressFromSymbol(fundToken)
 
     if (fundToken === 'NativeToken') {
-      const network = 'testnet'
-      const chainConfig = (modConfig.chain as any)?.[network]
-      tokenAddr = chainConfig?.contracts?.NativeToken?.address
+      tokenAddr = getChainConfig()?.contracts?.NativeToken?.address
     }
 
     if (!tokenAddr) { toast.error('Unknown token'); return }
@@ -542,8 +536,7 @@ export default function TreasuryPage() {
   }
 
   function getTokenAddressFromSymbol(symbol: string): string | null {
-    const network = 'testnet'
-    const chainConfig = (modConfig.chain as any)?.[network]
+    const chainConfig = getChainConfig()
     if (!chainConfig) return null
     for (const [, val] of Object.entries(chainConfig.contracts)) {
       const v = val as any
@@ -564,9 +557,8 @@ export default function TreasuryPage() {
       const provider = new ethers.BrowserProvider(window.ethereum)
       const signer = await provider.getSigner(walletAddress)
 
-      const network = 'testnet'
-      const blocTimeAddr = (modConfig.chain as any)?.[network]?.contracts?.BlocTime?.address
-      const nativeAddr = (modConfig.chain as any)?.[network]?.contracts?.NativeToken?.address
+      const blocTimeAddr = getChainConfig()?.contracts?.BlocTime?.address
+      const nativeAddr = getChainConfig()?.contracts?.NativeToken?.address
 
       if (!blocTimeAddr || !nativeAddr) throw new Error('BlocTime or NativeToken address not found')
 
@@ -594,8 +586,7 @@ export default function TreasuryPage() {
       const provider = new ethers.BrowserProvider(window.ethereum)
       const signer = await provider.getSigner(walletAddress)
 
-      const network = 'testnet'
-      const blocTimeAddr = (modConfig.chain as any)?.[network]?.contracts?.BlocTime?.address
+      const blocTimeAddr = getChainConfig()?.contracts?.BlocTime?.address
       if (!blocTimeAddr) throw new Error('BlocTime address not found')
 
       const blocTimeContract = new ethers.Contract(blocTimeAddr, BlocTimeABI.abi, signer)
@@ -810,8 +801,8 @@ export default function TreasuryPage() {
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { label: 'Treasury', addr: treasury.address, color: '#a855f7' },
-                  { label: 'NAT Token', addr: (modConfig.chain as any)?.testnet?.contracts?.NativeToken?.address || '', color: '#3b82f6' },
-                  { label: 'BlocTime', addr: (modConfig.chain as any)?.testnet?.contracts?.BlocTime?.address || '', color: '#06b6d4' },
+                  { label: 'NAT Token', addr: getChainConfig()?.contracts?.NativeToken?.address || '', color: '#3b82f6' },
+                  { label: 'BlocTime', addr: getChainConfig()?.contracts?.BlocTime?.address || '', color: '#06b6d4' },
                 ].map(({ label, addr, color }) => (
                   <Card key={label} className="px-3 py-2.5 group hover:border-opacity-50 transition-all duration-200" style={{ borderColor: `${color}20` }}>
                     <div className="flex items-center justify-between">

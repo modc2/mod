@@ -1,11 +1,11 @@
 """Market contract module - stable token market with credit/debit."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Market contract module.
 
     ERC20 stable token with credit (buy), debit (spend), and withdrawal.

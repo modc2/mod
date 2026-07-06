@@ -1,54 +1,53 @@
 {
-  "name": "bridge",
-  "description": "Substrate/Solana to EVM identity bridge with snapshot claims and on-chain commitments",
-  "version": "2.0.0",
-  "port": 8840,
-  "app_port": 8841,
-  "urls": {
-    "api": "http://localhost:8840",
-    "app": "http://localhost:8841"
-  },
-  "owner": "5HMfXz6ZmU2kph5VJMyV7VE91SoPKNkX5cugnsdhkfWPRJXN",
-  "signer_key": "",
-  "network": "testnet",
-  "contracts": {
-    "testnet": {
-      "chainId": "84532",
-      "url": "https://sepolia.base.org",
-      "contracts": {
-        "BridgeableToken": {
-          "address": "0x0472a18bcB061B0bd047Db60f5717C8215dC7EeD",
-          "contract": "BridgeableToken"
+    "name": "bridge",
+    "description": "Substrate/Solana to EVM identity bridge with snapshot claims and on-chain commitments",
+    "version": "2.0.0",
+    "port": 8840,
+    "app_port": 8841,
+    "urls": {
+        "api": "http://localhost:8840",
+        "app": "http://localhost:8841"
+    },
+    "owner": "5HMfXz6ZmU2kph5VJMyV7VE91SoPKNkX5cugnsdhkfWPRJXN",
+    "network": "testnet",
+    "contracts": {
+        "testnet": {
+            "chainId": "84532",
+            "url": "https://sepolia.base.org",
+            "contracts": {
+                "BridgeableToken": {
+                    "address": "0x0472a18bcB061B0bd047Db60f5717C8215dC7EeD",
+                    "contract": "BridgeableToken"
+                }
+            }
         }
-      }
-    }
-  },
-  "fns": [
-    "forward",
-    "health",
-    "status",
-    "owner",
-    "contract_info",
-    "in_snapshot",
-    "get_total_balances",
-    "claim",
-    "has_claimed",
-    "unclaimed",
-    "claims_array",
-    "get_claims",
-    "delete_claim",
-    "commit",
-    "update_commitment",
-    "get_commitments",
-    "get_commitment",
-    "compile",
-    "test",
-    "deploy",
-    "serve",
-    "kill",
-    "serve_api",
-    "kill_api",
-    "serve_app",
-    "kill_app"
-  ]
+    },
+    "fns": [
+        "health",
+        "status",
+        "owner",
+        "contract_info",
+        "store_abi",
+        "in_snapshot",
+        "get_total_balances",
+        "claim",
+        "has_claimed",
+        "unclaimed",
+        "claims_array",
+        "get_claims",
+        "delete_claim",
+        "reset",
+        "commit",
+        "update_commitment",
+        "get_commitments",
+        "get_commitment",
+        "compile",
+        "test",
+        "deploy",
+        "serve",
+        "kill"
+    ],
+    "mode": "pm2",
+    "schema": "QmUtgfQ55DPZuTgWRGouedrDGexaKQce9fksahYB3e1hkb",
+    "gateway_port": 8841
 }

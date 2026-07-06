@@ -6,9 +6,23 @@
     "log_level": "info"
   },
   "contracts": {
-    "EvoToken": { "address": "", "contract": "EvoToken" },
-    "HubExchange": { "address": "", "contract": "HubExchange" },
-    "EvoRegistry": { "address": "", "contract": "EvoRegistry" },
-    "TokenFactory": { "address": "", "contract": "TokenFactory" }
-  }
+    "EvoToken": {
+      "address": "",
+      "contract": "EvoToken"
+    },
+    "HubExchange": {
+      "address": "",
+      "contract": "HubExchange"
+    },
+    "EvoRegistry": {
+      "address": "",
+      "contract": "EvoRegistry"
+    },
+    "TokenFactory": {
+      "address": "",
+      "contract": "TokenFactory"
+    }
+  },
+  "schema": "QmUnTXuyvpyT8uwCfZk4op5xtYjBZVj33YuKUDrmSGrFvL",
+  "gateway_port": 8420
 }

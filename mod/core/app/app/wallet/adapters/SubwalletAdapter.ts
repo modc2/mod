@@ -2,13 +2,18 @@
 
 import { WalletAdapter } from '../types'
 import { cryptoWaitReady } from '@polkadot/util-crypto'
-import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
+// dynamic import: @polkadot/extension-dapp accesses window at load time
 import { stringToU8a, u8aToHex } from '@polkadot/util'
 import { signatureVerify } from '@polkadot/util-crypto'
 
 export class SubwalletAdapter implements WalletAdapter {
+  private async polkadotDapp() {
+    return await import('@polkadot/extension-dapp')
+  }
+
   async connect(): Promise<void> {
     await cryptoWaitReady()
+    const { web3Enable } = await this.polkadotDapp()
     const extensions = await web3Enable('MOD')
     if (extensions.length === 0) throw new Error('No extension found')
   }
@@ -26,11 +31,13 @@ export class SubwalletAdapter implements WalletAdapter {
   }
 
   async isAvailable(): Promise<boolean> {
+    const { web3Enable } = await this.polkadotDapp()
     const extensions = await web3Enable('MOD')
     return extensions.length > 0
   }
 
   async getAccounts(): Promise<any[]> {
+    const { web3Accounts } = await this.polkadotDapp()
     return await web3Accounts()
   }
 
@@ -38,9 +45,10 @@ export class SubwalletAdapter implements WalletAdapter {
     const address = localStorage.getItem('wallet_address')
     if (!address) throw new Error('No wallet address')
     
+    const { web3Enable, web3FromAddress } = await this.polkadotDapp()
     const extensions = await web3Enable('MOD')
     if (extensions.length === 0) throw new Error('No wallet extension found')
-    
+
     const injector = await web3FromAddress(address)
     if (!injector.signer.signRaw) throw new Error('Wallet does not support signing')
     

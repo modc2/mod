@@ -14,7 +14,7 @@ class Auth:
     def __init__(self, 
                 key=None, 
                 crypto_type='ecdsa', 
-                max_age=3_600 ):
+                max_age=86_400 ):
         
         """
 

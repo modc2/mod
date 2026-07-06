@@ -46,7 +46,7 @@ The `Client` class provides a simple interface for making requests to server end
 
 The `ProcessManager` class provides utilities for managing server processes using PM2. It includes:
 
-- Starting and stopping processes
+- Starting and stopping processes (`serve`/`start` and `kill`/`stop` are aliases)
 - Process monitoring
 - Log management
 
@@ -62,15 +62,27 @@ The `Middleware` class provides request/response middleware for FastAPI. It incl
 
 ### Creating a Server
 
+`serve` and `start` are interchangeable, as are `kill` and `stop`.
+
 ```python
 import mod as m
 
-# Create and serve a module
+# Create and serve a module (serve and start are aliases)
 m.serve('my_module', port=8000)
+m.start('my_module', port=8000)  # same as serve
 
-# Or manually
-server = m.mod('server')()
-serve(module='my_module', port=8000)
+# Kill a server (kill and stop are aliases)
+m.kill('my_module')
+m.stop('my_module')  # same as kill
+```
+
+**CLI:**
+```bash
+m serve my_module port=8000
+m start my_module port=8000   # same as serve
+
+m kill my_module
+m stop my_module              # same as kill
 ```
 
 ### Making Client Requests

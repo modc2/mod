@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { userContext } from '@/context'
 import {
   getSafeInfo,
@@ -41,7 +41,7 @@ export default function SafePage() {
   const walletAddress = user?.key || ''
 
   const [activeTab, setActiveTab] = useState<Tab>('overview')
-  const defaultSafe = (modConfig.chain as any)?.testnet?.contracts?.Safe?.address || ''
+  const defaultSafe = getChainConfig()?.contracts?.Safe?.address || ''
   const [safeAddress, setSafeAddress] = useState(defaultSafe)
   const [safeInfo, setSafeInfo] = useState<SafeInfo | null>(null)
   const [ethBalance, setEthBalance] = useState('0')

@@ -1,0 +1,24 @@
+[package]
+name = "freewash-server"
+version = "0.1.0"
+edition = "2021"
+description = "freewash backend — static game host + WebSocket multiplayer relay with a live player roster"
+
+[[bin]]
+name = "freewash-server"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework + websocket upgrade
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+# static file serving for web/, permissive CORS for the relay
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+# JSON wire format
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Stream/Sink helpers to split the websocket into read + write halves
+futures = "0.3"
+
+[profile.release]
+opt-level = 2

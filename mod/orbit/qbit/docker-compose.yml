@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  qbit:
+    build: .
+    container_name: qbit
+    ports:
+      - "${GATEWAY_PORT:-50101}:${GATEWAY_PORT:-50101}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50101}
+    volumes:
+      - qbit-data:/app/data
+
+volumes:
+  qbit-data:

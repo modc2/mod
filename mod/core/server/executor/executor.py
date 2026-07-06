@@ -12,10 +12,10 @@ from typing import *
 from concurrent.futures._base import Future
 import time
 from tqdm import tqdm
-from .utils import new_event_loop, detailed_error, wait
+from mod.core.utils import new_event_loop, detailed_error, wait
 from scalecodec.utils.ss58 import  is_valid_ss58_address
 import mod as m
-from .task import Task
+from .task.task import Task
 
 class Executor:
     """Base threadpool executor with a value queue"""

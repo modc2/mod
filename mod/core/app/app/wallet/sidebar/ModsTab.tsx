@@ -502,7 +502,7 @@ export function ModsTab({ show }: { show: boolean }) {
                         onStart={() => handleAction('started', name, 'serve_app')}
                         onStop={() => handleAction('stopped', name, 'kill_app')}
                         onRemove={() => handleAction('removed', name, 'remove_app')}
-                        onNavigate={() => router.push(`/${name}`)}
+                        onNavigate={() => router.push(`/mod/${name}`)}
                       />
                     ))}
                   </div>
@@ -519,7 +519,7 @@ export function ModsTab({ show }: { show: boolean }) {
                         key={mod.name}
                         mod={mod}
                         apiServer={getApiServer(mod.name)}
-                        onNavigate={() => router.push(`/${mod.name}`)}
+                        onNavigate={() => router.push(`/mod/${mod.name}`)}
                       />
                     ))}
                   </div>
@@ -538,7 +538,7 @@ export function ModsTab({ show }: { show: boolean }) {
                           key={name}
                           className="flex items-center gap-3 px-3 py-2 border transition-all cursor-pointer hover:border-emerald-500/30"
                           style={{ borderColor: 'var(--border-color)', background: 'var(--bg-input)', fontFamily: FONT }}
-                          onClick={() => router.push(`/${name}`)}
+                          onClick={() => router.push(`/mod/${name}`)}
                         >
                           <div className="w-2 h-2 rounded-full shrink-0" style={{ background: '#10b981', boxShadow: '0 0 6px #10b981' }} />
                           <span className="font-bold uppercase tracking-wider text-xs flex-1" style={{ color: text2color(name) }}>{name}</span>

@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  chutes:
+    build: .
+    container_name: chutes
+    ports:
+      - "${GATEWAY_PORT:-50121}:${GATEWAY_PORT:-50121}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50121}
+    volumes:
+      - chutes-data:/app/data
+
+volumes:
+  chutes-data:

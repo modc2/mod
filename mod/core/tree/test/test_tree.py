@@ -51,8 +51,9 @@ class TestTreeProcessPath:
 
 class TestTreeOrbits:
     def test_orbit2depth_defaults(self):
-        assert Tree.orbit2depth['orbit'] == 2
+        assert Tree.orbit2depth['orbit'] == 1
         assert Tree.orbit2depth['core'] == 10
+        assert Tree.orbit2depth['portal'] == 2
 
     def test_tree_aggregates_orbits(self):
         mock_mod = MagicMock()

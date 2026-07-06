@@ -1,0 +1,52 @@
+[package]
+name = "bridge-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "bridge_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bridge-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+
+# Crypto
+schnorrkel = { version = "0.11", default-features = false, features = ["std", "preaudit_deprecated"] }
+ed25519-dalek = "2"
+sha2 = "0.10"
+blake2 = "0.10"
+hex = "0.4"
+bs58 = "0.5"
+subtle = "2"
+
+# Time / IDs
+chrono = { version = "0.4", features = ["serde"] }
+
+# Concurrency / atomic file writes
+parking_lot = "0.12"
+tempfile = "3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+reqwest = { version = "0.12", features = ["json"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

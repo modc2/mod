@@ -2,8 +2,8 @@ import os
 import mod as m
 
 class Mod:
-    description = """TT app"""
-    path = r'/Users/broski/mod/mod/orbit/tt/src/app'
+    description = """app"""
+    path = r'/Users/broski/mod/mod/orbit/tt/app'
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -15,5 +15,13 @@ class Mod:
             'name': 'app',
             'description': self.description,
             'path': self.path,
-            'files': [f for f in os.listdir(self.path) if not f.startswith('.')],
+            'files': os.listdir(self.path),
         }
+
+    def readme(self):
+        """Return the project README."""
+        for name in ['README.md', 'readme.md', 'README.rst', 'README']:
+            p = os.path.join(self.path, name)
+            if os.path.exists(p):
+                return m.get_text(p)
+        return None

@@ -22,46 +22,32 @@ pub async fn proxy_request(
     uri: Uri,
     body: Body,
 ) -> Result<Response, crate::AppError> {
-    // Build target URL
     let base_url = website.target_url.trim_end_matches('/');
     let path = path.trim_start_matches('/');
     let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
-    let target_url = format!("{}/{}{}", base_url, path, query);
+    let target_url = if path.is_empty() {
+        format!("{}{}", base_url, query)
+    } else {
+        format!("{}/{}{}", base_url, path, query)
+    };
 
-    info!(
-        "Proxying {} {} -> {}",
-        method,
-        uri.path(),
-        target_url
-    );
+    info!("Proxying {} {} -> {}", method, uri.path(), target_url);
 
-    // Parse target URL
     let target_uri: Uri = target_url
         .parse()
         .map_err(|e| crate::AppError::ProxyError(format!("Invalid target URL: {}", e)))?;
 
-    // Create client
     let client: HyperClient = Client::builder(TokioExecutor::new()).build_http();
 
-    // Build request
     let mut req_builder = hyper::Request::builder()
         .method(method.clone())
         .uri(target_uri);
 
-    // Copy relevant headers
-    let headers_to_forward = [
-        "accept",
-        "accept-encoding",
-        "accept-language",
-        "content-type",
-        "user-agent",
-        "authorization",
-        "cookie",
-    ];
-
-    for header_name in headers_to_forward {
-        if let Some(value) = headers.get(header_name) {
-            req_builder = req_builder.header(header_name, value);
+    // Forward all headers except host (rewritten to target)
+    for (name, value) in headers.iter() {
+        let key = name.as_str();
+        if key != "host" {
+            req_builder = req_builder.header(name, value);
         }
     }
 
@@ -69,38 +55,28 @@ pub async fn proxy_request(
         .body(body)
         .map_err(|e| crate::AppError::ProxyError(format!("Failed to build request: {}", e)))?;
 
-    // Send request
     let response = client
         .request(req)
         .await
         .map_err(|e| crate::AppError::ProxyError(format!("Request failed: {}", e)))?;
 
-    // Convert response
     let (parts, incoming_body) = response.into_parts();
 
-    // Collect the body
     let body_bytes = incoming_body
         .collect()
         .await
         .map_err(|e| crate::AppError::ProxyError(format!("Failed to read response body: {}", e)))?
         .to_bytes();
 
-    // Build response
     let mut response_builder = Response::builder().status(parts.status);
 
-    // Copy response headers
-    let headers_to_copy = [
-        "content-type",
-        "content-encoding",
-        "cache-control",
-        "etag",
-        "last-modified",
-        "set-cookie",
-    ];
-
-    for header_name in headers_to_copy {
-        if let Some(value) = parts.headers.get(header_name) {
-            response_builder = response_builder.header(header_name, value);
+    // Forward response headers, skipping hop-by-hop headers
+    // (we collected the body so transfer-encoding/content-length are wrong)
+    for (name, value) in parts.headers.iter() {
+        let key = name.as_str();
+        match key {
+            "transfer-encoding" | "content-length" | "connection" | "keep-alive" => continue,
+            _ => { response_builder = response_builder.header(name, value); }
         }
     }
 

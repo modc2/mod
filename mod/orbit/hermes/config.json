@@ -1,0 +1,17 @@
+{
+    "name": "hermes",
+    "description": "Local-only Hermes agent \u2014 on-device inference via llama-cpp, no cloud APIs",
+    "fns": [
+        "forward",
+        "chat",
+        "complete",
+        "run",
+        "download",
+        "load",
+        "models",
+        "clear",
+        "bench",
+        "info"
+    ],
+    "schema": "QmbMUXQZfAG2PtZJ6ehsoDGBWSwfW87QUe7UQac2dhMtzE"
+}

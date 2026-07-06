@@ -5,14 +5,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const nextConfig = {
   // Configure `pageExtensions` to include MDX files
   pageExtensions: ['js', 'jsx', 'mdx', 'ts', 'tsx'],
-  serverExternalPackages: ['node-pty'],
+  experimental: {
+    serverComponentsExternalPackages: ['node-pty'],
+  },
   async rewrites() {
-    return [
-      {
-        source: '/api/proxy/:path*',
-        destination: `${API_URL}/:path*`,
-      },
-    ];
+    return [];
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {

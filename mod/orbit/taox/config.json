@@ -1,0 +1,102 @@
+{
+    "name": "taox",
+    "version": "0.1.0",
+    "description": "Convert ETH, SOL, USDC, USDT (Ethereum or Solana) into native TAO. Rust (axum) API + Next.js frontend. MetaMask (Ethereum sources) and SubWallet (Solana sources / TAO destination).",
+    "port": 8870,
+    "app_port": 3870,
+    "urls": {
+        "api": "http://localhost:3870",
+        "app": "http://localhost:3870"
+    },
+    "sources": {
+        "eth": {
+            "chain": "ethereum",
+            "wallet": "metamask",
+            "decimals": 18,
+            "deposit_env": "TAOX_ETH_DEPOSIT",
+            "rpc_env": "TAOX_ETH_RPC",
+            "coingecko_id": "ethereum",
+            "asset_type": "native"
+        },
+        "sol": {
+            "chain": "solana",
+            "wallet": "subwallet",
+            "decimals": 9,
+            "deposit_env": "TAOX_SOL_DEPOSIT",
+            "rpc_env": "TAOX_SOL_RPC",
+            "coingecko_id": "solana",
+            "asset_type": "native"
+        },
+        "usdc_eth": {
+            "chain": "ethereum",
+            "wallet": "metamask",
+            "decimals": 6,
+            "deposit_env": "TAOX_ETH_DEPOSIT",
+            "rpc_env": "TAOX_ETH_RPC",
+            "coingecko_id": "usd-coin",
+            "asset_type": "erc20",
+            "token_contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        },
+        "usdt_eth": {
+            "chain": "ethereum",
+            "wallet": "metamask",
+            "decimals": 6,
+            "deposit_env": "TAOX_ETH_DEPOSIT",
+            "rpc_env": "TAOX_ETH_RPC",
+            "coingecko_id": "tether",
+            "asset_type": "erc20",
+            "token_contract": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+        },
+        "usdc_sol": {
+            "chain": "solana",
+            "wallet": "subwallet",
+            "decimals": 6,
+            "deposit_env": "TAOX_SOL_DEPOSIT",
+            "rpc_env": "TAOX_SOL_RPC",
+            "coingecko_id": "usd-coin",
+            "asset_type": "spl",
+            "token_contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        "usdt_sol": {
+            "chain": "solana",
+            "wallet": "subwallet",
+            "decimals": 6,
+            "deposit_env": "TAOX_SOL_DEPOSIT",
+            "rpc_env": "TAOX_SOL_RPC",
+            "coingecko_id": "tether",
+            "asset_type": "spl",
+            "token_contract": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+        }
+    },
+    "destination": {
+        "chain": "bittensor",
+        "wallet": "subwallet",
+        "address_format": "ss58",
+        "decimals": 9,
+        "coingecko_id": "bittensor",
+        "rpc_env": "TAOX_TAO_RPC",
+        "default_rpc": "wss://entrypoint-finney.opentensor.ai:443"
+    },
+    "fee_bps": 50,
+    "min_confirmations": {
+        "eth": 12,
+        "sol": 32,
+        "usdc_eth": 12,
+        "usdt_eth": 12,
+        "usdc_sol": 32,
+        "usdt_sol": 32
+    },
+    "fns": [
+        "health",
+        "status",
+        "quote",
+        "swap",
+        "order",
+        "orders",
+        "deposit_address",
+        "rates",
+        "serve",
+        "kill"
+    ],
+    "schema": "QmPYcDaR1PpBai7bhmS2m1hyLb3qYYxmF1RH1bGsaze4Lu"
+}

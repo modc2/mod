@@ -80,9 +80,9 @@ class AuthConfig:
         Get the maximum token age in seconds.
 
         Returns:
-            Maximum age in seconds (default: 3600)
+            Maximum age in seconds (default: 86400)
         """
-        return self.config.get('max_token_age', 3600)
+        return self.config.get('max_token_age', 86400)
 
     def set_max_token_age(self, seconds: int):
         """
@@ -179,12 +179,12 @@ def setup_owner():
     # Optional: configure other settings
     print("\nWould you like to configure additional settings? (y/n): ")
     if input().lower().strip() == 'y':
-        print("\nMaximum token age (seconds, default 3600):")
+        print("\nMaximum token age (seconds, default 86400):")
         try:
-            age = int(input("Age: ").strip() or "3600")
+            age = int(input("Age: ").strip() or "86400")
             config.set_max_token_age(age)
         except ValueError:
-            print("Invalid value, keeping default (3600)")
+            print("Invalid value, keeping default (86400)")
 
         print("\nEnable strict permission mode? (y/n, default y):")
         strict = input().lower().strip() != 'n'

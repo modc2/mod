@@ -1,0 +1,72 @@
+{
+    "name": "filecoin",
+    "version": "1.0.0",
+    "description": "Lotus daemon + Filecoin storage deals with HTTP gateway fallback",
+    "port": 50140,
+    "app_port": 50141,
+    "urls": {
+        "api": "http://localhost:50140",
+        "app": "http://localhost:50141"
+    },
+    "fns": [
+        "forward",
+        "put",
+        "get",
+        "pin",
+        "list",
+        "rm",
+        "start_node",
+        "stop_node",
+        "status",
+        "node_status",
+        "deals",
+        "wallet",
+        "balance",
+        "install"
+    ],
+    "env": {
+        "LOTUS_BIN": "path to lotus binary (default: $(which lotus))",
+        "LOTUS_PATH": "lotus state dir (default: ~/.lotus)",
+        "FILECOIN_GATEWAY": "HTTP gateway URL (default: https://node.lighthouse.storage)",
+        "FILECOIN_GATEWAY_TOKEN": "bearer token for gateway uploads"
+    },
+    "endpoints": {
+        "put": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Upload file (multipart) and return CID"
+        },
+        "get": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Retrieve CID to local cache"
+        },
+        "pin": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Pin/deal a CID"
+        },
+        "list": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List recorded objects (optional owner filter)"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module + daemon status"
+        },
+        "deals": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Active storage deals"
+        },
+        "wallet": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Lotus wallet addresses"
+        }
+    },
+    "gateway_port": 50141,
+    "schema": "QmQs6hmKTngmQ8tnfHjHfhz6FpTfA2gvRahGQNazhweMzU"
+}

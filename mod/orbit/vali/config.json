@@ -1,0 +1,72 @@
+{
+  "name": "vali",
+  "version": "1.0.0",
+  "description": "Validator module \u2014 scores modules, runs epochs, maintains scoreboards, votes on performance.",
+  "port": 50100,
+  "app_port": 50101,
+  "urls": {
+    "api": "http://localhost:50100",
+    "app": "http://localhost:50101"
+  },
+  "fns": [
+    "forward",
+    "status",
+    "epoch",
+    "results",
+    "score_module",
+    "vote",
+    "set_network",
+    "set_score",
+    "modules",
+    "refresh_results",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmS6geHwVG5GLWK4CfXsSCVmixF88bdUQYLxFN3JHcSufP",
+  "endpoints": {
+    "/health": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Health check"
+    },
+    "/status": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Validator status"
+    },
+    "/epoch": {
+      "method": "POST",
+      "auth": false,
+      "docs": "Run a validation epoch"
+    },
+    "/results": {
+      "method": "GET",
+      "auth": false,
+      "docs": "Get scoreboard"
+    },
+    "/score": {
+      "method": "POST",
+      "auth": false,
+      "docs": "Score a single module"
+    },
+    "/vote": {
+      "method": "POST",
+      "auth": true,
+      "docs": "Submit votes"
+    },
+    "/network": {
+      "method": [
+        "GET",
+        "POST"
+      ],
+      "auth": false,
+      "docs": "Get or set network config"
+    },
+    "/modules": {
+      "method": "GET",
+      "auth": false,
+      "docs": "List discovered modules"
+    }
+  },
+  "gateway_port": 50101
+}

@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  filecoin:
+    container_name: filecoin
+    image: mod:latest
+    ports:
+      - "${GATEWAY_PORT:-50141}:${GATEWAY_PORT:-50141}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50141}
+    volumes:
+      - ~/mod:/root/mod:ro
+      - ~/.mod:/root/.mod
+    working_dir: /root/mod/mod/orbit/filecoin
+    entrypoint: ["bash", "/root/mod/mod/orbit/filecoin/docker-entrypoint.sh"]

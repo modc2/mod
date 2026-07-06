@@ -1,0 +1,24 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  multistore:
+    container_name: multistore
+    image: mod:latest
+    ports:
+      - "${API_PORT:-50160}:50160"
+      - "${APP_PORT:-50161}:50161"
+    restart: unless-stopped
+    environment:
+      - API_PORT=50160
+      - APP_PORT=50161
+      - NEXT_PUBLIC_API_URL=http://localhost:50160
+    volumes:
+      # Bind mount the repo (RW so npm install / next build can stage state
+      # under ~/.mod/multistore-cache instead of writing into the source tree).
+      - ~/mod:/root/mod
+      - ~/.mod:/root/.mod
+    working_dir: /root/mod/mod/orbit/multistore
+    entrypoint: ["bash", "/root/mod/mod/orbit/multistore/docker-entrypoint.sh"]

@@ -1,0 +1,603 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tabularx}
+
+\definecolor{modblue}{HTML}{1E3A5F}
+\definecolor{modcyan}{HTML}{0EA5E9}
+\definecolor{codebg}{HTML}{F8F9FA}
+\definecolor{codeframe}{HTML}{DEE2E6}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=modblue,
+    citecolor=modblue,
+    urlcolor=modcyan,
+    pdftitle={Scaling Off-Chain Open-Source Management with Merkle Trees},
+    pdfauthor={MOD Protocol},
+}
+
+\lstdefinestyle{solidity}{
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{modblue}\bfseries,
+    commentstyle=\color{gray},
+    stringstyle=\color{teal},
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+    tabsize=4,
+    showstringspaces=false,
+    morekeywords={function,external,internal,public,private,view,pure,returns,
+                  require,mapping,address,uint256,bytes32,bool,memory,calldata,
+                  struct,event,emit,modifier,contract,interface,pragma,solidity},
+}
+
+\lstdefinestyle{python}{
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{modblue}\bfseries,
+    commentstyle=\color{gray},
+    stringstyle=\color{teal},
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+    tabsize=4,
+    showstringspaces=false,
+    language=Python,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{gray}{MOD Protocol -- Merkle-Tree Module Registry}}
+\fancyhead[R]{\small\textcolor{gray}{v0.1 -- May 2026}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\Large\bfseries\color{modblue}}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries\color{modblue!80}}{\thesubsection}{1em}{}
+
+\newtheorem{definition}{Definition}[section]
+\newtheorem{property}{Property}[section]
+\newtheorem{claim}{Claim}[section]
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+
+{\Huge\bfseries\textcolor{modblue}{Scaling Off-Chain\\Open-Source Management}\par}
+\vspace{0.6cm}
+{\Large\textcolor{gray}{Storing the tree, not the leaves:\\a Merkle-root registry for the MOD orbit ecosystem}\par}
+
+\vspace{2cm}
+{\large Version 0.1\par}
+{\large May 2026\par}
+
+\vspace{3cm}
+
+\begin{abstract}
+\noindent
+The MOD protocol today registers each orbit module as an independent on-chain row keyed by an IPFS CID. With 200+ modules and projected growth into the tens of thousands as autonomous agents publish their own, the linear per-module storage and gas cost becomes the binding constraint on ecosystem scale. We propose replacing the per-module hash table with a single 32-byte Merkle root anchored on-chain. The full tree---containing module metadata, code CIDs, owner addresses, prices, and version history---lives entirely off-chain in IPFS-backed mirrors. Authenticity is preserved by Merkle inclusion proofs; updates are batched into a single root-rotation transaction; reads are free. We show that this design reduces per-module on-chain storage from $\approx 5$ slots ($\approx 100{,}000$ gas amortised) to $O(1/N)$, reduces a publish operation from $\approx 80{,}000$ gas to a marginal cost approaching the cost of a single SSTORE shared across $N$ updates, and makes the registry compatible with permissionless off-chain indexers without trust assumptions. The trade-off is a one-block latency between local commit and global root rotation, which is acceptable for a developer-tools registry. Part~II then documents the rest of the protocol the registry serves: the \emph{module} as the unit of definition; a single reusable Nix environment and shared supervisor that run every module without per-module containers; a federated gateway with scale-to-zero execution; and one shared identity module with an owner/peer authorization model that keeps access control off-chain while the public tree carries only public facts.
+\end{abstract}
+
+\vfill
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\part{The Registry Protocol}
+
+\section{Motivation}
+
+\subsection{Current design}
+
+The current \texttt{Registry.sol} stores one struct per module:
+
+\begin{lstlisting}[style=solidity]
+struct Module {
+    address owner;
+    string  name;
+    string  data;   // IPFS CID
+    uint256 modId;
+}
+mapping(uint256 => Module) public modules;
+mapping(address => uint256[]) public userMods;
+\end{lstlisting}
+
+Each \texttt{registerMod} call writes:
+\begin{itemize}
+    \item the struct (typically 4--5 SSTOREs after string encoding overhead),
+    \item an append to \texttt{userMods},
+    \item a monotonic counter bump.
+\end{itemize}
+
+At 80{,}000--110{,}000 gas per registration on Base, and re-registration on every CID update, the cost is dominated by storage growth in the registry contract itself.
+
+\subsection{The scaling wall}
+
+Three trends make the per-row design untenable:
+
+\begin{enumerate}
+    \item \textbf{Agentic publishing.} The \texttt{agent} module already composes new modules autonomously; a 24-hour run can produce tens of new mods.
+    \item \textbf{Versioning.} Most production modules update weekly. The registry currently has no compression: each version is a fresh write.
+    \item \textbf{Permissionless mirrors.} Indexers that want to expose the registry over HTTP must replay every \texttt{ModRegistered} event since genesis, which is a quadratic cost in time and state.
+\end{enumerate}
+
+\subsection{Goal}
+
+Compress the on-chain footprint to a single root, while preserving:
+
+\begin{itemize}
+    \item authenticity (no off-chain actor can lie about what's registered),
+    \item revocability (owners can delete or transfer modules),
+    \item ownership (only the rightful owner can update an entry),
+    \item discoverability (clients can enumerate without trust).
+\end{itemize}
+
+\section{Construction}
+
+\subsection{The off-chain tree}
+
+\begin{definition}[Module record]
+A module record $r$ is a tuple
+\[
+r = (\text{name},\ \text{owner},\ \text{cid},\ \text{price},\ \text{version},\ \text{updatedAt})
+\]
+serialised with canonical JSON (RFC 8785) and hashed with \texttt{keccak256}:
+\[
+\ell(r) = \mathrm{keccak256}(\mathrm{cjson}(r)).
+\]
+\end{definition}
+
+\begin{definition}[Module tree]
+Given $N$ module records $\{r_1, \ldots, r_N\}$, the module tree $\mathcal{T}$ is a binary Merkle tree over the multiset $\{\ell(r_1), \ldots, \ell(r_N)\}$ sorted by $\ell$ (sorted-pair construction; identical to OpenZeppelin's \texttt{MerkleProof} library). The root is
+\[
+R = \mathrm{root}(\mathcal{T}).
+\]
+\end{definition}
+
+\subsection{On-chain anchor}
+
+\begin{lstlisting}[style=solidity]
+contract TreeRegistry {
+    bytes32 public root;          // current Merkle root
+    uint256 public epoch;         // rotation counter
+    address public publisher;     // authorised root publisher (later DAO)
+    mapping(bytes32 => bool) public revoked;  // tombstones
+
+    event Rotated(uint256 indexed epoch, bytes32 indexed root, bytes32 cid);
+    event Revoked(bytes32 indexed leaf);
+
+    function rotate(bytes32 newRoot, bytes32 manifestCid) external {
+        require(msg.sender == publisher);
+        root = newRoot;
+        epoch++;
+        emit Rotated(epoch, newRoot, manifestCid);
+    }
+
+    function verify(bytes32 leaf, bytes32[] calldata proof)
+        external view returns (bool)
+    {
+        if (revoked[leaf]) return false;
+        return MerkleProof.verifyCalldata(proof, root, leaf);
+    }
+
+    function revoke(bytes32 leaf, bytes32[] calldata proof) external {
+        // Only the owner encoded in the leaf can revoke.
+        // Owner check performed off-chain by reconstructing the record
+        // and verifying that msg.sender matches r.owner.
+        // ...
+        revoked[leaf] = true;
+        emit Revoked(leaf);
+    }
+}
+\end{lstlisting}
+
+The on-chain state is exactly:
+\begin{itemize}
+    \item one \texttt{bytes32} root,
+    \item one \texttt{uint256} epoch,
+    \item one \texttt{address} publisher,
+    \item a sparse \texttt{revoked} map (only paid for by the revoker, only for actively revoked entries).
+\end{itemize}
+
+\subsection{The publisher and the manifest}
+
+The publisher is the actor authorised to call \texttt{rotate}. In Phase 1 it is the protocol multisig; in Phase 2 it is a threshold of validators sourced from \texttt{StakeTime}.
+
+On every rotation the publisher uploads the full tree to IPFS as a \emph{manifest}:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small,frame=single,backgroundcolor=\color{codebg}]
+{
+  "epoch": 412,
+  "root": "0x9f4c...e2",
+  "prev": "0x2cb1...0a",
+  "records": [
+    { "name": "agent",     "owner": "0x...", "cid": "Qm...", ... },
+    { "name": "bloctime",  "owner": "0x...", "cid": "Qm...", ... },
+    ...
+  ],
+  "tree": { "depth": 18, "nodes": "..." }
+}
+\end{lstlisting}
+
+The manifest CID is emitted in the \texttt{Rotated} event so that any indexer with an IPFS gateway can pull the new tree and verify its root against the on-chain value.
+
+\subsection{Update flow}
+
+\begin{enumerate}
+    \item Developer signs a record update with their wallet.
+    \item Signed update is broadcast to a public mempool (a Caddy-fronted FastAPI endpoint at \texttt{/api/whitepaper/tree/submit}).
+    \item Publisher (or any node) aggregates updates between epochs.
+    \item Publisher recomputes the tree, uploads the manifest, calls \texttt{rotate(newRoot, manifestCid)}.
+    \item Clients verify their relevant leaves against the new root via Merkle proofs.
+\end{enumerate}
+
+A single \texttt{rotate} transaction subsumes an arbitrary number of registrations and updates. The cost per individual update is $O(1/N)$ where $N$ is the rotation batch size.
+
+\section{Chain Anchor: StakeTime as the Publisher}
+\label{sec:chain}
+
+A Merkle-tree registry shifts cost off chain, but raises a new question: \emph{who is trusted to rotate the root?} We answer this with \textbf{StakeTime}, the time-weighted staking and validator-consensus primitive deployed on Base.
+
+\subsection{StakeTime primitives}
+
+StakeTime composes five independent on-chain primitives:
+
+\begin{itemize}
+    \item \textbf{Staking} --- delegated, lock-weighted positions that mint synthetic STT proportional to $\text{amount} \cdot M(\text{lockBlocks})$.
+    \item \textbf{Consensus} --- pluggable scoring (Yuma decay, linear, stake-weighted, privacy-preserving).
+    \item \textbf{Inflation} --- pluggable emission curve (halving, flat, linear decay, sigmoid).
+    \item \textbf{Subnet} --- emission-token-bearing partitions of the validator set.
+    \item \textbf{Registry} --- competitive 420-slot directory with weakest-replacement when full.
+\end{itemize}
+
+\subsection{Publisher election}
+
+The publisher role is taken by any validator selected by the active consensus adapter. Their STT-weighted score $\sigma_v$ determines:
+
+\begin{enumerate}
+    \item \textbf{Right to rotate}: only validators with $\sigma_v \geq \sigma_{\min}$ in the current epoch may call \texttt{rotate(newRoot, manifestCid)}.
+    \item \textbf{Slashing exposure}: a rotation whose root does not match the published manifest is provably false and triggers \texttt{slash(validatorId, amount)} against the rotator's stake.
+    \item \textbf{Revenue share}: Treasury rewards for module-call fees are distributed proportional to staker STT, so honest publishers earn alongside the modules they index.
+\end{enumerate}
+
+\section{Priority Mechanism}
+\label{sec:priority}
+
+Within a single rotation the publisher batches many pending updates into one root. StakeTime priority settles two questions: which updates land in this epoch, and which modules occupy the 420-slot on-chain registry under contention.
+
+\subsection{Per-update priority within an epoch}
+
+Each pending update is signed by the module's owner and gossiped to a mempool. The publisher orders the mempool by:
+
+\begin{equation}
+\mathrm{priority}(u) = \mathrm{bond}(u) \cdot M(\ell_u) + \alpha \cdot \mathrm{age}(u)
+\label{eq:priority}
+\end{equation}
+
+where $\mathrm{bond}(u)$ is the STT the submitter has locked behind the update, $M(\ell_u)$ is the same piecewise-linear lock multiplier StakeTime uses for stake weight (monotonic, on-chain enforced; see Equation~\ref{eq:multiplier-ref}), and $\alpha$ is a small fairness coefficient so old updates aren't permanently starved.
+
+\begin{property}[Provable ordering]
+The publisher MUST honour the priority order in Equation~\ref{eq:priority}. Any inversion is reconstructible from the mempool log---signed updates are deterministic---and triggers slashing.
+\end{property}
+
+\subsection{Slot priority for the competitive registry}
+
+The full module set is unbounded off chain, but the \emph{on-chain discoverable} set is capped at 420 slots (StakeTime's Darwinian registry). When a 421st module would register, the slot held by the lowest-priority current occupant is forfeited:
+
+\begin{equation}
+\mathrm{slot\_score}(m) = \sum_{u \in \mathrm{users}} \mathrm{STT}_u \cdot w(m, u) \;-\; \pi \cdot \Delta_{\text{lastCall}}(m)
+\label{eq:slot-score}
+\end{equation}
+
+where $w(m, u)$ is the usage weight (e.g.\ number of debit transactions a user has paid into $m$), $\pi$ is an inactivity-penalty rate, and $\Delta_{\text{lastCall}}$ is blocks since the last call.
+
+\begin{itemize}
+    \item New entries are \textbf{immune} from replacement for \texttt{immunityPeriod} blocks (default $\approx$ 1 day at 12 s).
+    \item Registration costs a \textbf{locked bond} of governance tokens (default 1{,}000), forfeited on competitive replacement, returned on voluntary deregistration.
+    \item The weakest occupant is found by \texttt{Registry.getWeakestSubnet()} in $O(1)$ via a heap maintained on each score update.
+\end{itemize}
+
+\begin{property}[Soft eviction]
+Modules that fall out of the on-chain set remain fully accessible off chain via the manifest. They lose the gas-light on-chain discoverability hint until they earn it back through usage.
+\end{property}
+
+\subsection{Multiplier curve (reused from StakeTime Staking)}
+
+\begin{equation}
+M(x) = \begin{cases}
+m_0 & x \leq b_0 \\[4pt]
+m_i + \dfrac{(m_{i+1} - m_i)(x - b_i)}{b_{i+1} - b_i} & b_i < x \leq b_{i+1} \\[6pt]
+m_{n-1} & x > b_{n-1}
+\end{cases}
+\label{eq:multiplier-ref}
+\end{equation}
+
+with strict monotonicity $b_i < b_{i+1}$ and weak monotonicity $m_i \leq m_{i+1}$ enforced on-chain to prevent arbitrage between lock durations.
+
+\section{Gas and Storage Analysis}
+
+\subsection{Per-operation gas}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Operation} & \textbf{Current Registry} & \textbf{Tree Registry} \\
+\midrule
+Register module          & 80{,}000--110{,}000 & $\approx 30{,}000 / N$ (amortised) \\
+Update CID               & 30{,}000--50{,}000 & $\approx 30{,}000 / N$ (amortised) \\
+Transfer ownership       & 25{,}000 & $\approx 30{,}000 / N$ \\
+Revoke / delete          & 15{,}000 (SSTORE clear) & 25{,}000 (single SSTORE in \texttt{revoked} map) \\
+Read by name             & free (view) & free (Merkle verify off-chain) \\
+Enumerate all modules    & $O(N)$ event replay & 1 IPFS fetch of manifest \\
+\bottomrule
+\end{tabularx}
+\caption{Gas comparison. $N$ is the rotation batch size (e.g.\ 100 updates per rotation).}
+\end{table}
+
+For $N = 100$, a rotation cycle costs $\approx 30{,}000 / 100 = 300$ gas per update---two orders of magnitude below the current floor.
+
+\subsection{On-chain storage growth}
+
+\begin{property}[Constant footprint]
+The contract storage of \texttt{TreeRegistry} grows only with the number of actively revoked modules (a tiny minority). Compared to the linear $O(N)$ growth of the per-row registry, on-chain state is effectively constant.
+\end{property}
+
+\begin{property}[Sublinear emission cost]
+A \texttt{Rotated} event is fixed-size regardless of batch contents. The \texttt{ModRegistered} event stream of the current design is $O(N)$ and quadratic to fully replay.
+\end{property}
+
+\section{Verifiability and Trust}
+
+\subsection{What a client needs}
+
+To verify that module \texttt{X} is registered to owner \texttt{O} with CID \texttt{C}:
+
+\begin{enumerate}
+    \item Fetch the current \texttt{root} from \texttt{TreeRegistry} (1 \texttt{eth\_call}).
+    \item Fetch the manifest CID from the latest \texttt{Rotated} event (1 log filter).
+    \item Pull the manifest from any IPFS gateway.
+    \item Reconstruct the record locally and compute $\ell(r)$.
+    \item Compute the Merkle proof against the on-chain root.
+    \item (Optional) check that $\ell(r)$ is not in \texttt{revoked}.
+\end{enumerate}
+
+The client does \emph{not} need to trust the publisher: if the publisher signs a root that does not match the manifest, mismatched proofs reveal it instantly.
+
+\begin{claim}[No fraudulent record can be proven]
+\label{claim:no-fraud}
+For any record $r' \notin \mathcal{T}$, no Merkle proof against $\mathrm{root}(\mathcal{T})$ verifies, under the standard collision-resistance assumption on \texttt{keccak256}.
+\end{claim}
+
+\subsection{Censorship}
+
+The publisher can refuse to include a submitted update. We mitigate this two ways:
+
+\begin{enumerate}
+    \item \textbf{Forced inclusion.} Any user may pay gas to call \texttt{forceInclude(record, signature)} on a fallback contract that bypasses the publisher and triggers a special rotation. This restores the worst-case behaviour to today's per-row cost---but only when censored, not by default.
+    \item \textbf{Publisher rotation.} If the publisher is a validator threshold (Phase 2), bribing $k$-of-$n$ validators is required to censor. Slashing is on the line.
+\end{enumerate}
+
+\section{Off-Chain Storage Architecture}
+
+\subsection{Storage tiers}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Tier} & \textbf{Contents} \\
+\midrule
+On-chain (1 slot) & Current root, epoch, publisher address \\
+IPFS (manifests) & Full module records + tree structure, addressed by CID \\
+Filecoin (long-term) & Manifest pinning with economic guarantees \\
+Local cache & Compact LMDB of (leaf $\to$ proof) for each subscribed indexer \\
+\bottomrule
+\end{tabularx}
+\caption{Storage tiering. The smaller the tier, the higher the trust.}
+\end{table}
+
+\subsection{Replication and availability}
+
+A manifest is small (estimated $\approx 50$ bytes/record + tree overhead, so a 100k-module ecosystem is $\approx 5$ MB). Every running orbit node can pin every historical manifest at negligible cost. The protocol does not require a single trusted gateway; any IPFS or HTTP mirror suffices because authenticity is verified against the on-chain root.
+
+\subsection{Module API surface}
+
+This whitepaper ships as a runnable orbit module (\texttt{mod/orbit/whitepaper/}) with both a static document app and a working reference implementation of the tree:
+
+\begin{lstlisting}[style=python]
+m.fn('whitepaper/tree_build')(records)          # build tree + manifest
+m.fn('whitepaper/tree_root')()                  # current root
+m.fn('whitepaper/tree_proof')(name='agent')     # Merkle proof for a leaf
+m.fn('whitepaper/tree_verify')(leaf, proof)     # client-side verify
+\end{lstlisting}
+
+\part{System Architecture}
+
+The preceding sections specify the \emph{registry} layer---how module records are
+committed and proven at scale. This part documents the rest of the MOD protocol:
+the unit it registers (the \emph{module}), the runtime that executes modules, the
+gateway that exposes them, and the auth system that governs who may act. Together
+these constitute the full protocol: a way to define, share, run, and reach any
+tool as a first-class, owner-controlled module.
+
+\section{The Module Abstraction}
+
+The protocol's unit is the \emph{module}: a directory under \texttt{mod/orbit/}
+(applications) or \texttt{mod/core/} (shared infrastructure), self-describing via
+\texttt{config.json}:
+
+\begin{lstlisting}[style=python]
+{ "name": "claude", "owner": "0x..", "port": 8820, "app_port": 8823,
+  "urls": { "api": "...", "app": "..." } }
+\end{lstlisting}
+
+A module may ship any combination of implementations behind one identity: a Python
+class (\texttt{mod.py}, invoked as \texttt{m <module>/<fn>}), a compiled service
+API (Rust), and a web app (Next.js). The protocol treats these uniformly---it
+cares about a module's \emph{name}, \emph{owner}, and \emph{endpoints}, not its
+language. Cross-cutting capabilities (auth, process management, environment,
+registry) are themselves modules under \texttt{core/} and are reused rather than
+re-implemented; this is what makes the system modular all the way down.
+
+\section{Runtime and Environment}
+
+\subsection{One environment, defined once}
+
+Historically each module shipped its own \texttt{Dockerfile}, re-deriving Node,
+Python, Rust, and a reverse proxy per image. The protocol replaces this with a
+single reusable environment, \texttt{core/nix} (``modenv''), pinned via a Nix
+flake. \texttt{packages.nix} is the single source of truth---language toolchains
+and the system tools the fleet needs, but \emph{not} application libraries (those
+stay with \texttt{pip}/\texttt{npm}/\texttt{cargo}), keeping the shared layer
+small. A module opts in by shipping a two-line flake that reuses
+\texttt{modenv.lib.mkShell}; otherwise it inherits the shared environment. This is
+to environments what a shared base supervisor is to processes: define once, use
+everywhere.
+
+\subsection{Supervision: core/pm}
+
+Process supervision is unified in \texttt{core/pm}, which launches every service
+inside its \emph{nix image}---the module's own flake if present, else the shared
+\texttt{core/nix}. The mechanism imports the image's environment and then
+\texttt{exec}s the real server, so the supervisor tracks the actual process:
+
+\begin{lstlisting}[style=python]
+cd <service dir>
+eval "$(nix print-dev-env <image>)"   # import the pinned toolchain
+exec bash start.sh                     # become the server; supervisor tracks it
+\end{lstlisting}
+
+The supervisor backend (today \texttt{pm2}) is pluggable. The result is
+hermetic, reproducible execution without per-module containers: the apt-based
+image becomes a pinned Nix image, and the supervisor is shared.
+
+\section{Gateway and On-Demand Execution}
+
+\subsection{Federated front door}
+
+All traffic enters through a single gateway (\texttt{modc2.com}). Some modules are
+routed directly by host rules; the remainder are federated through a portal that
+maps \texttt{/\{mod\}} and \texttt{/api/\{mod\}} to each module's registered
+\texttt{app}/\texttt{api} endpoints, resolved from the registry's app namespace.
+A request thus reaches a module by \emph{name}, independent of where it runs.
+
+\subsection{Scale-to-zero}
+
+An \emph{activator} sits in front of the local fleet. It stops any module idle
+beyond a threshold with no active connections, and \emph{wakes} a stopped module
+on the next request---starting its supervised processes, waiting for the port,
+then proxying---so a slept module costs nothing yet remains reachable. Because the
+host owns the machine, manual control is authoritative over the automation:
+modules may be \emph{disabled} (kept down; the activator refuses to wake them) or
+\emph{pinned} (never slept), via host-local overrides. This gives the ecosystem
+the elasticity of serverless execution over a fleet of long-lived modules.
+
+\section{Identity and Authorization}
+
+\subsection{Shared identity}
+
+Identity is one shared module, \texttt{core/server/auth} (\texttt{m.mod('auth')}),
+used uniformly across the orbit. It mints and verifies signed tokens and recovers
+the signing address from a signature, so ``who is calling'' is answered the same
+way everywhere---no module rolls its own scheme. The on-chain registry's
+ownership proofs and this off-chain session identity share the same key material.
+
+\subsection{The owner/peer model}
+
+Authorization is a two-tier model layered on that identity:
+
+\begin{itemize}
+    \item \textbf{Owner.} The address in a module's \texttt{config.json}
+    (optionally extended to on-chain holders). The owner has authority over the
+    module---and, for the host operator, over the module tree
+    (\texttt{mod/mod}). Owner-only powers (process control, deletion, managing the
+    sign-in list) never widen beyond this.
+    \item \textbf{Peer.} Every other authenticated identity. A peer is confined to
+    its own off-chain workspace, \texttt{\textasciitilde/.mod/peers/<addr>/}, and
+    its jobs are privilege-dropped---kernel-enforced containment that no prompt or
+    path can escape. A peer can build and run \emph{their} modules without ever
+    reaching the owner's tree.
+\end{itemize}
+
+An optional off-chain whitelist gates \emph{sign-in} but confers no ownership; a
+whitelisted address is still a peer for editing. All such private authorization
+state lives off-chain (under \texttt{\textasciitilde/.mod/}), never in the
+committed, publicly mirrored registry---so the public tree of Part~I carries only
+public facts, while access control stays private to the host.
+
+\section{Migration Path}
+
+\begin{enumerate}
+    \item \textbf{Shadow mode.} \texttt{TreeRegistry} deploys alongside the existing per-row \texttt{Registry}. The publisher mirrors all \texttt{Registry} events into the tree. Both registries serve simultaneously.
+    \item \textbf{Indexer flip.} Off-chain indexers (the \texttt{api} module, the polymarket frontend, ecosystem block explorers) cut their reads over to the tree-based view. Writes still go to the legacy registry.
+    \item \textbf{Write deprecation.} New \texttt{registerMod} calls are routed through a meta-aggregator that submits to the tree pool. The legacy contract is frozen but its state is mirrored permanently into the tree's genesis manifest.
+    \item \textbf{Sunset.} The legacy registry stays readable; no new writes are accepted. Eventually it is marked \texttt{setOwnerless} and forgotten.
+\end{enumerate}
+
+\section{Comparison to Related Work}
+
+\begin{itemize}
+    \item \textbf{Ethereum Name Service (Namewrapper).} ENS stores per-name records on-chain. Our design is closer to \emph{rollup} commit roots applied to a developer registry.
+    \item \textbf{Optimistic rollups.} We borrow the publish-root-then-prove-fraud pattern, but without fraud proofs: there is no state transition to dispute, only a static set membership. This makes the model significantly simpler.
+    \item \textbf{IPNS / IPFS DNSLink.} Both lack an on-chain anchor, so they cannot resolve disputes about which manifest is canonical. Our root + epoch counter solves that.
+    \item \textbf{Sparse Merkle Trees (SMT).} An SMT would give us inclusion + non-inclusion proofs for free at the cost of larger proofs. For an opt-in publisher model where revocation is a tombstone bit, we do not need non-inclusion proofs; the sorted-leaf binary tree is sufficient and cheaper.
+\end{itemize}
+
+\section{Conclusion}
+
+Storing the tree instead of the leaves shifts the cost curve from $O(N)$ to $O(1)$ on chain, eliminates per-module gas as a publishing tax, and makes the registry trivially mirrorable. It preserves authenticity through Merkle proofs and ownership through signed updates, and degrades gracefully under censorship via forced inclusion. The resulting system is the registry layer the MOD orbit ecosystem needs to grow from hundreds of modules to millions, including those published autonomously by agents.
+
+\appendix
+
+\section{Reference Implementation}
+
+The module ships a Python reference implementation at \texttt{mod/orbit/whitepaper/mod.py} exposing:
+
+\begin{lstlisting}[style=python]
+class Mod:
+    def tree_build(self, records: list[dict]) -> dict: ...
+    def tree_root(self) -> str: ...
+    def tree_proof(self, name: str) -> list[str]: ...
+    def tree_verify(self, leaf: str, proof: list[str]) -> bool: ...
+\end{lstlisting}
+
+\section{Notation}
+
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+$N$ & Total number of modules in the registry. \\
+$r$ & A module record (canonical JSON). \\
+$\ell(r)$ & The leaf hash $\mathrm{keccak256}(\mathrm{cjson}(r))$. \\
+$\mathcal{T}$ & The Merkle tree over all leaves. \\
+$R$ & The root of $\mathcal{T}$, anchored on-chain. \\
+$E$ & The epoch counter. \\
+\bottomrule
+\end{tabularx}
+
+\end{document}

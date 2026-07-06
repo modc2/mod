@@ -13,61 +13,64 @@
     "kill",
     "status"
   ],
-  "schema": {
-    "save": {
-      "input": [
-        {"name": "name", "type": "str", "value": "_empty"},
-        {"name": "content", "type": "str", "value": "_empty"},
-        {"name": "folder", "type": "str", "value": null},
-        {"name": "tags", "type": "list", "value": null}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Save a LaTeX document to local filesystem storage."
-    },
-    "load": {
-      "input": [
-        {"name": "name", "type": "str", "value": "_empty"},
-        {"name": "folder", "type": "str", "value": null}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Load a LaTeX document from local filesystem storage."
-    },
-    "ls": {
-      "input": [
-        {"name": "folder", "type": "str", "value": null},
-        {"name": "tags", "type": "list", "value": null}
-      ],
-      "output": {"type": "list", "value": null},
-      "docs": "List all stored LaTeX documents, optionally filtered by folder or tags."
-    },
-    "rm": {
-      "input": [
-        {"name": "name", "type": "str", "value": "_empty"},
-        {"name": "folder", "type": "str", "value": null}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Remove a LaTeX document from storage."
-    },
-    "compile": {
-      "input": [
-        {"name": "name", "type": "str", "value": "_empty"},
-        {"name": "folder", "type": "str", "value": null},
-        {"name": "engine", "type": "str", "value": "pdflatex"}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Compile a LaTeX document to PDF using pdflatex/xelatex/lualatex."
-    },
-    "search": {
-      "input": [
-        {"name": "query", "type": "str", "value": "_empty"},
-        {"name": "folder", "type": "str", "value": null}
-      ],
-      "output": {"type": "list", "value": null},
-      "docs": "Search LaTeX documents by content or metadata."
-    }
-  },
+  "schema": "QmWWjfjEAcarSMqjsiBsY18ZZxz898duMX81uvFZi52JbC",
   "urls": {
     "api": "http://localhost:50200",
     "app": "http://localhost:3200"
-  }
+  },
+  "port": 50200,
+  "app_port": 3200,
+  "endpoints": [
+    {
+      "path": "/health",
+      "method": "GET",
+      "description": "Health check"
+    },
+    {
+      "path": "/docs",
+      "method": "GET",
+      "description": "List all documents"
+    },
+    {
+      "path": "/docs",
+      "method": "POST",
+      "description": "Save a document"
+    },
+    {
+      "path": "/docs/{name}",
+      "method": "GET",
+      "description": "Load a document"
+    },
+    {
+      "path": "/docs/{name}",
+      "method": "DELETE",
+      "description": "Remove a document"
+    },
+    {
+      "path": "/docs/{name}/compile",
+      "method": "POST",
+      "description": "Compile document to PDF"
+    },
+    {
+      "path": "/docs/{name}/pdf",
+      "method": "GET",
+      "description": "Download compiled PDF"
+    },
+    {
+      "path": "/search",
+      "method": "GET",
+      "description": "Search documents"
+    },
+    {
+      "path": "/folders",
+      "method": "GET",
+      "description": "List folders"
+    },
+    {
+      "path": "/status",
+      "method": "GET",
+      "description": "Service status"
+    }
+  ],
+  "gateway_port": 3200
 }

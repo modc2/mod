@@ -1,0 +1,17 @@
+{
+    "name": "chutes",
+    "port": 50120,
+    "app_port": 50121,
+    "urls": {
+        "api": "http://localhost:50120",
+        "app": "http://localhost:50121"
+    },
+    "endpoints": {
+        "chat": "POST /chat",
+        "images": "POST /images",
+        "models": "GET /models",
+        "forward": "POST /forward"
+    },
+    "schema": "QmbxW2Kt3i3wKKoAUiS9Dx3uJAwPhhSuSXHBLYz7UFoWwY",
+    "gateway_port": 50121
+}

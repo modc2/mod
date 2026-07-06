@@ -1,0 +1,21 @@
+{
+    "name": "basebuilder",
+    "version": "1.0.0",
+    "description": "Forkable module template with ensure_env, health checks, and CID registry tracking",
+    "port": 50200,
+    "app_port": 50201,
+    "fns": [
+        "serve",
+        "kill",
+        "status",
+        "ensure_env",
+        "publish",
+        "info"
+    ],
+    "urls": {
+        "api": "http://localhost:50200",
+        "app": "http://localhost:50201"
+    },
+    "schema": "QmZXo1c5Rvd9cppAFUJM24YQDx6gGhLiGx3Z5SxXDpgqhz",
+    "gateway_port": 50201
+}

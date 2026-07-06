@@ -1,0 +1,17 @@
+services:
+  taox:
+    build: .
+    container_name: taox
+    image: taox:latest
+    ports:
+      - "3870:3870"
+    restart: unless-stopped
+    env_file:
+      - /root/.mod/taox/env
+    environment:
+      - APP_PORT=3870
+      - API_PORT=8870
+      - APP_INTERNAL_PORT=3871
+      - TAOX_ETH_RPC=${TAOX_ETH_RPC:-}
+      - TAOX_SOL_RPC=${TAOX_SOL_RPC:-}
+      - TAOX_TAO_RPC=${TAOX_TAO_RPC:-}

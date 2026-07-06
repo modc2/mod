@@ -1,0 +1,2539 @@
+"use client";
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
+
+const WalletModal = dynamic(() => import("../components/WalletModal"), { ssr: false });
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8820";
+
+// ── Types ────────────────────────────────────────────────────────────
+
+interface Job {
+  id: string;
+  prompt: string;
+  model: string;
+  work_dir: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  output: string;
+  error: string | null;
+  pid: number | null;
+  created_at: number;
+  updated_at: number;
+  asks?: Array<{ question: string; answer?: string; timestamp?: number }>;
+}
+
+interface TokenStats {
+  balance: string;
+  symbol: string;
+  decimals: number;
+  address: string;
+  network: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function timeSince(ts: number): string {
+  const s = Math.floor(Date.now() / 1000 - ts);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleString();
+}
+
+const STATUS_ICON: Record<string, string> = {
+  pending: "◇",
+  running: "▶",
+  completed: "✦",
+  failed: "✕",
+  cancelled: "■",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "QUEUED",
+  running: "RUNNING",
+  completed: "COMPLETE",
+  failed: "FAILED",
+  cancelled: "KILLED",
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  pending: "#ffb000",
+  running: "#00aaff",
+  completed: "#33ff33",
+  failed: "#ff3333",
+  cancelled: "#666666",
+};
+
+// ── ASCII Art ────────────────────────────────────────────────────────
+
+const BOOT_ART = `
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║     ░█████╗░██╗░░░░░░█████╗░██╗░░░██╗██████╗░███████╗  ║
+║     ██╔══██╗██║░░░░░██╔══██╗██║░░░██║██╔══██╗██╔════╝  ║
+║     ██║░░╚═╝██║░░░░░███████║██║░░░██║██║░░██║█████╗░░  ║
+║     ██║░░██╗██║░░░░░██╔══██║██║░░░██║██║░░██║██╔══╝░░  ║
+║     ╚█████╔╝███████╗██║░░██║╚██████╔╝██████╔╝███████╗  ║
+║     ░╚════╝░╚══════╝╚═╝░░╚═╝░╚═════╝░╚═════╝░╚══════╝  ║
+║                                                          ║
+║              ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄              ║
+║              █  J O B   R U N N E R  v1  █              ║
+║              ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀              ║
+║                                                          ║
+║         « Background AI Tasks • 8-Bit Terminal »         ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝`;
+
+// ── Main Component ───────────────────────────────────────────────────
+
+export default function Home() {
+  const [address, setAddress] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [bootPhase, setBootPhase] = useState(0);
+  const [walletType, setWalletType] = useState<"metamask" | "subwallet" | "local" | "password" | null>(null);
+  const [isOwner, setIsOwner] = useState<boolean>(false);
+  const [ownerAddress, setOwnerAddress] = useState<string | null>(null);
+
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("sonnet");
+  const [workDir, setWorkDir] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [streamOutput, setStreamOutput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [showSubmit, setShowSubmit] = useState(true);
+  const [repos, setRepos] = useState<{ name: string; path: string; display: string }[]>([]);
+  const [showRepos, setShowRepos] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [showModuleOptions, setShowModuleOptions] = useState(false);
+  const [moduleName, setModuleName] = useState("");
+  const [creationMode, setCreationMode] = useState<"standard" | "new" | "fork">("standard");
+  const [selectedModule, setSelectedModule] = useState("");
+  const [forkSource, setForkSource] = useState("");
+  const [anchorDir, setAnchorDir] = useState("~/mod");
+  const [modules, setModules] = useState<string[]>([]);
+  const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
+  const [images, setImages] = useState<Array<{ name: string; data: string }>>(
+    []
+  );
+  const [theme, setTheme] = useState<"dark" | "light" | "matrix" | "cyberpunk" | "amber" | "ocean" | "ibm" | "win95">("dark");
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [showUserDetails, setShowUserDetails] = useState(false);
+
+  // Token stats modal
+  const [showTokenStats, setShowTokenStats] = useState(false);
+  const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
+  const [loadingTokenStats, setLoadingTokenStats] = useState(false);
+
+  // Wallet modal
+  const [showWalletModal, setShowWalletModal] = useState(false);
+
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [hasMetaMask, setHasMetaMask] = useState(false);
+  const [hasSubWallet, setHasSubWallet] = useState(false);
+
+  // New UI state
+  const [leftTab, setLeftTab] = useState<"tasks" | "input">("input");
+  const [viewMode, setViewMode] = useState<"api" | "code">("api");
+  const [directoryTree, setDirectoryTree] = useState<any[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+
+  const repoRef = useRef<HTMLDivElement>(null);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const esRef = useRef<EventSource | null>(null);
+  const themeRef = useRef<HTMLDivElement>(null);
+  const userDetailsRef = useRef<HTMLDivElement>(null);
+  const tokenStatsRef = useRef<HTMLDivElement>(null);
+
+  // Detect wallet extensions client-side only (avoids hydration mismatch)
+  useEffect(() => {
+    setHasMetaMask(!!(window as any).ethereum?.isMetaMask);
+    setHasSubWallet(!!(window as any).ethereum?.isSubWallet);
+  }, []);
+
+  // Boot animation
+  useEffect(() => {
+    const timers = [
+      setTimeout(() => setBootPhase(1), 300),
+      setTimeout(() => setBootPhase(2), 800),
+      setTimeout(() => setBootPhase(3), 1400),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  // Apply theme to document root
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("claude_jobs_theme");
+    if (savedTheme) {
+      setTheme(savedTheme as typeof theme);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem("claude_jobs_theme", theme);
+  }, [theme]);
+
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
+        setShowThemeMenu(false);
+      }
+      if (userDetailsRef.current && !userDetailsRef.current.contains(e.target as Node)) {
+        setShowUserDetails(false);
+      }
+      if (tokenStatsRef.current && !tokenStatsRef.current.contains(e.target as Node)) {
+        setShowTokenStats(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Check saved token or detect local mode
+  useEffect(() => {
+    const saved = localStorage.getItem("claude_jobs_token");
+    const savedAddr = localStorage.getItem("claude_jobs_address");
+    const savedWalletType = localStorage.getItem("claude_jobs_wallet_type") as typeof walletType;
+    if (saved && savedAddr) {
+      setToken(saved);
+      setAddress(savedAddr);
+      setWalletType(savedWalletType);
+      return;
+    }
+    // Probe server — if local mode is on, skip auth entirely
+    fetch(`${API_URL}/health`)
+      .then((r) => r.json())
+      .then(() => {
+        // Try an unauthed request to /jobs — if it works, server is in local mode
+        return fetch(`${API_URL}/jobs`);
+      })
+      .then((r) => {
+        if (r.ok) {
+          // Local mode — no auth needed
+          setToken("local");
+          setAddress("local");
+          setWalletType("local");
+          localStorage.setItem("claude_jobs_token", "local");
+          localStorage.setItem("claude_jobs_address", "local");
+          localStorage.setItem("claude_jobs_wallet_type", "local");
+        }
+      })
+      .catch(() => { /* server not reachable, show auth screen */ });
+  }, []);
+
+  // Load token stats when address changes
+  useEffect(() => {
+    if (address && address !== "local") {
+      loadTokenStats();
+    }
+  }, [address]);
+
+  // Check owner status when address changes
+  useEffect(() => {
+    // Everyone is an owner
+    setIsOwner(true);
+    setOwnerAddress(address);
+  }, [address]);
+
+  // ── Auth ──────────────────────────────────────────────────────────
+
+  const safeJson = async (res: Response) => {
+    const text = await res.text();
+    if (!text) return {};
+    try { return JSON.parse(text); } catch { return {}; }
+  };
+
+  const signChallenge = async (addr: string, signFn: (msg: string) => Promise<string>) => {
+    // Check owner status before authentication
+    let wasOwnerSet = false;
+    try {
+      const ownerRes = await fetch(`${API_URL}/owner`);
+      const ownerData = await safeJson(ownerRes);
+      wasOwnerSet = !!ownerData.has_owner;
+    } catch { /* owner endpoint not available, skip */ }
+
+    const challengeRes = await fetch(
+      `${API_URL}/auth/challenge?address=${addr}`
+    );
+    if (!challengeRes.ok) throw new Error("CHALLENGE REQUEST FAILED");
+    const { message } = await safeJson(challengeRes);
+    if (!message) throw new Error("INVALID CHALLENGE RESPONSE");
+
+    const signature = await signFn(message);
+
+    const verifyRes = await fetch(`${API_URL}/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: addr, signature, message }),
+    });
+
+    const verifyData = await safeJson(verifyRes);
+    if (!verifyRes.ok) {
+      throw new Error(verifyData.error || "SIGNATURE VERIFICATION FAILED");
+    }
+
+    const { token: newToken, address: verifiedAddr } = verifyData;
+    if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
+    setToken(newToken);
+    setAddress(verifiedAddr);
+    localStorage.setItem("claude_jobs_token", newToken);
+    localStorage.setItem("claude_jobs_address", verifiedAddr);
+
+    // Check if this user became the owner
+    if (!wasOwnerSet) {
+      try {
+        const newOwnerRes = await fetch(`${API_URL}/owner`);
+        const newOwnerData = await safeJson(newOwnerRes);
+        if (newOwnerData.has_owner && newOwnerData.owner === verifiedAddr) {
+          console.log("✓ You are now the owner of this Claude instance");
+        }
+      } catch { /* ignore */ }
+    }
+  };
+
+  const connectWallet = async (type: "metamask" | "subwallet") => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const ethereum = (window as any).ethereum;
+
+      // For SubWallet, request specific provider
+      if (type === "subwallet" && ethereum.providers) {
+        const subwalletProvider = ethereum.providers.find((p: any) => p.isSubWallet);
+        if (!subwalletProvider) throw new Error("SUBWALLET NOT FOUND");
+        const accounts: string[] = await subwalletProvider.request({
+          method: "eth_requestAccounts",
+        });
+        if (!accounts.length) throw new Error("NO ACCOUNTS FOUND");
+        const addr = accounts[0].toLowerCase();
+
+        await signChallenge(addr, async (msg) => {
+          return await subwalletProvider.request({
+            method: "personal_sign",
+            params: [msg, addr],
+          });
+        });
+        setWalletType("subwallet");
+        localStorage.setItem("claude_jobs_wallet_type", "subwallet");
+      } else {
+        // MetaMask or default provider
+        const accounts: string[] = await ethereum.request({
+          method: "eth_requestAccounts",
+        });
+        if (!accounts.length) throw new Error("NO ACCOUNTS FOUND");
+        const addr = accounts[0].toLowerCase();
+
+        await signChallenge(addr, async (msg) => {
+          return await ethereum.request({
+            method: "personal_sign",
+            params: [msg, addr],
+          });
+        });
+        setWalletType("metamask");
+        localStorage.setItem("claude_jobs_wallet_type", "metamask");
+      }
+    } catch (e: any) {
+      setAuthError(e.message || "AUTHENTICATION FAILED");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const connectWithPassword = async (password: string) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { ethers } = await import("ethers");
+      // Derive a deterministic private key from the password
+      const hash = ethers.id(password); // keccak256
+      const wallet = new ethers.Wallet(hash);
+      const addr = wallet.address.toLowerCase();
+
+      await signChallenge(addr, async (msg) => {
+        return await wallet.signMessage(msg);
+      });
+      setWalletType("password");
+      localStorage.setItem("claude_jobs_wallet_type", "password");
+    } catch (e: any) {
+      setAuthError(e.message || "PASSWORD KEY DERIVATION FAILED");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const connectLocal = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { ethers } = await import("ethers");
+
+      let mnemonic = localStorage.getItem("claude_jobs_seed");
+      let isNew = false;
+      if (!mnemonic) {
+        const wallet = ethers.Wallet.createRandom();
+        mnemonic = wallet.mnemonic!.phrase;
+        localStorage.setItem("claude_jobs_seed", mnemonic);
+        isNew = true;
+      }
+
+      const wallet = ethers.Wallet.fromPhrase(mnemonic);
+      const addr = wallet.address.toLowerCase();
+
+      await signChallenge(addr, async (msg) => {
+        return await wallet.signMessage(msg);
+      });
+
+      setWalletType("local");
+      localStorage.setItem("claude_jobs_wallet_type", "local");
+
+      if (isNew) {
+        console.log(
+          "%c[CLAUDE JOBS] New local wallet created. Back up your seed phrase from localStorage key 'claude_jobs_seed'",
+          "color: #ffb000"
+        );
+      }
+    } catch (e: any) {
+      setAuthError(e.message || "LOCAL KEY GENERATION FAILED");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const disconnect = () => {
+    setToken(null);
+    setAddress(null);
+    setWalletType(null);
+    setJobs([]);
+    setSelectedJob(null);
+    setStreamOutput("");
+    setTokenStats(null);
+    localStorage.removeItem("claude_jobs_token");
+    localStorage.removeItem("claude_jobs_address");
+    localStorage.removeItem("claude_jobs_wallet_type");
+    if (esRef.current) esRef.current.close();
+  };
+
+  // ── Token Stats ───────────────────────────────────────────────────
+
+  const loadTokenStats = async () => {
+    if (!address || address === "local") return;
+
+    setLoadingTokenStats(true);
+    try {
+      const { ethers } = await import("ethers");
+      const ethereum = (window as any).ethereum;
+
+      if (!ethereum) {
+        setTokenStats({
+          balance: "0.00",
+          symbol: "ETH",
+          decimals: 18,
+          address: address,
+          network: "Unknown",
+        });
+        return;
+      }
+
+      const provider = new ethers.BrowserProvider(ethereum);
+      const balance = await provider.getBalance(address);
+      const network = await provider.getNetwork();
+
+      setTokenStats({
+        balance: ethers.formatEther(balance),
+        symbol: "ETH",
+        decimals: 18,
+        address: address,
+        network: network.name || `Chain ${network.chainId}`,
+      });
+    } catch (e) {
+      console.error("Failed to load token stats:", e);
+      setTokenStats({
+        balance: "0.00",
+        symbol: "ETH",
+        decimals: 18,
+        address: address || "",
+        network: "Unknown",
+      });
+    } finally {
+      setLoadingTokenStats(false);
+    }
+  };
+
+  // ── Authed Fetch ──────────────────────────────────────────────────
+
+  const authFetch = useCallback(
+    async (path: string, opts: RequestInit = {}) => {
+      if (!token) throw new Error("NOT AUTHENTICATED");
+      const headers: Record<string, string> = {
+        ...((opts.headers as Record<string, string>) || {}),
+        "Content-Type": "application/json",
+      };
+      // In local mode, no bearer token needed
+      if (token !== "local") {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      return fetch(`${API_URL}${path}`, { ...opts, headers });
+    },
+    [token]
+  );
+
+  // ── Directory Tree ────────────────────────────────────────────────
+
+  const fetchDirectoryTree = useCallback(async (path?: string) => {
+    if (!token) return;
+    try {
+      const targetPath = path || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : workDir) || "~/mod";
+      const res = await authFetch(`/files/tree?path=${encodeURIComponent(targetPath)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDirectoryTree(data.tree || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch directory tree:", e);
+    }
+  }, [token, authFetch, selectedJob, jobs, workDir]);
+
+  useEffect(() => {
+    if (token && (selectedJob || workDir)) {
+      fetchDirectoryTree();
+    }
+  }, [token, selectedJob, workDir]);
+
+  // ── Jobs ──────────────────────────────────────────────────────────
+
+  const fetchJobs = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await authFetch("/jobs");
+      if (res.status === 401) { disconnect(); return; }
+      if (!res.ok) throw new Error("FETCH FAILED");
+      const data = await res.json();
+      setJobs(data.jobs || []);
+      setError(null);
+    } catch {
+      setError("SERVER OFFLINE — run: cd server && cargo run");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, authFetch]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchJobs();
+    const iv = setInterval(fetchJobs, 4000);
+    return () => clearInterval(iv);
+  }, [token, fetchJobs]);
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [streamOutput]);
+
+  const submitJob = async () => {
+    if (!prompt.trim() || !token) return;
+    setSubmitting(true);
+    try {
+      const body: any = { prompt: prompt.trim(), model };
+      if (images.length > 0) body.images = images;
+
+      // Standard mode - use work_dir directly or selected module
+      if (creationMode === "standard") {
+        // If a module is selected, use that as work_dir
+        if (selectedModule.trim()) {
+          // Enforce _outer restriction for non-owners
+          if (!isOwner && !selectedModule.includes("_outer/") && !selectedModule.startsWith("_outer.")) {
+            setError("NON-OWNERS CAN ONLY EDIT MODULES IN _outer FOLDER");
+            setSubmitting(false);
+            return;
+          }
+          body.work_dir = `${anchorDir}/mod/orbit/${selectedModule}`;
+        }
+        // Otherwise use the manual work_dir input
+        else if (workDir.trim()) {
+          body.work_dir = workDir.trim();
+        }
+      }
+      // Module creation modes (new/fork)
+      else {
+        if (!moduleName.trim()) {
+          setError("MODULE NAME REQUIRED");
+          setSubmitting(false);
+          return;
+        }
+
+        // For non-owners, enforce _outer folder for new modules
+        let finalModuleName = moduleName.trim();
+        if (!isOwner && creationMode === "new") {
+          // Prepend _outer/ if not already there
+          if (!finalModuleName.startsWith("_outer/")) {
+            finalModuleName = `_outer/${finalModuleName}`;
+          }
+        }
+
+        body.module_name = finalModuleName;
+        body.creation_mode = creationMode;
+        body.anchor_dir = anchorDir;
+
+        if (creationMode === "fork") {
+          if (!forkSource.trim()) {
+            setError("FORK SOURCE REQUIRED");
+            setSubmitting(false);
+            return;
+          }
+          body.fork_source = forkSource.trim();
+
+          // For non-owners, fork destination must be in _outer
+          if (!isOwner && !finalModuleName.startsWith("_outer/")) {
+            body.module_name = `_outer/${finalModuleName}`;
+          }
+        }
+      }
+
+      const res = await authFetch("/jobs", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("SUBMIT FAILED");
+      const job = await res.json();
+      setPrompt("");
+      setImages([]);
+      setModuleName("");
+      setForkSource("");
+      setSelectedModule("");
+      setSelectedJob(job.id);
+      fetchJobs();
+      startStream(job.id);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startStream = (jobId: string) => {
+    if (esRef.current) esRef.current.close();
+    setStreamOutput("");
+    const es = new EventSource(`${API_URL}/jobs/${jobId}/stream`);
+    esRef.current = es;
+    es.onmessage = (event) => {
+      if (event.data === "[DONE]") { es.close(); fetchJobs(); return; }
+      setStreamOutput((prev) => prev + event.data);
+    };
+    es.addEventListener("complete", (event: any) => {
+      setStreamOutput(event.data);
+      es.close();
+    });
+    es.onerror = () => { es.close(); fetchJobs(); };
+  };
+
+  const cancelJob = async (id: string) => {
+    await authFetch(`/jobs/${id}/cancel`, { method: "POST" });
+    fetchJobs();
+  };
+
+  const deleteJob = async (id: string) => {
+    await authFetch(`/jobs/${id}`, { method: "DELETE" });
+    if (selectedJob === id) { setSelectedJob(null); setStreamOutput(""); }
+    fetchJobs();
+  };
+
+  const viewJob = (job: Job) => {
+    setSelectedJob(job.id);
+    if (job.status === "running") {
+      startStream(job.id);
+    } else {
+      setStreamOutput(job.output);
+      if (esRef.current) esRef.current.close();
+    }
+  };
+
+  const toggleAsks = (jobId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedAsks((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) {
+        next.delete(jobId);
+      } else {
+        next.add(jobId);
+      }
+      return next;
+    });
+  };
+
+  // ── Repo Search ────────────────────────────────────────────────────
+  const searchRepos = useCallback(async (q: string) => {
+    try {
+      const res = await fetch(`${API_URL}/repos?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRepos(data.repos || []);
+        // Extract module names from orbit directory
+        const orbitModules = data.repos
+          .filter((r: any) => r.path.includes('/mod/orbit/'))
+          .map((r: any) => r.name);
+        setModules(orbitModules);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    searchRepos("");
+  }, [searchRepos]);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (repoRef.current && !repoRef.current.contains(e.target as Node)) {
+        setShowRepos(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  // Filter jobs based on search query and status
+  const filteredJobs = jobs.filter((job) => {
+    // Status filter
+    if (statusFilter && job.status !== statusFilter) return false;
+
+    // Search query filter
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      job.prompt.toLowerCase().includes(query) ||
+      job.id.toLowerCase().includes(query) ||
+      job.model.toLowerCase().includes(query) ||
+      job.status.toLowerCase().includes(query) ||
+      (job.work_dir && job.work_dir.toLowerCase().includes(query))
+    );
+  });
+
+  const selectedJobData = jobs.find((j) => j.id === selectedJob);
+  const runningCount = jobs.filter((j) => j.status === "running").length;
+  const completedCount = jobs.filter((j) => j.status === "completed").length;
+
+  // Colorize output with diff highlighting
+  const renderOutput = (text: string) => {
+    if (!text) return null;
+    const lines = text.split("\n");
+    return lines.map((line, i) => {
+      // Diff removals
+      if (line.startsWith("│- ")) {
+        return <span key={i} style={{ color: "var(--crt-red)" }}>{line}{"\n"}</span>;
+      }
+      // Diff additions
+      if (line.startsWith("│+ ")) {
+        return <span key={i} style={{ color: "var(--accent-color)" }}>{line}{"\n"}</span>;
+      }
+      // Edit/Write headers
+      if (line.startsWith("┌─ EDIT:") || line.startsWith("┌─ WRITE:")) {
+        return <span key={i} style={{ color: "var(--crt-amber)", fontWeight: "bold" }}>{line}{"\n"}</span>;
+      }
+      // Diff separator
+      if (line === "│───" || line === "└─") {
+        return <span key={i} style={{ color: "var(--crt-amber)", opacity: 0.4 }}>{line}{"\n"}</span>;
+      }
+      // Bash commands
+      if (line.startsWith("$ ")) {
+        return <span key={i} style={{ color: "var(--crt-blue)" }}>{line}{"\n"}</span>;
+      }
+      // Tool use markers
+      if (line.startsWith("⚡ ")) {
+        return <span key={i} style={{ color: "var(--crt-amber)" }}>{line}{"\n"}</span>;
+      }
+      return <span key={i} style={{ color: "var(--text-primary)" }}>{line}{"\n"}</span>;
+    });
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTH SCREEN — IBM BOOT STYLE
+  // ═══════════════════════════════════════════════════════════════════
+
+  if (!token) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-crt-darker relative overflow-hidden">
+        {/* Ambient glow */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, rgba(51,255,51,0.03) 0%, transparent 70%)",
+          }}
+        />
+
+        <div className="relative z-10 flex flex-col items-center gap-6 max-w-2xl w-full px-4">
+          {/* Boot Art */}
+          <pre
+            className="text-crt-green leading-none select-none whitespace-pre transition-opacity duration-700"
+            style={{
+              fontSize: "6px",
+              textShadow: "0 0 10px rgba(51,255,51,0.4), 0 0 3px rgba(51,255,51,0.2)",
+              opacity: bootPhase >= 1 ? 1 : 0,
+            }}
+          >
+            {BOOT_ART}
+          </pre>
+
+          {/* Boot Messages */}
+          <div
+            className="w-full max-w-lg transition-opacity duration-500"
+            style={{ opacity: bootPhase >= 2 ? 1 : 0 }}
+          >
+            <div className="border-2 border-crt-green/30 p-4 space-y-1" style={{ background: "rgba(51,255,51,0.02)" }}>
+              <div className="text-[9px] text-crt-green/60">SYSTEM CHECK ............ OK</div>
+              <div className="text-[9px] text-crt-green/60">CLAUDE ENGINE ........... READY</div>
+              <div className="text-[9px] text-crt-green/60">JOB SCHEDULER ........... ACTIVE</div>
+              <div className="text-[9px] text-crt-green/60">SSE STREAM .............. ENABLED</div>
+              <div className="text-[9px] text-crt-amber/80 mt-2">
+                ⚠ WALLET SIGNATURE REQUIRED FOR ACCESS
+              </div>
+              {!hasMetaMask && !hasSubWallet && (
+                <div className="text-[9px] text-crt-green/40">
+                  ◇ NO WEB3 WALLET — LOCAL KEY MODE AVAILABLE
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Auth Card */}
+          <div
+            className="w-full max-w-lg transition-all duration-500"
+            style={{
+              opacity: bootPhase >= 3 ? 1 : 0,
+              transform: bootPhase >= 3 ? "translateY(0)" : "translateY(10px)",
+            }}
+          >
+            <div
+              className="border-2 border-crt-amber p-6"
+              style={{
+                background: "rgba(255,176,0,0.03)",
+                boxShadow: "0 0 30px rgba(255,176,0,0.05), inset 0 0 30px rgba(255,176,0,0.02)",
+              }}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-crt-amber text-[14px]">⬡</span>
+                <h2
+                  className="text-[11px] text-crt-amber"
+                  style={{ textShadow: "0 0 8px rgba(255,176,0,0.4)" }}
+                >
+                  WALLET AUTHENTICATION
+                </h2>
+              </div>
+
+              <div className="text-[8px] text-crt-green/50 mb-4 leading-relaxed">
+                Sign a cryptographic challenge to authenticate.
+                Your signature is verified server-side via ecrecover and
+                becomes a 24-hour bearer token for all API requests.
+              </div>
+
+              <div className="flex flex-col items-center gap-4">
+                {(hasMetaMask || hasSubWallet) && (
+                  <>
+                    <div className="flex gap-2 w-full max-w-xs">
+                      {hasMetaMask && (
+                        <button
+                          onClick={() => connectWallet("metamask")}
+                          disabled={authLoading}
+                          className="pixel-btn pixel-btn-amber flex-1 text-[10px] py-3"
+                          style={{ letterSpacing: "2px" }}
+                        >
+                          {authLoading ? (
+                            <span className="animate-pulse">SIGNING...</span>
+                          ) : (
+                            "METAMASK"
+                          )}
+                        </button>
+                      )}
+                      {hasSubWallet && (
+                        <button
+                          onClick={() => connectWallet("subwallet")}
+                          disabled={authLoading}
+                          className="pixel-btn pixel-btn-blue flex-1 text-[10px] py-3"
+                          style={{ letterSpacing: "2px" }}
+                        >
+                          {authLoading ? (
+                            <span className="animate-pulse">SIGNING...</span>
+                          ) : (
+                            "SUBWALLET"
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full max-w-xs">
+                      <div className="flex-1 border-t border-crt-green/10" />
+                      <span className="text-[7px] text-crt-green/20">OR</span>
+                      <div className="flex-1 border-t border-crt-green/10" />
+                    </div>
+                  </>
+                )}
+
+                <button
+                  onClick={connectLocal}
+                  disabled={authLoading}
+                  className="pixel-btn w-full max-w-xs text-[10px] py-3"
+                  style={{ letterSpacing: "2px" }}
+                >
+                  {authLoading && !hasMetaMask && !hasSubWallet ? (
+                    <span className="animate-pulse">GENERATING KEY...</span>
+                  ) : (
+                    "USE  LOCAL  KEY"
+                  )}
+                </button>
+
+                <div className="flex items-center gap-3 w-full max-w-xs">
+                  <div className="flex-1 border-t border-crt-green/10" />
+                  <span className="text-[7px] text-crt-green/20">OR</span>
+                  <div className="flex-1 border-t border-crt-green/10" />
+                </div>
+
+                {!showPasswordInput ? (
+                  <button
+                    onClick={() => setShowPasswordInput(true)}
+                    className="pixel-btn w-full max-w-xs text-[10px] py-3"
+                    style={{ letterSpacing: "2px" }}
+                  >
+                    USE  PASSWORD  KEY
+                  </button>
+                ) : (
+                  <div className="w-full max-w-xs space-y-2">
+                    <input
+                      type="password"
+                      value={passwordInput}
+                      onChange={(e) => setPasswordInput(e.target.value)}
+                      placeholder="Enter password..."
+                      className="w-full px-3 py-2 text-[10px] bg-crt-dark text-crt-green border-2 border-crt-amber/40 font-pixel"
+                      style={{ letterSpacing: "1px" }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && passwordInput.trim()) connectWithPassword(passwordInput.trim());
+                      }}
+                    />
+                    <button
+                      onClick={() => passwordInput.trim() && connectWithPassword(passwordInput.trim())}
+                      disabled={authLoading || !passwordInput.trim()}
+                      className="pixel-btn pixel-btn-amber w-full text-[10px] py-3"
+                      style={{ letterSpacing: "2px" }}
+                    >
+                      {authLoading ? (
+                        <span className="animate-pulse">DERIVING KEY...</span>
+                      ) : (
+                        "CONNECT  WITH  PASSWORD"
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                <div className="text-[7px] text-crt-green/25">
+                  Password derives a deterministic wallet key via keccak256
+                </div>
+              </div>
+
+              {authError && (
+                <div className="mt-4 border-2 border-crt-red/60 p-3" style={{ background: "rgba(255,51,51,0.05)" }}>
+                  <div className="text-[8px] text-crt-red text-center">{authError}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="text-[7px] text-crt-green/20 mt-4">
+            BISMILLAH ░ CLAUDE JOBS v1.0 ░ POWERED BY RUST + NEXT.JS
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RENDER FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════════
+
+  const renderDirectoryTree = (tree: any[], depth: number = 0): JSX.Element[] => {
+    return tree.map((item, idx) => {
+      const isExpanded = expandedDirs.has(item.path);
+      const isDir = item.type === "directory";
+
+      return (
+        <div key={item.path + idx} style={{ marginLeft: `${depth * 12}px` }}>
+          <div
+            className="flex items-center gap-1.5 py-1 px-2 hover:bg-crt-green/5 cursor-pointer transition-colors text-[8px]"
+            onClick={() => {
+              if (isDir) {
+                const newExpanded = new Set(expandedDirs);
+                if (isExpanded) {
+                  newExpanded.delete(item.path);
+                } else {
+                  newExpanded.add(item.path);
+                }
+                setExpandedDirs(newExpanded);
+              }
+            }}
+          >
+            {isDir ? (
+              <span className="text-crt-amber/70">{isExpanded ? "📂" : "📁"}</span>
+            ) : (
+              <span className="text-crt-blue/50">📄</span>
+            )}
+            <span className="text-crt-green/80 truncate" style={{ fontSize: "7px" }}>
+              {item.name}
+            </span>
+          </div>
+          {isDir && isExpanded && item.children && renderDirectoryTree(item.children, depth + 1)}
+        </div>
+      );
+    });
+  };
+
+  const renderInputTab = () => {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Submit Form */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="mb-4">
+            <label className="text-[7px] text-crt-amber/60 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+              TASK DESCRIPTION
+            </label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe what Claude should do... (Enter to submit, paste images from clipboard)"
+              className="w-full h-40 p-4 text-[10px] resize-none rounded-none"
+              style={{ lineHeight: "1.8" }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submitJob();
+                }
+              }}
+              onPaste={(e) => {
+                const items = e.clipboardData?.files;
+                if (!items || items.length === 0) return;
+                const imageFiles = Array.from(items).filter((f) =>
+                  f.type.startsWith("image/")
+                );
+                if (imageFiles.length === 0) return;
+                e.preventDefault();
+                imageFiles.forEach((file) => {
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const dataUrl = reader.result as string;
+                    const ext = file.type.split("/")[1] || "png";
+                    const name = file.name || `image-${Date.now()}.${ext}`;
+                    setImages((prev) => [...prev, { name, data: dataUrl }]);
+                  };
+                  reader.readAsDataURL(file);
+                });
+              }}
+            />
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {images.map((img, idx) => (
+                  <div
+                    key={idx}
+                    className="relative group border border-crt-green/20"
+                    style={{ width: 64, height: 64 }}
+                  >
+                    <img
+                      src={img.data}
+                      alt={img.name}
+                      className="w-full h-full object-cover"
+                      style={{ imageRendering: "auto" }}
+                    />
+                    <button
+                      onClick={() =>
+                        setImages((prev) =>
+                          prev.filter((_, i) => i !== idx)
+                        )
+                      }
+                      className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[8px] bg-crt-red text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      x
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[5px] text-crt-green/60 px-1 truncate">
+                      {img.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {/* Model Selection */}
+            <div>
+              <label className="text-[7px] text-crt-green/50 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                MODEL
+              </label>
+              <div className="flex items-center gap-1 border border-crt-green/20 px-2">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="px-2 py-2 text-[9px] bg-crt-dark text-crt-green border-none font-pixel w-full"
+                >
+                  <option value="haiku">HAIKU</option>
+                  <option value="sonnet">SONNET</option>
+                  <option value="opus">OPUS</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Work Directory */}
+            <div>
+              <label className="text-[7px] text-crt-green/50 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                WORK DIRECTORY
+              </label>
+              <input
+                type="text"
+                value={workDir}
+                onChange={(e) => setWorkDir(e.target.value)}
+                placeholder="~/mod"
+                className="w-full px-3 py-2 text-[9px] border border-crt-green/20 bg-crt-dark text-crt-green font-mono"
+              />
+            </div>
+
+            {/* Expanded task options merged here */}
+            <div className="p-3 border border-crt-amber/20" style={{ background: "rgba(255,176,0,0.02)" }}>
+              <div className="text-[7px] text-crt-amber/70 mb-2" style={{ letterSpacing: "1px" }}>
+                TASK OPTIONS
+              </div>
+              <div className="flex gap-2 mb-3">
+                {["standard", "new", "fork"].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setCreationMode(mode as any)}
+                    className={`text-[7px] px-2 py-1 border transition-all ${
+                      creationMode === mode
+                        ? "border-crt-amber text-crt-amber bg-crt-amber/10"
+                        : "border-crt-green/20 text-crt-green/50 hover:border-crt-green/40"
+                    }`}
+                    style={{ letterSpacing: "0.5px" }}
+                  >
+                    {mode.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              {creationMode !== "standard" && (
+                <input
+                  type="text"
+                  value={moduleName}
+                  onChange={(e) => setModuleName(e.target.value)}
+                  placeholder="Module name..."
+                  className="w-full px-2 py-1.5 text-[8px] border border-crt-green/20 bg-crt-dark text-crt-green font-mono mb-2"
+                />
+              )}
+            </div>
+
+            {/* Submit Button */}
+            <button
+              onClick={submitJob}
+              disabled={submitting || !prompt.trim()}
+              className="pixel-btn text-[10px] py-3 px-6 w-full"
+              style={{ letterSpacing: "2px" }}
+            >
+              {submitting ? (
+                <span className="animate-pulse">⚡ SUBMITTING TASK...</span>
+              ) : (
+                "⚡ EXECUTE TASK"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTasksTab = () => {
+    const filteredJobs = jobs.filter((j) => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch =
+        !q ||
+        j.prompt.toLowerCase().includes(q) ||
+        j.status.toLowerCase().includes(q) ||
+        j.model.toLowerCase().includes(q) ||
+        j.id.toLowerCase().includes(q) ||
+        (j.work_dir && j.work_dir.toLowerCase().includes(q));
+      const matchesStatus = !statusFilter || j.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Search Bar */}
+        <div className="border-b" style={{ borderColor: "rgba(255,255,255,0.08)", background: "rgba(51,255,51,0.02)" }}>
+          <div className="px-4 py-3">
+            <label
+              className="text-[7px] mb-2 flex items-center gap-2"
+              style={{
+                letterSpacing: "1px",
+                color: "var(--text-tertiary)",
+              }}
+            >
+              <span>🔍 SEARCH TASKS</span>
+            </label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter by prompt, status, model, id..."
+              className="w-full px-3 py-2 text-[8px] border border-crt-green/20 bg-crt-dark text-crt-green"
+            />
+          </div>
+          <div className="px-4 py-2 border-t border-crt-green/10">
+            <div className="flex gap-1.5 flex-wrap">
+              {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
+                const count = jobs.filter(j => j.status === status).length;
+                if (count === 0) return null;
+                const isActive = statusFilter === status;
+                return (
+                  <button
+                    key={status}
+                    onClick={() => setStatusFilter(isActive ? null : status)}
+                    className={`text-[6px] px-2 py-1 border transition-colors ${
+                      isActive ? 'border-crt-green text-crt-green' : 'border-crt-green/20 text-crt-green/50'
+                    }`}
+                    style={{
+                      background: isActive ? `${STATUS_COLOR[status]}15` : 'transparent',
+                      letterSpacing: '0.5px'
+                    }}
+                  >
+                    {STATUS_ICON[status]} {STATUS_LABEL[status]} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Task List */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && !jobs.length ? (
+            <div className="p-8 text-center">
+              <p className="text-[9px] cursor-blink" style={{ color: "var(--text-tertiary)" }}>
+                LOADING JOBS
+              </p>
+            </div>
+          ) : filteredJobs.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-[8px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+                No tasks found
+              </p>
+            </div>
+          ) : (
+            filteredJobs.map((job) => {
+              const isSelected = selectedJob === job.id;
+              const color = STATUS_COLOR[job.status];
+              return (
+                <div
+                  key={job.id}
+                  onClick={() => viewJob(job)}
+                  className="cursor-pointer transition-all duration-150 border-b"
+                  style={{
+                    borderColor: "rgba(51,255,51,0.06)",
+                    borderLeft: isSelected ? `4px solid ${color}` : "4px solid transparent",
+                    background: isSelected ? `${color}10` : "transparent",
+                  }}
+                >
+                  <div className="px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] ${job.status === "running" ? "led-pulse" : ""}`} style={{ color }}>
+                          {STATUS_ICON[job.status]}
+                        </span>
+                        <span className="text-[8px] font-pixel" style={{ color, letterSpacing: "0.5px" }}>
+                          {STATUS_LABEL[job.status]}
+                        </span>
+                      </div>
+                      <span className="text-[6px]" style={{ color: "rgba(51,255,51,0.2)" }}>
+                        {timeSince(job.created_at)}
+                      </span>
+                    </div>
+                    <p className="text-[8px] leading-relaxed mb-1" style={{ color: "var(--text-secondary)" }}>
+                      {job.prompt.length > 70 ? job.prompt.slice(0, 70) + "..." : job.prompt}
+                    </p>
+                    {job.work_dir && (
+                      <p className="text-[6px] truncate" style={{ color: "var(--crt-amber)", opacity: 0.5 }}>
+                        📁 {job.work_dir}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DASHBOARD
+  // ═══════════════════════════════════════════════════════════════════
+
+  return (
+    <div
+      className="h-screen w-screen flex flex-col overflow-hidden"
+      style={{
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+      }}
+    >
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <header
+        className="flex items-center justify-between px-5 py-3 border-b-4"
+        style={{
+          borderColor: "var(--accent-color)",
+          background: "var(--bg-secondary)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2">
+            <span className="text-crt-green text-[14px]" style={{ textShadow: "0 0 10px rgba(51,255,51,0.5)" }}>◈</span>
+            <h1 className="text-[12px] text-crt-green" style={{ textShadow: "0 0 8px rgba(51,255,51,0.3)", letterSpacing: "3px" }}>
+              CLAUDE JOBS
+            </h1>
+          </div>
+
+          {/* Mode Tabs */}
+          <div className="flex items-center gap-1 border border-crt-green/20 px-1 py-1">
+            <button
+              onClick={() => setCreationMode("standard")}
+              className={`text-[7px] px-2 py-1 transition-colors ${
+                creationMode === "standard"
+                  ? "text-crt-green bg-crt-green/10"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "0.5px" }}
+            >
+              STANDARD
+            </button>
+            <button
+              onClick={() => setCreationMode("new")}
+              className={`text-[7px] px-2 py-1 transition-colors ${
+                creationMode === "new"
+                  ? "text-crt-blue bg-crt-blue/10"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "0.5px" }}
+            >
+              NEW
+            </button>
+            <button
+              onClick={() => setCreationMode("fork")}
+              className={`text-[7px] px-2 py-1 transition-colors ${
+                creationMode === "fork"
+                  ? "text-crt-blue bg-crt-blue/10"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "0.5px" }}
+            >
+              FORK
+            </button>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 border border-crt-green/10 px-3 py-1">
+            <span className={`text-[7px] ${runningCount > 0 ? "text-crt-blue led-pulse" : "text-crt-green/30"}`}>
+              ● {runningCount} ACTIVE
+            </span>
+            <span className="text-crt-green/10">│</span>
+            <span className="text-[7px] text-crt-green/40">
+              ✦ {completedCount} DONE
+            </span>
+            <span className="text-crt-green/10">│</span>
+            <span className="text-[7px] text-crt-green/30">
+              Σ {jobs.length} TOTAL
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Token Display - Clickable */}
+          {address !== "local" && tokenStats && (
+            <div className="relative" ref={tokenStatsRef}>
+              <button
+                onClick={() => setShowTokenStats(!showTokenStats)}
+                className="border border-crt-blue/30 px-3 py-1 flex items-center gap-2 hover:border-crt-blue/50 transition-all hover:bg-crt-blue/5"
+                title="View token stats"
+              >
+                <span className="text-[6px] text-crt-blue/50">BALANCE</span>
+                <span className="text-[9px] text-crt-blue" style={{ textShadow: "0 0 6px rgba(0,170,255,0.3)" }}>
+                  {parseFloat(tokenStats.balance).toFixed(4)} {tokenStats.symbol}
+                </span>
+              </button>
+
+              {/* Token Stats Modal */}
+              {showTokenStats && (
+                <div
+                  className="absolute right-0 top-full mt-2 border-2 z-50 min-w-[280px]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "var(--crt-blue)",
+                    boxShadow: "0 0 30px rgba(0,170,255,0.3)",
+                  }}
+                >
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2 border-b border-crt-blue/20 pb-2">
+                      <span className="text-[10px] text-crt-blue" style={{ letterSpacing: "1px" }}>
+                        TOKEN STATS
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[7px] text-crt-green/50">BALANCE:</span>
+                        <span className="text-[9px] text-crt-blue">
+                          {parseFloat(tokenStats.balance).toFixed(6)} {tokenStats.symbol}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-[7px] text-crt-green/50">NETWORK:</span>
+                        <span className="text-[8px] text-crt-amber">{tokenStats.network}</span>
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-[7px] text-crt-green/50">ADDRESS:</span>
+                        <span className="text-[7px] text-crt-green/70 font-mono">
+                          {tokenStats.address.slice(0, 6)}...{tokenStats.address.slice(-4)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className="text-[7px] text-crt-green/50">WALLET TYPE:</span>
+                        <span className="text-[7px] text-crt-green/70 uppercase">
+                          {walletType || "Unknown"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={loadTokenStats}
+                      disabled={loadingTokenStats}
+                      className="pixel-btn text-[7px] py-2 w-full"
+                    >
+                      {loadingTokenStats ? "REFRESHING..." : "REFRESH"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Theme Selector */}
+          <div className="relative" ref={themeRef}>
+            <button
+              onClick={() => setShowThemeMenu(!showThemeMenu)}
+              className="pixel-btn text-[7px] py-1 px-3"
+              style={{
+                background: "var(--accent-color)",
+                color: theme === "light" ? "#fff" : "#000",
+              }}
+              title="Change theme"
+            >
+              🎨 {theme.toUpperCase()}
+            </button>
+            {showThemeMenu && (
+              <div
+                className="absolute right-0 top-full mt-1 border-2 z-50 min-w-[140px]"
+                style={{
+                  background: "var(--bg-primary)",
+                  borderColor: "var(--accent-color)",
+                  boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                }}
+              >
+                {(["dark", "light", "matrix", "cyberpunk", "amber", "ocean", "ibm", "win95"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => {
+                      setTheme(t);
+                      setShowThemeMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-[8px] hover:opacity-100 transition-all border-b"
+                    style={{
+                      color: "var(--text-primary)",
+                      opacity: theme === t ? 1 : 0.6,
+                      background: theme === t ? "rgba(255,255,255,0.05)" : "transparent",
+                      borderColor: "rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    {theme === t && "▸ "}{t.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Owner Status Badge */}
+          {address !== "local" && (
+            <div
+              className={`border px-3 py-1 flex items-center gap-2 ${
+                isOwner
+                  ? "border-crt-green/30 bg-crt-green/5"
+                  : "border-crt-amber/30 bg-crt-amber/5"
+              }`}
+              title={isOwner ? "You are the owner" : "You are not the owner"}
+            >
+              <span className="text-[6px]" style={{ color: isOwner ? "var(--crt-green)" : "var(--crt-amber)", opacity: 0.5 }}>
+                ROLE
+              </span>
+              <span
+                className="text-[9px]"
+                style={{
+                  color: isOwner ? "var(--crt-green)" : "var(--crt-amber)",
+                  textShadow: isOwner ? "0 0 6px rgba(51,255,51,0.3)" : "0 0 6px rgba(255,176,0,0.3)",
+                }}
+              >
+                {isOwner ? "◆ OWNER" : "○ USER"}
+              </span>
+            </div>
+          )}
+
+          {/* Wallet Info - Clickable */}
+          <button
+            onClick={() => setShowWalletModal(true)}
+            className="border border-crt-amber/30 px-3 py-1 flex items-center gap-2 hover:border-crt-amber/50 transition-all hover:bg-crt-amber/5"
+            title="View wallet details"
+          >
+            <span className="text-[6px] text-crt-amber/50">{address === "local" ? "MODE" : "WALLET"}</span>
+            <span className="text-[9px] text-crt-amber" style={{ textShadow: "0 0 6px rgba(255,176,0,0.3)" }}>
+              {address === "local" ? "LOCAL" : `${address?.slice(0, 6)}··${address?.slice(-4)}`}
+            </span>
+          </button>
+
+          {/* Disconnect Button */}
+          <button onClick={disconnect} className="pixel-btn pixel-btn-red text-[7px] py-1 px-3">
+            ✕
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div className="mx-4 mt-2 p-3 border-2 border-crt-red/50" style={{ background: "rgba(255,51,51,0.05)" }}>
+          <div className="text-[8px] text-crt-red flex items-center gap-2">
+            <span>⚠</span> {error}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* ── Left Panel: Tabs (Input/Tasks) ──────────────────────── */}
+        <div
+          className="w-[35%] min-w-[350px] border-r-2 flex flex-col"
+          style={{
+            borderColor: "rgba(255,255,255,0.1)",
+            background: "var(--bg-secondary)",
+          }}
+        >
+          {/* Tab Headers */}
+          <div className="flex border-b-2" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+            <button
+              onClick={() => setLeftTab("input")}
+              className={`flex-1 px-5 py-3 text-[9px] transition-all ${
+                leftTab === "input"
+                  ? "bg-crt-green/10 text-crt-green border-b-2 border-crt-green"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "1.5px" }}
+            >
+              ⚡ INPUT
+            </button>
+            <button
+              onClick={() => setLeftTab("tasks")}
+              className={`flex-1 px-5 py-3 text-[9px] transition-all ${
+                leftTab === "tasks"
+                  ? "bg-crt-blue/10 text-crt-blue border-b-2 border-crt-blue"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "1.5px" }}
+            >
+              📋 TASKS ({jobs.length})
+            </button>
+          </div>
+
+          {/* Tab Content */}
+          {leftTab === "input" ? (
+            renderInputTab()
+          ) : (
+            renderTasksTab()
+          )}
+        </div>
+
+        {/* ── Center Panel: Output (API/Code toggle) ──────────────── */}
+        <div
+          className="flex-1 flex flex-col overflow-hidden"
+          style={{
+            background: "var(--bg-primary)",
+          }}
+        >
+          {/* View Mode Toggle */}
+          <div className="border-b flex" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+            <button
+              onClick={() => setViewMode("api")}
+              className={`flex-1 px-4 py-2 text-[8px] transition-all ${
+                viewMode === "api"
+                  ? "bg-crt-blue/10 text-crt-blue border-b-2 border-crt-blue"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "1px" }}
+            >
+              📡 API OUTPUT
+            </button>
+            <button
+              onClick={() => setViewMode("code")}
+              className={`flex-1 px-4 py-2 text-[8px] transition-all ${
+                viewMode === "code"
+                  ? "bg-crt-amber/10 text-crt-amber border-b-2 border-crt-amber"
+                  : "text-crt-green/50 hover:text-crt-green/70"
+              }`}
+              style={{ letterSpacing: "1px" }}
+            >
+              💻 CODE VIEW
+            </button>
+          </div>
+
+          {selectedJobData ? (
+            <>
+              {/* Output Terminal (moved above task description) */}
+              <div className="flex-1 overflow-hidden relative border-b-2" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+                {/* Terminal decoration */}
+                <div
+                  className="absolute top-0 left-0 right-0 px-5 py-1 flex items-center justify-between border-b z-10"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "rgba(255,255,255,0.08)",
+                    opacity: 0.98,
+                  }}
+                >
+                  <span
+                    className="text-[6px]"
+                    style={{
+                      color: "var(--text-tertiary)",
+                      opacity: 0.5,
+                    }}
+                  >
+                    OUTPUT TERMINAL
+                  </span>
+                  <div className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full" style={{ background: "#ff3333" }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: "#ffb000" }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: "var(--accent-color)" }} />
+                  </div>
+                </div>
+
+                <pre
+                  ref={outputRef}
+                  className="h-full overflow-y-auto pt-8 pb-4 px-6 m-0 whitespace-pre-wrap text-[11px] leading-relaxed font-mono"
+                  style={{
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {(streamOutput || selectedJobData.output)
+                    ? renderOutput(streamOutput || selectedJobData.output)
+                    : (selectedJobData.status === "pending" ? (
+                      <span
+                        style={{
+                          color: "var(--crt-amber)",
+                          opacity: 0.7,
+                        }}
+                      >
+                        {"░░░ QUEUED — WAITING FOR WORKER ░░░\n\n"}
+                        {"The task will begin shortly..."}
+                      </span>
+                    ) : selectedJobData.status === "running" ? (
+                      <span
+                        className="cursor-blink"
+                        style={{
+                          color: "var(--crt-blue)",
+                        }}
+                      >
+                        {"CONNECTING TO LIVE STREAM"}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          color: "var(--text-tertiary)",
+                          opacity: 0.5,
+                        }}
+                      >
+                        {"— NO OUTPUT —"}
+                      </span>
+                    ))}
+                  {selectedJobData.error && (
+                    <span className="text-crt-red block mt-6 pt-3 border-t-2 border-crt-red/20">
+                      {"╔══ ERROR ══════════════════════════\n"}
+                      {"║ " + selectedJobData.error + "\n"}
+                      {"╚══════════════════════════════════"}
+                    </span>
+                  )}
+                </pre>
+              </div>
+
+              {/* Task Description (moved below output) */}
+              <div
+                className="px-5 py-4"
+                style={{
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-[12px] ${selectedJobData.status === "running" ? "led-pulse" : ""}`}
+                      style={{ color: STATUS_COLOR[selectedJobData.status] }}
+                    >
+                      {STATUS_ICON[selectedJobData.status]}
+                    </span>
+                    <span
+                      className="text-[10px] font-pixel"
+                      style={{
+                        color: STATUS_COLOR[selectedJobData.status],
+                        letterSpacing: "1px",
+                        textShadow: `0 0 8px ${STATUS_COLOR[selectedJobData.status]}40`,
+                      }}
+                    >
+                      {STATUS_LABEL[selectedJobData.status]}
+                    </span>
+                    <span className="text-crt-green/10">│</span>
+                    <span className="text-[9px] text-crt-amber/70 border border-crt-amber/20 px-2 py-0.5">
+                      {selectedJobData.model.toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-[8px] text-crt-green/25 font-mono">
+                    {selectedJobData.id.slice(0, 12)}
+                  </span>
+                </div>
+
+                <p
+                  className="text-[10px] leading-relaxed mb-2"
+                  style={{
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {selectedJobData.prompt}
+                </p>
+
+                <div
+                  className="flex items-center gap-4 text-[7px]"
+                  style={{
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  {selectedJobData.work_dir && (
+                    <span>DIR: {selectedJobData.work_dir}</span>
+                  )}
+                  <span>CREATED: {formatDate(selectedJobData.created_at)}</span>
+                  {selectedJobData.pid && <span>PID: {selectedJobData.pid}</span>}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4">
+              <pre
+                className="text-crt-green/10 leading-tight select-none"
+                style={{ fontSize: "7px" }}
+              >
+{`
+     ╔═══════════════════════════════════╗
+     ║                                   ║
+     ║       ┌───────────────────┐       ║
+     ║       │   ◇  ◇  ◇  ◇  ◇ │       ║
+     ║       │                   │       ║
+     ║       │  SELECT A TASK    │       ║
+     ║       │  TO VIEW OUTPUT   │       ║
+     ║       │                   │       ║
+     ║       │   ◇  ◇  ◇  ◇  ◇ │       ║
+     ║       └───────────────────┘       ║
+     ║                                   ║
+     ╚═══════════════════════════════════╝
+`}
+              </pre>
+              <p className="text-[8px] text-crt-green/15" style={{ letterSpacing: "2px" }}>
+                AWAITING SELECTION
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right Sidebar: Directory Tree ─────────────────────────────── */}
+        <div
+          className="w-[25%] min-w-[250px] border-l-2 flex flex-col overflow-hidden"
+          style={{
+            borderColor: "rgba(255,255,255,0.1)",
+            background: "var(--bg-secondary)",
+          }}
+        >
+          <div
+            className="px-4 py-3 border-b-2"
+            style={{
+              borderColor: "rgba(255,255,255,0.1)",
+              background: "rgba(51,255,51,0.02)",
+            }}
+          >
+            <span className="text-[8px] text-crt-green/70" style={{ letterSpacing: "1.5px" }}>
+              📁 DIRECTORY
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3">
+            {directoryTree.length > 0 ? (
+              renderDirectoryTree(directoryTree, 0)
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full">
+                <span className="text-[7px] text-crt-green/30">No directory loaded</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+          {/* Submit Toggle */}
+          <button
+            onClick={() => setShowSubmit(!showSubmit)}
+            className="flex items-center justify-between px-5 py-3 border-b-2 hover:bg-crt-green/5 transition-colors"
+            style={{
+              borderColor: "var(--crt-amber)",
+              background: "rgba(255,176,0,0.02)",
+              boxShadow: "0 2px 8px rgba(255,176,0,0.1)",
+            }}
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] text-crt-amber" style={{ textShadow: "0 0 8px rgba(255,176,0,0.4)" }}>
+                {showSubmit ? "▼" : "▶"}
+              </span>
+              <span className="text-[10px] text-crt-amber" style={{ textShadow: "0 0 6px rgba(255,176,0,0.3)", letterSpacing: "1.5px", fontWeight: "bold" }}>
+                NEW TASK
+              </span>
+            </div>
+            <span className="text-[7px] text-crt-green/40 px-2 py-1 border-2 border-crt-green/20" style={{ letterSpacing: "0.5px" }}>
+              ENTER TO SUBMIT
+            </span>
+          </button>
+
+          {/* Submit Form */}
+          {showSubmit && (
+            <div className="p-5 border-b-4" style={{ borderColor: "var(--crt-green)", background: "rgba(255,176,0,0.02)", boxShadow: "inset 0 4px 8px rgba(0,0,0,0.2)" }}>
+              <div className="mb-3">
+                <label className="text-[7px] text-crt-amber/60 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                  TASK DESCRIPTION
+                </label>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what Claude should do... (Enter to submit, paste images from clipboard)"
+                  className="w-full h-32 p-4 text-[10px] resize-none rounded-none"
+                  style={{ lineHeight: "1.8" }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      submitJob();
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.files;
+                    if (!items || items.length === 0) return;
+                    const imageFiles = Array.from(items).filter((f) =>
+                      f.type.startsWith("image/")
+                    );
+                    if (imageFiles.length === 0) return;
+                    e.preventDefault();
+                    imageFiles.forEach((file) => {
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const dataUrl = reader.result as string;
+                        const ext = file.type.split("/")[1] || "png";
+                        const name = file.name || `image-${Date.now()}.${ext}`;
+                        setImages((prev) => [...prev, { name, data: dataUrl }]);
+                      };
+                      reader.readAsDataURL(file);
+                    });
+                  }}
+                />
+                {images.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {images.map((img, idx) => (
+                      <div
+                        key={idx}
+                        className="relative group border border-crt-green/20"
+                        style={{ width: 64, height: 64 }}
+                      >
+                        <img
+                          src={img.data}
+                          alt={img.name}
+                          className="w-full h-full object-cover"
+                          style={{ imageRendering: "auto" }}
+                        />
+                        <button
+                          onClick={() =>
+                            setImages((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[8px] bg-crt-red text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          x
+                        </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[5px] text-crt-green/60 px-1 truncate">
+                          {img.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                {/* Model Selection */}
+                <div>
+                  <label className="text-[7px] text-crt-green/50 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                    MODEL
+                  </label>
+                  <div className="flex items-center gap-1 border border-crt-green/20 px-2">
+                    <select
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="px-2 py-2 text-[9px] bg-crt-dark text-crt-green border-none font-pixel w-full"
+                    >
+                      <option value="haiku">HAIKU</option>
+                      <option value="sonnet">SONNET</option>
+                      <option value="opus">OPUS</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Mode Status Display */}
+                <div className="p-3 border border-crt-green/20" style={{ background: "rgba(51,255,51,0.02)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[7px] text-crt-green/50" style={{ letterSpacing: "1px" }}>
+                      MODE: <span className="text-crt-amber">{creationMode.toUpperCase()}</span>
+                    </span>
+                    {!isOwner && (
+                      <span className="text-[6px] text-crt-amber/70 border border-crt-amber/30 px-2 py-0.5">
+                        ⚠ NON-OWNER → _outer ONLY
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Standard Mode - Work Directory or Module Selection */}
+                {creationMode === "standard" && (
+                  <div className="space-y-3">
+                    {/* Option 1: Select Module */}
+                    <div className="p-3 border-2 border-crt-green/40" style={{ background: "rgba(51,255,51,0.03)", boxShadow: "0 0 15px rgba(51,255,51,0.1)" }}>
+                      <div>
+                        <label className="text-[7px] text-crt-green/80 mb-2 block flex items-center gap-2" style={{ letterSpacing: "1px", textShadow: "0 0 4px rgba(51,255,51,0.3)" }}>
+                          <span className="text-[10px]">◈</span>
+                          SELECT MODULE (OPTIONAL)
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={selectedModule}
+                            onChange={(e) => {
+                              setSelectedModule(e.target.value);
+                              if (e.target.value) setWorkDir("");
+                            }}
+                            className="w-full px-3 py-3 text-[9px] bg-crt-dark text-crt-green border-2 border-crt-green/30 font-pixel hover:border-crt-green/50 transition-all"
+                            style={{
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.3), inset 0 1px 3px rgba(0,0,0,0.2)",
+                              backgroundImage: `linear-gradient(to bottom, rgba(51,255,51,0.02) 0%, rgba(51,255,51,0) 100%)`
+                            }}
+                          >
+                            <option value="" style={{ background: "var(--bg-primary)" }}>⌘ Select a module...</option>
+                            {modules
+                              .filter((mod) => {
+                                // Non-owners can only edit modules in _outer
+                                if (!isOwner) {
+                                  return mod.includes("_outer/") || mod.startsWith("_outer.");
+                                }
+                                return true;
+                              })
+                              .sort((a, b) => {
+                                // Sort _outer modules first for non-owners
+                                if (!isOwner) {
+                                  const aIsOuter = a.includes("_outer/") || a.startsWith("_outer.");
+                                  const bIsOuter = b.includes("_outer/") || b.startsWith("_outer.");
+                                  if (aIsOuter && !bIsOuter) return -1;
+                                  if (!aIsOuter && bIsOuter) return 1;
+                                }
+                                return a.localeCompare(b);
+                              })
+                              .map((mod) => {
+                                const isOuter = mod.includes("_outer/") || mod.startsWith("_outer.");
+                                const icon = isOuter ? "◇" : "◆";
+                                return (
+                                  <option key={mod} value={mod} style={{ background: "var(--bg-primary)", padding: "8px" }}>
+                                    {icon} {mod} {!isOwner && !isOuter ? " [RESTRICTED]" : ""}
+                                  </option>
+                                );
+                              })}
+                          </select>
+                          {selectedModule && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                              <span className="text-crt-green text-[10px]">✓</span>
+                            </div>
+                          )}
+                        </div>
+                        {!isOwner && (
+                          <div className="text-[6px] text-crt-amber/70 mt-2 flex items-center gap-1 p-2 border border-crt-amber/20" style={{ background: "rgba(255,176,0,0.05)" }}>
+                            <span>⚠</span>
+                            <span>Non-owners can only edit modules in mod/orbit/_outer/</span>
+                          </div>
+                        )}
+                      </div>
+                      {selectedModule && (
+                        <div className="text-[7px] text-crt-green/80 p-2 mt-2 border border-crt-green/20 flex items-center gap-2" style={{ background: "rgba(51,255,51,0.03)" }}>
+                          <span className="text-[9px]">📁</span>
+                          <span className="font-bold text-[9px]">{selectedModule}</span>
+                          <span className="text-crt-green/40 text-[7px] font-mono">→ {anchorDir}/mod/orbit/{selectedModule}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* OR Divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 border-t border-crt-green/20"></div>
+                      <span className="text-[7px] text-crt-green/40" style={{ letterSpacing: "2px" }}>OR</span>
+                      <div className="flex-1 border-t border-crt-green/20"></div>
+                    </div>
+
+                    {/* Option 2: Custom Work Directory */}
+                    <div className="relative" ref={repoRef}>
+                      <label className="text-[7px] text-crt-green/50 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                        CUSTOM WORKING DIRECTORY
+                      </label>
+                      <input
+                        type="text"
+                        value={workDir}
+                        onChange={(e) => {
+                          setWorkDir(e.target.value);
+                          searchRepos(e.target.value);
+                          setShowRepos(true);
+                          if (e.target.value) setSelectedModule("");
+                        }}
+                        onFocus={() => setShowRepos(true)}
+                        placeholder="~/project"
+                        className="w-full px-3 py-2 text-[9px]"
+                      />
+                      {showRepos && repos.length > 0 && (
+                        <div
+                          className="absolute left-0 right-0 bottom-full mb-1 max-h-48 overflow-y-auto border-2 border-crt-green/30 z-50"
+                          style={{ background: "#0a0a0a" }}
+                        >
+                          {repos.map((repo) => (
+                            <button
+                              key={repo.path}
+                              onClick={() => {
+                                setWorkDir(repo.path);
+                                setShowRepos(false);
+                                setSelectedModule("");
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-crt-green/10 transition-colors border-b border-crt-green/5 flex items-center gap-2"
+                            >
+                              <span className="text-[8px] text-crt-amber">▸</span>
+                              <span className="text-[9px] text-crt-green/70">{repo.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Module Creation Modes */}
+                {(creationMode === "new" || creationMode === "fork") && (
+                  <div className="space-y-3 p-3 border border-crt-amber/30" style={{ background: "rgba(255,176,0,0.02)" }}>
+                    <div>
+                      <label className="text-[7px] text-crt-amber/60 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                        ANCHOR DIRECTORY
+                      </label>
+                      <input
+                        type="text"
+                        value={anchorDir}
+                        onChange={(e) => setAnchorDir(e.target.value)}
+                        placeholder="~/mod"
+                        className="w-full px-3 py-2 text-[9px]"
+                      />
+                      <div className="text-[6px] text-crt-green/30 mt-1">
+                        Module will be created in: {anchorDir}/mod/orbit/{!isOwner ? "_outer/" : ""}[module-name]
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[7px] text-crt-amber/60 mb-1.5 block" style={{ letterSpacing: "1px" }}>
+                        MODULE NAME
+                      </label>
+                      <input
+                        type="text"
+                        value={moduleName}
+                        onChange={(e) => setModuleName(e.target.value)}
+                        placeholder="my-new-module"
+                        className="w-full px-3 py-2 text-[9px]"
+                      />
+                      {!isOwner && (
+                        <div className="text-[6px] text-crt-amber/70 mt-1 flex items-center gap-1">
+                          <span>⚠</span>
+                          <span>Will be created in _outer folder (non-owner restriction)</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {creationMode === "fork" && (
+                      <div>
+                        <label className="text-[7px] text-crt-amber/80 mb-2 block flex items-center gap-2" style={{ letterSpacing: "1px", textShadow: "0 0 4px rgba(255,176,0,0.3)" }}>
+                          <span className="text-[10px]">⑂</span>
+                          FORK FROM MODULE
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={forkSource}
+                            onChange={(e) => setForkSource(e.target.value)}
+                            className="w-full px-3 py-3 text-[9px] bg-crt-dark text-crt-green border-2 border-crt-green/30 font-pixel hover:border-crt-green/50 transition-all"
+                            style={{
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.3), inset 0 1px 3px rgba(0,0,0,0.2)",
+                              backgroundImage: `linear-gradient(to bottom, rgba(51,255,51,0.02) 0%, rgba(51,255,51,0) 100%)`
+                            }}
+                          >
+                            <option value="" style={{ background: "var(--bg-primary)" }}>⌘ Select a module to fork...</option>
+                            {modules.sort((a, b) => a.localeCompare(b)).map((mod) => {
+                              const isOuter = mod.includes("_outer/") || mod.startsWith("_outer.");
+                              const icon = isOuter ? "◇" : "◆";
+                              return (
+                                <option key={mod} value={mod} style={{ background: "var(--bg-primary)", padding: "8px" }}>
+                                  {icon} {mod}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          {forkSource && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                              <span className="text-crt-green text-[10px]">✓</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-[6px] text-crt-green/50 mt-2 p-2 border border-crt-green/20" style={{ background: "rgba(51,255,51,0.03)" }}>
+                          <span className="text-crt-green/70">ℹ</span> Will copy entire module directory structure
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Execute Button */}
+              <button
+                onClick={submitJob}
+                disabled={submitting || !prompt.trim()}
+                className="pixel-btn text-[10px] py-3 px-6 w-full mt-4"
+                style={{ letterSpacing: "2px" }}
+              >
+                {submitting ? (
+                  <span className="animate-pulse">⚡ SUBMITTING TASK...</span>
+                ) : (
+                  "⚡ EXECUTE TASK"
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Search & Job List Header */}
+          <div className="border-b-4" style={{ borderColor: "var(--crt-blue)", background: "rgba(51,255,51,0.02)", boxShadow: "0 4px 8px rgba(0,170,255,0.15)" }}>
+            <div className="px-5 py-3">
+              <label
+                className="text-[7px] mb-2 flex items-center gap-2"
+                style={{
+                  letterSpacing: "1px",
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                <span>🔍 SEARCH TASKS</span>
+                {searchQuery.trim() && (
+                  <span
+                    className="animate-pulse"
+                    style={{
+                      color: "var(--crt-amber)",
+                    }}
+                  >
+                    ● FILTERING
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter by prompt, status, model, id, directory..."
+                className="w-full px-3 py-2 text-[9px]"
+              />
+            </div>
+            <div className="px-5 py-2.5 border-t border-crt-green/10">
+              <div className="flex items-center justify-between mb-2">
+                <span
+                  className="text-[8px]"
+                  style={{
+                    letterSpacing: "2px",
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  {searchQuery.trim() || statusFilter ? `FILTERED (${filteredJobs.length}/${jobs.length})` : `ALL TASKS (${jobs.length})`}
+                </span>
+                {(searchQuery.trim() || statusFilter) && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setStatusFilter(null);
+                    }}
+                    className="text-[7px] text-crt-amber/60 hover:text-crt-amber transition-colors px-2 py-1 border border-crt-amber/20 hover:border-crt-amber/40"
+                  >
+                    CLEAR ALL ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
+                  const count = jobs.filter(j => j.status === status).length;
+                  if (count === 0) return null;
+                  const isActive = statusFilter === status;
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => setStatusFilter(isActive ? null : status)}
+                      className={`text-[7px] px-2 py-1 border transition-colors ${
+                        isActive ? 'border-crt-green text-crt-green' : 'border-crt-green/20 text-crt-green/50 hover:border-crt-green/40 hover:text-crt-green/70'
+                      }`}
+                      style={{
+                        background: isActive ? `${STATUS_COLOR[status]}15` : 'transparent',
+                        letterSpacing: '0.5px'
+                      }}
+                    >
+                      {STATUS_ICON[status]} {STATUS_LABEL[status]} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Job List */}
+          <div className="flex-1 overflow-y-auto">
+            {loading && !jobs.length ? (
+              <div className="p-8 text-center">
+                <p
+                  className="text-[9px] cursor-blink"
+                  style={{
+                    color: "var(--text-tertiary)",
+                  }}
+                >
+                  LOADING JOBS
+                </p>
+              </div>
+            ) : jobs.length === 0 ? (
+              <div className="p-8 text-center space-y-3">
+                <pre
+                  className="text-[6px] leading-tight inline-block"
+                  style={{
+                    color: "var(--text-tertiary)",
+                    opacity: 0.3,
+                  }}
+                >
+{`  ┌──────────────┐
+  │              │
+  │   NO TASKS   │
+  │    YET ◇     │
+  │              │
+  └──────────────┘`}
+                </pre>
+                <p
+                  className="text-[8px]"
+                  style={{
+                    color: "var(--text-tertiary)",
+                    opacity: 0.5,
+                  }}
+                >
+                  Create your first task above
+                </p>
+              </div>
+            ) : filteredJobs.length === 0 ? (
+              <div className="p-8 text-center space-y-3">
+                <pre
+                  className="text-[6px] leading-tight inline-block"
+                  style={{
+                    color: "var(--crt-amber)",
+                    opacity: 0.4,
+                  }}
+                >
+{`  ┌──────────────┐
+  │              │
+  │  NO RESULTS  │
+  │    FOUND     │
+  │      ✕       │
+  └──────────────┘`}
+                </pre>
+                <p
+                  className="text-[8px]"
+                  style={{
+                    color: "var(--text-tertiary)",
+                    opacity: 0.5,
+                  }}
+                >
+                  No tasks match "{searchQuery}"
+                </p>
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="text-[8px] transition-colors"
+                  style={{
+                    color: "var(--crt-amber)",
+                    opacity: 0.8,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                  }}
+                >
+                  CLEAR SEARCH
+                </button>
+              </div>
+            ) : (
+              filteredJobs.map((job) => {
+                const isSelected = selectedJob === job.id;
+                const color = STATUS_COLOR[job.status];
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => viewJob(job)}
+                    className="cursor-pointer transition-all duration-150 group"
+                    style={{
+                      borderBottom: "1px solid rgba(51,255,51,0.06)",
+                      borderLeft: isSelected ? `4px solid ${color}` : "4px solid transparent",
+                      background: isSelected ? `${color}10` : "transparent",
+                      boxShadow: isSelected ? `0 0 15px ${color}15` : "none",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "rgba(51,255,51,0.04)";
+                        e.currentTarget.style.borderLeft = `4px solid ${color}40`;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.borderLeft = "4px solid transparent";
+                      }
+                    }}
+                  >
+                    <div className="px-4 py-3.5">
+                      {/* Status Row */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[11px] ${job.status === "running" ? "led-pulse" : ""}`}
+                            style={{ color }}
+                          >
+                            {STATUS_ICON[job.status]}
+                          </span>
+                          <span className="text-[9px] font-pixel" style={{ color, letterSpacing: "1px" }}>
+                            {STATUS_LABEL[job.status]}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="text-[7px] border px-1.5 py-0.5"
+                            style={{
+                              color: theme !== "light" ? "rgba(51,255,51,0.25)" : "rgba(26,26,26,0.4)",
+                              borderColor: theme !== "light" ? "rgba(51,255,51,0.1)" : "rgba(26,26,26,0.15)",
+                            }}
+                          >
+                            {job.model.toUpperCase()}
+                          </span>
+                          <span
+                            className="text-[7px]"
+                            style={{
+                              color: theme !== "light" ? "rgba(51,255,51,0.2)" : "rgba(26,26,26,0.35)",
+                            }}
+                          >
+                            {timeSince(job.created_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Prompt */}
+                      <p
+                        className="text-[9px] leading-relaxed mb-1"
+                        style={{
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        {job.prompt.length > 90 ? job.prompt.slice(0, 90) + "..." : job.prompt}
+                      </p>
+
+                      {/* Work Dir */}
+                      {job.work_dir && (
+                        <p
+                          className="text-[7px] mb-1.5 truncate"
+                          style={{
+                            color: "var(--crt-amber)",
+                            opacity: 0.6,
+                          }}
+                        >
+                          📁 {job.work_dir}
+                        </p>
+                      )}
+
+                      {/* Asks Section - Collapsible */}
+                      {job.asks && job.asks.length > 0 && (
+                        <div className="mt-2 mb-2">
+                          <button
+                            onClick={(e) => toggleAsks(job.id, e)}
+                            className="flex items-center gap-2 text-[7px] text-crt-blue/70 hover:text-crt-blue transition-colors"
+                          >
+                            <span className="transition-transform duration-200" style={{
+                              display: "inline-block",
+                              transform: expandedAsks.has(job.id) ? "rotate(90deg)" : "rotate(0deg)"
+                            }}>▶</span>
+                            <span>{job.asks.length} {job.asks.length === 1 ? "Ask" : "Asks"}</span>
+                          </button>
+                          {expandedAsks.has(job.id) && (
+                            <div className="mt-2 space-y-1.5 pl-4 border-l-2 border-crt-blue/30">
+                              {job.asks.map((ask, idx) => (
+                                <div
+                                  key={idx}
+                                  className="text-[7px] p-2 border border-crt-blue/20"
+                                  style={{
+                                    background: "rgba(0,170,255,0.05)",
+                                  }}
+                                >
+                                  <div className="text-crt-blue/80 mb-1">Q: {ask.question}</div>
+                                  {ask.answer && (
+                                    <div className="text-crt-green/60 pl-2">A: {ask.answer}</div>
+                                  )}
+                                  {ask.timestamp && (
+                                    <div className="text-crt-green/20 text-[6px] mt-1">
+                                      {timeSince(ask.timestamp)}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex justify-between items-center mt-2">
+                        <span
+                          className="text-[6px] font-mono"
+                          style={{
+                            color: "var(--text-tertiary)",
+                            opacity: 0.4,
+                          }}
+                        >
+                          {job.id.slice(0, 8)}
+                        </span>
+                        <div className="flex gap-2">
+                          {job.status === "running" && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); cancelJob(job.id); }}
+                              className="text-[7px] text-crt-red hover:text-crt-red/80 font-pixel px-2 py-0.5 border border-crt-red/30 hover:border-crt-red/60 transition-colors"
+                            >
+                              KILL
+                            </button>
+                          )}
+                          {["completed", "failed", "cancelled"].includes(job.status) && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteJob(job.id); }}
+                              className="text-[7px] text-crt-green/30 hover:text-crt-red font-pixel px-2 py-0.5 border border-crt-green/10 hover:border-crt-red/40 transition-colors"
+                            >
+                              DELETE
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Status Bar ───────────────────────────────────────────── */}
+      <footer
+        className="flex items-center justify-between px-5 py-1.5 border-t-4"
+        style={{
+          background: "var(--bg-secondary)",
+          borderColor: "var(--accent-color)",
+          boxShadow: "0 -4px 12px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <span
+            className="text-[7px]"
+            style={{
+              color: "var(--text-tertiary)",
+              letterSpacing: "1px",
+              opacity: 0.5,
+            }}
+          >
+            CLAUDE JOBS v1.0
+          </span>
+          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
+            ░
+          </span>
+          <span
+            className="text-[7px]"
+            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+          >
+            BISMILLAH
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className="text-[7px]"
+            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+          >
+            BACKEND: localhost:8820
+          </span>
+          <span style={{ color: "var(--text-tertiary)", opacity: 0.2 }}>
+            │
+          </span>
+          <span
+            className="text-[7px]"
+            style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+          >
+            {new Date().toLocaleTimeString()}
+          </span>
+        </div>
+      </footer>
+
+      {/* Wallet Modal */}
+      {showWalletModal && address && address !== "local" && walletType && (
+        <WalletModal
+          address={address}
+          walletType={walletType}
+          onClose={() => setShowWalletModal(false)}
+          onDisconnect={() => {
+            setShowWalletModal(false);
+            disconnect();
+          }}
+        />
+      )}
+    </div>
+  );
+}

@@ -231,7 +231,7 @@ export function FileTreeItem({
 
 
 export default function ModContent({ mod }: { mod: ModuleType }) {
-  const files = typeof mod.content === 'object' && mod.content !== null ? mod.content : {};
+  const files: Record<string, string> = typeof mod.content === 'object' && mod.content !== null ? mod.content as Record<string, string> : {};
   const { client } = userContext();
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
@@ -246,28 +246,20 @@ export default function ModContent({ mod }: { mod: ModuleType }) {
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
 
 
-  const handleFileSelect = async (node: FileNode) => {
+  const handleFileSelect = (node: FileNode) => {
     if (node.type !== 'file') return;
     setSelectedFile(node.path);
-    if (node.cid && client && !fileContents[node.path]) {
-      try {
-        const res = await client.call('get', { cid: node.cid });
-        const text = typeof res === 'string' ? res : JSON.stringify(res, null, 2);
-        setFileContents(prev => ({ ...prev, [node.path]: text }));
-      } catch (err) {
-        console.error('Failed to fetch content for', node.path, err);
-      }
-    }
     const el = codeRefs.current[node.path];
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  // Build file tree when files change
   useEffect(() => {
     const tree = buildFileTree(files);
     setFileTree(tree);
     setExpandedFolders(new Set());
 
-    // Find the first file node to auto-select
+    // Auto-select first file
     const findFirstFile = (nodes: FileNode[]): FileNode | null => {
       for (const n of nodes) {
         if (n.type === 'file') return n;
@@ -282,9 +274,26 @@ export default function ModContent({ mod }: { mod: ModuleType }) {
     const firstFile = findFirstFile(tree);
     if (firstFile) {
       setSelectedFile(firstFile.path);
-      handleFileSelect(firstFile);
     }
-  }, [files, client]);
+  }, [files]);
+
+  // Fetch content for selected file when it changes
+  useEffect(() => {
+    if (!selectedFile || !client || fileContents[selectedFile]) return;
+    const cid = files[selectedFile];
+    if (!cid) return;
+    let cancelled = false;
+    client.call('get', { cid }).then((res: any) => {
+      if (cancelled) return;
+      const text = typeof res === 'string' ? res : JSON.stringify(res, null, 2);
+      setFileContents(prev => ({ ...prev, [selectedFile]: text }));
+    }).catch((err: any) => {
+      if (cancelled) return;
+      console.error('Failed to fetch content for', selectedFile, err);
+      setFileContents(prev => ({ ...prev, [selectedFile]: `// Error loading file: ${err?.message || 'unknown'}` }));
+    });
+    return () => { cancelled = true; };
+  }, [selectedFile, client, files]);
 
   useEffect(() => {
     if (!searchTerm) return;

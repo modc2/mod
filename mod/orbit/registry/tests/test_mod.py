@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from registry.mod import Mod, parse_data_uri, make_data_uri
+from mod import Mod, parse_data_uri, make_data_uri
 
 
 # --- Mock storage client ---

@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  basebuilder:
+    build: .
+    container_name: basebuilder
+    ports:
+      - "${GATEWAY_PORT:-50201}:${GATEWAY_PORT:-50201}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50201}
+    volumes:
+      - basebuilder-data:/app/data
+
+volumes:
+  basebuilder-data:

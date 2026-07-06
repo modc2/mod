@@ -683,7 +683,7 @@ function ModRow({
       <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
 
       {/* Name (link to module) */}
-      <Link href={`/${mod.name}`} className="flex-1 min-w-0 truncate">
+      <Link href={`/mod/${mod.name}`} className="flex-1 min-w-0 truncate">
         <span className="font-bold uppercase tracking-wider hover:underline" style={{ color }}>
           {mod.name}
         </span>

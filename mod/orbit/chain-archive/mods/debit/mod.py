@@ -1,11 +1,11 @@
 """Debit contract module - EIP-712 signature-based debit system."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Debit contract module.
 
     EIP-712 signature-based debit with multisig authority approvals.

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #0b0d10; color: #e6e8eb; }
+
+::selection { background: #6ee7ff33; }
+
+/* Subtle scanline / vignette */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(110, 231, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110, 231, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.sev-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid currentColor;
+}
+
+.spinner {
+  border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: #6ee7ff;
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

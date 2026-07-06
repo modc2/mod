@@ -63,9 +63,14 @@ module.exports = {
     },
   },
   paths: {
-    sources: './contracts',
-    tests: './test',
+    sources: './src/contracts',
+    tests: './src/contracts',
     cache: './cache',
     artifacts: './artifacts',
+  },
+  etherscan: {
+    // Etherscan's unified v2 API key works across all supported chains
+    // (Ethereum + Base, mainnet and testnet alike) — no per-chain keys needed.
+    apiKey: process.env.ETHERSCAN_API_KEY || '',
   },
 };

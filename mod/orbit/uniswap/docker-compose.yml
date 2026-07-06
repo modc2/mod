@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  uniswap:
+    build: .
+    container_name: uniswap
+    ports:
+      - "${GATEWAY_PORT:-3088}:${GATEWAY_PORT:-3088}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3088}
+    volumes:
+      - uniswap-data:/app/data
+
+volumes:
+  uniswap-data:

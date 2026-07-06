@@ -1,9 +1,0 @@
-# GraphQL Requirements
-# Add your GraphQL dependencies here
-
-graphene>=3.0
-graphql-core>=3.2.0
-graphql-relay>=3.2.0
-gql>=3.0.0
-requests_toolbelt
-requests>=2.28.0

@@ -1,0 +1,28 @@
+{
+    "name": "cursor",
+    "version": "0.1.0",
+    "description": "Cursor (cursor-agent CLI) \u2014 multi-provider agent backend",
+    "port": 8835,
+    "app_port": 8836,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "icon": "\u25b6",
+    "color": "#7c3aed",
+    "image": "https://cdn.simpleicons.org/cursor/ffffff",
+    "provider": "cursor",
+    "binary": "cursor-agent",
+    "default_model": "claude-3.5-sonnet",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "submit",
+        "jobs",
+        "register",
+        "cli_path"
+    ],
+    "urls": {
+        "api": "http://localhost:8835",
+        "app": "http://localhost:8836"
+    },
+    "schema": "Qmf8C7nZZqTRpf1j8SUkgUeLckkhDme7D9hguTLDNzXfmZ"
+}

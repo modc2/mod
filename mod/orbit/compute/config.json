@@ -1,0 +1,6 @@
+{
+    "name": "compute",
+    "description": "Compute \u2014 rent and manage compute instances with on-chain billing. Hosts list compute offerings with hourly rates in Market tokens. Clients rent by depositing tokens; the host bills per-hour via chain",
+    "version": "0.1.0",
+    "schema": "QmTnjFm1HAvKNWPuNsRuGpxrimgAR7uDKrqnPSiAKvjtRQ"
+}

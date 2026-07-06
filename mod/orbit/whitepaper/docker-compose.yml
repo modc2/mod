@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  whitepaper:
+    build: .
+    container_name: whitepaper
+    ports:
+      - "${GATEWAY_PORT:-3106}:${GATEWAY_PORT:-3106}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-3106}
+    volumes:
+      - whitepaper-data:/app/data
+
+volumes:
+  whitepaper-data:

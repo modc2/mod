@@ -1,0 +1,26 @@
+networks:
+  default:
+    external: true
+    name: modnet
+services:
+  caddy:
+    container_name: caddy
+    image: caddy:latest
+    ports:
+    - 80:80
+    - 443:443
+    - 3000:3000
+    - 2099:2099
+    environment:
+    - PM2_HOST=host.docker.internal
+    extra_hosts:
+    - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+    - ~/mod/mod/core/server/caddy/Caddyfile:/etc/caddy/Caddyfile
+    - caddy_data:/data
+    - caddy_config:/config
+    working_dir: /srv
+volumes:
+  caddy_data:
+  caddy_config:

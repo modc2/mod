@@ -72,7 +72,7 @@ class Mod:
             name: Mod name (e.g. 'market', 'token', 'oracle')
 
         Returns:
-            ContractModule subclass instance
+            m.mod('chain.contracts')ule subclass instance
         """
         if name not in self._mods:
             from importlib import import_module

@@ -1,0 +1,39 @@
+# x86_64 Linux deploy image for the claude module.
+#
+# Mirrors Dockerfile but takes the Rust API binary PREBUILT. The canonical
+# Dockerfile's in-image `cargo build` can't see the agent_base path-dep at
+# ../../../dev/src/agent_base_rs — it lives outside this build context. So we
+# build the binary first with the full repo mounted, then this image bakes it.
+# Built FROM the current mod:latest, so the binary's glibc (2.39+) and
+# libssl.so.3 match the runtime exactly (the May-12 image was glibc 2.36 and
+# could not run a freshly-built binary — that mismatch is what this fixes).
+#
+#   1) docker run --rm -v /root/mod:/repo -w /repo/mod/orbit/claude/src/api \
+#        -e OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu -e OPENSSL_INCLUDE_DIR=/usr/include \
+#        --entrypoint bash mod:latest -lc \
+#        'CARGO_TARGET_DIR=$PWD/target-docker cargo build --release --offline'
+#   2) docker build -f Dockerfile.linux -t claude:latest .
+#
+# The app (src/app) and entrypoint are bind-mounted at runtime, so they are
+# intentionally NOT baked here — only the API binary must ship in the image.
+FROM mod:latest
+
+# node user (uid 1000) — the entrypoint drops privileges to it before spawning
+# the claude CLI, which refuses --dangerously-skip-permissions as root.
+RUN useradd -u 1000 -m -s /bin/bash node \
+    && mkdir -p /home/node/.claude /home/node/.mod/claude \
+    && chown -R node:node /home/node
+
+# Claude Code CLI — the Rust API spawns it to run jobs.
+RUN npm install -g @anthropic-ai/claude-code && which claude
+
+WORKDIR /app
+RUN mkdir -p /app/bin
+COPY src/api/target-docker/release/claude-jobs /app/bin/claude-jobs
+RUN chmod +x /app/bin/claude-jobs
+
+# Fallback entrypoint baked in; the runtime bind-mounts the live one over it.
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

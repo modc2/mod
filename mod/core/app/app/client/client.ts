@@ -14,9 +14,9 @@ export class Client {
   constructor(url?: string, token?: string) {
     const customUrl = typeof window !== 'undefined' ? localStorage.getItem('custom_node_url') : null;
     const baseUrl = url || customUrl || process.env.NEXT_PUBLIC_API_URL || modConfig.url.api || 'http://localhost:8000';
-    // Use Next.js proxy to avoid CORS issues in browsers (especially Safari)
-    if (typeof window !== 'undefined' && !url && !customUrl && baseUrl.includes('localhost')) {
-      this.url = '/api/proxy';
+    // Use /api path — middleware proxies to Flask backend (avoids CORS)
+    if (typeof window !== 'undefined' && !url && !customUrl) {
+      this.url = '/api';
     } else {
       this.url = baseUrl;
     }

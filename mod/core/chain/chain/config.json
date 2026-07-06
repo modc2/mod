@@ -1,1 +1,0 @@
-{"deployments": {"testnet": {"chainId": "84532", "deployer": "0x6478255B80b561B4d8D96c02Ce86ffCeBbB9D09E", "url": "https://sepolia.base.org", "contracts": {"Bridge": {"address": "0x0472a18bcB061B0bd047Db60f5717C8215dC7EeD", "contract": "BridgeableToken"}}}}}

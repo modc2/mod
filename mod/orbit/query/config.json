@@ -1,0 +1,7 @@
+{
+    "name": "query",
+    "description": "Query free AI models from OpenRouter or Venice",
+    "version": "1.0.0",
+    "type": "module",
+    "schema": "QmbLKrCQHsQpUwxeRPGkbanAS3pUbm2TLzsouiSyCd8K3V"
+}

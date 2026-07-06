@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { userContext } from '@/context'
 import { ModuleType } from '@/types'
-import { text2color, shorten } from '@/utils'
+import { text2color, shorten, getModApiUrl, getModAppUrl } from '@/utils'
 
 interface ModServerProps {
   mod?: ModuleType
@@ -74,6 +74,11 @@ interface ReplicaGroup {
 
 type Mode = 'logs' | 'interact' | 'compute' | 'meter' | 'replicas'
 
+interface ModuleServerStatus {
+  api: { running: boolean; url: string | null; port: number | null; healthy: boolean }
+  app: { running: boolean; url: string | null; port: number | null; healthy: boolean }
+}
+
 const FONT = "var(--font-digital), monospace"
 
 export default function ModServer({ mod, moduleColor }: ModServerProps) {
@@ -125,6 +130,131 @@ export default function ModServer({ mod, moduleColor }: ModServerProps) {
   const [deployMod, setDeployMod] = useState('')
   const [deployCount, setDeployCount] = useState('3')
   const [deployLoading, setDeployLoading] = useState(false)
+
+  // Module server management state
+  const [modServerStatus, setModServerStatus] = useState<ModuleServerStatus>({
+    api: { running: false, url: null, port: null, healthy: false },
+    app: { running: false, url: null, port: null, healthy: false },
+  })
+  const [modServerLoading, setModServerLoading] = useState<string | null>(null)
+  const [modServerLogs, setModServerLogs] = useState<{ api: string | null; app: string | null }>({ api: null, app: null })
+  const [showModLogs, setShowModLogs] = useState<'api' | 'app' | null>(null)
+  const [serveApiPort, setServeApiPort] = useState('')
+  const [serveAppPort, setServeAppPort] = useState('')
+
+  // Check module server health
+  const checkModuleHealth = useCallback(async () => {
+    if (!mod) return
+    const apiUrl = getModApiUrl(mod)
+    const appUrl = getModAppUrl(mod)
+
+    const apiPort = apiUrl ? parseInt(new URL(apiUrl).port || '0') : null
+    const appPort = appUrl ? parseInt(new URL(appUrl).port || '0') : null
+
+    let apiHealthy = false
+    let appHealthy = false
+
+    if (apiUrl) {
+      try {
+        const resp = await fetch(apiUrl + '/health', { signal: AbortSignal.timeout(3000) })
+        apiHealthy = resp.ok
+      } catch { }
+    }
+    if (appUrl) {
+      try {
+        const resp = await fetch(appUrl, { signal: AbortSignal.timeout(3000) })
+        appHealthy = resp.ok
+      } catch { }
+    }
+
+    setModServerStatus({
+      api: { running: apiHealthy, url: apiUrl || null, port: apiPort, healthy: apiHealthy },
+      app: { running: appHealthy, url: appUrl || null, port: appPort, healthy: appHealthy },
+    })
+  }, [mod])
+
+  // Fetch module server logs
+  const fetchModServerLogs = useCallback(async (type: 'api' | 'app') => {
+    if (!client || !mod) return
+    try {
+      const result = await client.call('app_logs', { name: mod.name, lines: 200 })
+      if (result && !result.error) {
+        if (type === 'api') {
+          setModServerLogs(prev => ({ ...prev, api: typeof result === 'string' ? result : (result.stdout || result.api || JSON.stringify(result, null, 2)) }))
+        } else {
+          setModServerLogs(prev => ({ ...prev, app: typeof result === 'string' ? result : (result.app || result.stdout || JSON.stringify(result, null, 2)) }))
+        }
+      }
+    } catch { }
+  }, [client, mod])
+
+  // Serve module (API + App)
+  const handleModServe = useCallback(async (type: 'both' | 'api' | 'app') => {
+    if (!client || !mod) return
+    setModServerLoading(`serve:${type}`)
+    setMessage(null)
+    try {
+      const params: any = { name: mod.name }
+      if (serveApiPort) params.api_port = parseInt(serveApiPort)
+      if (serveAppPort) params.port = parseInt(serveAppPort)
+      const result = await client.call('serve_app', params)
+      if (result?.error) {
+        setMessage({ text: result.error, type: 'error' })
+      } else {
+        setMessage({ text: `${mod.name} started`, type: 'success' })
+        // Optimistically show "STARTING" while servers boot
+        const apiUrl = getModApiUrl(mod)
+        const appUrl = getModAppUrl(mod)
+        if (apiUrl || appUrl) {
+          setModServerStatus(prev => ({
+            api: apiUrl ? { ...prev.api, running: true, url: apiUrl, healthy: false } : prev.api,
+            app: appUrl ? { ...prev.app, running: true, url: appUrl, healthy: false } : prev.app,
+          }))
+        }
+        setTimeout(checkModuleHealth, 2000)
+      }
+    } catch (e: any) {
+      setMessage({ text: e?.message || 'Failed to start', type: 'error' })
+    } finally {
+      setModServerLoading(null)
+    }
+  }, [client, mod, serveApiPort, serveAppPort, checkModuleHealth])
+
+  // Kill module server
+  const handleModKill = useCallback(async (type: 'both' | 'api' | 'app') => {
+    if (!client || !mod) return
+    setModServerLoading(`kill:${type}`)
+    setMessage(null)
+    try {
+      const result = await client.call('kill_app', { name: mod.name })
+      if (result?.error) {
+        setMessage({ text: result.error, type: 'error' })
+      } else {
+        setMessage({ text: `${mod.name} stopped`, type: 'success' })
+        setTimeout(checkModuleHealth, 1000)
+      }
+    } catch (e: any) {
+      setMessage({ text: e?.message || 'Failed to stop', type: 'error' })
+    } finally {
+      setModServerLoading(null)
+    }
+  }, [client, mod, checkModuleHealth])
+
+  // Poll module health
+  useEffect(() => {
+    if (!mod) return
+    checkModuleHealth()
+    const interval = setInterval(checkModuleHealth, 5000)
+    return () => clearInterval(interval)
+  }, [checkModuleHealth])
+
+  // Poll logs when viewing
+  useEffect(() => {
+    if (!showModLogs) return
+    fetchModServerLogs(showModLogs)
+    const interval = setInterval(() => fetchModServerLogs(showModLogs), 4000)
+    return () => clearInterval(interval)
+  }, [showModLogs, fetchModServerLogs])
 
   // Fetch server list
   const fetchServers = useCallback(async () => {
@@ -523,6 +653,175 @@ export default function ModServer({ mod, moduleColor }: ModServerProps) {
   return (
     <div style={{ fontFamily: FONT }} className="flex flex-col" >
 
+      {/* Module Server Management */}
+      {mod && (
+        <div className="mb-4 border-2 p-4" style={{ borderColor: 'var(--border-strong)', background: 'var(--bg-secondary)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
+              {mod.name} Servers
+            </span>
+            <div className="flex items-center gap-2">
+              {(modServerStatus.api.running || modServerStatus.app.running) ? (
+                <>
+                  <Btn label="RESTART" color="#f59e0b" loading={modServerLoading === 'serve:both'} onClick={async () => { await handleModKill('both'); setTimeout(() => handleModServe('both'), 1500) }} />
+                  <Btn label="STOP ALL" color="#ef4444" loading={modServerLoading === 'kill:both'} onClick={() => handleModKill('both')} />
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-tertiary)' }}>API</span>
+                    <input
+                      type="number"
+                      placeholder="auto"
+                      value={serveApiPort}
+                      onChange={e => setServeApiPort(e.target.value)}
+                      className="px-2 py-0.5 text-[10px] w-20 border focus:outline-none"
+                      style={{ background: 'var(--bg-primary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontFamily: FONT }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] uppercase" style={{ color: 'var(--text-tertiary)' }}>APP</span>
+                    <input
+                      type="number"
+                      placeholder="auto"
+                      value={serveAppPort}
+                      onChange={e => setServeAppPort(e.target.value)}
+                      className="px-2 py-0.5 text-[10px] w-20 border focus:outline-none"
+                      style={{ background: 'var(--bg-primary)', borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontFamily: FONT }}
+                    />
+                  </div>
+                  <Btn label="SERVE" color="#10b981" loading={modServerLoading === 'serve:both'} onClick={() => handleModServe('both')} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* API + App status cards */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* API Server */}
+            <div
+              className="border-2 p-3"
+              style={{ borderColor: modServerStatus.api.running ? '#10b981' : 'var(--border-color)', background: 'var(--bg-primary)' }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{
+                    background: modServerStatus.api.healthy ? '#10b981' : modServerStatus.api.running ? '#f59e0b' : '#6b7280',
+                    boxShadow: modServerStatus.api.healthy ? '0 0 8px #10b981' : modServerStatus.api.running ? '0 0 6px #f59e0b' : 'none',
+                  }}
+                />
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>API Server</span>
+                <span className="text-[10px] font-bold uppercase ml-auto" style={{ color: modServerStatus.api.healthy ? '#10b981' : modServerStatus.api.running ? '#f59e0b' : '#6b7280' }}>
+                  {modServerStatus.api.healthy ? 'HEALTHY' : modServerStatus.api.running ? 'STARTING' : 'OFFLINE'}
+                </span>
+              </div>
+              {modServerStatus.api.url && (
+                <div className="text-[10px] mb-2" style={{ color: 'var(--text-tertiary)' }}>
+                  {modServerStatus.api.url}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                {modServerStatus.api.running ? (
+                  <Btn label="STOP" color="#ef4444" loading={modServerLoading === 'kill:api'} onClick={() => handleModKill('api')} />
+                ) : (
+                  <Btn label="START" color="#10b981" loading={modServerLoading === 'serve:api'} onClick={() => handleModServe('api')} />
+                )}
+                <Btn
+                  label={showModLogs === 'api' ? 'HIDE LOGS' : 'LOGS'}
+                  color="var(--text-secondary)"
+                  loading={false}
+                  onClick={() => setShowModLogs(showModLogs === 'api' ? null : 'api')}
+                />
+                {modServerStatus.api.url && (
+                  <Btn label="OPEN" color="var(--text-tertiary)" loading={false} onClick={() => window.open(modServerStatus.api.url!, '_blank')} />
+                )}
+              </div>
+            </div>
+
+            {/* App Server */}
+            <div
+              className="border-2 p-3"
+              style={{ borderColor: modServerStatus.app.running ? '#10b981' : 'var(--border-color)', background: 'var(--bg-primary)' }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{
+                    background: modServerStatus.app.healthy ? '#10b981' : modServerStatus.app.running ? '#f59e0b' : '#6b7280',
+                    boxShadow: modServerStatus.app.healthy ? '0 0 8px #10b981' : modServerStatus.app.running ? '0 0 6px #f59e0b' : 'none',
+                  }}
+                />
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>App Server</span>
+                <span className="text-[10px] font-bold uppercase ml-auto" style={{ color: modServerStatus.app.healthy ? '#10b981' : modServerStatus.app.running ? '#f59e0b' : '#6b7280' }}>
+                  {modServerStatus.app.healthy ? 'HEALTHY' : modServerStatus.app.running ? 'STARTING' : 'OFFLINE'}
+                </span>
+              </div>
+              {modServerStatus.app.url && (
+                <div className="text-[10px] mb-2" style={{ color: 'var(--text-tertiary)' }}>
+                  {modServerStatus.app.url}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                {modServerStatus.app.running ? (
+                  <Btn label="STOP" color="#ef4444" loading={modServerLoading === 'kill:app'} onClick={() => handleModKill('app')} />
+                ) : (
+                  <Btn label="START" color="#10b981" loading={modServerLoading === 'serve:app'} onClick={() => handleModServe('app')} />
+                )}
+                <Btn
+                  label={showModLogs === 'app' ? 'HIDE LOGS' : 'LOGS'}
+                  color="var(--text-secondary)"
+                  loading={false}
+                  onClick={() => setShowModLogs(showModLogs === 'app' ? null : 'app')}
+                />
+                {modServerStatus.app.url && (
+                  <Btn label="OPEN" color="var(--text-tertiary)" loading={false} onClick={() => window.open(modServerStatus.app.url!, '_blank')} />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Inline logs viewer */}
+          {showModLogs && (
+            <div className="mt-3 border-2" style={{ borderColor: 'var(--border-strong)', background: '#0a0a0a' }}>
+              <div className="flex items-center justify-between px-3 py-1.5 border-b" style={{ borderColor: 'var(--border-color)' }}>
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: showModLogs === 'api' ? '#3b82f6' : '#a78bfa' }}>
+                  {showModLogs} logs
+                </span>
+                <div className="flex items-center gap-1">
+                  <Btn label="REFRESH" color="var(--text-tertiary)" loading={false} onClick={() => fetchModServerLogs(showModLogs)} />
+                  <Btn label="CLOSE" color="var(--text-tertiary)" loading={false} onClick={() => setShowModLogs(null)} />
+                </div>
+              </div>
+              <pre
+                className="px-3 py-2 text-xs overflow-auto"
+                style={{
+                  color: '#d4d4d4',
+                  fontFamily: 'var(--font-code, monospace)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  lineHeight: '1.5',
+                  maxHeight: '300px',
+                }}
+              >
+                {modServerLogs[showModLogs] || '(no logs)'}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Message */}
+      {message && (
+        <div
+          className="mb-3 px-3 py-1 text-xs font-bold uppercase cursor-pointer"
+          style={{ color: message.type === 'error' ? '#ef4444' : '#10b981' }}
+          onClick={() => setMessage(null)}
+        >
+          {message.text}
+        </div>
+      )}
+
       {/* Mode switcher */}
       <div className="flex items-center gap-1 mb-3">
         {(['logs', 'interact', 'compute'] as Mode[]).map(m => (
@@ -539,20 +838,9 @@ export default function ModServer({ mod, moduleColor }: ModServerProps) {
             {m}
           </button>
         ))}
-
-        {/* Message */}
-        {message && (
-          <div
-            className="ml-auto px-3 py-1 text-xs font-bold uppercase"
-            style={{ color: message.type === 'error' ? '#ef4444' : '#10b981' }}
-            onClick={() => setMessage(null)}
-          >
-            {message.text}
-          </div>
-        )}
       </div>
 
-      <div className="flex gap-3" style={{ minHeight: 'calc(100vh - 140px)' }}>
+      <div className="flex gap-3" style={{ minHeight: 'calc(100vh - 300px)' }}>
 
         {/* Left sidebar: Server list */}
         {mode !== 'compute' && (

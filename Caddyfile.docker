@@ -1,0 +1,14 @@
+{
+    admin off
+}
+
+:3000 {
+    @api path /api /api/*
+    handle @api {
+        uri strip_prefix /api
+        reverse_proxy localhost:8000
+    }
+    handle {
+        reverse_proxy localhost:3001
+    }
+}

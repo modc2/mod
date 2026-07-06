@@ -1,17 +1,57 @@
 import { ModuleType } from '@/types'
 
+/** Check if the browser is accessing remotely (not localhost). */
+function isRemote(): boolean {
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname
+  return h !== 'localhost' && h !== '127.0.0.1'
+}
+
+/** Check if a URL points to localhost. */
+function isLocalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
+}
+
+/** Rewrite localhost URLs for remote access.
+ *  Uses path-based routing: /mod/{name} for API, /{mod} for app.
+ *  Falls back to /proxy/api for the main API. */
+function resolveUrl(url: string | undefined, modName?: string, kind?: 'app' | 'api'): string | undefined {
+  if (!url) return url
+  if (typeof window === 'undefined') return url
+  if (isLocalUrl(url) && !isRemote()) {
+    // Local access: module apps use basePath=/{modName}, so append it
+    if (modName && kind === 'app') {
+      return `${url.replace(/\/+$/, '')}/${modName}`
+    }
+    return url
+  }
+  if (!isLocalUrl(url)) return url
+  // Remote access: rewrite localhost URLs to path-based routing
+  if (modName && kind === 'api') {
+    return `${window.location.origin}/mod/${modName}`
+  }
+  if (modName && kind === 'app') {
+    return `${window.location.origin}/${modName}`
+  }
+  // Fallback: main API
+  return `${window.location.origin}/proxy/api`
+}
+
 /** Extract the app URL from mod.url_app or mod.url.app */
 export function getModAppUrl(mod: ModuleType): string | undefined {
-  if (mod.url_app) return mod.url_app
-  if (mod.url && typeof mod.url === 'object' && mod.url.app) return mod.url.app
-  return undefined
+  const raw = mod.url_app || (mod.url && typeof mod.url === 'object' ? mod.url.app : undefined)
+  return resolveUrl(raw, mod.name, 'app')
 }
 
 /** Extract the api URL from mod.url (string) or mod.url.api */
 export function getModApiUrl(mod: ModuleType): string | undefined {
-  if (typeof mod.url === 'string') return mod.url
-  if (mod.url && typeof mod.url === 'object' && mod.url.api) return mod.url.api
-  return undefined
+  const raw = typeof mod.url === 'string' ? mod.url : (mod.url && typeof mod.url === 'object' ? mod.url.api : undefined)
+  return resolveUrl(raw, mod.name, 'api')
 }
 
 export const time2str = (timestamp: number): string => {

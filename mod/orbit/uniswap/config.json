@@ -1,127 +1,28 @@
 {
   "name": "uniswap",
-  "version": "1.0.0",
-  "description": "Uniswap V3 multi-chain connector — pools, swaps, tokens, history via The Graph",
   "port": 50088,
+  "app_port": 3088,
+  "description": "Uniswap V3 multi-chain trader scraper",
   "urls": {
     "api": "http://localhost:50088",
     "app": "http://localhost:3088"
   },
   "fns": [
-    "get_pools",
-    "get_pool",
-    "get_swaps",
-    "get_swaps_by_pool",
-    "get_tokens",
-    "get_pool_day_data",
-    "explore",
-    "chains",
     "serve",
     "kill",
-    "clear_cache",
-    "save_data",
-    "load_data",
-    "delete_data",
-    "list_saved",
-    "health",
-    "test"
+    "traders",
+    "trader",
+    "scrape",
+    "chains",
+    "health"
   ],
-  "schema": {
-    "get_pools": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "limit", "type": "int", "value": 20},
-        {"name": "orderBy", "type": "str", "value": "totalValueLockedUSD"},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get top pools by TVL for a chain. Pass update=true to bypass cache."
-    },
-    "get_pool": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "pool_id", "type": "str", "value": ""},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Get details for a specific pool"
-    },
-    "get_swaps": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "days", "type": "int", "value": 30},
-        {"name": "limit", "type": "int", "value": 1000},
-        {"name": "source", "type": "str", "value": "auto"},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get recent swaps. source: auto|hypersync|graph|rpc"
-    },
-    "get_swaps_by_pool": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "pool_id", "type": "str", "value": ""},
-        {"name": "days", "type": "int", "value": 30},
-        {"name": "limit", "type": "int", "value": 1000},
-        {"name": "source", "type": "str", "value": "auto"},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get swaps for a specific pool"
-    },
-    "get_tokens": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "limit", "type": "int", "value": 20},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get top tokens by TVL"
-    },
-    "get_pool_day_data": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "pool_id", "type": "str", "value": ""},
-        {"name": "days", "type": "int", "value": 30},
-        {"name": "update", "type": "bool", "value": false}
-      ],
-      "output": {"type": "list"},
-      "docs": "Get daily OHLCV data for a pool"
-    },
-    "explore": {
-      "input": [
-        {"name": "chain", "type": "str", "value": "ethereum"},
-        {"name": "blocks", "type": "int", "value": 5000},
-        {"name": "batch_size", "type": "int", "value": 2000},
-        {"name": "min_liquidity", "type": "int", "value": 0},
-        {"name": "min_volume_usd", "type": "float", "value": 0},
-        {"name": "max_pools", "type": "int", "value": 200}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Scan recent blocks newest-first, discover all pools + token prices. Set min_liquidity and min_volume_usd to filter. max_pools caps how many pools to resolve (sorted by swap activity). Returns tokens with USD prices, pools, and progress stats. Fully open-source — free public RPCs only."
-    },
-    "clear_cache": {
-      "input": [
-        {"name": "method", "type": "str", "value": null}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Clear disk cache. Optional method filter (pools, swaps, tokens, etc.)"
-    },
-    "save_data": {
-      "input": [
-        {"name": "data", "type": "any", "value": null},
-        {"name": "name", "type": "str", "value": ""},
-        {"name": "chain", "type": "str", "value": "ethereum"}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Save data to local JSON file"
-    },
-    "list_saved": {
-      "input": [
-        {"name": "chain", "type": "str", "value": null}
-      ],
-      "output": {"type": "list"},
-      "docs": "List saved data files"
-    }
-  }
+  "chains": [
+    "ethereum",
+    "arbitrum",
+    "base",
+    "polygon",
+    "optimism"
+  ],
+  "schema": "QmTXCw9sC1zbh4LPmzGEy1ZwGCdU54vfkFNL9a7wFkcqzp",
+  "gateway_port": 3088
 }

@@ -1,0 +1,18 @@
+{
+    "name": "freetune",
+    "description": "CPU LoRA finetuning of Qwen over a directory of code \u2014 Next.js app + Rust API, with a model picker and a CPU/RAM + per-task efficiency dashboard.",
+    "version": "0.1.0",
+    "port": 50210,
+    "app_port": 50211,
+    "caddy_admin_port": 2110,
+    "route": true,
+    "tags": [
+        "ml",
+        "finetune",
+        "qwen",
+        "lora",
+        "cpu",
+        "code"
+    ],
+    "schema": "Qme2dgc3tMLp7tkZzDoxYeAWHFoJPaCMuH5P4kdCfw9TAi"
+}

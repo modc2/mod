@@ -1,10 +1,10 @@
 """Perms contract module - permission system with parent key control."""
 
-from mod.core.chain.chain.mods.base import ContractModule
+from mod.core.chain.chain.mods.base import m.mod('chain.contracts')ule
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Perms contract module.
 
     Permission system with parent key control and configurable limits.

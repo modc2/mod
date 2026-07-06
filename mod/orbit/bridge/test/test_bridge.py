@@ -91,9 +91,14 @@ def bridge(tmp_path):
     instance.lfs = mock_lfs
     instance._abi_cid = ''
 
+    instance.used_sigs_path = instance.store_dir / 'used_signatures.json'
+
     # Load snapshot (uses instance._load_snapshot which is a normal method)
     raw = instance._load_snapshot('total_balances.json')
     instance._total_balances = {addr: float(val) / 1e9 for addr, val in raw.items()}
+
+    # Set admin key for tests
+    os.environ['BRIDGE_ADMIN_KEY'] = 'test_admin_key'
 
     return instance
 
@@ -103,6 +108,19 @@ ADDR2 = '5Eneu6qKT7dcrUntNoEQ3qQfHQBjiovrx1wE8J3uU1TMwkX4'
 ADDR3 = '5F9Ap1DX2sikreph5Ly2PrGUiCMBM7LFdpJt5x3vrc4jBu64'
 ADDR_NONE = '5AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 EVM_ADDR = '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18'
+ADMIN_KEY = 'test_admin_key'
+
+
+def _add_commitment(bridge, source_address, evm_address='0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18', source_type='substrate'):
+    """Helper to insert a commitment directly (bypassing signature verification)."""
+    commitments = bridge._load_commitments()
+    commitments[source_address] = {
+        'source_address': source_address,
+        'evm_address': evm_address,
+        'source_type': source_type,
+        'timestamp': time.time(),
+    }
+    bridge._save_commitments(commitments)
 
 
 # ── Health & Status ─────────────────────────────────────────────
@@ -155,72 +173,89 @@ class TestSnapshot:
 # ── Claims ──────────────────────────────────────────────────────
 
 class TestClaims:
+    def _claim(self, bridge, address, evm=EVM_ADDR, source_type='substrate'):
+        """Helper: add commitment + claim with mocked signature verification."""
+        _add_commitment(bridge, address, evm, source_type)
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        ts = int(time.time())
+        return bridge.claim(address=address, signature='deadbeef', timestamp=ts)
+
     def test_claim_success(self, bridge):
-        result = bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        result = self._claim(bridge, ADDR2)
         assert result['success'] is True
         assert result['recipient'] == EVM_ADDR
         assert result['from'] == ADDR2
         assert result['amount'] > 0
-        assert 'tx_hash' in result
-
-    def test_claim_no_recipient(self, bridge):
-        result = bridge.claim(auth_token='tok', recipient='', address=ADDR2)
-        assert 'error' in result
 
     def test_claim_no_address(self, bridge):
-        result = bridge.claim(auth_token='tok', recipient=EVM_ADDR, address='')
+        result = bridge.claim(address='', signature='sig', timestamp=int(time.time()))
         assert 'error' in result
 
+    def test_claim_no_signature(self, bridge):
+        _add_commitment(bridge, ADDR2)
+        result = bridge.claim(address=ADDR2, signature=None, timestamp=int(time.time()))
+        assert 'error' in result
+        assert 'Signature required' in result['error']
+
+    def test_claim_no_commitment(self, bridge):
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        result = bridge.claim(address=ADDR2, signature='sig', timestamp=int(time.time()))
+        assert 'error' in result
+        assert 'No verified commitment' in result['error']
+
     def test_claim_not_in_snapshot(self, bridge):
-        result = bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR_NONE)
+        _add_commitment(bridge, ADDR_NONE)
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        result = bridge.claim(address=ADDR_NONE, signature='sig', timestamp=int(time.time()))
         assert 'error' in result
         assert 'No allocation' in result['error']
 
     def test_claim_duplicate(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
-        result = bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        result = bridge.claim(address=ADDR2, signature='deadbeef2', timestamp=int(time.time()))
         assert 'error' in result
         assert 'Already claimed' in result['error']
 
     def test_has_claimed(self, bridge):
         assert bridge.has_claimed(ADDR2)['claimed'] is False
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
         assert bridge.has_claimed(ADDR2)['claimed'] is True
 
     def test_unclaimed(self, bridge):
         total = bridge.in_snapshot(ADDR2)['balance']
         assert bridge.unclaimed(ADDR2) == total
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
         assert bridge.unclaimed(ADDR2) == 0
 
     def test_claims_array(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
         arr = bridge.claims_array()
         assert len(arr) == 1
         assert arr[0]['address'] == ADDR2
 
     def test_get_claims(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
         claims = bridge.get_claims()
         assert ADDR2 in claims
 
     def test_delete_claim(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
-        result = bridge.delete_claim(ADDR2, caller=ADDR1)
+        self._claim(bridge, ADDR2)
+        result = bridge.delete_claim(ADDR2, auth_token=ADMIN_KEY)
         assert result['success'] is True
         assert bridge.has_claimed(ADDR2)['claimed'] is False
 
-    def test_delete_claim_not_owner(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
-        result = bridge.delete_claim(ADDR2, caller='someone_else')
+    def test_delete_claim_bad_token(self, bridge):
+        self._claim(bridge, ADDR2)
+        result = bridge.delete_claim(ADDR2, auth_token='wrong_key')
         assert 'error' in result
 
     def test_delete_claim_not_found(self, bridge):
-        result = bridge.delete_claim(ADDR_NONE)
+        result = bridge.delete_claim(ADDR_NONE, auth_token=ADMIN_KEY)
         assert 'error' in result
 
     def test_status_after_claim(self, bridge):
-        bridge.claim(auth_token='tok', recipient=EVM_ADDR, address=ADDR2)
+        self._claim(bridge, ADDR2)
         status = bridge.status()
         assert status['claim_count'] == 1
         assert status['total_claimed'] > 0
@@ -270,6 +305,29 @@ class TestCommitments:
         result = bridge.update_commitment('', EVM_ADDR, 'sig', 'substrate')
         assert 'error' in result
 
+    def test_update_commitment_after_claim(self, bridge):
+        """Cannot update commitment after claiming."""
+        _add_commitment(bridge, ADDR2)
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        bridge.claim(address=ADDR2, signature='sig', timestamp=int(time.time()))
+        result = bridge.update_commitment(ADDR2, '0x1111111111111111111111111111111111111111', 'sig', 'substrate')
+        assert 'error' in result
+        assert 'after claim' in result['error']
+
+    def test_update_commitment_same_address(self, bridge):
+        """Cannot update to same EVM address."""
+        _add_commitment(bridge, ADDR2, EVM_ADDR)
+        result = bridge.update_commitment(ADDR2, EVM_ADDR, 'sig', 'substrate')
+        assert 'error' in result
+        assert 'same' in result['error']
+
+    def test_update_commitment_type_mismatch(self, bridge):
+        """source_type must match original."""
+        _add_commitment(bridge, ADDR2, EVM_ADDR, 'substrate')
+        result = bridge.update_commitment(ADDR2, '0x1111111111111111111111111111111111111111', 'sig', 'solana')
+        assert 'error' in result
+        assert 'source_type' in result['error']
+
 
 # ── Contract Info ───────────────────────────────────────────────
 
@@ -288,31 +346,28 @@ class TestContractInfo:
         assert info['abi_stored'] is True
 
 
-# ── Forward ─────────────────────────────────────────────────────
+# ── Reset ──────────────────────────────────────────────────────
 
-class TestForward:
-    def test_forward_no_action(self, bridge):
-        result = bridge.forward()
-        assert 'module' in result
-        assert 'actions' in result
-        assert result['module'] == 'bridge'
+class TestReset:
+    def test_reset_clears_data(self, bridge):
+        # Add some data
+        _add_commitment(bridge, ADDR2)
+        bridge._verify_claim_signature = MagicMock(return_value=True)
+        bridge.claim(address=ADDR2, signature='sig', timestamp=int(time.time()))
 
-    def test_forward_unknown_action(self, bridge):
-        result = bridge.forward(action='nonexistent')
-        assert 'module' in result
+        assert len(bridge.get_claims()) == 1
+        assert len(bridge.get_commitments()) == 1
 
-    def test_forward_health(self, bridge):
-        result = bridge.forward(action='health')
-        assert result['status'] == 'ok'
+        result = bridge.reset(auth_token=ADMIN_KEY)
+        assert result['success'] is True
 
-    def test_forward_status(self, bridge):
-        result = bridge.forward(action='status')
-        assert 'total_addresses' in result
+        assert bridge.get_claims() == {}
+        assert bridge.get_commitments() == {}
 
-    def test_forward_in_snapshot(self, bridge):
-        result = bridge.forward(action='in_snapshot', address=ADDR1)
-        assert result['in_snapshot'] is True
+    def test_reset_requires_auth(self, bridge):
+        result = bridge.reset(auth_token='wrong')
+        assert 'error' in result
 
-    def test_forward_claims(self, bridge):
-        result = bridge.forward(action='claims')
-        assert isinstance(result, dict)
+    def test_reset_no_token(self, bridge):
+        result = bridge.reset()
+        assert 'error' in result

@@ -51,10 +51,10 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
             <span style={{ fontSize: '28px', opacity: 0.4 }}>&#x2B21;</span>
           </div>
           <div>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+            <p style={{ fontSize: '16px', color: 'var(--text-secondary)', fontWeight: 500 }}>
               No task selected
             </p>
-            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
               Select a task from the sidebar or submit a new one
             </p>
           </div>
@@ -80,7 +80,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
             <span
               className="px-2.5 py-1 flex items-center gap-1.5"
               style={{
-                fontSize: '11px',
+                fontSize: '13px',
                 fontWeight: 600,
                 background: `${color}15`,
                 border: `1px solid ${color}40`,
@@ -94,7 +94,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
               {job.status}
             </span>
             <span style={{
-              fontSize: '11px',
+              fontSize: '13px',
               fontWeight: 500,
               color: 'var(--text-tertiary)',
               padding: '2px 8px',
@@ -104,11 +104,11 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
               {job.model.toUpperCase()}
             </span>
             {job.work_dir && (
-              <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
                 {job.work_dir.replace(/.*\/orbit\//, '').replace(/.*\/mod\//, '')}
               </span>
             )}
-            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginLeft: 'auto', opacity: 0.6 }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginLeft: 'auto', opacity: 0.6 }}>
               {job.id.slice(0, 8)}
             </span>
           </div>
@@ -116,7 +116,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
           {/* Prompt */}
           <div
             style={{
-              fontSize: '13px',
+              fontSize: '14px',
               color: 'var(--text-primary)',
               lineHeight: '1.6',
               fontFamily: '"JetBrains Mono", "Fira Code", monospace',
@@ -134,7 +134,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
             onClick={() => onCancel(job.id)}
             className="px-4 py-2 shrink-0 transition-all flex items-center gap-2"
             style={{
-              fontSize: '12px',
+              fontSize: '14px',
               fontWeight: 600,
               background: 'rgba(239, 68, 68, 0.1)',
               border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -160,7 +160,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
           <pre
             className="m-0 whitespace-pre-wrap"
             style={{
-              fontSize: '13px',
+              fontSize: '14px',
               fontFamily: '"JetBrains Mono", "Fira Code", monospace',
               color: 'var(--text-primary)',
               lineHeight: '1.7',
@@ -182,7 +182,7 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
                   <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: color, animationDelay: '0.4s' }} />
                 </div>
               )}
-              <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+              <p style={{ fontSize: '14px', color: 'var(--text-tertiary)' }}>
                 {job.status === 'pending' ? 'Waiting to start...' :
                  job.status === 'running' ? 'Connecting to stream...' :
                  'No output'}
@@ -200,10 +200,10 @@ export default function AgentChat({ job, streamOutput, onCancel }: AgentChatProp
               borderRadius: '10px',
             }}
           >
-            <span style={{ fontSize: '11px', fontWeight: 600, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Error</span>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Error</span>
             <pre
               className="m-0 mt-2 whitespace-pre-wrap"
-              style={{ fontSize: '12px', fontFamily: 'monospace', color: '#ef4444', lineHeight: '1.6' }}
+              style={{ fontSize: '14px', fontFamily: 'monospace', color: '#ef4444', lineHeight: '1.6' }}
             >
               {job.error}
             </pre>

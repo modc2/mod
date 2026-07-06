@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>model gateway</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --panel: #111;
+      --border: #2a2a2a;
+      --fg: #e6e6e6;
+      --muted: #8a8a8a;
+      --green: #4ade80;
+      --red: #f87171;
+      --amber: #fbbf24;
+      --user: #1e293b;
+      --asst: #0b1a12;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh;
+    }
+    header {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+    }
+    header .title { font-weight: 700; letter-spacing: 0.1em; margin-right: 8px; }
+    header .lozenge { color: var(--muted); font-size: 11px; }
+    select, input, textarea, button {
+      background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+      font: inherit; padding: 5px 8px;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--fg); }
+    button.primary { background: var(--green); color: #000; border-color: var(--green); font-weight: 700; }
+    button.primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+    .row { display: flex; gap: 6px; align-items: center; }
+    .row > label { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; }
+    .key-state { font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); }
+    .key-state.ok { color: var(--green); border-color: var(--green); }
+    .key-state.no { color: var(--amber); border-color: var(--amber); }
+
+    main {
+      overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 10px; max-width: 980px; width: 100%;
+      margin: 0 auto;
+    }
+    .msg { padding: 10px 12px; border: 1px solid var(--border); white-space: pre-wrap; word-wrap: break-word; }
+    .msg .who { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 6px; }
+    .msg.user { background: var(--user); }
+    .msg.assistant { background: var(--asst); }
+    .msg.error { border-color: var(--red); color: var(--red); }
+
+    footer {
+      display: flex; gap: 6px; padding: 10px; background: var(--panel);
+      border-top: 1px solid var(--border);
+    }
+    footer textarea {
+      flex: 1; min-height: 60px; resize: vertical; font: inherit;
+    }
+    .empty { color: var(--muted); padding: 32px; text-align: center; }
+    .info { color: var(--muted); font-size: 11px; }
+    .pill { padding: 2px 6px; border: 1px solid var(--border); border-radius: 0; font-size: 11px; }
+    dialog {
+      background: var(--panel); color: var(--fg); border: 1px solid var(--border); padding: 16px;
+      min-width: 360px;
+    }
+    dialog::backdrop { background: rgba(0,0,0,0.6); }
+    .form { display: grid; gap: 8px; }
+    .form label { color: var(--muted); font-size: 11px; }
+    .form input { width: 100%; }
+    .key-hint { color: var(--muted); font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="title">MODEL GATEWAY</span>
+    <span class="lozenge">BYOK — keys stay in your browser</span>
+
+    <div class="row">
+      <label>PROVIDER</label>
+      <select id="provider"></select>
+    </div>
+
+    <div class="row">
+      <label>MODEL</label>
+      <select id="model" style="min-width: 220px;"></select>
+      <button id="reload-models" title="Reload model list">↻</button>
+    </div>
+
+    <div class="row">
+      <label>KEY</label>
+      <span id="key-state" class="key-state no">NO KEY</span>
+      <button id="set-key">SET</button>
+      <button id="clear-key">CLEAR</button>
+    </div>
+
+    <div class="row" style="margin-left: auto;">
+      <button id="clear-chat">NEW CHAT</button>
+    </div>
+  </header>
+
+  <main id="chat"></main>
+
+  <footer>
+    <textarea id="input" placeholder="Type a message — Cmd/Ctrl+Enter to send"></textarea>
+    <button id="send" class="primary">SEND</button>
+  </footer>
+
+  <dialog id="key-dialog">
+    <form id="key-form" class="form" method="dialog">
+      <strong id="key-dialog-title">Set API key</strong>
+      <span class="key-hint" id="key-dialog-hint"></span>
+      <label>API key (stored only in this browser's localStorage)</label>
+      <input id="key-input" type="password" autocomplete="off" />
+      <div class="row" style="justify-content: flex-end;">
+        <button type="button" id="key-cancel">CANCEL</button>
+        <button type="submit" class="primary">SAVE</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const KEY_PREFIX = 'modelgw_key_';
+    const SEL_KEY = 'modelgw_last_provider';
+    const MODEL_KEY = 'modelgw_last_model_';
+
+    const state = {
+      providers: [],   // [{id,label,url,default_model,key_hint,docs}]
+      currentProvider: null,
+      models: [],
+      messages: [],    // [{role, content}]
+      streaming: false,
+    };
+
+    function getKey(pid) { return localStorage.getItem(KEY_PREFIX + pid) || ''; }
+    function setKey(pid, k) { if (k) localStorage.setItem(KEY_PREFIX + pid, k); }
+    function clearKey(pid) { localStorage.removeItem(KEY_PREFIX + pid); }
+
+    function refreshKeyBadge() {
+      const pid = state.currentProvider;
+      const has = !!getKey(pid);
+      $('key-state').textContent = has ? 'KEY SET' : 'NO KEY';
+      $('key-state').className = 'key-state ' + (has ? 'ok' : 'no');
+    }
+
+    function setProvider(pid) {
+      state.currentProvider = pid;
+      localStorage.setItem(SEL_KEY, pid);
+      $('provider').value = pid;
+      refreshKeyBadge();
+      loadModels();
+    }
+
+    async function loadProviders() {
+      const res = await fetch('/providers');
+      state.providers = await res.json();
+      const sel = $('provider');
+      sel.innerHTML = '';
+      for (const p of state.providers) {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.label;
+        sel.appendChild(opt);
+      }
+      const last = localStorage.getItem(SEL_KEY);
+      const initial = last && state.providers.find(p => p.id === last)
+        ? last : state.providers[0]?.id;
+      if (initial) setProvider(initial);
+    }
+
+    async function loadModels() {
+      const pid = state.currentProvider;
+      const sel = $('model');
+      sel.innerHTML = '<option>loading…</option>';
+      const key = getKey(pid);
+      const cfg = state.providers.find(p => p.id === pid);
+      if (!key) {
+        // No key: just show the default
+        sel.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = cfg.default_model;
+        opt.textContent = cfg.default_model + ' (set key to load full list)';
+        sel.appendChild(opt);
+        return;
+      }
+      try {
+        const res = await fetch(`/models?provider=${encodeURIComponent(pid)}`, {
+          headers: { 'X-API-Key': key },
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`models: ${res.status} ${txt.slice(0, 200)}`);
+        }
+        const data = await res.json();
+        state.models = data.models || [];
+        sel.innerHTML = '';
+        const seen = new Set();
+        for (const m of state.models) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          const opt = document.createElement('option');
+          opt.value = m.id; opt.textContent = m.id;
+          sel.appendChild(opt);
+        }
+        const lastModel = localStorage.getItem(MODEL_KEY + pid);
+        if (lastModel && seen.has(lastModel)) {
+          sel.value = lastModel;
+        } else if (seen.has(cfg.default_model)) {
+          sel.value = cfg.default_model;
+        }
+      } catch (e) {
+        sel.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = cfg.default_model;
+        opt.textContent = cfg.default_model + ' (model list failed: ' + e.message + ')';
+        sel.appendChild(opt);
+      }
+    }
+
+    function renderMessages() {
+      const root = $('chat');
+      root.innerHTML = '';
+      if (state.messages.length === 0) {
+        const e = document.createElement('div');
+        e.className = 'empty';
+        e.textContent = 'Pick a provider, set your key, and start chatting. Keys never leave your browser except in the request that uses them.';
+        root.appendChild(e);
+        return;
+      }
+      for (const m of state.messages) {
+        const el = document.createElement('div');
+        el.className = 'msg ' + (m.error ? 'error' : m.role);
+        const who = document.createElement('div');
+        who.className = 'who';
+        who.textContent = (m.role || 'sys').toUpperCase();
+        const body = document.createElement('div');
+        body.textContent = m.content;
+        body.id = m.id || '';
+        el.appendChild(who); el.appendChild(body);
+        root.appendChild(el);
+      }
+      root.scrollTop = root.scrollHeight;
+    }
+
+    async function send() {
+      if (state.streaming) return;
+      const text = $('input').value.trim();
+      if (!text) return;
+      const pid = state.currentProvider;
+      const key = getKey(pid);
+      if (!key) {
+        openKeyDialog();
+        return;
+      }
+      const model = $('model').value;
+      localStorage.setItem(MODEL_KEY + pid, model);
+
+      state.messages.push({ role: 'user', content: text });
+      const asstId = 'asst-' + Date.now();
+      const asst = { role: 'assistant', content: '', id: asstId };
+      state.messages.push(asst);
+      renderMessages();
+      $('input').value = '';
+      state.streaming = true; $('send').disabled = true;
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+          body: JSON.stringify({
+            provider: pid,
+            model,
+            messages: state.messages
+              .filter(m => !m.error && (m.role === 'user' || m.role === 'assistant') && m !== asst)
+              .map(m => ({ role: m.role, content: m.content })),
+            stream: true,
+          }),
+        });
+
+        if (!res.ok || !res.body) {
+          const txt = await res.text();
+          throw new Error(`${res.status}: ${txt.slice(0, 400)}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            if (!frame.startsWith('data:')) continue;
+            const payload = frame.slice(5).trim();
+            if (!payload) continue;
+            try {
+              const obj = JSON.parse(payload);
+              if (obj.delta) {
+                asst.content += obj.delta;
+                const node = document.getElementById(asstId);
+                if (node) node.textContent = asst.content;
+              } else if (obj.error) {
+                asst.error = true;
+                asst.content += '\n[stream error] ' + obj.error;
+                const node = document.getElementById(asstId);
+                if (node) {
+                  node.textContent = asst.content;
+                  node.parentElement.classList.add('error');
+                }
+              }
+            } catch (_) { /* ignore */ }
+          }
+        }
+        const root = $('chat');
+        root.scrollTop = root.scrollHeight;
+      } catch (e) {
+        asst.error = true;
+        asst.content = '[request error] ' + e.message;
+        renderMessages();
+      } finally {
+        state.streaming = false; $('send').disabled = false;
+      }
+    }
+
+    function openKeyDialog() {
+      const pid = state.currentProvider;
+      const cfg = state.providers.find(p => p.id === pid);
+      $('key-dialog-title').textContent = 'Set ' + cfg.label + ' API key';
+      $('key-dialog-hint').textContent = 'Format hint: ' + cfg.key_hint + '  ·  ' + cfg.docs;
+      $('key-input').value = getKey(pid) || '';
+      $('key-dialog').showModal();
+      $('key-input').focus();
+    }
+
+    // ── wire up ─────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      $('provider').addEventListener('change', (e) => setProvider(e.target.value));
+      $('reload-models').addEventListener('click', loadModels);
+      $('set-key').addEventListener('click', openKeyDialog);
+      $('clear-key').addEventListener('click', () => {
+        clearKey(state.currentProvider);
+        refreshKeyBadge();
+        loadModels();
+      });
+      $('clear-chat').addEventListener('click', () => {
+        if (state.streaming) return;
+        state.messages = [];
+        renderMessages();
+      });
+      $('send').addEventListener('click', send);
+      $('input').addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+      });
+      $('key-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const k = $('key-input').value.trim();
+        if (k) {
+          setKey(state.currentProvider, k);
+          refreshKeyBadge();
+          loadModels();
+        }
+        $('key-dialog').close();
+      });
+      $('key-cancel').addEventListener('click', () => $('key-dialog').close());
+
+      loadProviders().then(renderMessages);
+    });
+  </script>
+</body>
+</html>

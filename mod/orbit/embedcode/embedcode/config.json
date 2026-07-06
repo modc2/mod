@@ -2,68 +2,90 @@
   "name": "embedcode",
   "version": "1.0.0",
   "description": "Code embedding and semantic search with local models",
+  "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
+  "port": 8920,
+  "app_port": 3920,
   "fns": ["forward", "embed", "search", "collections", "info", "delete", "serve", "app", "kill", "status"],
+  "schema": {
+    "forward": {
+      "input": [
+        {"name": "fn", "type": "str", "value": null},
+        {"name": "kwargs", "type": "dict", "value": {}}
+      ],
+      "output": {"type": "Any", "value": null},
+      "docs": "Generic function dispatch — call any fn by name."
+    },
+    "embed": {
+      "input": [
+        {"name": "path", "type": "str", "value": "_empty"},
+        {"name": "collection", "type": "str", "value": null},
+        {"name": "chunk_size", "type": "int", "value": 512},
+        {"name": "overlap", "type": "int", "value": 64},
+        {"name": "extensions", "type": "list", "value": null}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Embed all code files in a path into a named collection."
+    },
+    "search": {
+      "input": [
+        {"name": "query", "type": "str", "value": "_empty"},
+        {"name": "collection", "type": "str", "value": null},
+        {"name": "path", "type": "str", "value": null},
+        {"name": "top_k", "type": "int", "value": 10}
+      ],
+      "output": {"type": "list", "value": null},
+      "docs": "Search embeddings by natural language query."
+    },
+    "collections": {
+      "input": [],
+      "output": {"type": "dict", "value": null},
+      "docs": "List all embedding collections."
+    },
+    "info": {
+      "input": [
+        {"name": "collection", "type": "str", "value": null}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Get info about a collection or the module."
+    },
+    "delete": {
+      "input": [
+        {"name": "collection", "type": "str", "value": "_empty"}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Delete a collection."
+    },
+    "serve": {
+      "input": [
+        {"name": "port", "type": "int", "value": null},
+        {"name": "dev", "type": "bool", "value": true}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Start the FastAPI server."
+    },
+    "app": {
+      "input": [
+        {"name": "port", "type": "int", "value": null},
+        {"name": "dev", "type": "bool", "value": true}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Start the Next.js web app."
+    },
+    "kill": {
+      "input": [
+        {"name": "target", "type": "str", "value": "all"}
+      ],
+      "output": {"type": "dict", "value": null},
+      "docs": "Stop services (api/app/all)."
+    },
+    "status": {
+      "input": [],
+      "output": {"type": "dict", "value": null},
+      "docs": "Check service status."
+    }
+  },
   "urls": {
     "api": "http://localhost:8920",
     "app": "http://localhost:3920"
-  },
-  "schema": {
-    "embed": {
-      "description": "Embed all code files in a path into a named collection",
-      "params": {
-        "path": "str - path to file or directory",
-        "collection": "str? - collection name (auto-generated from path if omitted)",
-        "chunk_size": "int - lines per chunk (default 512)",
-        "overlap": "int - overlap lines between chunks (default 64)",
-        "extensions": "list[str]? - file extensions to include"
-      }
-    },
-    "search": {
-      "description": "Search embeddings by natural language query",
-      "params": {
-        "query": "str - search query",
-        "collection": "str? - limit to collection",
-        "path": "str? - limit to path's collection",
-        "top_k": "int - number of results (default 10)"
-      }
-    },
-    "collections": {
-      "description": "List all embedding collections"
-    },
-    "info": {
-      "description": "Get info about a collection or the module",
-      "params": {
-        "collection": "str? - collection name"
-      }
-    },
-    "delete": {
-      "description": "Delete a collection",
-      "params": {
-        "collection": "str - collection name"
-      }
-    },
-    "serve": {
-      "description": "Start the FastAPI server",
-      "params": {
-        "port": "int? - API port (default 8920)",
-        "dev": "bool - reload mode (default true)"
-      }
-    },
-    "app": {
-      "description": "Start the Next.js web app",
-      "params": {
-        "port": "int? - app port (default 3920)",
-        "dev": "bool - dev mode (default true)"
-      }
-    },
-    "kill": {
-      "description": "Stop services",
-      "params": {
-        "target": "str - api/app/all (default all)"
-      }
-    },
-    "status": {
-      "description": "Check service status"
-    }
   }
 }

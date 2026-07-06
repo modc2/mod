@@ -1,7 +1,15 @@
 {
     "port": 8000,
     "store": "localfs",
-    "mods": ["api", "chain", "openrouter", "dev", "mod", "agent", "edit"],
+    "mods": [
+        "api",
+        "chain",
+        "openrouter",
+        "dev",
+        "mod",
+        "agent",
+        "edit"
+    ],
     "fns": [
         "mod",
         "mods",
@@ -42,5 +50,6 @@
         "kill_app",
         "edit_app",
         "remove_app"
-    ]
+    ],
+    "schema": "QmYbfGMZwQYJPcCpUq2Uvdt4t9ng88vaA3GaGfwQhJsLcp"
 }

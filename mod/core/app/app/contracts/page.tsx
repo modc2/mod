@@ -8,6 +8,7 @@ import { toast } from 'react-toastify'
 import modConfig from '@config'
 import { text2color, colorWithOpacity } from '@/utils'
 import { motion, AnimatePresence } from 'framer-motion'
+import { CodeViewer } from './CodeViewer'
 
 import TreasuryABI from '@/contracts/treasury/Treasury.sol/Treasury.json'
 import MarketABI from '@/contracts/market/Market.sol/Market.json'
@@ -57,8 +58,15 @@ interface CustomContract {
   abiCid?: string
 }
 
-function getContracts(customContracts: CustomContract[]): { name: string; address: string; abiCid?: string }[] {
-  const chainConfig = (modConfig.chain as any)?.testnet
+// Available networks from config
+const NETWORKS = Object.entries((modConfig.chain as any) || {}).map(([key, val]: [string, any]) => ({
+  key,
+  chainId: val.chainId,
+  label: key === 'testnet' ? 'Base Sepolia' : key === 'localhost' ? 'Localhost' : key === 'ganache' ? 'Ganache' : key,
+}))
+
+function getContracts(network: string, customContracts: CustomContract[]): { name: string; address: string; abiCid?: string }[] {
+  const chainConfig = (modConfig.chain as any)?.[network]
   const baseContracts = chainConfig?.contracts ? (() => {
     const entries = Object.entries(chainConfig.contracts) as [string, any][]
     const treasury = entries.find(([name]) => name === 'Treasury')
@@ -101,15 +109,15 @@ function FnArgsInput({ inputs, args, setArgs }: {
     <div className="space-y-3">
       {inputs.map((inp: any, i: number) => (
         <div key={i}>
-          <label className="text-[12px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+          <label className="text-[12px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
             {inp.name || `arg${i}`} <span style={{ color: 'var(--text-tertiary)' }}>:: {inp.type}</span>
           </label>
           {inp.type === 'bool' ? (
             <select
               value={args[i] || ''}
               onChange={(e) => { const next = [...args]; next[i] = e.target.value; setArgs(next) }}
-              className="w-full px-4 py-3 text-[14px] font-mono focus:outline-none transition-all appearance-none cursor-pointer"
-              style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="w-full px-4 py-2.5 rounded-lg text-[14px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all appearance-none cursor-pointer"
+              style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
             >
               <option value="">Select...</option>
               <option value="true">true</option>
@@ -121,8 +129,8 @@ function FnArgsInput({ inputs, args, setArgs }: {
               value={args[i] || ''}
               onChange={(e) => { const next = [...args]; next[i] = e.target.value; setArgs(next) }}
               placeholder={inp.type}
-              className="w-full px-4 py-3 text-[14px] font-mono focus:outline-none transition-all"
-              style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="w-full px-4 py-2.5 rounded-lg text-[14px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+              style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
             />
           )}
         </div>
@@ -132,7 +140,13 @@ function FnArgsInput({ inputs, args, setArgs }: {
 }
 
 export default function ContractsPage() {
+  const [selectedNetwork, setSelectedNetwork] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('contracts_network') || 'testnet'
+    return 'testnet'
+  })
   const [selectedContract, setSelectedContract] = useState('Market')
+  // 'interact' = read/write function explorer · 'code' = Solidity source view.
+  const [viewMode, setViewMode] = useState<'interact' | 'code'>('interact')
   const [search, setSearch] = useState('')
   const [showRead, setShowRead] = useState(true)
   const [showWrite, setShowWrite] = useState(true)
@@ -153,15 +167,63 @@ export default function ContractsPage() {
   const [newContractAbiCid, setNewContractAbiCid] = useState('')
   const [newContractAbiJson, setNewContractAbiJson] = useState('')
   const [addingContract, setAddingContract] = useState(false)
+  const [showNetworkDropdown, setShowNetworkDropdown] = useState(false)
 
   const fnSearchRef = useRef<HTMLInputElement>(null)
 
-  const contracts = getContracts(customContracts)
+  // Close network dropdown on click outside
+  useEffect(() => {
+    if (!showNetworkDropdown) return
+    const handler = (e: MouseEvent) => setShowNetworkDropdown(false)
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showNetworkDropdown])
+
+  useEffect(() => { localStorage.setItem('contracts_network', selectedNetwork) }, [selectedNetwork])
+
+  // Switch wallet network + reset contract selection when network changes
+  const switchNetwork = async (networkKey: string) => {
+    setSelectedNetwork(networkKey)
+    const cfg = (modConfig.chain as any)?.[networkKey]
+    if (!cfg?.chainId || !window.ethereum) return
+    const hexChainId = '0x' + parseInt(cfg.chainId).toString(16)
+    try {
+      await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexChainId }] })
+    } catch (err: any) {
+      // 4902 = chain not added — try adding it
+      if (err.code === 4902 && cfg.url) {
+        const net = NETWORKS.find(n => n.key === networkKey)
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: hexChainId,
+              chainName: net?.label || networkKey,
+              rpcUrls: [cfg.url],
+            }],
+          })
+        } catch { /* user rejected */ }
+      }
+    }
+  }
+
+  useEffect(() => {
+    setSelectedContract('')
+    setSelectedFnName('')
+    setFnArgs([])
+    setReadResult(null)
+  }, [selectedNetwork])
+
+  const activeChainConfig = (modConfig.chain as any)?.[selectedNetwork]
+  const contracts = getContracts(selectedNetwork, customContracts)
   const filteredContracts = search
     ? contracts.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
     : contracts
   const contractInfo = contracts.find((c) => c.name === selectedContract)
   const customContract = customContracts.find(c => c.name === selectedContract)
+  // Solidity source is available for the bundled core contracts (those with a
+  // built-in ABI), not user-added custom contracts.
+  const hasSource = !customContract && !!selectedContract && !!CONTRACT_ABIS[selectedContract]
   const abi = customContract ? customContract.abi : (selectedContract ? CONTRACT_ABIS[selectedContract] : null)
   const allFunctions = abi ? getAllFunctions(abi) : []
 
@@ -182,6 +244,7 @@ export default function ContractsPage() {
     setFnArgs([])
     setReadResult(null)
     setFnSearch('')
+    setViewMode('interact')
   }, [selectedContract])
 
   useEffect(() => {
@@ -317,7 +380,24 @@ export default function ContractsPage() {
       setExecutionHistory(prev => [execution, ...prev])
     } catch (err: any) {
       console.error(err)
-      const errorMsg = err?.message || 'Read failed'
+      let errorMsg = err?.message || 'Read failed'
+      // Detect BAD_DATA (contract not deployed / wrong network)
+      if (err?.code === 'BAD_DATA' || errorMsg.includes('BAD_DATA') || errorMsg.includes('could not decode result data')) {
+        try {
+          const provider = new ethers.BrowserProvider(window.ethereum!)
+          const network = await provider.getNetwork()
+          const expectedChainId = activeChainConfig?.chainId
+          const networkLabel = NETWORKS.find(n => n.key === selectedNetwork)?.label || selectedNetwork
+          if (expectedChainId && network.chainId.toString() !== expectedChainId) {
+            errorMsg = `Wrong network: connected to chain ${network.chainId}, expected ${expectedChainId} (${networkLabel}). Switch your wallet network.`
+          } else {
+            errorMsg = `Contract not deployed at this address on chain ${network.chainId}. The contract may not exist or the ABI doesn't match.`
+          }
+        } catch {
+          const networkLabel2 = NETWORKS.find(n => n.key === selectedNetwork)?.label || selectedNetwork
+          errorMsg = `Contract returned empty data (0x). Check you are connected to ${networkLabel2} (chainId: ${activeChainConfig?.chainId || '?'}).`
+        }
+      }
       setReadResult(`Error: ${errorMsg}`)
 
       // Add error to execution history
@@ -378,7 +458,11 @@ export default function ContractsPage() {
       setEthValue('')
     } catch (err: any) {
       console.error(err)
-      const errorMsg = err?.reason || err?.message || 'Transaction failed'
+      let errorMsg = err?.reason || err?.message || 'Transaction failed'
+      if (err?.code === 'BAD_DATA' || errorMsg.includes('BAD_DATA') || errorMsg.includes('could not decode result data')) {
+        const networkLabel = NETWORKS.find(n => n.key === selectedNetwork)?.label || selectedNetwork
+        errorMsg = `Contract not found on this network. Switch to ${networkLabel} (chainId: ${activeChainConfig?.chainId || '?'}).`
+      }
       toast.error(errorMsg)
 
       // Add error to execution history
@@ -406,36 +490,30 @@ export default function ContractsPage() {
 
   const renderTransactionCard = (exec: ExecutionResult, idx: number) => {
     const isExpanded = expandedTxIdx === idx
-    const statusColor = exec.status === 'success' ? 'emerald' : 'red'
     const statusText = exec.status === 'success' ? 'SUC' : 'ERR'
 
     return (
       <div
         key={idx}
         onClick={() => setExpandedTxIdx(isExpanded ? null : idx)}
-        className={`backdrop-blur-sm transition-all cursor-pointer relative overflow-hidden ${
-          exec.status === 'success'
-            ? 'hover:border-emerald-500/80'
-            : 'hover:border-red-500/80'
-        }`}
+        className="rounded-xl backdrop-blur-sm transition-all cursor-pointer relative overflow-hidden hover:shadow-lg"
         style={{
           fontFamily: 'IBM Plex Mono, monospace',
           backgroundColor: 'var(--bg-surface)',
-          border: exec.status === 'success' ? '4px solid rgba(16,185,129,0.6)' : '4px solid rgba(239,68,68,0.6)'
+          border: exec.status === 'success' ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(239,68,68,0.4)'
         }}
       >
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--border-color)' }}>
+        <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: '1px solid var(--border-color)' }}>
           {exec.hash && (
             <div className="flex items-center gap-1">
-              <div className="text-purple-500 text-sm">📄</div>
               <CopyButton text={exec.hash} size="sm" showValueOnHover={true} />
             </div>
           )}
 
           <div className="flex items-center gap-1">
-            <span className={`text-[10px] font-bold tracking-wider ${
-              exec.status === 'success' ? 'text-emerald-500' : 'text-red-500'
+            <span className={`text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded ${
+              exec.status === 'success' ? 'text-emerald-500 bg-emerald-500/10' : 'text-red-500 bg-red-500/10'
             }`}>
               {statusText}
             </span>
@@ -445,15 +523,15 @@ export default function ContractsPage() {
             {exec.fn}
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-0.5">
-              <span className="text-purple-500 text-xs">$</span>
+          <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-1">
+              <span className="text-purple-500/60 text-[10px]">$</span>
               <span className="text-cyan-500 font-bold">{exec.cost?.toFixed(2) || '0.00'}</span>
             </div>
 
             {exec.delta !== undefined && (
-              <div className="flex items-center gap-0.5">
-                <span className="text-purple-500 text-xs">⏱</span>
+              <div className="flex items-center gap-1">
+                <span className="text-purple-500/60 text-[10px]">t</span>
                 <span className="text-cyan-500 font-bold">{exec.delta.toFixed(1)}s</span>
               </div>
             )}
@@ -462,9 +540,9 @@ export default function ContractsPage() {
 
         {/* Input preview when collapsed */}
         {!isExpanded && (
-          <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-input)' }}>
+          <div className="px-4 py-2" style={{ backgroundColor: 'var(--bg-input)' }}>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold tracking-wider text-purple-500">INPUT:</span>
+              <span className="text-[10px] font-bold tracking-wider text-purple-400/70">INPUT</span>
               <span className="text-xs font-mono truncate" style={{ color: 'var(--text-tertiary)' }}>
                 {JSON.stringify(exec.params)}
               </span>
@@ -474,21 +552,21 @@ export default function ContractsPage() {
 
         {/* Expanded Content */}
         {isExpanded && (
-          <div className="px-3 pb-3 pt-2 space-y-2">
+          <div className="px-4 pb-4 pt-3 space-y-3">
             {/* Input */}
             <div>
-              <div className="text-[10px] font-bold tracking-wider text-purple-500 mb-1">INPUT:</div>
-              <pre className="text-xs font-mono p-2" style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-secondary)', border: '2px solid var(--border-color)' }}>
+              <div className="text-[10px] font-bold tracking-wider text-purple-400/70 mb-1.5">INPUT</div>
+              <pre className="text-xs font-mono p-3 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
                 {JSON.stringify(exec.params, null, 2)}
               </pre>
             </div>
 
             {/* Result */}
             <div>
-              <div className="text-[10px] font-bold tracking-wider text-purple-500 mb-1">RESULT:</div>
-              <pre className={`text-xs font-mono p-2 ${
+              <div className="text-[10px] font-bold tracking-wider text-purple-400/70 mb-1.5">RESULT</div>
+              <pre className={`text-xs font-mono p-3 rounded-lg ${
                 exec.status === 'success' ? 'text-emerald-400' : 'text-red-400'
-              }`} style={{ backgroundColor: 'var(--bg-input)', border: '2px solid var(--border-color)' }}>
+              }`} style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
                 {typeof exec.result === 'object' ? JSON.stringify(exec.result, null, 2) : exec.result}
               </pre>
             </div>
@@ -503,7 +581,7 @@ export default function ContractsPage() {
       <div key={idx} className="space-y-2">
         {/* User message */}
         <div className="flex justify-end">
-          <div className="max-w-[80%] px-4 py-2" style={{ backgroundColor: 'var(--bg-secondary)', border: '4px solid var(--border-color)' }}>
+          <div className="max-w-[80%] px-4 py-3 rounded-xl" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
             <div className="text-[10px] font-bold tracking-wider text-cyan-500 mb-1">{exec.fn}</div>
             <div className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
               {JSON.stringify(exec.params, null, 2)}
@@ -513,12 +591,12 @@ export default function ContractsPage() {
 
         {/* Assistant response */}
         <div className="flex justify-start">
-          <div className={`max-w-[80%] px-4 py-2 ${
+          <div className={`max-w-[80%] px-4 py-3 rounded-xl ${
             exec.status === 'success'
               ? 'bg-emerald-500/10'
               : 'bg-red-500/10'
           }`} style={{
-            border: exec.status === 'success' ? '4px solid rgba(16,185,129,0.4)' : '4px solid rgba(239,68,68,0.4)'
+            border: exec.status === 'success' ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(239,68,68,0.3)'
           }}>
             <div className="flex items-center gap-2 mb-1">
               <span className={`text-[10px] font-bold tracking-wider ${
@@ -545,15 +623,82 @@ export default function ContractsPage() {
     <div className="min-h-full flex flex-col">
       <div className="max-w-7xl mx-auto px-8 py-6 w-full flex-1 flex flex-col">
         {/* Page header with search and add - all in one line */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-4 mb-5">
           <div className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" style={{ boxShadow: '0 0 8px rgba(0,255,255,0.6)' }} />
           <h1 className="text-4xl font-bold lowercase tracking-[0.15em] font-mono shrink-0" style={{ color: 'var(--text-primary)' }}>Contracts</h1>
           <div className="flex-1 h-px" style={{ background: 'linear-gradient(to right, var(--border-color), transparent)' }} />
           <span className="text-[12px] font-mono shrink-0" style={{ color: 'var(--text-tertiary)' }}>[{contracts.length}]</span>
 
-          {/* Search - larger */}
+          {/* Network dropdown */}
+          {(() => {
+            const activeNet = NETWORKS.find(n => n.key === selectedNetwork) || NETWORKS[0]
+            return (
+              <div className="relative shrink-0">
+                <button
+                  onClick={() => setShowNetworkDropdown(!showNetworkDropdown)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-bold font-mono tracking-wider transition-all"
+                  style={{
+                    backgroundColor: 'var(--bg-input)',
+                    border: '1px solid rgba(0, 255, 255, 0.3)',
+                    color: '#22d3ee',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ background: '#22d3ee', boxShadow: '0 0 6px rgba(0,255,255,0.5)' }} />
+                  {activeNet.label}
+                  <span style={{ fontSize: '10px', opacity: 0.5 }}>{activeNet.chainId}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                {showNetworkDropdown && (
+                  <div
+                    className="absolute top-full left-0 mt-1 z-50 overflow-hidden"
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '8px',
+                      boxShadow: '0 12px 40px rgba(0,0,0,0.4)',
+                      minWidth: '180px',
+                    }}
+                  >
+                    {NETWORKS.map(net => {
+                      const isActive = selectedNetwork === net.key
+                      return (
+                        <button
+                          key={net.key}
+                          onClick={() => { switchNetwork(net.key); setShowNetworkDropdown(false) }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-all"
+                          style={{
+                            fontSize: '13px',
+                            fontFamily: 'monospace',
+                            fontWeight: isActive ? 700 : 500,
+                            color: isActive ? '#22d3ee' : 'var(--text-primary)',
+                            background: isActive ? 'rgba(0, 255, 255, 0.08)' : 'transparent',
+                            borderBottom: '1px solid var(--border-color)',
+                            cursor: 'pointer',
+                            border: 'none',
+                            borderBlockEnd: '1px solid var(--border-color)',
+                          }}
+                          onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--hover-bg)' }}
+                          onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+                        >
+                          <span className="w-2 h-2 rounded-full" style={{ background: isActive ? '#22d3ee' : 'var(--text-tertiary)', boxShadow: isActive ? '0 0 6px rgba(0,255,255,0.5)' : 'none' }} />
+                          <span className="flex-1">{net.label}</span>
+                          <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{net.chainId}</span>
+                          {isActive && <span style={{ fontSize: '11px', color: '#22d3ee' }}>&#10003;</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Search */}
           <div className="relative w-[500px] shrink-0">
-            <MagnifyingGlassIcon className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
+            <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: 'var(--text-tertiary)' }} />
             <input
               type="text"
               value={search}
@@ -565,16 +710,16 @@ export default function ContractsPage() {
                 }
               }}
               placeholder="SEARCH CONTRACTS..."
-              className="w-full pl-14 pr-6 py-4 text-[15px] font-mono focus:outline-none transition-all"
-              style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+              className="w-full pl-12 pr-6 py-3.5 rounded-xl text-[14px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+              style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
             />
           </div>
 
-          {/* Add button - larger */}
+          {/* Add button */}
           <button
             onClick={() => setShowAddContract(!showAddContract)}
-            className="px-6 py-3 text-[15px] font-bold font-mono tracking-wider transition-all text-cyan-400 hover:scale-[1.02] shrink-0"
-            style={{ backgroundColor: 'var(--bg-secondary)', border: '4px solid var(--border-strong)' }}
+            className="px-5 py-3 rounded-xl text-[14px] font-bold font-mono tracking-wider transition-all text-cyan-400 hover:bg-cyan-500/10 shrink-0"
+            style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-strong)' }}
           >
             + ADD
           </button>
@@ -588,18 +733,18 @@ export default function ContractsPage() {
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="overflow-hidden mb-4"
+              className="overflow-hidden mb-5"
             >
-              <div className="p-4 border-4" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-strong)' }}>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-1.5 h-1.5 bg-cyan-400" style={{ boxShadow: '0 0 6px rgba(0,255,255,0.8)' }} />
-                  <h3 className="text-[13px] font-bold tracking-wider font-mono" style={{ color: 'var(--text-primary)' }}>Add Custom Contract</h3>
+              <div className="p-5 rounded-xl" style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-strong)' }}>
+                <div className="flex items-center gap-2.5 mb-5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" style={{ boxShadow: '0 0 6px rgba(0,255,255,0.8)' }} />
+                  <h3 className="text-[14px] font-bold tracking-wider font-mono" style={{ color: 'var(--text-primary)' }}>Add Custom Contract</h3>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {/* Contract Name */}
                   <div>
-                    <label className="text-[11px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    <label className="text-[11px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
                       Contract Name
                     </label>
                     <input
@@ -607,14 +752,14 @@ export default function ContractsPage() {
                       value={newContractName}
                       onChange={(e) => setNewContractName(e.target.value)}
                       placeholder="MYCONTRACT"
-                      className="w-full px-3 py-2 text-[13px] font-mono focus:outline-none transition-all"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      className="w-full px-4 py-2.5 rounded-lg text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                     />
                   </div>
 
                   {/* Contract Address */}
                   <div>
-                    <label className="text-[11px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    <label className="text-[11px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
                       Contract Address
                     </label>
                     <input
@@ -622,14 +767,14 @@ export default function ContractsPage() {
                       value={newContractAddress}
                       onChange={(e) => setNewContractAddress(e.target.value)}
                       placeholder="0x..."
-                      className="w-full px-3 py-2 text-[13px] font-mono focus:outline-none transition-all"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      className="w-full px-4 py-2.5 rounded-lg text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                     />
                   </div>
 
                   {/* ABI CID (optional) */}
                   <div>
-                    <label className="text-[11px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    <label className="text-[11px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
                       ABI CID <span style={{ color: 'var(--text-tertiary)' }}>(optional - not yet supported)</span>
                     </label>
                     <input
@@ -638,14 +783,14 @@ export default function ContractsPage() {
                       onChange={(e) => setNewContractAbiCid(e.target.value)}
                       placeholder="Qm..."
                       disabled
-                      className="w-full px-3 py-2 text-[13px] font-mono focus:outline-none transition-all opacity-50 cursor-not-allowed"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      className="w-full px-4 py-2.5 rounded-lg text-[13px] font-mono focus:outline-none transition-all opacity-50 cursor-not-allowed"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                     />
                   </div>
 
                   {/* ABI JSON */}
                   <div>
-                    <label className="text-[11px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    <label className="text-[11px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
                       ABI JSON <span style={{ color: 'var(--text-tertiary)' }}>(paste ABI array)</span>
                     </label>
                     <textarea
@@ -653,18 +798,18 @@ export default function ContractsPage() {
                       onChange={(e) => setNewContractAbiJson(e.target.value)}
                       placeholder='[{"type":"function","name":"transfer","inputs":[...],...}]'
                       rows={6}
-                      className="w-full px-3 py-2 text-[12px] font-mono focus:outline-none transition-all resize-none"
-                      style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      className="w-full px-4 py-2.5 rounded-lg text-[12px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all resize-none"
+                      style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                     />
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-3 pt-1">
                     <button
                       onClick={handleAddContract}
                       disabled={addingContract}
-                      className="flex-1 py-2.5 text-[12px] font-bold font-mono tracking-wider transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-emerald-400 hover:bg-emerald-500/20"
-                      style={{ backgroundColor: 'var(--bg-secondary)', border: '4px solid var(--border-strong)' }}
+                      className="flex-1 py-2.5 rounded-lg text-[13px] font-bold font-mono tracking-wider transition-all disabled:opacity-40 flex items-center justify-center gap-2 text-emerald-400 hover:bg-emerald-500/15"
+                      style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid rgba(16,185,129,0.3)' }}
                     >
                       {addingContract ? (
                         <>
@@ -683,8 +828,8 @@ export default function ContractsPage() {
                         setNewContractAbiCid('')
                         setNewContractAbiJson('')
                       }}
-                      className="px-4 py-2.5 text-[12px] font-bold font-mono tracking-wider transition-all hover:bg-white/5"
-                      style={{ color: 'var(--text-tertiary)', border: '4px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}
+                      className="px-5 py-2.5 rounded-lg text-[13px] font-bold font-mono tracking-wider transition-all hover:bg-white/5"
+                      style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-surface)' }}
                     >
                       Cancel
                     </button>
@@ -697,7 +842,7 @@ export default function ContractsPage() {
 
         {/* Contract Grid - Show when no contract is selected OR when searching */}
         {(!selectedContract || search) && (
-          <div className="flex flex-wrap gap-2 mb-6">
+          <div className="flex flex-wrap gap-2.5 mb-6">
             {(filteredContracts.length > 0 ? filteredContracts : contracts).map((c) => {
               const cardColor = text2color(c.name)
               const isCustom = customContracts.some(cc => cc.name === c.name)
@@ -705,27 +850,22 @@ export default function ContractsPage() {
                 <div key={c.name} className="relative group/card">
                   <button
                     onClick={() => setSelectedContract(c.name)}
-                    className="relative px-3 py-2 text-left transition-all duration-200 overflow-hidden hover:scale-[1.02]"
+                    className="relative px-4 py-2.5 rounded-lg text-left transition-all duration-200 overflow-hidden hover:shadow-md"
                     style={{
-                      border: `4px solid var(--border-strong)`,
+                      border: '1px solid var(--border-strong)',
                       backgroundColor: 'var(--bg-secondary)',
                       boxShadow: 'var(--card-shadow)',
                     }}
                   >
-                    {/* Corner accents */}
-                    <div className="absolute top-0 left-0 w-2 h-px transition-colors" style={{ backgroundColor: 'var(--border-strong)' }} />
-                    <div className="absolute top-0 left-0 w-px h-2 transition-colors" style={{ backgroundColor: 'var(--border-strong)' }} />
-                    <div className="absolute bottom-0 right-0 w-2 h-px transition-colors" style={{ backgroundColor: 'var(--border-strong)' }} />
-                    <div className="absolute bottom-0 right-0 w-px h-2 transition-colors" style={{ backgroundColor: 'var(--border-strong)' }} />
-
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 transition-all" style={{
-                          backgroundColor: 'var(--text-tertiary)',
+                        <div className="w-1.5 h-1.5 rounded-full transition-all" style={{
+                          backgroundColor: cardColor,
+                          boxShadow: `0 0 4px ${colorWithOpacity(cardColor, 0.5)}`,
                         }} />
                         <div className="text-[13px] font-bold font-mono" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
                         {isCustom && (
-                          <span className="text-[8px] px-1 py-0.5 font-mono font-bold bg-cyan-500/10 text-cyan-400" style={{ border: '2px solid rgba(0,255,255,0.3)' }}>CUSTOM</span>
+                          <span className="text-[8px] px-1.5 py-0.5 rounded-full font-mono font-bold bg-cyan-500/10 text-cyan-400" style={{ border: '1px solid rgba(0,255,255,0.2)' }}>CUSTOM</span>
                         )}
                         <div className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{shorten(c.address, 4, 3)}</div>
                       </div>
@@ -747,8 +887,7 @@ export default function ContractsPage() {
                           handleRemoveContract(c.name)
                         }
                       }}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500/80 text-white text-xs font-bold opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-red-500 flex items-center justify-center"
-                      style={{ border: '2px solid var(--border-strong)' }}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500/80 text-white text-xs font-bold opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-red-500 flex items-center justify-center shadow-lg"
                       title="Remove custom contract"
                     >
                       ×
@@ -764,26 +903,26 @@ export default function ContractsPage() {
         {contractInfo && (() => {
           const activeColor = text2color(contractInfo.name)
           return (
-          <div className="p-6 relative overflow-hidden" style={{
-            border: `4px solid ${colorWithOpacity(activeColor, 0.5)}`,
+          <div className="p-6 rounded-xl relative overflow-hidden" style={{
+            border: `1px solid ${colorWithOpacity(activeColor, 0.3)}`,
             backgroundColor: 'var(--bg-secondary)',
           }}>
             {/* Subtle top glow */}
-            <div className="absolute top-0 left-0 right-0 h-px" style={{ backgroundColor: colorWithOpacity(activeColor, 0.6) }} />
+            <div className="absolute top-0 left-0 right-0 h-px" style={{ background: `linear-gradient(to right, transparent, ${colorWithOpacity(activeColor, 0.5)}, transparent)` }} />
 
-            {/* Contract header bar - Single line with back button, name, address, ABI, and Read/Write toggles */}
+            {/* Contract header bar */}
             <div className="flex items-center gap-4 mb-6">
               {/* Back button */}
               <button
                 onClick={() => setSelectedContract('')}
-                className="px-3 py-2 text-[12px] font-bold font-mono tracking-wider transition-all flex items-center gap-2 hover:scale-[1.02] shrink-0"
+                className="px-3 py-2 rounded-lg text-[12px] font-bold font-mono tracking-wider transition-all flex items-center gap-2 hover:bg-white/5 shrink-0"
                 style={{
-                  border: '4px solid var(--border-strong)',
+                  border: '1px solid var(--border-color)',
                   backgroundColor: 'var(--bg-surface)',
                   color: 'var(--text-secondary)',
                 }}
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
                 Back to Contracts
@@ -791,13 +930,13 @@ export default function ContractsPage() {
 
               {/* Contract name */}
               <div className="flex items-center gap-3 shrink-0">
-                <div className="w-2 h-2" style={{ backgroundColor: activeColor, boxShadow: `0 0 8px ${activeColor}` }} />
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: activeColor, boxShadow: `0 0 8px ${activeColor}` }} />
                 <h2 className="text-xl font-bold font-mono" style={{ color: activeColor }}>{contractInfo.name}</h2>
               </div>
 
               {/* Contract address */}
-              <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 cursor-pointer hover:bg-opacity-80 transition-colors"
-                   style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)' }}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
+                   style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
                    onClick={() => {
                      navigator.clipboard.writeText(contractInfo.address)
                      toast.success('Address copied!')
@@ -809,8 +948,8 @@ export default function ContractsPage() {
 
               {/* ABI CID */}
               {contractInfo.abiCid && (
-                <div className="flex items-center gap-2 px-3 py-1.5 shrink-0 cursor-pointer hover:bg-opacity-80 transition-colors"
-                     style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)' }}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
+                     style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}
                      onClick={() => {
                        navigator.clipboard.writeText(contractInfo.abiCid!)
                        toast.success('ABI CID copied!')
@@ -824,33 +963,58 @@ export default function ContractsPage() {
 
               <div className="flex-1" />
 
-              {/* Read / Write filter toggles */}
-              <div className="flex gap-2 shrink-0">
-                <button
-                  onClick={() => setShowRead(!showRead)}
-                  className={`px-4 py-2 text-[12px] font-bold tracking-wider font-mono transition-all ${
-                    showRead
-                      ? 'bg-emerald-500/15 text-emerald-500'
-                      : ''
-                  }`}
-                  style={showRead ? { border: '4px solid rgba(16,185,129,0.4)' } : { border: '4px solid var(--border-color)', color: 'var(--text-tertiary)', backgroundColor: 'var(--bg-input)' }}
-                >
-                  Read{readCount > 0 && ` (${readCount})`}
-                </button>
-                <button
-                  onClick={() => setShowWrite(!showWrite)}
-                  className={`px-4 py-2 text-[12px] font-bold tracking-wider font-mono transition-all ${
-                    showWrite
-                      ? 'bg-amber-500/15 text-amber-500'
-                      : ''
-                  }`}
-                  style={showWrite ? { border: '4px solid rgba(245,158,11,0.4)' } : { border: '4px solid var(--border-color)', color: 'var(--text-tertiary)', backgroundColor: 'var(--bg-input)' }}
-                >
-                  Write{writeCount > 0 && ` (${writeCount})`}
-                </button>
-              </div>
+              {/* Interact / Code mode toggle (code only for bundled contracts) */}
+              {hasSource && (
+                <div className="flex gap-1.5 shrink-0 p-1 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                  {(['interact', 'code'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      className="px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all"
+                      style={viewMode === mode
+                        ? { color: activeColor, backgroundColor: colorWithOpacity(activeColor, 0.15) }
+                        : { color: 'var(--text-tertiary)' }}
+                    >
+                      {mode === 'interact' ? 'Interact' : 'Code'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Read / Write filter toggles (interact mode only) */}
+              {viewMode === 'interact' && (
+                <div className="flex gap-1.5 shrink-0 p-1 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                  <button
+                    onClick={() => setShowRead(!showRead)}
+                    className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
+                      showRead
+                        ? 'bg-emerald-500/15 text-emerald-500'
+                        : ''
+                    }`}
+                    style={!showRead ? { color: 'var(--text-tertiary)' } : undefined}
+                  >
+                    Read{readCount > 0 && ` (${readCount})`}
+                  </button>
+                  <button
+                    onClick={() => setShowWrite(!showWrite)}
+                    className={`px-4 py-1.5 rounded-md text-[12px] font-bold tracking-wider font-mono transition-all ${
+                      showWrite
+                        ? 'bg-amber-500/15 text-amber-500'
+                        : ''
+                    }`}
+                    style={!showWrite ? { color: 'var(--text-tertiary)' } : undefined}
+                  >
+                    Write{writeCount > 0 && ` (${writeCount})`}
+                  </button>
+                </div>
+              )}
             </div>
 
+            {/* Code view — Solidity source of the deployed contract */}
+            {viewMode === 'code' ? (
+              <CodeViewer name={contractInfo.name} accent={activeColor} />
+            ) : (
+            <>
             {/* Two-column layout */}
             <div className="flex gap-6">
               {/* Left: function cards */}
@@ -864,15 +1028,15 @@ export default function ContractsPage() {
                     value={fnSearch}
                     onChange={(e) => setFnSearch(e.target.value)}
                     placeholder="SEARCH FUNCTIONS..."
-                    className="w-full pl-11 pr-20 py-3 text-[13px] font-mono focus:outline-none transition-all"
-                    style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    className="w-full pl-11 pr-20 py-2.5 rounded-lg text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+                    style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                     {fnSearch && (
                       <button
                         onClick={() => { setFnSearch(''); fnSearchRef.current?.focus() }}
-                        className="text-[10px] font-bold font-mono px-2 py-0.5 transition-colors"
-                        style={{ color: 'var(--text-tertiary)', border: '2px solid var(--border-color)' }}
+                        className="text-[10px] font-bold font-mono px-2 py-0.5 rounded transition-colors hover:bg-white/10"
+                        style={{ color: 'var(--text-tertiary)' }}
                       >
                         CLR
                       </button>
@@ -884,7 +1048,7 @@ export default function ContractsPage() {
                 </div>
 
                 {/* Scrollable function cards */}
-                <div className="max-h-[600px] overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+                <div className="max-h-[600px] overflow-y-auto pr-1 space-y-1 custom-scrollbar">
                   {filteredFunctions.map((fn) => {
                     const key = `${fn.kind}:${fn.name}`
                     const isActive = selectedFnName === key
@@ -893,43 +1057,43 @@ export default function ContractsPage() {
                       <button
                         key={key}
                         onClick={() => setSelectedFnName(isActive ? '' : key)}
-                        className={`w-full text-left px-4 py-3 transition-all duration-150 group relative overflow-hidden ${
+                        className={`w-full text-left px-4 py-3 rounded-lg transition-all duration-150 group relative overflow-hidden ${
                           isActive
                             ? isRead
                               ? 'bg-emerald-500/8'
                               : 'bg-amber-500/8'
-                            : ''
+                            : 'hover:bg-white/[0.03]'
                         }`}
                         style={{
                           border: isActive
-                            ? `4px solid ${isRead ? 'rgba(16,185,129,0.5)' : 'rgba(245,158,11,0.5)'}`
-                            : '4px solid var(--border-color)',
-                          backgroundColor: !isActive ? 'var(--bg-surface)' : undefined,
+                            ? `1px solid ${isRead ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)'}`
+                            : '1px solid transparent',
+                          backgroundColor: isActive ? undefined : 'transparent',
                         }}
                       >
                         {/* Left accent bar */}
-                        <div className="absolute left-0 top-2 bottom-2 w-1 transition-colors" style={{
+                        <div className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full transition-colors" style={{
                           backgroundColor: isActive
                             ? isRead ? 'rgb(16,185,129)' : 'rgb(245,158,11)'
                             : 'transparent',
                         }} />
 
                         {/* Function name row */}
-                        <div className="flex items-center gap-2.5 mb-1.5">
-                          <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-bold font-mono ${
+                        <div className="flex items-center gap-2.5 mb-1">
+                          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${
                             isRead
                               ? 'bg-emerald-500/12 text-emerald-500'
                               : 'bg-amber-500/12 text-amber-500'
-                          }`} style={{ border: isRead ? '2px solid rgba(16,185,129,0.3)' : '2px solid rgba(245,158,11,0.3)' }}>
+                          }`}>
                             {isRead ? 'R' : 'W'}
                           </span>
-                          <span className="text-[14px] font-bold font-mono truncate" style={{
+                          <span className="text-[13px] font-bold font-mono truncate" style={{
                             color: isActive
                               ? isRead ? 'rgb(16,185,129)' : 'rgb(245,158,11)'
                               : 'var(--text-primary)',
                           }}>{fn.name}</span>
                           {fn.stateMutability === 'payable' && (
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 bg-amber-500/10 text-amber-500/60 ml-auto shrink-0" style={{ border: '2px solid rgba(245,158,11,0.2)' }}>PAYABLE</span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-500/60 ml-auto shrink-0">PAYABLE</span>
                           )}
                         </div>
 
@@ -965,7 +1129,7 @@ export default function ContractsPage() {
                     )
                   })}
                   {filteredFunctions.length === 0 && (
-                    <div className="text-center text-[13px] font-mono py-12 font-bold" style={{ color: 'var(--text-tertiary)', backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)' }}>
+                    <div className="text-center text-[13px] font-mono py-12 rounded-lg font-bold" style={{ color: 'var(--text-tertiary)', backgroundColor: 'var(--bg-input)', border: '1px dashed var(--border-color)' }}>
                       {visibleFunctions.length === 0 ? '-- NO FUNCTIONS --' : '-- NO MATCHES --'}
                     </div>
                   )}
@@ -977,28 +1141,28 @@ export default function ContractsPage() {
                 {selectedFnEntry ? (() => {
                   const isRead = selectedFnEntry.kind === 'read'
                   return (
-                  <div className="p-5 space-y-4 relative overflow-hidden" style={{
-                    border: `4px solid ${isRead ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)'}`,
+                  <div className="p-6 rounded-xl space-y-5 relative overflow-hidden" style={{
+                    border: `1px solid ${isRead ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`,
                     backgroundColor: 'var(--bg-surface)',
                   }}>
                     {/* Top accent line */}
-                    <div className="absolute top-0 left-0 right-0 h-1" style={{ backgroundColor: isRead ? 'rgba(16,185,129,0.4)' : 'rgba(245,158,11,0.4)' }} />
+                    <div className="absolute top-0 left-4 right-4 h-px rounded-full" style={{ background: `linear-gradient(to right, transparent, ${isRead ? 'rgba(16,185,129,0.5)' : 'rgba(245,158,11,0.5)'}, transparent)` }} />
 
                     {/* Function header */}
                     <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 text-[11px] font-bold font-mono ${
+                      <span className={`px-3 py-1 rounded-md text-[11px] font-bold font-mono uppercase ${
                         isRead
                           ? 'bg-emerald-500/12 text-emerald-500'
                           : 'bg-amber-500/12 text-amber-500'
-                      }`} style={{ border: isRead ? '2px solid rgba(16,185,129,0.3)' : '2px solid rgba(245,158,11,0.3)' }}>{selectedFnEntry.kind}</span>
+                      }`}>{selectedFnEntry.kind}</span>
                       <span className="text-lg font-bold font-mono" style={{ color: 'var(--text-primary)' }}>{selectedFnEntry.name}</span>
                       {selectedFnEntry.stateMutability === 'payable' && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 bg-amber-500/10 text-amber-500/60" style={{ border: '2px solid rgba(245,158,11,0.2)' }}>PAYABLE</span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500/60">PAYABLE</span>
                       )}
                     </div>
 
                     {/* Full signature */}
-                    <div className="px-4 py-3" style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)' }}>
+                    <div className="px-4 py-3 rounded-lg" style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
                       <code className="text-[13px] font-mono leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                         <span style={{ color: isRead ? 'rgb(16,185,129)' : 'rgb(245,158,11)', opacity: 0.6 }}>fn </span>
                         {selectedFnEntry.name}
@@ -1028,7 +1192,7 @@ export default function ContractsPage() {
                     {/* ETH value for write */}
                     {selectedFnEntry.kind === 'write' && (
                       <div>
-                        <label className="text-[12px] font-mono mb-1 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                        <label className="text-[12px] font-mono mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
                           ETH value <span style={{ color: 'var(--text-tertiary)' }}>:: optional</span>
                         </label>
                         <input
@@ -1036,8 +1200,8 @@ export default function ContractsPage() {
                           value={ethValue}
                           onChange={(e) => setEthValue(e.target.value)}
                           placeholder="0"
-                          className="w-full px-4 py-3 text-[14px] font-mono focus:outline-none transition-all"
-                          style={{ backgroundColor: 'var(--bg-input)', border: '4px solid var(--border-color)', color: 'var(--text-primary)' }}
+                          className="w-full px-4 py-2.5 rounded-lg text-[14px] font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all"
+                          style={{ backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                         />
                       </div>
                     )}
@@ -1046,16 +1210,16 @@ export default function ContractsPage() {
                     <button
                       onClick={isRead ? handleRead : handleWrite}
                       disabled={reading || sending}
-                      className={`w-full py-3.5 text-[14px] font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-40 flex items-center justify-center gap-2.5 ${
+                      className={`w-full py-3 rounded-lg text-[14px] font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-40 flex items-center justify-center gap-2.5 ${
                         isRead
                           ? 'bg-emerald-500/12 text-emerald-500 hover:bg-emerald-500/20'
                           : 'bg-amber-500/12 text-amber-500 hover:bg-amber-500/20'
                       }`}
                       style={{
-                        border: isRead ? '4px solid rgba(16,185,129,0.4)' : '4px solid rgba(245,158,11,0.4)',
+                        border: isRead ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(245,158,11,0.3)',
                         boxShadow: isRead
-                          ? '0 0 20px rgba(16,185,129,0.08)'
-                          : '0 0 20px rgba(245,158,11,0.08)',
+                          ? '0 0 20px rgba(16,185,129,0.06)'
+                          : '0 0 20px rgba(245,158,11,0.06)',
                       }}
                     >
                       {(reading || sending) ? (
@@ -1072,36 +1236,44 @@ export default function ContractsPage() {
 
                     {/* Read result */}
                     {readResult !== null && (
-                      <div className="p-4 relative overflow-hidden" style={{ backgroundColor: 'var(--bg-input)', border: '4px solid rgba(16,185,129,0.4)' }}>
-                        <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500/30" />
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="p-4 rounded-lg relative overflow-hidden"
+                        style={{ backgroundColor: 'var(--bg-input)', border: '1px solid rgba(16,185,129,0.3)' }}
+                      >
+                        <div className="absolute top-0 left-0 right-0 h-px bg-emerald-500/30" />
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[11px] font-bold tracking-wider font-mono text-emerald-500/60">Output</span>
                           <CopyButton text={readResult} size="sm" />
                         </div>
-                        <pre className="text-[16px] font-mono font-bold whitespace-pre-wrap break-all leading-relaxed" style={{ color: 'var(--text-primary)' }}>{readResult}</pre>
-                      </div>
+                        <pre className="text-[15px] font-mono font-bold whitespace-pre-wrap break-all leading-relaxed" style={{ color: 'var(--text-primary)' }}>{readResult}</pre>
+                      </motion.div>
                     )}
                   </div>
                   )
                 })() : (
-                  <div className="flex flex-col items-center justify-center h-80" style={{
+                  <div className="flex flex-col items-center justify-center h-80 rounded-xl" style={{
                     color: 'var(--text-tertiary)',
-                    border: '4px dashed var(--border-color)',
+                    border: '1px dashed var(--border-color)',
                     backgroundColor: 'var(--bg-input)',
                   }}>
-                    <div className="w-10 h-10 mb-4 flex items-center justify-center" style={{ border: '4px solid var(--border-color)' }}>
-                      <svg className="w-5 h-5" style={{ color: 'var(--text-tertiary)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <div className="w-12 h-12 mb-4 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                      <svg className="w-5 h-5" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
                     </div>
-                    <span className="text-[14px] font-mono font-bold">Select a function to interact</span>
+                    <span className="text-[14px] font-mono" style={{ color: 'var(--text-tertiary)' }}>Select a function to interact</span>
                   </div>
                 )}
               </div>
             </div>
 
             {!showRead && !showWrite && (
-              <p className="text-[14px] mt-6 text-center font-mono font-bold" style={{ color: 'var(--text-tertiary)' }}>Enable Read or Write to see functions</p>
+              <p className="text-[14px] mt-6 text-center font-mono" style={{ color: 'var(--text-tertiary)' }}>Enable Read or Write to see functions</p>
+            )}
+            </>
             )}
           </div>
           )

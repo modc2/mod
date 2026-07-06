@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>filecoin · mod</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #0b0d10; color: #d8dee4;
+    max-width: 960px; margin-inline: auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: 0.5px; }
+  h2 { font-size: 13px; margin: 24px 0 8px; color: #7a8896; text-transform: uppercase; letter-spacing: 1px; }
+  .sub { color: #7a8896; font-size: 12px; margin-bottom: 24px; }
+  .card { background: #14181d; border: 1px solid #20262d; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  textarea, input[type=text] {
+    width: 100%; background: #0b0d10; color: #d8dee4;
+    border: 1px solid #20262d; border-radius: 6px; padding: 8px;
+    font-family: inherit; font-size: 13px;
+  }
+  textarea { resize: vertical; min-height: 80px; }
+  button {
+    background: #1d8a3a; color: white; border: 0;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 13px;
+  }
+  button:hover { background: #20a142; }
+  button.ghost { background: transparent; color: #7a8896; border: 1px solid #20262d; }
+  button.ghost:hover { color: #d8dee4; border-color: #2c343d; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > input { flex: 1; min-width: 200px; }
+  pre {
+    background: #0b0d10; border: 1px solid #20262d; border-radius: 6px;
+    padding: 10px; overflow: auto; max-height: 320px;
+    font-size: 12px; margin: 8px 0 0;
+  }
+  .cid { color: #74c0fc; word-break: break-all; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 99px;
+    font-size: 11px; background: #1c2730; color: #74c0fc;
+  }
+  .pill.warn { background: #2a1f12; color: #f5a142; }
+  .pill.bad  { background: #2a1418; color: #ff6b6b; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #20262d; }
+  th { color: #7a8896; font-weight: normal; }
+  td button { padding: 2px 8px; font-size: 11px; }
+  a { color: #74c0fc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <h1>filecoin</h1>
+  <div class="sub" id="sub">Store and retrieve data on Filecoin · <span id="status-pill" class="pill">…</span></div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Store</h2>
+    <textarea id="data" placeholder='{"hello":"filecoin"} or any text'></textarea>
+    <div class="row" style="margin-top:8px">
+      <input id="name" type="text" placeholder="optional filename" />
+      <input id="file" type="file" />
+      <button onclick="putData()">Store</button>
+    </div>
+    <pre id="put-result" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Retrieve</h2>
+    <div class="row">
+      <input id="cid" type="text" placeholder="bafy… / Qm…" />
+      <button onclick="getCid()">Get</button>
+      <button class="ghost" onclick="getDeals()">Deals</button>
+    </div>
+    <pre id="get-result" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Stored
+      <button class="ghost" style="float:right" onclick="refresh()">refresh</button>
+    </h2>
+    <table id="list">
+      <thead><tr><th>CID</th><th>name</th><th>size</th><th>backend</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Chain</h2>
+    <div class="row">
+      <button onclick="chainHead()">Lotus chain head</button>
+    </div>
+    <pre id="chain-result" hidden></pre>
+  </div>
+
+<script>
+const API = location.origin + '/api';
+
+function show(id, val) {
+  const el = document.getElementById(id);
+  el.hidden = false;
+  el.textContent = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+}
+
+async function jget(path)  { const r = await fetch(API+path); return r.json(); }
+async function jpost(path, body, opts={}) {
+  const r = await fetch(API+path, {method:'POST', body, ...opts});
+  return r.json();
+}
+
+async function statusCheck() {
+  try {
+    const s = await jget('/status');
+    const pill = document.getElementById('status-pill');
+    if (s.lotus?.ok) {
+      pill.className = 'pill';
+      pill.textContent = `lotus ✓ height ${s.lotus.height}` +
+        (s.lighthouse_configured ? ' · lighthouse ✓' : ' · lighthouse off');
+    } else {
+      pill.className = 'pill warn';
+      pill.textContent = 'lotus offline';
+    }
+  } catch (e) {
+    document.getElementById('status-pill').className = 'pill bad';
+    document.getElementById('status-pill').textContent = 'api unreachable';
+  }
+}
+
+async function putData() {
+  const file = document.getElementById('file').files[0];
+  let result;
+  if (file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    result = await jpost('/put', fd);
+  } else {
+    const data = document.getElementById('data').value;
+    const name = document.getElementById('name').value || undefined;
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { parsed = data; }
+    result = await jpost('/put', JSON.stringify({data: parsed, name}),
+                         {headers:{'Content-Type':'application/json'}});
+  }
+  show('put-result', result);
+  if (result.cid) document.getElementById('cid').value = result.cid;
+  refresh();
+}
+
+async function getCid() {
+  const cid = document.getElementById('cid').value.trim();
+  if (!cid) return;
+  try {
+    const r = await fetch(`${API}/get/${cid}`);
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('application/json')) show('get-result', await r.json());
+    else show('get-result', await r.text());
+  } catch (e) { show('get-result', String(e)); }
+}
+
+async function getDeals() {
+  const cid = document.getElementById('cid').value.trim();
+  if (!cid) return;
+  show('get-result', await jget(`/deals/${cid}`));
+}
+
+async function chainHead() {
+  show('chain-result', await jget('/chain/head'));
+}
+
+async function refresh() {
+  const r = await jget('/list');
+  const tbody = document.querySelector('#list tbody');
+  tbody.innerHTML = '';
+  for (const item of (r.items || [])) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="cid">${item.cid}</span></td>
+      <td>${item.name || ''}</td>
+      <td>${item.size ?? ''}</td>
+      <td>${item.backend}</td>
+      <td>
+        <button class="ghost" onclick="document.getElementById('cid').value='${item.cid}';getCid()">get</button>
+        <button class="ghost" onclick="rm('${item.cid}')">rm</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function rm(cid) {
+  await fetch(`${API}/rm/${cid}`, {method:'DELETE'});
+  refresh();
+}
+
+statusCheck();
+refresh();
+</script>
+</body>
+</html>

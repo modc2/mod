@@ -6,7 +6,7 @@ import { ArrowPathIcon, ArrowRightStartOnRectangleIcon, XMarkIcon, CheckIcon } f
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-toastify'
 import DebitABI from '@/contracts/market/debit/Debit.sol/Debit.json'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { Auth } from '@/client/auth'
 
 const WalletModeLogo = ({ mode, size = 16 }: { mode: string; size?: number }) => {
@@ -43,7 +43,7 @@ const WalletModeLogo = ({ mode, size = 16 }: { mode: string; size?: number }) =>
 }
 
 function getDebitAddress(): string {
-  const chainConfig = (modConfig.chain as any)?.testnet
+  const chainConfig = getChainConfig()
   return chainConfig?.contracts?.Debit?.address || ''
 }
 

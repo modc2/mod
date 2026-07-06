@@ -1,114 +1,79 @@
 {
-  "name": "agent",
-  "version": "3.1.0",
-  "description": "Autonomous coding agent. 21 skills for software engineering. Claude module interface with owner permissions and portal sandboxing.",
-  "fns": [
-    "forward",
-    "run_skill",
-    "skill_schema",
-    "serve",
-    "kill",
-    "status",
-    "health",
-    "test",
-    "is_owner",
-    "allowed_paths_for"
-  ],
-  "schema": {
-    "forward": {
-      "method": "POST", "path": "/forward", "auth": true,
-      "input": [
-        {"name": "action", "type": "str", "value": null},
-        {"name": "params", "type": "dict", "value": {}},
-        {"name": "key", "type": "str", "value": null, "docs": "Caller key/address/token. Owner=unrestricted, others=portal only."}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Mod protocol entry point: dispatch any action. Write ops are path-restricted for non-owners."
+    "name": "agent",
+    "version": "3.1.0",
+    "description": "Autonomous coding agent. 21 skills for software engineering. Claude module interface with owner permissions and portal sandboxing.",
+    "owner": "0x7d7c323496eD80E16d47b036607c586fB33dd123",
+    "fns": [
+        "forward",
+        "run_skill",
+        "skill_schema",
+        "serve",
+        "kill",
+        "status",
+        "health",
+        "test",
+        "is_owner",
+        "allowed_paths_for"
+    ],
+    "schema": "QmUoYUR9QNkYB416abCvWU7B56VTj6g9Esc8Erqsmau6fC",
+    "skills": [
+        "bash",
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep",
+        "search",
+        "task",
+        "fetch",
+        "patch",
+        "think",
+        "git",
+        "test",
+        "lint",
+        "symbols",
+        "diff",
+        "tree",
+        "todo",
+        "context",
+        "debug",
+        "refactor"
+    ],
+    "agent_types": [
+        {
+            "value": "default",
+            "label": "Default",
+            "icon": ">_"
+        },
+        {
+            "value": "architect",
+            "label": "Architect",
+            "icon": "\u25b3"
+        },
+        {
+            "value": "reviewer",
+            "label": "Reviewer",
+            "icon": "\u25c9"
+        },
+        {
+            "value": "debugger",
+            "label": "Debugger",
+            "icon": "\u2b21"
+        },
+        {
+            "value": "builder",
+            "label": "Builder",
+            "icon": "\u25c6"
+        },
+        {
+            "value": "refactorer",
+            "label": "Refactorer",
+            "icon": "\u27f3"
+        }
+    ],
+    "urls": {
+        "api": "http://localhost:50117",
+        "app": "http://localhost:3117"
     },
-    "run": {
-      "method": "POST", "path": "/run", "auth": true,
-      "input": [
-        {"name": "query", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"},
-        {"name": "steps", "type": "int", "value": 10},
-        {"name": "skills", "type": "list", "value": null},
-        {"name": "temperature", "type": "float", "value": 0.0},
-        {"name": "safety", "type": "bool", "value": false},
-        {"name": "agent_type", "type": "str", "value": null},
-        {"name": "chain", "type": "list", "value": null},
-        {"name": "key", "type": "str", "value": null, "docs": "Caller key/address/token for permissions"}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Run agent loop with LLM. Owner can edit any file. Others restricted to portal/{address}/."
-    },
-    "run_skill": {
-      "method": "POST", "path": "/skills/run", "auth": true,
-      "input": [
-        {"name": "name", "type": "str", "value": null},
-        {"name": "params", "type": "dict", "value": {}},
-        {"name": "key", "type": "str", "value": null, "docs": "Caller key for write permission checks"}
-      ],
-      "output": {"type": "dict"},
-      "docs": "Run a single skill by name. Write skills are path-restricted for non-owners."
-    },
-    "health": {
-      "method": "GET", "path": "/health", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Health check"
-    },
-    "config": {
-      "method": "GET", "path": "/config", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get module config.json"
-    },
-    "owner": {
-      "method": "GET", "path": "/owner", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get module owner info"
-    },
-    "status": {
-      "method": "GET", "path": "/status", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Module status"
-    },
-    "skills": {
-      "method": "GET", "path": "/skills", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "List skills and schemas"
-    },
-    "skill_schema": {
-      "method": "GET", "path": "/schema", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "Get skill schemas for LLM tool descriptions"
-    },
-    "agents": {
-      "method": "GET", "path": "/agents", "auth": false,
-      "input": [],
-      "output": {"type": "dict"},
-      "docs": "List agent personas and chain presets"
-    }
-  },
-  "skills": [
-    "bash", "read", "write", "edit", "glob", "grep", "search", "task",
-    "fetch", "patch", "think", "git", "test", "lint", "symbols", "diff",
-    "tree", "todo", "context", "debug", "refactor"
-  ],
-  "agent_types": [
-    {"value": "default", "label": "Default", "icon": ">_"},
-    {"value": "architect", "label": "Architect", "icon": "△"},
-    {"value": "reviewer", "label": "Reviewer", "icon": "◉"},
-    {"value": "debugger", "label": "Debugger", "icon": "⬡"},
-    {"value": "builder", "label": "Builder", "icon": "◆"},
-    {"value": "refactorer", "label": "Refactorer", "icon": "⟳"}
-  ],
-  "urls": {
-    "api": "http://localhost:50117",
-    "app": "http://localhost:3117"
-  }
+    "gateway_port": 3117
 }

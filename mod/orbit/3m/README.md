@@ -1,39 +1,22 @@
 # 3m
 
-Uniswap GraphQL scraper module.
+A mod orbit module.
 
-## Quick Start
+## Path
 
-```bash
-cd /Users/broski/mod/mod/orbit/3m
+`/root/mod/mod/orbit/3m`
 
-pip install -r requirements.txt
-```
+## Entry points
+
+- `forward(**kwargs)` — default entry point; returns `info()`.
+- `info()` — returns `{ name, description, path, files }`.
+- `readme()` — returns the contents of this file.
+
+## Usage
 
 ```python
-from 3m.mod import Mod
-
-mod = Mod()
-result = mod.forward(5, 10)
-```
-
-## Project Structure
-
-```
-3m/
-├── 3m/
-│   └── mod.py
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── TUTORIAL.md
-└── README.md
-```
-
-## Docker
-
-```bash
-docker-compose up --build
-docker-compose up -d
-docker-compose down
+import mod as m
+mod = m.mod('3m')
+mod.info()
+mod.readme()
 ```

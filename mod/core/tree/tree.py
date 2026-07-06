@@ -5,8 +5,8 @@ from typing import Dict, List, Optional
 class Tree:
     """Module tree discovery, caching, and search."""
 
-    orbits = ['core', 'orbit', 'portal']
-    orbit2depth = { 'orbit': 2, 'core': 10, 'portal': 3}
+    orbits = ['core', 'orbit', 'mods']
+    orbit2depth = { 'orbit': 1, 'core': 10, 'mods': 2}
     ignore_suffixes = ['/src', '/core']
     tree_cache = {}
 
@@ -88,9 +88,9 @@ class Tree:
                 or k_lower.endswith('.' + search)
                 or k_lower.startswith(search + '.'))
 
-    def search(self, search=None, tree=None, depth=2, max_depth=4,
+    def search(self, search=None, tree=None, depth=None, max_depth=4,
                key=None, orbit='all', **kwargs) -> Dict[str, str]:
-        """Search the tree for a mod."""
+        """Search the tree for a mod. Starts at orbit default depth, expands up to max_depth."""
         if orbit == 'all':
             result = {}
             for o in self.orbits + ['local']:
@@ -102,6 +102,8 @@ class Tree:
             result = dict(sorted(result.items(), key=lambda item: len(item[0])))
             return result
 
+        if depth is None:
+            depth = self.orbit2depth.get(orbit, 1)
         search = search.lower().replace('/', '.')
         tree = tree or self.tree(depth=depth, orbit=orbit, key=key, **kwargs)
         if search is None:

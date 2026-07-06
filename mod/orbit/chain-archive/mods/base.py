@@ -11,7 +11,7 @@ import os
 import mod as m
 
 
-class ContractModule:
+class m.mod('chain.contracts')ule:
     """Base class for chain contract modules.
 
     Subclasses set:
@@ -57,7 +57,7 @@ class ContractModule:
         import inspect
         # Walk up the MRO to find the subclass file
         for cls in type(self).__mro__:
-            if cls is ContractModule:
+            if cls is m.mod('chain.contracts')ule:
                 continue
             src = inspect.getfile(cls)
             return os.path.dirname(src)

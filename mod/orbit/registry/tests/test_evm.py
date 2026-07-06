@@ -5,9 +5,12 @@ import sys
 import os
 from unittest.mock import MagicMock, patch, PropertyMock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _root)
+sys.path.insert(0, os.path.join(_root, 'onchain', 'src'))
+sys.path.insert(0, os.path.join(_root, 'registry'))
 
-from registry.evm import EVMRegistry, REGISTRY_ABI
+from evm.evm import EVMRegistry, REGISTRY_ABI
 
 
 class TestEVMInit:

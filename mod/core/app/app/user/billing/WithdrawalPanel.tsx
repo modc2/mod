@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { userContext } from '@/context'
 import { AlertCircle } from 'lucide-react'
 import { Market } from '@/network/Market'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 import { ethers } from 'ethers'
 
 type TokenType = 'USDC' | 'USDT'
@@ -30,8 +30,7 @@ export const WithdrawalPanel: React.FC = () => {
   const LOCKUP_DAYS = 7
 
   useEffect(() => {
-    const network = 'testnet'
-    const chainConfig = modConfig.chain?.[network]
+    const chainConfig = getChainConfig()
     if (chainConfig) {
       setMarket(new Market(chainConfig))
     }
@@ -53,7 +52,7 @@ export const WithdrawalPanel: React.FC = () => {
         return
       }
       const provider = new ethers.BrowserProvider(window.ethereum)
-      const marketAddress = modConfig.chain.testnet.contracts.Market.address
+      const marketAddress = getChainConfig().contracts.Market.address
       const MarketABI = (await import('@/contracts//market/Market.sol/Market.json')).default
       const marketContract = new ethers.Contract(marketAddress, MarketABI.abi, provider)
       
@@ -120,7 +119,7 @@ export const WithdrawalPanel: React.FC = () => {
       }
       const provider = new ethers.BrowserProvider(window.ethereum)
       const signer = await provider.getSigner(user.key)
-      const marketAddress = modConfig.chain.testnet.contracts.Market.address
+      const marketAddress = getChainConfig().contracts.Market.address
       const MarketABI = (await import('@/contracts//market/Market.sol/Market.json')).default
       const marketContract = new ethers.Contract(marketAddress, MarketABI.abi, signer)
 

@@ -7,50 +7,75 @@ async function main() {
   let nonce = await deployer.getNonce();
   const send = (opts) => ({ ...opts, nonce: nonce++ });
 
-  // ── 1. Deploy Subnet ERC20 token (1M initial supply) ──────────────
-  const initialSupply = hre.ethers.parseEther("1000000");
-  const Subnet = await hre.ethers.getContractFactory("Subnet");
-  const subnet = await Subnet.deploy("StakeTimeNet", "STN", initialSupply, send({}));
-  await subnet.waitForDeployment();
-  const subnetAddress = await subnet.getAddress();
-  console.log(`Subnet (ERC20) deployed to: ${subnetAddress}`);
+  // ── 1. Deploy Owner (EOA mode, admin = deployer) ────────────────
+  const OwnerContract = await hre.ethers.getContractFactory("Owner");
+  const owner = await OwnerContract.deploy(deployer.address, send({}));
+  await owner.waitForDeployment();
+  const ownerAddress = await owner.getAddress();
+  console.log(`Owner deployed to: ${ownerAddress}`);
 
-  // ── 2. Deploy StakeTime (consensus mechanism) ───────────────────
+  // ── 2. Deploy Mod ERC20 token (zero initial supply) ─────────────
+  const ModToken = await hre.ethers.getContractFactory("Mod");
+  const modToken = await ModToken.deploy("StakeTimeNet", "STN", send({}));
+  await modToken.waitForDeployment();
+  const modTokenAddress = await modToken.getAddress();
+  console.log(`Mod (ERC20) deployed to: ${modTokenAddress}`);
+
+  // ── 3. Deploy StakeTime (ERC20 + staking) ───────────────────────
   const maxLockBlocks = 100000;
   const maxStakersPerValidator = 100;
   const defaultCommissionBps = 1000;   // 10%
+
+  const StakeTime = await hre.ethers.getContractFactory("StakeTime");
+  const staking = await StakeTime.deploy(
+    modTokenAddress,
+    maxLockBlocks,
+    maxStakersPerValidator,
+    defaultCommissionBps,
+    send({})
+  );
+  await staking.waitForDeployment();
+  const stakingAddress = await staking.getAddress();
+  console.log(`StakeTime (STT) deployed to: ${stakingAddress}`);
+
+  // ── 4. Deploy ConsensusYuma (scoring + emissions) ───────────────
   const epochLength = 43200;           // ~1 day on Base
   const emissionRate = hre.ethers.parseEther("100"); // 100 tokens per epoch
   const decayBps = 500;                              // 5% decay
 
-  const StakeTime = await hre.ethers.getContractFactory("StakeTime");
-  const stakeTime = await StakeTime.deploy(
-    subnetAddress,       // nativeToken (staked token)
-    subnetAddress,       // subnet (emission token)
-    maxLockBlocks,
-    maxStakersPerValidator,
-    defaultCommissionBps,
-    epochLength,
+  const ConsensusYuma = await hre.ethers.getContractFactory("ConsensusYuma");
+  const consensus = await ConsensusYuma.deploy(
+    modTokenAddress,       // mod token (emission token)
+    stakingAddress,        // staking contract (reads validator/stake data)
     emissionRate,
     decayBps,
+    epochLength,
     send({})
   );
-  await stakeTime.waitForDeployment();
-  const stakeTimeAddress = await stakeTime.getAddress();
-  console.log(`StakeTime deployed to: ${stakeTimeAddress}`);
+  await consensus.waitForDeployment();
+  const consensusAddress = await consensus.getAddress();
+  console.log(`ConsensusYuma deployed to: ${consensusAddress}`);
 
-  // ── 3. Wire permissions ─────────────────────────────────────────
-  // StakeTime mints new Subnet tokens for emissions
-  await (await subnet.setMinter(stakeTimeAddress, send({}))).wait();
-  console.log(`Subnet minter set to StakeTime`);
+  // ── 5. Wire permissions via Owner ───────────────────────────────
+  // Transfer ownership of all contracts to Owner
+  await (await modToken.transferOwnership(ownerAddress, send({}))).wait();
+  await (await staking.transferOwnership(ownerAddress, send({}))).wait();
+  await (await consensus.transferOwnership(ownerAddress, send({}))).wait();
+  console.log(`All contracts ownership transferred to Owner`);
 
-  // ── 4. Deploy governance token for Registry ─────────────────────
-  const govToken = await Subnet.deploy("Governance", "GOV", hre.ethers.parseEther("10000000"), send({}));
+  // Owner sets consensus as minter on Mod token
+  const setMinterData = modToken.interface.encodeFunctionData("setMinter", [consensusAddress]);
+  await (await owner.execute(modTokenAddress, setMinterData, send({}))).wait();
+  console.log(`Mod minter set to ConsensusYuma (via Owner)`);
+
+  // ── 6. Deploy governance token for Registry ─────────────────────
+  const GovToken = await hre.ethers.getContractFactory("Mod");
+  const govToken = await GovToken.deploy("Governance", "GOV", send({}));
   await govToken.waitForDeployment();
   const govTokenAddress = await govToken.getAddress();
   console.log(`Governance token deployed to: ${govTokenAddress}`);
 
-  // ── 5. Deploy Registry ──────────────────────────────────────────
+  // ── 7. Deploy Registry ──────────────────────────────────────────
   const immunityPeriod = 43200;
   const registrationCost = hre.ethers.parseEther("1000");
 
@@ -60,13 +85,23 @@ async function main() {
   const registryAddress = await registry.getAddress();
   console.log(`Registry deployed to: ${registryAddress}`);
 
-  // ── 6. Register genesis subnet ──────────────────────────────────
-  // StakeTime IS the consensus — pass same address for both stakeTime and consensus
-  await (await govToken.approve(registryAddress, registrationCost, send({}))).wait();
-  await (await registry.registerSubnet("genesis", subnetAddress, stakeTimeAddress, stakeTimeAddress, send({}))).wait();
-  console.log(`Genesis subnet registered (locked ${hre.ethers.formatEther(registrationCost)} GOV)`);
+  // Transfer Registry ownership to Owner
+  await (await registry.transferOwnership(ownerAddress, send({}))).wait();
+  console.log(`Registry ownership transferred to Owner`);
 
-  // ── 7. Save deployment info (network-specific) ─────────────────
+  // ── 8. Register genesis mod ─────────────────────────────────────
+  // Governance token needs minter set so deployer can mint for registration
+  await (await govToken.setMinter(deployer.address, send({}))).wait();
+  await (await govToken.mint(deployer.address, registrationCost, send({}))).wait();
+  await (await govToken.approve(registryAddress, registrationCost, send({}))).wait();
+  await (await registry.registerMod("genesis", modTokenAddress, stakingAddress, consensusAddress, send({}))).wait();
+  console.log(`Genesis mod registered (locked ${hre.ethers.formatEther(registrationCost)} GOV)`);
+
+  // Transfer GOV token ownership to Owner too
+  await (await govToken.transferOwnership(ownerAddress, send({}))).wait();
+  console.log(`GOV token ownership transferred to Owner`);
+
+  // ── 9. Save deployment info (network-specific) ──────────────────
   const fs = require("fs");
   const path = require("path");
   const configPath = path.join(__dirname, "..", "config.json");
@@ -79,11 +114,12 @@ async function main() {
 
   if (!config.contracts) config.contracts = {};
   config.contracts[network] = {
-    subnet: subnetAddress,
-    stakeTime: stakeTimeAddress,
+    owner: ownerAddress,
+    mod: modTokenAddress,
+    staking: stakingAddress,
+    consensus: consensusAddress,
     governanceToken: govTokenAddress,
     registry: registryAddress,
-    address: subnetAddress,
     chainId: hre.network.config.chainId,
     emissionRate: emissionRate.toString(),
     decayBps,

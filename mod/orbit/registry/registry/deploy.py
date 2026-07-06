@@ -62,7 +62,7 @@ def deploy_evm(network='testnet'):
     print(f'  EVM Registry Deploy → {network}')
     print(f'{"="*60}')
 
-    evm_dir = os.path.join(DIR, 'evm')
+    evm_dir = os.path.join(DIR, '..', 'onchain', 'src', 'evm')
 
     # Check for node_modules
     if not os.path.exists(os.path.join(evm_dir, 'node_modules')):
@@ -113,7 +113,7 @@ def deploy_near(network='testnet'):
     print(f'  NEAR Registry Deploy → {network}')
     print(f'{"="*60}')
 
-    near_dir = os.path.join(DIR, 'near')
+    near_dir = os.path.join(DIR, '..', 'onchain', 'src', 'near')
     deploy_script = os.path.join(near_dir, 'deploy.sh')
 
     if not os.path.exists(deploy_script):
@@ -154,7 +154,7 @@ def deploy_solana(network='devnet'):
     print(f'  Solana Registry Deploy → {network}')
     print(f'{"="*60}')
 
-    solana_dir = os.path.join(DIR, 'solana')
+    solana_dir = os.path.join(DIR, '..', 'onchain', 'src', 'solana')
 
     if not os.path.exists(os.path.join(solana_dir, 'Anchor.toml')):
         print('  Anchor.toml not found. Solana deploy requires Anchor framework.')

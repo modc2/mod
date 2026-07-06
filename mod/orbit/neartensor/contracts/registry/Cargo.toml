@@ -1,0 +1,17 @@
+[package]
+name = "neartensor-registry"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = { workspace = true }
+getrandom = { version = "0.2", features = ["custom"] }
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
+near-workspaces = "0.14"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"

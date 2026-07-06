@@ -16,6 +16,10 @@ class Api:
     folder_path = m.abspath('~/.mod/api')
     threads = {}
 
+    _worker_started = False
+    _config_cache = {}
+    _config_cache_time = {}
+
     def __init__(self, key=None, store=None, auth='auth.base'):
         store = store or m.config('api').get('store', 'localfs')
         self.store = m.mod(store)()
@@ -26,6 +30,18 @@ class Api:
             self._meter = m.mod('meter')()
         except Exception:
             self._meter = None
+        if not Api._worker_started:
+            Api._worker_started = True
+            self._reg.start_worker(interval=300)
+            # Daily-ish push of the local registry index to CID storage.
+            # Pinned to localfs for now; multistore (ipfs/filecoin) follows
+            # once the surrounding modules stabilize.
+            try:
+                self._reg.start_onchain_sync(interval=86400, backends=('localfs',))
+            except Exception as e:
+                m.print(f'registry onchain_sync init failed: {e}', color='yellow')
+            # Start config scanner worker
+            self.threads['config_scanner'] = m.thread(self._config_scanner_worker)
 
     def _record(self, user: str, fn: str, duration: float, status: str = 'success', **kw):
         """Record usage in the meter if available."""
@@ -35,11 +51,272 @@ class Api:
             except Exception:
                 pass
 
+    def _config_scanner_worker(self):
+        """Worker that scans module configs every 1 second and updates registry/routes.
+
+        Uses caching to avoid redundant config reads and only syncs when changes detected.
+        """
+        import threading
+        while True:
+            try:
+                time.sleep(1)  # Scan every 1 second
+                self._scan_and_sync_configs()
+            except Exception as e:
+                m.print(f'Config scanner error: {e}', color='red')
+
+    def _scan_and_sync_configs(self):
+        """Scan all module configs, detect changes, and sync to registry/routy."""
+        import hashlib
+
+        # Get all local modules
+        try:
+            local_mods = m.tree.orbit('orbit') or {}
+        except Exception:
+            return
+
+        changed_mods = []
+        current_time = time.time()
+
+        for mod_name, mod_path in local_mods.items():
+            try:
+                config_path = os.path.join(mod_path, 'config.json')
+                if not os.path.exists(config_path):
+                    continue
+
+                # Get file modification time
+                mod_time = os.path.getmtime(config_path)
+
+                # Check cache
+                cache_key = f'{mod_name}:mtime'
+                cached_mtime = Api._config_cache_time.get(cache_key)
+
+                if cached_mtime and cached_mtime == mod_time:
+                    # Config hasn't changed, skip
+                    continue
+
+                # Read and hash config
+                with open(config_path, 'r') as f:
+                    config_data = f.read()
+
+                config_hash = hashlib.sha256(config_data.encode()).hexdigest()
+
+                # Check if hash changed
+                hash_cache_key = f'{mod_name}:hash'
+                cached_hash = Api._config_cache.get(hash_cache_key)
+
+                if cached_hash != config_hash:
+                    # Config changed - parse and check for registry/routing updates
+                    try:
+                        config = json.loads(config_data)
+
+                        # Update cache
+                        Api._config_cache[hash_cache_key] = config_hash
+                        Api._config_cache_time[cache_key] = mod_time
+
+                        # Check if module has API/app URLs or endpoints that need routing
+                        needs_routing = (
+                            config.get('port') or
+                            config.get('app_port') or
+                            config.get('urls') or
+                            config.get('endpoints') or
+                            config.get('routes')
+                        )
+
+                        if needs_routing:
+                            changed_mods.append({
+                                'name': mod_name,
+                                'config': config,
+                                'path': mod_path
+                            })
+                    except json.JSONDecodeError:
+                        pass
+            except Exception:
+                continue
+
+        # Sync changed modules to routy
+        if changed_mods:
+            self._sync_to_routy(changed_mods)
+
+    def _sync_to_routy(self, changed_mods):
+        """Sync changed module configs to routy router."""
+        try:
+            # Check if routy is running
+            import requests
+            routy_url = 'http://localhost:3000'
+
+            sync_data = {'apps': [], 'apis': []}
+
+            # Get all namespace/registry data once
+            try:
+                ns = self.registry.namespace() or {}
+            except Exception:
+                ns = {}
+
+            try:
+                app_store = m.mod('store')('~/.mod/server/registry')
+                app_reg = app_store.get('app_registry.json', {}) or {}
+            except Exception:
+                app_reg = {}
+
+            for mod_info in changed_mods:
+                name = mod_info['name']
+                config = mod_info['config']
+
+                # Check API namespace
+                if name in ns:
+                    url = ns[name].replace('0.0.0.0', '127.0.0.1')
+                    # Extract storage info from config
+                    storage_type = config.get('storage_type')
+                    cid = config.get('schema') or config.get('cid')
+
+                    sync_data['apis'].append({
+                        'name': name,
+                        'target_url': url,
+                        'storage_type': storage_type,
+                        'cid': cid,
+                    })
+
+                # Check app registry
+                if name in app_reg and isinstance(app_reg[name], dict):
+                    if 'url' in app_reg[name]:
+                        storage_type = config.get('storage_type')
+                        cid = config.get('schema') or config.get('cid')
+
+                        sync_data['apps'].append({
+                            'name': name,
+                            'target_url': app_reg[name]['url'],
+                            'storage_type': storage_type,
+                            'cid': cid,
+                        })
+
+            # Send sync request if there's data
+            if sync_data['apps'] or sync_data['apis']:
+                try:
+                    requests.post(
+                        f'{routy_url}/_api/sync',
+                        json=sync_data,
+                        timeout=2
+                    )
+                    m.print(f'Synced {len(sync_data["apis"])} APIs + {len(sync_data["apps"])} apps to routy', color='green')
+                except requests.RequestException:
+                    pass  # Routy not running or unavailable
+
+            # Also register discovered endpoints/routes
+            self._register_endpoints(changed_mods)
+        except Exception as e:
+            m.print(f'Routy sync error: {e}', color='yellow')
+
+    def _register_endpoints(self, changed_mods):
+        """Register discovered endpoints from config.json to router/registry."""
+        for mod_info in changed_mods:
+            name = mod_info['name']
+            config = mod_info['config']
+
+            # Register explicit endpoints
+            endpoints = config.get('endpoints', [])
+            if endpoints and isinstance(endpoints, list):
+                for endpoint in endpoints:
+                    if isinstance(endpoint, str):
+                        # Cache endpoint info
+                        cache_key = f'{name}:endpoint:{endpoint}'
+                        Api._config_cache[cache_key] = {
+                            'mod': name,
+                            'endpoint': endpoint,
+                            'discovered_at': time.time()
+                        }
+
+            # Register explicit routes
+            routes = config.get('routes', {})
+            if routes and isinstance(routes, dict):
+                for route_path, route_target in routes.items():
+                    # Cache route info
+                    cache_key = f'{name}:route:{route_path}'
+                    Api._config_cache[cache_key] = {
+                        'mod': name,
+                        'path': route_path,
+                        'target': route_target,
+                        'discovered_at': time.time()
+                    }
+
+    def get_discovered_endpoints(self, mod: str = None) -> Dict[str, Any]:
+        """Get all discovered endpoints from cached config data.
+
+        Args:
+            mod: Optional module name filter
+
+        Returns:
+            Dict of discovered endpoints and routes
+        """
+        endpoints = {}
+        routes = {}
+
+        for key, value in Api._config_cache.items():
+            if ':endpoint:' in key:
+                if mod is None or key.startswith(f'{mod}:'):
+                    mod_name = value.get('mod')
+                    endpoint = value.get('endpoint')
+                    if mod_name not in endpoints:
+                        endpoints[mod_name] = []
+                    endpoints[mod_name].append(endpoint)
+
+            elif ':route:' in key:
+                if mod is None or key.startswith(f'{mod}:'):
+                    mod_name = value.get('mod')
+                    path = value.get('path')
+                    target = value.get('target')
+                    if mod_name not in routes:
+                        routes[mod_name] = {}
+                    routes[mod_name][path] = target
+
+        return {
+            'endpoints': endpoints,
+            'routes': routes,
+            'cache_size': len(Api._config_cache),
+            'last_scan': max([v.get('discovered_at', 0) for v in Api._config_cache.values() if isinstance(v, dict) and 'discovered_at' in v], default=0)
+        }
+
     @property
     def router(self):
         if not hasattr(self, '_router'):
             self._router = m.mod('router')()
         return self._router
+
+    @property
+    def registry(self):
+        """Lazy accessor for server.namespace."""
+        if not hasattr(self, '_registry'):
+            self._registry = m.mod('server.namespace')()
+        return self._registry
+
+    def run_job(self, fn: str, params: dict = None, remote: bool = False,
+                timeout: int = 300, wait: bool = True, **kwargs) -> Dict[str, Any]:
+        """Execute a function locally or remotely via worker pool.
+
+        Args:
+            fn: Function path like 'mod/function'
+            params: Parameters dict
+            remote: If True, execute on worker pool; if False, try local first
+            timeout: Timeout in seconds
+            wait: If True, block until result ready; if False, return task info
+            **kwargs: Additional parameters
+
+        Returns:
+            Task result or task info dict
+        """
+        params = params or {}
+        params.update(kwargs)
+
+        # Route through router which handles local vs remote execution
+        return self.router.call(fn=fn, params=params, wait=wait, timeout=timeout)
+
+    def submit_job(self, fn: str, params: dict = None, **kwargs) -> str:
+        """Submit a job for async execution and return task CID.
+
+        Returns:
+            Task CID for tracking
+        """
+        task = self.run_job(fn, params=params, wait=False, **kwargs)
+        return task.get('cid')
 
     def forward(self, **kwargs):
         return {
@@ -208,11 +485,31 @@ class Api:
     def registry(self, key='all', update=False) -> Dict[str, str]:
         return self._reg.registry(key=key, update=update)
 
+    def onchain_history(self, n: int = 20) -> List[Dict[str, Any]]:
+        """Recent daily on-chain registry CIDs (linked-list audit trail)."""
+        return self._reg.onchain_history(n=n)
+
+    def sync_onchain(self, backends: list = None) -> Dict[str, Any]:
+        """One-shot manual trigger of the on-chain registry publish."""
+        return self._reg.sync_onchain(backends=tuple(backends or ('localfs',)))
+
     def _clear(self) -> bool:
         return self._reg._clear()
 
     def schema(self, mod='store', key=None) -> Dict[str, Any]:
         return self._reg.schema(mod=mod, key=key)
+
+    def sync_schemas(self, search=None, depth=1) -> Dict[str, str]:
+        return self._reg.sync_schemas(search=search, depth=depth)
+
+    def start_worker(self, interval=300) -> dict:
+        return self._reg.start_worker(interval=interval)
+
+    def stop_worker(self) -> dict:
+        return self._reg.stop_worker()
+
+    def worker_status(self) -> dict:
+        return self._reg.worker_status()
 
     def setback(self, mod: str, cid: str, key=None, safety=True) -> Dict[str, Any]:
         return self._reg.setback(mod, cid, key=key, safety=safety)
@@ -236,12 +533,12 @@ class Api:
             if not original_path or not os.path.exists(original_path):
                 return {'error': f'Module {mod} not found'}
             key_address = self._reg.key_address(key)
-            new_path = os.path.join(m.paths['orbit']['portal'], key_address, mod.replace('.', '/'))
+            new_path = os.path.join(m.paths['orbit']['mods'], key_address, mod.replace('.', '/'))
             os.makedirs(os.path.dirname(new_path), exist_ok=True)
             if os.path.exists(new_path):
                 shutil.rmtree(new_path)
             shutil.copytree(original_path, new_path)
-            m._tree.orbit('portal', update=True)
+            m._tree.orbit('mods', update=True)
             reg_result = self._reg.reg(mod=mod, key=key, comment=comment or f'forked from {mod}', public=public)
             self._record(user=key or key_address or '', fn=f'fork/{mod}', duration=time.time() - t0)
             return {
@@ -558,21 +855,29 @@ class Api:
     def n(self, *args, **kwargs):
         return len(self.mods(*args, **kwargs))
 
-    def new(self, name='base2', base='base', key=None, update=True):
-        key = self._reg.key_address(key)
-        if key == self.key.address.lower():
-            orbit = 'orbit'
-        else:
-            orbit = 'portal'
-        name = name or base.split('/')[-1]
-        dirpath = m.paths["orbit"][orbit] + '/' + key + '/' + name.replace('.', '/')
-        print(f'Creating new mod {name} at {dirpath} from base {base}')
-        for k, v in m.content(base).items():
-            new_path = dirpath + '/' + k.replace(base, name)
-            m.put_text(new_path, v)
-        m._tree.orbit(orbit, update=True)
-        info = self._reg.reg(mod=name, key=key)
-        return {'name': name, 'path': dirpath, 'msg': 'Mod Created', 'base': base, 'cid': info.get('cid')}
+    def new(self, url: str, name: str = None, key=None, comment=None, **kwargs) -> Dict[str, Any]:
+        """Register a new module from a GitHub URL.
+
+        Usage:
+            c api/new https://github.com/user/repo
+            c api/new user/repo
+
+        Clones the repo into the local orbit, writes config.json provenance,
+        stores content + schema CIDs, and adds an entry to the registry.
+        """
+        if not isinstance(url, str) or not url.strip():
+            return {'error': 'GitHub URL required. Usage: c api/new {github_url}'}
+        url = url.strip()
+
+        is_github_full = 'github.com' in url
+        is_shorthand = '/' in url and len(url.split('/')) == 2 and 'github.com' not in url
+        if not (is_github_full or is_shorthand):
+            return {'error': f'Only GitHub URLs are supported. Got: {url!r}. Use https://github.com/user/repo or user/repo.'}
+
+        t0 = time.time()
+        info = self._reg.reg_git(url, name=name, key=key, comment=comment)
+        self._record(user=key or '', fn=f'new/{info.get("name", url)}', duration=time.time() - t0)
+        return info
 
     def dp(self, path: str, key=None) -> str:
         return self._reg.dp(path, key=key)

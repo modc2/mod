@@ -430,7 +430,7 @@ export default function CreateModule() {
 
             {result.name && registerToKey && (
               <div className="px-6 pt-6 relative">
-                <Link href={`/${result.name}`} className="block relative">
+                <Link href={`/mod/${result.name}`} className="block relative">
                   <button className="w-full py-4 px-8 rounded-xl font-black text-lg tracking-[0.15em] uppercase transition-all border-2 hover:shadow-[0_0_40px_rgba(34,197,94,0.5)] hover:scale-[1.01] active:scale-[0.99] bg-gradient-to-r from-green-500/15 via-emerald-500/20 to-green-500/15 border-green-500 text-green-400 hover:bg-green-500/30 group relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                     <span className="relative z-10 flex items-center justify-center gap-3">

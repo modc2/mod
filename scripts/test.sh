@@ -1,1 +1,0 @@
-./run/start.sh --test

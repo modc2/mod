@@ -1,24 +1,24 @@
-"""Abstract registry backend interface."""
+"""Base class for registry backends."""
 
 
 class RegistryBackend:
     """Base class for all registry backends (EVM, Solana, off-chain)."""
 
-    name = 'base'
+    name: str = 'base'
 
-    def register(self, name: str, data: str, owner: str = None, **kw) -> str:
+    def register(self, name: str, data: dict, owner: str, **kw) -> int:
         """Register a new mod. Returns mod ID."""
         raise NotImplementedError
 
-    def update(self, mod_id: str, data: str, owner: str = None, **kw) -> bool:
+    def update(self, mod_id: int, data: dict, owner: str, **kw) -> bool:
         """Update mod data. Returns success."""
         raise NotImplementedError
 
-    def remove(self, mod_id: str, owner: str = None, **kw) -> bool:
+    def remove(self, mod_id: int, owner: str, **kw) -> bool:
         """Remove a mod. Returns success."""
         raise NotImplementedError
 
-    def get(self, mod_id: str, **kw) -> dict:
+    def get(self, mod_id: int, **kw) -> dict:
         """Get mod by ID. Returns {id, owner, name, data} or None."""
         raise NotImplementedError
 
@@ -30,7 +30,7 @@ class RegistryBackend:
         """Check if name is taken for a given owner."""
         raise NotImplementedError
 
-    def transfer(self, mod_id: str, new_owner: str, owner: str = None, **kw) -> bool:
+    def transfer(self, mod_id: int, new_owner: str, owner: str, **kw) -> bool:
         """Transfer mod ownership. Returns success."""
         raise NotImplementedError
 

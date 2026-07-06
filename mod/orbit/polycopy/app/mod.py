@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app)."""
-    path = r'/Users/broski/mod/mod/orbit/polycopy/app'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -29,9 +29,9 @@ class Mod:
     def install(self):
         """Install project dependencies."""
         import subprocess
-        return subprocess.run(['npm', 'install'], cwd=r'/Users/broski/mod/mod/orbit/polycopy/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'install'], cwd=self.path, capture_output=True, text=True).stdout
 
     def build(self):
         """Build the project."""
         import subprocess
-        return subprocess.run(['npm', 'run', 'build'], cwd=r'/Users/broski/mod/mod/orbit/polycopy/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'run', 'build'], cwd=self.path, capture_output=True, text=True).stdout

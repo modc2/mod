@@ -1,0 +1,15 @@
+{
+    "name": "copilot",
+    "version": "0.1.0",
+    "description": "GitHub Copilot CLI agent (JavaScript contract)",
+    "lang": "javascript",
+    "port": 8845,
+    "app_port": 8846,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "icon": "\u25d0",
+    "color": "#2ea043",
+    "binary": "gh-copilot",
+    "default_model": "copilot",
+    "env_key": "GITHUB_TOKEN",
+    "schema": "QmQyUmw43teDJeb5i98vwivQGH48D9RUhVrkzZnqW7J2yw"
+}

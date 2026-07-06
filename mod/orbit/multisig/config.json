@@ -1,0 +1,41 @@
+{
+  "name": "multisig",
+  "version": "0.1.0",
+  "description": "Multi-chain multisig wallet \u2014 Base (Safe), TAO (Substrate pallet), Solana (Squads)",
+  "port": 50100,
+  "app_port": 3100,
+  "urls": {
+    "api": "http://localhost:50100",
+    "app": "http://localhost:3100"
+  },
+  "fns": [
+    "serve",
+    "kill",
+    "health",
+    "forward"
+  ],
+  "rpc": {
+    "base": "https://mainnet.base.org",
+    "base_sepolia": "https://sepolia.base.org",
+    "tao": "https://lite.chain.opentensor.ai",
+    "solana": "https://api.mainnet-beta.solana.com",
+    "solana_devnet": "https://api.devnet.solana.com"
+  },
+  "contracts": {
+    "base": {
+      "chain_id": 8453,
+      "safe_singleton": "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+      "safe_proxy_factory": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+      "safe_fallback_handler": "0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99"
+    },
+    "base_sepolia": {
+      "chain_id": 84532,
+      "safe_singleton": "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+      "safe_proxy_factory": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+      "safe_fallback_handler": "0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99"
+    }
+  },
+  "mode": "pm2",
+  "schema": "Qmd6fHaPMz7VxJunoPW9stEJwzggsWFBAnsUWkSRdFhEaA",
+  "gateway_port": 3100
+}

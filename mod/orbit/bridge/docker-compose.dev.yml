@@ -1,0 +1,22 @@
+services:
+  bridge:
+    build: .
+    container_name: bridge
+    image: bridge:latest
+    ports:
+      - "8840:8840"
+      - "8841:8841"
+    volumes:
+      - .:/root/mod/mod/orbit/bridge:ro
+      - bridge_node_modules:/root/mod/mod/orbit/bridge/app/node_modules
+    environment:
+      - DEV=1
+    restart: unless-stopped
+
+networks:
+  default:
+    external: true
+    name: modnet
+
+volumes:
+  bridge_node_modules:

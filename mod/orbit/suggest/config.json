@@ -1,39 +1,11 @@
 {
-  "name": "suggest",
-  "version": "1.0.0",
-  "description": "Agent-powered module analyzer that generates suggestions for improvements, fixes, and features.",
-  "fns": [
-    "forward",
-    "batch",
-    "test"
-  ],
-  "schema": {
-    "forward": {
-      "input": [
-        {"name": "mod", "type": "str", "value": null},
-        {"name": "path", "type": "str", "value": null},
-        {"name": "query", "type": "str", "value": null},
-        {"name": "focus", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"},
-        {"name": "steps", "type": "int", "value": 5},
-        {"name": "safety", "type": "bool", "value": false}
-      ],
-      "output": {"type": "dict", "value": null},
-      "docs": "Generate suggestions for a target module. Provide mod name or path."
-    },
-    "batch": {
-      "input": [
-        {"name": "mods", "type": "list", "value": null},
-        {"name": "focus", "type": "str", "value": null},
-        {"name": "model", "type": "str", "value": "anthropic/claude-sonnet-4-5-20250929"}
-      ],
-      "output": {"type": "list", "value": null},
-      "docs": "Run suggestions on multiple modules at once."
-    },
-    "test": {
-      "input": [],
-      "output": {"type": "dict", "value": null},
-      "docs": "Test with the tester module."
-    }
-  }
+    "name": "suggest",
+    "version": "1.0.0",
+    "description": "Agent-powered module analyzer that generates suggestions for improvements, fixes, and features.",
+    "fns": [
+        "forward",
+        "batch",
+        "test"
+    ],
+    "schema": "QmWGk5js22RmWidygzUvjRawNDj1bdpZZUzU6ism2kwREP"
 }

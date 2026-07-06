@@ -1,0 +1,87 @@
+{
+    "name": "localfs",
+    "version": "0.1.0",
+    "description": "Content-addressable local filesystem \u2014 IPFS-compatible CIDs without a daemon.",
+    "port": 8860,
+    "app_port": 8861,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "urls": {
+        "api": "http://localhost:8860",
+        "app": "http://localhost:8861"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "put",
+        "get",
+        "cid",
+        "rm",
+        "pin",
+        "unpin",
+        "pins",
+        "stats",
+        "gc",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module info"
+        },
+        "/stats": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Storage stats"
+        },
+        "/put": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Store data, return CID"
+        },
+        "/get/{cid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Fetch data by CID"
+        },
+        "/cid": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Compute CID without storing"
+        },
+        "/pins": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List pinned CIDs"
+        },
+        "/pin/{cid}": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Pin a CID"
+        },
+        "/unpin/{cid}": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Unpin a CID"
+        },
+        "/rm/{cid}": {
+            "method": "DELETE",
+            "auth": false,
+            "docs": "Remove a CID"
+        },
+        "/gc": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Garbage-collect unpinned blocks"
+        }
+    },
+    "schema": "QmP2mJWcWW9XkFj1PETftdLXRmBdHegRCvqZ2KPWFc9UwN"
+}

@@ -1,0 +1,6 @@
+{
+    "name": "commune",
+    "description": "Run setup.sh to install commune. Usage: m commune/setup m commune/setup dest=~/code/commune m commune/setup repo=https://github.com/commune-ai/commune",
+    "version": "0.1.0",
+    "schema": "QmXVjWYrrUG943TTFNk9LMEqkg1VoQoDg1L4LGtwGJ1a8Z"
+}

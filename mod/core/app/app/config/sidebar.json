@@ -29,9 +29,15 @@
       "label": "AGENT",
       "color": "#a78bfa",
       "type": "direct"
+    },
+    {
+      "href": "/bridge",
+      "label": "BRIDGE",
+      "color": "#f97316",
+      "type": "direct"
     }
   ],
-  "additionalModules": [],
+  "additionalModules": ["venice"],
   "_comment": "Add module names here to include them in the sidebar. Example: [\"agent\", \"ipfs\", \"cache\"]",
   "availableRoutes": [
     "mod",
@@ -49,6 +55,7 @@
     "apps",
     "workers",
     "jobs",
-    "agent"
+    "agent",
+    "coplay"
   ]
 }

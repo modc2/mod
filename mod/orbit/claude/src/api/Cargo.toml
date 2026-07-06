@@ -28,3 +28,5 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
 dirs = "5.0"
+reqwest = { version = "0.12", features = ["json"] }
+agent_base = { path = "../../../dev/src/agent_base_rs" }

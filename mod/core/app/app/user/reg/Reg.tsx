@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Package, Upload, Database, Loader2, CheckCircle, AlertCircle, ArrowUpDown, Plus, Trash2 } from 'lucide-react'
 import {userContext} from '@/context'
-import { web3Enable, web3FromAddress } from '@polkadot/extension-dapp'
+// dynamic import: @polkadot/extension-dapp accesses window at load time
 import { stringToU8a, u8aToHex } from '@polkadot/util'
 import ModCard from '@/mod/ModCard'
 import { ModuleType } from '@/types'
@@ -202,11 +202,12 @@ export const Reg = ( ) => {
         reg_payload = await client.call('reg_url', {'url': modUrl.trim(), 'key':walletAddress , 'collateral': collateral, 'payload': true})
         let messageToSign = JSON.stringify(reg_payload)
 
+        const { web3Enable, web3FromAddress } = await import('@polkadot/extension-dapp')
         const extensions = await web3Enable('MOD')
         if (extensions.length === 0) {
           throw new Error('SubWallet not found. Please install it.')
         }
-        
+
         const injector = await web3FromAddress(walletAddress)
         const signRaw = injector?.signer?.signRaw
         if (signRaw) {
@@ -297,11 +298,12 @@ export const Reg = ( ) => {
         throw new Error('SubWallet connection required for onchain registration')
       }
 
-      const extensions = await web3Enable('MOD')
+      const { web3Enable: enable } = await import('@polkadot/extension-dapp')
+      const extensions = await enable('MOD')
       if (extensions.length === 0) {
         throw new Error('SubWallet not found. Please install it.')
       }
-      
+
       const selectedMod = localModules.find(m => m.name === selectedLocalMod)
       if (!selectedMod) {
         throw new Error('Selected module not found')

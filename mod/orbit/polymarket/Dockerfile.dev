@@ -1,0 +1,18 @@
+FROM node:20-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY src/app/package.json src/app/package-lock.json ./src/app/
+RUN cd src/app && npm ci --no-audit --no-fund
+
+# Copy config
+COPY config.json .
+
+# Entrypoint will run both Next.js dev server and API
+COPY docker-entrypoint.dev.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+EXPOSE 4200 4201
+
+CMD ["/app/docker-entrypoint.sh"]

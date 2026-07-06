@@ -1,0 +1,9 @@
+@bridge_api path /api/bridge /api/bridge/*
+handle @bridge_api {
+    uri strip_prefix /api/bridge
+    reverse_proxy {$PM2_HOST:localhost}:8840
+}
+@bridge_app path /bridge /bridge/*
+handle @bridge_app {
+    reverse_proxy {$PM2_HOST:localhost}:8841
+}

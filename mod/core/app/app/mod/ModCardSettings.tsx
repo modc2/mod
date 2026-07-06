@@ -14,6 +14,7 @@ interface ModCardSettingsProps {
   selectedOwners?: string[]
   onToggleOwner?: (owner: string) => void
   onClearFilters?: () => void
+  userKey?: string
 }
 
 export function ModCardSettings({
@@ -25,6 +26,7 @@ export function ModCardSettings({
   selectedOwners = [],
   onToggleOwner = () => {},
   onClearFilters = () => {},
+  userKey,
 }: ModCardSettingsProps) {
   return (
     <div className="font-mono flex items-center gap-3 flex-shrink-0" style={{ fontFamily: 'IBM Plex Mono, Courier New, monospace' }}>
@@ -88,6 +90,7 @@ export function ModCardSettings({
               selectedOwners={selectedOwners}
               onToggleOwner={onToggleOwner}
               onClearFilters={onClearFilters}
+              userKey={userKey}
             />
           </div>
         </>

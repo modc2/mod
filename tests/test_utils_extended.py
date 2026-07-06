@@ -490,7 +490,12 @@ class TestIpStr:
 
 class TestPortUsed:
     def test_unused_port(self):
-        assert port_used(59999) is False
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('', 0))
+        free_port = s.getsockname()[1]
+        s.close()
+        assert port_used(free_port) is False
 
     def test_non_int(self):
         assert port_used('not_a_port') is False

@@ -1,0 +1,62 @@
+{
+    admin off
+    auto_https off
+}
+
+# Local single-port gateway — routes everything through :8888.
+# Mirrors the in-Docker Caddyfile (core/server/caddy/Caddyfile) but uses
+# localhost ports so it works without the modnet bridge network.
+:8888 {
+    # ── /dev → dev module UI + proxy ───────────────────────────
+    @dev_api path /api/dev /api/dev/*
+    handle @dev_api {
+        uri strip_prefix /api/dev
+        reverse_proxy localhost:8870
+    }
+    @dev_app path /dev /dev/*
+    handle @dev_app {
+        reverse_proxy localhost:8870
+    }
+
+    # ── /codex → codex Rust API ────────────────────────────────
+    @codex_api path /api/codex /api/codex/*
+    handle @codex_api {
+        uri strip_prefix /api/codex
+        reverse_proxy localhost:8830
+    }
+    @codex_app path /codex /codex/*
+    handle @codex_app {
+        reverse_proxy localhost:8831
+    }
+
+    # ── /claude → claude Rust API ──────────────────────────────
+    @claude_api path /api/claude /api/claude/*
+    handle @claude_api {
+        uri strip_prefix /api/claude
+        reverse_proxy localhost:8820
+    }
+    @claude_app path /claude /claude/*
+    handle @claude_app {
+        reverse_proxy localhost:8821
+    }
+
+    # ── /localfs → content-addressable storage ─────────────────
+    @localfs_api path /api/localfs /api/localfs/*
+    handle @localfs_api {
+        uri strip_prefix /api/localfs
+        reverse_proxy localhost:8860
+    }
+    @localfs_app path /localfs /localfs/*
+    handle @localfs_app {
+        uri strip_prefix /localfs
+        reverse_proxy localhost:8861
+    }
+
+    # Root → redirect to /dev
+    handle / {
+        redir /dev permanent
+    }
+    handle /* {
+        respond "mod local gateway — try /dev, /codex, /claude, /localfs" 200
+    }
+}

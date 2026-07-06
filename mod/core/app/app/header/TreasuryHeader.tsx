@@ -3,10 +3,10 @@
 import { BuildingLibraryIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 import { useState, useEffect } from 'react'
 import { CopyButton } from '@/ui/CopyButton'
-import modConfig from '@config'
 import { ethers } from 'ethers'
 import { useRouter } from 'next/navigation'
 import { Market } from '@/network/Market'
+import { getChainConfig } from '@/network/chainConfig'
 
 export function TreasuryHeader() {
   const router = useRouter()
@@ -15,11 +15,10 @@ export function TreasuryHeader() {
   const [showTreasuryDetails, setShowTreasuryDetails] = useState(false)
   const [usdcBalance, setUsdcBalance] = useState('0')
   const [usdtBalance, setUsdtBalance] = useState('0')
-  const market = new Market(modConfig.chain?.testnet)
+  const market = new Market(getChainConfig())
 
   useEffect(() => {
-    const network = 'testnet'
-    const chainConfig = modConfig.chain?.[network]
+    const chainConfig = getChainConfig()
     if (chainConfig?.contracts?.Treasury?.address) {
       setTreasuryAddress(chainConfig.contracts.Treasury.address)
     }
@@ -30,10 +29,6 @@ export function TreasuryHeader() {
       if (!treasuryAddress || typeof window.ethereum === 'undefined') return
       
       try {
-        const { ethers } = await import('ethers')
-        const provider = new ethers.BrowserProvider(window.ethereum)
-        
-        const network = 'testnet'
         let  totalUsd = await market.checkMarketBalance(treasuryAddress)
         
         setTotalUsdValue(totalUsd.toFixed(2))

@@ -1,13 +1,15 @@
 {
-  "name": "prefi",
-  "description": "Prediction market for crypto prices on Base Sepolia",
-  "network": "baseSepolia",
-  "urls": {
-    "api": "http://localhost:8830",
-    "app": "http://localhost:8831"
-  },
-  "contracts": {},
-  "fns": [
-    "serve"
-  ]
+    "name": "prefi",
+    "description": "Trading protocol on Base \u2014 profit to treasury, earn PREFI, stake for weekly claims",
+    "network": "baseSepolia",
+    "urls": {
+        "api": "http://localhost:8830",
+        "app": "http://localhost:8831"
+    },
+    "contracts": {},
+    "fns": [
+        "serve"
+    ],
+    "schema": "QmeT3WYLoFicjPzXEfVJk9m9dZryiWhKXGcedTSQ4fLxn8",
+    "gateway_port": 8831
 }

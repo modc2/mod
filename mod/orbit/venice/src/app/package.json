@@ -1,0 +1,24 @@
+{
+  "name": "venice-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3880",
+    "build": "next build",
+    "start": "next start -p 3880"
+  },
+  "dependencies": {
+    "next": "14.2.35",
+    "react": "^18",
+    "react-dom": "^18",
+    "ethers": "^6.16.0",
+    "viem": "^2.21.0",
+    "x402-fetch": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5"
+  }
+}

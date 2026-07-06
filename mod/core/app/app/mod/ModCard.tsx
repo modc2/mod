@@ -420,7 +420,7 @@ export default function ModCard({
   if (!card_enabled) return cardContent
 
   return (
-    <Link href={`/${mod.name}`}>
+    <Link href={`/mod/${mod.name}`}>
       {cardContent}
     </Link>
   )

@@ -1,0 +1,43 @@
+{
+  "name": "venice",
+  "version": "0.2.0",
+  "description": "Venice AI gateway — Rust API + Next.js app. Bring your own key, or pay per request (x402) and we fund the call with our backend key. Wallet (mod protocol) auth.",
+  "port": 50880,
+  "app_port": 3880,
+  "icon": "V",
+  "color": "#b91c1c",
+  "provider": "venice",
+  "default_model": "zai-org-glm-5",
+  "urls": {
+    "api": "http://localhost:50880",
+    "app": "http://localhost:3880/venice",
+    "gateway": "http://localhost:3000/venice"
+  },
+  "endpoints": {
+    "/health": { "method": "GET", "docs": "Liveness probe" },
+    "/models": { "method": "GET", "docs": "Public Venice model list" },
+    "/me": { "method": "GET", "docs": "Caller identity + key/paid availability (Bearer token)" },
+    "/key": { "method": "POST", "docs": "Store caller's BYOK Venice key (Bearer token)" },
+    "/chat": { "method": "POST", "docs": "Chat completion — BYOK or x402-paid (Bearer token)" }
+  },
+  "fns": [
+    "forward",
+    "history",
+    "resolve_model",
+    "api_key",
+    "keys",
+    "add_key",
+    "set_keys",
+    "set_key",
+    "rm_key",
+    "model2info",
+    "models",
+    "model_infos",
+    "model_info",
+    "filter_models",
+    "pricing",
+    "test",
+    "env"
+  ],
+  "schema": "Qmc2J2uw2XK59daGxeQxJs2AqgEg3ShNSPrq9HcRaVsDJL"
+}

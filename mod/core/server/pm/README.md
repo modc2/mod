@@ -121,7 +121,7 @@ See [PM2 README](pm/pm2/README.md) for detailed documentation.
 
 ## Common API
 
-All backends share a common interface:
+All backends share a common interface. At the top level, `serve`/`start` and `kill`/`stop` are interchangeable aliases:
 
 ```python
 # Start a process/container

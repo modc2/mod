@@ -1,4 +1,11 @@
 {
+  "name": "polycopy",
+  "port": 50130,
+  "app_port": 3130,
+  "urls": {
+    "api": "http://localhost:50130",
+    "app": "http://localhost:3130"
+  },
   "chains": [
     {
       "chain_id": 8453,
@@ -118,5 +125,7 @@
   "daily_limit_usd": 1000,
   "auto_discover": false,
   "min_score": 70.0,
-  "poll_interval_ms": 4000
+  "poll_interval_ms": 4000,
+  "schema": "QmaBZvdbWMYCMspzfPeG8zoYHmt1YN44xHi2EngpZhoi6E",
+  "gateway_port": 3130
 }

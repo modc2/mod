@@ -1,14 +1,21 @@
 api.modc2.com {
-    reverse_proxy localhost:8000
+    @cors_preflight method OPTIONS
+
+    header Access-Control-Allow-Origin "https://modc2.com"
+    header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    header Access-Control-Allow-Headers "Content-Type, Accept, Authorization, token"
+    header Access-Control-Max-Age "3600"
+
+    handle @cors_preflight {
+        respond 204
+    }
+
+    handle /bridge/* {
+        uri strip_prefix /bridge
+        reverse_proxy {$PM2_HOST:localhost}:8840
+    }
+
+    handle /* {
+        reverse_proxy {$PM2_HOST:localhost}:8000
+    }
 }
-
-app.modc2.com {
-    reverse_proxy localhost:3000
-}
-
-/* ipfs.modc2.com {
-    reverse_proxy localhost:5001
-}
- */
-
-

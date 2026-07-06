@@ -1,0 +1,57 @@
+[package]
+name = "mod-dns"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mod-dns"
+path = "src/main.rs"
+
+[dependencies]
+# DNS protocol
+hickory-proto = "0.25"
+hickory-server = "0.25"
+
+# HTTP API
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# P2P networking
+libp2p = { version = "0.54", features = [
+    "tcp",
+    "noise",
+    "yamux",
+    "kad",
+    "gossipsub",
+    "mdns",
+    "tokio",
+    "macros",
+    "identify",
+] }
+
+# Storage
+sled = "0.34"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Misc
+rand = "0.8"
+anyhow = "1"
+futures = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

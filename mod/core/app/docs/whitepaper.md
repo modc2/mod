@@ -4,7 +4,7 @@
 |   M O D   P R O T O C O L                                |
 |                                                           |
 |   TECHNICAL WHITEPAPER                                    |
-|   VERSION: 2.0                                            |
+|   VERSION: 2.1                                            |
 |   APRIL 2026                                              |
 |                                                           |
 +-----------------------------------------------------------+
@@ -15,13 +15,14 @@
 ## 0. ABSTRACT
 
 MOD Protocol is a decentralized module registry and execution
-system with 200+ composable modules. It enables secure, verifiable
+system with 204 composable modules. It enables secure, verifiable
 function calls across distributed modules using IPFS storage,
 cryptographic authentication, and AI-native agent workflows.
 
 Revenue flows through on-chain smart contracts on Base. Stakers
 earn proportional treasury shares via time-weighted BlocTime
-tokens---no inflation, only real marketplace fees.
+tokens---no inflation, only real marketplace fees. Validators
+earn subnet emissions via StakeTime consensus scoring.
 
 ---
 
@@ -36,6 +37,7 @@ CURRENT STATE OF SOFTWARE INFRASTRUCTURE:
   [x] costly         --> complex payment infrastructure
   [x] ai-siloed      --> models trapped in walled gardens
   [x] no dev revenue --> open source creators earn nothing
+  [x] no consensus   --> no decentralized validation layer
 ```
 
 ## 2. SOLUTION
@@ -45,10 +47,11 @@ MOD PROTOCOL PROVIDES:
 
   [+] decentralized storage   --> ipfs content addressing
   [+] crypto verification     --> every tx signed & verified
-  [+] modular architecture    --> 200+ composable modules
+  [+] modular architecture    --> 204 composable modules
   [+] built-in economics      --> token-gated execution
   [+] ai-native agents        --> autonomous module composition
   [+] dev monetization        --> earn per function call
+  [+] validator consensus     --> staketime yuma scoring + emissions
 ```
 
 ---
@@ -67,12 +70,12 @@ MOD PROTOCOL PROVIDES:
 +--------+---------+
          |
 +--------v---------+
-| MODULE LAYER     |  200+ python orbit modules
-| (orbit)          |  ai agents, defi, storage, tools
+| MODULE LAYER     |  204 python orbit modules
+| (orbit)          |  ai agents, defi, storage, consensus, tools
 +--------+---------+
          |
 +--------v---------+
-| CHAIN LAYER      |  bloctime protocol (solidity 0.8.20)
+| CHAIN LAYER      |  bloctime + staketime protocol (solidity 0.8.20)
 | (contracts)      |  base sepolia / base mainnet
 +--------+---------+
          |
@@ -97,6 +100,10 @@ user --> discover module via app/api
 staker --> stake NativeToken into BlocTime
        --> earn time-weighted BlocTime tokens
        --> claim proportional treasury revenue
+
+validator --> register in StakeTime (multi-key identity)
+          --> receive delegated stakes
+          --> earn emission rewards via yuma consensus scoring
 ```
 
 ---
@@ -112,6 +119,7 @@ staker --> stake NativeToken into BlocTime
 | NativeToken      | stakeable ERC20, fixed supply     |
 | BlocTime         | time-weighted receipt token        |
 | Market Token     | USD-pegged marketplace credit      |
+| Subnet Token     | validator reward token (per-subnet)|
 | USDC / USDT      | payment tokens                    |
 +------------------+-----------------------------------+
 ```
@@ -126,6 +134,7 @@ staker --> stake NativeToken into BlocTime
 | market withdraw  | 0.1% retained in market            |
 | debit execution  | 5% to treasury per invocation      |
 | staker claim     | proportional to BlocTime balance   |
+| validator comm.  | per-validator bps on emissions     |
 +------------------+-----------------------------------+
 ```
 
@@ -137,8 +146,11 @@ staker --> stake NativeToken into BlocTime
   |-- 95% --> module provider
   '-- 5%  --> protocol treasury
               |
-              '--> distributed to BlocTime stakers
-                   (proportional to time-weighted stake)
+              |-- distributed to BlocTime stakers
+              |   (proportional to time-weighted stake)
+              |
+              '-- subnet emissions to validators
+                  (proportional to yuma consensus score)
 ```
 
 ### 4.4 STAKING MULTIPLIER
@@ -159,20 +171,25 @@ staker --> stake NativeToken into BlocTime
 
 ## 5. MODULE SYSTEM
 
-### 5.1 200+ ORBIT MODULES
+### 5.1 204 ORBIT MODULES
 
 ```
 +------------------+-----------------------------------+
 | CATEGORY         | EXAMPLES                          |
 +------------------+-----------------------------------+
-| ai & agents      | agent, claude, arena, skill, ag0  |
+| ai & agents      | agent, claude, claudecode, arena, |
+|                  | skill, ag0, model                  |
 | defi & trading   | uniswap, hyperliquid, goldfi,     |
-|                  | prefi, raydium, copyquant          |
+|                  | prefi, raydium, copyquant, defi    |
 | blockchain       | bridge, safe, eth, near, solana,  |
 |                  | base, cardano, zcash               |
 | storage          | ipfs, filecoin, arweave, cache    |
-| dev tools        | git, pytest, docker, codex        |
-| infrastructure   | web, mcp, modal, compute, caddy   |
+| dev tools        | git, gitagent, pytest, docker,    |
+|                  | codex, claudegit                   |
+| consensus        | staketime, bloctime, quests        |
+| applications     | bloctime app, embedcode, openhouse |
+| infrastructure   | web, mcp, modal, compute, caddy,  |
+|                  | proton, ssh, config                |
 +------------------+-----------------------------------+
 ```
 
@@ -204,9 +221,67 @@ class Mod:
 #   m info mymod
 ```
 
+### 5.4 FULL-STACK APPLICATIONS
+
+```
+  bloctime app  --> next.js + fastapi staking dashboard
+                    ports 8851 (api) / 8852 (frontend)
+                    stake, view positions, claim rewards
+
+  embedcode     --> code embedding & execution platform
+                    next.js + tailwind + fastapi backend
+                    code processing and deployment
+```
+
 ---
 
-## 6. AI-NATIVE ARCHITECTURE
+## 6. STAKETIME CONSENSUS
+
+```
+VALIDATOR CONSENSUS LAYER:
+
+  register validator (ECDSA + Ed25519 + Sr25519 keys)
+     |
+     v
+  receive delegated stakes (with lock multiplier)
+     |
+     v
+  yuma consensus scoring (exponential decay)
+     |
+     v
+  per-epoch emission distribution
+     |
+     v
+  commission split to delegators
+```
+
+```
+CONSENSUS STRATEGIES:
+
+  [+] ConsensusLinear  --> equal weight for all validators
+  [+] ConsensusStaked  --> weighted by delegated stake
+  [+] ConsensusYuma    --> yuma-inspired exponential decay
+
+SLASHING:
+
+  [+] misbehavior penalized with stake reduction
+  [+] auto-deactivation after max slash count
+  [+] validator score reset on slash
+```
+
+```
+SUBNET ARCHITECTURE:
+
+  each subnet has:
+    - own emission token
+    - own consensus parameters
+    - own validator set
+    - pluggable consensus strategy
+```
+
+---
+
+## 7. AI-NATIVE ARCHITECTURE
 
 ```
 AGENT EXECUTION LOOP:
@@ -231,9 +306,9 @@ WHAT AGENTS CAN DO:
 
 ---
 
-## 7. SMART CONTRACTS (BASE)
+## 8. SMART CONTRACTS (BASE)
 
-### 7.1 DEPLOYED (BASE SEPOLIA)
+### 8.1 DEPLOYED (BASE SEPOLIA)
 
 ```
 +------------------+--------------------------------------------+
@@ -250,7 +325,7 @@ WHAT AGENTS CAN DO:
 +------------------+--------------------------------------------+
 ```
 
-### 7.2 SECURITY
+### 8.2 SECURITY
 
 ```
 [x] reentrancy guard    --> all state-changing functions
@@ -260,9 +335,10 @@ WHAT AGENTS CAN DO:
 [x] emergency pause     --> pausable on market
 [x] anti-flash-loan     --> BlocTime requires lock period
 [x] eip-712 signatures  --> structured data signing
+[x] validator slashing  --> misbehavior penalized
 ```
 
-### 7.3 IRREVERSIBLE DECENTRALIZATION
+### 8.3 IRREVERSIBLE DECENTRALIZATION
 
 ```
 setOwnerless() --> one-way function
@@ -278,7 +354,7 @@ setOwnerless() --> one-way function
 
 ---
 
-## 8. SECURITY MODEL
+## 9. SECURITY MODEL
 
 ```
 CRYPTOGRAPHIC:
@@ -298,26 +374,30 @@ INFRASTRUCTURE:
 
 ---
 
-## 9. ROADMAP
+## 10. ROADMAP
 
 ```
 PHASE 1 - FOUNDATION [DONE]
-  [x] core framework & 200+ modules
+  [x] core framework & 204 modules
   [x] bloctime protocol (base sepolia)
+  [x] staketime consensus (validators + subnets)
   [x] next.js frontend + wallet integration
   [x] cli tooling (m command)
   [x] ai agent framework
+  [x] full-stack apps (bloctime, embedcode)
 
 PHASE 2 - GROWTH [IN PROGRESS]
   [ ] base mainnet deployment
   [ ] module marketplace UI
   [ ] developer revenue dashboard
   [ ] cross-chain registry sync
+  [ ] mcp & x402 integrations
 
 PHASE 3 - GOVERNANCE
   [ ] dao governance (BlocTime-weighted voting)
   [ ] on-chain proposals & execution
   [ ] module versioning (semver)
+  [ ] privacy features (module encryption)
 
 PHASE 4 - SCALE
   [ ] enterprise features & SLAs
@@ -328,19 +408,22 @@ PHASE 4 - SCALE
 
 ---
 
-## 10. CONCLUSION
+## 11. CONCLUSION
 
 MOD Protocol combines composable modules, on-chain economics,
-and AI-native agents into a unified development framework.
+AI-native agents, and validator consensus into a unified
+development framework.
 
 ```
 KEY INNOVATIONS:
   1. time-weighted staking    (BlocTime multiplier curve)
-  2. non-inflationary rewards (real marketplace fees only)
-  3. 200+ composable modules  (zero-config, auto-discovered)
-  4. ai-native agents         (autonomous module composition)
-  5. irreversible decentral.  (setOwnerless() one-way lock)
-  6. eip-712 debit protocol   (multi-auth, daily limits)
+  2. validator consensus      (StakeTime yuma scoring + slashing)
+  3. non-inflationary rewards (real marketplace fees only)
+  4. 204 composable modules   (zero-config, auto-discovered)
+  5. ai-native agents         (autonomous module composition)
+  6. full-stack apps          (bloctime dashboard, embedcode)
+  7. irreversible decentral.  (setOwnerless() one-way lock)
+  8. eip-712 debit protocol   (multi-auth, daily limits)
 ```
 
 ```
@@ -357,5 +440,5 @@ KEY INNOVATIONS:
 
 ---
 
-*MOD Protocol v2.0 --- April 2026*
+*MOD Protocol v2.1 --- April 2026*
 *Open-source. On-chain. Unstoppable.*

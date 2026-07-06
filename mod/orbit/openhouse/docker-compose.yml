@@ -1,0 +1,19 @@
+networks:
+  default:
+    external: true
+    name: modnet
+
+services:
+  openhouse:
+    build: .
+    container_name: openhouse
+    ports:
+      - "${GATEWAY_PORT:-50131}:${GATEWAY_PORT:-50131}"
+    restart: unless-stopped
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50131}
+    volumes:
+      - openhouse-data:/app/data
+
+volumes:
+  openhouse-data:

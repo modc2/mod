@@ -1,0 +1,15 @@
+{
+  "timestamp": 1778161602,
+  "reviewer": "0x6478255B80b561B4d8D96c02Ce86ffCeBbB9D09E",
+  "key": "test",
+  "model": "anthropic/claude-sonnet-4",
+  "repo": "/root/mod/mod/orbit/bridge",
+  "steps": 20,
+  "elapsed_seconds": 1.6,
+  "stats": {
+    "total": 0,
+    "by_severity": {},
+    "by_category": {}
+  },
+  "findings": []
+}

@@ -1,27 +1,29 @@
 from typing import *
 import os
 import hashlib
-import os
+import re
 import pandas as pd
 import json
 import inspect
 import time
 import mod as m
-from mod.core.server.executor.worker import SandboxWorker, DockerWorker
-
+from mod.core.server.executor.worker import SandboxWorker, DockerWorker, WorkerPool
 
 print = m.print
 
+# Whitelist pattern for function names: alphanumeric, underscores, slashes, dots, hyphens
+FN_NAME_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_/.-]{0,200}$')
+
 class Gate:
 
-    def __init__(self, path = '~/.mod/server', auth='auth.base',mod='api', paywall=None, serializer='serializer', sandbox='subprocess', meter=True, **_kwargs):
+    def __init__(self, path = '~/.mod/server', auth='auth.base',mod='api', paywall=None, serializer='serializer', sandbox='docker', meter=True, **_kwargs):
         """
         Initialize the Gate class
         params:
             path: the path to store the gate data
             auth: the auth module to use
             paywall: optional x402 payment gate instance (has gate_check(fn, headers) method)
-            sandbox: 'subprocess' (default) or 'docker' for container-level isolation
+            sandbox: 'docker' (default), 'pool' for persistent workers, or 'subprocess' for one-shot
             meter: enable usage metering (default True)
         """
         self.store = m.mod('store')(path)
@@ -31,6 +33,9 @@ class Gate:
         if sandbox == 'docker':
             self.sandbox = DockerWorker(max_workers=10)
             print('Gate: using Docker sandbox (container isolation)', color='green')
+        elif sandbox == 'pool':
+            self.sandbox = WorkerPool(min_workers=2, max_workers=10)
+            print('Gate: using WorkerPool (persistent background workers)', color='green')
         else:
             self.sandbox = SandboxWorker(max_workers=10)
         # Usage metering
@@ -52,9 +57,11 @@ class Gate:
         'mods', 'mod', 'info', 'txs', 'h', 'tasks', 'kill_task', 'reset_tasks',
         'users', 'call', 'schema', 'content', 'config', 'versions', 'edit',
         'reg', 'update', 'fork', 'new', 'rm', 'n', 'transfer', 'set_public',
-        'token', 'logs', 'namespace', 'serve', 'stop',
+        'token', 'logs', 'namespace', 'serve', 'stop', 'get', 'put',
         # Metering, billing, load balancing, paywall (mod paths)
         'meter', 'balancer', 'paywall',
+        # Worker management (owner-only via RBAC)
+        'worker_status', 'worker_scale', 'worker_set_limits',
     }
 
     def forward(self, fn:str, headers:dict, params:dict, mod:Any=None) -> dict:
@@ -64,28 +71,64 @@ class Gate:
         API-level functions (mods, txs, etc.) run in-process.
         """
         mod = mod or self.mod
-        assert not isinstance(fn, str) or fn != '', "Function name cannot be empty"
+        # ── Validate function name ──
+        assert isinstance(fn, str) and fn != '', "Function name cannot be empty"
+        assert FN_NAME_RE.match(fn) and '..' not in fn, f"Invalid function name: {fn}"
+
         print(f'Gate forwarding request to function: {fn}', color='green')
-        info = mod.info if isinstance(mod.info, dict) else mod.info()
+        params = json.loads(params) if isinstance(params, str) else params
         try:
+            info = mod.info if isinstance(mod.info, dict) else mod.info()
+        except Exception:
+            info = {}
+
+        # ── Resolve actual function name ──
+        # The client wraps path calls (e.g. 'bridge/info') as fn='call' with
+        # the real function in params.  Extract the leaf function name for
+        # auth checks so PUBLIC_FNS matching works correctly.
+        actual_fn = fn
+        if fn in ('call', 'forward') and isinstance(params, dict):
+            inner = params.get('fn', fn)
+            # 'bridge/info' → 'info',  'info' → 'info'
+            actual_fn = inner.split('/')[-1] if isinstance(inner, str) else fn
+        elif '/' in fn:
+            # Direct path calls: 'api/mods' → 'mods'
+            actual_fn = fn.split('/')[-1]
+
+        # ── Authenticate ──
+        authenticated = False
+        role = None
+        try:
+            # Check for token in params (client puts it there for path calls)
+            if isinstance(params, dict) and params.get('token') and not headers.get('token'):
+                headers = dict(headers) if not isinstance(headers, dict) else headers
+                headers['token'] = params['token']
             headers = self.auth.verify(headers)
-            print(f'Headers after auth verification: {headers}', color='green')
+            authenticated = True
             role = self.get_role(headers['key'])
         except Exception as auth_err:
-            # Auth failed — treat as public/anonymous request
+            # Auth failed — only allow through if fn is in PUBLIC_FNS
             headers = headers if isinstance(headers, dict) else {}
             headers['key'] = headers.get('key', '')
             role = 'public'
-            print(f'Auth failed ({auth_err}), treating as public for {fn}', color='yellow')
-        if  bool(role == 'owner'):
+            print(f'Auth failed ({auth_err}), checking public access for {fn}', color='yellow')
+
+        # ── Authorize ──
+        if role == 'owner' and authenticated:
             print(f'ATTENTION: owner({headers["key"]}) is calling {fn}', color='green')
+        elif not authenticated and actual_fn in self.PUBLIC_FNS:
+            # Public functions are always allowed without auth
+            print(f'Public access granted for {fn} ({actual_fn})', color='green')
         else:
-            assert fn in info['fns'], f"Function {fn} not in fns={info['fns']}"
+            mod_fns = info.get('fns', []) if isinstance(info, dict) else []
+            if mod_fns:
+                assert actual_fn in mod_fns, f"Function {actual_fn} not in fns={mod_fns}"
             role_data = self.role_data(role) if role else self.role_data('public')
             role_fns = role_data.get('fns', [])
             if role_fns and '*' not in role_fns:
-                assert fn in role_fns, f"Function {fn} not permitted for role={role or 'public'}, allowed={role_fns}"
-        params = json.loads(params) if isinstance(params, str) else params
+                assert actual_fn in role_fns, f"Function {actual_fn} not permitted for role={role or 'public'}, allowed={role_fns}"
+            if not authenticated:
+                assert actual_fn in self.PUBLIC_FNS, f"Authentication required for {actual_fn}"
         self.print_request({'fn': fn, 'params': params, 'client': headers.get('key', ''), 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())})
         # Payment gate check (x402 paywall)
         if self.paywall and hasattr(self.paywall, 'gate_check'):
@@ -96,12 +139,22 @@ class Gate:
 
         # Determine if this is a module function call that should be sandboxed
         # Module calls have '/' (e.g., 'ssh/keys') and aren't in the unsandboxed set
-        is_module_call = '/' in fn and fn.split('/')[0] not in self.UNSANDBOXED_FNS
+        # Use actual_fn (leaf name) to check against whitelist
+        is_module_call = '/' in fn and actual_fn not in self.UNSANDBOXED_FNS
 
         t0 = time.time()
         status = 'success'
         try:
-            if is_module_call and fn not in self.UNSANDBOXED_FNS:
+            if fn in ('call', 'forward') and isinstance(params, dict) and '/' in str(params.get('fn', '')):
+                # Module call via 'call' wrapper — resolve and execute directly
+                # (gate already verified auth/public access above)
+                inner_fn = params['fn']
+                inner_params = params.get('params', {})
+                if isinstance(inner_params, str):
+                    inner_params = json.loads(inner_params)
+                fn_obj = self.get_fn_obj(inner_fn, mod=mod)
+                result = fn_obj(**inner_params) if callable(fn_obj) else fn_obj
+            elif is_module_call and actual_fn not in self.UNSANDBOXED_FNS:
                 # Execute in sandboxed subprocess
                 print(f'Gate: sandboxed execution for {fn}', color='yellow')
                 result = self.sandbox.run(fn_path=fn, params=params, timeout=120)
@@ -146,6 +199,24 @@ class Gate:
 
         return result
 
+    # ── Worker management (owner-only) ─────────────────────────────────
+
+    def worker_status(self) -> dict:
+        """Get the status of all sandbox workers."""
+        return self.sandbox.status()
+
+    def worker_scale(self, n: int) -> dict:
+        """Manually scale workers to n (clamped to limits)."""
+        return self.sandbox.scale(n)
+
+    def worker_set_limits(self, max_workers: int = None, idle_timeout: int = None) -> dict:
+        """Set worker pool limits. max_workers controls capacity, idle_timeout (seconds) controls auto-shutdown."""
+        kwargs = {}
+        if max_workers is not None:
+            kwargs['max_workers'] = max_workers
+        if idle_timeout is not None:
+            kwargs['idle_timeout'] = idle_timeout
+        return self.sandbox.set_limits(**kwargs)
 
     def get_role(self, user:str) -> str:
         """
@@ -412,12 +483,19 @@ class Gate:
     ensure_roles = ['owner', 'public']
     # public users can read + edit in their peer space only
     PUBLIC_FNS = [
-        'mod', 'mods', 'schema', 'content', 'files', 'exists',
+        'mod', 'mods', 'schema', 'content', 'files', 'exists', 'get',
         'user', 'users', 'user_keys', 'versions', 'registry',
         'edit', 'reg', 'reg_payload', 'token', 'fork', 'new',
         'balance', 'balances', 'get_balances',
         'app_namespace', 'app_status', 'app_owner', 'is_app_owner', 'app_logs',
         'serve_app', 'kill_app', 'new_app', 'edit_app', 'remove_app',
+        # Read-only module endpoints (health, status, listings)
+        'health', 'status', 'owner', 'contract_info', 'info',
+        'description', 'readme',
+        'in_snapshot', 'get_total_balances',
+        'get_claims', 'claims_array', 'has_claimed', 'unclaimed',
+        'get_commitments', 'get_commitment',
+        'commit', 'update_commitment', 'claim',
     ]
     def ensure_role_map(self):
         """

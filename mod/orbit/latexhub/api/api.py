@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from latexhub.latexhub import LatexHub
+from latexhub.mod import Mod as LatexHub
 
 app = FastAPI(title="LatexHub API", version="1.0.0",
               description="Local filesystem LaTeX document storage and management")

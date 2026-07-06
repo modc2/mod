@@ -1,0 +1,158 @@
+{
+    "name": "codex",
+    "version": "0.1.0",
+    "description": "Programmable AI developer interface (OpenAI codex backend) \u2014 mirror of claude module",
+    "port": 8830,
+    "app_port": 8831,
+    "owner": "0x70f1DB27c2A64cabDd9888dD6C6F27cCBdE6D7C2",
+    "icon": "X",
+    "color": "#10a37f",
+    "image": "https://cdn.simpleicons.org/openai/ffffff",
+    "provider": "openai",
+    "binary": "codex",
+    "default_model": "gpt-4o-mini",
+    "fns": [
+        "forward",
+        "ask",
+        "analyze_code",
+        "generate_code",
+        "refactor",
+        "debug",
+        "edit_file",
+        "run_task",
+        "batch_process",
+        "bg",
+        "bg_status",
+        "bg_list",
+        "submit",
+        "create_module",
+        "edit_module",
+        "jobs",
+        "job",
+        "cancel",
+        "kill",
+        "kill_port",
+        "delete_job",
+        "tail",
+        "snapshot",
+        "changelog",
+        "show_changelog",
+        "get_version",
+        "restore_version",
+        "get_owner",
+        "set_owner",
+        "is_owner",
+        "health",
+        "modules",
+        "folders",
+        "suggest_folders",
+        "repos",
+        "files",
+        "owner",
+        "models",
+        "serve",
+        "test",
+        "logs",
+        "install",
+        "setup",
+        "scan",
+        "fix"
+    ],
+    "schema": "QmNTLc3JhsfxSh8NyWGpKp3y8dkZiha2uFavu9TDXzZ3mT",
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get module config.json"
+        },
+        "/owner": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get owner address and status"
+        },
+        "/repos": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List git repositories"
+        },
+        "/modules": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List orbit and core modules"
+        },
+        "/folders": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List folders under a path with optional search filter"
+        },
+        "/suggest_folders": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Suggest folders using embedcode similarity search"
+        },
+        "/files/tree": {
+            "method": "GET",
+            "auth": false,
+            "docs": "File tree browser"
+        },
+        "/jobs": {
+            "method": [
+                "POST",
+                "GET"
+            ],
+            "auth": true,
+            "docs": "Submit or list jobs"
+        },
+        "/jobs/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": true,
+            "docs": "Get or delete job"
+        },
+        "/jobs/{id}/cancel": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Cancel a running job"
+        },
+        "/jobs/{id}/stream": {
+            "method": "GET",
+            "auth": true,
+            "docs": "SSE live stream of job output"
+        },
+        "/kill": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Kill a process by PID or port (owner-only)"
+        },
+        "/changelog": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get version changelog"
+        },
+        "/versions/{version}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Get a specific version entry"
+        },
+        "/key": {
+            "method": [
+                "POST",
+                "GET"
+            ],
+            "auth": true,
+            "docs": "Submit or fetch the encrypted OPENAI_API_KEY ciphertext for the calling wallet"
+        }
+    },
+    "urls": {
+        "api": "http://localhost:8830",
+        "app": "http://localhost:8831"
+    },
+    "gateway_port": 8831
+}

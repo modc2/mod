@@ -4,10 +4,9 @@
   "description": "BlocTime Protocol - Staking and Marketplace Ecosystem",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test",
-    "test:integration": "hardhat test test/Integration.test.js",
-    "test:safe": "hardhat test test/Safe.test.js",
-    "test:gas": "REPORT_GAS=true hardhat test",
+    "test": "hardhat test src/contracts/**/test/*.test.js test/*.test.js",
+    "test:c": "bash -c 'npx hardhat test src/contracts/$1/test/*.test.js' --",
+    "test:gas": "REPORT_GAS=true hardhat test src/contracts/**/test/*.test.js test/*.test.js",
     "coverage": "hardhat coverage",
     "compile": "hardhat compile",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
@@ -22,7 +21,7 @@
     "deploy:safe-protocol:ganache": "hardhat run scripts/deploySafeProtocol.js --network ganache",
     "deploy:safe-protocol:testnet": "hardhat run scripts/deploySafeProtocol.js --network testnet",
     "deploy:safe-protocol:mainnet": "hardhat run scripts/deploySafeProtocol.js --network mainnet",
-    "test:safe-deploy": "hardhat test test/SafeDeployment.test.js",
+
     "verify": "hardhat run scripts/verify.js",
     "lint:sol": "solhint 'contracts/**/*.sol'",
     "lint:js": "eslint 'test/**/*.js' 'scripts/**/*.js'",

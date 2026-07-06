@@ -1,0 +1,54 @@
+[package]
+name = "sshville-api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sshville-api"
+path = "src/main.rs"
+
+[lib]
+name = "sshville_api"
+path = "src/lib.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hex + base58 + base64
+hex = "0.4"
+bs58 = "0.5"
+base64 = "0.22"
+
+# Ethereum personal_sign recovery (k256 + keccak)
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+
+# sr25519 verification (used by Polkadot.js + SubWallet for bittensor)
+schnorrkel = { version = "0.11", default-features = false, features = ["std"] }
+
+# Blake2b for SS58 address checksum
+blake2 = "0.10"
+
+# Locking around the JSON store
+parking_lot = "0.12"
+
+# Random salt for ssh tempfile names
+rand = "0.8"

@@ -2,12 +2,18 @@ import sys
 import time
 import json
 import inspect
+import os
+import subprocess
+import signal
 from typing import Any, List
 from copy import deepcopy
+from pathlib import Path
 
 import mod as m
 
 print = m.print
+
+JOB_DIR = Path('/tmp/mod_jobs')
 
 
 class Cli:
@@ -19,6 +25,15 @@ class Cli:
 
     def forward(self, argv=None, **kwargs):
         """Forward the function to the mod and function, with token auth and tx saving."""
+        # Check for bg=True — fork into background before parsing fn
+        bg = self._pop_bg_flag()
+        if bg:
+            return self._run_bg()
+
+        # Check for __mod_bg_child — we ARE the background child
+        if os.environ.get('__MOD_BG_CHILD'):
+            return self._run_bg_child()
+
         t0 = m.time()
 
         fn = self.get_fn()
@@ -55,6 +70,85 @@ class Cli:
 
         self.print_result(result)
         print(f'\u0394t = {duration:.4f}s ', color='cyan')
+
+    # ── Background jobs ──────────────────────────────────────────────────
+
+    def _pop_bg_flag(self) -> bool:
+        """Remove --bg or bg=True from argv if present."""
+        for i, arg in enumerate(self.argv):
+            if arg in ('--bg', '--b', 'bg=True', 'bg=true', 'bg=1'):
+                self.argv.pop(i)
+                return True
+        return False
+
+    def _run_bg(self):
+        """Fork the current CLI command into a detached background process."""
+        import shutil
+        JOB_DIR.mkdir(parents=True, exist_ok=True)
+        job_id = f'{int(time.time())}_{os.getpid()}'
+        job_file = JOB_DIR / f'{job_id}.json'
+
+        # Reconstruct the original argv without bg flag
+        child_argv = list(self.argv)
+        m_bin = shutil.which('m') or 'm'
+        cmd = [m_bin] + child_argv
+
+        env = os.environ.copy()
+        env['__MOD_BG_CHILD'] = str(job_file)
+
+        # Write initial job status
+        job_meta = {
+            'id': job_id,
+            'cmd': ' '.join(['m'] + child_argv),
+            'status': 'running',
+            'pid': None,
+            'file': str(job_file),
+            'started': time.time(),
+        }
+        job_file.write_text(json.dumps(job_meta, indent=2))
+
+        # Launch detached — survives parent exit
+        log_file = JOB_DIR / f'{job_id}.log'
+        log_fd = open(log_file, 'w')
+        proc = subprocess.Popen(
+            cmd, env=env,
+            stdout=log_fd, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        job_meta['pid'] = proc.pid
+        job_file.write_text(json.dumps(job_meta, indent=2))
+
+        print(f'bg job started: {job_id}', color='green')
+        print(f'  pid:  {proc.pid}', color='cyan')
+        print(f'  file: {job_file}', color='cyan')
+        print(f'  log:  {log_file}', color='cyan')
+        print(f'  check: m job {job_id}', color='cyan')
+
+    def _run_bg_child(self):
+        """Execute inside the forked background child — write results to job file."""
+        job_file = Path(os.environ['__MOD_BG_CHILD'])
+        job_meta = json.loads(job_file.read_text())
+        job_meta['pid'] = os.getpid()
+        job_file.write_text(json.dumps(job_meta, indent=2))
+
+        try:
+            fn = self.get_fn()
+            params = self.get_params()
+            result = fn(*params['args'], **params['kwargs']) if callable(fn) else fn
+            # Ensure JSON-serializable
+            try:
+                json.dumps(result)
+            except (TypeError, ValueError):
+                result = json.loads(json.dumps(result, default=str))
+            job_meta['status'] = 'done'
+            job_meta['result'] = result
+        except Exception as e:
+            job_meta['status'] = 'error'
+            job_meta['error'] = str(e)
+
+        job_meta['finished'] = time.time()
+        job_meta['duration'] = job_meta['finished'] - job_meta.get('started', job_meta['finished'])
+        job_file.write_text(json.dumps(job_meta, indent=2, default=str))
 
     def print_result(self, result):
         if self.is_generator(result):
@@ -97,7 +191,8 @@ class Cli:
         argv = self.argv
         mod = self.mod
         init_kwargs = self.get_init_params()
-        print(f'Init params: {init_kwargs}', color='cyan')
+        if init_kwargs:
+            print(f'Init params: {init_kwargs}', color='cyan')
 
         # Check for local mod.py in CWD first
         if len(argv) > 0 and '/' not in argv[0]:

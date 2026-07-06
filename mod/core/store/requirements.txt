@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.5
+python-multipart>=0.0.9
+requests>=2.31
+eth-keys>=0.5
+eth-utils>=4.0
+eth-account>=0.10
+boto3>=1.34

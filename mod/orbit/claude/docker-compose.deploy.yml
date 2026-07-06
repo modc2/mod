@@ -1,0 +1,13 @@
+# Linux deploy override (this host is x86_64, no Docker Desktop / keychain).
+# The image's baked Rust API + app are stale and the in-image Rust rebuild
+# is blocked by the agent_base path-dep living outside the build context, so
+# we mount the freshly-built host artifacts and run the app via `next dev`.
+services:
+  claude:
+    volumes:
+      # current API binary (host-built x86_64, links the same libssl.so.3)
+      - "./src/api/target/release/claude-jobs:/app/bin/claude-jobs:ro"
+      # current app: host source + node_modules, served by `next dev`
+      - "./src/app:/app/src/app"
+      # dev entrypoint swaps `next start` -> `next dev` (overrides base mount)
+      - "./docker-entrypoint.dev.sh:/app/docker-entrypoint.sh:ro"

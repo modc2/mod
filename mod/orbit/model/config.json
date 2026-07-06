@@ -1,0 +1,49 @@
+{
+    "name": "model",
+    "version": "0.1.0",
+    "description": "Unified BYOK model gateway \u2014 chat any model from openrouter / chutes / targon / venice in one app.",
+    "port": 50110,
+    "app_port": 50110,
+    "urls": {
+        "api": "http://localhost:50110",
+        "app": "http://localhost:50110"
+    },
+    "providers": [
+        "openrouter",
+        "chutes",
+        "targon",
+        "venice"
+    ],
+    "fns": [
+        "serve",
+        "kill",
+        "status",
+        "providers",
+        "models",
+        "forward"
+    ],
+    "endpoints": {
+        "/": {
+            "method": "GET",
+            "docs": "Chat UI (single-page)"
+        },
+        "/providers": {
+            "method": "GET",
+            "docs": "List provider IDs"
+        },
+        "/models": {
+            "method": "GET",
+            "docs": "List models for ?provider=ID (BYOK via X-API-Key)"
+        },
+        "/chat": {
+            "method": "POST",
+            "docs": "Streaming chat (SSE). Body: {provider, model, messages, temperature}; BYOK via X-API-Key"
+        },
+        "/health": {
+            "method": "GET",
+            "docs": "Health check"
+        }
+    },
+    "schema": "QmQXKt7frxqRD95JE7cCksXT7YybAYADdvPESG4nwmR8Gm",
+    "gateway_port": 50110
+}

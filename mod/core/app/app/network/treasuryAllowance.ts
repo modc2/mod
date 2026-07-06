@@ -1,7 +1,7 @@
 import { ethers } from 'ethers'
 import TokenABI from '@/contracts//token/Token.sol/Token.json'
 import TreasuryABI from '@/contracts//treasury/Treasury.sol/Treasury.json'
-import modConfig from '@config'
+import { getChainConfig } from './chainConfig'
 
 export class TreasuryAllowanceManager {
   private config: any
@@ -11,8 +11,7 @@ export class TreasuryAllowanceManager {
   }
 
   private getTokenAddress(tokenType: 'USDC' | 'USDT'): string {
-    const network = 'testnet'
-    const chainConfig = modConfig.chain?.[network]
+    const chainConfig = getChainConfig()
     if (!chainConfig) {
       throw new Error('Chain config not found')
     }

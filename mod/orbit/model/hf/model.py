@@ -11,6 +11,8 @@ Transformer Model Implementation
 A clean, efficient implementation of a transformer-based language model with fine-tuning capabilities.
 """
 
+_cache = {}  # {model_id: (model, tokenizer, device)}
+
 class Transformer(nn.Module):
 
     def __init__(self,
@@ -28,12 +30,18 @@ class Transformer(nn.Module):
                   tokenizer: Union[str, 'tokenizer'] = None,
                   device: str = 'cuda',
                   **kwargs):
-        self.model = AutoModelForCausalLM.from_pretrained(model)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer or model)
         if not torch.cuda.is_available():
             device = 'cpu'
+        tok_id = tokenizer or model
+        cache_key = f"{model}:{tok_id}:{device}"
+        if cache_key in _cache:
+            self.model, self.tokenizer, self.device = _cache[cache_key]
+            return self.device
+        self.model = AutoModelForCausalLM.from_pretrained(model)
+        self.tokenizer = AutoTokenizer.from_pretrained(tok_id)
         self.model.to(device)
         self.device = device
+        _cache[cache_key] = (self.model, self.tokenizer, self.device)
         return self.device
     def forward(self, x: str = None, output_hidden_states=True, **kwargs):
         tokenizer_output = self.tokenizer(x, **kwargs)

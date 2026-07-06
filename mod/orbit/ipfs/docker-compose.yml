@@ -2,31 +2,18 @@ networks:
   default:
     external: true
     name: modnet
+
 services:
   ipfs:
     container_name: ipfs
-    deploy: {}
-    entrypoint: bash -c "m serve port=50079 key=ipfs remote=0 mod=ipfs"
     image: mod:latest
     ports:
-    - 50079:50079
+      - "${GATEWAY_PORT:-50080}:${GATEWAY_PORT:-50080}"
     restart: unless-stopped
-    shm_size: 100g
+    environment:
+      - GATEWAY_PORT=${GATEWAY_PORT:-50080}
     volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
-    - ~/mod/mod/orbit/ipfs:/root/mod/mod/orbit/ipfs
+      - ~/mod:/root/mod:ro
+      - ~/.mod:/root/.mod
     working_dir: /root/mod/mod/orbit/ipfs
-  ipfs.node:
-    container_name: ipfs.node
-    image: ipfs/kubo:v0.40.1
-    networks:
-    - default
-    ports:
-    - 5001:5001
-    - 4001:4001
-    - 8080:8080
-    restart: unless-stopped
-    volumes:
-    - ~/.ipfs/data:/data/ipfs
-version: '3.8'
+    entrypoint: ["bash", "/root/mod/mod/orbit/ipfs/docker-entrypoint.sh"]

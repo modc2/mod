@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: #04060a;
+  color: #eef4fb;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+
+/* Ambient backdrop: two slow mint/cyan light blooms over a faint grid.
+   Fixed so it stays put while content scrolls — the "depth" layer. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, rgba(60, 224, 200, 0.10), transparent 60%),
+    radial-gradient(55rem 55rem at 100% 0%, rgba(92, 200, 255, 0.08), transparent 55%),
+    radial-gradient(50rem 50rem at 50% 120%, rgba(60, 224, 200, 0.06), transparent 60%);
+  pointer-events: none;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
+  pointer-events: none;
+}
+
+@layer components {
+  /* Glassmorphic surface — translucent fill + gradient sheen + depth shadow.
+     The hairline top-highlight is what sells the "lit glass" look. */
+  .panel {
+    @apply rounded-lg border border-white/[0.07] bg-white/[0.025] bg-panel-grad
+           shadow-panel backdrop-blur-xl;
+  }
+  .panel-hover {
+    @apply transition-all duration-200 hover:border-accent/30
+           hover:shadow-glow hover:-translate-y-0.5;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs
+           font-medium uppercase tracking-wider text-muted rounded-md
+           border border-white/[0.08] bg-white/[0.02]
+           transition-all duration-150
+           hover:text-ink hover:border-accent/40 hover:bg-white/[0.05]
+           active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs
+           font-semibold uppercase tracking-wider rounded-md text-bg
+           bg-accent-grad shadow-glow transition-all duration-150
+           hover:shadow-glow-lg hover:brightness-110
+           active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs
+           font-medium uppercase tracking-wider rounded-md text-loss
+           border border-loss/40 bg-loss/[0.06] transition-all duration-150
+           hover:bg-loss/15 hover:border-loss/70 active:scale-[0.97];
+  }
+  .pill {
+    @apply inline-flex items-center text-[10px] font-medium uppercase tracking-wider
+           px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-muted;
+  }
+  .input {
+    @apply bg-black/30 border border-white/[0.08] rounded-md px-3 py-1.5 text-sm
+           text-ink placeholder:text-dim outline-none transition-all duration-150
+           focus:border-accent/50 focus:bg-black/40 focus:ring-2 focus:ring-accent/15;
+  }
+  .label {
+    @apply block text-[10px] font-medium uppercase tracking-[0.14em] text-dim mb-1.5;
+  }
+  .table-row { @apply border-b border-white/[0.05] transition-colors; }
+  .stat { @apply text-xs text-muted uppercase tracking-wider; }
+  .num { @apply font-mono tabular-nums; }
+
+  /* Gradient display type for hero headings + the wordmark. */
+  .text-gradient {
+    @apply bg-text-grad bg-clip-text text-transparent font-display;
+  }
+
+  /* Loading shimmer placeholder. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-white/[0.04];
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    content: "";
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  }
+}
+
+/* Live status dot. */
+.live-dot {
+  box-shadow: 0 0 0 0 rgba(60, 224, 200, 0.6);
+  animation: livePing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes livePing {
+  0% { box-shadow: 0 0 0 0 rgba(60, 224, 200, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(60, 224, 200, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(60, 224, 200, 0); }
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(60, 224, 200, 0.18);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(60, 224, 200, 0.35); background-clip: padding-box; }
+::selection { background: rgba(60, 224, 200, 0.25); color: #fff; }

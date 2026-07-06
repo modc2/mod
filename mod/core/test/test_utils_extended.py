@@ -251,7 +251,6 @@ class TestSample:
 # causes infinite recursion — skipping these tests as it's a known issue.
 
 class TestRoundDecimals:
-    @pytest.mark.skip(reason="round_decimals triggers RecursionError due to module-level round override")
     def test_basic(self):
         assert round_decimals(3.14159, decimals=2) == 3.14
 
@@ -490,7 +489,11 @@ class TestIpStr:
 
 class TestPortUsed:
     def test_unused_port(self):
-        assert port_used(59999) is False
+        import socket
+        with socket.socket() as sk:
+            sk.bind(('', 0))
+            free_port = sk.getsockname()[1]
+        assert port_used(free_port) is False
 
     def test_non_int(self):
         assert port_used('not_a_port') is False

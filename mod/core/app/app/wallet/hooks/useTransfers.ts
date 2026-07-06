@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { ethers } from 'ethers'
-import modConfig from '@config'
+import { getChainConfig } from '@/network/chainConfig'
 
 type TransferTokenType = 'MARKET' | 'USDC' | 'USDT'
 type TokenType = 'USDC' | 'USDT'
@@ -67,7 +67,7 @@ export function useTransfers({
         throw new Error('No wallet connected. Please install MetaMask or another wallet.')
       }
       const { MarketAllowanceManager } = await import('@/network/marketAllowance')
-      const chainConfig = modConfig.chain?.['testnet']
+      const chainConfig = getChainConfig()
       if (!chainConfig) throw new Error('Chain config not found')
       const allowanceManager = new MarketAllowanceManager(chainConfig)
       await allowanceManager.increaseMarketAllowance(userKey, amount, selectedToken)
@@ -119,12 +119,12 @@ export function useTransfers({
       if (typeof window === 'undefined' || !window.ethereum) throw new Error('No wallet connected. Please install MetaMask or another wallet.')
       if (transferTokenType === 'MARKET') {
         const { Market } = await import('@/network/Market')
-        const chainConfig = modConfig.chain?.['testnet']
+        const chainConfig = getChainConfig()
         if (!chainConfig) throw new Error('Chain config not found')
         const market = new Market(chainConfig)
         await market.transferMarketCredit(userKey, transferRecipient, amount)
       } else {
-        const chainConfig = modConfig.chain?.['testnet']
+        const chainConfig = getChainConfig()
         if (!chainConfig) throw new Error('Chain config not found')
         const tokenAddress = chainConfig.contracts?.[transferTokenType]?.address
         if (!tokenAddress) throw new Error(`${transferTokenType} contract not found`)
@@ -253,7 +253,7 @@ export function useTransfers({
         throw new Error('MetaMask is required for withdrawal')
       }
       const { Market } = await import('@/network/Market')
-      const chainConfig = modConfig.chain?.['testnet']
+      const chainConfig = getChainConfig()
       if (!chainConfig) throw new Error('Chain config not found')
       const market = new Market(chainConfig)
       await market.withdrawMarketCredit(userKey, amount, withdrawTokenType)

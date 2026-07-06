@@ -78,7 +78,7 @@ export function SearchBar() {
     handleSearch('')
     setIsExpanded(false)
     inputRef.current?.blur()
-    router.push(`/${modName}`)
+    router.push(`/mod/${modName}`)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

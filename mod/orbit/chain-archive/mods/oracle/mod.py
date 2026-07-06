@@ -1,10 +1,10 @@
 """Oracle contract module - price oracle deployment and interaction."""
 
-from mod.core.chain.chain.mods.base import ContractModule
+from mod.core.chain.chain.mods.base import m.mod('chain.contracts')ule
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Oracle contract module.
 
     Deploys ManualPriceOracle (testnet) or ChainlinkAdapter (mainnet).

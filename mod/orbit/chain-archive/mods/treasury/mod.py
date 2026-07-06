@@ -1,11 +1,11 @@
 """Treasury contract module - proportional withdrawal treasury."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """Treasury contract module.
 
     Distributes funds proportionally based on governance token holdings.

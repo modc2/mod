@@ -1,11 +1,11 @@
 """BlocTime contract module - staking token deployment and interaction."""
 
-from mod.core.chain.mods.base import ContractModule
+from mod.core.chain.mods.base import m.mod('chain.contracts')ule
 from web3 import Web3
 import mod as m
 
 
-class Mod(ContractModule):
+class Mod(m.mod('chain.contracts')ule):
     """BlocTime contract module.
 
     Unified staking + token contract. Stake native tokens for blocks,
