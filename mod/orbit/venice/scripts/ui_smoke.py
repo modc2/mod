@@ -48,13 +48,13 @@ with sync_playwright() as p:
     n_models = page.eval_on_selector_all("select option", "els => els.length")
     print(f"✓ orchestrator model picker populated: {n_models} models")
 
-    # Save a BYOK key.
+    # Save a BYOK key (sidebar Access section).
     keybox = page.query_selector("input[type=password]")
     if keybox:
         keybox.fill(KEY)
-        page.click("text=Save key")
-        page.wait_for_selector("text=your key on file", timeout=15000)
-        print("✓ BYOK key saved (Access panel shows 'your key on file')")
+        page.click(".key-form >> text=Save")
+        page.wait_for_selector("text=your key (BYOK)", timeout=15000)
+        print("✓ BYOK key saved (sidebar shows 'your key (BYOK)')")
     else:
         print("• key already on file, skipping save")
 

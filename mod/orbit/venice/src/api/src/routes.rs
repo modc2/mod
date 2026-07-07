@@ -96,7 +96,7 @@ async fn root(State(state): State<AppState>) -> impl IntoResponse {
         "description": "Venice AI gateway — BYOK or pay-per-request (x402)",
         "auth": "mod-protocol",
         "paid_available": state.paid_available(),
-        "endpoints": ["/health", "/models", "/me", "/key", "/chat"],
+        "endpoints": ["/health", "/models", "/me", "/key", "/chat", "/agent", "/media", "/media/:id"],
     }))
 }
 
