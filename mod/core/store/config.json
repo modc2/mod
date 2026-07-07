@@ -6,6 +6,7 @@
     "chain_network": "testnet",
     "bloctime_ttl": 60,
     "onchain_registry": false,
+    "terms_version": "1.0",
     "port": 50150,
     "app_port": 50151,
     "urls": {
@@ -47,7 +48,22 @@
         "put": {
             "method": "POST",
             "auth": true,
-            "docs": "Upload file/text/image; form: backend, key, public, pool (whitelisted + within quota)"
+            "docs": "Upload file/text/image; form: backend, key, public, pool (whitelisted + within quota + signed terms)"
+        },
+        "terms": {
+            "method": "GET/POST",
+            "auth": false,
+            "docs": "GET current terms text+version (+accepted if auth); POST /terms/accept sign-accepts (required before put/register); GET /terms/accepts (owner) audit"
+        },
+        "rm": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Delete own object; the module owner may remove ANY content (e.g. illegal) with ?reason= — logged to the takedown audit"
+        },
+        "takedowns": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Owner-only audit log of admin content removals"
         },
         "register": {
             "method": "POST",

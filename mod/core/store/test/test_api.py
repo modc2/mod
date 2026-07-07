@@ -44,7 +44,13 @@ def H(addr):
     return {"Authorization": f"Bearer {addr}"}
 
 
+def _accept_terms(client, addr):
+    r = client.post("/terms/accept", headers=H(addr))
+    assert r.status_code == 200, r.text
+
+
 def _upload(client, addr, content=b"hello", public=False, pool=None):
+    _accept_terms(client, addr)  # storing requires a signed ToS acceptance
     data = {"backend": "localfs", "public": "true" if public else "false"}
     if pool:
         data["pool"] = pool
@@ -227,6 +233,7 @@ def test_bloctime_holder_is_authorized(client, monkeypatch):
                        data={"backend": "localfs"}).status_code == 403
     # … until BlocTime says she's a holder.
     monkeypatch.setattr(a.ONCHAIN, "is_bloctime_holder", lambda addr: addr == CAROL)
+    _accept_terms(client, CAROL)
     r = client.post("/put", headers=H(CAROL), files={"file": ("f.txt", b"x")}, data={"backend": "localfs"})
     assert r.status_code == 200, r.text
     me = client.get("/me", headers=H(CAROL)).json()
@@ -242,6 +249,7 @@ def test_onchain_status_degrades_gracefully(client, monkeypatch):
 
 
 def test_register_external_cid_agnostic(client):
+    _accept_terms(client, ALICE)
     body = {"cid": "ar://tx123", "url": "https://arweave.net/tx123", "public": True}
     r = client.post("/register", headers=H(ALICE), json=body)
     assert r.status_code == 200, r.text
@@ -292,3 +300,60 @@ def test_graph_hides_private_refs_from_non_owner(client):
     # Alice, the owner, sees the full edge.
     aowner = client.get(f"/object?cid={manifest_cid}", headers=H(ALICE)).json()
     assert [l["cid"] for l in aowner["links"]["out"]] == [part_cid]
+
+
+def test_terms_gate_blocks_put_until_signed(client):
+    """Storing requires a signed acceptance of the current terms (451)."""
+    r = client.post("/put", headers=H(ALICE),
+                    files={"file": ("f.txt", b"x")}, data={"backend": "localfs"})
+    assert r.status_code == 451
+    # /terms exposes version + text; /me reports not-accepted.
+    t = client.get("/terms", headers=H(ALICE)).json()
+    assert t["required"] is True and t["accepted"] is False and t["text"]
+    assert client.get("/me", headers=H(ALICE)).json()["terms"]["accepted"] is False
+    # Sign-accept, then the same upload goes through.
+    _accept_terms(client, ALICE)
+    assert client.get("/me", headers=H(ALICE)).json()["terms"]["accepted"] is True
+    r = client.post("/put", headers=H(ALICE),
+                    files={"file": ("f.txt", b"x")}, data={"backend": "localfs"})
+    assert r.status_code == 200, r.text
+
+
+def test_terms_accepts_audit_is_owner_only(client):
+    import api.api as a
+    _accept_terms(client, BOB)
+    (a.PRIVATE_DIR / "owner.json").write_text('{"owner": "%s"}' % ALICE)
+    assert client.get("/terms/accepts", headers=H(BOB)).status_code == 403
+    audit = client.get("/terms/accepts", headers=H(ALICE)).json()
+    assert BOB in audit["accepts"]
+    assert audit["accepts"][BOB]["version"] == a.TERMS_VERSION
+
+
+def test_admin_can_remove_any_content_and_it_is_logged(client):
+    """The module owner may take down ANY object (illegal content); the
+    takedown lands in the owner-only audit log. Others cannot."""
+    import api.api as a
+    cid = _upload(client, BOB, content=b"questionable", public=True)
+    (a.PRIVATE_DIR / "owner.json").write_text('{"owner": "%s"}' % ALICE)
+    # Carol (not owner, not the object's owner) cannot remove Bob's object.
+    assert client.delete(f"/rm?cid={cid}", headers=H(CAROL)).status_code == 403
+    # Alice (module owner) can, with a reason.
+    r = client.delete(f"/rm?cid={cid}&reason=illegal", headers=H(ALICE))
+    assert r.status_code == 200, r.text
+    assert not any(o["cid"] == cid
+                   for o in client.get("/list", headers=H(BOB)).json()["objects"])
+    log = client.get("/takedowns", headers=H(ALICE)).json()
+    assert log["count"] == 1
+    entry = log["takedowns"][0]
+    assert entry["cid"] == cid and entry["by"] == ALICE and entry["reason"] == "illegal"
+    # The audit log is owner-only.
+    assert client.get("/takedowns", headers=H(BOB)).status_code == 403
+
+
+def test_uploader_can_remove_own_content_without_takedown_log(client):
+    import api.api as a
+    (a.PRIVATE_DIR / "owner.json").write_text('{"owner": "%s"}' % ALICE)
+    client.post("/whitelist", headers=H(ALICE), json={"address": BOB})
+    cid = _upload(client, BOB, content=b"mine")
+    assert client.delete(f"/rm?cid={cid}", headers=H(BOB)).status_code == 200
+    assert client.get("/takedowns", headers=H(ALICE)).json()["count"] == 0

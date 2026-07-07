@@ -28,6 +28,14 @@ export interface MeResponse {
   bloctime: boolean;
   via: "config" | "bloctime" | "open" | null;
   quota: Quota;
+  terms?: { version: string; accepted: boolean };
+}
+
+export interface TermsResponse {
+  version: string;
+  text: string;
+  required: boolean;
+  accepted?: boolean;
 }
 
 export interface PutResponse {
@@ -187,6 +195,23 @@ export const api = {
   },
   async quota(token: string) {
     return json<Quota>(await fetch(`${BASE}/quota`, { headers: authHeaders(token) }));
+  },
+  async terms(token?: string | null) {
+    return json<TermsResponse>(await fetch(`${BASE}/terms`, { headers: authHeaders(token ?? null) }));
+  },
+  async acceptTerms(token: string) {
+    return json<{ address: string; accepted: boolean; version: string }>(
+      await fetch(`${BASE}/terms/accept`, { method: "POST", headers: authHeaders(token) })
+    );
+  },
+  async rm(token: string, cid: string, reason?: string) {
+    const q = reason ? `&reason=${encodeURIComponent(reason)}` : "";
+    return json<Record<string, unknown>>(
+      await fetch(`${BASE}/rm?cid=${encodeURIComponent(cid)}${q}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      })
+    );
   },
   async put(token: string, file: File, backend: string, opts: PutOpts = {}) {
     const fd = new FormData();

@@ -15,7 +15,15 @@ Access control
         ~/.mod/store/owner.json      {"owner": "0x.."}        (admin, unlimited)
         ~/.mod/store/whitelist.json  ["0x..", ...]            (allowed uploaders)
         ~/.mod/store/quotas.json     {"0x..": <bytes>}        (per-user overrides)
+        ~/.mod/store/terms.json      {"0x..": {version, ts, proof}}  (signed ToS)
+        ~/.mod/store/takedowns.json  [{cid, by, reason, ts}]  (moderation audit)
     Empty whitelist AND no owner ⇒ open access (back-compat / bootstrap).
+
+Terms of service (liability)
+    Every uploader must sign-accept terms.md (versioned) before /put or
+    /register: acceptance is recorded with the caller's wallet-signed session
+    token as proof. The admin may remove ANY content (illegal/infringing) via
+    DELETE /rm; non-owner removals are appended to the takedown audit log.
 
 Quota
     Each non-admin address gets `quota_bytes` (config.json, default 100 MiB) of
@@ -43,7 +51,11 @@ Endpoints
     GET  /list                    list caller's objects (+visibility/scheme/semhash)
     GET  /search?q=…[&semantic_q=…] filter + 1-bit semantic (Hamming) ranking
     GET  /shared                  objects shared WITH caller (grants + pools)
-    DELETE /rm?cid=…              delete record
+    DELETE /rm?cid=…[&reason=…]   delete own object; admin may remove ANY (logged)
+    GET  /terms                   current terms text + version (+accepted if auth)
+    POST /terms/accept            sign-accept current terms (required to store)
+    GET  /terms/accepts           (owner) audit: who accepted what, when
+    GET  /takedowns               (owner) audit log of admin content removals
 
   timed access grants
     POST   /grants                grant addr timed read/write to a CID or all
@@ -120,6 +132,12 @@ PRIVATE_DIR.mkdir(parents=True, exist_ok=True)
 WHITELIST_PATH = PRIVATE_DIR / 'whitelist.json'
 OWNER_PATH = PRIVATE_DIR / 'owner.json'
 QUOTAS_PATH = PRIVATE_DIR / 'quotas.json'
+TERMS_ACCEPTS_PATH = PRIVATE_DIR / 'terms.json'
+TAKEDOWNS_PATH = PRIVATE_DIR / 'takedowns.json'
+
+# Versioned terms of service every uploader must sign-accept before storing.
+TERMS_PATH = mod_dir / 'terms.md'
+TERMS_VERSION = str(CONFIG.get('terms_version', '1.0'))
 
 # Access model: timed grants, data pools, QR auth handoff, CID-agnostic ACL.
 # SQLite alongside the JSON access state — off-chain, never committed.
@@ -178,6 +196,54 @@ def read_quotas() -> dict:
 
 def write_quotas(quotas: dict) -> None:
     QUOTAS_PATH.write_text(json.dumps({k.lower(): int(v) for k, v in quotas.items()}, indent=2))
+
+
+def read_terms_text() -> str:
+    try:
+        return TERMS_PATH.read_text()
+    except Exception:
+        return f'Store terms of service v{TERMS_VERSION}: you are solely ' \
+               'responsible for content you upload; the operator may remove ' \
+               'any content at any time.'
+
+
+def read_terms_accepts() -> dict:
+    try:
+        return json.loads(TERMS_ACCEPTS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def has_accepted_terms(address: str) -> bool:
+    rec = read_terms_accepts().get(address.lower())
+    return bool(rec) and str(rec.get('version')) == TERMS_VERSION
+
+
+def record_terms_accept(address: str, proof: str) -> dict:
+    """Record a wallet-signed acceptance of the CURRENT terms version.
+
+    `proof` is the caller's bearer token — a wallet-signed, time-bounded
+    protocol-auth signature — kept off-chain in ~/.mod/store/terms.json as
+    evidence the address accepted this version."""
+    accepts = read_terms_accepts()
+    rec = {'version': TERMS_VERSION, 'accepted_at': int(time.time()), 'proof': proof}
+    accepts[address.lower()] = rec
+    TERMS_ACCEPTS_PATH.write_text(json.dumps(accepts, indent=2))
+    return rec
+
+
+def read_takedowns() -> list:
+    try:
+        return json.loads(TAKEDOWNS_PATH.read_text())
+    except Exception:
+        return []
+
+
+def log_takedown(cid: str, by: str, reason: Optional[str]) -> None:
+    entries = read_takedowns()
+    entries.append({'cid': cid, 'by': by.lower(),
+                    'reason': reason or 'admin takedown', 'ts': int(time.time())})
+    TAKEDOWNS_PATH.write_text(json.dumps(entries, indent=2))
 
 
 def is_admin(address: str) -> bool:
@@ -276,6 +342,17 @@ def require_authorized(authorization: Optional[str]) -> str:
     return addr
 
 
+def require_terms(address: str) -> str:
+    """Storing content requires a signed acceptance of the current terms."""
+    if not has_accepted_terms(address):
+        raise HTTPException(
+            451,
+            f'terms of service v{TERMS_VERSION} not accepted: '
+            'GET /terms then POST /terms/accept before uploading',
+        )
+    return address
+
+
 def require_owner(authorization: Optional[str]) -> str:
     addr = require_session(authorization)
     owner = read_owner()
@@ -329,7 +406,40 @@ def me(authorization: Optional[str] = Header(default=None)):
         'bloctime': bloctime,
         'via': via,
         'quota': quota_view(addr),
+        'terms': {'version': TERMS_VERSION, 'accepted': has_accepted_terms(addr)},
     }
+
+
+# ── terms of service (signed acceptance, required to store) ──
+
+@app.get('/terms')
+def terms_get(authorization: Optional[str] = Header(default=None)):
+    addr = optional_session(authorization)
+    out = {'version': TERMS_VERSION, 'text': read_terms_text(), 'required': True}
+    if addr:
+        out['address'] = addr
+        out['accepted'] = has_accepted_terms(addr)
+    return out
+
+
+@app.post('/terms/accept')
+def terms_accept(authorization: Optional[str] = Header(default=None)):
+    addr = require_session(authorization)
+    token = (authorization or '').split(' ', 1)[-1]
+    rec = record_terms_accept(addr, proof=token)
+    return {'address': addr, 'accepted': True,
+            'version': rec['version'], 'accepted_at': rec['accepted_at']}
+
+
+@app.get('/terms/accepts')
+def terms_accepts(authorization: Optional[str] = Header(default=None)):
+    """Owner-only liability audit: every signed acceptance on record."""
+    require_owner(authorization)
+    accepts = read_terms_accepts()
+    return {'version': TERMS_VERSION, 'count': len(accepts),
+            'accepts': {a: {'version': r.get('version'),
+                            'accepted_at': r.get('accepted_at')}
+                        for a, r in accepts.items()}}
 
 
 # ── quota ──
@@ -438,7 +548,7 @@ async def put(
     pool: Optional[str] = Form(None),
     authorization: Optional[str] = Header(default=None),
 ):
-    owner = require_authorized(authorization)
+    owner = require_terms(require_authorized(authorization))
 
     cache_dir = Path(os.path.expanduser('~/.store-mod/upload'))
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -500,7 +610,7 @@ def register(body: RegisterBody, authorization: Optional[str] = Header(default=N
     """Reference a CID stored in *any other* system (arweave, ipfs elsewhere,
     s3, …) so it becomes a first-class, shareable, poolable store object —
     without re-uploading bytes. The store is CID-agnostic by design."""
-    owner = require_authorized(authorization)
+    owner = require_terms(require_authorized(authorization))
     cid = body.cid.strip()
     if not cid:
         raise HTTPException(400, 'cid required')
@@ -801,9 +911,29 @@ def search(
 
 
 @app.delete('/rm')
-def rm(cid: str, authorization: Optional[str] = Header(default=None)):
-    require_authorized(authorization)
-    return store_mod.rm(cid)
+def rm(cid: str, reason: Optional[str] = None,
+       authorization: Optional[str] = Header(default=None)):
+    """Delete a stored object. Callers may remove their OWN objects; the
+    module owner (admin) may remove ANY object — e.g. illegal or infringing
+    content — and such takedowns are appended to an off-chain audit log."""
+    addr = require_session(authorization)
+    own = caller_owns(cid, addr)
+    if not own and not is_admin(addr):
+        raise HTTPException(403, 'not your object (only the module owner may remove others\' content)')
+    r = store_mod.rm(cid)
+    if not own:
+        log_takedown(cid, by=addr, reason=reason)
+        if isinstance(r, dict):
+            r['takedown'] = True
+    return r
+
+
+@app.get('/takedowns')
+def takedowns(authorization: Optional[str] = Header(default=None)):
+    """Owner-only moderation audit log of admin content removals."""
+    require_owner(authorization)
+    entries = read_takedowns()
+    return {'count': len(entries), 'takedowns': entries}
 
 
 # ── grants (timed access) ──────────────────────────────────────────

@@ -95,8 +95,11 @@ m store/stop                      # pm2 stop
 | GET    | `/whitelist` | —    | owner + allowed uploader addresses |
 | POST   | `/whitelist` | owner| add an address `{address}` |
 | DELETE | `/whitelist` | owner| remove an address `?address=0x…` |
-| POST   | `/put`       | ✓ wl | multipart upload (form: `file, backend, key, public, pool`) |
-| POST   | `/register`  | ✓ wl | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
+| POST   | `/put`       | ✓ wl+tos | multipart upload (form: `file, backend, key, public, pool`) |
+| POST   | `/register`  | ✓ wl+tos | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
+| GET    | `/terms`     | opt  | current terms of service text + version (+`accepted` if auth) |
+| POST   | `/terms/accept` | ✓ | sign-accept the current terms (required before `put`/`register`) |
+| GET    | `/terms/accepts` | owner | liability audit: every signed acceptance on record |
 | GET    | `/get`       | opt  | retrieve by CID; private objects need `?token=` or Bearer |
 | GET    | `/preview`   | opt  | peek content: truncated text + `size`/`truncated` flag |
 | GET    | `/object`    | opt  | full info: stored when/by-whom, backends, visibility, semhash, **who has access** |
@@ -107,7 +110,8 @@ m store/stop                      # pm2 stop
 | GET    | `/list`      | ✓    | list caller's objects (+`visibility/scheme/url/semhash`) |
 | GET    | `/search`    | ✓    | filter by `q`/backend/scheme/visibility; rank by `semantic_q` |
 | GET    | `/shared`    | ✓    | objects shared **with** caller (grants + pools) |
-| DELETE | `/rm`        | ✓ wl | remove an index record |
+| DELETE | `/rm`        | ✓    | delete **own** object; the module owner may remove **any** content (`?reason=…`, logged) |
+| GET    | `/takedowns` | owner| moderation audit log of admin content removals |
 | DELETE | `/pools/{id}`| owner| delete a pool (members + objects) |
 | POST   | `/tickets`   | ✓    | mint single-use short-TTL fetch ticket `{cid, ttl_seconds=10}` |
 | GET    | `/tickets`   | ✓    | the caller's active (unused, unexpired) tickets |
@@ -126,7 +130,19 @@ m store/stop                      # pm2 stop
 | GET    | `/handoff/{code}` | — | claim → token (single use, short TTL) |
 
 `✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership;
+`+tos` = also requires a signed acceptance of the current terms of service;
 `opt` = optional token (anonymous allowed for public objects).
+
+## Terms of service & moderation (liability)
+
+Every uploader must **sign-accept** the versioned terms (`terms.md`,
+`terms_version` in config.json) before storing: the acceptance is recorded in
+`~/.mod/store/terms.json` together with the caller's wallet-signed session
+token as proof. The terms make the uploader solely responsible for their
+content and let the operator remove anything illegal. Bumping `terms_version`
+requires everyone to re-accept. The module owner can take down **any** object
+via `DELETE /rm?cid=…&reason=…`; non-own removals are appended to
+`~/.mod/store/takedowns.json` and auditable at `GET /takedowns`.
 
 ## Access model (grants · pools · QR handoff · CID-agnostic)
 
@@ -135,6 +151,7 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
 | File | What |
 |------|------|
 | `owner.json` / `whitelist.json` / `quotas.json` | admin, uploaders, per-user byte limits |
+| `terms.json` / `takedowns.json` | signed ToS acceptances, moderation audit log |
 | `access.db` (SQLite) | per-object ACL, timed grants, pools + members + objects, QR handoff codes |
 
 - **Visibility** — uploads are **private** by default (`public=true` to open, or

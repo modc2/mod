@@ -19,6 +19,7 @@ import {
   Preview,
   Quota,
   StoredObject,
+  TermsResponse,
 } from "@/lib/api";
 
 const TOKEN_KEY = "store:token";
@@ -109,9 +110,12 @@ export default function Page() {
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [linkPhone, setLinkPhone] = useState<{ code: string; expires: number } | null>(null);
   const [openPool, setOpenPool] = useState<PoolDetail | null>(null);
+  const [termsDoc, setTermsDoc] = useState<TermsResponse | null>(null);
 
   const quota: Quota | null = me?.quota ?? null;
   const canStore = !!me?.authorized;
+  // Storing requires a wallet-signed acceptance of the current terms of service.
+  const termsSigned = me?.terms ? me.terms.accepted : true;
 
   const applySession = useCallback((t: string, r: MeResponse) => {
     localStorage.setItem(TOKEN_KEY, t);
@@ -311,6 +315,52 @@ export default function Page() {
     }
   };
 
+  const openTerms = async () => {
+    try {
+      setTermsDoc(await api.terms(token));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const signTerms = async () => {
+    if (!token) return;
+    setBusy("recording signed acceptance…");
+    try {
+      await api.acceptTerms(token);
+      await refreshMe(token);
+      setTermsDoc(null);
+      setSuccess("terms accepted — you can now store data");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doRemove = async (o: StoredObject, takedown = false) => {
+    if (!token) return;
+    let reason: string | undefined;
+    if (takedown) {
+      const r = prompt("Takedown reason (recorded in the moderation audit log):", "illegal content");
+      if (r === null) return;
+      reason = r || "admin takedown";
+    } else if (!confirm(`Remove ${o.cid.slice(0, 16)}…? This deletes the stored object.`)) {
+      return;
+    }
+    setBusy(`removing ${o.cid.slice(0, 12)}…`);
+    try {
+      await api.rm(token, o.cid, reason);
+      refreshFiles(token);
+      refreshShared(token);
+      setSuccess(takedown ? `taken down ${o.cid.slice(0, 12)}… (logged)` : `removed ${o.cid.slice(0, 12)}…`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const copyText = async (s: string, tag: string) => {
     try {
       await navigator.clipboard.writeText(s);
@@ -433,8 +483,22 @@ export default function Page() {
         </div>
       )}
 
+      {/* terms of service gate */}
+      {token && canStore && !termsSigned && (
+        <div className="panel">
+          <h2 className="panel-title">Terms of service</h2>
+          <p className="muted">
+            Before storing anything you must sign the terms of service (v{me?.terms?.version}): you are solely
+            responsible for the content you upload, and the operator may remove any illegal content.
+          </p>
+          <div className="row">
+            <button onClick={openTerms} disabled={!!busy}>✍️ Read &amp; sign terms</button>
+          </div>
+        </div>
+      )}
+
       {/* upload */}
-      {token && canStore && (
+      {token && canStore && termsSigned && (
         <div className="panel">
           <h2 className="panel-title">Add data</h2>
           <div className="tabs">
@@ -573,6 +637,7 @@ export default function Page() {
                 onInfo={() => setInfoFor(o.cid)}
                 onPublish={() => togglePublish(o)}
                 onPin={() => doPin(o.cid, o.backend)}
+                onRemove={() => doRemove(o)}
               />
             ))}
           </ul>
@@ -598,6 +663,8 @@ export default function Page() {
                 onView={() => setContentFor(o)}
                 onTicket={() => setTicketFor(o)}
                 onInfo={() => setInfoFor(o.cid)}
+                onRemove={me?.admin ? () => doRemove(o, true) : undefined}
+                removeLabel="⚖️ take down"
               />
             ))}
           </ul>
@@ -654,6 +721,21 @@ export default function Page() {
       {contentFor && token && <ContentModal token={token} object={contentFor} onClose={() => setContentFor(null)} setError={setError} copyText={copyText} copied={copied} />}
       {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} onNavigate={setInfoFor} />}
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
+      {termsDoc && token && (
+        <Modal title={`Terms of service — v${termsDoc.version}`} onClose={() => setTermsDoc(null)}>
+          <pre style={{ whiteSpace: "pre-wrap", maxHeight: "50vh", overflowY: "auto", fontFamily: "inherit" }}>
+            {termsDoc.text}
+          </pre>
+          <p className="muted hint">
+            Accepting records this version against your address ({shortAddress(address ?? "")}) together with your
+            wallet-signed session proof.
+          </p>
+          <div className="row">
+            <button onClick={signTerms} disabled={!!busy}>✍️ Sign &amp; accept</button>
+            <button className="ghost" onClick={() => setTermsDoc(null)} disabled={!!busy}>not now</button>
+          </div>
+        </Modal>
+      )}
       {openPool && token && (
         <PoolModal
           token={token}
@@ -672,7 +754,7 @@ export default function Page() {
 /* ──────────────────────────── object row ──────────────────────────── */
 
 function ObjectRow({
-  o, token, busy, copied, shared, onCopy, onView, onTicket, onShare, onInfo, onPublish, onPin,
+  o, token, busy, copied, shared, onCopy, onView, onTicket, onShare, onInfo, onPublish, onPin, onRemove, removeLabel,
 }: {
   o: StoredObject;
   token: string;
@@ -686,6 +768,8 @@ function ObjectRow({
   onInfo: () => void;
   onPublish?: () => void;
   onPin?: () => void;
+  onRemove?: () => void;
+  removeLabel?: string;
 }) {
   const priv = o.visibility === "private";
   return (
@@ -718,6 +802,7 @@ function ObjectRow({
           {!shared && onShare && <button onClick={onShare} disabled={busy}>share</button>}
           {!shared && onPublish && <button onClick={onPublish} disabled={busy}>{priv ? "make public" : "make private"}</button>}
           {!shared && onPin && <button onClick={onPin} disabled={busy}>pin</button>}
+          {onRemove && <button onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? "🗑 remove"}</button>}
         </div>
       </div>
     </li>
