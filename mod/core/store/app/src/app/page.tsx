@@ -21,12 +21,13 @@ import {
   StoredObject,
   TermsResponse,
 } from "@/lib/api";
+import { storageGet, storageRemove, storageSet } from "@/lib/safeStorage";
 
 const TOKEN_KEY = "store:token";
 const ADDR_KEY = "store:addr";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
-type View = "files" | "shared" | "pins" | "pools";
+type View = "files" | "add" | "shared" | "pins" | "pools" | "status";
 
 const DURATIONS: { label: string; ttl: number | null }[] = [
   { label: "15 minutes", ttl: 15 * 60 },
@@ -118,8 +119,8 @@ export default function Page() {
   const termsSigned = me?.terms ? me.terms.accepted : true;
 
   const applySession = useCallback((t: string, r: MeResponse) => {
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(ADDR_KEY, r.address);
+    storageSet(TOKEN_KEY, t);
+    storageSet(ADDR_KEY, r.address);
     setToken(t);
     setAddress(r.address);
     setMe(r);
@@ -149,14 +150,14 @@ export default function Page() {
         });
       return;
     }
-    const t = localStorage.getItem(TOKEN_KEY);
+    const t = storageGet(TOKEN_KEY);
     if (t) {
       api
         .me(t)
         .then((r) => applySession(t, r))
         .catch(() => {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(ADDR_KEY);
+          storageRemove(TOKEN_KEY);
+          storageRemove(ADDR_KEY);
         });
     }
   }, [applySession]);
@@ -230,8 +231,8 @@ export default function Page() {
   };
 
   const signOut = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(ADDR_KEY);
+    storageRemove(TOKEN_KEY);
+    storageRemove(ADDR_KEY);
     setToken(null);
     setMe(null);
     setObjects([]);
@@ -465,6 +466,26 @@ export default function Page() {
         </div>
       )}
 
+      {/* top nav */}
+      {token && (
+        <nav className="navbar">
+          {(
+            [
+              ["files", `Your objects (${objects.length})`],
+              ["add", "＋ Add data"],
+              ["shared", "Shared with you"],
+              ["pins", `Pins (${pins.length})`],
+              ["pools", `Pools (${pools.length})`],
+              ["status", "Status"],
+            ] as [View, string][]
+          ).map(([v, label]) => (
+            <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
       {token && quota && (
         <div className="panel">
           <h2 className="panel-title">Storage allowance</h2>
@@ -485,20 +506,22 @@ export default function Page() {
 
       {/* terms of service gate */}
       {token && canStore && !termsSigned && (
-        <div className="panel">
-          <h2 className="panel-title">Terms of service</h2>
+        <div className="gate-card">
+          <div className="gate-glow" />
+          <h2>✍️ One signature to start storing</h2>
           <p className="muted">
-            Before storing anything you must sign the terms of service (v{me?.terms?.version}): you are solely
-            responsible for the content you upload, and the operator may remove any illegal content.
+            Before your first upload, sign the <strong>terms of service</strong>{" "}
+            <span className="pill">v{me?.terms?.version}</span> — you own what you store and are responsible
+            for it, and the operator may remove illegal content. Recorded once per version against your address.
           </p>
-          <div className="row">
-            <button onClick={openTerms} disabled={!!busy}>✍️ Read &amp; sign terms</button>
+          <div className="row" style={{ marginTop: 16 }}>
+            <button className="primary" onClick={openTerms} disabled={!!busy}>Read &amp; sign terms</button>
           </div>
         </div>
       )}
 
       {/* upload */}
-      {token && canStore && termsSigned && (
+      {token && canStore && termsSigned && view === "add" && (
         <div className="panel">
           <h2 className="panel-title">Add data</h2>
           <div className="tabs">
@@ -583,17 +606,8 @@ export default function Page() {
       )}
 
       {/* fetch by CID */}
-      {token && <FetchByCid token={token} onView={(cid) => setContentFor({ cid, backend: "" } as StoredObject)} onInfo={setInfoFor} />}
-
-      {/* nav */}
-      {token && (
-        <div className="navbar">
-          {(["files", "shared", "pins", "pools"] as const).map((v) => (
-            <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
-              {v === "files" ? `Your objects (${objects.length})` : v === "shared" ? "Shared with you" : v === "pins" ? `Pins (${pins.length})` : `Pools (${pools.length})`}
-            </button>
-          ))}
-        </div>
+      {token && view === "files" && (
+        <FetchByCid token={token} onView={(cid) => setContentFor({ cid, backend: "" } as StoredObject)} onInfo={setInfoFor} />
       )}
 
       {/* your objects */}
@@ -708,12 +722,16 @@ export default function Page() {
         <PoolsView token={token} pools={pools} onChanged={() => token && refreshPools(token)} onOpen={async (id) => setOpenPool(await api.pool(token, id))} setError={setError} />
       )}
 
-      {token && <RegisterExternal token={token} onDone={() => token && refreshFiles(token)} setError={setError} setSuccess={setSuccess} />}
+      {token && view === "add" && (
+        <RegisterExternal token={token} onDone={() => token && refreshFiles(token)} setError={setError} setSuccess={setSuccess} />
+      )}
 
-      <div className="panel">
-        <h2 className="panel-title">Service status</h2>
-        <pre className="status">{serviceStatus ? JSON.stringify(serviceStatus, null, 2) : "loading…"}</pre>
-      </div>
+      {(!token || view === "status") && (
+        <div className="panel">
+          <h2 className="panel-title">Service status</h2>
+          <pre className="status">{serviceStatus ? JSON.stringify(serviceStatus, null, 2) : "loading…"}</pre>
+        </div>
+      )}
 
       {/* modals */}
       {shareFor && token && <ShareModal token={token} object={shareFor} onClose={() => setShareFor(null)} setError={setError} setSuccess={setSuccess} />}
@@ -723,15 +741,15 @@ export default function Page() {
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
       {termsDoc && token && (
         <Modal title={`Terms of service — v${termsDoc.version}`} onClose={() => setTermsDoc(null)}>
-          <pre style={{ whiteSpace: "pre-wrap", maxHeight: "50vh", overflowY: "auto", fontFamily: "inherit" }}>
-            {termsDoc.text}
-          </pre>
-          <p className="muted hint">
-            Accepting records this version against your address ({shortAddress(address ?? "")}) together with your
+          <div className="terms-text">
+            <TermsBody text={termsDoc.text} />
+          </div>
+          <p className="terms-sign-note">
+            Accepting records v{termsDoc.version} against {shortAddress(address ?? "")} together with your
             wallet-signed session proof.
           </p>
           <div className="row">
-            <button onClick={signTerms} disabled={!!busy}>✍️ Sign &amp; accept</button>
+            <button className="primary" onClick={signTerms} disabled={!!busy}>✍️ Sign &amp; accept</button>
             <button className="ghost" onClick={() => setTermsDoc(null)} disabled={!!busy}>not now</button>
           </div>
         </Modal>
@@ -802,7 +820,7 @@ function ObjectRow({
           {!shared && onShare && <button onClick={onShare} disabled={busy}>share</button>}
           {!shared && onPublish && <button onClick={onPublish} disabled={busy}>{priv ? "make public" : "make private"}</button>}
           {!shared && onPin && <button onClick={onPin} disabled={busy}>pin</button>}
-          {onRemove && <button onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? "🗑 remove"}</button>}
+          {onRemove && <button className="danger" onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? "🗑 remove"}</button>}
         </div>
       </div>
     </li>
@@ -1458,6 +1476,40 @@ function RegisterExternal({
 }
 
 /* ──────────────────────────── modal shell ──────────────────────────── */
+
+/* ──────────────────────────── terms body (mini markdown) ──────────────────────────── */
+
+function boldSpans(line: string): React.ReactNode {
+  // **bold** only — all the terms document needs.
+  return line.split("**").map((seg, i) => (i % 2 ? <strong key={i}>{seg}</strong> : seg));
+}
+
+function TermsBody({ text }: { text: string }) {
+  const blocks: React.ReactNode[] = [];
+  let list: string[] = [];
+  let para: string[] = [];
+  const flush = () => {
+    if (list.length) {
+      blocks.push(<ul key={blocks.length}>{list.map((li, i) => <li key={i}>{boldSpans(li)}</li>)}</ul>);
+      list = [];
+    }
+    if (para.length) {
+      blocks.push(<p key={blocks.length}>{boldSpans(para.join(" "))}</p>);
+      para = [];
+    }
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    if (line.startsWith("## ")) { flush(); blocks.push(<h2 key={blocks.length}>{line.slice(3)}</h2>); continue; }
+    if (line.startsWith("# ")) { flush(); blocks.push(<h1 key={blocks.length}>{line.slice(2)}</h1>); continue; }
+    if (line.startsWith("- ")) { if (para.length) flush(); list.push(line.slice(2)); continue; }
+    if (list.length) { list[list.length - 1] += ` ${line}`; continue; } // wrapped bullet
+    para.push(line);
+  }
+  flush();
+  return <>{blocks}</>;
+}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
