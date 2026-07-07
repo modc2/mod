@@ -236,6 +236,25 @@ export async function switchNetwork(chainId: number): Promise<boolean> {
 }
 
 /**
+ * Some wallet extensions (SubWallet, older MetaMask builds) crash in their own
+ * bignumber.js while converting a balance/rate they computed as a raw float —
+ * the request rejects with "times() number type has more than 15 significant
+ * digits: 0.0743…". Nothing the dapp sent; bignumber.js refuses number
+ * primitives above float64's 15-sig-digit precision and the extension fed it
+ * one. The crash is transient — the same request usually succeeds on retry.
+ */
+export function isExtensionBignumberBug(e: any): boolean {
+  return /significant digits|BigNumber Error/i.test(String(e?.message || e || ""));
+}
+
+export function friendlyWalletError(e: any): string {
+  if (isExtensionBignumberBug(e)) {
+    return "WALLET EXTENSION CRASHED on its own balance math (a known SubWallet/MetaMask bignumber bug — not a claude issue). Try again; updating the extension fixes it for good.";
+  }
+  return String(e?.message || e || "");
+}
+
+/**
  * Get an ethers provider for a given chain ID.
  * Uses BrowserProvider if available, otherwise falls back to JsonRpcProvider.
  */
