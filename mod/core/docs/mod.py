@@ -35,18 +35,29 @@ class Mod:
         return self.overview()
 
     # ── protocol doc pages ───────────────────────────────────────────────
+    # Every page docs/<name>.md may have a plain-language twin docs/simple/<name>.md.
     def pages(self) -> list:
         d = self.docs_dir
         if not os.path.isdir(d):
             return []
         return sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md"))
 
-    def page(self, name: str):
+    def page(self, name: str, simple: bool = False):
         fn = name if name.endswith(".md") else name + ".md"
+        if simple:
+            sp = os.path.join(self.docs_dir, "simple", fn)
+            if os.path.exists(sp):
+                return m.get_text(sp)
         p = os.path.join(self.docs_dir, fn)
         if not os.path.exists(p):
             raise FileNotFoundError(f"no doc page '{name}'. available: {self.pages()}")
         return m.get_text(p)
+
+    def simple_pages(self) -> list:
+        d = os.path.join(self.docs_dir, "simple")
+        if not os.path.isdir(d):
+            return []
+        return sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md"))
 
     def overview(self):
         for cand in ("README.md", "getting-started.md"):
@@ -107,7 +118,7 @@ class Mod:
 
     # ── whitepaper ───────────────────────────────────────────────────────
     def whitepaper(self, fmt: str = "md"):
-        fn = {"tex": "whitepaper.tex", "simple": "simple-whitepaper.md"}.get(fmt, "whitepaper.md")
+        fn = {"tex": "whitepaper.tex", "simple": os.path.join("simple", "whitepaper.md")}.get(fmt, "whitepaper.md")
         p = os.path.join(self.docs_dir, fn)
         return m.get_text(p) if os.path.exists(p) else None
 
@@ -130,6 +141,7 @@ class Mod:
         return {
             "name": "docs", "description": self.description, "path": self.path,
             "pages": self.pages(),
+            "simple_pages": self.simple_pages(),
             "modules_documented": len(mods),
             "with_readme": sum(1 for x in mods if x["readme"]),
             "with_skill": sum(1 for x in mods if x["skill"]),
