@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import TopBar from "../components/TopBar";
 import CopyTrading from "../components/CopyTrading";
 import PnlChart from "../components/PnlChart";
@@ -185,6 +185,15 @@ function TradersInner() {
   const currentPnlCurve = isStrategyTab ? pnlCurve : (currentTraderData?.pnlCurve || []);
   const currentTrades = isStrategyTab ? allTrades : (currentTraderData?.trades || []);
 
+  // Editable keyword filter over the shown trades (strategy-wide or the
+  // selected trader's tab) — matches market titles, case-insensitive.
+  const [tradeQuery, setTradeQuery] = useState("");
+  const visibleTrades = useMemo(() => {
+    const q = tradeQuery.trim().toLowerCase();
+    if (!q) return currentTrades;
+    return currentTrades.filter((t) => String(t.market || "").toLowerCase().includes(q));
+  }, [currentTrades, tradeQuery]);
+
   return (
     <div className="max-w-[1920px] mx-auto">
       <TopBar searchPlaceholder="SEARCH TRADERS..." />
@@ -240,6 +249,26 @@ function TradersInner() {
                       {addr.slice(0, 6)}...{addr.slice(-4)}
                     </button>
                   ))}
+                  {/* Keyword filter over the trades shown below — works on
+                      the STRATEGY tab and on each selected trader's tab. */}
+                  <div className="ml-auto flex items-center gap-1 shrink-0">
+                    <input
+                      type="text"
+                      value={tradeQuery}
+                      onChange={(e) => { setTradeQuery(e.target.value); setTradesPage(0); }}
+                      placeholder="FILTER TRADES..."
+                      className="bg-transparent border-2 border-pixel-border focus:border-pixel-white outline-none px-2 py-1 text-[13px] font-mono text-pixel-white placeholder:text-pixel-gray w-44"
+                    />
+                    {tradeQuery && (
+                      <button
+                        onClick={() => { setTradeQuery(""); setTradesPage(0); }}
+                        className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
+                        title="Clear trade filter"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Trader header */}
@@ -305,7 +334,7 @@ function TradersInner() {
                             </tr>
                           </thead>
                           <tbody>
-                            {currentTrades.slice(tradesPage * TRADES_PAGE_SIZE, (tradesPage + 1) * TRADES_PAGE_SIZE).map((trade, i) => {
+                            {visibleTrades.slice(tradesPage * TRADES_PAGE_SIZE, (tradesPage + 1) * TRADES_PAGE_SIZE).map((trade, i) => {
                               const isEntering = trade.side === "BUY";
                               const showRealized = !isEntering && trade.hasBasis;
                               const isProfit = showRealized && trade.realized > 0;
@@ -358,10 +387,10 @@ function TradersInner() {
                       </div>
                     </div>
 
-                    {currentTrades.length > TRADES_PAGE_SIZE && (
+                    {visibleTrades.length > TRADES_PAGE_SIZE && (
                       <div className="flex items-center justify-between px-1">
                         <span className="text-[12px] text-pixel-gray font-mono">
-                          {tradesPage * TRADES_PAGE_SIZE + 1}-{Math.min((tradesPage + 1) * TRADES_PAGE_SIZE, currentTrades.length)} of {currentTrades.length}
+                          {tradesPage * TRADES_PAGE_SIZE + 1}-{Math.min((tradesPage + 1) * TRADES_PAGE_SIZE, visibleTrades.length)} of {visibleTrades.length}{tradeQuery.trim() ? ` (of ${currentTrades.length} unfiltered)` : ""}
                         </span>
                         <div className="flex items-center gap-1">
                           <button
@@ -370,11 +399,11 @@ function TradersInner() {
                             className="pixel-btn text-[12px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
                           >PREV</button>
                           <span className="text-[12px] text-pixel-gray font-mono">
-                            PAGE {tradesPage + 1} / {Math.ceil(currentTrades.length / TRADES_PAGE_SIZE)}
+                            PAGE {tradesPage + 1} / {Math.ceil(visibleTrades.length / TRADES_PAGE_SIZE)}
                           </span>
                           <button
-                            onClick={() => setTradesPage((p) => Math.min(Math.ceil(currentTrades.length / TRADES_PAGE_SIZE) - 1, p + 1))}
-                            disabled={tradesPage >= Math.ceil(currentTrades.length / TRADES_PAGE_SIZE) - 1}
+                            onClick={() => setTradesPage((p) => Math.min(Math.ceil(visibleTrades.length / TRADES_PAGE_SIZE) - 1, p + 1))}
+                            disabled={tradesPage >= Math.ceil(visibleTrades.length / TRADES_PAGE_SIZE) - 1}
                             className="pixel-btn text-[12px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
                           >NEXT</button>
                         </div>

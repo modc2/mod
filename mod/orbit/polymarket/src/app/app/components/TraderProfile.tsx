@@ -110,6 +110,10 @@ export default function TraderProfile({
   const [showCurrent, setShowCurrent] = useState(false);
   type ProfileTab = "chart" | "open" | "closed" | "all";
   const [profileTab, setProfileTab] = useState<ProfileTab>("chart");
+  // Editable keyword filter over THIS trader's trades — lives next to the
+  // trade table so it's discoverable, and combines with the TopBar search
+  // (both must match). Filters market titles, case-insensitive.
+  const [tradeQuery, setTradeQuery] = useState("");
 
   const handlePosSort = (col: PosSort) => {
     if (posSort === col) setPosSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -198,13 +202,18 @@ export default function TraderProfile({
   // consistent.
   const filteredTrades = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
-    if (!q && !categoryFilter) return tradesInWindow;
+    const local = tradeQuery.trim().toLowerCase();
+    if (!q && !local && !categoryFilter) return tradesInWindow;
     return tradesInWindow.filter((t) => {
       if (q && !t.market.toLowerCase().includes(q)) return false;
+      if (local && !t.market.toLowerCase().includes(local)) return false;
       if (categoryFilter && !matchMarketCategory(t.market, categoryFilter)) return false;
       return true;
     });
-  }, [tradesInWindow, searchFilter, categoryFilter]);
+  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter]);
+
+  // Any trade-level filter active (TopBar search, local keyword, category)?
+  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter);
 
   // Mark-to-market cumulative P&L, one point per trade, plus a final "NOW"
   // mark that revalues any still-open inventory at current position prices.
@@ -498,10 +507,10 @@ export default function TraderProfile({
             {([
               { label: `${dayLabel} P&L`, value: formatPnl(stats.totalPnl), tone: stats.totalPnl > 0 ? "good" : stats.totalPnl < 0 ? "bad" : "neutral" },
               { label: "WIN RATE", value: stats.winRate < 0 ? "—" : `${stats.winRate}%`, tone: stats.winRate < 0 ? "neutral" : stats.winRate >= 50 ? "good" : "bad" },
-              { label: "TRADES", value: (searchFilter.trim() || categoryFilter) ? `${filteredTrades.length}/${tradesInWindow.length}` : filteredTrades.length.toString(), tone: "neutral" },
+              { label: "TRADES", value: filterActive ? `${filteredTrades.length}/${tradesInWindow.length}` : filteredTrades.length.toString(), tone: "neutral" },
               { label: "VOLUME", value: formatVolume(filteredTrades.reduce((s, t) => s + t.size * t.price, 0)), tone: "neutral" },
               { label: "AVG TRADE", value: formatPnl(stats.avgTrade), tone: stats.avgTrade > 0 ? "good" : stats.avgTrade < 0 ? "bad" : "neutral" },
-              { label: "POSITIONS", value: (searchFilter.trim() || categoryFilter) ? `${filteredPositions.length}/${positions.length}` : positions.length.toString(), tone: "neutral" },
+              { label: "POSITIONS", value: filterActive ? `${filteredPositions.length}/${positions.length}` : positions.length.toString(), tone: "neutral" },
             ] as const).map((stat) => {
               const valueClass =
                 stat.tone === "good" ? "text-green-400" :
@@ -543,20 +552,41 @@ export default function TraderProfile({
                   <span className="ml-1.5 text-[13px] text-pixel-gray">{tab.count}</span>
                 </button>
               ))}
+              {/* Editable keyword filter over this trader's trades — narrows
+                  every tab (P&L curve, OPEN/CLOSED/ALL tables) and the stats
+                  above. Combines with the TopBar search: both must match. */}
+              <div className="ml-auto mr-2 flex items-center gap-1">
+                <input
+                  type="text"
+                  value={tradeQuery}
+                  onChange={(e) => setTradeQuery(e.target.value)}
+                  placeholder="FILTER TRADES..."
+                  className="bg-transparent border-2 border-pixel-border focus:border-pixel-white outline-none px-2 py-1 text-[13px] font-mono text-pixel-white placeholder:text-pixel-gray w-40"
+                />
+                {tradeQuery && (
+                  <button
+                    onClick={() => setTradeQuery("")}
+                    className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
+                    title="Clear trade filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Tab content */}
             {profileTab === "chart" ? (
               <div className="p-0">
                 {pnlCurve.length > 0 ? (
-                  <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={!!(searchFilter.trim() || categoryFilter)} />
+                  <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
                 ) : (
                   <div className="p-8 text-center">
                     <div className="text-[16px] text-pixel-gray-light tracking-wider mb-2">
                       {`${dayLabel} P&L CURVE`}
                     </div>
                     <div className="text-[15px] text-pixel-gray">
-                      {(searchFilter.trim() || categoryFilter)
+                      {filterActive
                         ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
                         : positions.length > 0
                         ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"

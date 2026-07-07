@@ -56,11 +56,18 @@ pub async fn proxy_handler(
     let qs = req.uri().query().unwrap_or("");
     let cache_key = format!("proxy:{}", qs);
 
-    // Check cache (memory + disk for persistent endpoints)
+    // Check cache (memory + disk for persistent endpoints). Only a FRESH
+    // entry short-circuits — a stale one falls through to a live upstream
+    // fetch (and is still served by the stale-on-error branches below if
+    // that fetch fails). Serving stale here unconditionally meant a cached
+    // /value or /positions could outlive the actual holdings by a day and
+    // the portfolio panel kept rendering positions that were long gone.
     if let Some((data, fresh)) = state.proxy_cache.get(&cache_key, &endpoint) {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-cache", if fresh { "HIT" } else { "STALE" }.parse().unwrap());
-        return (StatusCode::OK, headers, Json(data)).into_response();
+        if fresh {
+            let mut headers = HeaderMap::new();
+            headers.insert("x-cache", "HIT".parse().unwrap());
+            return (StatusCode::OK, headers, Json(data)).into_response();
+        }
     }
 
     // Build upstream URL

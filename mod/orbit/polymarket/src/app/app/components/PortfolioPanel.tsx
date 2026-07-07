@@ -37,6 +37,35 @@ interface PositionLite {
   negRisk: boolean;
   // Market resolved → REDEEM (not SELL) is the only cash-out path.
   redeemable: boolean;
+  // Live order book has at least one bid → a SELL can actually fill.
+  // Positions that are neither sellable nor redeemable are hidden from the
+  // panel entirely (they're unrealizable, so showing their mark-to-market
+  // value would overstate what the account is worth).
+  sellable: boolean;
+  // Best bid from the book, used as the SELL price so FAK orders cross
+  // instead of getting killed above the market.
+  bestBid: number | null;
+}
+
+// Probe the CLOB book for a token and return its best bid, or null when the
+// book is empty/gone (resolved or dead market — a SELL there can never fill).
+// Errors return undefined = "unknown": we keep showing the position rather
+// than hiding it on a flaky network read.
+async function fetchBestBid(tokenId: string): Promise<number | null | undefined> {
+  try {
+    const r = await fetch(`/api/polymarket/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
+    if (!r.ok) return undefined;
+    const book = await r.json();
+    const bids = Array.isArray(book?.bids) ? book.bids : [];
+    let best = 0;
+    for (const b of bids) {
+      const px = Number(b?.price);
+      if (Number.isFinite(px) && px > best) best = px;
+    }
+    return best > 0 ? best : null;
+  } catch {
+    return undefined;
+  }
 }
 
 interface Snapshot {
@@ -258,6 +287,8 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [sellStatus, setSellStatus] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState(false);
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
+  // Positions hidden because they're unrealizable (no bid, not redeemable).
+  const [hiddenInfo, setHiddenInfo] = useState<{ count: number; value: number }>({ count: 0, value: 0 });
 
   const eoa = auth.address;
 
@@ -326,21 +357,52 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           currentPrice: p.currentPrice,
           negRisk: p.negRisk,
           redeemable: p.redeemable,
+          sellable: false,
+          bestBid: null,
         }));
         listOk = true;
+
+        // Sellability probe — a position only counts if we can actually get
+        // out of it: either the market resolved (REDEEM) or the live book
+        // has a bid (SELL). Anything else is unrealizable and is hidden so
+        // the tiles reflect what the account can really cash out.
+        const bids = await Promise.all(
+          nextPositions.map((p) =>
+            p.redeemable || !p.tokenId ? Promise.resolve(undefined) : fetchBestBid(p.tokenId),
+          ),
+        );
+        nextPositions = nextPositions.map((p, i) => {
+          const bid = bids[i];
+          return {
+            ...p,
+            // undefined = probe failed → keep showing rather than hide on a
+            // flaky read; null = book confirmed empty → not sellable.
+            sellable: !p.redeemable && bid !== null,
+            bestBid: typeof bid === "number" ? bid : null,
+          };
+        });
       } catch (e) {
         setLastError(`positions: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
-    // Resolve the headline total. Prefer the detailed sum ONLY when the list
-    // has rows; otherwise an empty/throttled list must NOT zero a real /value
-    // total (the phantom-$0 bug). Genuine zero = list returned empty AND /value
-    // also ~0.
+    // Split realizable vs not. Hidden = no bid on the book AND not
+    // redeemable — a SELL there can never fill, so we neither list it nor
+    // count its mark-to-market value.
+    const hidden = nextPositions.filter((p) => !p.redeemable && !p.sellable);
+    nextPositions = nextPositions.filter((p) => p.redeemable || p.sellable);
+
+    // Resolve the headline total. Prefer the detailed sum ONLY when the raw
+    // list had rows; otherwise an empty/throttled list must NOT zero a real
+    // /value total (the phantom-$0 bug). Genuine zero = list returned empty
+    // AND /value also ~0. rawCount (pre-hiding) is what proves the list call
+    // returned real data — visible rows alone would mis-read an all-hidden
+    // portfolio as a throttled response.
+    const rawCount = nextPositions.length + hidden.length;
     const listSum = nextPositions.reduce((s, p) => s + p.value, 0);
     let posValueOk = false;
-    if (listOk && nextPositions.length > 0) {
-      nextPosVal = listSum;
+    if (listOk && rawCount > 0) {
+      nextPosVal = listSum; // realizable value only — hidden dust excluded
       posValueOk = true;
     } else if (valueTotal != null) {
       nextPosVal = valueTotal;
@@ -354,10 +416,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     // a failed fetch is not a $0 balance.
     if (liqOk) setLiq(nextLiq);
     if (posValueOk) setPosValue(nextPosVal);
-    // Only replace the breakdown list when it has rows, or when /value confirms
-    // a genuine zero — so a stale-empty list never wipes a populated breakdown.
-    if (listOk && (nextPositions.length > 0 || (valueTotal != null && valueTotal < 0.01))) {
+    // Only replace the breakdown list when the raw list had rows, or when
+    // /value confirms a genuine zero — so a stale-empty list never wipes a
+    // populated breakdown.
+    if (listOk && (rawCount > 0 || (valueTotal != null && valueTotal < 0.01))) {
       setPositions(nextPositions);
+      setHiddenInfo({ count: hidden.length, value: hidden.reduce((s, p) => s + p.value, 0) });
     }
 
     // 3) Snapshot for the time-series view — only when BOTH readings are real,
@@ -582,6 +646,17 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         </div>
       )}
 
+      {/* Unrealizable positions are hidden, not silently dropped — say so. */}
+      {hiddenInfo.count > 0 && (
+        <div
+          className="text-[10px] text-pixel-muted"
+          title="These tokens have no bid on the order book and the market hasn't resolved, so they can't be sold or redeemed right now. They're excluded from the Positions value and P&L so the numbers reflect what you can actually cash out."
+        >
+          {hiddenInfo.count} unsellable position{hiddenInfo.count === 1 ? "" : "s"} hidden
+          (no market bid · ~{fmtUsd(hiddenInfo.value)} mark-to-market, not counted)
+        </div>
+      )}
+
       {/* REDEEM → CASH — settled markets have no order book, so a SELL can't
           cash them out ("invalid token id"). Their winning tokens must be
           REDEEMED to USDC on-chain. Shown only when resolved positions are
@@ -663,8 +738,9 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                 if (!eoa) return;
                 // Resolved (redeemable) markets have no order book — a SELL
                 // there always bounces ("invalid token id"). Exclude them;
-                // they cash out through REDEEM → CASH instead.
-                const all = positions.filter((p) => p.tokenId && p.size > 0 && !p.redeemable);
+                // they cash out through REDEEM → CASH instead. Also skip
+                // anything whose book probe found no bid — a SELL can't fill.
+                const all = positions.filter((p) => p.tokenId && p.size > 0 && !p.redeemable && p.sellable);
                 if (all.length === 0) return;
                 if (
                   !confirm(
@@ -681,10 +757,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                   const p = all[i];
                   setSellStatus(`selling ${i + 1}/${all.length} · ${p.market.slice(0, 28)}…`);
                   try {
-                    // Sell at current price - 1¢ to be aggressive against
-                    // existing bids. FAK so we don't end up with stuck
-                    // limits if the book gaps away.
-                    const sellPrice = tickRound(Math.max(0.01, p.currentPrice - 0.01));
+                    // Sell AT the live best bid when the book probe captured
+                    // one — a FAK priced above the bid just gets killed
+                    // without filling. Fall back to current price - 1¢.
+                    const sellPrice = tickRound(
+                      Math.max(0.01, p.bestBid != null ? p.bestBid : p.currentPrice - 0.01),
+                    );
                     const body = {
                       eoa,
                       creds: { apiKey: "u", secret: "u", passphrase: "u" },

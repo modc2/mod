@@ -29,6 +29,14 @@ pub struct ProxyCache {
 /// responsiveness is unaffected by this window.
 const FRESHNESS_TTL_SECS: u64 = 3600;
 
+/// Freshness window for the user's OWN portfolio reads (seconds). Positions
+/// and total value change with every fill/redeem — serving them for 24h made
+/// the portfolio panel show positions that no longer exist (stale-$227 bug:
+/// data-api said $0 while the proxy kept returning a day-old /value). 90s
+/// keeps data-api load trivial (the panel polls every 30s) while bounding
+/// staleness to ~1 poll cycle.
+const PORTFOLIO_TTL_SECS: u64 = 90;
+
 /// Endpoints whose responses get persisted to disk (trader + historical data).
 /// These survive server restarts and are never re-fetched from Polymarket
 /// once cached.
@@ -67,25 +75,24 @@ impl ProxyCache {
         }
         // Disk fallback for persistent endpoints
         if Self::is_persistent(endpoint) {
-            if let Some(data) = self.load_from_disk(key) {
-                // Re-populate memory with a long TTL
+            if let Some((data, age)) = self.load_from_disk(key) {
+                // Re-populate memory, backdating the entry by the file's age
+                // so its freshness matches reality — a 3h-old disk snapshot
+                // must NOT be served as fresh for another full window (that's
+                // exactly how a $0 portfolio kept rendering as $227).
+                let ttl = Self::persist_freshness(endpoint);
+                let inserted_at = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+                let fresh = age < ttl;
                 let mut entries = self.entries.write();
                 if entries.len() >= self.max_entries {
                     self.evict_one(&mut entries);
                 }
-                // Match the same freshness rule the writer uses — disk-loaded
-                // trader entries also expire after 1h so they re-fetch.
-                let ttl = if Self::is_freshness_critical(endpoint) {
-                    Duration::from_secs(FRESHNESS_TTL_SECS)
-                } else {
-                    Duration::from_secs(86400)
-                };
                 entries.insert(key.to_string(), CacheEntry {
                     data: data.clone(),
-                    inserted_at: Instant::now(),
+                    inserted_at,
                     ttl,
                 });
-                return Some((data, true));
+                return Some((data, fresh));
             }
         }
         None
@@ -101,15 +108,31 @@ impl ProxyCache {
         ep.starts_with("activity") || ep.starts_with("trades")
     }
 
+    /// Portfolio endpoints (the signed-in user's own holdings) must stay
+    /// near-live; see PORTFOLIO_TTL_SECS.
+    fn is_portfolio(endpoint: &str) -> bool {
+        let ep = endpoint.to_lowercase();
+        ep.starts_with("positions") || ep.starts_with("value") || ep.starts_with("closed-positions")
+    }
+
+    /// Memory-freshness window for a persistent endpoint.
+    fn persist_freshness(endpoint: &str) -> Duration {
+        if Self::is_portfolio(endpoint) {
+            Duration::from_secs(PORTFOLIO_TTL_SECS)
+        } else if Self::is_freshness_critical(endpoint) {
+            Duration::from_secs(FRESHNESS_TTL_SECS)
+        } else {
+            Duration::from_secs(86400)
+        }
+    }
+
     pub fn set(&self, key: String, data: Value, ttl: Duration, endpoint: &str) {
         let persist = Self::is_persistent(endpoint);
         // Trader trade/activity entries get a 1-hour memory TTL (matching the
         // hourly warmup) so on-demand browse requests hit the warmed cache
         // instead of refetching data-api every minute.
-        let mem_ttl = if Self::is_freshness_critical(endpoint) {
-            Duration::from_secs(FRESHNESS_TTL_SECS)
-        } else if persist {
-            Duration::from_secs(86400)
+        let mem_ttl = if persist {
+            Self::persist_freshness(endpoint)
         } else {
             ttl
         };
@@ -173,31 +196,22 @@ impl ProxyCache {
         }
     }
 
-    fn load_from_disk(&self, key: &str) -> Option<Value> {
+    /// Load a persisted entry along with its age (from file mtime). The
+    /// caller decides freshness per-endpoint — stale entries are still
+    /// returned so the proxy can serve them as a fallback when the upstream
+    /// errors, but they no longer masquerade as fresh (which used to
+    /// propagate day-old positions/activity as live data).
+    fn load_from_disk(&self, key: &str) -> Option<(Value, Duration)> {
         let path = self.disk_path(key);
         if !path.exists() { return None; }
-        // Freshness gate: trader activity/trades on disk older than the
-        // freshness window (1h) are considered stale. Without this, a 48h-old
-        // cache file gets loaded as if fresh and propagates "0 trades in last
-        // 24h" everywhere. The endpoint prefix lives in the filename
-        // (proxy_endpoint_<ep>_…).
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let is_freshness_critical = name.contains("endpoint_activity")
-            || name.contains("endpoint_trades");
-        if is_freshness_critical {
-            if let Ok(meta) = std::fs::metadata(&path) {
-                if let Ok(modified) = meta.modified() {
-                    if modified.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(FRESHNESS_TTL_SECS) {
-                        // Delete the stale file so next save_to_disk doesn't
-                        // bump mtime on a stale payload by accident.
-                        let _ = std::fs::remove_file(&path);
-                        return None;
-                    }
-                }
-            }
-        }
+        let age = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|m| m.elapsed().ok())
+            .unwrap_or(Duration::from_secs(86400 * 365));
         let raw = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&raw).ok()
+        let data = serde_json::from_str(&raw).ok()?;
+        Some((data, age))
     }
 }
 

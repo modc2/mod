@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import NavMenu from "./NavMenu";
+import HeaderStratPicker from "./HeaderStratPicker";
 import WalletChip from "./WalletChip";
 
 // Lower-cased 40-hex-char Ethereum address pattern — what Polymarket's trader
@@ -34,9 +35,12 @@ export default function TopBar({
       {/* Balanced 3-column grid so the search box sits dead-center in the
           viewport regardless of the wallet chip's width. */}
       <div className="px-4 h-12 grid grid-cols-[1fr_minmax(0,620px)_1fr] items-center gap-3">
-        {/* ── Nav dropdown — top-left corner (was the LeftNav rail) ── */}
-        <div className="justify-self-start">
+        {/* ── Nav dropdown + strat picker — top-left corner. The strat
+            picker is a one-line dropdown of saved strats plus a [+] to
+            create a new one; selection is global (indexStore). ── */}
+        <div className="justify-self-start flex items-center gap-1 min-w-0">
           <NavMenu />
+          <HeaderStratPicker />
         </div>
         {/* The search box (also a "jump to trader" teleport: paste any 0x
             address + Enter) sits centered, and sign-in (the wallet chip)
