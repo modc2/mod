@@ -2,14 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
+import NavMenu from "./NavMenu";
 import WalletChip from "./WalletChip";
 
 // Lower-cased 40-hex-char Ethereum address pattern — what Polymarket's trader
 // URLs accept. Matching here lets the search box double as a "jump to trader"
 // teleport: type any 0x address + Enter and we route to the profile page.
 const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
-// Top bar intentionally minimal — primary nav lives in the global LeftNav
-// rail; the wallet chip's dot conveys CLOB / trading readiness.
+// Top bar owns everything global: nav dropdown (top-left), search (center),
+// sign-in (top-right). The wallet chip's dot conveys CLOB / trading readiness.
 
 interface TopBarProps {
   showSearch?: boolean;
@@ -33,10 +34,13 @@ export default function TopBar({
       {/* Balanced 3-column grid so the search box sits dead-center in the
           viewport regardless of the wallet chip's width. */}
       <div className="px-4 h-12 grid grid-cols-[1fr_minmax(0,620px)_1fr] items-center gap-3">
-        <div />
-        {/* The header is just the query — the search box (also a "jump to
-            trader" teleport: paste any 0x address + Enter) sits centered, and
-            sign-in (the wallet chip) sits in the top-right corner. */}
+        {/* ── Nav dropdown — top-left corner (was the LeftNav rail) ── */}
+        <div className="justify-self-start">
+          <NavMenu />
+        </div>
+        {/* The search box (also a "jump to trader" teleport: paste any 0x
+            address + Enter) sits centered, and sign-in (the wallet chip)
+            sits in the top-right corner. */}
         {showSearch ? (
           <div className="min-w-0">
             <div className="relative w-full">

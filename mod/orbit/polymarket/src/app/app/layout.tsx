@@ -4,7 +4,6 @@ import { AuthProvider } from "./context/AuthContext";
 import { CopyEngineProvider } from "./context/CopyEngineContext";
 import { FiltersProvider } from "./context/FiltersContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
-import LeftNav from "./components/LeftNav";
 import MarketTicker from "./components/MarketTicker";
 import BuildBadge from "./components/BuildBadge";
 import LiveAutoResume from "./components/LiveAutoResume";
@@ -43,16 +42,10 @@ export default function RootLayout({
               <div className="crt-overlay" />
               <div className="crt-screen min-h-screen">
                 <MarketTicker />
-                {/* Global expandable left nav + page content. The rail is a
-                    flex sibling so content reflows when it expands. Account
-                    and wallet chrome live inside the STRAT page — there is
-                    no global right sidebar. */}
-                <div className="flex items-stretch">
-                  <LeftNav />
-                  <div className="flex-1 min-w-0">
-                    <main>{children}</main>
-                  </div>
-                </div>
+                {/* No sidebars: global nav is a dropdown in each page's
+                    TopBar, and wallet chrome is a WALLET tab inside the
+                    STRAT page. Content gets the full viewport. */}
+                <main className="min-w-0">{children}</main>
                 <BuildBadge />
               </div>
             </FiltersProvider>

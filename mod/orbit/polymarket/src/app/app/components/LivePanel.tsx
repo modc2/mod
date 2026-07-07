@@ -129,7 +129,7 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
   }
 }
 
-export default function LivePanel() {
+export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
   const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
@@ -502,8 +502,8 @@ export default function LivePanel() {
 
   return (
     <div className="space-y-1">
-      {/* Trading wallet (deposit/withdraw) lives in the STRAT page's account
-          column (#sidebar-wallet-panel) — not duplicated here. */}
+      {/* Trading wallet (deposit/withdraw) lives in the STRAT page's WALLET
+          tab — not duplicated here. */}
 
       {/* ── Header ── */}
       <div className="pixel-panel border-2 border-pixel-border">
@@ -738,7 +738,12 @@ export default function LivePanel() {
             </div>
           </div>
           <button
-            onClick={() => document.getElementById("sidebar-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onClick={() => {
+              // Deposit/withdraw is the STRAT page's WALLET tab now — switch
+              // tabs via the parent; fall back to scrolling if unhosted.
+              if (onFundNow) onFundNow();
+              else document.getElementById("sidebar-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm rounded"
           >
             FUND NOW →

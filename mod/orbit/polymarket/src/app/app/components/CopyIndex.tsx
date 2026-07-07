@@ -22,6 +22,10 @@ import LivePanel from "./LivePanel";
 import StratSourceViewer from "./StratSourceViewer";
 import UserStratsPanel from "./UserStratsPanel";
 import ThemeToggle from "./ThemeToggle";
+import WalletTokenPanel from "./WalletTokenPanel";
+import WalletPanel from "./WalletPanel";
+import WalletFundingPanel from "./WalletFundingPanel";
+import PolymarketAccountPanel from "./PolymarketAccountPanel";
 
 interface TraderSummary {
   address: string;
@@ -397,6 +401,195 @@ function Field({
   );
 }
 
+/* ── Header keyword-filter dropdown ──
+   The strat's market-topic filter, surfaced in the header as editable chips.
+   Comma/pipe groups OR, tokens within a group AND (lib/marketQuery.ts) — the
+   exact query the backtest AND live engine already gate on. Every add /
+   remove / edit commits immediately, which flips `marketQuery`, which every
+   backtest useMemo depends on → the backtest re-runs on the spot and the
+   MATCHES counter shows the new slice instantly. */
+function KeywordFilterDropdown({ query, onCommit, matched, total, onViewBacktest, canBacktest }: {
+  query: string;
+  onCommit: (q: string) => void;
+  matched: number;
+  total: number;
+  onViewBacktest: () => void;
+  canBacktest: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const groups = query.split(/[,|]/).map((s) => s.trim()).filter(Boolean);
+  const commitGroups = (gs: string[]) => onCommit(gs.map((g) => g.trim()).filter(Boolean).join(", "));
+  const addFromInput = () => {
+    const g = input.trim();
+    if (!g) return;
+    commitGroups([...groups, g]);
+    setInput("");
+  };
+  // Click a chip to edit it: pull it out of the query and into the input.
+  const editChip = (i: number) => {
+    setInput(groups[i]);
+    commitGroups(groups.filter((_, j) => j !== i));
+    inputRef.current?.focus();
+  };
+
+  const active = groups.length > 0;
+  const pct = total > 0 ? Math.round((matched / total) * 100) : 0;
+
+  const PRESETS: readonly [string, string][] = [
+    ["Bitcoin", "bitcoin, btc"],
+    ["Ethereum", "ethereum, eth"],
+    ["Solana", "solana, sol"],
+    ["Crypto", "bitcoin, btc, ethereum, eth, solana, sol, crypto, xrp, dogecoin"],
+  ];
+
+  return (
+    <div ref={boxRef} className="relative ml-auto">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={active
+          ? `Copying only markets matching: ${query} — ${matched}/${total} trades pass. Click to edit; the backtest re-runs on every change.`
+          : "Filter the selected traders' trades by market keywords — the backtest re-runs on every edit."}
+        style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
+        className={`flex items-center gap-2 text-[11.5px] font-bold px-3 py-1.5 rounded-[var(--radius-sm)] border uppercase transition-all duration-150 ${
+          active
+            ? "border-amber-400/60 text-amber-300 bg-amber-400/[0.08] shadow-[0_0_14px_-6px_rgba(251,191,36,0.6)]"
+            : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
+        }`}
+      >
+        <span className="text-[13px] leading-none">⌕</span>
+        KEYWORDS
+        {active && (
+          <span className="text-[9.5px] px-1.5 py-0.5 rounded-full border border-amber-400/50 bg-amber-400/10 font-mono tracking-normal">
+            {groups.length}
+          </span>
+        )}
+        <span className={`text-[9px] transition-transform duration-150 ${open ? "rotate-180" : ""}`}>▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-[360px] max-w-[92vw] z-50 border border-pixel-border bg-pixel-black/95 backdrop-blur-md rounded-[var(--radius-sm)] shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)] p-3 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-pixel-gray tracking-[0.2em]">TRADE KEYWORD FILTER</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                !active ? "border-pixel-border text-pixel-gray"
+                : matched > 0 ? "border-green-400/50 text-green-400 bg-green-400/[0.06]"
+                : "border-red-400/50 text-red-400 bg-red-400/[0.06]"
+              }`}
+              title="Trades from the selected traders (inside the backtest window) that pass this filter — recomputed live as you edit."
+            >
+              {active ? `${matched}/${total} trades · ${pct}%` : `${total} trades · all`}
+            </span>
+          </div>
+
+          {/* Chips — click to edit, ✕ to drop. Both commit instantly. */}
+          <div className="flex items-center gap-1.5 flex-wrap min-h-[24px]">
+            {groups.length === 0 && (
+              <span className="text-[11px] text-pixel-gray/60 font-mono">no keywords — copying every market the traders touch</span>
+            )}
+            {groups.map((g, i) => (
+              <span key={`${g}-${i}`} className="group inline-flex items-center gap-1 text-[11px] font-mono pl-2 pr-1 py-0.5 rounded border border-amber-400/50 bg-amber-400/[0.08] text-amber-300">
+                <button onClick={() => editChip(i)} title="Edit this keyword group" className="hover:text-amber-100">
+                  {g}
+                </button>
+                <button
+                  onClick={() => commitGroups(groups.filter((_, j) => j !== i))}
+                  title="Remove — backtest re-runs immediately"
+                  className="px-0.5 text-amber-400/60 hover:text-red-400"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* Add / edit input — Enter commits a group, backtest re-runs. */}
+          <div className="flex items-center gap-1.5 h-[30px] px-2 border border-pixel-border bg-pixel-black/60 focus-within:border-amber-400/60 transition-colors">
+            <span className="text-[12px] text-pixel-gray">⌕</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addFromInput(); }}
+              placeholder='add keywords… e.g. "price bitcoin"'
+              className="bg-transparent flex-1 font-mono text-[12.5px] text-pixel-white outline-none placeholder:text-pixel-gray/40"
+            />
+            <button
+              onClick={addFromInput}
+              disabled={!input.trim()}
+              title="Add keyword group (Enter) — backtest re-runs immediately"
+              className="text-[11px] font-bold px-2 py-0.5 rounded border border-green-400/50 text-green-400 bg-green-400/[0.06] hover:bg-green-400/[0.14] disabled:opacity-30 transition-colors"
+            >
+              + ADD
+            </button>
+          </div>
+          <p className="text-[9.5px] text-pixel-gray/60 leading-relaxed font-mono">
+            space = AND within a group · each chip ORs · applies to backtest + live
+          </p>
+
+          {/* Presets + clear */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {PRESETS.map(([label, q]) => {
+              const presetActive = query.trim().toLowerCase() === q;
+              return (
+                <button
+                  key={label}
+                  onClick={() => onCommit(presetActive ? "" : q)}
+                  title={`Only copy markets matching: ${q}`}
+                  className={`text-[10px] px-2 py-0.5 rounded border font-bold transition-colors ${
+                    presetActive
+                      ? "border-amber-400/70 bg-amber-500/20 text-amber-300"
+                      : "border-pixel-border bg-pixel-black/60 text-pixel-gray-light hover:border-pixel-white/40"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {active && (
+              <button
+                onClick={() => onCommit("")}
+                title="Clear every keyword — copy all markets again"
+                className="text-[10px] px-2 py-0.5 rounded border border-pixel-border bg-pixel-black/60 text-pixel-gray hover:text-red-400 hover:border-red-400/50 transition-colors"
+              >
+                ✕ CLEAR
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => { onViewBacktest(); setOpen(false); }}
+            disabled={!canBacktest}
+            className="w-full text-[11px] font-bold tracking-[0.16em] px-3 py-1.5 rounded border border-green-400/50 text-green-400 bg-green-400/[0.06] hover:bg-green-400/[0.14] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="The backtest already re-ran with these keywords — jump to the charts"
+          >
+            VIEW BACKTEST →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const router = useRouter();
   const filterQs = useFilterParams({ excludeSearch: true });
@@ -488,7 +681,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // which is blank until a wallet's connected and an engine is running. The
   // LIVE tab badges itself RUNNING so a live session is still obvious at a
   // glance from here.
-  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE">("STRATS");
+  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE" | "WALLET">("STRATS");
 
   // STRAT subtabs — SOURCE (the strat's code), TRADERS (leaderboard +
   // watchlist editor), PARAMS (every tuning knob). Params used to live in
@@ -1804,6 +1997,25 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   }, [allTraderAddrs, traderTrades]);
 
 
+  // How many of the selected traders' in-window trades pass the keyword
+  // filter — the header dropdown's live "does my filter bite" readout.
+  // Recomputes on every keyword edit, same dependency the backtest keys on.
+  const keywordStats = useMemo(() => {
+    const cutoff = Date.now() - backtestDays * 24 * 60 * 60 * 1000;
+    let total = 0;
+    let matched = 0;
+    for (const addr of watchlist) {
+      const trades = traderTrades.get(addr);
+      if (!trades) continue;
+      for (const t of trades) {
+        if (t.timestamp < cutoff) continue;
+        total++;
+        if (marketMatchesQuery(t.market, marketQuery)) matched++;
+      }
+    }
+    return { matched, total };
+  }, [watchlist, traderTrades, backtestDays, marketQuery]);
+
   // ══════════════════════════════════════════
   // ── RENDER ──
   // ══════════════════════════════════════════
@@ -1811,10 +2023,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   return (
     <div className="min-w-0 space-y-2">
       {/* ── Header: tabs ──
-          Wallet/token/QR + go-live checklist + the strat list all live in
-          the STRAT page's account column (strats/page.tsx) — this column
-          stays to the strat tabs and their content, nothing duplicated
-          here. */}
+          The strat list + go-live checklist live in the STRAT page's
+          account column (strats/page.tsx); wallet/token/QR + trading
+          wallet + funding are the WALLET tab here. */}
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
         <div className="flex items-center gap-2">
@@ -1824,6 +2035,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               { id: "HUB", label: "HUB", disabled: false },
               { id: "BACKTEST", label: "BACKTEST", disabled: watchlist.length === 0 },
               { id: "LIVE", label: "LIVE", disabled: watchlist.length === 0 },
+              { id: "WALLET", label: "WALLET", disabled: false },
             ] as { id: typeof mode; label: string; disabled: boolean }[]
           ).map((t) => {
             const active = mode === t.id;
@@ -1866,6 +2078,18 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </button>
             );
           })}
+
+          {/* Keyword filter on the selected traders' trades — every edit
+              commits to the strat, the backtest recomputes immediately, and
+              the LIVE engine copies the same filtered slice. */}
+          <KeywordFilterDropdown
+            query={marketQuery}
+            onCommit={(q) => { setMarketQueryInput(q); updateMarketQuery(q); }}
+            matched={keywordStats.matched}
+            total={keywordStats.total}
+            onViewBacktest={() => setMode("BACKTEST")}
+            canBacktest={watchlist.length > 0}
+          />
         </div>
 
         {/* ── STRAT subtabs ──
@@ -1900,6 +2124,30 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           </div>
         )}
       </div>
+
+      {/* ── WALLET tab ──
+          Wallet/token/QR pairing + trading-wallet deposit/withdraw moved
+          here from the old account column — a two-column grid so the
+          panels (designed for a 300px rail) don't stretch full-width.
+          LIVE's FUND NOW banner jumps here via onFundNow. */}
+      {mode === "WALLET" && (
+        <div className="grid md:grid-cols-2 gap-2 items-start max-w-[1100px]">
+          <div className="space-y-2 min-w-0">
+            {/* Full wallet + token + sign-in-QR pairing panel. */}
+            <WalletTokenPanel />
+            {/* Bridge / send funds into Polygon USDC from any chain. */}
+            <WalletFundingPanel />
+          </div>
+          <div className="space-y-2 min-w-0">
+            {/* Trading-wallet deposit/withdraw (V2). */}
+            <div id="sidebar-wallet-panel">
+              <WalletPanel />
+            </div>
+            {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
+            <PolymarketAccountPanel />
+          </div>
+        </div>
+      )}
 
       {/* ── PARAMS subtab (STRAT tab only) ──
           All strat tuning in one place: window / capital / trade band /
@@ -2577,7 +2825,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {activeIndex && (
         <>
           {/* Empty trader state */}
-          {watchlist.length === 0 && mode !== "HUB" && (
+          {watchlist.length === 0 && mode !== "HUB" && mode !== "WALLET" && (
             <div className="pixel-panel p-4 text-center space-y-2">
               <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
               <div className="text-[12px] text-pixel-gray-light">
@@ -3046,7 +3294,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           })()}
 
           {/* ── Live Panel ── */}
-          {mode === "LIVE" && watchlist.length > 0 && <LivePanel />}
+          {mode === "LIVE" && watchlist.length > 0 && (
+            <LivePanel onFundNow={() => setMode("WALLET")} />
+          )}
         </>
       )}
 
