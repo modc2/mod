@@ -9,6 +9,7 @@ mod credits;
 mod jobs;
 mod api;
 mod snapshots;
+mod screenshots;
 mod userspace;
 mod sudo;
 mod process;
@@ -44,4 +45,16 @@ async fn main() {
 fn dirs_db() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home).join(".mod").join("claude")
+}
+
+/// One process-wide lock for every test that overrides the global $HOME
+/// (sudo, credits, …) — separate per-module locks let those tests race
+/// each other and flake under parallel `cargo test`.
+#[cfg(test)]
+pub(crate) fn home_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }

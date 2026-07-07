@@ -459,12 +459,10 @@ mod tests {
 
     // Point the owner + replay store at a temp dir so tests are isolated and the
     // owner check passes for our throwaway key.
-    // HOME is process-global; serialize the tests that mutate it.
+    // HOME is process-global; serialize the tests that mutate it — shared
+    // with every other test module that overrides $HOME (see main.rs).
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        crate::home_test_lock()
     }
 
     fn setup_owner(key: &SigningKey) -> tempdir_guard::TempHome {

@@ -143,6 +143,46 @@ function safeSetItem(key: string, value: string): boolean {
   }
 }
 
+// Build a submit-failure message that carries the API's reason (401 invalid
+// token, 403 not permitted, …) instead of a bare "SUBMIT FAILED".
+async function submitFailReason(res: Response): Promise<string> {
+  const detail = await res.json().catch(() => null);
+  return detail?.error ? `SUBMIT FAILED — ${detail.error}` : `SUBMIT FAILED (${res.status})`;
+}
+
+// Default gateway origin for this deployment. Two cases:
+//  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
+//    explicit port): use the page origin verbatim — e.g. https://modc2.com.
+//    The :3000 gateway port is internal and NOT publicly exposed, so
+//    appending it would produce a dead "modc2.com:3000" link.
+//  • LAN/dev (served on a non-standard port like :8823): the local gateway
+//    listens on :3000, so point there — e.g. http://192.168.x.y:3000 — so a
+//    phone on the same wifi works.
+function defaultGatewayOrigin(): string {
+  if (typeof window === "undefined") return "http://localhost:3000";
+  const loc = window.location;
+  const behindPublicProxy =
+    loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
+  return behindPublicProxy ? loc.origin : `http://${loc.hostname}:3000`;
+}
+
+// Parse omnibox text into {origin, mod}. Accepts a full URL
+// ("https://host/mod"), a schemeless one ("host/mod"), a bare path
+// ("/mod") or a bare module name ("mod"). origin is null when the text
+// carries no host of its own.
+function parseOmnibox(text: string): { origin: string | null; mod: string } {
+  const t = text.trim();
+  if (!t) return { origin: null, mod: "" };
+  if (t.startsWith("/")) return { origin: null, mod: t.split("/").filter(Boolean)[0] || "" };
+  if (!/^[a-z]+:\/\//i.test(t) && !/[/.]/.test(t)) return { origin: null, mod: t };
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(t) ? t : `https://${t}`);
+    return { origin: u.origin, mod: u.pathname.split("/").filter(Boolean)[0] || "" };
+  } catch {
+    return { origin: null, mod: t.split("/").filter(Boolean).pop() || "" };
+  }
+}
+
 function timeSince(ts: number): string {
   const s = Math.floor(Date.now() / 1000 - ts);
   if (s < 60) return `${s}s ago`;
@@ -316,6 +356,40 @@ const BOOT_ART = `
   │                                      │
   └──────────────────────────────────────┘`;
 
+// ── Module avatar ────────────────────────────────────────────────────
+// HUB profile pic: a live screenshot of the module's app, captured and
+// cached by the API (GET /modules/:name/screenshot — headless chromium
+// through the local gateway). Modules without an app, or whose capture
+// failed, fall back to a letter tile so the grid never shows broken images.
+function ModuleAvatar({ apiUrl, name, hasApp }: { apiUrl: string; name: string; hasApp: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const showShot = hasApp && !failed;
+  return (
+    <span
+      className="shrink-0 w-10 h-10 rounded-md overflow-hidden flex items-center justify-center"
+      style={{
+        border: "1px solid var(--border-color)",
+        background: "color-mix(in srgb, var(--accent-color) 6%, transparent)",
+      }}
+    >
+      {showShot ? (
+        <img
+          src={`${apiUrl}/modules/${encodeURIComponent(name)}/screenshot`}
+          alt=""
+          loading="lazy"
+          className="w-full h-full object-cover"
+          style={{ objectPosition: "top" }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="font-code font-bold text-[16px]" style={{ color: "var(--accent-color)", opacity: 0.75 }}>
+          {name.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+    </span>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────
 
 export default function Home() {
@@ -327,6 +401,10 @@ export default function Home() {
   const [walletType, setWalletType] = useState<"metamask" | "subwallet" | "local" | "password" | null>(null);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [ownerAddress, setOwnerAddress] = useState<string | null>(null);
+  // Terms-of-Use agreement modal shown to non-owner wallets before their
+  // first sign-in signature; the resolver unblocks signChallenge().
+  const [termsPrompt, setTermsPrompt] = useState<{ title: string; text: string } | null>(null);
+  const termsResolveRef = useRef<((agreed: boolean) => void) | null>(null);
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
@@ -386,6 +464,20 @@ export default function Home() {
   // Expand the embedded module APP to a full-viewport overlay (hides the
   // console chrome so you get the module's app edge-to-edge).
   const [appExpanded, setAppExpanded] = useState(false);
+  // ── Omnibox (APP tab) ─────────────────────────────────────────────
+  // The URL strip and the module search merged into one browser-style
+  // address bar: the /{mod} path segment autocompletes against the module
+  // registry, ‹ › step through it, and the host is editable too — each
+  // host runs its own registrar, so swapping the host re-roots the same
+  // /{mod} namespace onto that site's registry.
+  const [omniEditing, setOmniEditing] = useState(false);
+  const [omniValue, setOmniValue] = useState("");
+  const [omniIdx, setOmniIdx] = useState(0);
+  // Custom gateway origin ("https://otherhost.xyz") — null = this site.
+  const [gatewayHostOverride, setGatewayHostOverride] = useState<string | null>(null);
+  // A /{mod} committed while on a foreign host that this site's registrar
+  // doesn't know — kept verbatim (the foreign registrar may resolve it).
+  const [omniForeignMod, setOmniForeignMod] = useState<string | null>(null);
   // Rail in-progress task rows: which task hash was just copied (✓ flash).
   const [copiedTaskHash, setCopiedTaskHash] = useState<string | null>(null);
   // Rail task lists start collapsed; the ⚙N badge toggles each module open.
@@ -746,7 +838,7 @@ export default function Home() {
   // (mobile / collapsed rail), compressed inline at the bottom of the left
   // nav rail (desktop default), or popping up from the composer dock's "+"
   // button. Same state + submit path in all three.
-  const [createAnchor, setCreateAnchor] = useState<"header" | "rail" | "composer">("header");
+  const [createAnchor, setCreateAnchor] = useState<"header" | "composer">("header");
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -788,9 +880,10 @@ export default function Home() {
   const [killLoading, setKillLoading] = useState(false);
   const killInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
-  // Composer dock — publish its live height as a CSS var so the mobile
-  // fullscreen task overlay can stop right above it (keeps the prompt
-  // visible + typeable on phones while tasks are open).
+  // Composer dock — publish its live height as a CSS var so fixed
+  // full-height neighbors (the left nav rail, the mobile fullscreen task
+  // overlay) can stop right above it; the dock itself spans the full
+  // viewport width.
   const composerDockRO = useRef<ResizeObserver | null>(null);
   const composerDockRef = useCallback((el: HTMLDivElement | null) => {
     composerDockRO.current?.disconnect();
@@ -810,7 +903,6 @@ export default function Home() {
   }, []);
 
   const headerCreateRef = useRef<HTMLDivElement>(null);
-  const railCreateRef = useRef<HTMLDivElement>(null);
   const composerCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -866,6 +958,8 @@ export default function Home() {
 
   // Reset all module-specific state when switching modules
   const resetModuleState = useCallback((newModuleInfo?: typeof moduleList[0] | null) => {
+    // Omnibox: picking a real module supersedes any foreign /{mod}
+    setOmniForeignMod(null);
     // API explorer
     setApiSelectedEndpoint(null);
     setApiParams({});
@@ -947,6 +1041,15 @@ export default function Home() {
     if (recentModules.length === 0) return;
     safeSetItem("claude_recent_modules", JSON.stringify(recentModules));
   }, [recentModules]);
+
+  // Restore the omnibox's custom gateway host (points /{mod} at another
+  // deployment's registrar) once on mount.
+  useEffect(() => {
+    try {
+      const h = window.localStorage.getItem("claude_gateway_host");
+      if (h && /^[a-z]+:\/\/[^/]+$/i.test(h)) setGatewayHostOverride(h);
+    } catch { /* ignore */ }
+  }, []);
 
   // Detect wallet extensions client-side only (avoids hydration mismatch)
   useEffect(() => {
@@ -1083,7 +1186,6 @@ export default function Home() {
       }
       if (
         (!headerCreateRef.current || !headerCreateRef.current.contains(e.target as Node)) &&
-        (!railCreateRef.current || !railCreateRef.current.contains(e.target as Node)) &&
         (!composerCreateRef.current || !composerCreateRef.current.contains(e.target as Node))
       ) {
         setShowHeaderCreateForm(null);
@@ -1249,7 +1351,30 @@ export default function Home() {
     const saved = localStorage.getItem("claude_jobs_token");
     const savedAddr = localStorage.getItem("claude_jobs_address");
     const savedWalletType = localStorage.getItem("claude_jobs_wallet_type") as typeof walletType;
+    const dropLocalSession = () => {
+      localStorage.removeItem("claude_jobs_token");
+      localStorage.removeItem("claude_jobs_address");
+      localStorage.removeItem("claude_jobs_wallet_type");
+    };
     if (saved && savedAddr) {
+      // A persisted "local" session is only valid while the server really runs
+      // with auth disabled — an old probe bug used to persist it against an
+      // authed server, leaving every authed call to 401. Re-verify, self-heal.
+      if (saved === "local") {
+        fetch(`${apiUrl}/health`)
+          .then((r) => r.json())
+          .then((d) => {
+            if (d && d.local === true) {
+              setToken(saved);
+              setAddress(savedAddr);
+              setWalletType(savedWalletType);
+            } else {
+              dropLocalSession();
+            }
+          })
+          .catch(() => { /* server unreachable — keep the auth screen */ });
+        return;
+      }
       setToken(saved);
       setAddress(savedAddr);
       setWalletType(savedWalletType);
@@ -1257,16 +1382,13 @@ export default function Home() {
     }
     // The user explicitly signed out — stay on the auth screen
     if (localStorage.getItem("claude_jobs_signed_out") === "1") return;
-    // Probe server — if local mode is on, skip auth entirely
+    // Probe server — only /health's explicit `local` flag means auth is off.
+    // Never infer local mode from an unauthed read succeeding: /jobs is a
+    // public ledger, so that heuristic false-positives on every real server.
     fetch(`${apiUrl}/health`)
       .then((r) => r.json())
-      .then(() => {
-        // Try an unauthed request to /jobs — if it works, server is in local mode
-        return fetch(`${apiUrl}/jobs`);
-      })
-      .then((r) => {
-        if (r.ok) {
-          // Local mode — no auth needed
+      .then((d) => {
+        if (d && d.local === true) {
           setToken("local");
           setAddress("local");
           setWalletType("local");
@@ -1625,6 +1747,25 @@ export default function Home() {
       wasOwnerSet = !!ownerData.has_owner;
     } catch { /* owner endpoint not available, skip */ }
 
+    // Non-owner wallets must accept the Terms of Use on first sign-in. The
+    // server embeds the terms in the challenge so the signature covers them;
+    // here we show them and get explicit agreement before asking the wallet.
+    let termsInfo: { title?: string; text: string } | null = null;
+    try {
+      const tr = await fetch(`${apiUrl}/auth/terms?address=${addr}`);
+      const td = await safeJson(tr);
+      if (tr.ok && td.required && td.text) termsInfo = td;
+    } catch { /* endpoint unavailable — the server still enforces on verify */ }
+    if (termsInfo) {
+      const agreed = await new Promise<boolean>((resolve) => {
+        termsResolveRef.current = resolve;
+        setTermsPrompt({ title: termsInfo!.title || "Terms of Use", text: termsInfo!.text });
+      });
+      setTermsPrompt(null);
+      termsResolveRef.current = null;
+      if (!agreed) throw new Error("TERMS DECLINED — SIGN-IN CANCELLED");
+    }
+
     const challengeRes = await fetch(
       `${apiUrl}/auth/challenge?address=${addr}`
     );
@@ -1938,6 +2079,13 @@ export default function Home() {
           signal: controller.signal
         });
         clearTimeout(timeoutId);
+        // A 401 with a token means the server no longer honors it (expired or
+        // the API restarted with a new signing secret) — drop the session so
+        // the sign-in screen comes back instead of every action failing.
+        if (response.status === 401 && token !== "local") {
+          disconnect();
+          setAuthError("SESSION EXPIRED — SIGN IN AGAIN");
+        }
         return response;
       } catch (error) {
         clearTimeout(timeoutId);
@@ -2769,16 +2917,16 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("SUBMIT FAILED");
+      if (!res.ok) throw new Error(await submitFailReason(res));
       const job = await res.json();
       setPrompt("");
       setImages([]);
       setModuleName("");
       setGithubUrl("");
       setSelectedJob(job.id);
-      // Watch progress in the full-page TASKS view (tasks are no longer a
-      // side-panel tab).
-      setSidebarView("tasks");
+      // Tasks run in the BACKGROUND — don't hijack the current view. The
+      // composer's running-tasks strip and the header TASKS badge track
+      // progress; click either to open the full-page view.
       fetchJobs();
       startStream(job.id);
     } catch (e: any) {
@@ -2806,7 +2954,7 @@ export default function Home() {
       const body: any = { prompt: text, model: modelValue };
       if (agentTypeValue && agentTypeValue !== "default") body.agent_type = agentTypeValue;
       const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new Error("SUBMIT FAILED");
+      if (!res.ok) throw new Error(await submitFailReason(res));
       const job = await res.json();
       setSelectedJob(job.id);
       fetchJobs();
@@ -3093,7 +3241,7 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("SUBMIT FAILED");
+      if (!res.ok) throw new Error(await submitFailReason(res));
       const job = await res.json();
       setHeaderNewName("");
       setHeaderGithubUrl("");
@@ -3102,8 +3250,7 @@ export default function Home() {
       setSelectedJob(job.id);
       fetchJobs();
       startStream(job.id);
-      // Jump to the full-page TASKS view to watch progress
-      setSidebarView("tasks");
+      // Runs in the background — the composer strip / TASKS badge track it.
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -3126,7 +3273,7 @@ export default function Home() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("SUBMIT FAILED");
+      if (!res.ok) throw new Error(await submitFailReason(res));
       const newJob = await res.json();
       setSelectedJob(newJob.id);
       fetchJobs();
@@ -6833,13 +6980,76 @@ export default function Home() {
                     )}
                     {sysPrompts.length === 0 && (
                       <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                        no prompts — personality applies
+                        {activePersonality?.prompt
+                          ? `none — "${activePersonality.name}" agent prompt applies`
+                          : "none — no system prompt is sent"}
                       </span>
                     )}
                   </div>
                 </div>
               </div>
             )}
+          {/* ── Background tasks strip — running/pending jobs surface right
+              above the ask band, so work kicked off from the chat stays
+              visible without hijacking the view. Click a chip to open that
+              task in the full-page TASKS view. ── */}
+          {(() => {
+            const running = jobs.filter(j => j.status === "running" || j.status === "pending");
+            if (running.length === 0) return null;
+            const shown = running.slice(0, 5);
+            return (
+              <div className="mb-2 flex items-center gap-1.5 flex-wrap">
+                {shown.map(j => {
+                  const mod = extractModuleFromWorkDir(j.work_dir || "");
+                  const label = mod || (j.prompt || "task").replace(/\s+/g, " ").slice(0, 32);
+                  const secs = Math.max(0, nowSec - j.created_at);
+                  const elapsed = secs >= 60 ? `${Math.floor(secs / 60)}m` : `${secs}s`;
+                  const pending = j.status === "pending";
+                  return (
+                    <button
+                      key={j.id}
+                      onClick={() => { viewJob(j); setSidebarView("tasks"); }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full font-code text-[11px] transition-all hover:brightness-125 focus-ring max-w-[260px]"
+                      style={{
+                        background: glassBg,
+                        backdropFilter: "blur(24px) saturate(1.5)",
+                        WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                        border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
+                        color: "var(--text-secondary)",
+                        boxShadow: glassShadow,
+                      }}
+                      title={`${j.prompt || "task"}\n\nOpen in TASKS`}
+                    >
+                      <span
+                        className={pending ? "inline-block" : "animate-spin inline-block"}
+                        style={{ color: "var(--crt-blue)", fontSize: 12, lineHeight: 1 }}
+                      >
+                        {pending ? "◌" : "⟳"}
+                      </span>
+                      <span className="truncate">{label}</span>
+                      <span className="font-mono text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                        {pending ? "queued" : elapsed}
+                      </span>
+                    </button>
+                  );
+                })}
+                {running.length > shown.length && (
+                  <button
+                    onClick={() => setSidebarView("tasks")}
+                    className="px-2.5 py-1 rounded-full font-code text-[11px] transition-all hover:brightness-125 focus-ring"
+                    style={{
+                      background: glassBg,
+                      border: `1px solid ${glassBorder}`,
+                      color: "var(--text-tertiary)",
+                    }}
+                    title="Open the full-page tasks view"
+                  >
+                    +{running.length - shown.length} more
+                  </button>
+                )}
+              </div>
+            );
+          })()}
           {/* ── The band — everything lives on ONE line at the bottom:
               [+] [ask agent…] [imgs] [PARAMS] [▶] — module/model/agent/auth
               chips live inside the PARAMS panel, not on the band. ── */}
@@ -7188,8 +7398,8 @@ export default function Home() {
       );
     }
     // Docked — the classic full-width bar at the bottom of the console.
-    // The nav rail is fixed full-height on the left, so the dock starts to
-    // its right instead of running underneath its bottom controls.
+    // Spans the ENTIRE viewport width: the nav rail (fixed, left) stops
+    // above it via the --composer-dock-h var, so there's no dead margin.
     return (
       <div
         ref={composerDockRef}
@@ -7197,7 +7407,6 @@ export default function Home() {
         style={{
           position: "relative",
           zIndex: 80,
-          marginLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) : undefined,
           background: `linear-gradient(0deg, var(--bg-primary), ${tintBg})`,
           // Clear the iPhone home-indicator / Android gesture bar
           paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${isMobile ? 10 : 12}px)`,
@@ -7211,9 +7420,11 @@ export default function Home() {
   const renderAppTab = (gatewayUrl: string) => {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* App Content */}
+        {/* App Content — with a foreign host or foreign /{mod} from the
+            omnibox, this site's registry can't know whether an app exists
+            there, so trust the URL and render the iframe. */}
         <div className="flex-1 overflow-hidden">
-          {selectedModuleInfo?.app_url ? (
+          {selectedModuleInfo?.app_url || omniForeignMod || gatewayHostOverride ? (
             <iframe
               src={gatewayUrl}
               className="w-full h-full border-0"
@@ -8331,6 +8542,7 @@ export default function Home() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
+                        <ModuleAvatar apiUrl={apiUrl} name={m.name} hasApp={!!(m.app_url || m.has_app_dir)} />
                         <span
                           className={`shrink-0 ${live === true ? "led-pulse" : ""}`}
                           style={{ color: dotColor, fontSize: "10px" }}
@@ -9764,33 +9976,76 @@ export default function Home() {
     // always shows the live app.
     const hasApi = false;
     const sub: "app" | "api" = "app";
-    // Gateway URL the user can copy/open for this agent. Caddy proxies the
-    // module path → the agent's app. Two cases:
-    //  • Public deploy (behind Cloudflare/caddy on 80/443, i.e. https or no
-    //    explicit port): use the page origin verbatim — e.g.
-    //    https://modc2.com/claude. The :3000 gateway port is internal and
-    //    NOT publicly exposed, so appending it (the old behavior) produced a
-    //    dead "modc2.com:3000" link.
-    //  • LAN/dev (served on a non-standard port like :8823): the local
-    //    gateway listens on :3000, so point there — e.g.
-    //    http://192.168.x.y:3000/claude — so a phone on the same wifi works.
     const modName = selectedModule || "claude";
     // claude's APP tab points at the real claude app (/claude). The console IS
     // the claude module, so at the top level this simply re-shows the claude
     // app in the iframe. To avoid infinite nesting, an already-embedded copy
     // (this console running inside an iframe) breaks the chain by falling back
-    // to the web front-door instead of iframing /claude again.
-    const appModName = modName === "claude" ? (isEmbedded ? "web" : "claude") : modName;
-    const gatewayUrl = (() => {
-      if (typeof window === "undefined") return `http://localhost:3000/${appModName}`;
-      const loc = window.location;
-      const behindPublicProxy =
-        loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
-      return behindPublicProxy
-        ? `${loc.origin}/${appModName}`
-        : `http://${loc.hostname}:3000/${appModName}`;
-    })();
-    const showUrl = sub === "app" && !!selectedModuleInfo?.app_url;
+    // to the web front-door instead of iframing /claude again. A foreign
+    // /{mod} typed into the omnibox (resolvable only by the foreign host's
+    // registrar) wins over both.
+    const appModName = omniForeignMod || (modName === "claude" ? (isEmbedded ? "web" : "claude") : modName);
+    // Gateway URL shown in the omnibox and loaded in the iframe. Caddy
+    // proxies {host}/{mod} → the module's app; the host defaults to this
+    // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
+    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
+    const showUrl = sub === "app";
+    // ── Omnibox actions ─────────────────────────────────────────────
+    // ‹ › iterate the /{mod} namespace: every real module with an app,
+    // alphabetical, wrapping at both ends.
+    const stepModule = (dir: 1 | -1) => {
+      const list = moduleList
+        .filter(isRealModule)
+        .filter((m) => m.app_url || m.has_app_dir)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (!list.length) { fetchModules(""); return; }
+      const i = list.findIndex((m) => m.name === selectedModule);
+      const next = list[i < 0 ? (dir === 1 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
+      selectModule(next);
+      setSidebarView("app");
+    };
+    const openOmnibox = () => {
+      setOmniValue(gatewayUrl);
+      setOmniIdx(0);
+      setOmniEditing(true);
+      if (!moduleList.length) fetchModules("");
+    };
+    // Suggestions for the typed /{mod} segment — the rail's ranked search
+    // (recents first) with an exact name match hoisted to the top so Enter
+    // on fully-typed names never surprises.
+    const omniMatches = (q: string) => {
+      const list = railMatches(q).slice(0, 12);
+      const query = q.trim().toLowerCase();
+      const i = list.findIndex((m) => m.name.toLowerCase() === query);
+      if (i > 0) list.unshift(list.splice(i, 1)[0]);
+      return list.slice(0, 8);
+    };
+    const commitOmnibox = (pick?: typeof moduleList[0] | null) => {
+      const { origin, mod } = parseOmnibox(omniValue);
+      let override = gatewayHostOverride;
+      if (origin !== null) {
+        // Typing this deployment's own origin clears the override; any
+        // other host re-roots /{mod} onto that host's registrar.
+        override = origin === defaultGatewayOrigin() ? null : origin;
+        setGatewayHostOverride(override);
+        if (override) safeSetItem("claude_gateway_host", override);
+        else { try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ } }
+      }
+      const target = pick || (mod ? omniMatches(mod)[0] : null);
+      if (target) {
+        if (target.name !== selectedModule) {
+          selectModule(target);
+          setSidebarView("app");
+        } else {
+          setOmniForeignMod(null);
+        }
+      } else if (mod && override) {
+        // Unknown to this site's registry, but we're pointed at a foreign
+        // registrar — trust the typed name verbatim.
+        setOmniForeignMod(mod);
+      }
+      setOmniEditing(false);
+    };
     const logsOpen = moduleLogsOpen !== null;
     // Logs follow the active sub-view, so the APP/API toggle doubles as a
     // "logs of each" switch: flip to APP → app logs, flip to API → api logs.
@@ -9818,7 +10073,7 @@ export default function Home() {
             : undefined
         }
       >
-        {/* Single control row: APP/API toggle + the copyable gateway URL + LOGS. */}
+        {/* Single control row: the omnibox (browser-style module address bar) + LOGS + EXPAND. */}
         {(hasApp || hasApi) && (
           <div
             className="flex items-center gap-2 px-3 py-2 shrink-0"
@@ -9827,26 +10082,169 @@ export default function Home() {
               background: "linear-gradient(180deg, var(--bg-tint), transparent)",
             }}
           >
-            {/* URL strip — copyable, click-to-open in new tab. Lets phone
-                users grab the route without leaving the APP view. */}
+            {/* Omnibox — the old URL strip and the module search merged into
+                one browser-style address bar. ‹ › step through /{mod},
+                clicking the URL edits it: the path segment autocompletes
+                against the module registry, and the host is editable too
+                (each host runs its own registrar contract, so a different
+                host re-roots the same /{mod} names onto its registry). */}
             {showUrl && (
               <>
-                <span className="text-[9px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-green)" }}>URL</span>
-                <button
-                  onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
-                  className="flex-1 min-w-0 font-mono text-[11px] truncate text-left transition-colors"
-                  style={{
-                    color: "var(--text-secondary)",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: 4,
-                    padding: "4px 8px",
-                    cursor: "pointer",
-                  }}
-                  title={`${gatewayUrl} — click to copy`}
-                >
-                  {gatewayUrl}
-                </button>
+                {([-1, 1] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    onClick={() => stepModule(dir)}
+                    className="shrink-0 flex items-center justify-center transition-all hover:brightness-125"
+                    style={{
+                      width: 24, height: 24, borderRadius: 999,
+                      color: "var(--crt-green)",
+                      background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                      border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
+                      fontSize: 14, lineHeight: 1, cursor: "pointer",
+                    }}
+                    title={dir === -1 ? "Previous module" : "Next module"}
+                    aria-label={dir === -1 ? "Previous module" : "Next module"}
+                  >
+                    {dir === -1 ? "‹" : "›"}
+                  </button>
+                ))}
+                <div className="relative flex-1 min-w-0">
+                  <div
+                    className="flex items-center gap-1.5 min-w-0 transition-all"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${omniEditing ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+                      borderRadius: 999,
+                      padding: "3px 10px",
+                    }}
+                  >
+                    {omniEditing ? (
+                      <input
+                        value={omniValue}
+                        autoFocus
+                        spellCheck={false}
+                        onFocus={(e) => {
+                          // Browser-style: focus pre-selects the /{mod}
+                          // segment so typing replaces just the path.
+                          const v = e.currentTarget.value;
+                          const i = v.lastIndexOf("/");
+                          if (i >= 0) e.currentTarget.setSelectionRange(i + 1, v.length);
+                        }}
+                        onChange={(e) => {
+                          setOmniValue(e.target.value);
+                          setOmniIdx(0);
+                          fetchModules(parseOmnibox(e.target.value).mod);
+                        }}
+                        onKeyDown={(e) => {
+                          const matches = omniMatches(parseOmnibox(omniValue).mod);
+                          if (e.key === "ArrowDown") { e.preventDefault(); setOmniIdx((i) => Math.min(i + 1, Math.max(matches.length - 1, 0))); }
+                          else if (e.key === "ArrowUp") { e.preventDefault(); setOmniIdx((i) => Math.max(i - 1, 0)); }
+                          else if (e.key === "Enter") { e.preventDefault(); commitOmnibox(matches[omniIdx] || null); }
+                          else if (e.key === "Escape") { setOmniEditing(false); }
+                        }}
+                        onBlur={() => setOmniEditing(false)}
+                        className="flex-1 min-w-0 font-mono text-[11px] bg-transparent outline-none"
+                        style={{ color: "var(--text-primary)" }}
+                        aria-label="Address bar — type a module name, or a different host"
+                      />
+                    ) : (
+                      <div
+                        onMouseDown={(e) => { e.preventDefault(); openOmnibox(); }}
+                        className="flex-1 min-w-0 font-mono text-[11px] truncate cursor-text select-none"
+                        title={`${gatewayUrl} — click to edit: type a /{mod} (autocompletes) or a different host`}
+                      >
+                        {(() => {
+                          const m = gatewayUrl.match(/^([a-z]+:\/\/)([^/]+)(\/.*)?$/i);
+                          if (!m) return <span style={{ color: "var(--text-secondary)" }}>{gatewayUrl}</span>;
+                          return (
+                            <>
+                              <span style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>{m[1]}</span>
+                              <span style={{ color: gatewayHostOverride ? "var(--crt-amber)" : "var(--text-secondary)" }}>{m[2]}</span>
+                              <span style={{ color: "var(--crt-green)", fontWeight: 600 }}>{m[3] || ""}</span>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    {/* Custom-host chip — amber = /{mod} resolves via a
+                        foreign registrar. Click to return to this site. */}
+                    {gatewayHostOverride && !omniEditing && (
+                      <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setGatewayHostOverride(null);
+                          setOmniForeignMod(null);
+                          try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ }
+                        }}
+                        className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 rounded-full transition-all hover:brightness-125"
+                        style={{
+                          color: "var(--crt-amber)",
+                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-amber) 40%, transparent)",
+                          cursor: "pointer",
+                        }}
+                        title={`Custom host — /{mod} resolves via ${gatewayHostOverride}'s registrar. Click to reset to this site.`}
+                      >
+                        ✕ host
+                      </button>
+                    )}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+                      className="shrink-0 text-[11px] opacity-40 hover:opacity-100 transition-opacity"
+                      style={{ color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", lineHeight: 1, padding: 0 }}
+                      title="Copy URL"
+                      aria-label="Copy URL"
+                    >
+                      ⧉
+                    </button>
+                  </div>
+                  {/* Module suggestions under the bar while editing —
+                      ↑/↓ + Enter, or click. */}
+                  {omniEditing && (() => {
+                    const matches = omniMatches(parseOmnibox(omniValue).mod);
+                    if (!matches.length) return null;
+                    return (
+                      <div
+                        className="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden"
+                        style={{
+                          zIndex: 60,
+                          background: "var(--bg-secondary, var(--bg-primary))",
+                          border: "1px solid var(--border-color)",
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                        }}
+                      >
+                        {matches.map((m, i) => {
+                          const st = moduleStatuses[m.name];
+                          const live = st ? st.app === true || st.api === true : null;
+                          return (
+                            <button
+                              key={m.name}
+                              onMouseDown={(e) => { e.preventDefault(); commitOmnibox(m); }}
+                              onMouseEnter={() => setOmniIdx(i)}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-left"
+                              style={{
+                                background: i === omniIdx ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "transparent",
+                                color: "var(--text-secondary)",
+                                border: "none",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <span
+                                className="shrink-0"
+                                style={{ width: 6, height: 6, borderRadius: 999, background: live ? "var(--crt-green)" : "var(--text-tertiary)", opacity: live ? 1 : 0.35 }}
+                              />
+                              <span className="shrink-0" style={{ color: "var(--crt-green)" }}>/{m.name}</span>
+                              {m.description && (
+                                <span className="truncate" style={{ color: "var(--text-tertiary)" }}>{m.description}</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <a
                   href={gatewayUrl}
                   target="_blank"
@@ -10529,14 +10927,13 @@ export default function Home() {
 
         {/* ── Account controls. On desktop they sit inline at the right end
             of the single header row (no standalone top bar). On phone this
-            becomes its own row ABOVE the module row (flex `order: 1`) and
-            also carries the HUB/TASKS buttons — desktop covers those via the
-            left nav rail (toggled from the module name / its own « tab). */}
+            becomes its own row ABOVE the module row (flex `order: 1`). The
+            HUB/TASKS buttons live here on BOTH desktop and phone — the nav
+            rail no longer carries them (its footer cluster is gone). */}
         <div
           className={`flex items-center py-1 ${isMobile ? "px-4" : "pl-2 pr-4 shrink-0"}`}
           style={isMobile ? { order: 1, borderBottom: `1px solid ${subtleBorder}` } : { order: 2 }}
         >
-          {isMobile && (
           <div className="flex items-center gap-0">
             {(() => {
               const hubActive = sidebarView === "hub";
@@ -10609,7 +11006,6 @@ export default function Home() {
               ));
             })()}
           </div>
-          )}
 
           {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
@@ -10617,11 +11013,8 @@ export default function Home() {
               Lives on the RIGHT of the header. Clicking opens a
               tabbed panel anchored under the icon (right-aligned). */}
             <div className="relative flex items-center gap-1.5" ref={headerCreateRef}>
-              {/* "+" opens the BUILD / FORK / EDIT / IMPORT panel. On desktop
-                  with the nav rail open, these actions live compressed at the
-                  bottom of the rail instead — the header button only shows on
-                  mobile or when the rail is collapsed. */}
-              {(isMobile || !leftRailOpen) && (
+              {/* "+" opens the BUILD / FORK / EDIT / IMPORT panel. Always
+                  shown — the rail no longer carries CREATE/EDIT actions. */}
               <button
                 onClick={() => {
                   setCreateAnchor("header");
@@ -10643,7 +11036,6 @@ export default function Home() {
               >
                 +
               </button>
-              )}
               {/* The wrench that used to live here is gone — the edit view is
                   reached via the rail's bottom EDIT action. */}
 
@@ -11142,7 +11534,9 @@ export default function Home() {
                 position: "fixed",
                 left: 0,
                 top: 0,
-                bottom: 0,
+                // Stop above the docked composer so the ask bar spans the
+                // entire viewport width (0px when floating/minimized).
+                bottom: "var(--composer-dock-h, 0px)",
                 zIndex: 40,
                 width: leftRailWidth,
                 background: "var(--bg-secondary, var(--bg-primary))",
@@ -11560,138 +11954,13 @@ export default function Home() {
                 })()}
               </div>
 
-              {/* Rail footer — actions + nav. First the header's four-tab BUILD/FORK/EDIT/IMPORT
-                  popover compressed into two buttons: CREATE (build from
-                  scratch, fork the selected module, or import via github/cid
-                  — picked with a small source segment) and EDIT (agent edit
-                  of the selected module). Shares the header panel's state and
-                  submit path, so behavior is identical — only the surface is
-                  smaller. */}
-              <div
-                ref={railCreateRef}
-                className="shrink-0 px-2 py-2 flex flex-col gap-1.5"
-                style={{ borderTop: "1px solid var(--border-color)" }}
-              >
-                {showHeaderCreateForm && createAnchor === "rail" && renderCompactCreateForm()}
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => {
-                      if (showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail") {
-                        setShowHeaderCreateForm(null);
-                        return;
-                      }
-                      setCreateAnchor("rail");
-                      setHeaderNewName("");
-                      setHeaderGithubUrl("");
-                      setShowHeaderCreateForm("create");
-                    }}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all"
-                    style={{
-                      color: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
-                      background: showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
-                      border: `1px solid ${showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
-                      letterSpacing: "0.04em",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 8%, transparent)"; }}
-                    onMouseLeave={(e) => { if (!(showHeaderCreateForm && showHeaderCreateForm !== "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
-                    title="Build, fork or import a module"
-                  >
-                    + CREATE
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!selectedModule) return;
-                      if (showHeaderCreateForm === "edit" && createAnchor === "rail") {
-                        setShowHeaderCreateForm(null);
-                        return;
-                      }
-                      setCreateAnchor("rail");
-                      setHeaderEditPrompt("");
-                      setShowHeaderCreateForm("edit");
-                    }}
-                    disabled={!selectedModule}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md font-code text-[11px] font-bold transition-all disabled:cursor-not-allowed"
-                    style={{
-                      color: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
-                      opacity: selectedModule ? 1 : 0.35,
-                      background: showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 12%, transparent)" : "transparent",
-                      border: `1px solid ${showHeaderCreateForm === "edit" && createAnchor === "rail" ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
-                      letterSpacing: "0.04em",
-                    }}
-                    onMouseEnter={(e) => { if (selectedModule) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 8%, transparent)"; }}
-                    onMouseLeave={(e) => { if (!(showHeaderCreateForm === "edit" && createAnchor === "rail")) e.currentTarget.style.background = "transparent"; }}
-                    title={selectedModule ? `Edit ${selectedModule} with the agent` : "Select a module to edit"}
-                  >
-                    ✎ EDIT
-                  </button>
-                </div>
-                {/* Rail nav — HUB / TASKS + collapse. Moved down from the top
-                    of the rail so they don't read as a second tab row right
-                    under the mod tabs. */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setSidebarView("hub")}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
-                    style={{
-                      color: sidebarView === "hub" ? "var(--crt-green)" : "var(--text-secondary, var(--text-tertiary))",
-                      background: sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 14%, transparent)" : "transparent",
-                      border: `1px solid ${sidebarView === "hub" ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
-                      letterSpacing: "0.04em",
-                    }}
-                    onMouseEnter={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 7%, transparent)"; }}
-                    onMouseLeave={(e) => { if (sidebarView !== "hub") e.currentTarget.style.background = "transparent"; }}
-                    title="Open the module hub"
-                  >
-                    <span style={{ fontSize: 13, lineHeight: 1 }}>▦</span> HUB
-                  </button>
-                  {(() => {
-                    const tasksPageActive = sidebarView === "tasks";
-                    const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
-                    return (
-                      <button
-                        onClick={() => setSidebarView("tasks")}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md font-code text-[12px] font-bold transition-all"
-                        style={{
-                          color: tasksPageActive ? "var(--crt-blue)" : "var(--text-secondary, var(--text-tertiary))",
-                          background: tasksPageActive ? "color-mix(in srgb, var(--crt-blue) 14%, transparent)" : "transparent",
-                          border: `1px solid ${tasksPageActive ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "var(--border-color)"}`,
-                          letterSpacing: "0.04em",
-                        }}
-                        onMouseEnter={(e) => { if (!tasksPageActive) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue) 7%, transparent)"; }}
-                        onMouseLeave={(e) => { if (!tasksPageActive) e.currentTarget.style.background = "transparent"; }}
-                        title="Open the full-page tasks view"
-                      >
-                        <span style={{ fontSize: 13, lineHeight: 1 }}>▤</span> TASKS
-                        {runningCount > 0 && (
-                          <span
-                            className="text-[10px] font-mono px-1 py-[1px] rounded"
-                            style={{
-                              color: "var(--crt-blue)",
-                              background: "color-mix(in srgb, var(--crt-blue) 14%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
-                            }}
-                          >
-                            {runningCount}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })()}
-                  <button
-                    onClick={() => setLeftRailOpen(false)}
-                    className="flex items-center justify-center shrink-0 transition-all hover:brightness-125"
-                    style={{ width: 20, height: 20, color: "var(--text-tertiary)" }}
-                    title="Collapse nav rail"
-                    aria-label="Collapse nav rail"
-                  >
-                    «
-                  </button>
-                </div>
-              </div>
+              {/* Rail footer is gone — CREATE/EDIT live in the header "+"
+                  panel and the composer "+", HUB/TASKS moved to the header's
+                  right side, and the rail collapses via the header mark. */}
             </div>
           ) : (
-            // Collapsed: a thin reopen tab on the far left (full height,
-            // like the open rail).
+            // Collapsed: a thin reopen tab on the far left (stops above the
+            // docked composer, like the open rail).
             <button
               onClick={() => setLeftRailOpen(true)}
               className="flex items-center justify-center transition-all hover:brightness-125"
@@ -11699,7 +11968,7 @@ export default function Home() {
                 position: "fixed",
                 left: 0,
                 top: 0,
-                bottom: 0,
+                bottom: "var(--composer-dock-h, 0px)",
                 zIndex: 40,
                 width: 22,
                 background: "var(--bg-secondary, var(--bg-primary))",
@@ -12730,6 +12999,58 @@ export default function Home() {
           and the PARAMS panel (auth + mod/model/agent + system prompt
           chain) folds out of this bar. ── */}
       {renderComposerDock()}
+
+      {/* ── TERMS OF USE — first sign-in gate for non-owner wallets. The
+          wallet signature that follows covers this exact text (the server
+          embeds it in the challenge), so AGREE here, then sign. ── */}
+      {termsPrompt && (
+        <div
+          className="fixed inset-0 z-[400] flex items-center justify-center p-4"
+          style={{ background: "rgba(7, 7, 13, 0.65)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+        >
+          <div
+            className="rounded-2xl w-full max-w-md flex flex-col overflow-hidden"
+            style={{
+              background: "color-mix(in srgb, var(--glass-bg, var(--bg-primary)) 92%, transparent)",
+              border: "1px solid var(--border-color-strong)",
+              boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+              backdropFilter: "blur(18px) saturate(150%)",
+              WebkitBackdropFilter: "blur(18px) saturate(150%)",
+            }}
+          >
+            <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border-color)" }}>
+              <span className="text-[12px] uppercase font-bold tracking-[0.14em]" style={{ color: "var(--text-primary)" }}>
+                {termsPrompt.title}
+              </span>
+            </div>
+            <div
+              className="px-4 py-3 text-[12px] leading-relaxed overflow-y-auto whitespace-pre-wrap"
+              style={{ color: "var(--text-secondary)", maxHeight: "50vh" }}
+            >
+              {termsPrompt.text}
+            </div>
+            <div className="px-4 pb-2 text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+              Agreeing asks your wallet to sign a message that includes these terms.
+            </div>
+            <div className="flex gap-2 p-4 pt-2">
+              <button
+                onClick={() => termsResolveRef.current?.(false)}
+                className="flex-1 text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all"
+                style={{ color: "var(--text-secondary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+              >
+                Decline
+              </button>
+              <button
+                onClick={() => termsResolveRef.current?.(true)}
+                className="flex-1 text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all"
+                style={{ color: "var(--bg-primary)", background: "var(--accent-color, #cc785c)", border: "1px solid var(--accent-color, #cc785c)" }}
+              >
+                Agree &amp; Sign
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SYSTEM PROMPTS manager — the separate home for prompt content.
           The composer only shows name chips; here you add, edit, delete,

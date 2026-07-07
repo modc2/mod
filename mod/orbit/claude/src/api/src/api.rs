@@ -135,16 +135,17 @@ pub async fn serve(manager: AppState, port: u16) {
 
         if local_mode {
             println!("⚡ Local mode — auth disabled");
-            base.with_state(manager)
+            base.with_state(manager.clone())
         } else {
             base.layer(middleware::from_fn(auth::auth_middleware))
-                .with_state(manager)
+                .with_state(manager.clone())
         }
     };
 
     // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/health", get(health))
+        .route("/schema", get(api_schema))
         // Public code ledger: every task is world-readable (list, detail,
         // live stream). Mutations (submit/cancel/delete) stay authenticated.
         .route("/jobs", get(list_jobs))
@@ -154,6 +155,7 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/repos", get(list_repos))
         .route("/modules", get(list_modules))
         .route("/modules/:name/config", get(get_module_config))
+        .route("/modules/:name/screenshot", get(crate::screenshots::module_screenshot))
         .route("/folders", get(list_folders))
         .route("/suggest_folders", get(suggest_folders))
         .route("/files/tree", get(file_tree))
@@ -179,7 +181,10 @@ pub async fn serve(manager: AppState, port: u16) {
         .route(
             "/auth/verify",
             post(auth::verify).with_state(challenge_store),
-        );
+        )
+        .route("/auth/terms", get(auth::terms))
+        // The public jobs reads (list/get/stream) pull from the same manager.
+        .with_state(manager);
 
     let app = Router::new()
         .merge(job_routes)
@@ -203,7 +208,76 @@ pub async fn serve(manager: AppState, port: u16) {
 }
 
 async fn health() -> impl IntoResponse {
-    Json(json!({ "status": "ok", "service": "claude-jobs" }))
+    // `local` is authoritative for the app's local-mode probe — never infer
+    // local mode from an unauthenticated read succeeding (public endpoints
+    // exist), or a browser can trap itself in a tokenless session.
+    Json(json!({ "status": "ok", "service": "claude-jobs", "local": local_mode() }))
+}
+
+/// Public: machine-readable endpoint catalog for the console's API tab.
+/// auth levels: "public" (no token), "bearer" (any signed-in user),
+/// "owner" (bearer + owner address; mutations on other modules also need x-sudo).
+async fn api_schema() -> impl IntoResponse {
+    let e = |method: &str, path: &str, auth: &str, desc: &str| {
+        json!({ "method": method, "path": path, "auth": auth, "desc": desc })
+    };
+    Json(json!({
+        "service": "claude-jobs",
+        "base": "/api/claude",
+        "auth_note": "Bearer token from /auth/challenge + /auth/verify (wallet signature). Non-owner wallets sign the Terms of Use embedded in their first challenge.",
+        "endpoints": [
+            e("GET", "/health", "public", "Liveness + whether auth is disabled (local mode)"),
+            e("GET", "/schema", "public", "This endpoint catalog"),
+            e("GET", "/owner", "public", "Configured owner address"),
+            e("GET", "/auth/terms?address=0x..", "public", "Terms of Use text + whether the address still needs to accept them"),
+            e("GET", "/auth/challenge?address=0x..", "public", "Nonce message to sign (embeds Terms on first sign-in)"),
+            e("POST", "/auth/verify", "public", "{address, message, signature} → bearer token"),
+            e("GET", "/auth/role", "public", "Role of the presented token (owner/peer/guest)"),
+            e("GET", "/jobs", "public", "World-readable task ledger (all jobs)"),
+            e("GET", "/jobs/:id", "public", "One job with full output"),
+            e("GET", "/jobs/:id/stream", "public", "Server-sent events stream of live job output"),
+            e("POST", "/jobs", "bearer", "Submit a task: {prompt, model?, work_dir?, module_name?, system_prompt?, agent_type?}"),
+            e("POST", "/jobs/:id/cancel", "bearer", "Cancel a running job (yours, or any if owner)"),
+            e("DELETE", "/jobs/:id", "bearer", "Delete a job record (yours, or any if owner)"),
+            e("GET", "/modules", "public", "All modules in the anchor tree"),
+            e("GET", "/modules/:name/config", "public", "A module's config.json"),
+            e("GET", "/modules/:name/screenshot", "public", "PNG screenshot of the module's app"),
+            e("GET", "/modules/:name/versions", "public", "Snapshot chain for a module"),
+            e("GET", "/modules/:name/registry", "public", "On-chain registry status"),
+            e("POST", "/modules/import", "owner", "Import a module: {github} or {cid}"),
+            e("POST", "/modules/:name/snapshot", "owner", "Snapshot module to content-addressed storage"),
+            e("POST", "/modules/:name/fork", "owner", "Fork a module"),
+            e("POST", "/modules/:name/restore", "owner", "Restore module from a snapshot CID"),
+            e("PUT", "/modules/:name/rename", "owner", "Rename a module"),
+            e("DELETE", "/modules/:name", "owner", "Delete a module (x-sudo)"),
+            e("POST", "/modules/:name/process", "owner", "status|start|stop|restart the module's api/app (x-sudo for other modules)"),
+            e("POST", "/modules/:name/logs", "owner", "Tail the module's process logs: {target: api|app, lines?}"),
+            e("GET", "/files/tree", "bearer", "File tree (default-deny without token)"),
+            e("GET", "/files/content", "bearer", "Read a file"),
+            e("POST", "/files/write", "bearer", "Write a file (peers sandboxed to their workspace)"),
+            e("GET", "/files/search", "bearer", "Filename search"),
+            e("GET", "/files/grep", "bearer", "Content grep"),
+            e("GET", "/whitelist", "public", "Whitelisted addresses"),
+            e("POST", "/whitelist", "owner", "Add address to whitelist"),
+            e("DELETE", "/whitelist/:address", "owner", "Remove address from whitelist"),
+            e("GET", "/grants", "owner", "List timed QR access grants"),
+            e("POST", "/grants", "owner", "Create a timed access grant"),
+            e("DELETE", "/grants/:id", "owner", "Revoke a grant"),
+            e("POST", "/grants/:id/redeem", "public", "Redeem a QR grant as a walletless guest"),
+            e("POST", "/auth/handoff", "bearer", "Mint a one-time phone sign-in code"),
+            e("POST", "/auth/handoff/redeem", "public", "Redeem a handoff code for a token"),
+            e("GET", "/sudo/status", "owner", "Sudo session + policy"),
+            e("POST", "/sudo/policy", "owner", "Set sudo session policy"),
+            e("POST", "/sudo/lock", "owner", "End the sudo session now"),
+            e("GET", "/credits", "bearer", "Your deposit address + balance"),
+            e("GET", "/credits/accounts", "owner", "All credit accounts"),
+            e("POST", "/credits/sync", "bearer", "Re-scan chain deposits"),
+            e("GET", "/config", "public", "This module's config.json"),
+            e("GET", "/changelog", "public", "Snapshot changelog"),
+            e("GET", "/repos", "public", "Known repo roots"),
+            e("GET", "/folders", "public", "Anchor folder listing"),
+        ]
+    }))
 }
 
 async fn get_config() -> impl IntoResponse {

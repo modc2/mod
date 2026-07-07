@@ -20,13 +20,42 @@ type HmacSha256 = Hmac<Sha256>;
 
 use std::sync::OnceLock;
 
-/// Server secret for HMAC token signing (generated at startup)
+/// Server secret for HMAC token signing. Persisted at ~/.mod/claude/server.secret
+/// so bearer tokens survive API restarts — this server restarts itself after
+/// self-edit jobs, and a fresh random secret would 401 every signed-in browser.
 static SERVER_SECRET: OnceLock<[u8; 32]> = OnceLock::new();
 
+fn secret_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("claude")
+        .join("server.secret")
+}
+
 pub fn init_secret() {
+    let path = secret_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() == 32 {
+            let mut secret = [0u8; 32];
+            secret.copy_from_slice(&bytes);
+            SERVER_SECRET.set(secret).ok();
+            return;
+        }
+    }
     use rand::RngCore;
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if std::fs::write(&path, secret).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
+    }
     SERVER_SECRET.set(secret).ok();
 }
 
@@ -39,6 +68,101 @@ pub type ChallengeStore = Arc<RwLock<HashMap<String, String>>>;
 
 pub fn new_challenge_store() -> ChallengeStore {
     Arc::new(RwLock::new(HashMap::new()))
+}
+
+// ── Terms of Use ─────────────────────────────────────────────────────
+//
+// Every non-owner wallet must sign the current terms once before it can
+// sign in. The terms are embedded in the challenge message itself, so the
+// wallet signature covers them; acceptance is recorded per-address in
+// ~/.mod/claude/terms_accepted.json and re-required when the version bumps.
+
+pub const TERMS_VERSION: u32 = 1;
+pub const TERMS_MARKER: &str = "Claude Jobs Terms of Use (v1)";
+pub const TERMS_TEXT: &str = "\
+1. This service runs coding tasks on the operator's infrastructure. Your \
+prompts, task output, and files a task touches may be visible to the \
+operator, and tasks appear in a world-readable job ledger.
+2. You will not use the service for unlawful, abusive, or malicious \
+activity, or to access data or systems you are not authorized to access.
+3. Access is granted at the operator's discretion and may be limited, \
+suspended, or revoked at any time without notice.
+4. You are responsible for your wallet, its keys, and everything submitted \
+from your address.
+5. The service is provided \"as is\", without warranty of any kind. To the \
+maximum extent permitted by law, the operator is not liable for any damages \
+or losses arising from its use.";
+
+fn terms_accepted_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("claude")
+        .join("terms_accepted.json")
+}
+
+fn read_terms_accepted() -> HashMap<String, serde_json::Value> {
+    std::fs::read_to_string(terms_accepted_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// True when this address needs no terms signature: the configured owner
+/// (or the first user, who becomes owner) sets the terms rather than
+/// agreeing to them, and already-recorded acceptances stay valid until
+/// TERMS_VERSION bumps.
+pub fn terms_satisfied(addr: &str) -> bool {
+    match get_owner_address() {
+        Some(owner) if owner != addr => {}
+        _ => return true,
+    }
+    read_terms_accepted()
+        .get(addr)
+        .and_then(|v| v.get("version"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v >= TERMS_VERSION as u64)
+        .unwrap_or(false)
+}
+
+fn record_terms_acceptance(addr: &str) {
+    let mut map = read_terms_accepted();
+    map.insert(
+        addr.to_string(),
+        serde_json::json!({
+            "version": TERMS_VERSION,
+            "accepted_at": chrono::Utc::now().timestamp(),
+        }),
+    );
+    let path = terms_accepted_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(s) = serde_json::to_string_pretty(&map) {
+        std::fs::write(&path, s).ok();
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TermsQuery {
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+/// Public: the current terms text plus whether the given address still has
+/// to sign them, so the app can show the agreement before requesting a
+/// wallet signature.
+pub async fn terms(Query(q): Query<TermsQuery>) -> impl IntoResponse {
+    let required = match q.address.as_deref() {
+        Some(a) if !a.is_empty() => !terms_satisfied(&a.to_lowercase()),
+        _ => true,
+    };
+    Json(serde_json::json!({
+        "version": TERMS_VERSION,
+        "title": TERMS_MARKER,
+        "text": TERMS_TEXT,
+        "required": required,
+    }))
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────
@@ -59,10 +183,18 @@ pub async fn challenge(
 ) -> impl IntoResponse {
     let addr = q.address.to_lowercase();
     let nonce = hex::encode(rand::random::<[u8; 16]>());
-    let message = format!(
+    let mut message = format!(
         "Sign this message to authenticate with Claude Jobs.\n\nAddress: {}\nNonce: {}",
         addr, nonce
     );
+    // First sign-in from a non-owner wallet also signs the terms: embedding
+    // them in the challenge makes the signature cover the exact text.
+    if !terms_satisfied(&addr) {
+        message.push_str(&format!(
+            "\n\nBy signing you accept the {}:\n{}",
+            TERMS_MARKER, TERMS_TEXT
+        ));
+    }
 
     let mut challenges = store.write().await;
     challenges.insert(addr, message.clone());
@@ -198,6 +330,25 @@ pub async fn verify(
             }
         }
     };
+
+    // Terms gate: the challenge for a not-yet-accepted address embeds the
+    // terms, so a valid signature over a message carrying the marker IS the
+    // acceptance. A message without it means a stale/forged challenge —
+    // send the client back through sign-in.
+    if !is_new_owner && !terms_satisfied(&addr) {
+        if req.message.contains(TERMS_MARKER) {
+            record_terms_acceptance(&addr);
+            println!("✓ Terms v{} accepted by {}", TERMS_VERSION, addr);
+        } else {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "Terms of Use acceptance required — refresh and sign in again",
+                    "terms_required": true,
+                })),
+            ));
+        }
+    }
 
     let token = mint_token(&addr);
 
