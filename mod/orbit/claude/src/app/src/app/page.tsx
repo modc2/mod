@@ -10438,7 +10438,6 @@ curl -N ${base}/jobs/<id>/stream`)}
     // proxies {host}/{mod} → the module's app; the host defaults to this
     // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
     const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
-    const showUrl = sub === "app";
     const logsOpen = moduleLogsOpen !== null;
     // Logs follow the active sub-view, so the APP/API toggle doubles as a
     // "logs of each" switch: flip to APP → app logs, flip to API → api logs.

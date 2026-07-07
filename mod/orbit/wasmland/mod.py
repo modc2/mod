@@ -1,4 +1,5 @@
 import os
+import time
 import mod as m
 
 class Mod:
@@ -8,6 +9,29 @@ class Mod:
     def forward(self, **kwargs):
         """Default entry point."""
         return self.info()
+
+    def auth(self, key=None):
+        """The shared mod-protocol auth (same token/verify used across the fleet)."""
+        return m.mod('auth')(key=key)
+
+    def token(self, key='test.wasmland', **data):
+        """Client side: sign a signin token with a local key (mod-protocol auth)."""
+        return self.auth(key=key).token(data or {'action': 'signin'})
+
+    def signin(self, token):
+        """Server side: verify a mod-protocol auth token and return the session.
+
+        Accepts the same base64url token produced by m.mod('auth').token(...),
+        recovers the signer address, and returns it as the signed-in identity.
+        """
+        headers = self.auth().verify(token)
+        return {
+            'signed_in': True,
+            'address': headers['key'],
+            'data': headers.get('data'),
+            'time': float(headers['time']),
+            'ts': time.time(),
+        }
 
     def info(self):
         """Return module info."""
