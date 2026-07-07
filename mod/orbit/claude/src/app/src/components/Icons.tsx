@@ -36,6 +36,17 @@ export function AppIcon(props: IconProps) {
   );
 }
 
+/** API — two plugs meeting: a socket dot between call chevrons. */
+export function ApiIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M7 8l-4 4 4 4" />
+      <path d="M17 8l4 4-4 4" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** CODE — angle brackets. */
 export function CodeIcon(props: IconProps) {
   return (

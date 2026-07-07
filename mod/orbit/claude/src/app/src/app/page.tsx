@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { VersionsPanel } from "../components/VersionsPanel";
 import AuthBadge from "../components/AuthBadge";
 import {
+  ApiIcon,
   AppIcon,
   CodeIcon,
   OverviewIcon,
@@ -734,6 +735,8 @@ export default function Home() {
   // Sub-tab inside an open task: raw OUTPUT, the file EDITS it made, or an
   // AUDIT trail of every tool action (bash / reads / searches / subtasks).
   const [taskDetailTab, setTaskDetailTab] = useState<"output" | "edits" | "audit">("output");
+  // Whether the open task's prompt shows in full (clamped to 3 lines otherwise).
+  const [promptExpanded, setPromptExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<"output" | "code">("output");
   const [directoryTree, setDirectoryTree] = useState<any[]>([]);
   const [directoryTreeError, setDirectoryTreeError] = useState<string | null>(null);
@@ -749,7 +752,22 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [isLeftDragging, setIsLeftDragging] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "apitab" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+
+  // ── API tab: docs (human/engineer), endpoint schema, playground, logs ──
+  const [apiTabView, setApiTabView] = useState<"docs" | "schema" | "try" | "logs">("docs");
+  const [apiDocsMode, setApiDocsMode] = useState<"human" | "engineer">("human");
+  const [apiSchema, setApiSchema] = useState<{
+    auth_note?: string;
+    base?: string;
+    endpoints: Array<{ method: string; path: string; auth: string; desc: string }>;
+  } | null>(null);
+  const [tryMethod, setTryMethod] = useState<string>("GET");
+  const [tryPath, setTryPath] = useState<string>("/health");
+  const [tryBody, setTryBody] = useState<string>("");
+  const [tryStatus, setTryStatus] = useState<string | null>(null);
+  const [tryResp, setTryResp] = useState<string | null>(null);
+  const [trySending, setTrySending] = useState(false);
   // Inner tab inside the OVERVIEW view — keeps the identity hero always
   // visible while INFO / ACCESS / LOGS / CONFIG swap below it instead of
   // stacking into one long scroll.
@@ -2348,9 +2366,11 @@ export default function Home() {
     }
   }, [selectedJob, jobs, workDir, apiUrl, loadFileContent, fileAuthHeaders]);
 
-  // Reset the open-task sub-tab to OUTPUT whenever a different task is opened.
+  // Reset the open-task sub-tab to OUTPUT (and re-collapse the prompt)
+  // whenever a different task is opened.
   useEffect(() => {
     setTaskDetailTab("output");
+    setPromptExpanded(false);
   }, [selectedJob]);
 
   // Load directory tree on mount and when relevant state changes
@@ -3794,18 +3814,56 @@ export default function Home() {
     setModuleLogsLoading(false);
   }, [selectedModule, token, authFetch]);
 
-  // Auto-refresh logs (in overview's inline logs panel or the dedicated LOGS tab)
+  // Auto-refresh logs (in overview's inline logs panel, the dedicated LOGS
+  // tab, or the API tab's logs pane)
   useEffect(() => {
-    const inLogsTab = sidebarView === "logs";
+    const inLogsTab = sidebarView === "logs" || (sidebarView === "apitab" && apiTabView === "logs");
     if (!moduleLogsAutoRefresh || (!moduleLogsOpen && !inLogsTab)) return;
     const iv = setInterval(fetchModuleLogs, 4000);
     return () => clearInterval(iv);
-  }, [moduleLogsAutoRefresh, moduleLogsOpen, sidebarView, fetchModuleLogs]);
+  }, [moduleLogsAutoRefresh, moduleLogsOpen, sidebarView, apiTabView, fetchModuleLogs]);
 
-  // Fetch logs when opened or when entering the LOGS tab
+  // Fetch logs when opened or when entering the LOGS tab / API tab logs pane
   useEffect(() => {
-    if (moduleLogsOpen || sidebarView === "logs") fetchModuleLogs();
-  }, [moduleLogsOpen, sidebarView]);
+    if (moduleLogsOpen || sidebarView === "logs" || (sidebarView === "apitab" && apiTabView === "logs")) fetchModuleLogs();
+  }, [moduleLogsOpen, sidebarView, apiTabView]);
+
+  // ── API tab: load the endpoint catalog once per session ──
+  useEffect(() => {
+    if (sidebarView !== "apitab" || apiSchema) return;
+    fetch(`${apiUrl}/schema`)
+      .then((r) => r.json())
+      .then((d) => { if (d && Array.isArray(d.endpoints)) setApiSchema(d); })
+      .catch(() => { /* schema endpoint unavailable — the tab shows a hint */ });
+  }, [sidebarView, apiSchema, apiUrl]);
+
+  // API playground: run the composed request against the module API. Uses the
+  // signed-in bearer token when there is one so owner/bearer endpoints work.
+  const sendTryRequest = useCallback(async () => {
+    setTrySending(true);
+    setTryStatus(null);
+    setTryResp(null);
+    try {
+      const path = tryPath.startsWith("/") ? tryPath : `/${tryPath}`;
+      const opts: RequestInit = { method: tryMethod };
+      if (tryMethod !== "GET" && tryBody.trim()) opts.body = tryBody;
+      const res = token && token !== "local"
+        ? await authFetch(path, opts)
+        : await fetch(`${apiUrl}${path}`, { ...opts, headers: { "Content-Type": "application/json" } });
+      const text = await res.text();
+      setTryStatus(`${res.status}${res.ok ? " OK" : ""}`);
+      try {
+        setTryResp(JSON.stringify(JSON.parse(text), null, 2));
+      } catch {
+        setTryResp(text.slice(0, 20000) || "(empty response)");
+      }
+    } catch (e: any) {
+      setTryStatus("NETWORK ERROR");
+      setTryResp(e?.message || String(e));
+    } finally {
+      setTrySending(false);
+    }
+  }, [tryMethod, tryPath, tryBody, token, authFetch, apiUrl]);
 
   // Reset logs when switching modules
   useEffect(() => {
@@ -4590,6 +4648,19 @@ export default function Home() {
     setTimeout(() => setCopiedCid((p) => (p === key ? null : p)), 1200);
   };
 
+  // Tree node for a path — the /files/tree walk carries per-file cid + size,
+  // which the open-file header surfaces next to the line count.
+  const findTreeNode = (tree: any[], path: string): any | null => {
+    for (const item of tree) {
+      if (item.path === path) return item;
+      if (item.children) {
+        const hit = findTreeNode(item.children, path);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+
   // Path of the dir the FILES browser is showing, "~"-abbreviated for display.
   const filesDisplayPath = () => {
     const p = workDir || (selectedJob ? jobs.find(j => j.id === selectedJob)?.work_dir : "") || "~/mod";
@@ -4821,6 +4892,30 @@ export default function Home() {
                   })()}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {(() => {
+                    const node = findTreeNode(directoryTree, viewingFile);
+                    const bytes = editingFile
+                      ? new TextEncoder().encode(editBuffer).length
+                      : node?.size ?? new TextEncoder().encode(viewingFileContent).length;
+                    const cidKey = `viewer:${viewingFile}`;
+                    return (
+                      <>
+                        {node?.cid && (
+                          <span
+                            onClick={() => copyCid(cidKey, node.cid)}
+                            className="font-code text-[12px] cursor-pointer transition-opacity hover:opacity-100"
+                            style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === cidKey ? 1 : 0.5 }}
+                            title={`CID ${node.cid} — click to copy`}
+                          >
+                            {copiedCid === cidKey ? "✓ copied" : `⌬ ${node.cid.slice(0, 12)}`}
+                          </span>
+                        )}
+                        <span className="text-[14px] text-crt-green/20 font-code" title={`${bytes} bytes`}>
+                          {bytes.toLocaleString()} bytes
+                        </span>
+                      </>
+                    );
+                  })()}
                   <span className="text-[14px] text-crt-green/20 font-code">
                     {(editingFile ? editBuffer : viewingFileContent).split("\n").length} lines
                   </span>
@@ -5872,34 +5967,16 @@ export default function Home() {
             <span className="text-[14px] font-bold font-code" style={{ color: "var(--crt-blue)", letterSpacing: "0.04em" }}>
               ▤ TASKS
             </span>
-            <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
-              {filteredJobs.length} task{filteredJobs.length === 1 ? "" : "s"}
-              {runningCount > 0 && (
-                <> · <span style={{ color: "var(--crt-blue)" }}>{runningCount} running</span></>
-              )}
+            <span className="text-[11px] font-code" style={{ color: "var(--crt-blue)" }}>
+              {runningCount} running
             </span>
-            {address && address !== "local" && (
-              <span
-                className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-[3px] ml-auto"
-                style={{
-                  color: "var(--crt-green)",
-                  border: "1px solid color-mix(in srgb, var(--crt-green) 28%, transparent)",
-                  borderRadius: 999,
-                  background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                }}
-                title={`Signed in as: ${address}`}
-              >
-                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }} />
-                {address.slice(0, 6)}…{address.slice(-4)}
-              </span>
-            )}
           </div>
 
         {/* ── Main content area (TASKS — full-page view) ── */}
         <div ref={outputRef} className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {selectedJobData ? (
-            <div className="flex flex-col h-full fade-in">
-              {/* Job header */}
+            <div className="fade-in">
+              {/* ── Task header — the prompt is the hero, everything else stays quiet ── */}
               {(() => {
                 const statusColor = STATUS_COLOR[selectedJobData.status];
                 const moduleName = selectedJobData.work_dir
@@ -5907,305 +5984,180 @@ export default function Home() {
                   : null;
                 const { cleanPrompt } = parsePromptImages(selectedJobData.prompt);
                 const displayPrompt = cleanPrompt || selectedJobData.prompt;
+                const finished = ["completed", "failed", "cancelled"].includes(selectedJobData.status);
+                const runSecs = finished ? selectedJobData.updated_at - selectedJobData.created_at : null;
                 return (
-              <div
-                className="px-4 py-3 shrink-0 space-y-2.5"
-                style={{
-                  borderBottom: `1px solid ${subtleBorder}`,
-                  background: `linear-gradient(180deg, ${statusColor}0e, ${tintBg})`,
-                }}
-              >
-                {/* Row 1 — status pill + action buttons */}
-                <div className="flex items-center justify-between gap-2">
-                  <span
-                    className="inline-flex items-center gap-1.5 px-2.5 py-[3px] rounded-full"
-                    style={{
-                      background: `${statusColor}1a`,
-                      border: `1px solid ${statusColor}40`,
-                    }}
-                  >
-                    <span
-                      className={`inline-block w-1.5 h-1.5 rounded-full ${isRunning ? "soft-pulse" : ""}`}
-                      style={{
-                        background: statusColor,
-                        boxShadow: isRunning ? `0 0 6px ${statusColor}` : "none",
-                      }}
-                    />
-                    <span className="text-[10px] font-bold uppercase" style={{ color: statusColor, letterSpacing: "0.08em" }}>
-                      {STATUS_LABEL[selectedJobData.status]}
-                    </span>
-                  </span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {isRunning && (
+                  <div className="max-w-[920px] mx-auto px-4 pt-4 pb-4">
+                    {/* Row 1 — back on the left, actions on the right */}
+                    <div className="flex items-center justify-between gap-2 mb-4">
                       <button
-                        onClick={() => cancelJob(selectedJobData.id)}
-                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
-                        style={{
-                          color: "var(--crt-red)",
-                          border: "1px solid rgba(239,68,68,0.35)",
-                          background: "rgba(239,68,68,0.08)",
-                          letterSpacing: "0.05em",
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(239,68,68,0.18)")}
-                        onMouseLeave={e => (e.currentTarget.style.background = "rgba(239,68,68,0.08)")}
+                        onClick={() => { setSelectedJob(null); setStreamOutput(""); }}
+                        className="task-action focus-ring"
+                        title="Back to task list"
                       >
-                        STOP
+                        ← Back
                       </button>
-                    )}
-                    {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
-                      <button
-                        onClick={(e) => rerunTask(selectedJobData, e)}
-                        disabled={submitting}
-                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring disabled:opacity-40"
-                        style={{
-                          color: activeModelChip.color,
-                          border: `1px solid ${activeModelChip.color}55`,
-                          background: `${activeModelChip.color}14`,
-                          letterSpacing: "0.05em",
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.background = `${activeModelChip.color}28`)}
-                        onMouseLeave={e => (e.currentTarget.style.background = `${activeModelChip.color}14`)}
-                        title="Run this exact task again as a new job"
-                      >
-                        ↻ REPLAY
-                      </button>
-                    )}
-                    <button
-                      onClick={() => editTask(selectedJobData)}
-                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
-                      style={{
-                        color: "var(--text-secondary)",
-                        border: `1px solid ${subtleBorder}`,
-                        background: "var(--bg-secondary)",
-                        letterSpacing: "0.05em",
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.color = "var(--text-primary)";
-                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.color = "var(--text-secondary)";
-                        e.currentTarget.style.borderColor = subtleBorder;
-                      }}
-                      title="Load this task into the composer to edit and re-submit"
-                    >
-                      ✎ EDIT
-                    </button>
-                    {["completed", "failed", "cancelled"].includes(selectedJobData.status) && (
-                      <button
-                        onClick={() => deleteJob(selectedJobData.id)}
-                        className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
-                        style={{
-                          color: "var(--text-tertiary)",
-                          border: `1px solid ${subtleBorder}`,
-                          background: "transparent",
-                          letterSpacing: "0.05em",
-                        }}
-                        onMouseEnter={e => {
-                          e.currentTarget.style.background = "var(--bg-secondary)";
-                          e.currentTarget.style.color = "var(--crt-red)";
-                          e.currentTarget.style.borderColor = "rgba(239,68,68,0.35)";
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.background = "transparent";
-                          e.currentTarget.style.color = "var(--text-tertiary)";
-                          e.currentTarget.style.borderColor = subtleBorder;
-                        }}
-                      >
-                        DELETE
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { setSelectedJob(null); setStreamOutput(""); }}
-                      className="text-[9px] font-bold uppercase px-2 py-[3px] rounded-full focus-ring"
-                      style={{
-                        color: "var(--text-secondary)",
-                        border: `1px solid ${subtleBorder}`,
-                        background: "var(--bg-secondary)",
-                        letterSpacing: "0.05em",
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.color = "var(--text-primary)";
-                        e.currentTarget.style.borderColor = "var(--border-color-strong)";
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.color = "var(--text-secondary)";
-                        e.currentTarget.style.borderColor = subtleBorder;
-                      }}
-                      title="Back to job list"
-                    >
-                      ← BACK
-                    </button>
-                  </div>
-                </div>
+                      <div className="flex items-center gap-1.5">
+                        {(selectedJobData.status === "running" || selectedJobData.status === "pending") && (
+                          <button
+                            onClick={() => cancelJob(selectedJobData.id)}
+                            className="task-action focus-ring"
+                            style={{ "--action-accent": "var(--crt-red)" } as React.CSSProperties}
+                            title="Cancel this task"
+                          >
+                            ✕ Stop
+                          </button>
+                        )}
+                        {finished && (
+                          <button
+                            onClick={(e) => rerunTask(selectedJobData, e)}
+                            disabled={submitting}
+                            className="task-action focus-ring disabled:opacity-40"
+                            style={{ "--action-accent": activeModelChip.color } as React.CSSProperties}
+                            title="Run this exact task again as a new job"
+                          >
+                            ↻ Replay
+                          </button>
+                        )}
+                        <button
+                          onClick={() => editTask(selectedJobData)}
+                          className="task-action focus-ring"
+                          title="Load this task into the composer to edit and re-submit"
+                        >
+                          ✎ Edit
+                        </button>
+                        {finished && (
+                          <button
+                            onClick={() => deleteJob(selectedJobData.id)}
+                            className="task-action focus-ring"
+                            title="Delete this task"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                {/* Row 2 — model · id · time · module */}
-                <div className="flex items-center gap-1.5 flex-wrap text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                  <span className="uppercase font-semibold tracking-wider" style={{ color: "var(--text-secondary)" }}>
-                    {modelLabel(selectedJobData.model)}
-                  </span>
-                  <span className="opacity-30">·</span>
-                  <span
-                    className="font-mono px-1.5 py-[1px] rounded"
-                    style={{
-                      background: "var(--bg-secondary)",
-                      border: `1px solid ${subtleBorder}`,
-                      opacity: 0.85,
-                    }}
-                    title={selectedJobData.id}
-                  >
-                    #{selectedJobData.id.slice(0, 8)}
-                  </span>
-                  <span className="opacity-30">·</span>
-                  <span className="font-mono" title={formatDate(selectedJobData.created_at)}>
-                    {timeSince(selectedJobData.created_at)}
-                  </span>
-                  {moduleName && moduleName !== "claude" && (
-                    <>
-                      <span className="opacity-30">·</span>
-                      <span
-                        className="uppercase font-mono px-1.5 py-[1px] rounded"
-                        style={{
-                          color: "var(--crt-amber)",
-                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
-                          border: "1px solid color-mix(in srgb, var(--crt-amber) 22%, transparent)",
-                          letterSpacing: "0.04em",
-                        }}
-                      >
-                        {moduleName}
+                    {/* The prompt — click to expand past the 3-line clamp */}
+                    <p
+                      onClick={() => setPromptExpanded(v => !v)}
+                      className="text-[14.5px] leading-relaxed m-0 cursor-pointer"
+                      style={{
+                        color: "var(--text-primary)",
+                        wordBreak: "break-word",
+                        ...(promptExpanded ? {} : {
+                          display: "-webkit-box",
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: "vertical" as const,
+                          overflow: "hidden",
+                        }),
+                      }}
+                      title={promptExpanded ? "Collapse" : "Show full prompt"}
+                    >
+                      {displayPrompt}
+                    </p>
+
+                    {/* One quiet metadata line — status · model · id · time · caller · host */}
+                    <div className="flex items-center gap-2 flex-wrap mt-3 text-[10.5px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                      <span className="inline-flex items-center gap-1.5 font-bold uppercase" style={{ color: statusColor, letterSpacing: "0.08em" }}>
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${isRunning ? "soft-pulse" : ""}`}
+                          style={{ background: statusColor, boxShadow: isRunning ? `0 0 6px ${statusColor}` : "none" }}
+                        />
+                        {STATUS_LABEL[selectedJobData.status]}
                       </span>
-                    </>
-                  )}
-                </div>
-
-                {/* Row 3 — caller · host */}
-                <div className="flex items-stretch gap-2 text-[10px]">
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0"
-                    style={{
-                      background: "var(--bg-secondary)",
-                      border: `1px solid ${subtleBorder}`,
-                    }}
-                  >
-                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
-                      caller
-                    </span>
-                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.user_address || "local"}>
-                      {shortCaller(selectedJobData.user_address)}
-                    </span>
+                      <span className="opacity-30">·</span>
+                      <span className="uppercase font-semibold" style={{ color: "var(--text-secondary)", letterSpacing: "0.05em" }}>
+                        {modelLabel(selectedJobData.model)}
+                      </span>
+                      <span className="opacity-30">·</span>
+                      <span title={selectedJobData.id}>#{selectedJobData.id.slice(0, 8)}</span>
+                      <span className="opacity-30">·</span>
+                      <span title={formatDate(selectedJobData.created_at)}>{timeSince(selectedJobData.created_at)}</span>
+                      {runSecs != null && runSecs > 0 && (
+                        <>
+                          <span className="opacity-30">·</span>
+                          <span title="Run time">⏱ {formatDuration(runSecs)}</span>
+                        </>
+                      )}
+                      <span className="opacity-30">·</span>
+                      <span title={`Caller: ${selectedJobData.user_address || "local"}`}>{shortCaller(selectedJobData.user_address)}</span>
+                      {moduleName && (
+                        <>
+                          <span className="opacity-30">·</span>
+                          <span
+                            title={selectedJobData.work_dir}
+                            style={moduleName !== "claude" ? { color: "var(--crt-amber)" } : undefined}
+                          >
+                            ◈ {moduleName}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div
-                    className="flex items-center gap-1.5 px-2 py-[3px] rounded min-w-0 flex-1"
-                    style={{
-                      background: "var(--bg-secondary)",
-                      border: `1px solid ${subtleBorder}`,
-                    }}
-                  >
-                    <span className="uppercase font-bold tracking-wider shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", opacity: 0.7 }}>
-                      host
-                    </span>
-                    <span className="font-mono truncate" style={{ color: "var(--text-secondary)" }} title={selectedJobData.work_dir || "—"}>
-                      {shortHost(selectedJobData.work_dir)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Prompt preview */}
-                <div
-                  className="px-2.5 py-2 rounded-md"
-                  style={{
-                    background: tintBg,
-                    borderLeft: `2px solid ${statusColor}66`,
-                    border: `1px solid ${subtleBorder}`,
-                    borderLeftWidth: 2,
-                    borderLeftColor: `${statusColor}66`,
-                  }}
-                >
-                  <p
-                    className="text-[12px] leading-relaxed m-0"
-                    style={{
-                      color: "var(--text-secondary)",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {displayPrompt}
-                  </p>
-                </div>
-              </div>
                 );
               })()}
 
-              {/* Sub-tab strip — OUTPUT · EDITS · AUDIT */}
+              {/* ── Sub-tabs — OUTPUT · EDITS · AUDIT, stick while the log scrolls ── */}
               <div
-                className="flex items-center gap-1 px-3 pt-2 shrink-0"
-                style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                className="sticky top-0 z-10"
+                style={{
+                  borderBottom: `1px solid ${subtleBorder}`,
+                  background: "color-mix(in srgb, var(--bg-primary) 92%, transparent)",
+                  backdropFilter: "blur(8px)",
+                }}
               >
-                {([
-                  ["output", "OUTPUT", null],
-                  ["edits", "EDITS", taskEdits.length],
-                  ["audit", "AUDIT", taskAudit.length],
-                ] as const).map(([key, label, count]) => {
-                  const active = taskDetailTab === key;
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setTaskDetailTab(key)}
-                      className="flex items-center gap-1.5 text-[10px] font-bold uppercase px-2.5 py-1.5 rounded-t-md focus-ring"
-                      style={{
-                        color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-                        borderBottom: `2px solid ${active ? activeModelChip.color : "transparent"}`,
-                        background: active ? "color-mix(in srgb, var(--bg-secondary) 60%, transparent)" : "transparent",
-                        letterSpacing: "0.06em",
-                        marginBottom: "-1px",
-                      }}
-                      onMouseEnter={e => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
-                      onMouseLeave={e => { if (!active) e.currentTarget.style.color = "var(--text-tertiary)"; }}
-                    >
-                      {label}
-                      {count != null && count > 0 && (
-                        <span
-                          className="text-[9px] font-mono px-1 rounded-full"
-                          style={{
-                            color: active ? activeModelChip.color : "var(--text-tertiary)",
-                            background: active ? `${activeModelChip.color}1f` : "var(--bg-secondary)",
-                            border: `1px solid ${active ? `${activeModelChip.color}40` : subtleBorder}`,
-                          }}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                <div className="max-w-[920px] mx-auto px-4 flex items-center gap-5">
+                  {([
+                    ["output", "OUTPUT", null],
+                    ["edits", "EDITS", taskEdits.length],
+                    ["audit", "AUDIT", taskAudit.length],
+                  ] as const).map(([key, label, count]) => {
+                    const active = taskDetailTab === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setTaskDetailTab(key)}
+                        className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase py-2.5 focus-ring"
+                        style={{
+                          color: active ? "var(--text-primary)" : "var(--text-tertiary)",
+                          boxShadow: active ? "inset 0 -2px 0 var(--accent-color)" : "none",
+                          letterSpacing: "0.08em",
+                          transition: "color 150ms ease",
+                        }}
+                        onMouseEnter={e => { if (!active) e.currentTarget.style.color = "var(--text-secondary)"; }}
+                        onMouseLeave={e => { if (!active) e.currentTarget.style.color = "var(--text-tertiary)"; }}
+                      >
+                        {label}
+                        {count != null && count > 0 && (
+                          <span className="font-mono text-[9.5px]" style={{ color: active ? "var(--accent-color)" : "inherit", opacity: active ? 1 : 0.7 }}>
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Tab content */}
-              <div className="flex-1 overflow-y-auto p-3">
-                {/* OUTPUT — raw stream */}
+              <div className="max-w-[920px] mx-auto px-4 py-4 pb-10">
+                {/* OUTPUT — the raw stream, no extra chrome */}
                 {taskDetailTab === "output" && (output ? (
-                  <div
-                    className="rounded-xl px-3 py-2.5"
-                    style={{
-                      border: `1px solid ${subtleBorder}`,
-                      background: "color-mix(in srgb, var(--bg-secondary) 55%, transparent)",
-                    }}
+                  <pre
+                    className="m-0 whitespace-pre-wrap text-[11.5px] px-4 py-3.5 rounded-xl"
+                    style={{ color: "var(--text-primary)", fontFamily: "monospace", lineHeight: 1.7, wordBreak: "break-word", background: tintBg }}
                   >
-                    <pre className="m-0 whitespace-pre-wrap text-[11px] leading-relaxed" style={{ color: "var(--text-primary)", fontFamily: "monospace", wordBreak: "break-word" }}>
-                      {renderOutput(output)}
-                      {isRunning && <span className="inline-block animate-pulse" style={{ color: STATUS_COLOR.running }}>&#9610;</span>}
-                    </pre>
-                  </div>
+                    {renderOutput(output)}
+                    {isRunning && <span className="inline-block animate-pulse" style={{ color: STATUS_COLOR.running }}>&#9610;</span>}
+                  </pre>
                 ) : (
                   <div className="flex items-center justify-center h-32">
                     {isRunning ? (
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6" }} />
-                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6", animationDelay: "0.2s" }} />
-                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#3b82f6", animationDelay: "0.4s" }} />
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: STATUS_COLOR.running }} />
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: STATUS_COLOR.running, animationDelay: "0.2s" }} />
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: STATUS_COLOR.running, animationDelay: "0.4s" }} />
                       </div>
                     ) : (
                       <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>No output</p>
@@ -8076,6 +8028,281 @@ export default function Home() {
             {terminalRunning ? "…" : "RUN"}
           </button>
         </form>
+        )}
+      </div>
+    );
+  };
+
+  // ── API tab — docs (human/engineer toggle), endpoint schema with auth
+  // levels, an interactive playground, and the module's process logs. ──
+  const renderClaudeApiTab = () => {
+    const authBadge = (auth: string) => {
+      const c = auth === "public" ? "var(--crt-green)" : auth === "bearer" ? "var(--crt-blue)" : "var(--crt-amber)";
+      return (
+        <span
+          className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold shrink-0"
+          style={{ color: c, borderColor: `color-mix(in srgb, ${c} 45%, transparent)`, background: `color-mix(in srgb, ${c} 8%, transparent)` }}
+        >
+          {auth}
+        </span>
+      );
+    };
+    const sub = (
+      <div className="flex items-center gap-1 px-3 py-1.5 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
+        {([
+          { k: "docs" as const, label: "Docs" },
+          { k: "schema" as const, label: "Schema" },
+          { k: "try" as const, label: "Try it" },
+          { k: "logs" as const, label: "Logs" },
+        ]).map((s) => (
+          <button
+            key={s.k}
+            onClick={() => setApiTabView(s.k)}
+            className="text-[11px] px-2.5 py-1 rounded-sm uppercase font-bold tracking-wider transition-all"
+            style={{
+              color: apiTabView === s.k ? "var(--crt-blue)" : "var(--text-tertiary)",
+              background: apiTabView === s.k ? "color-mix(in srgb, var(--crt-blue) 8%, transparent)" : "transparent",
+              border: `1px solid ${apiTabView === s.k ? "color-mix(in srgb, var(--crt-blue) 45%, transparent)" : "transparent"}`,
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+        {apiTabView === "docs" && (
+          <div className="flex items-center gap-1 ml-auto">
+            {([
+              { k: "human" as const, label: "HUMAN" },
+              { k: "engineer" as const, label: "ENGINEER" },
+            ]).map((m) => (
+              <button
+                key={m.k}
+                onClick={() => setApiDocsMode(m.k)}
+                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all"
+                style={{
+                  color: apiDocsMode === m.k ? "var(--crt-amber)" : "var(--text-tertiary)",
+                  borderColor: apiDocsMode === m.k ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
+                  background: apiDocsMode === m.k ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const base = `${origin}${apiUrl.startsWith("http") ? "" : apiUrl}` || apiUrl;
+
+    const docsHuman = (
+      <div className="max-w-2xl flex flex-col gap-5 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>What is this?</div>
+          <p>
+            This console runs an AI coding agent on the host&apos;s server. You describe what you want in plain
+            words — &quot;build me a page that shows the weather&quot; — and a task starts in the background, shows its
+            work live, and leaves you a working result you can open in the APP tab.
+          </p>
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Getting started</div>
+          <ol className="list-decimal ml-5 flex flex-col gap-1">
+            <li>Sign in with your crypto wallet, or let the browser make a free local key for you (&quot;Use Local Key&quot;).</li>
+            <li>The first time, you&apos;ll be shown the Terms of Use — agreeing asks your wallet to sign them.</li>
+            <li>Type what you want in the bar at the bottom and press Enter.</li>
+            <li>Watch progress under TASKS; the finished work shows up in APP and CODE.</li>
+          </ol>
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Who can do what</div>
+          <p>
+            <b>Anyone</b> can watch: every task and its output is a public ledger.
+            <br /><b>Invited people</b> (whitelisted or holding a QR invite) can submit tasks — their work lives in
+            their own private workspace on the server.
+            <br /><b>The owner</b> can additionally manage modules, processes, and access.
+          </p>
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Good to know</div>
+          <p>
+            Tasks run on someone else&apos;s computer and are publicly visible — don&apos;t paste passwords or secrets
+            into a prompt. If something looks stuck, check TASKS: tasks keep running in the background even if you
+            close the page. Flip this page to ENGINEER (top right) for the technical version.
+          </p>
+        </section>
+      </div>
+    );
+
+    const codeBlock = (s: string) => (
+      <pre
+        className="text-[11px] rounded p-3 overflow-x-auto whitespace-pre"
+        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+      >
+        {s}
+      </pre>
+    );
+
+    const docsEngineer = (
+      <div className="max-w-2xl flex flex-col gap-5 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Base URL</div>
+          {codeBlock(base)}
+          <p className="mt-1">
+            Reads on the job ledger are public. Mutations need a bearer token; module/system mutations are owner-only
+            (cross-module ones additionally need a replay-protected <code>x-sudo</code> signature). Full catalog with
+            per-endpoint auth levels: the SCHEMA pane.
+          </p>
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Authenticate</div>
+          <p className="mb-1.5">
+            Challenge → EIP-191 <code>personal_sign</code> → verify. A non-owner wallet&apos;s first challenge embeds the
+            Terms of Use, so the signature covers them. Tokens are HMAC-signed, valid 24h.
+          </p>
+          {codeBlock(`# 1. get a challenge
+curl "${base}/auth/challenge?address=0xYOU"
+# 2. personal_sign the returned message with your wallet, then:
+curl -X POST ${base}/auth/verify \\
+  -H 'content-type: application/json' \\
+  -d '{"address":"0xYOU","message":"<challenge>","signature":"0x<sig>"}'
+# → {"token":"...","address":"0xyou"}`)}
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Run a task</div>
+          {codeBlock(`curl -X POST ${base}/jobs \\
+  -H "authorization: Bearer $TOKEN" \\
+  -H 'content-type: application/json' \\
+  -d '{"prompt":"add a dark mode toggle","model":"claude-sonnet-5"}'
+# follow live output (SSE, public):
+curl -N ${base}/jobs/<id>/stream`)}
+          <p className="mt-1">
+            Non-owner submissions are sandboxed to your server-side workspace (<code>~/.mod/peers/&lt;address&gt;</code>);
+            <code>work_dir</code> resolves inside it. The whole ledger is world-readable at <code>GET /jobs</code>.
+          </p>
+        </section>
+        <section>
+          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Debug</div>
+          <p>
+            <code>GET /health</code> reports liveness and whether auth is disabled (<code>local</code>). Process logs for
+            this module are in the LOGS pane (owner-only). 401 on a mutation almost always means a missing/expired
+            token — sign in again.
+          </p>
+        </section>
+      </div>
+    );
+
+    const schemaPane = !apiSchema ? (
+      <div className="text-[12px] p-4" style={{ color: "var(--text-tertiary)" }}>
+        Loading endpoint catalog… if this never resolves, the API is unreachable at {apiUrl}/schema.
+      </div>
+    ) : (
+      <div className="flex flex-col max-w-3xl">
+        <p className="text-[12px] mb-3" style={{ color: "var(--text-tertiary)" }}>
+          {apiSchema.auth_note} Click a row to load it in the playground.
+          {" "}Badges: <span style={{ color: "var(--crt-green)" }}>PUBLIC</span> = no sign-in,{" "}
+          <span style={{ color: "var(--crt-blue)" }}>BEARER</span> = any signed-in user,{" "}
+          <span style={{ color: "var(--crt-amber)" }}>OWNER</span> = host only.
+        </p>
+        {apiSchema.endpoints.map((ep, i) => (
+          <button
+            key={i}
+            onClick={() => {
+              setTryMethod(ep.method);
+              setTryPath(ep.path.split("?")[0].replace(/:(\w+)/g, "<$1>"));
+              setTryBody("");
+              setTryStatus(null);
+              setTryResp(null);
+              setApiTabView("try");
+            }}
+            className="flex items-center gap-2 px-2 py-1.5 text-left transition-colors rounded"
+            style={{ borderBottom: `1px solid ${subtleBorder}44` }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = cardHoverBg)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            <span className="text-[10px] font-bold w-12 shrink-0" style={{ color: ep.method === "GET" ? "var(--crt-green)" : "var(--crt-amber)" }}>
+              {ep.method}
+            </span>
+            <code className="text-[11px] shrink-0" style={{ color: "var(--text-primary)" }}>{ep.path}</code>
+            {authBadge(ep.auth)}
+            <span className="text-[11px] truncate" style={{ color: "var(--text-tertiary)" }}>{ep.desc}</span>
+          </button>
+        ))}
+      </div>
+    );
+
+    const tryPane = (
+      <div className="flex flex-col gap-2 max-w-3xl">
+        <div className="flex items-center gap-2">
+          <select
+            value={tryMethod}
+            onChange={(e) => setTryMethod(e.target.value)}
+            className="text-[12px] font-bold px-2 py-1.5 rounded outline-none"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+          >
+            {["GET", "POST", "PUT", "DELETE"].map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input
+            value={tryPath}
+            onChange={(e) => setTryPath(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") sendTryRequest(); }}
+            placeholder="/health"
+            className="flex-1 text-[12px] font-mono px-2.5 py-1.5 rounded outline-none"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+          />
+          <button
+            onClick={sendTryRequest}
+            disabled={trySending || !tryPath.trim()}
+            className="text-[11px] px-4 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
+            style={{
+              color: "var(--bg-primary)",
+              background: "var(--crt-blue)",
+              opacity: trySending || !tryPath.trim() ? 0.4 : 1,
+            }}
+          >
+            {trySending ? "…" : "Send"}
+          </button>
+        </div>
+        {tryMethod !== "GET" && (
+          <textarea
+            value={tryBody}
+            onChange={(e) => setTryBody(e.target.value)}
+            placeholder='{"prompt": "…"}  — JSON body'
+            rows={4}
+            className="text-[12px] font-mono px-2.5 py-1.5 rounded outline-none resize-y"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+          />
+        )}
+        <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+          {token && token !== "local"
+            ? "Requests are sent with your bearer token — owner/bearer endpoints work if your account allows them."
+            : "Not signed in — only PUBLIC endpoints will succeed."}
+          {tryStatus && (
+            <span className="ml-2 font-bold" style={{ color: tryStatus.includes("OK") ? "var(--crt-green)" : "var(--crt-amber)" }}>
+              → {tryStatus}
+            </span>
+          )}
+        </div>
+        {tryResp !== null && (
+          <pre
+            className="text-[11px] rounded p-3 overflow-auto whitespace-pre max-h-[50vh]"
+            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
+          >
+            {tryResp}
+          </pre>
+        )}
+      </div>
+    );
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {sub}
+        {apiTabView === "logs" ? (
+          renderLogsTab()
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4">
+            {apiTabView === "docs" ? (apiDocsMode === "human" ? docsHuman : docsEngineer) : apiTabView === "schema" ? schemaPane : tryPane}
+          </div>
         )}
       </div>
     );
@@ -9964,6 +10191,228 @@ export default function Home() {
     );
   };
 
+  // Browser-style address bar (the "omnibox"), lifted out of the APP tab into
+  // the header's top-right corner. It's now the single way to navigate the
+  // /{mod} namespace — the old module-name search dropdown was redundant with
+  // it, so it's gone. ‹ › step through modules; clicking the URL edits it (the
+  // /{mod} path autocompletes against the registry, and the host is editable
+  // to re-root the same names onto a different host's registrar).
+  const renderOmnibox = () => {
+    const modName = selectedModule || "claude";
+    const appModName = omniForeignMod || (modName === "claude" ? (isEmbedded ? "web" : "claude") : modName);
+    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
+    const stepModule = (dir: 1 | -1) => {
+      const list = moduleList
+        .filter(isRealModule)
+        .filter((m) => m.app_url || m.has_app_dir)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (!list.length) { fetchModules(""); return; }
+      const i = list.findIndex((m) => m.name === selectedModule);
+      const next = list[i < 0 ? (dir === 1 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
+      selectModule(next);
+      setSidebarView("app");
+    };
+    const openOmnibox = () => {
+      setOmniValue(gatewayUrl);
+      setOmniIdx(0);
+      setOmniEditing(true);
+      if (!moduleList.length) fetchModules("");
+    };
+    const omniMatches = (q: string) => {
+      const list = railMatches(q).slice(0, 12);
+      const query = q.trim().toLowerCase();
+      const i = list.findIndex((m) => m.name.toLowerCase() === query);
+      if (i > 0) list.unshift(list.splice(i, 1)[0]);
+      return list.slice(0, 8);
+    };
+    const commitOmnibox = (pick?: typeof moduleList[0] | null) => {
+      const { origin, mod } = parseOmnibox(omniValue);
+      let override = gatewayHostOverride;
+      if (origin !== null) {
+        override = origin === defaultGatewayOrigin() ? null : origin;
+        setGatewayHostOverride(override);
+        if (override) safeSetItem("claude_gateway_host", override);
+        else { try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ } }
+      }
+      const target = pick || (mod ? omniMatches(mod)[0] : null);
+      if (target) {
+        if (target.name !== selectedModule) { selectModule(target); setSidebarView("app"); }
+        else { setOmniForeignMod(null); }
+      } else if (mod && override) {
+        setOmniForeignMod(mod);
+      }
+      setOmniEditing(false);
+    };
+    return (
+      <div className="flex items-center gap-1.5 shrink-0" style={{ width: 320, maxWidth: "34vw" }}>
+        {([-1, 1] as const).map((dir) => (
+          <button
+            key={dir}
+            onClick={() => stepModule(dir)}
+            className="shrink-0 flex items-center justify-center transition-all hover:brightness-125"
+            style={{
+              width: 24, height: 24, borderRadius: 999,
+              color: "var(--crt-green)",
+              background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
+              fontSize: 14, lineHeight: 1, cursor: "pointer",
+            }}
+            title={dir === -1 ? "Previous module" : "Next module"}
+            aria-label={dir === -1 ? "Previous module" : "Next module"}
+          >
+            {dir === -1 ? "‹" : "›"}
+          </button>
+        ))}
+        <div className="relative flex-1 min-w-0">
+          <div
+            className="flex items-center gap-1.5 min-w-0 transition-all"
+            style={{
+              background: "var(--bg-secondary)",
+              border: `1px solid ${omniEditing ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+              borderRadius: 999,
+              padding: "3px 10px",
+            }}
+          >
+            {omniEditing ? (
+              <input
+                value={omniValue}
+                autoFocus
+                spellCheck={false}
+                onFocus={(e) => {
+                  const v = e.currentTarget.value;
+                  const i = v.lastIndexOf("/");
+                  if (i >= 0) e.currentTarget.setSelectionRange(i + 1, v.length);
+                }}
+                onChange={(e) => {
+                  setOmniValue(e.target.value);
+                  setOmniIdx(0);
+                  fetchModules(parseOmnibox(e.target.value).mod);
+                }}
+                onKeyDown={(e) => {
+                  const matches = omniMatches(parseOmnibox(omniValue).mod);
+                  if (e.key === "ArrowDown") { e.preventDefault(); setOmniIdx((i) => Math.min(i + 1, Math.max(matches.length - 1, 0))); }
+                  else if (e.key === "ArrowUp") { e.preventDefault(); setOmniIdx((i) => Math.max(i - 1, 0)); }
+                  else if (e.key === "Enter") { e.preventDefault(); commitOmnibox(matches[omniIdx] || null); }
+                  else if (e.key === "Escape") { setOmniEditing(false); }
+                }}
+                onBlur={() => setOmniEditing(false)}
+                className="flex-1 min-w-0 font-mono text-[11px] bg-transparent outline-none"
+                style={{ color: "var(--text-primary)" }}
+                aria-label="Address bar — type a module name, or a different host"
+              />
+            ) : (
+              <div
+                onMouseDown={(e) => { e.preventDefault(); openOmnibox(); }}
+                className="flex-1 min-w-0 font-mono text-[11px] truncate cursor-text select-none"
+                title={`${gatewayUrl} — click to edit: type a /{mod} (autocompletes) or a different host`}
+              >
+                {(() => {
+                  const m = gatewayUrl.match(/^([a-z]+:\/\/)([^/]+)(\/.*)?$/i);
+                  if (!m) return <span style={{ color: "var(--text-secondary)" }}>{gatewayUrl}</span>;
+                  return (
+                    <>
+                      <span style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>{m[1]}</span>
+                      <span style={{ color: gatewayHostOverride ? "var(--crt-amber)" : "var(--text-secondary)" }}>{m[2]}</span>
+                      <span style={{ color: "var(--crt-green)", fontWeight: 600 }}>{m[3] || ""}</span>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+            {gatewayHostOverride && !omniEditing && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setGatewayHostOverride(null);
+                  setOmniForeignMod(null);
+                  try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ }
+                }}
+                className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 rounded-full transition-all hover:brightness-125"
+                style={{
+                  color: "var(--crt-amber)",
+                  background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--crt-amber) 40%, transparent)",
+                  cursor: "pointer",
+                }}
+                title={`Custom host — /{mod} resolves via ${gatewayHostOverride}'s registrar. Click to reset to this site.`}
+              >
+                ✕ host
+              </button>
+            )}
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
+              className="shrink-0 text-[11px] opacity-40 hover:opacity-100 transition-opacity"
+              style={{ color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", lineHeight: 1, padding: 0 }}
+              title="Copy URL"
+              aria-label="Copy URL"
+            >
+              ⧉
+            </button>
+          </div>
+          {omniEditing && (() => {
+            const matches = omniMatches(parseOmnibox(omniValue).mod);
+            if (!matches.length) return null;
+            return (
+              <div
+                className="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden"
+                style={{
+                  zIndex: 60,
+                  background: "var(--bg-secondary, var(--bg-primary))",
+                  border: "1px solid var(--border-color)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                }}
+              >
+                {matches.map((m, i) => {
+                  const st = moduleStatuses[m.name];
+                  const live = st ? st.app === true || st.api === true : null;
+                  return (
+                    <button
+                      key={m.name}
+                      onMouseDown={(e) => { e.preventDefault(); commitOmnibox(m); }}
+                      onMouseEnter={() => setOmniIdx(i)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-left"
+                      style={{
+                        background: i === omniIdx ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "transparent",
+                        color: "var(--text-secondary)",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span
+                        className="shrink-0"
+                        style={{ width: 6, height: 6, borderRadius: 999, background: live ? "var(--crt-green)" : "var(--text-tertiary)", opacity: live ? 1 : 0.35 }}
+                      />
+                      <span className="shrink-0" style={{ color: "var(--crt-green)" }}>/{m.name}</span>
+                      {m.description && (
+                        <span className="truncate" style={{ color: "var(--text-tertiary)" }}>{m.description}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+        <a
+          href={gatewayUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+          style={{
+            color: "var(--crt-green)",
+            background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+            textDecoration: "none",
+          }}
+          title="Open in new tab"
+        >
+          ↗
+        </a>
+      </div>
+    );
+  };
+
   // Combined APP / API tab — a single tab that hosts both the live app
   // (iframe) and the API explorer, with a segmented toggle to flip
   // between them. `sidebarView` ("app" | "api") doubles as the toggle
@@ -9990,62 +10439,6 @@ export default function Home() {
     // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
     const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
     const showUrl = sub === "app";
-    // ── Omnibox actions ─────────────────────────────────────────────
-    // ‹ › iterate the /{mod} namespace: every real module with an app,
-    // alphabetical, wrapping at both ends.
-    const stepModule = (dir: 1 | -1) => {
-      const list = moduleList
-        .filter(isRealModule)
-        .filter((m) => m.app_url || m.has_app_dir)
-        .sort((a, b) => a.name.localeCompare(b.name));
-      if (!list.length) { fetchModules(""); return; }
-      const i = list.findIndex((m) => m.name === selectedModule);
-      const next = list[i < 0 ? (dir === 1 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
-      selectModule(next);
-      setSidebarView("app");
-    };
-    const openOmnibox = () => {
-      setOmniValue(gatewayUrl);
-      setOmniIdx(0);
-      setOmniEditing(true);
-      if (!moduleList.length) fetchModules("");
-    };
-    // Suggestions for the typed /{mod} segment — the rail's ranked search
-    // (recents first) with an exact name match hoisted to the top so Enter
-    // on fully-typed names never surprises.
-    const omniMatches = (q: string) => {
-      const list = railMatches(q).slice(0, 12);
-      const query = q.trim().toLowerCase();
-      const i = list.findIndex((m) => m.name.toLowerCase() === query);
-      if (i > 0) list.unshift(list.splice(i, 1)[0]);
-      return list.slice(0, 8);
-    };
-    const commitOmnibox = (pick?: typeof moduleList[0] | null) => {
-      const { origin, mod } = parseOmnibox(omniValue);
-      let override = gatewayHostOverride;
-      if (origin !== null) {
-        // Typing this deployment's own origin clears the override; any
-        // other host re-roots /{mod} onto that host's registrar.
-        override = origin === defaultGatewayOrigin() ? null : origin;
-        setGatewayHostOverride(override);
-        if (override) safeSetItem("claude_gateway_host", override);
-        else { try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ } }
-      }
-      const target = pick || (mod ? omniMatches(mod)[0] : null);
-      if (target) {
-        if (target.name !== selectedModule) {
-          selectModule(target);
-          setSidebarView("app");
-        } else {
-          setOmniForeignMod(null);
-        }
-      } else if (mod && override) {
-        // Unknown to this site's registry, but we're pointed at a foreign
-        // registrar — trust the typed name verbatim.
-        setOmniForeignMod(mod);
-      }
-      setOmniEditing(false);
-    };
     const logsOpen = moduleLogsOpen !== null;
     // Logs follow the active sub-view, so the APP/API toggle doubles as a
     // "logs of each" switch: flip to APP → app logs, flip to API → api logs.
@@ -10073,7 +10466,9 @@ export default function Home() {
             : undefined
         }
       >
-        {/* Single control row: the omnibox (browser-style module address bar) + LOGS + EXPAND. */}
+        {/* Control row: LOGS + EXPAND. The browser-style address bar (omnibox)
+            that used to live here now sits in the header's top-right corner
+            (renderOmnibox) so it persists across every tab. */}
         {(hasApp || hasApi) && (
           <div
             className="flex items-center gap-2 px-3 py-2 shrink-0"
@@ -10082,191 +10477,11 @@ export default function Home() {
               background: "linear-gradient(180deg, var(--bg-tint), transparent)",
             }}
           >
-            {/* Omnibox — the old URL strip and the module search merged into
-                one browser-style address bar. ‹ › step through /{mod},
-                clicking the URL edits it: the path segment autocompletes
-                against the module registry, and the host is editable too
-                (each host runs its own registrar contract, so a different
-                host re-roots the same /{mod} names onto its registry). */}
-            {showUrl && (
-              <>
-                {([-1, 1] as const).map((dir) => (
-                  <button
-                    key={dir}
-                    onClick={() => stepModule(dir)}
-                    className="shrink-0 flex items-center justify-center transition-all hover:brightness-125"
-                    style={{
-                      width: 24, height: 24, borderRadius: 999,
-                      color: "var(--crt-green)",
-                      background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
-                      border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
-                      fontSize: 14, lineHeight: 1, cursor: "pointer",
-                    }}
-                    title={dir === -1 ? "Previous module" : "Next module"}
-                    aria-label={dir === -1 ? "Previous module" : "Next module"}
-                  >
-                    {dir === -1 ? "‹" : "›"}
-                  </button>
-                ))}
-                <div className="relative flex-1 min-w-0">
-                  <div
-                    className="flex items-center gap-1.5 min-w-0 transition-all"
-                    style={{
-                      background: "var(--bg-secondary)",
-                      border: `1px solid ${omniEditing ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
-                      borderRadius: 999,
-                      padding: "3px 10px",
-                    }}
-                  >
-                    {omniEditing ? (
-                      <input
-                        value={omniValue}
-                        autoFocus
-                        spellCheck={false}
-                        onFocus={(e) => {
-                          // Browser-style: focus pre-selects the /{mod}
-                          // segment so typing replaces just the path.
-                          const v = e.currentTarget.value;
-                          const i = v.lastIndexOf("/");
-                          if (i >= 0) e.currentTarget.setSelectionRange(i + 1, v.length);
-                        }}
-                        onChange={(e) => {
-                          setOmniValue(e.target.value);
-                          setOmniIdx(0);
-                          fetchModules(parseOmnibox(e.target.value).mod);
-                        }}
-                        onKeyDown={(e) => {
-                          const matches = omniMatches(parseOmnibox(omniValue).mod);
-                          if (e.key === "ArrowDown") { e.preventDefault(); setOmniIdx((i) => Math.min(i + 1, Math.max(matches.length - 1, 0))); }
-                          else if (e.key === "ArrowUp") { e.preventDefault(); setOmniIdx((i) => Math.max(i - 1, 0)); }
-                          else if (e.key === "Enter") { e.preventDefault(); commitOmnibox(matches[omniIdx] || null); }
-                          else if (e.key === "Escape") { setOmniEditing(false); }
-                        }}
-                        onBlur={() => setOmniEditing(false)}
-                        className="flex-1 min-w-0 font-mono text-[11px] bg-transparent outline-none"
-                        style={{ color: "var(--text-primary)" }}
-                        aria-label="Address bar — type a module name, or a different host"
-                      />
-                    ) : (
-                      <div
-                        onMouseDown={(e) => { e.preventDefault(); openOmnibox(); }}
-                        className="flex-1 min-w-0 font-mono text-[11px] truncate cursor-text select-none"
-                        title={`${gatewayUrl} — click to edit: type a /{mod} (autocompletes) or a different host`}
-                      >
-                        {(() => {
-                          const m = gatewayUrl.match(/^([a-z]+:\/\/)([^/]+)(\/.*)?$/i);
-                          if (!m) return <span style={{ color: "var(--text-secondary)" }}>{gatewayUrl}</span>;
-                          return (
-                            <>
-                              <span style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>{m[1]}</span>
-                              <span style={{ color: gatewayHostOverride ? "var(--crt-amber)" : "var(--text-secondary)" }}>{m[2]}</span>
-                              <span style={{ color: "var(--crt-green)", fontWeight: 600 }}>{m[3] || ""}</span>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
-                    {/* Custom-host chip — amber = /{mod} resolves via a
-                        foreign registrar. Click to return to this site. */}
-                    {gatewayHostOverride && !omniEditing && (
-                      <button
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setGatewayHostOverride(null);
-                          setOmniForeignMod(null);
-                          try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ }
-                        }}
-                        className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 rounded-full transition-all hover:brightness-125"
-                        style={{
-                          color: "var(--crt-amber)",
-                          background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
-                          border: "1px solid color-mix(in srgb, var(--crt-amber) 40%, transparent)",
-                          cursor: "pointer",
-                        }}
-                        title={`Custom host — /{mod} resolves via ${gatewayHostOverride}'s registrar. Click to reset to this site.`}
-                      >
-                        ✕ host
-                      </button>
-                    )}
-                    <button
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
-                      className="shrink-0 text-[11px] opacity-40 hover:opacity-100 transition-opacity"
-                      style={{ color: "var(--text-secondary)", background: "none", border: "none", cursor: "pointer", lineHeight: 1, padding: 0 }}
-                      title="Copy URL"
-                      aria-label="Copy URL"
-                    >
-                      ⧉
-                    </button>
-                  </div>
-                  {/* Module suggestions under the bar while editing —
-                      ↑/↓ + Enter, or click. */}
-                  {omniEditing && (() => {
-                    const matches = omniMatches(parseOmnibox(omniValue).mod);
-                    if (!matches.length) return null;
-                    return (
-                      <div
-                        className="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden"
-                        style={{
-                          zIndex: 60,
-                          background: "var(--bg-secondary, var(--bg-primary))",
-                          border: "1px solid var(--border-color)",
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
-                        }}
-                      >
-                        {matches.map((m, i) => {
-                          const st = moduleStatuses[m.name];
-                          const live = st ? st.app === true || st.api === true : null;
-                          return (
-                            <button
-                              key={m.name}
-                              onMouseDown={(e) => { e.preventDefault(); commitOmnibox(m); }}
-                              onMouseEnter={() => setOmniIdx(i)}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-left"
-                              style={{
-                                background: i === omniIdx ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "transparent",
-                                color: "var(--text-secondary)",
-                                border: "none",
-                                cursor: "pointer",
-                              }}
-                            >
-                              <span
-                                className="shrink-0"
-                                style={{ width: 6, height: 6, borderRadius: 999, background: live ? "var(--crt-green)" : "var(--text-tertiary)", opacity: live ? 1 : 0.35 }}
-                              />
-                              <span className="shrink-0" style={{ color: "var(--crt-green)" }}>/{m.name}</span>
-                              {m.description && (
-                                <span className="truncate" style={{ color: "var(--text-tertiary)" }}>{m.description}</span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-                <a
-                  href={gatewayUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-[10px] px-2 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
-                  style={{
-                    color: "var(--crt-green)",
-                    background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
-                    textDecoration: "none",
-                  }}
-                  title="Open in new tab"
-                >
-                  ↗
-                </a>
-              </>
-            )}
             {/* LOGS toggle — shows the live pm2 logs for the active service
                 (APP or API). The APP/API toggle above switches which. */}
             <button
               onClick={() => (logsOpen ? setModuleLogsOpen(null) : openLogs())}
-              className={`text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0 ${showUrl ? "" : "ml-auto"}`}
+              className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0 ml-auto"
               style={{
                 color: logsOpen ? "var(--crt-amber)" : "var(--text-tertiary)",
                 background: logsOpen ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "transparent",
@@ -10884,6 +11099,9 @@ export default function Home() {
             // CODE merges the file browser and the version history into one
             // tab (the sub-toggle inside picks between Files and Versions).
             { key: "files" as const, label: "CODE", icon: <CodeIcon size={13} />, color: "var(--text-primary)" },
+            // API — docs (human/engineer), endpoint schema with auth levels,
+            // an interactive playground, and the module's process logs.
+            { key: "apitab" as const, label: "API", icon: <ApiIcon size={13} />, color: "var(--crt-blue)" },
             // OVERVIEW is the module's profile/chrome — kept last now that the
             // app leads. (The EDIT view moved out of the tab row: it's the
             // rail's EDIT button.)
@@ -11923,7 +12141,6 @@ export default function Home() {
                         color: tab === key ? "var(--accent-color)" : "var(--text-tertiary)",
                         opacity: tab === key ? 1 : 0.55,
                       }}
-                      title={key === "recent" ? "Modules you opened recently" : "Modules owned by your signed-in wallet"}
                     >
                       {label}{count > 0 ? ` · ${count}` : ""}
                     </button>
@@ -12005,6 +12222,10 @@ export default function Home() {
             ) : (sidebarView === "api" || sidebarView === "app") ? (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderAppApiTab()}
+              </div>
+            ) : sidebarView === "apitab" ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {renderClaudeApiTab()}
               </div>
             ) : sidebarView === "logs" ? (
               <div className="flex-1 flex flex-col overflow-hidden">
