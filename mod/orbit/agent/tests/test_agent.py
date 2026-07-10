@@ -1059,6 +1059,153 @@ class TestApi:
         data = r.json()
         assert "debug-fix" in data
 
+    def test_library(self):
+        client = self._get_app()
+        r = client.get("/library")
+        assert r.status_code == 200
+        data = r.json()
+        assert "items" in data and "facets" in data
+        kinds = data["facets"]["kinds"]
+        assert kinds.get("skill") == SKILL_COUNT
+        assert kinds.get("agent", 0) >= AGENT_COUNT
+        assert kinds.get("prompt", 0) >= 1  # seeded defaults
+
+    def test_library_kind_filter(self):
+        client = self._get_app()
+        r = client.get("/library", params={"kind": "skill"})
+        data = r.json()
+        assert data["total"] == SKILL_COUNT
+        assert all(i["kind"] == "skill" for i in data["items"])
+
+    def test_prompt_roundtrip(self):
+        client = self._get_app()
+        r = client.post("/prompts", json={
+            "name": "api test prompt", "text": "do the api test thing",
+            "tags": ["apitest"]})
+        entry = r.json()
+        assert entry["id"]
+        try:
+            r = client.get("/library", params={"q": "api test prompt", "kind": "prompt"})
+            assert any(i["id"] == entry["id"] for i in r.json()["items"])
+            # tag facet includes the new tag
+            assert "apitest" in r.json()["facets"]["tags"]
+        finally:
+            r = client.delete(f"/prompts/{entry['id']}")
+            assert r.json().get("removed") == entry["id"]
+
+    def test_memory_roundtrip(self):
+        client = self._get_app()
+        r = client.post("/memory", json={
+            "name": "api test note", "content": "remember the api test",
+            "tags": ["apitest"]})
+        entry = r.json()
+        assert entry["id"]
+        try:
+            r = client.get("/memory")
+            assert any(n["id"] == entry["id"] for n in r.json()["memory"])
+            r = client.get("/library", params={"kind": "memory", "tag": "apitest"})
+            assert any(i["id"] == entry["id"] for i in r.json()["items"])
+        finally:
+            r = client.delete(f"/memory/{entry['id']}")
+            assert r.json().get("removed") == entry["id"]
+
+    def test_prompt_validation(self):
+        client = self._get_app()
+        r = client.post("/prompts", json={"name": "x", "text": ""})
+        assert "error" in r.json()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  LIBRARY (unified prompts / skills / memory / agents index)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestLibrary:
+    def _lib(self, tmpdir, registries=False):
+        from src.library.mod import Library
+        if registries:
+            return Library(skills=Skills(), agents=Agents(), dir=tmpdir)
+        return Library(dir=tmpdir)
+
+    def test_prompts_seeded_once(self, tmpdir):
+        from src.library.mod import SEED_PROMPTS
+        lib = self._lib(tmpdir)
+        assert len(lib.prompts()) == len(SEED_PROMPTS)
+        # second read does not re-seed
+        assert len(lib.prompts()) == len(SEED_PROMPTS)
+
+    def test_prompt_add_upsert_rm(self, tmpdir):
+        lib = self._lib(tmpdir)
+        p = lib.prompt_add("mine", "do things", tags=["custom"])
+        assert any(x["id"] == p["id"] for x in lib.prompts())
+        # upsert by id replaces, doesn't duplicate
+        before = len(lib.prompts())
+        lib.prompt_add("mine v2", "do more things", id=p["id"])
+        assert len(lib.prompts()) == before
+        assert [x for x in lib.prompts() if x["id"] == p["id"]][0]["name"] == "mine v2"
+        lib.prompt_rm(p["id"])
+        assert not any(x["id"] == p["id"] for x in lib.prompts())
+        with pytest.raises(KeyError):
+            lib.prompt_rm(p["id"])
+
+    def test_prompt_requires_name_and_text(self, tmpdir):
+        lib = self._lib(tmpdir)
+        with pytest.raises(ValueError):
+            lib.prompt_add("", "text")
+        with pytest.raises(ValueError):
+            lib.prompt_add("name", "")
+
+    def test_notes_crud(self, tmpdir):
+        lib = self._lib(tmpdir)
+        assert lib.notes() == []
+        n = lib.note_add("conventions", "always run tests", tags=["project"])
+        assert lib.notes()[0]["name"] == "conventions"
+        lib.note_add("conventions v2", "always run tests twice", id=n["id"])
+        assert len(lib.notes()) == 1
+        lib.note_rm(n["id"])
+        assert lib.notes() == []
+
+    def test_items_aggregates_all_kinds(self, tmpdir):
+        lib = self._lib(tmpdir, registries=True)
+        lib.note_add("k", "v")
+        out = lib.items()
+        kinds = out["facets"]["kinds"]
+        assert kinds["skill"] == SKILL_COUNT
+        assert kinds["agent"] >= AGENT_COUNT
+        assert kinds["prompt"] >= 1
+        assert kinds["memory"] == 1
+
+    def test_items_filters_compose(self, tmpdir):
+        lib = self._lib(tmpdir, registries=True)
+        lib.note_add("deploy runbook", "restart with pm2", tags=["ops"])
+        # q filter searches name/description/body/tags across kinds
+        out = lib.items(q="pm2")
+        assert out["total"] == 1 and out["items"][0]["kind"] == "memory"
+        # kind filter
+        out = lib.items(kind="prompt")
+        assert all(i["kind"] == "prompt" for i in out["items"])
+        # tag filter within a kind
+        out = lib.items(kind="memory", tag="ops")
+        assert out["total"] == 1
+        out = lib.items(kind="memory", tag="nope")
+        assert out["total"] == 0
+        # kind facet counts survive the kind filter (for pill counts)
+        out = lib.items(kind="memory")
+        assert out["facets"]["kinds"]["skill"] == SKILL_COUNT
+
+    def test_forward_protocol(self, tmpdir):
+        lib = self._lib(tmpdir)
+        assert "prompts" in lib.forward("prompts")
+        e = lib.forward("memory_add", name="a", content="b")
+        assert e["id"].startswith("m-")
+        assert lib.forward("memory")["memory"][0]["name"] == "a"
+        lib.forward("memory_rm", id=e["id"])
+        out = lib.forward(None, kind="prompt")
+        assert "items" in out
+
+    def test_selftest(self):
+        from src.library.mod import Library
+        assert Library().test() is True
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

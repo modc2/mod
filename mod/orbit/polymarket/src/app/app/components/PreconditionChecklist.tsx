@@ -23,10 +23,13 @@ export default function PreconditionChecklist() {
   // progress bar) visible while the per-step pill chips fold away for a clean
   // sidebar. Mirrors WalletTokenPanel's collapse pattern. Persisted across
   // reloads.
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try { return localStorage.getItem("poly_checklist_collapsed") !== "false"; } catch { return true; }
-  });
+  const [collapsed, setCollapsed] = useState<boolean>(true);
+  // Hydrate the persisted collapse state AFTER mount — reading localStorage in
+  // the useState initializer makes the first client render differ from the
+  // SSR HTML (server can't see localStorage) → React hydration error #425.
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem("poly_checklist_collapsed") !== "false"); } catch {}
+  }, []);
   useEffect(() => {
     try { localStorage.setItem("poly_checklist_collapsed", String(collapsed)); } catch {}
   }, [collapsed]);

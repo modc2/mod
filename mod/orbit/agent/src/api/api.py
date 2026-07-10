@@ -11,6 +11,9 @@ Endpoints:
     GET  /agents       - list agent personas
     GET  /agents/{name} - get agent config
     GET  /chains       - list chain presets
+    GET  /library      - unified index: prompts + skills + memory + agents (q/kind/tag filters)
+    GET  /prompts      - prompt library      POST /prompts  DELETE /prompts/{id}
+    GET  /memory       - memory notes        POST /memory   DELETE /memory/{id}
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
     POST /skills/run   - run a single skill
@@ -26,13 +29,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # resolve paths: api.py is at src/api/api.py
-src_dir = os.path.join(os.path.dirname(__file__), '..')    # src/
-module_root = os.path.join(src_dir, '..')                   # orbit/agent/
-mod_root = os.path.join(module_root, '..', '..', '..')      # mod framework root
+# paths MUST be normalized — the mod framework prefix-matches sys.path entries
+# against absolute paths, and an unnormalized entry silently breaks its import
+src_dir = os.path.join(os.path.dirname(__file__), '..')             # src/
+module_root = os.path.abspath(os.path.join(src_dir, '..'))          # orbit/agent/
+mod_root = os.path.abspath(os.path.join(module_root, '..', '..', '..'))  # mod framework root
 sys.path.insert(0, module_root)
 sys.path.insert(0, mod_root)
 
-app = FastAPI(title="Agent API", version="3.1.0", description="Autonomous coding agent API")
+app = FastAPI(title="Agent API", version="3.2.0", description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -45,7 +50,7 @@ class ForwardRequest(BaseModel):
 
 class RunRequest(BaseModel):
     query: str
-    model: str = "anthropic/claude-sonnet-4-5-20250929"
+    model: str = "anthropic/claude-sonnet-4.5"
     provider: Optional[str] = None
     steps: int = 10
     skills: Optional[List[str]] = None
@@ -85,6 +90,21 @@ class AgentRegisterRequest(BaseModel):
     backend: str = "offchain"
     key: Optional[str] = None
 
+class PromptRequest(BaseModel):
+    name: str
+    text: str
+    description: str = ""
+    tags: Optional[List[str]] = None
+    id: Optional[str] = None
+    key: Optional[str] = None
+
+class MemoryNoteRequest(BaseModel):
+    name: str
+    content: str
+    tags: Optional[List[str]] = None
+    id: Optional[str] = None
+    key: Optional[str] = None
+
 
 # ── lazy mod singleton ───────────────────────────────────────────────
 
@@ -102,7 +122,7 @@ def get_mod():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "module": "agent", "version": "3.1.0"}
+    return {"status": "ok", "module": "agent", "version": "3.2.0"}
 
 @app.get("/config")
 def get_config():
@@ -254,6 +274,53 @@ def register_agent(name: str, req: AgentRegisterRequest):
 def list_chains():
     """List chain presets"""
     return get_mod().forward('chains')
+
+# ── library (prompts / skills / memory / agent market) ──────────────
+
+@app.get("/library")
+def get_library(q: Optional[str] = None, kind: Optional[str] = None,
+                tag: Optional[str] = None):
+    """Unified filterable index across prompts, skills, memory, and agents."""
+    return get_mod().library.items(q=q, kind=kind, tag=tag)
+
+@app.get("/prompts")
+def list_prompts():
+    return {"prompts": get_mod().library.prompts()}
+
+@app.post("/prompts")
+def save_prompt(req: PromptRequest):
+    """Create or update a prompt (upsert by id)."""
+    try:
+        return get_mod().library.prompt_add(
+            req.name, req.text, req.description, req.tags, req.id)
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.delete("/prompts/{prompt_id}")
+def delete_prompt(prompt_id: str):
+    try:
+        return get_mod().library.prompt_rm(prompt_id)
+    except KeyError as e:
+        return {"error": str(e)}
+
+@app.get("/memory")
+def list_memory():
+    return {"memory": get_mod().library.notes()}
+
+@app.post("/memory")
+def save_memory(req: MemoryNoteRequest):
+    """Create or update a memory note (upsert by id)."""
+    try:
+        return get_mod().library.note_add(req.name, req.content, req.tags, req.id)
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.delete("/memory/{note_id}")
+def delete_memory(note_id: str):
+    try:
+        return get_mod().library.note_rm(note_id)
+    except KeyError as e:
+        return {"error": str(e)}
 
 # ── run (delegates to mod.forward('run')) ────────────────────────────
 

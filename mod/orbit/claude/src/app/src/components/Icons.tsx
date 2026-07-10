@@ -101,6 +101,18 @@ export function HubIcon(props: IconProps) {
   );
 }
 
+/** GLOBE — the world. Sits on the left of the address bar as the HUB
+ *  button, where a browser puts its site icon. */
+export function GlobeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M3.5 12h17" />
+      <path d="M12 3.5c2.5 2.3 3.8 5.1 3.8 8.5s-1.3 6.2-3.8 8.5c-2.5-2.3-3.8-5.1-3.8-8.5s1.3-6.2 3.8-8.5z" />
+    </svg>
+  );
+}
+
 /** TASKS — checklist. */
 export function TasksIcon(props: IconProps) {
   return (

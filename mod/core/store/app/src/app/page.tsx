@@ -70,6 +70,53 @@ function fmtDate(secs: number | null | undefined): string {
   return new Date(secs * 1000).toLocaleString();
 }
 
+/* deterministic gradient avatar for a 0x address */
+function identiconStyle(addr: string): React.CSSProperties {
+  let h = 0;
+  for (let i = 2; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
+  const h1 = h % 360;
+  const h2 = (h1 + 80 + ((h >> 8) % 140)) % 360;
+  const ang = (h >> 16) % 360;
+  return {
+    background: `linear-gradient(${ang}deg, hsl(${h1} 72% 58%), hsl(${h2} 68% 42%))`,
+  };
+}
+
+const LogoMark = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <defs>
+      <linearGradient id="lg-brand" x1="0" y1="0" x2="24" y2="24">
+        <stop offset="0" stopColor="#ffffff" />
+        <stop offset="1" stopColor="#5b8cff" />
+      </linearGradient>
+    </defs>
+    <path d="M12 2.6 20.6 7.4v9.2L12 21.4 3.4 16.6V7.4L12 2.6Z" stroke="url(#lg-brand)" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M3.6 7.6 12 12.3l8.4-4.7M12 12.4v8.8" stroke="url(#lg-brand)" strokeWidth="1.5" strokeLinejoin="round" />
+  </svg>
+);
+
+const PhoneIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+    <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+    <path d="M10.5 18.5h3" />
+  </svg>
+);
+
+const PowerIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+    <path d="M12 3v8" />
+    <path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0" />
+  </svg>
+);
+
+const WalletIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M20 7H5a2 2 0 0 1 0-4h13v4" />
+    <path d="M4 6.5V18a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1" />
+    <circle cx="16.5" cy="13.5" r="1" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export default function Page() {
   const [hasWallet, setHasWallet] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
@@ -103,6 +150,7 @@ export default function Page() {
 
   const [copied, setCopied] = useState<string | null>(null);
   const [serviceStatus, setServiceStatus] = useState<Record<string, unknown> | null>(null);
+  const [svcDown, setSvcDown] = useState(false);
 
   // modals
   const [shareFor, setShareFor] = useState<StoredObject | null>(null);
@@ -129,7 +177,7 @@ export default function Page() {
   // claim a QR handoff (?claim=code)
   useEffect(() => {
     setHasWallet(hasMetaMask());
-    api.status().then(setServiceStatus).catch(() => {});
+    api.status().then(setServiceStatus).catch(() => setSvcDown(true));
 
     const url = new URL(window.location.href);
     const code = url.searchParams.get("claim");
@@ -414,29 +462,52 @@ export default function Page() {
     <div className="wrap">
       <header className="header">
         <div className="brand-block">
-          <span className="brand">store</span>
-          <span className="brand-sub">private storage · timed sharing · pools · cid-agnostic</span>
+          <div className="brand-row">
+            <span className="brand-mark"><LogoMark /></span>
+            <span className="brand">store</span>
+            <span
+              className={`svc-dot ${serviceStatus ? "up" : svcDown ? "down" : ""}`}
+              title={serviceStatus ? "service online" : svcDown ? "service unreachable" : "connecting…"}
+            />
+          </div>
+          <span className="brand-sub">
+            private storage <i>·</i> timed sharing <i>·</i> pools <i>·</i> cid-agnostic
+          </span>
         </div>
         <div className="identity">
-          {!hasWallet && !token && <span className="muted">MetaMask not detected</span>}
+          {!hasWallet && !token && (
+            <span className="id-chip idle">
+              <span className="dot warn" />
+              <span className="muted" style={{ fontSize: 12.5 }}>MetaMask not detected</span>
+            </span>
+          )}
           {hasWallet && !token && (
             <button className="primary" onClick={signIn} disabled={!!busy}>
-              Sign in with wallet
+              <span className="btn-ico"><WalletIcon /></span> Sign in with wallet
             </button>
           )}
           {token && address && (
             <div className="id-chip">
-              <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
+              <span className="id-avatar" style={identiconStyle(address)}>
+                <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
+              </span>
               {me?.admin && <span className="pill admin">owner</span>}
               {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
-              <span className="id-addr" title={address}>
-                {shortAddress(address)}
-              </span>
-              <button className="ghost" onClick={startLinkPhone} disabled={!!busy} title="Link a phone">
-                📱
+              {!me?.admin && me?.via !== "bloctime" && me?.authorized && <span className="pill">member</span>}
+              {me && !me.authorized && <span className="pill private">view-only</span>}
+              <button
+                className="id-addr"
+                title={`${address} — click to copy`}
+                onClick={() => copyText(address, "hdr-addr")}
+              >
+                {copied === "hdr-addr" ? "✓ copied" : shortAddress(address)}
               </button>
-              <button className="ghost" onClick={signOut} title="Sign out">
-                ⏻
+              <span className="id-sep" />
+              <button className="ghost icon" onClick={startLinkPhone} disabled={!!busy} title="Link a phone — QR sign-in, no wallet needed">
+                <PhoneIcon />
+              </button>
+              <button className="ghost icon" onClick={signOut} title="Sign out">
+                <PowerIcon />
               </button>
             </div>
           )}
@@ -466,16 +537,52 @@ export default function Page() {
         </div>
       )}
 
+      {/* at-a-glance stats */}
+      {token && me && (
+        <div className="statbar">
+          {(
+            [
+              ["files", objects.length, "objects"],
+              ["shared", sharedObjects.length, "shared with you"],
+              ["pins", pins.length, "pins"],
+              ["pools", pools.length, "pools"],
+            ] as [View, number, string][]
+          ).map(([v, n, label]) => (
+            <button key={v} className={`stat ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
+              <span className="stat-n">{n}</span>
+              <span className="stat-l">{label}</span>
+            </button>
+          ))}
+          {quota && (
+            <button
+              className={`stat storage ${view === "status" ? "active" : ""}`}
+              onClick={() => setView("status")}
+              title={quota.unlimited ? "unlimited (admin)" : `${fmtBytes(quota.remaining_bytes)} left`}
+            >
+              <span className="stat-n">{fmtBytes(quota.used_bytes)}</span>
+              <span className="stat-l">
+                {quota.unlimited ? "stored · unlimited" : `of ${fmtBytes(quota.limit_bytes)} used`}
+              </span>
+              {!quota.unlimited && (
+                <span className="stat-bar">
+                  <span className={`stat-fill ${usedPct > 85 ? "hot" : ""}`} style={{ width: `${usedPct}%` }} />
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* top nav */}
       {token && (
         <nav className="navbar">
           {(
             [
-              ["files", `Your objects (${objects.length})`],
+              ["files", "Your objects"],
               ["add", "＋ Add data"],
               ["shared", "Shared with you"],
-              ["pins", `Pins (${pins.length})`],
-              ["pools", `Pools (${pools.length})`],
+              ["pins", "Pins"],
+              ["pools", "Pools"],
               ["status", "Status"],
             ] as [View, string][]
           ).map(([v, label]) => (
@@ -484,24 +591,6 @@ export default function Page() {
             </button>
           ))}
         </nav>
-      )}
-
-      {token && quota && (
-        <div className="panel">
-          <h2 className="panel-title">Storage allowance</h2>
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="muted">
-              {fmtBytes(quota.used_bytes)} used
-              {quota.unlimited ? " • unlimited (admin)" : ` of ${fmtBytes(quota.limit_bytes)}`}
-            </span>
-            {!quota.unlimited && <span className="muted">{fmtBytes(quota.remaining_bytes)} left</span>}
-          </div>
-          {!quota.unlimited && (
-            <div className="quota-bar">
-              <div className="quota-fill" style={{ width: `${usedPct}%` }} />
-            </div>
-          )}
-        </div>
       )}
 
       {/* terms of service gate */}

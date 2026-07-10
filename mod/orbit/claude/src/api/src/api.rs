@@ -250,7 +250,7 @@ async fn api_schema() -> impl IntoResponse {
             e("POST", "/modules/:name/restore", "owner", "Restore module from a snapshot CID"),
             e("PUT", "/modules/:name/rename", "owner", "Rename a module"),
             e("DELETE", "/modules/:name", "owner", "Delete a module (x-sudo)"),
-            e("POST", "/modules/:name/process", "owner", "status|start|stop|restart the module's api/app (x-sudo for other modules)"),
+            e("POST", "/modules/:name/process", "owner", "status|start|stop|restart the module's api/app"),
             e("POST", "/modules/:name/logs", "owner", "Tail the module's process logs: {target: api|app, lines?}"),
             e("GET", "/files/tree", "bearer", "File tree (default-deny without token)"),
             e("GET", "/files/content", "bearer", "Read a file"),
@@ -1158,6 +1158,31 @@ async fn list_repos(Query(params): Query<RepoQuery>) -> impl IntoResponse {
     Json(json!({ "repos": repos }))
 }
 
+/// Newest file mtime under a module dir — "when was this last touched".
+/// Depth-capped and skipping dot/build/dependency dirs so scanning the whole
+/// fleet on every /modules call stays cheap.
+fn newest_mtime(dir: &std::path::Path, depth: usize, newest: &mut u64) {
+    if depth == 0 { return; }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = entry.path();
+        if path.is_dir() {
+            if name.starts_with('.')
+                || matches!(name.as_str(), "node_modules" | "target" | "dist" | "build" | "out" | "__pycache__" | "venv" | "logs")
+            { continue; }
+            newest_mtime(&path, depth - 1, newest);
+        } else if let Ok(meta) = entry.metadata() {
+            if let Some(secs) = meta.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+            {
+                if secs > *newest { *newest = secs; }
+            }
+        }
+    }
+}
+
 /// List orbit and core modules with config.json data (app_url, api_url, etc.)
 async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
     let query = params.q.unwrap_or_default().to_lowercase();
@@ -1180,10 +1205,11 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
     let registry_data: Option<serde_json::Value> = std::fs::read_to_string(&registry_path)
         .ok()
         .and_then(|content| serde_json::from_str(&content).ok());
+    // The file is `{owner: {mod: cid}}` at the root; older writes wrapped the
+    // same map in a `data` key — accept both so CIDs don't silently vanish.
     let registry_map = registry_data
         .as_ref()
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_object());
+        .and_then(|v| v.get("data").and_then(|d| d.as_object()).or_else(|| v.as_object()));
 
     // Scan both orbit/ and core/ directories
     let scan_dirs = vec![
@@ -1302,6 +1328,11 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs());
 
+                // Last-updated = newest source-file mtime in the module tree.
+                let mut newest: u64 = 0;
+                newest_mtime(&path, 6, &mut newest);
+                let updated_at: Option<u64> = if newest > 0 { Some(newest) } else { None };
+
                 modules.push(json!({
                     "name": name,
                     "path": full_path,
@@ -1320,6 +1351,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "cid": cid,
                     "deps": deps,
                     "created_at": created_at,
+                    "updated_at": updated_at,
                 }));
             }
         }
@@ -1551,7 +1583,10 @@ async fn get_module_config(
         .into_response()
 }
 
-/// Delete a module directory (only module owner or system owner can delete)
+/// Delete a module directory. Owner-only: module creation is owner-only, so
+/// every module in the tree is the configured owner's to remove. Deleting any
+/// module other than claude itself additionally requires sudo (fresh x-sudo
+/// signature or an open sudo session).
 async fn delete_module(
     headers: axum::http::HeaderMap,
     State(_mgr): State<AppState>,
@@ -1582,7 +1617,6 @@ async fn delete_module(
     ];
 
     let mut found_path: Option<String> = None;
-    let mut module_owner: Option<String> = None;
 
     for module_dir in &search_dirs {
         let base = std::path::Path::new(module_dir);
@@ -1590,23 +1624,6 @@ async fn delete_module(
             continue;
         }
         found_path = Some(module_dir.clone());
-
-        // Read owner from config.json
-        let config_paths = vec![
-            base.join("config.json"),
-            base.join(&name).join("config.json"),
-        ];
-        for config_path in &config_paths {
-            if config_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(config_path) {
-                    if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-                        if let Some(v) = config.get("owner").and_then(|v| v.as_str()) {
-                            module_owner = Some(v.to_lowercase());
-                        }
-                    }
-                }
-            }
-        }
         break;
     }
 
@@ -1621,27 +1638,19 @@ async fn delete_module(
         }
     };
 
-    // Authorization: must be system owner, module owner, or module has no owner
-    let is_sys_owner = auth::is_owner(&user_addr);
-    let is_mod_owner = module_owner
-        .as_ref()
-        .map(|o| o == &user_addr.to_lowercase())
-        .unwrap_or(false);
-    let is_unowned = module_owner.is_none();
-
-    if !is_sys_owner && !is_mod_owner && !is_unowned {
+    // Authorization: deletion is owner-only. Creation is owner-only too, so
+    // every module in the tree is the configured owner's to remove.
+    if !auth::is_owner(&user_addr) {
         return (
             StatusCode::FORBIDDEN,
-            Json(json!({ "error": "You can only delete modules you own" })),
+            Json(json!({ "error": "Owner-only: deleting a module requires the configured owner" })),
         )
             .into_response();
     }
 
-    // Deleting a module the caller does NOT personally own (the system owner's
-    // modules, or unowned repo modules) is a privileged cross-module operation —
-    // require a fresh sudo signature from the owner key. A real module-owner may
-    // still delete their own module under the per-module check above.
-    if name != "claude" && !is_mod_owner {
+    // Deleting any module other than claude itself is a privileged cross-module
+    // operation — require sudo (fresh x-sudo signature or an open sudo session).
+    if name != "claude" {
         if let Some(denied) = sudo_gate(&headers, "delete", &name) {
             return denied;
         }
@@ -2388,8 +2397,6 @@ fn filter_by_target(procs: Vec<process::Proc>, target: &Option<String>) -> Vec<p
 
 /// Owner-only: control another module's processes (status/stop/start/restart)
 /// through its configured process-manager backend (pm2 / systemd / generic).
-/// Cross-module control (any module except claude itself) requires a fresh sudo
-/// signature — restarting/stopping host services is a privileged system op.
 async fn module_process(
     headers: axum::http::HeaderMap,
     State(_mgr): State<AppState>,
@@ -2424,14 +2431,8 @@ async fn module_process(
                 return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response();
             }
         }
-        // A mutating action against another module touches host services —
-        // require a fresh sudo signature bound to "process:<name>". `status` is
-        // read-only and claude's own processes are not cross-module.
-        if action != "status" && name != "claude" {
-            if let Some(denied) = sudo_gate(&headers, "process", &name) {
-                return denied;
-            }
-        }
+        // Start/stop/restart of any module is owner-bearer only — no sudo
+        // signature. Destructive ops (delete/kill/rename/restore) keep the gate.
     }
 
     // Resolve the module directory under orbit/ or core/.
@@ -2827,6 +2828,15 @@ async fn fork_module(
         )
             .into_response();
     }
+    // Forking materializes a new module directory — module creation is
+    // owner-only, so peers cannot fork (not even into the portal sandbox).
+    if !local_mode && !auth::is_owner(&caller) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Owner-only: forking creates a new module; only the configured owner may do it" })),
+        )
+            .into_response();
+    }
     let owner_for_path = if caller.is_empty() {
         "local".to_string()
     } else {
@@ -3032,9 +3042,9 @@ async fn restore_module(
 //     blob store via `restore_into` — the same primitive `fork_module`
 //     uses, just into a user-named module instead of a portal fork.
 //
-// Owners drop modules straight into orbit/ (or core/, owner-only). A
-// non-owner authed caller is sandboxed into orbit/portal/<addr>/ exactly
-// like a fork, so they can never clobber a first-class module.
+// Module creation is owner-only: only the configured owner (or local mode)
+// may import, and modules land straight in orbit/ or core/. Peers keep
+// read access and workspace jobs but cannot mint new modules.
 #[derive(Deserialize)]
 struct ImportBody {
     source: String,
@@ -3094,7 +3104,16 @@ async fn import_module(
             .into_response();
     }
 
+    // Creation is owner-only — reject before touching the filesystem so a
+    // peer token can never grow the module tree (not even into a sandbox).
     let is_owner = local_mode || auth::is_owner(&caller);
+    if !is_owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Owner-only: module creation is restricted to the configured owner" })),
+        )
+            .into_response();
+    }
     let category = body
         .category
         .as_deref()
@@ -3108,29 +3127,11 @@ async fn import_module(
         )
             .into_response();
     }
-    if category == "core" && !is_owner {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": "core modules are owner-only" })),
-        )
-            .into_response();
-    }
-
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    // Owners land in the first-class tree; everyone else is namespaced into a
-    // per-address portal so an untrusted import can never shadow a real module.
-    let (module_id, dest) = if is_owner {
-        (
-            name.clone(),
-            std::path::PathBuf::from(format!("{home}/mod/mod/{category}/{name}")),
-        )
-    } else {
-        let owner = caller.to_lowercase();
-        (
-            format!("portal/{owner}/{name}"),
-            std::path::PathBuf::from(format!("{home}/mod/mod/orbit/portal/{owner}/{name}")),
-        )
-    };
+    let (module_id, dest) = (
+        name.clone(),
+        std::path::PathBuf::from(format!("{home}/mod/mod/{category}/{name}")),
+    );
 
     if dest.exists() {
         return (
@@ -3268,7 +3269,7 @@ async fn import_module(
             "module": module_id,
             "name": name,
             "path": dest.display().to_string(),
-            "category": if is_owner { category } else { "portal".to_string() },
+            "category": category,
             "file_count": file_count,
             "snapshot_cid": snap_cid,
             "registry_cid": registry_cid,

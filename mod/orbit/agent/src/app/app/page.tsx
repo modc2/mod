@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from './config'
+import Library from './components/Library'
 
 type Skill = { description: string; params: Record<string, any> }
 type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; chainStep?: { agent: string; prompt: string } }
@@ -36,6 +37,8 @@ const CHAIN_PRESETS: Record<string, ChainPreset> = {
 }
 
 export default function Home() {
+  // top-level view: the agent console or the library market
+  const [view, setView] = useState<'console' | 'library'>('console')
   const [query, setQuery] = useState('')
   const [skills, setSkills] = useState<Record<string, Skill>>({})
   const [loading, setLoading] = useState(false)
@@ -85,10 +88,10 @@ export default function Home() {
   const [detailView, setDetailView] = useState<'output' | 'files'>('files')
 
   // draggable sidebar width
-  const [sidebarWidth, setSidebarWidth] = useState(340)
+  const [sidebarWidth, setSidebarWidth] = useState(384)
   const isDragging = useRef(false)
   const dragStartX = useRef(0)
-  const dragStartWidth = useRef(340)
+  const dragStartWidth = useRef(384)
 
   // fullscreen agent mode (dedicated, not part of layout cycle)
   const [agentFullscreen, setAgentFullscreen] = useState(false)
@@ -185,7 +188,10 @@ export default function Home() {
         const p = (savedP && list.find(x => x.key === savedP)) ? savedP : (d.default || list[0]?.key || 'openrouter')
         setProvider(p)
         const pd = list.find(x => x.key === p)
-        setModel(savedM || pd?.default_model || '')
+        // drop saved models the provider no longer offers (stale slugs 404 on run)
+        const validSaved = savedM && (pd?.models || []).includes(savedM) ? savedM : null
+        setModel(validSaved || pd?.default_model || '')
+        if (!validSaved && savedM) localStorage.removeItem('agent_model')
       })
       .catch(() => {})
     // owner / user info
@@ -456,7 +462,7 @@ export default function Home() {
 
   // provider + model selectors (used in both sidebar and fullscreen bars)
   const modelControls = (
-    <div className="flex items-center gap-1.5 min-w-0">
+    <div className="flex items-center gap-1.5 min-w-0 flex-1">
       <select
         value={provider}
         onChange={(e) => onProviderChange(e.target.value)}
@@ -470,7 +476,7 @@ export default function Home() {
       <select
         value={model}
         onChange={(e) => { setModel(e.target.value); localStorage.setItem('agent_model', e.target.value) }}
-        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0"
+        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0 flex-1"
         style={{ maxWidth: '190px' }}
         title="Model"
       >
@@ -484,8 +490,12 @@ export default function Home() {
 
   // --- Compose bar (agent prompt) — rendered at the bottom of the sidebar ---
   const composeBar = (
-    <div className={`border-t border-white/[0.06] px-4 py-3 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
-      <div className="flex gap-2 items-end">
+    <div className="border-t border-white/[0.06] px-3 py-3 shrink-0">
+      <div className={`flex gap-2 items-end rounded-xl border px-3 py-2 transition-all duration-200 ${
+        composeFocused
+          ? 'border-blue-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgba(59,130,246,0.08)]'
+          : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
+      }`}>
         <textarea
           ref={inputRef}
           value={query}
@@ -495,11 +505,11 @@ export default function Home() {
           onBlur={() => setComposeFocused(false)}
           placeholder={chainMode ? 'Main query for chain...' : `Ask ${currentAgentDef?.label || 'agent'}...`}
           rows={2}
-          className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed"
+          className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed min-w-0"
           disabled={loading}
         />
         <button onClick={run} disabled={loading || !query.trim() || apiStatus === 'down'}
-          className="text-sm bg-blue-600/80 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-md px-4 py-2 transition font-medium shrink-0"
+          className="text-sm bg-blue-600/90 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white rounded-lg px-4 py-2 transition font-medium shrink-0 mb-0.5"
           title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
           Run
         </button>
@@ -511,11 +521,11 @@ export default function Home() {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* agent selector + chain */}
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
+      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0 min-w-0 overflow-hidden">
         <select
           value={agentType}
           onChange={(e) => { setAgentType(e.target.value); localStorage.setItem('agent_type', e.target.value) }}
-          className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-sm text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors"
+          className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-sm text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0"
           style={{ maxWidth: '160px' }}
         >
           {agentOptions.map((a) => (
@@ -586,7 +596,7 @@ export default function Home() {
       </div>
 
       {/* provider + model selection */}
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
+      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0 min-w-0 overflow-hidden">
         <span className="text-[10px] text-gray-600 uppercase tracking-wider font-medium shrink-0">model</span>
         {modelControls}
       </div>
@@ -809,19 +819,27 @@ export default function Home() {
         {activeTab === 'output' && (
           <div className="p-3 space-y-2">
             {!currentTask ? (
-              <div className="text-center text-gray-600 mt-12 px-4">
-                <p className="text-2xl mb-3 text-gray-700">{'>'}_ </p>
-                <p className="text-sm text-gray-500">
-                  {tasks.length === 0 ? 'No conversations yet' : 'Select a chat or ask below'}
+              <div className="flex flex-col items-center text-center text-gray-600 mt-14 px-4">
+                <div className="w-12 h-12 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-4">
+                  <span className="text-gray-500 font-mono text-sm select-none">{'>'}_</span>
+                </div>
+                <p className="text-sm text-gray-400 font-medium">
+                  {tasks.length === 0 ? 'What should we build?' : 'Select a chat or ask below'}
                 </p>
                 <div className="mt-4 flex gap-1.5 justify-center flex-wrap">
                   {tasks.length === 0 ? (
-                    ['read this file', 'search for TODO', 'run ls -la'].map(ex => (
-                      <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                        className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                        {ex}
+                    <>
+                      {['read this file', 'search for TODO', 'run ls -la'].map(ex => (
+                        <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
+                          className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                          {ex}
+                        </button>
+                      ))}
+                      <button onClick={() => setView('library')}
+                        className="px-3 py-1.5 rounded-full text-xs bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:text-blue-300 hover:bg-blue-500/15 transition">
+                        browse library →
                       </button>
-                    ))
+                    </>
                   ) : (
                     <button onClick={() => setShowChats(true)}
                       className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
@@ -1032,9 +1050,11 @@ export default function Home() {
           <>
             {!currentTask ? (
               <div className="flex items-center justify-center h-full text-gray-600">
-                <div className="text-center">
-                  <p className="text-3xl mb-3 text-gray-700">{'>'}_ </p>
-                  <p className="text-xs">Run a task to see file changes</p>
+                <div className="flex flex-col items-center text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
+                    <span className="text-gray-600 font-mono select-none">{'>'}_</span>
+                  </div>
+                  <p className="text-xs text-gray-600">Run a task to see file changes</p>
                 </div>
               </div>
             ) : viewingFile ? (
@@ -1111,8 +1131,10 @@ export default function Home() {
           /* output view - full task detail */
           <div className="p-6">
             {!currentTask ? (
-              <div className="text-center text-gray-600 mt-20">
-                <p className="text-3xl mb-3 text-gray-700">{'>'}_ </p>
+              <div className="flex flex-col items-center text-center text-gray-600 mt-24">
+                <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
+                  <span className="text-gray-600 font-mono select-none">{'>'}_</span>
+                </div>
                 <p className="text-sm text-gray-500">Select a task to view details</p>
               </div>
             ) : (
@@ -1268,8 +1290,10 @@ export default function Home() {
 
       <div className="flex-1 overflow-y-auto min-h-0 p-6">
         {tasks.length === 0 ? (
-          <div className="text-center text-gray-600 mt-20">
-            <p className="text-4xl mb-4 text-gray-700">{'>'}_ </p>
+          <div className="flex flex-col items-center text-center text-gray-600 mt-20">
+            <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-5">
+              <span className="text-gray-500 font-mono text-lg select-none">{'>'}_</span>
+            </div>
             <p className="text-sm text-gray-500">No tasks yet. Select an agent and compose a task to get started.</p>
             <div className="mt-4 flex gap-2 justify-center flex-wrap">
               {['read this file', 'search for TODO', 'run ls -la', 'find all .py files'].map(ex => (
@@ -1359,12 +1383,30 @@ export default function Home() {
   return (
     <main className="h-screen flex flex-col bg-[#0a0a0a]">
       {/* top bar */}
-      <header className="border-b border-white/[0.06] px-4 py-2 flex items-center justify-between shrink-0 bg-[#0a0a0a]">
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight">Agent</h1>
-          <span className="text-[10px] text-gray-600 uppercase tracking-wider">mod</span>
+      <header className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-4 shrink-0 bg-[#0a0a0a]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500/30 to-violet-500/15 border border-blue-400/20 flex items-center justify-center shadow-[0_0_16px_rgba(59,130,246,0.15)]">
+            <span className="text-blue-300 font-mono text-[10px] select-none">{'>'}_</span>
+          </div>
+          <div className="leading-tight">
+            <h1 className="text-sm font-semibold tracking-tight">Agent</h1>
+            <div className="text-[9px] text-gray-600 uppercase tracking-widest">mod framework</div>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* view switcher */}
+        <nav className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
+          {(['console', 'library'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)}
+              className={`px-3.5 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition ${
+                view === v ? 'bg-white/[0.09] text-white' : 'text-gray-500 hover:text-gray-300'
+              }`}>
+              {v}
+            </button>
+          ))}
+        </nav>
+
+        <div className="flex items-center gap-3 ml-auto">
           {loading && (
             <span className="flex items-center gap-1.5 text-xs text-blue-400">
               <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
@@ -1379,6 +1421,7 @@ export default function Home() {
           )}
 
           {/* fullscreen agent toggle */}
+          {view === 'console' && (
           <button
             onClick={toggleAgentFullscreen}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition border border-white/[0.06] text-gray-500 hover:text-blue-400 hover:border-blue-500/25 hover:bg-blue-500/10"
@@ -1391,7 +1434,9 @@ export default function Home() {
               <line x1="3" y1="21" x2="10" y2="14" />
             </svg>
           </button>
+          )}
 
+          {view === 'console' && (
           <button
             onClick={cycleLayout}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition ${
@@ -1429,13 +1474,37 @@ export default function Home() {
               </>
             )}
           </button>
+          )}
         </div>
       </header>
 
       {/* layout body */}
       <div className="flex-1 flex min-h-0">
+        {/* library market view */}
+        {view === 'library' && (
+          <div className="flex-1 min-h-0">
+            <Library
+              onUsePrompt={(text) => {
+                setView('console')
+                setQuery(text)
+                if (layoutMode === 'minimized') setLayoutMode('sidebar')
+                if (sidebarCollapsed) setSidebarCollapsed(false)
+                setTimeout(() => inputRef.current?.focus(), 60)
+              }}
+              onSelectAgent={(name) => {
+                setAgentType(name)
+                localStorage.setItem('agent_type', name)
+                setView('console')
+                if (layoutMode === 'minimized') setLayoutMode('sidebar')
+                setTimeout(() => inputRef.current?.focus(), 60)
+              }}
+              onAgentsChanged={fetchAgents}
+            />
+          </div>
+        )}
+
         {/* sidebar mode: split view */}
-        {layoutMode === 'sidebar' && (
+        {view === 'console' && layoutMode === 'sidebar' && (
           <>
             {(() => {
               const sidebarPanel = (
@@ -1459,7 +1528,7 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                  <div className={`flex-1 ${sidebarExpanded ? '' : sidebarSide === 'left' ? 'border-r' : 'border-l'} border-white/[0.06] flex flex-col min-h-0`}>
+                  <div className={`flex-1 ${sidebarExpanded ? '' : sidebarSide === 'left' ? 'border-r' : 'border-l'} border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden`}>
                   {sidebarCollapsed ? (
                     <div className="flex flex-col items-center py-3 gap-2 h-full">
                       <button
@@ -1611,18 +1680,24 @@ export default function Home() {
         )}
 
         {/* fullscreen mode */}
-        {layoutMode === 'fullscreen' && (
+        {view === 'console' && layoutMode === 'fullscreen' && (
           <div className="flex-1 flex flex-col min-h-0">
             {mainContent}
           </div>
         )}
 
         {/* minimized mode */}
-        {layoutMode === 'minimized' && (
+        {view === 'console' && layoutMode === 'minimized' && (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-gray-700">
-              <p className="text-5xl mb-4">{'>'}_ </p>
+            <div className="flex flex-col items-center text-center text-gray-700">
+              <div className="w-16 h-16 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
+                <span className="text-gray-600 font-mono text-lg select-none">{'>'}_</span>
+              </div>
               <p className="text-sm text-gray-600">Agent minimized</p>
+              <button onClick={() => setView('library')}
+                className="mt-4 px-3.5 py-1.5 rounded-full text-xs bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:text-blue-300 hover:bg-blue-500/15 transition">
+                browse library →
+              </button>
             </div>
           </div>
         )}

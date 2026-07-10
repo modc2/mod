@@ -159,8 +159,13 @@ async function submitFailReason(res: Response): Promise<string> {
 //  • LAN/dev (served on a non-standard port like :8823): the local gateway
 //    listens on :3000, so point there — e.g. http://192.168.x.y:3000 — so a
 //    phone on the same wifi works.
-function defaultGatewayOrigin(): string {
-  if (typeof window === "undefined") return "http://localhost:3000";
+// `mounted` guards against SSR hydration mismatch: during the server render and
+// the first client paint (mounted === false) we MUST return the same value the
+// server produced ("http://localhost:3000"), or React errors on the http/https
+// text divergence. After mount the effect flips it and we re-render with the
+// real page origin. Handlers (which only run post-mount) can omit the arg.
+function defaultGatewayOrigin(mounted = true): string {
+  if (typeof window === "undefined" || !mounted) return "http://localhost:3000";
   const loc = window.location;
   const behindPublicProxy =
     loc.protocol === "https:" || loc.port === "" || loc.port === "80" || loc.port === "443";
@@ -182,6 +187,87 @@ function parseOmnibox(text: string): { origin: string | null; mod: string } {
   } catch {
     return { origin: null, mod: t.split("/").filter(Boolean).pop() || "" };
   }
+}
+
+// ── API tab: schema → playground form parsing ───────────────────────
+// The /schema catalog is terse ({method, path, auth, desc}), so the merged
+// docs/playground derives its input forms from it: ":id" path segments and
+// "?address=0x.." query hints become labelled inputs, and a "{prompt,
+// model?}" fragment in the description becomes one input per body field.
+
+function parseEndpointInputs(path: string): {
+  basePath: string;
+  pathParams: string[];
+  queryParams: Array<{ name: string; hint: string }>;
+} {
+  const [basePath, query] = path.split("?");
+  const pathParams = (basePath.match(/:(\w+)/g) || []).map((s) => s.slice(1));
+  const queryParams = (query || "")
+    .split("&")
+    .filter(Boolean)
+    .map((pair) => {
+      const [name, hint] = pair.split("=");
+      return { name, hint: hint || "" };
+    });
+  return { basePath, pathParams, queryParams };
+}
+
+function parseBodyFields(desc: string): Array<{ name: string; optional: boolean; hint: string }> {
+  const m = desc.match(/\{([^}]+)\}/);
+  if (!m) return [];
+  return m[1]
+    .split(",")
+    .map((tok) => {
+      const [rawName, hint] = tok.split(":").map((s) => s.trim());
+      return {
+        name: (rawName || "").replace(/\?$/, ""),
+        optional: (rawName || "").endsWith("?"),
+        hint: hint || "",
+      };
+    })
+    .filter((f) => /^\w+$/.test(f.name));
+}
+
+// Filled-in body fields → JSON string. Values that parse as JSON (42, true,
+// ["a"]) keep their type; everything else is sent as a plain string, so
+// non-technical users never have to quote anything.
+function buildBodyJson(fields: Record<string, string>): string {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    const t = v.trim();
+    if (!t) continue;
+    try {
+      out[k] = JSON.parse(t);
+    } catch {
+      out[k] = t;
+    }
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : "";
+}
+
+// Plain-language read on an HTTP status, shown next to the numeric code.
+function statusExplainer(code: number): string {
+  if (code >= 200 && code < 300) return "it worked";
+  if (code === 401) return "sign in first";
+  if (code === 403) return "your account isn't allowed to do this";
+  if (code === 404) return "nothing found at this address";
+  if (code === 400 || code === 422) return "a required field is missing or malformed";
+  if (code >= 500) return "the server hit an error";
+  return "";
+}
+
+// Bucket endpoints into human sections by path prefix, in a fixed order.
+const API_SECTION_ORDER = ["Basics", "Sign in", "Tasks", "Modules", "Files", "Access & sharing", "Credits", "Sudo"];
+function endpointSection(path: string): string {
+  const p = path.split("?")[0];
+  if (p.startsWith("/auth")) return "Sign in";
+  if (p.startsWith("/jobs")) return "Tasks";
+  if (p.startsWith("/modules")) return "Modules";
+  if (p.startsWith("/files")) return "Files";
+  if (p.startsWith("/whitelist") || p.startsWith("/grants")) return "Access & sharing";
+  if (p.startsWith("/credits")) return "Credits";
+  if (p.startsWith("/sudo")) return "Sudo";
+  return "Basics";
 }
 
 function timeSince(ts: number): string {
@@ -222,6 +308,18 @@ function shortHost(p?: string): string {
   const parts = p.split("/").filter(Boolean);
   if (parts.length <= 2) return p;
   return `…/${parts.slice(-2).join("/")}`;
+}
+
+// HUB card accents — each module gets a stable neon hue hashed from its
+// name, so the card wall reads as a constellation instead of a spreadsheet.
+const HUB_HUES = [
+  "#a78bfa", "#38bdf8", "#34d399", "#fbbf24", "#fb7185",
+  "#22d3ee", "#a3e635", "#e879f9", "#f472b6", "#818cf8",
+];
+function hubHue(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return HUB_HUES[h % HUB_HUES.length];
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -300,16 +398,38 @@ function modelLabel(m: string): string {
   return m;
 }
 
-// ── Agent engines ───────────────────────────────────────────────────
-// The "engine" is which agent harness module is driving the work. Today the
-// app runs claude-code; the dropdown stays here so the same UI can later
-// route to aider / codex / cursor without a redesign.
-const ENGINE_OPTIONS = [
-  { value: "claude-code", label: "Claude Code", icon: "⬡", color: "#a78bfa", available: true,  hint: "Anthropic's claude-code CLI (this module)" },
-  { value: "aider",       label: "Aider",       icon: "✦", color: "#60a5fa", available: false, hint: "orbit/aider — coming soon" },
-  { value: "codex",       label: "Codex",       icon: "◇", color: "#fbbf24", available: false, hint: "orbit/codex — coming soon" },
-  { value: "cursor",      label: "Cursor",      icon: "◆", color: "#f472b6", available: false, hint: "orbit/cursor — coming soon" },
+// ── Agents ───────────────────────────────────────────────────────────
+// Which agent runs the task — the selector at the top of PARAMS. Each agent
+// owns its own parameter set (model, system prompts, …). "mod" is this
+// module's claude-code harness and the only one wired today, which is why it
+// is the default; sibling agents (codex, agent) plug in here later with
+// their own params.
+const AGENT_MODS = [
+  { value: "mod",   label: "mod",   icon: "⬡", color: "#a78bfa", available: true,  hint: "this module's claude-code harness" },
+  { value: "codex", label: "codex", icon: "◇", color: "#fbbf24", available: false, hint: "orbit/codex — a sibling module, coming soon" },
+  { value: "agent", label: "agent", icon: "✦", color: "#60a5fa", available: false, hint: "orbit/agent — a sibling module, coming soon" },
 ];
+
+// ── Default system prompt ─────────────────────────────────────────────
+// Seeded as the first block in the SYSTEM PROMPTS chain on a fresh install,
+// so there's always a nice, readable default the user can see, fork, and
+// share — not a hidden empty string. Kept in sync with the backend
+// DEFAULT_SYSTEM_PROMPT in src/mod.py.
+const DEFAULT_SYSTEM_PROMPT = `You are a builder in the Orbit — a fleet of small, composable modules that each own one job and talk to each other over the mod protocol. You write code that ships.
+
+HOW YOU WORK
+- Read before you write. Match the file you're in: its naming, its idioms, its comment density. New code should look like it was always there.
+- Prefer the smallest change that fully solves the problem. Delete more than you add when you can.
+- Verify. Run the tests, drive the flow, read the output — don't claim it works because it should.
+- Be honest about state. If something is a stub, say stub. If a test failed, show the failure. No cheerful hand-waving.
+
+WHAT GOOD LOOKS LIKE
+- Simple beats clever. The best design is the one the next person understands without you.
+- One module, one responsibility. Reach for an existing module before inventing a new one.
+- Secrets and per-user state live off-tree (~/.mod/<module>/), never in committed config.
+- Leave the codebase better lit than you found it: clear names, a why-comment where the reason isn't obvious.
+
+Ship it clean. Make Steve proud.`;
 
 // ── Personalities ────────────────────────────────────────────────────
 
@@ -349,11 +469,9 @@ function getFileTypeColor(filename: string): string {
 const BOOT_ART = `
   ┌──────────────────────────────────────┐
   │                                      │
-  │          M O D   A I                 │
+  │      C L A U D E  ✦  O R B I T        │
   │                                      │
-  │       Agent Runner  v1               │
-  │                                      │
-  │    Background AI Agent Platform      │
+  │     Programmable AI dev console      │
   │                                      │
   └──────────────────────────────────────┘`;
 
@@ -420,14 +538,20 @@ export default function Home() {
   // chips — the content lives in a separate manager modal.
   const [sysPrompts, setSysPrompts] = useState<SysPromptBlock[]>([]);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  // MOD picker inside PARAMS — a searchable inline list instead of a
+  // native <select>, so a 60+ module registry stays findable. Opens in
+  // place (the panel scrolls) to avoid overflow clipping on phones.
+  const [modPickerOpen, setModPickerOpen] = useState(false);
+  const [modPickerQuery, setModPickerQuery] = useState("");
+  const modPickerInputRef = useRef<HTMLInputElement | null>(null);
   const [showSysPromptManager, setShowSysPromptManager] = useState(false);
   const [editingSysPrompt, setEditingSysPrompt] = useState<SysPromptBlock | null>(null);
   const [creatingSysPrompt, setCreatingSysPrompt] = useState(false);
   const [sysPromptDraft, setSysPromptDraft] = useState({ name: "", text: "" });
-  // The agent "engine" — i.e. which agent harness module drives the work.
-  // Defaults to claude-code (this module); we expose the toggle so the same UI
-  // can later swap in aider / codex / cursor without ripping out the panel.
-  const [engine, setEngine] = useState("claude-code");
+  // Which agent runs the task. Defaults to "mod" (this module's claude-code
+  // harness — the only one wired today); the selector also surfaces sibling
+  // agents (codex, agent) that will bring their own parameter sets.
+  const [agentMod, setAgentMod] = useState("mod");
 
   const [workDir, setWorkDir] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -443,28 +567,23 @@ export default function Home() {
   const [moduleName, setModuleName] = useState("");
   const [creationMode, setCreationMode] = useState<"edit" | "fork" | "new">("edit");
   const [selectedModule, setSelectedModule] = useState("claude");
-  // True when this console is itself running inside an iframe. claude's APP tab
-  // embeds the real claude app (/claude); since the claude app IS this console,
-  // the embedded copy must NOT re-iframe /claude again or it recurses forever —
-  // so when embedded we break the chain by falling back to the web front-door.
-  const [isEmbedded, setIsEmbedded] = useState(false);
-  useEffect(() => {
-    try { setIsEmbedded(window.self !== window.top); } catch { setIsEmbedded(true); }
-  }, []);
   // Most-recently-opened modules (names, newest first) — powers the left nav
   // rail's quick-switch list. Persisted so the rail is useful on reload.
   const [recentModules, setRecentModules] = useState<string[]>([]);
-  // Left navigation rail (HUB + recent modules) open/closed.
-  const [leftRailOpen, setLeftRailOpen] = useState(true);
-  // Rail module list shows ONE of RECENT (default) or MINE — toggled, not
-  // stacked, so the rail stays a short quick-draw list.
-  const [railListTab, setRailListTab] = useState<"recent" | "mine">("recent");
-  // Rail width — the rail/content divider is a drag handle. Persisted.
-  const [leftRailWidth, setLeftRailWidth] = useState(212);
-  const [isRailDragging, setIsRailDragging] = useState(false);
+  // Recents rail — a slim vertical tab on the far left that expands into a
+  // drag-resizable list of recently-opened modules. Collapsed by default;
+  // both the open flag and the width persist across reloads.
+  const [recentsRailOpen, setRecentsRailOpen] = useState(false);
+  const [recentsRailWidth, setRecentsRailWidth] = useState(208);
+  const [isRecentsRailDragging, setIsRecentsRailDragging] = useState(false);
   // Expand the embedded module APP to a full-viewport overlay (hides the
   // console chrome so you get the module's app edge-to-edge).
   const [appExpanded, setAppExpanded] = useState(false);
+  // Phone-view: render the embedded APP iframe inside a 390×844 device
+  // frame so mobile layout breakage is visible without leaving the console.
+  // Media queries inside the iframe respond to the iframe's own size, so
+  // shrinking the frame is a faithful phone-viewport preview.
+  const [appPhoneView, setAppPhoneView] = useState(false);
   // ── Omnibox (APP tab) ─────────────────────────────────────────────
   // The URL strip and the module search merged into one browser-style
   // address bar: the /{mod} path segment autocompletes against the module
@@ -474,21 +593,15 @@ export default function Home() {
   const [omniEditing, setOmniEditing] = useState(false);
   const [omniValue, setOmniValue] = useState("");
   const [omniIdx, setOmniIdx] = useState(0);
+  // False until after the first client render, so URL strings derived from
+  // window.location (see defaultGatewayOrigin) hydrate identically to the server.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   // Custom gateway origin ("https://otherhost.xyz") — null = this site.
   const [gatewayHostOverride, setGatewayHostOverride] = useState<string | null>(null);
   // A /{mod} committed while on a foreign host that this site's registrar
   // doesn't know — kept verbatim (the foreign registrar may resolve it).
   const [omniForeignMod, setOmniForeignMod] = useState<string | null>(null);
-  // Rail in-progress task rows: which task hash was just copied (✓ flash).
-  const [copiedTaskHash, setCopiedTaskHash] = useState<string | null>(null);
-  // Rail task lists start collapsed; the ⚙N badge toggles each module open.
-  const [expandedTaskMods, setExpandedTaskMods] = useState<Set<string>>(new Set());
-  const toggleTaskMod = (name: string) =>
-    setExpandedTaskMods((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
-    });
   const [githubUrl, setGithubUrl] = useState("");
   const [anchorDir, setAnchorDir] = useState("~/mod");
   const [modules, setModules] = useState<string[]>([]);
@@ -497,6 +610,7 @@ export default function Home() {
     app_url: string | null; api_url: string | null; description: string | null;
     fns: string[]; has_app_dir: boolean; has_server_dir: boolean; has_api_dir: boolean;
     owner: string | null; version: string | null; cid: string | null; created_at: number | null;
+    updated_at?: number | null;
     deps?: string[] | null;
   }>>([]);
   const [moduleSearch, setModuleSearch] = useState("");
@@ -525,6 +639,17 @@ export default function Home() {
   // declared `deps` (config.json) as a dependency graph, leaving modules with
   // no edges as isolated nodes.
   const [hubGraphMode, setHubGraphMode] = useState(false);
+  // Hub status filter: every module, only ones with a live app/api probe, or
+  // only ones without. "stopped" includes not-yet-probed modules — anything
+  // not confirmed live — so the split always covers the whole grid.
+  const [hubRunFilter, setHubRunFilter] = useState<"all" | "running" | "stopped">("all");
+  // Same module name published by DIFFERENT owners collapses into one hub
+  // card with an owner picker. Maps name → path of the copy being shown;
+  // not persisted, so every load defaults back to YOUR copy when you own one.
+  const [hubOwnerPick, setHubOwnerPick] = useState<Record<string, string>>({});
+  // Anchor for the owner-picker popover (fixed-position — .hub-card clips
+  // overflow, so the menu can't live inside the card).
+  const [hubOwnerMenu, setHubOwnerMenu] = useState<{ name: string; x: number; y: number } | null>(null);
   const [autoRestartAfterEdit, setAutoRestartAfterEdit] = useState(true);
   // ── Add-Module modal: import a fresh module from a GitHub repo or a
   //    snapshot CID (POST /modules/import). ───────────────────────────
@@ -617,11 +742,16 @@ export default function Home() {
   const [qrShareIdx, setQrShareIdx] = useState(0);
   const [qrShareCopied, setQrShareCopied] = useState(false);
 
-  // File viewer state
-  const [viewingFile, setViewingFile] = useState<string | null>(null);
-  const [viewingFileContent, setViewingFileContent] = useState<string>("");
-  const [viewingFileLoading, setViewingFileLoading] = useState(false);
-  const [editingFile, setEditingFile] = useState(false);
+  // File viewer state — a splittable grid of panes: columns sit side-by-side
+  // (split →) and each column stacks panes (split ↓). A pane collapses to a
+  // slim bar; a column whose panes are all collapsed folds into a vertical
+  // rail. An empty grid hands the tree the full width (old no-file state).
+  type FilePane = { id: number; file: string; content: string; loading: boolean; collapsed: boolean };
+  type FilePaneColumn = { id: number; panes: FilePane[] };
+  const paneSeq = useRef(1);
+  const [paneCols, setPaneCols] = useState<FilePaneColumn[]>([]);
+  const [activePaneId, setActivePaneId] = useState<number | null>(null);
+  const [editingPaneId, setEditingPaneId] = useState<number | null>(null);
   const [editBuffer, setEditBuffer] = useState("");
   const [savingFile, setSavingFile] = useState(false);
   // Inline search state
@@ -663,17 +793,19 @@ export default function Home() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
   // Sign-in drawer — shown as a right-side panel inside the hub when there's no
-  // session (replaces the old full-screen sign-in takeover). Re-opens whenever
-  // the session drops to null; dismissible so the hub stays browsable behind it.
-  const [signInOpen, setSignInOpen] = useState(true);
+  // session (replaces the old full-screen sign-in takeover). Closed by default:
+  // signed-out visitors land on the hub as read-only guests and opt into
+  // signing in via the edge tab. Re-opens only when an existing
+  // session drops (sign-out / expiry); dismissible so the hub stays browsable behind it.
+  const [signInOpen, setSignInOpen] = useState(false);
 
-  // Account sidebar (persistent right panel). This single panel now carries
-  // BOTH the owner controls and the wallet view, toggled by `accountTab` —
-  // there is no longer a separate wallet sidebar.
+  // Account sidebar (persistent right panel). One function per tab —
+  // WALLET / ACCESS / SUDO / MODULE — instead of one long merged scroll;
+  // only the tabs the current session can use render.
   const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
   const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
   const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
-  const [accountTab, setAccountTab] = useState<"owner" | "wallet">("owner");
+  const [accountTab, setAccountTab] = useState<"wallet" | "access" | "sudo" | "module">("access");
   const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
@@ -754,19 +886,26 @@ export default function Home() {
   const [isLeftDragging, setIsLeftDragging] = useState(false);
   const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "apitab" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
 
-  // ── API tab: docs (human/engineer), endpoint schema, playground, logs ──
-  const [apiTabView, setApiTabView] = useState<"docs" | "schema" | "try" | "logs">("docs");
-  const [apiDocsMode, setApiDocsMode] = useState<"human" | "engineer">("human");
+  // ── API tab: endpoint catalog with an inline playground (FastAPI-docs
+  // style, but each row expands in place instead of jumping to a second
+  // view), plus logs. One endpoint is expanded at a time so the shared
+  // try* request/response state is unambiguous. ──
+  const [apiTabView, setApiTabView] = useState<"schema" | "logs">("schema");
   const [apiSchema, setApiSchema] = useState<{
     auth_note?: string;
     base?: string;
     endpoints: Array<{ method: string; path: string; auth: string; desc: string }>;
   } | null>(null);
-  const [tryMethod, setTryMethod] = useState<string>("GET");
-  const [tryPath, setTryPath] = useState<string>("/health");
+  const [apiFilter, setApiFilter] = useState("");
+  const [apiExpanded, setApiExpanded] = useState<number | null>(null);
+  const [tryParams, setTryParams] = useState<Record<string, string>>({});
+  const [tryBodyFields, setTryBodyFields] = useState<Record<string, string>>({});
+  const [tryBodyRaw, setTryBodyRaw] = useState(false);
   const [tryBody, setTryBody] = useState<string>("");
   const [tryStatus, setTryStatus] = useState<string | null>(null);
+  const [tryOk, setTryOk] = useState<boolean | null>(null);
   const [tryResp, setTryResp] = useState<string | null>(null);
+  const [tryRespKind, setTryRespKind] = useState<"text" | "image">("text");
   const [trySending, setTrySending] = useState(false);
   // Inner tab inside the OVERVIEW view — keeps the identity hero always
   // visible while INFO / ACCESS / LOGS / CONFIG swap below it instead of
@@ -828,14 +967,12 @@ export default function Home() {
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
   const inlineModuleRef = useRef<HTMLDivElement>(null);
   const headerModuleRef = useRef<HTMLDivElement>(null);
-  // The ONE module search lives in the left rail on desktop — the header
-  // selector only spawns its own input when there's no rail (mobile/closed).
-  const leftRailRef = useRef<HTMLDivElement>(null);
-  const railSearchRef = useRef<HTMLInputElement>(null);
   const [showInlineModuleDropdown, setShowInlineModuleDropdown] = useState(false);
   const [showHeaderModuleDropdown, setShowHeaderModuleDropdown] = useState(false);
   const [headerModuleSearch, setHeaderModuleSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
+  // Owner bubble in the tabs row — brief "copied" flash after click-to-copy.
+  const [ownerBubbleCopied, setOwnerBubbleCopied] = useState(false);
   const [folderSuggestions, setFolderSuggestions] = useState<Array<{
     name: string; path: string; display: string; score: number; preview: string;
     has_config: boolean; has_mod: boolean;
@@ -920,6 +1057,26 @@ export default function Home() {
     }
   }, []);
 
+  // Measure the sticky header's height into --header-h so right-side drawers
+  // (the sign-in panel) can start BELOW the header instead of overlapping it.
+  const headerRO = useRef<ResizeObserver | null>(null);
+  const headerRef = useCallback((el: HTMLDivElement | null) => {
+    headerRO.current?.disconnect();
+    headerRO.current = null;
+    if (!el) {
+      document.documentElement.style.setProperty("--header-h", "0px");
+      return;
+    }
+    const apply = () =>
+      document.documentElement.style.setProperty("--header-h", `${el.offsetHeight}px`);
+    apply();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(apply);
+      ro.observe(el);
+      headerRO.current = ro;
+    }
+  }, []);
+
   const headerCreateRef = useRef<HTMLDivElement>(null);
   const composerCreateRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
@@ -999,8 +1156,9 @@ export default function Home() {
     setSelectedVersion(null);
     setVersionDetail(null);
     // File viewer
-    setViewingFile(null);
-    setViewingFileContent("");
+    setPaneCols([]);
+    setActivePaneId(null);
+    setEditingPaneId(null);
     // Directory tree
     setDirectoryTree([]);
     setExpandedDirs(new Set());
@@ -1029,13 +1187,8 @@ export default function Home() {
           );
         }
       }
-      const railOpen = localStorage.getItem("claude_left_rail_open");
-      if (railOpen !== null) setLeftRailOpen(railOpen === "true");
     } catch { /* ignore corrupt cache */ }
   }, []);
-  useEffect(() => {
-    safeSetItem("claude_left_rail_open", String(leftRailOpen));
-  }, [leftRailOpen]);
   // Esc exits the full-viewport app overlay.
   useEffect(() => {
     if (!appExpanded) return;
@@ -1059,6 +1212,40 @@ export default function Home() {
     if (recentModules.length === 0) return;
     safeSetItem("claude_recent_modules", JSON.stringify(recentModules));
   }, [recentModules]);
+
+  // Recents rail open/width: load once, then persist on change. The loaded
+  // ref gates the persist effects — they also fire on mount with the default
+  // values, which would otherwise clobber the stored ones (localStorage is
+  // shared across every modc2 module, so writes must be deliberate).
+  const recentsRailLoaded = useRef(false);
+  useEffect(() => {
+    try {
+      const open = localStorage.getItem("claude_recents_rail_open");
+      if (open !== null) setRecentsRailOpen(open === "true");
+      const w = parseInt(localStorage.getItem("claude_recents_rail_width") || "", 10);
+      if (Number.isFinite(w)) setRecentsRailWidth(Math.max(160, Math.min(420, w)));
+    } catch { /* ignore */ }
+    recentsRailLoaded.current = true;
+  }, []);
+  useEffect(() => {
+    if (recentsRailLoaded.current) safeSetItem("claude_recents_rail_open", String(recentsRailOpen));
+  }, [recentsRailOpen]);
+  useEffect(() => {
+    if (recentsRailLoaded.current) safeSetItem("claude_recents_rail_width", String(recentsRailWidth));
+  }, [recentsRailWidth]);
+  // Drag the rail/content divider to resize — the rail hugs the viewport's
+  // left edge, so the pointer's x IS the new width.
+  useEffect(() => {
+    if (!isRecentsRailDragging) return;
+    const onMove = (e: MouseEvent) => setRecentsRailWidth(Math.max(160, Math.min(420, e.clientX)));
+    const onUp = () => setIsRecentsRailDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isRecentsRailDragging]);
 
   // Restore the omnibox's custom gateway host (points /{mod} at another
   // deployment's registrar) once on mount.
@@ -1193,12 +1380,7 @@ export default function Home() {
       if (tokenStatsRef.current && !tokenStatsRef.current.contains(e.target as Node)) {
         setShowTokenStats(false);
       }
-      if (
-        headerModuleRef.current && !headerModuleRef.current.contains(e.target as Node) &&
-        // The rail hosts the search input AND its results — a mousedown there
-        // (typing, picking a match) must not close the search mid-click.
-        !(leftRailRef.current && leftRailRef.current.contains(e.target as Node))
-      ) {
+      if (headerModuleRef.current && !headerModuleRef.current.contains(e.target as Node)) {
         setShowHeaderModuleDropdown(false);
         setHeaderModuleSearch("");
       }
@@ -1243,6 +1425,13 @@ export default function Home() {
         loadedChain = [{ id: "migrated", name: "SAVED", text: legacy, on: true }];
         safeSetItem("claude_system_prompts", JSON.stringify(loadedChain));
         try { localStorage.removeItem("claude_system_prompt"); } catch {}
+      } else if (localStorage.getItem("claude_system_prompts_seeded") !== "1") {
+        // Fresh install: seed the nice default system prompt so the chain is
+        // never empty. Only seeded once — if the user later clears it, we
+        // don't keep re-adding it.
+        loadedChain = [{ id: "default", name: "DEFAULT", text: DEFAULT_SYSTEM_PROMPT, on: true }];
+        safeSetItem("claude_system_prompts", JSON.stringify(loadedChain));
+        safeSetItem("claude_system_prompts_seeded", "1");
       }
     }
     if (loadedChain.length) setSysPrompts(loadedChain);
@@ -1266,9 +1455,12 @@ export default function Home() {
       localStorage.removeItem("claude_terminal_token_exp");
     }
 
-    const savedEngine = localStorage.getItem("claude_jobs_engine");
-    if (savedEngine && ENGINE_OPTIONS.some(e => e.value === savedEngine && e.available)) {
-      setEngine(savedEngine);
+    // Restore the selected agent; the legacy "claude_jobs_engine" key stored
+    // "claude-code", which is what "mod" is — anything unavailable falls back
+    // to mod, so tasks always run on a real agent.
+    const savedAgentMod = localStorage.getItem("claude_jobs_agent_mod");
+    if (savedAgentMod && AGENT_MODS.some(a => a.value === savedAgentMod && a.available)) {
+      setAgentMod(savedAgentMod);
     }
 
     const savedUrl = localStorage.getItem("claude_backend_url");
@@ -1309,16 +1501,13 @@ export default function Home() {
     const savedSide = localStorage.getItem("claude_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
     const savedAccountTab = localStorage.getItem("claude_account_tab");
-    if (savedAccountTab === "owner" || savedAccountTab === "wallet") setAccountTab(savedAccountTab);
+    if (savedAccountTab === "owner") setAccountTab("access"); // legacy pre-tabs value
+    else if (savedAccountTab === "wallet" || savedAccountTab === "access" || savedAccountTab === "sudo" || savedAccountTab === "module")
+      setAccountTab(savedAccountTab);
     const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
     if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
     const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
     if (savedOwnerWidth) setOwnerSidebarWidth(parseInt(savedOwnerWidth, 10));
-    const savedRailWidth = localStorage.getItem("claude_left_rail_width");
-    if (savedRailWidth) {
-      const w = parseInt(savedRailWidth, 10);
-      if (Number.isFinite(w)) setLeftRailWidth(Math.max(160, Math.min(480, w)));
-    }
   }, []);
 
   useEffect(() => {
@@ -1353,15 +1542,17 @@ export default function Home() {
     safeSetItem("claude_owner_sidebar_width", String(ownerSidebarWidth));
   }, [ownerSidebarWidth]);
 
+  // Surface the sign-in drawer when an EXISTING session drops (sign-out or
+  // expiry). Initial load with no token stays on the hub — signed-out visitors
+  // browse as read-only guests and opt into signing in via the edge tab.
+  const hadTokenRef = useRef(false);
   useEffect(() => {
-    safeSetItem("claude_left_rail_width", String(leftRailWidth));
-  }, [leftRailWidth]);
-
-  // Whenever the session drops (initial load with no token, or after sign-out)
-  // surface the sign-in drawer again. Fires only on token transitions, so a
-  // manual dismiss while signed-out stays dismissed.
-  useEffect(() => {
-    if (!token) setSignInOpen(true);
+    if (token) {
+      hadTokenRef.current = true;
+    } else if (hadTokenRef.current) {
+      hadTokenRef.current = false;
+      setSignInOpen(true);
+    }
   }, [token]);
 
   // Check saved token or detect local mode
@@ -1960,6 +2151,9 @@ export default function Home() {
       });
       setWalletType("password");
       safeSetItem("claude_jobs_wallet_type", "password");
+      // These are throwaway wallets — keep the password around so the ACCOUNT
+      // panel can reveal/copy it (and the derived private key) at any time.
+      safeSetItem("claude_jobs_password", password);
     } catch (e: any) {
       const msg = e.message || "";
       setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg || "PASSWORD KEY DERIVATION FAILED");
@@ -2255,42 +2449,94 @@ export default function Home() {
     return paths;
   };
 
-  // Load file content for viewer
-  const loadFileContent = useCallback(async (filePath: string) => {
-    setViewingFile(filePath);
-    setViewingFileLoading(true);
-    setEditingFile(false);
+  // Patch one pane in the split grid
+  const patchPane = useCallback((paneId: number, patch: Partial<FilePane>) => {
+    setPaneCols(cols => cols.map(c => ({ ...c, panes: c.panes.map(p => p.id === paneId ? { ...p, ...patch } : p) })));
+  }, []);
+
+  // Ref mirrors so loadFileContent stays identity-stable — effects depend on
+  // it, and a paneCols dep would loop (load → grid change → new fn → re-run).
+  const paneColsRef = useRef(paneCols);
+  paneColsRef.current = paneCols;
+  const activePaneIdRef = useRef(activePaneId);
+  activePaneIdRef.current = activePaneId;
+
+  // Load file content into a pane — the target (or active) pane if it still
+  // exists, else the first pane; an empty grid bootstraps its first pane.
+  const loadFileContent = useCallback(async (filePath: string, targetPaneId?: number) => {
+    const allPanes = paneColsRef.current.flatMap(c => c.panes);
+    let paneId = targetPaneId ?? activePaneIdRef.current ?? -1;
+    if (!allPanes.some(p => p.id === paneId)) paneId = allPanes[0]?.id ?? -1;
+    if (paneId === -1) {
+      paneId = paneSeq.current++;
+      const colId = paneSeq.current++;
+      setPaneCols([{ id: colId, panes: [{ id: paneId, file: filePath, content: "", loading: true, collapsed: false }] }]);
+    } else {
+      patchPane(paneId, { file: filePath, content: "", loading: true, collapsed: false });
+    }
+    setActivePaneId(paneId);
+    setEditingPaneId(prev => (prev === paneId ? null : prev));
+    let content = "";
     try {
       const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(filePath)}`, { headers: fileAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        if (data.error) {
-          setViewingFileContent(`// ${data.error}`);
-        } else {
-          setViewingFileContent(data.content || "");
-        }
+        content = data.error ? `// ${data.error}` : (data.content || "");
       } else {
-        setViewingFileContent("// Failed to load file");
+        content = "// Failed to load file";
       }
     } catch {
-      setViewingFileContent("// Error loading file");
-    } finally {
-      setViewingFileLoading(false);
+      content = "// Error loading file";
     }
-  }, [apiUrl, fileAuthHeaders]);
+    patchPane(paneId, { content, loading: false });
+  }, [apiUrl, fileAuthHeaders, patchPane]);
+
+  // Split at a pane: "right" inserts a new column after the pane's column,
+  // "down" stacks a new pane below it. Both clone the source pane so the file
+  // carries over, and focus moves to the new pane.
+  const splitPane = useCallback((paneId: number, dir: "right" | "down") => {
+    const newPaneId = paneSeq.current++;
+    const newColId = paneSeq.current++;
+    setPaneCols(cols => {
+      const ci = cols.findIndex(c => c.panes.some(p => p.id === paneId));
+      if (ci === -1) return cols;
+      const src = cols[ci].panes.find(p => p.id === paneId)!;
+      const clone = { ...src, id: newPaneId, collapsed: false };
+      if (dir === "down") {
+        const panes = [...cols[ci].panes];
+        panes.splice(panes.findIndex(p => p.id === paneId) + 1, 0, clone);
+        return cols.map((c, i) => (i === ci ? { ...c, panes } : c));
+      }
+      const next = [...cols];
+      next.splice(ci + 1, 0, { id: newColId, panes: [clone] });
+      return next;
+    });
+    setActivePaneId(newPaneId);
+  }, []);
+
+  const closePane = useCallback((paneId: number) => {
+    const remaining = paneCols.flatMap(c => c.panes).filter(p => p.id !== paneId);
+    setPaneCols(cols => cols
+      .map(c => ({ ...c, panes: c.panes.filter(p => p.id !== paneId) }))
+      .filter(c => c.panes.length > 0));
+    setEditingPaneId(prev => (prev === paneId ? null : prev));
+    setActivePaneId(prev => (prev === paneId ? (remaining[0]?.id ?? null) : prev));
+  }, [paneCols]);
 
   const saveFile = useCallback(async () => {
-    if (!viewingFile || !token) return;
+    const pane = paneCols.flatMap(c => c.panes).find(p => p.id === editingPaneId);
+    if (!pane || !token) return;
     setSavingFile(true);
     try {
       // Editing a module OTHER than claude is privileged: authFetchSudo signs a
       // fresh owner authorization bound to this exact path and retries if the
       // server demands it. Saving inside claude itself needs no extra step.
-      const body = JSON.stringify({ path: viewingFile, content: editBuffer });
+      const body = JSON.stringify({ path: pane.file, content: editBuffer });
       const res = await authFetchSudo("/files/write", { method: "POST", body });
       if (res.ok) {
-        setViewingFileContent(editBuffer);
-        setEditingFile(false);
+        // Every pane showing this file picks up the saved content
+        setPaneCols(cols => cols.map(c => ({ ...c, panes: c.panes.map(p => p.file === pane.file ? { ...p, content: editBuffer } : p) })));
+        setEditingPaneId(null);
       } else {
         const data = await res.json().catch(() => ({} as any));
         setError(data.error || "Failed to save file");
@@ -2300,7 +2546,7 @@ export default function Home() {
     } finally {
       setSavingFile(false);
     }
-  }, [viewingFile, editBuffer, token, authFetch, address, walletType]);
+  }, [paneCols, editingPaneId, editBuffer, token, authFetch, address, walletType]);
 
   // Navigate file tree to show the parent folder of a file and expand all ancestor dirs
   const navigateToFile = useCallback(async (filePath: string) => {
@@ -2355,9 +2601,11 @@ export default function Home() {
         setDirectoryTreeError(tree.length === 0 && data.error ? data.error : null);
         // Start with all folders collapsed
         setExpandedDirs(new Set());
-        // Auto-select config.json
+        // Auto-select config.json — but only when no pane is open yet, so the
+        // periodic re-runs of this fetch (jobs polling changes our deps) never
+        // stomp files the user opened, and split panes keep their contents.
         const configFile = tree.find((n: any) => n.type === "file" && n.name === "config.json");
-        if (configFile) {
+        if (configFile && paneColsRef.current.length === 0) {
           loadFileContent(configFile.path);
         }
       }
@@ -2435,29 +2683,6 @@ export default function Home() {
       document.body.style.userSelect = '';
     };
   }, [isOwnerSidebarDragging]);
-
-  // Handle nav-rail resize dragging. The rail sits at the far left; the drag
-  // handle rides its RIGHT edge (the rail/content divider) — dragging right
-  // grows the rail.
-  useEffect(() => {
-    if (!isRailDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      setLeftRailWidth(Math.max(160, Math.min(480, e.clientX)));
-    };
-    const handleMouseUp = () => setIsRailDragging(false);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    setIframesInert(true);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      setIframesInert(false);
-    };
-  }, [isRailDragging]);
 
   // Handle right panel resize dragging
   useEffect(() => {
@@ -3095,6 +3320,32 @@ export default function Home() {
     return match ? match[1] : null;
   };
 
+  // Task tally per module — feeds the recents-rail badges so you can see each
+  // mod's progress (running/queued/done/failed) without opening the TASKS
+  // view. Jobs with no work_dir belong to claude itself (same attribution
+  // rule as the task-list module filter).
+  const railTasks = useMemo(() => {
+    const byModule: Record<string, { running: number; pending: number; completed: number; failed: number; prompts: string[] }> = {};
+    let running = 0;
+    let pending = 0;
+    let completed = 0;
+    let failed = 0;
+    for (const j of jobs) {
+      const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "claude";
+      const entry = byModule[mod] || (byModule[mod] = { running: 0, pending: 0, completed: 0, failed: 0, prompts: [] });
+      if (j.status === "running") { entry.running += 1; running += 1; }
+      else if (j.status === "pending") { entry.pending += 1; pending += 1; }
+      else if (j.status === "completed") { entry.completed += 1; completed += 1; continue; }
+      else if (j.status === "failed") { entry.failed += 1; failed += 1; continue; }
+      else continue; // cancelled: neither progress nor error
+      if (entry.prompts.length < 4) {
+        const p = j.prompt.replace(/\s+/g, " ").trim();
+        entry.prompts.push(`${j.status === "running" ? "▶" : "…"} ${p.length > 72 ? `${p.slice(0, 72)}…` : p}`);
+      }
+    }
+    return { byModule, running, pending, completed, failed };
+  }, [jobs]);
+
   const copyTaskToInput = (job: Job, e: React.MouseEvent) => {
     e.stopPropagation();
     setPrompt(parsePromptImages(job.prompt).cleanPrompt);
@@ -3707,15 +3958,27 @@ export default function Home() {
     }
   }, [probeModuleStatus]);
 
-  // Probe while the hub is open; refresh on an interval so dots stay live.
+  // Probe while the hub or the recents rail is open; refresh on an interval
+  // so dots stay live. Rail-only probing sticks to the recents list, so an
+  // open rail doesn't hammer every module the way the full hub grid does.
   useEffect(() => {
-    if (sidebarView !== "hub") return;
-    const real = moduleList.filter(isRealModule);
+    const railWantsDots = !isMobile && recentsRailOpen;
+    if (sidebarView !== "hub" && !railWantsDots) return;
+    const real = sidebarView === "hub"
+      ? moduleList.filter(isRealModule)
+      : moduleList.filter(isRealModule).filter((m) => recentModules.includes(m.name));
     if (!real.length) return;
     probeHubStatuses(real);
     const iv = setInterval(() => probeHubStatuses(real), 8000);
     return () => clearInterval(iv);
-  }, [sidebarView, moduleList, isRealModule, probeHubStatuses]);
+  }, [sidebarView, moduleList, isRealModule, probeHubStatuses, isMobile, recentsRailOpen, recentModules]);
+
+  // An open rail needs the catalog for its rows' info + click targets —
+  // fetch it once if the rail was restored open before anything else did.
+  useEffect(() => {
+    if (!isMobile && recentsRailOpen && !moduleList.length) fetchModules("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentsRailOpen, isMobile]);
 
   // pm2 lifecycle for any module by name (the account panel's list isn't tied
   // to the selected module the way moduleProcessAction is). Cross-module
@@ -3837,33 +4100,57 @@ export default function Home() {
       .catch(() => { /* schema endpoint unavailable — the tab shows a hint */ });
   }, [sidebarView, apiSchema, apiUrl]);
 
-  // API playground: run the composed request against the module API. Uses the
-  // signed-in bearer token when there is one so owner/bearer endpoints work.
-  const sendTryRequest = useCallback(async () => {
+  // API playground: resolve the expanded endpoint's template (path params,
+  // filled query params, body fields) into a real request and run it. Uses
+  // the signed-in bearer token when there is one so owner/bearer endpoints
+  // work. Image responses (module screenshots) render inline.
+  const sendTryRequest = useCallback(async (ep: { method: string; path: string }) => {
     setTrySending(true);
     setTryStatus(null);
+    setTryOk(null);
     setTryResp(null);
     try {
-      const path = tryPath.startsWith("/") ? tryPath : `/${tryPath}`;
-      const opts: RequestInit = { method: tryMethod };
-      if (tryMethod !== "GET" && tryBody.trim()) opts.body = tryBody;
+      const { basePath, queryParams } = parseEndpointInputs(ep.path);
+      let path = basePath.replace(/:(\w+)/g, (_m, name) => encodeURIComponent((tryParams[name] || "").trim()));
+      const qs = queryParams
+        .filter((q) => (tryParams[q.name] || "").trim() !== "")
+        .map((q) => `${q.name}=${encodeURIComponent(tryParams[q.name].trim())}`)
+        .join("&");
+      if (qs) path += `?${qs}`;
+      const opts: RequestInit = { method: ep.method };
+      if (ep.method !== "GET") {
+        const body = tryBodyRaw ? tryBody.trim() : buildBodyJson(tryBodyFields);
+        if (body) opts.body = body;
+      }
       const res = token && token !== "local"
         ? await authFetch(path, opts)
         : await fetch(`${apiUrl}${path}`, { ...opts, headers: { "Content-Type": "application/json" } });
-      const text = await res.text();
-      setTryStatus(`${res.status}${res.ok ? " OK" : ""}`);
-      try {
-        setTryResp(JSON.stringify(JSON.parse(text), null, 2));
-      } catch {
-        setTryResp(text.slice(0, 20000) || "(empty response)");
+      setTryOk(res.ok);
+      const friendly = statusExplainer(res.status);
+      setTryStatus(`${res.status}${friendly ? ` — ${friendly}` : ""}`);
+      const ctype = res.headers.get("content-type") || "";
+      if (res.ok && ctype.startsWith("image/")) {
+        const blob = await res.blob();
+        setTryRespKind("image");
+        setTryResp(URL.createObjectURL(blob));
+      } else {
+        const text = await res.text();
+        setTryRespKind("text");
+        try {
+          setTryResp(JSON.stringify(JSON.parse(text), null, 2));
+        } catch {
+          setTryResp(text.slice(0, 20000) || "(empty response)");
+        }
       }
     } catch (e: any) {
-      setTryStatus("NETWORK ERROR");
+      setTryOk(false);
+      setTryStatus("network error — is the API running?");
+      setTryRespKind("text");
       setTryResp(e?.message || String(e));
     } finally {
       setTrySending(false);
     }
-  }, [tryMethod, tryPath, tryBody, token, authFetch, apiUrl]);
+  }, [tryParams, tryBodyRaw, tryBody, tryBodyFields, token, authFetch, apiUrl]);
 
   // Reset logs when switching modules
   useEffect(() => {
@@ -4280,6 +4567,19 @@ export default function Home() {
               becomes a 24-hour bearer token for all API requests.
             </div>
 
+            <div
+              className="text-[12px] mb-5 px-3 py-2 leading-relaxed"
+              style={{
+                color: "var(--text-tertiary)",
+                border: "1px solid color-mix(in srgb, var(--crt-green) 15%, var(--border-color))",
+                background: "color-mix(in srgb, var(--crt-green) 4%, transparent)",
+                borderRadius: "10px",
+              }}
+            >
+              No wallet? No problem — close this panel and browse the hub as a
+              guest (read-only). Signing in only matters when you want to edit.
+            </div>
+
             <div className="flex flex-col items-center gap-4">
               {(hasMetaMask || hasSubWallet) && (
                 <>
@@ -4378,7 +4678,9 @@ export default function Home() {
               )}
 
               <div className="text-[13px] text-crt-green/25 text-center">
-                Password derives a deterministic wallet key via keccak256
+                Password derives a deterministic wallet key via keccak256.
+                Throwaway wallet — view / copy the password and private key
+                anytime from the ACCOUNT panel.
               </div>
             </div>
 
@@ -4728,6 +5030,11 @@ export default function Home() {
   );
 
   const renderDirectoryTab = () => {
+    const filePanesAll = paneCols.flatMap(c => c.panes);
+    const filePanesOpen = filePanesAll.length > 0;
+    const filePanesExpanded = filePanesAll.some(p => !p.collapsed);
+    // Ghost icon button shared by the pane-header split/collapse/close cluster
+    const paneBtnCls = "w-5 h-5 flex items-center justify-center rounded text-[12px] leading-none transition-all hover:bg-white/10";
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Inline search (toggled from the CODE toolbar / floating title bar) */}
@@ -4831,13 +5138,13 @@ export default function Home() {
             </div>
           )}
 
-        {/* Side-by-side: file tree + file content */}
+        {/* Side-by-side: file tree + splittable pane grid */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left: File tree */}
+          {/* Left: File tree — takes the leftover width when every pane is collapsed */}
           <div
-            className="overflow-y-auto p-2 shrink-0 border-r"
+            className={`overflow-y-auto p-2 border-r ${filePanesExpanded ? "shrink-0" : "flex-1"}`}
             style={{
-              width: viewingFile ? "200px" : "100%",
+              width: filePanesExpanded ? "200px" : undefined,
               borderColor: "var(--border-color)",
             }}
           >
@@ -4865,141 +5172,233 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right: File content viewer */}
-          {viewingFile && (
-            <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-              {/* File header */}
-              <div
-                className="px-3 py-1.5 border-b flex items-center justify-between shrink-0"
-                style={{ borderColor: "var(--border-color)", background: "rgba(59,130,246,0.03)" }}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[13px] text-crt-blue font-bold shrink-0 font-code">
-                    {viewingFile.split("/").pop()}
-                  </span>
-                  <span className="text-[14px] text-crt-green/30 uppercase shrink-0 font-code">
-                    {getLanguageFromPath(viewingFile)}
-                  </span>
-                  {/* Toolbar already shows the browse dir — only render the part it doesn't */}
-                  {(() => {
-                    const root = filesDisplayPath();
-                    const rel = viewingFile.startsWith(root + "/") ? viewingFile.slice(root.length + 1) : viewingFile;
-                    return rel === viewingFile.split("/").pop() ? null : (
-                      <span className="text-[12px] text-crt-green/20 truncate font-code" title={viewingFile}>
-                        {rel}
-                      </span>
-                    );
-                  })()}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {(() => {
-                    const node = findTreeNode(directoryTree, viewingFile);
-                    const bytes = editingFile
-                      ? new TextEncoder().encode(editBuffer).length
-                      : node?.size ?? new TextEncoder().encode(viewingFileContent).length;
-                    const cidKey = `viewer:${viewingFile}`;
-                    return (
-                      <>
-                        {node?.cid && (
-                          <span
-                            onClick={() => copyCid(cidKey, node.cid)}
-                            className="font-code text-[12px] cursor-pointer transition-opacity hover:opacity-100"
-                            style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === cidKey ? 1 : 0.5 }}
-                            title={`CID ${node.cid} — click to copy`}
-                          >
-                            {copiedCid === cidKey ? "✓ copied" : `⌬ ${node.cid.slice(0, 12)}`}
-                          </span>
-                        )}
-                        <span className="text-[14px] text-crt-green/20 font-code" title={`${bytes} bytes`}>
-                          {bytes.toLocaleString()} bytes
-                        </span>
-                      </>
-                    );
-                  })()}
-                  <span className="text-[14px] text-crt-green/20 font-code">
-                    {(editingFile ? editBuffer : viewingFileContent).split("\n").length} lines
-                  </span>
-                  {editingFile ? (
-                    <>
-                      <button
-                        onClick={saveFile}
-                        disabled={savingFile}
-                        className="text-[13px] px-2 py-0.5 border border-crt-green/40 text-crt-green/70 hover:text-crt-green hover:border-crt-green transition-all disabled:opacity-40"
-                        title="Save file"
-                      >
-                        {savingFile ? "..." : "SAVE"}
-                      </button>
-                      <button
-                        onClick={() => setEditingFile(false)}
-                        className="text-[13px] px-1.5 py-0.5 border border-crt-yellow/30 text-crt-yellow/50 hover:text-crt-yellow hover:border-crt-yellow transition-all"
-                        title="Cancel editing"
-                      >
-                        ESC
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => { setEditBuffer(viewingFileContent); setEditingFile(true); }}
-                      className="text-[13px] px-2 py-0.5 border border-crt-blue/30 text-crt-blue/50 hover:text-crt-blue hover:border-crt-blue transition-all"
-                      title="Edit file"
+          {/* Right: splittable pane grid — columns side-by-side, panes stacked */}
+          {filePanesOpen && (
+            <div className={`flex overflow-hidden min-w-0 ${filePanesExpanded ? "flex-1" : "shrink-0"}`}>
+              {paneCols.map((col, ci) => {
+                // A column whose panes are all collapsed folds into a vertical rail
+                if (col.panes.every(p => p.collapsed)) {
+                  return (
+                    <div
+                      key={col.id}
+                      onClick={() => setPaneCols(cols => cols.map(c => c.id === col.id ? { ...c, panes: c.panes.map(p => ({ ...p, collapsed: false })) } : c))}
+                      className="shrink-0 flex flex-col items-center gap-2.5 py-2.5 cursor-pointer transition-colors hover:bg-white/[0.04] group"
+                      style={{ width: "30px", borderLeft: ci > 0 ? `1px solid ${subtleBorder}` : undefined, background: "rgba(255,255,255,0.015)" }}
+                      title="Expand"
                     >
-                      EDIT
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setViewingFile(null); setViewingFileContent(""); setEditingFile(false); }}
-                    className="text-[13px] px-1.5 py-0.5 border border-crt-red/30 text-crt-red/50 hover:text-crt-red hover:border-crt-red transition-all"
-                    title="Close file"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-              {/* File content */}
-              <div className="flex-1 overflow-auto">
-                {viewingFileLoading ? (
-                  <div className="flex items-center justify-center h-full">
-                    <span className="text-[14px] text-crt-blue animate-pulse">Loading file...</span>
-                  </div>
-                ) : editingFile ? (
-                  <textarea
-                    value={editBuffer}
-                    onChange={(e) => setEditBuffer(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "s" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveFile(); }
-                      if (e.key === "Escape") { setEditingFile(false); }
-                      if (e.key === "Tab") {
-                        e.preventDefault();
-                        const start = e.currentTarget.selectionStart;
-                        const end = e.currentTarget.selectionEnd;
-                        setEditBuffer(editBuffer.substring(0, start) + "  " + editBuffer.substring(end));
-                        setTimeout(() => { e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 2; }, 0);
-                      }
-                    }}
-                    className="w-full h-full m-0 p-3 text-[13px] leading-relaxed font-code whitespace-pre resize-none bg-transparent border-0 outline-none"
-                    style={{ color: "var(--text-primary)", tabSize: 2 }}
-                    spellCheck={false}
-                    autoFocus
-                  />
-                ) : (
-                  <pre
-                    className="m-0 p-3 text-[13px] leading-relaxed font-code whitespace-pre"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    {viewingFileContent.split("\n").map((line, i) => (
-                      <div key={i} className="flex hover:bg-crt-green/5">
+                      <span className="text-[10px] opacity-40 group-hover:opacity-90 transition-opacity" style={{ color: "var(--text-secondary)" }}>◂</span>
+                      {col.panes.map(p => (
                         <span
-                          className="select-none text-right pr-3 shrink-0"
-                          style={{ color: "var(--text-tertiary)", opacity: 0.3, minWidth: "3em" }}
+                          key={p.id}
+                          className="font-code text-[11px]"
+                          style={{
+                            writingMode: "vertical-rl",
+                            maxHeight: "150px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: getFileTypeColor(p.file.split("/").pop() || ""),
+                            opacity: 0.6,
+                          }}
                         >
-                          {i + 1}
+                          {p.file.split("/").pop()}
                         </span>
-                        <span className="flex-1">{line || " "}</span>
-                      </div>
-                    ))}
-                  </pre>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    key={col.id}
+                    className="flex-1 flex flex-col overflow-hidden min-w-0"
+                    style={{ borderLeft: ci > 0 ? `1px solid ${subtleBorder}` : undefined }}
+                  >
+                    {col.panes.map((pane, pi) => {
+                      const name = pane.file.split("/").pop() || pane.file;
+                      // Collapsed pane: a slim bar inside its column
+                      if (pane.collapsed) {
+                        return (
+                          <div
+                            key={pane.id}
+                            onClick={() => { patchPane(pane.id, { collapsed: false }); setActivePaneId(pane.id); }}
+                            className="shrink-0 flex items-center gap-2 px-2.5 cursor-pointer transition-colors hover:bg-white/[0.04] group"
+                            style={{ height: "28px", borderTop: pi > 0 ? `1px solid ${subtleBorder}` : undefined, background: "rgba(255,255,255,0.015)" }}
+                            title="Expand"
+                          >
+                            <span className="text-[10px] opacity-40 group-hover:opacity-90 transition-opacity" style={{ color: "var(--text-secondary)" }}>▸</span>
+                            <span className="font-code text-[12px] truncate" style={{ color: getFileTypeColor(name), opacity: 0.7 }}>{name}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); closePane(pane.id); }}
+                              className={`${paneBtnCls} opacity-0 group-hover:opacity-60 hover:!opacity-100`}
+                              style={{ color: "var(--crt-red, #f87171)" }}
+                              title="Close"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      }
+                      const active = pane.id === activePaneId;
+                      const editing = editingPaneId === pane.id;
+                      return (
+                        <div
+                          key={pane.id}
+                          className="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0"
+                          style={{ borderTop: pi > 0 ? `1px solid ${subtleBorder}` : undefined }}
+                          onMouseDown={() => setActivePaneId(pane.id)}
+                        >
+                          {/* Pane header — full meta cluster only on the active pane.
+                              Everything sits on one line on the left: no
+                              justify-between stretch, so there's no dead gap
+                              pushing the controls to the far right edge. */}
+                          <div
+                            className="px-2.5 py-1 border-b flex items-center gap-2 shrink-0 transition-colors"
+                            style={{
+                              borderColor: "var(--border-color)",
+                              background: active ? "rgba(59,130,246,0.05)" : "rgba(255,255,255,0.01)",
+                              boxShadow: active ? "inset 0 -1px 0 rgba(96,165,250,0.35)" : undefined,
+                            }}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="text-[13px] font-bold shrink-0 font-code transition-colors"
+                                style={{ color: active ? "var(--crt-blue, #60a5fa)" : "var(--text-secondary)" }}
+                              >
+                                {name}
+                              </span>
+                              <span className="text-[12px] text-crt-green/30 uppercase shrink-0 font-code">
+                                {getLanguageFromPath(pane.file)}
+                              </span>
+                              {/* Toolbar already shows the browse dir — only render the part it doesn't */}
+                              {active && (() => {
+                                const root = filesDisplayPath();
+                                const rel = pane.file.startsWith(root + "/") ? pane.file.slice(root.length + 1) : pane.file;
+                                return rel === name ? null : (
+                                  <span className="text-[11px] text-crt-green/20 truncate font-code" title={pane.file}>
+                                    {rel}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {active && (() => {
+                                const node = findTreeNode(directoryTree, pane.file);
+                                const bytes = editing
+                                  ? new TextEncoder().encode(editBuffer).length
+                                  : node?.size ?? new TextEncoder().encode(pane.content).length;
+                                const cidKey = `viewer:${pane.id}:${pane.file}`;
+                                return (
+                                  <>
+                                    {node?.cid && (
+                                      <span
+                                        onClick={() => copyCid(cidKey, node.cid)}
+                                        className="font-code text-[11px] cursor-pointer transition-opacity hover:opacity-100"
+                                        style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === cidKey ? 1 : 0.5 }}
+                                        title={`CID ${node.cid} — click to copy`}
+                                      >
+                                        {copiedCid === cidKey ? "✓ copied" : `⌬ ${node.cid.slice(0, 8)}`}
+                                      </span>
+                                    )}
+                                    <span className="text-[12px] text-crt-green/20 font-code" title={`${bytes} bytes`}>
+                                      {(editing ? editBuffer : pane.content).split("\n").length}L · {bytes.toLocaleString()}B
+                                    </span>
+                                  </>
+                                );
+                              })()}
+                              {editing ? (
+                                <>
+                                  <button
+                                    onClick={saveFile}
+                                    disabled={savingFile}
+                                    className="text-[12px] px-2 py-0.5 border border-crt-green/40 text-crt-green/70 hover:text-crt-green hover:border-crt-green transition-all disabled:opacity-40"
+                                    title="Save file (⌘S)"
+                                  >
+                                    {savingFile ? "..." : "SAVE"}
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingPaneId(null)}
+                                    className="text-[12px] px-1.5 py-0.5 border border-crt-yellow/30 text-crt-yellow/50 hover:text-crt-yellow hover:border-crt-yellow transition-all"
+                                    title="Cancel editing"
+                                  >
+                                    ESC
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditBuffer(pane.content); setEditingPaneId(pane.id); setActivePaneId(pane.id); }}
+                                  className="text-[12px] px-2 py-0.5 border border-crt-blue/30 text-crt-blue/50 hover:text-crt-blue hover:border-crt-blue transition-all"
+                                  title="Edit file"
+                                >
+                                  EDIT
+                                </button>
+                              )}
+                              {/* Split / collapse / close — ghost cluster */}
+                              <div className="flex items-center" style={{ color: "var(--text-tertiary)" }}>
+                                <button onClick={() => splitPane(pane.id, "right")} className={`${paneBtnCls} opacity-40 hover:opacity-100`} title="Split right">◨</button>
+                                <button onClick={() => splitPane(pane.id, "down")} className={`${paneBtnCls} opacity-40 hover:opacity-100`} title="Split down">⬓</button>
+                                <button onClick={() => patchPane(pane.id, { collapsed: true })} className={`${paneBtnCls} opacity-40 hover:opacity-100`} title="Collapse">–</button>
+                                <button
+                                  onClick={() => closePane(pane.id)}
+                                  className={`${paneBtnCls} opacity-40 hover:opacity-100`}
+                                  style={{ color: "var(--crt-red, #f87171)" }}
+                                  title="Close"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Pane content */}
+                          <div className="flex-1 overflow-auto">
+                            {pane.loading ? (
+                              <div className="flex items-center justify-center h-full">
+                                <span className="text-[14px] text-crt-blue animate-pulse">Loading file...</span>
+                              </div>
+                            ) : editing ? (
+                              <textarea
+                                value={editBuffer}
+                                onChange={(e) => setEditBuffer(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "s" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveFile(); }
+                                  if (e.key === "Escape") { setEditingPaneId(null); }
+                                  if (e.key === "Tab") {
+                                    e.preventDefault();
+                                    const start = e.currentTarget.selectionStart;
+                                    const end = e.currentTarget.selectionEnd;
+                                    setEditBuffer(editBuffer.substring(0, start) + "  " + editBuffer.substring(end));
+                                    setTimeout(() => { e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 2; }, 0);
+                                  }
+                                }}
+                                className="w-full h-full m-0 p-3 text-[13px] leading-relaxed font-code whitespace-pre resize-none bg-transparent border-0 outline-none"
+                                style={{ color: "var(--text-primary)", tabSize: 2 }}
+                                spellCheck={false}
+                                autoFocus
+                              />
+                            ) : (
+                              <pre
+                                className="m-0 p-3 text-[13px] leading-relaxed font-code whitespace-pre"
+                                style={{ color: "var(--text-primary)" }}
+                              >
+                                {pane.content.split("\n").map((line, i) => (
+                                  <div key={i} className="flex hover:bg-crt-green/5">
+                                    <span
+                                      className="select-none text-right pr-3 shrink-0"
+                                      style={{ color: "var(--text-tertiary)", opacity: 0.3, minWidth: "3em" }}
+                                    >
+                                      {i + 1}
+                                    </span>
+                                    <span className="flex-1">{line || " "}</span>
+                                  </div>
+                                ))}
+                              </pre>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -5412,7 +5811,7 @@ export default function Home() {
                           .slice(0, 200)
                           .map((m) => (
                             <button
-                              key={m.name}
+                              key={m.path}
                               type="button"
                               onClick={() => {
                                 resetModuleState(m);
@@ -5783,7 +6182,7 @@ export default function Home() {
               const isSelected = selectedJob === job.id;
               const color = STATUS_COLOR[job.status];
               const isPromptExpanded = expandedPrompts.has(job.id);
-              const moduleName = job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null;
+              const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "claude";
               const isDragOver = dragOverJobId === job.id && draggedJobId !== job.id;
               return (
                 <div
@@ -5820,11 +6219,9 @@ export default function Home() {
                         <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.4 }}>
                           {modelLabel(job.model)}
                         </span>
-                        {job.work_dir && moduleName && moduleName !== "claude" && (
-                          <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>
-                            {moduleName}
-                          </span>
-                        )}
+                        <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--crt-amber)", opacity: 0.4 }}>
+                          {moduleName}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px]" style={{ color: faintGreenText, opacity: 0.5 }}>
@@ -5946,6 +6343,10 @@ export default function Home() {
       const matchesStatus = !statusFilter || j.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
+    // Active work floats to the top: running, then queued, then everything
+    // else newest-first — opening TASKS answers "what's running right now?".
+    const statusRank = (s: string) => (s === "running" ? 0 : s === "pending" ? 1 : 2);
+    filteredJobs.sort((a, b) => statusRank(a.status) - statusRank(b.status) || b.created_at - a.created_at);
 
     const runningCount = filteredJobs.filter(j => j.status === "running").length;
     const isRunning = selectedJobData?.status === "running";
@@ -6373,7 +6774,7 @@ export default function Home() {
                 <div className="w-full max-w-[920px] mx-auto px-3 py-3 flex flex-col gap-2.5">
                   {filteredJobs.map((job, idx) => {
                     const color = STATUS_COLOR[job.status];
-                    const moduleName = job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null;
+                    const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "claude";
                     const { cleanPrompt, imagePaths } = parsePromptImages(job.prompt);
                     const jobModelChip = MODEL_OPTIONS.find(o => o.value === job.model || o.family === job.model);
                     const finished = ["completed", "failed", "cancelled"].includes(job.status);
@@ -6399,15 +6800,13 @@ export default function Home() {
                             >
                               {modelLabel(job.model)}
                             </span>
-                            {moduleName && moduleName !== "claude" && (
-                              <span
-                                className="task-chip font-mono"
-                                style={{ "--chip-accent": "var(--crt-amber)" } as React.CSSProperties}
-                                title={job.work_dir}
-                              >
-                                ◈ {moduleName}
-                              </span>
-                            )}
+                            <span
+                              className="task-chip font-mono"
+                              style={{ "--chip-accent": "var(--crt-amber)" } as React.CSSProperties}
+                              title={job.work_dir || "claude"}
+                            >
+                              ◈ {moduleName}
+                            </span>
                             {imagePaths.length > 0 && (
                               <span className="task-chip" title={`${imagePaths.length} image attachment${imagePaths.length === 1 ? "" : "s"}`}>
                                 ⧉ {imagePaths.length}
@@ -6702,13 +7101,17 @@ export default function Home() {
     if (composerMinimized) return null;
     const inner = (
       <>
-          {/* ── PARAMS — auth + the request params sent with every task
-              (agent mod, model, agent personality, system prompt). Expands
-              ABOVE the one-line band; toggled from the PARAMS chip in it. ── */}
+          {/* ── PARAMS — the agent selector + auth + the request params sent
+              with every task (mod, model, system prompt). Expands ABOVE the
+              one-line band; toggled from the PARAMS chip in it. ── */}
             {systemPromptOpen && (
               <div
-                className="mb-2 rounded-2xl px-3.5 py-3 max-h-[55vh] overflow-y-auto"
+                className="mb-2 rounded-2xl px-3.5 py-3 overflow-y-auto"
                 style={{
+                  // Never taller than what's left below the header — on a
+                  // phone the open panel used to squeeze the header/content
+                  // off; the calc keeps header + strip + band always visible.
+                  maxHeight: "min(55vh, calc(100dvh - var(--header-h, 56px) - 150px))",
                   background: glassBg,
                   backdropFilter: "blur(24px) saturate(1.5)",
                   WebkitBackdropFilter: "blur(24px) saturate(1.5)",
@@ -6730,6 +7133,47 @@ export default function Home() {
                   >
                     ✕
                   </button>
+                </div>
+                {/* AGENT — which agent runs the task, at the top because every
+                    param below belongs to it. Each agent owns its own parameter
+                    set; "mod" (this module's claude-code harness) is the only
+                    one wired today, so it's the honest default — codex et al.
+                    become selectable here later. */}
+                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
+                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    AGENT
+                  </span>
+                  {(() => {
+                    const active = AGENT_MODS.find(a => a.value === agentMod) || AGENT_MODS[0];
+                    return (
+                      <select
+                        value={agentMod}
+                        onChange={(e) => {
+                          const pick = AGENT_MODS.find(a => a.value === e.target.value);
+                          if (!pick?.available) return;
+                          setAgentMod(pick.value);
+                          safeSetItem("claude_jobs_agent_mod", pick.value);
+                        }}
+                        className="text-[12px] font-mono px-2.5 py-1.5 rounded-full outline-none cursor-pointer"
+                        style={{
+                          color: active.color,
+                          border: `1px solid ${active.color}55`,
+                          background: `${active.color}14`,
+                          letterSpacing: "0.04em",
+                        }}
+                        title={`Agent: ${active.label} — ${active.hint}. Each agent has its own parameter set; more agents (codex) land here soon.`}
+                      >
+                        {AGENT_MODS.map(a => (
+                          <option key={a.value} value={a.value} disabled={!a.available}>
+                            {a.label}{a.available ? "" : " — soon"}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })()}
+                  <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                    params below are this agent&apos;s set
+                  </span>
                 </div>
                 {/* AUTH — who this request is signed as */}
                 <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
@@ -6789,33 +7233,105 @@ export default function Home() {
                   <span className="text-[10px] font-bold uppercase w-[52px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     MOD
                   </span>
-                  <select
-                    value={selectedModule}
-                    onChange={(e) => {
-                      const m = moduleList.find((x) => x.name === e.target.value);
-                      if (!m) return;
-                      resetModuleState(m);
-                      setSelectedModule(m.name);
-                      setSelectedModuleInfo(m);
-                      setWorkDir(m.path);
-                      fetchModuleConfig(m.name);
-                    }}
-                    className="text-[12px] font-mono px-2.5 py-1.5 rounded-full outline-none cursor-pointer max-w-[200px]"
-                    style={{
-                      color: "#fbbf24",
-                      border: "1px solid rgba(251,191,36,0.3)",
-                      background: "rgba(251,191,36,0.08)",
-                      letterSpacing: "0.04em",
-                    }}
-                    title={`Agent works on module: ${selectedModule || "none"}`}
-                  >
-                    {selectedModule && !moduleList.some((m) => m.name === selectedModule) && (
-                      <option value={selectedModule}>{selectedModule}</option>
-                    )}
-                    {moduleList.map((m) => (
-                      <option key={m.name} value={m.name}>{m.name}</option>
-                    ))}
-                  </select>
+                  {!modPickerOpen ? (
+                    <button
+                      onClick={() => {
+                        setModPickerQuery("");
+                        setModPickerOpen(true);
+                        if (!moduleList.length) fetchModules("");
+                        setTimeout(() => modPickerInputRef.current?.focus(), 0);
+                      }}
+                      className="text-[12px] font-mono px-2.5 py-1.5 rounded-full focus-ring inline-flex items-center gap-1.5 max-w-[220px]"
+                      style={{
+                        color: "#fbbf24",
+                        border: "1px solid rgba(251,191,36,0.3)",
+                        background: "rgba(251,191,36,0.08)",
+                        letterSpacing: "0.04em",
+                      }}
+                      title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
+                    >
+                      <span className="truncate">{selectedModule || "select mod"}</span>
+                      <span style={{ opacity: 0.55, fontSize: 10 }}>▾</span>
+                    </button>
+                  ) : (
+                    <div
+                      className="flex-1 min-w-[180px] max-w-[340px] rounded-xl overflow-hidden"
+                      style={{ border: "1px solid rgba(251,191,36,0.3)", background: "var(--bg-secondary)" }}
+                    >
+                      <input
+                        ref={modPickerInputRef}
+                        type="text"
+                        value={modPickerQuery}
+                        onChange={(e) => { setModPickerQuery(e.target.value); fetchModules(e.target.value); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setModPickerOpen(false);
+                            if (modPickerQuery) fetchModules("");
+                            return;
+                          }
+                          if (e.key === "Enter") {
+                            const q = modPickerQuery.trim().toLowerCase();
+                            const first = moduleList.find((m) => m.name.toLowerCase().includes(q));
+                            if (first) {
+                              resetModuleState(first);
+                              setSelectedModule(first.name);
+                              setSelectedModuleInfo(first);
+                              setWorkDir(first.path);
+                              fetchModuleConfig(first.name);
+                              setModPickerOpen(false);
+                              if (modPickerQuery) fetchModules("");
+                            }
+                          }
+                        }}
+                        placeholder="search modules…"
+                        className="w-full text-[13px] font-mono px-3 py-2 outline-none"
+                        style={{ color: "var(--text-primary)", background: "transparent", border: "none" }}
+                        aria-label="Search modules"
+                      />
+                      <div className="max-h-[180px] overflow-y-auto" style={{ borderTop: `1px solid ${subtleBorder}` }}>
+                        {moduleList
+                          .filter((m) => m.name.toLowerCase().includes(modPickerQuery.trim().toLowerCase()))
+                          .slice(0, 40)
+                          .map((m) => (
+                            <button
+                              // key by path — module NAMES are not unique in the
+                              // registry (two "app"s) and duplicate keys leave
+                              // stale rows behind when the filter narrows
+                              key={m.path || m.name}
+                              onClick={() => {
+                                resetModuleState(m);
+                                setSelectedModule(m.name);
+                                setSelectedModuleInfo(m);
+                                setWorkDir(m.path);
+                                fetchModuleConfig(m.name);
+                                setModPickerOpen(false);
+                                if (modPickerQuery) fetchModules("");
+                              }}
+                              className="w-full text-left text-[12px] font-mono px-3 py-1.5 focus-ring transition-colors hover:brightness-125"
+                              style={{
+                                color: m.name === selectedModule ? "#fbbf24" : "var(--text-secondary)",
+                                background: m.name === selectedModule ? "rgba(251,191,36,0.08)" : "transparent",
+                              }}
+                            >
+                              {m.name === selectedModule && <span style={{ opacity: 0.7 }}>› </span>}
+                              {m.name}
+                            </button>
+                          ))}
+                        {moduleList.filter((m) => m.name.toLowerCase().includes(modPickerQuery.trim().toLowerCase())).length === 0 && (
+                          <div className="text-[11px] px-3 py-2" style={{ color: "var(--text-tertiary)" }}>
+                            no modules match “{modPickerQuery}”
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => { setModPickerOpen(false); if (modPickerQuery) fetchModules(""); }}
+                        className="w-full text-[10px] font-bold uppercase px-3 py-1.5 focus-ring"
+                        style={{ color: "var(--text-tertiary)", letterSpacing: "0.06em", borderTop: `1px solid ${subtleBorder}` }}
+                      >
+                        close
+                      </button>
+                    </div>
+                  )}
                   <span className="text-[10px] font-bold uppercase w-[52px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     MODEL
                   </span>
@@ -6836,8 +7352,11 @@ export default function Home() {
                     ))}
                   </select>
                   <span className="text-[10px] font-bold uppercase w-[52px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
-                    AGENT
+                    PROMPT
                   </span>
+                  {/* System-prompt selector (was "Agent" — these are prompt
+                      presets, not agents). The selected prompt is shown in
+                      full in the SYSTEM section below. */}
                   <select
                     value={agentType}
                     onChange={(e) => { setAgentType(e.target.value); safeSetItem("claude_jobs_agent", e.target.value); }}
@@ -6848,10 +7367,12 @@ export default function Home() {
                       background: "var(--bg-secondary)",
                       letterSpacing: "0.04em",
                     }}
-                    title="Agent personality sent as the fallback system prompt"
+                    title="Select system prompt — sent when no chain blocks are active; shown in SYSTEM below"
                   >
                     {AGENT_OPTIONS.map(a => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
+                      <option key={a.value} value={a.value}>
+                        {a.value === "default" ? "select system prompt" : a.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -6933,78 +7454,167 @@ export default function Home() {
                     {sysPrompts.length === 0 && (
                       <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
                         {activePersonality?.prompt
-                          ? `none — "${activePersonality.name}" agent prompt applies`
+                          ? `none — "${activePersonality.name}" prompt applies`
                           : "none — no system prompt is sent"}
                       </span>
                     )}
                   </div>
                 </div>
-              </div>
-            )}
-          {/* ── Background tasks strip — running/pending jobs surface right
-              above the ask band, so work kicked off from the chat stays
-              visible without hijacking the view. Click a chip to open that
-              task in the full-page TASKS view. ── */}
-          {(() => {
-            const running = jobs.filter(j => j.status === "running" || j.status === "pending");
-            if (running.length === 0) return null;
-            const shown = running.slice(0, 5);
-            return (
-              <div className="mb-2 flex items-center gap-1.5 flex-wrap">
-                {shown.map(j => {
-                  const mod = extractModuleFromWorkDir(j.work_dir || "");
-                  const label = mod || (j.prompt || "task").replace(/\s+/g, " ").slice(0, 32);
-                  const secs = Math.max(0, nowSec - j.created_at);
-                  const elapsed = secs >= 60 ? `${Math.floor(secs / 60)}m` : `${secs}s`;
-                  const pending = j.status === "pending";
-                  return (
-                    <button
-                      key={j.id}
-                      onClick={() => { viewJob(j); setSidebarView("tasks"); }}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full font-code text-[11px] transition-all hover:brightness-125 focus-ring max-w-[260px]"
-                      style={{
-                        background: glassBg,
-                        backdropFilter: "blur(24px) saturate(1.5)",
-                        WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                        border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
-                        color: "var(--text-secondary)",
-                        boxShadow: glassShadow,
-                      }}
-                      title={`${j.prompt || "task"}\n\nOpen in TASKS`}
+                {/* The effective system prompt, shown in full — what actually
+                    ships with the task: the chain when blocks are active,
+                    otherwise the prompt selected in PROMPT above. */}
+                {(chainedSystemPrompt || activePersonality?.prompt) && (
+                  <div className="flex items-start gap-x-2 mt-2">
+                    <span className="w-[52px] shrink-0" aria-hidden="true" />
+                    <div
+                      className="flex-1 rounded-xl px-3 py-2 min-w-0"
+                      style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
                     >
-                      <span
-                        className={pending ? "inline-block" : "animate-spin inline-block"}
-                        style={{ color: "var(--crt-blue)", fontSize: 12, lineHeight: 1 }}
+                      <div className="text-[9px] font-bold uppercase mb-1" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                        {chainedSystemPrompt
+                          ? `sent with every task · chain × ${activeSysPrompts.length}`
+                          : `sent with every task · "${activePersonality.name}"`}
+                        {` · ${(chainedSystemPrompt || activePersonality.prompt).length} chars`}
+                      </div>
+                      <pre
+                        className="text-[10px] font-mono whitespace-pre-wrap m-0 max-h-[140px] overflow-y-auto"
+                        style={{ color: "var(--text-secondary)" }}
                       >
-                        {pending ? "◌" : "⟳"}
-                      </span>
-                      <span className="truncate">{label}</span>
-                      <span className="font-mono text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                        {pending ? "queued" : elapsed}
-                      </span>
-                    </button>
-                  );
-                })}
-                {running.length > shown.length && (
-                  <button
-                    onClick={() => setSidebarView("tasks")}
-                    className="px-2.5 py-1 rounded-full font-code text-[11px] transition-all hover:brightness-125 focus-ring"
-                    style={{
-                      background: glassBg,
-                      border: `1px solid ${glassBorder}`,
-                      color: "var(--text-tertiary)",
-                    }}
-                    title="Open the full-page tasks view"
-                  >
-                    +{running.length - shown.length} more
-                  </button>
+                        {chainedSystemPrompt || activePersonality.prompt}
+                      </pre>
+                    </div>
+                  </div>
                 )}
               </div>
-            );
-          })()}
+            )}
+          {/* ── Params strip — TASKS + the request params (mod / model /
+              PARAMS toggle) all share ONE line above the ask band, on
+              every screen size. ── */}
+          <div className="mb-2 flex items-center gap-2 flex-wrap">
+            {/* PARAMS toggle — leftmost, leading the mod/model chips it
+                expands (auth + mod/model/agent + system prompt chain) */}
+            <button
+              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
+              className="shrink-0 text-[12px] font-bold uppercase px-3.5 py-2 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
+              style={activeSysPrompts.length > 0 ? {
+                color: activeModelChip.color,
+                letterSpacing: "0.08em",
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              } : {
+                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
+                letterSpacing: "0.08em",
+                border: `1px solid ${glassBorder}`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              }}
+              title="Agent + auth + params sent with every task (module, model, system prompts)"
+              aria-expanded={systemPromptOpen}
+            >
+              PARAMS
+              {activeSysPrompts.length > 0 && (
+                <span
+                  className="inline-flex items-center justify-center text-[11px] font-mono rounded-full px-1"
+                  style={{
+                    minWidth: 16,
+                    background: `${activeModelChip.color}30`,
+                    color: activeModelChip.color,
+                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
+                  }}
+                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
+                >
+                  {activeSysPrompts.length}
+                </span>
+              )}
+            </button>
+            {/* Module chip — the mod the agent is editing. Click jumps
+                straight into the searchable mod picker in PARAMS. */}
+            <button
+              onClick={() => {
+                setSystemPromptOpen(true);
+                safeSetItem("claude_system_prompt_open", "1");
+                setModPickerQuery("");
+                setModPickerOpen(true);
+                if (!moduleList.length) fetchModules("");
+                setTimeout(() => modPickerInputRef.current?.focus(), 0);
+              }}
+              className="inline-flex items-center gap-1 text-[13px] font-mono px-3.5 py-2 rounded-full focus-ring transition-all hover:brightness-125 max-w-[46vw] sm:max-w-[220px]"
+              style={{
+                color: "#fbbf24",
+                border: "1px solid rgba(251,191,36,0.25)",
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                boxShadow: glassShadow,
+              }}
+              title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
+            >
+              <span className="truncate">{selectedModule || "select mod"}</span>
+              <span style={{ opacity: 0.55, fontSize: 11 }}>▾</span>
+            </button>
+            {/* Model chip — which model runs the task; opens PARAMS */}
+            <button
+              onClick={() => { setSystemPromptOpen(true); safeSetItem("claude_system_prompt_open", "1"); }}
+              className="inline-flex items-center text-[13px] font-mono px-3.5 py-2 rounded-full focus-ring transition-all hover:brightness-125 max-w-[34vw] sm:max-w-[200px]"
+              style={{
+                color: activeModelChip.color,
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                boxShadow: glassShadow,
+              }}
+              title={`Model: ${activeModelChip.label} — click to change in PARAMS`}
+            >
+              <span className="truncate">{activeModelChip.label}</span>
+            </button>
+            <div className="flex-1" />
+            {/* TASKS pill — opens the full-page TASKS view; shows a count
+                while jobs run. Right-anchored opposite the params chips. */}
+            {(() => {
+              const running = jobs.filter(j => j.status === "running" || j.status === "pending");
+              if (running.length === 0) return null;
+              return (
+                <button
+                  onClick={() => setSidebarView("tasks")}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-full font-code text-[13px] font-bold uppercase transition-all hover:brightness-125 focus-ring"
+                  style={{
+                    background: glassBg,
+                    backdropFilter: "blur(24px) saturate(1.5)",
+                    WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
+                    color: "var(--text-secondary)",
+                    letterSpacing: "0.06em",
+                    boxShadow: glassShadow,
+                  }}
+                  title="Open the full-page tasks view"
+                >
+                  <span
+                    className="animate-spin inline-block"
+                    style={{ color: "var(--crt-blue)", fontSize: 14, lineHeight: 1 }}
+                  >
+                    ⟳
+                  </span>
+                  <span>Tasks</span>
+                  <span className="font-mono text-[12px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                    {running.length}
+                  </span>
+                </button>
+              );
+            })()}
+          </div>
           {/* ── The band — everything lives on ONE line at the bottom:
-              [+] [ask agent…] [imgs] [PARAMS] [▶] — module/model/agent/auth
-              chips live inside the PARAMS panel, not on the band. ── */}
+              [+] [ask agent…] [imgs] [▶] — module/model/agent/auth
+              chips live on the params strip above, not on the band. ── */}
           <div
             className="flex gap-1.5 sm:gap-2 items-stretch rounded-full"
             style={{
@@ -7144,62 +7754,6 @@ export default function Home() {
                 </button>
               </span>
             )}
-            {/* Module chip — the mod the agent is editing, visible right on the
-                band; click opens PARAMS to change it */}
-            {selectedModule && (
-              <button
-                onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
-                className="self-center shrink-0 hidden sm:inline-flex items-center text-[11px] font-mono px-3 py-2 rounded-full focus-ring transition-all hover:brightness-125"
-                style={{
-                  color: "#fbbf24",
-                  border: "none",
-                  background: "rgba(251,191,36,0.10)",
-                  fontWeight: 600,
-                  letterSpacing: "0.05em",
-                  maxWidth: 160,
-                }}
-                title={`Agent works on module: ${selectedModule} — click to change`}
-              >
-                <span className="truncate">{selectedModule}</span>
-              </button>
-            )}
-            {/* PARAMS chip — right side of the band; toggles the params panel
-                (auth + module/model/agent + system prompt) above it */}
-            <button
-              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
-              className="shrink-0 self-center text-[11px] font-bold uppercase px-3 py-2 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
-              style={activeSysPrompts.length > 0 ? {
-                color: activeModelChip.color,
-                letterSpacing: "0.08em",
-                border: "none",
-                background: `${activeModelChip.color}${systemPromptOpen ? "26" : "16"}`,
-              } : {
-                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
-                letterSpacing: "0.08em",
-                border: "none",
-                background: systemPromptOpen
-                  ? (isLight ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.10)")
-                  : (isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)"),
-              }}
-              title="Auth + params sent with every task (module, model, agent, system prompts)"
-              aria-expanded={systemPromptOpen}
-            >
-              PARAMS
-              {activeSysPrompts.length > 0 && (
-                <span
-                  className="inline-flex items-center justify-center text-[9px] font-mono rounded-full px-1"
-                  style={{
-                    minWidth: 14,
-                    background: `${activeModelChip.color}30`,
-                    color: activeModelChip.color,
-                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
-                  }}
-                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
-                >
-                  {activeSysPrompts.length}
-                </span>
-              )}
-            </button>
             <button
               onClick={submitJob}
               disabled={!prompt.trim() || submitting}
@@ -7377,11 +7931,43 @@ export default function Home() {
             there, so trust the URL and render the iframe. */}
         <div className="flex-1 overflow-hidden">
           {selectedModuleInfo?.app_url || omniForeignMod || gatewayHostOverride ? (
-            <iframe
-              src={gatewayUrl}
-              className="w-full h-full border-0"
-              title="Module App"
-            />
+            appPhoneView ? (
+              // Device frame — the iframe is genuinely 390px wide, so the
+              // embedded app's own media queries fire exactly as on a phone.
+              <div
+                className="w-full h-full flex flex-col items-center justify-center gap-2 overflow-auto"
+                style={{ padding: "14px 12px", background: "radial-gradient(ellipse at 50% 0%, var(--bg-tint), var(--bg-primary))" }}
+              >
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                  ▯ 390 × 844 · phone viewport
+                </span>
+                <div
+                  className="flex flex-col overflow-hidden shrink"
+                  style={{
+                    width: 390,
+                    maxWidth: "100%",
+                    height: 844,
+                    maxHeight: "calc(100% - 24px)",
+                    borderRadius: 26,
+                    border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, var(--border-color))",
+                    boxShadow: "0 0 0 6px color-mix(in srgb, var(--crt-dark) 70%, transparent), 0 18px 50px rgba(0,0,0,0.5)",
+                    background: "var(--bg-primary)",
+                  }}
+                >
+                  <iframe
+                    src={gatewayUrl}
+                    className="w-full flex-1 border-0"
+                    title="Module App (phone preview)"
+                  />
+                </div>
+              </div>
+            ) : (
+              <iframe
+                src={gatewayUrl}
+                className="w-full h-full border-0"
+                title="Module App"
+              />
+            )
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
               <span className="text-[48px] text-crt-green/10">🎨</span>
@@ -7874,7 +8460,7 @@ export default function Home() {
               }}
               title={termAuthed ? `Owner session active — ~${termHoursLeft}h left` : "Owner-only — authorize with your wallet to run commands"}
             >
-              {termAuthed ? `OWNER ${termHoursLeft}h` : "LOCKED"}
+              {termAuthed ? `♛ ${termHoursLeft}h` : "LOCKED"}
             </span>
             {termAuthed && (
               <button
@@ -8033,26 +8619,203 @@ export default function Home() {
     );
   };
 
-  // ── API tab — docs (human/engineer toggle), endpoint schema with auth
-  // levels, an interactive playground, and the module's process logs. ──
+  // ── API tab — the endpoint catalog IS the playground (FastAPI-docs
+  // style, minus the jump to a second view): every row expands in place
+  // into a plain-language form with one input per parameter, a TRY IT
+  // button, and the response inline. A second sub-tab keeps process logs. ──
   const renderClaudeApiTab = () => {
+    const authMeta = (auth: string) =>
+      auth === "public"
+        ? { c: "var(--crt-green)", label: "ANYONE", note: "Anyone can call this — no sign-in needed." }
+        : auth === "bearer"
+          ? { c: "var(--crt-blue)", label: "SIGNED IN", note: "You need to be signed in with your wallet to call this." }
+          : { c: "var(--crt-amber)", label: "OWNER", note: "Only the owner wallet of this host can call this." };
     const authBadge = (auth: string) => {
-      const c = auth === "public" ? "var(--crt-green)" : auth === "bearer" ? "var(--crt-blue)" : "var(--crt-amber)";
+      const m = authMeta(auth);
       return (
         <span
           className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold shrink-0"
-          style={{ color: c, borderColor: `color-mix(in srgb, ${c} 45%, transparent)`, background: `color-mix(in srgb, ${c} 8%, transparent)` }}
+          style={{ color: m.c, borderColor: `color-mix(in srgb, ${m.c} 45%, transparent)`, background: `color-mix(in srgb, ${m.c} 8%, transparent)` }}
         >
-          {auth}
+          {m.label}
         </span>
       );
     };
+    const methodColor = (m: string) =>
+      m === "GET" ? "var(--crt-green)" : m === "DELETE" ? "var(--crt-red)" : m === "POST" ? "var(--crt-blue)" : "var(--crt-amber)";
+    // Strip the "{prompt, model?}" body hint out of a description — the
+    // expanded form renders those as labelled inputs, so repeating the raw
+    // fragment in prose would just read as noise.
+    const plainDesc = (desc: string) =>
+      desc.replace(/\{[^}]+\}\s*/g, "").replace(/^[:\s—-]+|[:\s—-]+$/g, "") || desc;
+    const inputStyle = {
+      background: "var(--bg-secondary)",
+      border: "1px solid var(--border-color)",
+      color: "var(--text-primary)",
+    } as const;
+
+    const expandRow = (i: number) => {
+      if (apiExpanded === i) { setApiExpanded(null); return; }
+      setApiExpanded(i);
+      setTryParams({});
+      setTryBodyFields({});
+      setTryBodyRaw(false);
+      setTryBody("");
+      setTryStatus(null);
+      setTryOk(null);
+      setTryResp(null);
+    };
+
+    // Everything the form needs is derived from the schema row itself
+    // (path template + desc), so there is no second source of truth.
+    const renderExpanded = (ep: { method: string; path: string; auth: string; desc: string }) => {
+      const { pathParams, queryParams } = parseEndpointInputs(ep.path);
+      const bodyFields = ep.method === "GET" ? [] : parseBodyFields(ep.desc);
+      const wantsBody = ep.method !== "GET";
+      const isStream = ep.path.includes("/stream");
+      const missingPathParam = pathParams.some((p) => !(tryParams[p] || "").trim());
+      const signedIn = !!(token && token !== "local");
+      const authWarning =
+        ep.auth === "public" ? null
+        : !signedIn ? "You aren't signed in, so this will be refused — sign in from the top bar first."
+        : ep.auth === "owner" && !isOwner ? "This is owner-only and you aren't the owner, so it will be refused."
+        : null;
+
+      const paramInput = (name: string, hint: string, required: boolean, value: string, onChange: (v: string) => void) => (
+        <label key={name} className="flex items-center gap-2">
+          <span className="text-[11px] font-mono w-32 shrink-0 text-right" style={{ color: "var(--text-secondary)" }}>
+            {name}{required && <span style={{ color: "var(--crt-amber)" }}> *</span>}
+          </span>
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={hint || (required ? "required" : "optional")}
+            className="flex-1 text-[12px] font-mono px-2.5 py-1.5 rounded outline-none"
+            style={inputStyle}
+          />
+        </label>
+      );
+
+      return (
+        <div
+          className="flex flex-col gap-2.5 px-3 py-3 rounded-b"
+          style={{ background: tintBg, borderTop: `1px dashed ${subtleBorder}` }}
+        >
+          <div className="text-[12px]" style={{ color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            {plainDesc(ep.desc)}.{" "}
+            <span style={{ color: "var(--text-tertiary)" }}>{authMeta(ep.auth).note}</span>
+          </div>
+          {authWarning && (
+            <div className="text-[11px]" style={{ color: "var(--crt-amber)" }}>⚠ {authWarning}</div>
+          )}
+
+          {(pathParams.length > 0 || queryParams.length > 0 || (!tryBodyRaw && bodyFields.length > 0)) && (
+            <div className="flex flex-col gap-1.5">
+              {pathParams.map((p) =>
+                paramInput(p, "", true, tryParams[p] || "", (v) => setTryParams((prev) => ({ ...prev, [p]: v }))))}
+              {queryParams.map((q) =>
+                paramInput(q.name, q.hint, false, tryParams[q.name] || "", (v) => setTryParams((prev) => ({ ...prev, [q.name]: v }))))}
+              {!tryBodyRaw && bodyFields.map((f) =>
+                paramInput(f.name, f.hint, !f.optional, tryBodyFields[f.name] || "", (v) => setTryBodyFields((prev) => ({ ...prev, [f.name]: v }))))}
+            </div>
+          )}
+
+          {wantsBody && (tryBodyRaw || bodyFields.length === 0) && (
+            <textarea
+              value={tryBody}
+              onChange={(e) => setTryBody(e.target.value)}
+              placeholder='{"key": "value"} — JSON body (optional)'
+              rows={4}
+              className="text-[12px] font-mono px-2.5 py-1.5 rounded outline-none resize-y"
+              style={inputStyle}
+            />
+          )}
+
+          <div className="flex items-center gap-3">
+            {isStream ? (
+              <a
+                href={`${apiUrl}${ep.path.split("?")[0].replace(/:(\w+)/g, (_m, n) => encodeURIComponent((tryParams[n] || "").trim()))}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] px-4 py-1.5 rounded uppercase font-bold tracking-wider"
+                style={{
+                  color: missingPathParam ? "var(--text-tertiary)" : "var(--bg-primary)",
+                  background: missingPathParam ? "var(--bg-secondary)" : "var(--crt-blue)",
+                  border: missingPathParam ? "1px solid var(--border-color)" : "1px solid transparent",
+                  pointerEvents: missingPathParam ? "none" : "auto",
+                }}
+              >
+                Open live stream ↗
+              </a>
+            ) : (
+              <button
+                onClick={() => sendTryRequest(ep)}
+                disabled={trySending || missingPathParam}
+                className="text-[11px] px-4 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
+                style={{
+                  color: "var(--bg-primary)",
+                  background: "var(--crt-blue)",
+                  opacity: trySending || missingPathParam ? 0.4 : 1,
+                }}
+              >
+                {trySending ? "Sending…" : "▶ Try it"}
+              </button>
+            )}
+            {missingPathParam && (
+              <span className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                fill in the <span style={{ color: "var(--crt-amber)" }}>*</span> fields first
+              </span>
+            )}
+            {wantsBody && bodyFields.length > 0 && (
+              <button
+                onClick={() => setTryBodyRaw((r) => !r)}
+                className="text-[10px] uppercase tracking-wider ml-auto"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {tryBodyRaw ? "← simple form" : "edit raw JSON"}
+              </button>
+            )}
+          </div>
+
+          {tryStatus && (
+            <div className="flex items-center gap-2 text-[11px]">
+              <span
+                className="px-2 py-0.5 rounded-sm border font-bold"
+                style={{
+                  color: tryOk ? "var(--crt-green)" : "var(--crt-red)",
+                  borderColor: `color-mix(in srgb, ${tryOk ? "var(--crt-green)" : "var(--crt-red)"} 45%, transparent)`,
+                  background: `color-mix(in srgb, ${tryOk ? "var(--crt-green)" : "var(--crt-red)"} 8%, transparent)`,
+                }}
+              >
+                {tryOk ? "✓" : "✗"} {tryStatus}
+              </span>
+            </div>
+          )}
+          {tryResp !== null && (
+            tryRespKind === "image" ? (
+              <img
+                src={tryResp}
+                alt="response"
+                className="rounded max-w-full"
+                style={{ border: "1px solid var(--border-color)", maxHeight: "40vh", objectFit: "contain", alignSelf: "flex-start" }}
+              />
+            ) : (
+              <pre
+                className="text-[11px] rounded p-3 overflow-auto whitespace-pre max-h-[40vh]"
+                style={inputStyle}
+              >
+                {tryResp}
+              </pre>
+            )
+          )}
+        </div>
+      );
+    };
+
     const sub = (
       <div className="flex items-center gap-1 px-3 py-1.5 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}>
         {([
-          { k: "docs" as const, label: "Docs" },
-          { k: "schema" as const, label: "Schema" },
-          { k: "try" as const, label: "Try it" },
+          { k: "schema" as const, label: "Endpoints" },
           { k: "logs" as const, label: "Logs" },
         ]).map((s) => (
           <button
@@ -8068,129 +8831,25 @@ export default function Home() {
             {s.label}
           </button>
         ))}
-        {apiTabView === "docs" && (
-          <div className="flex items-center gap-1 ml-auto">
-            {([
-              { k: "human" as const, label: "HUMAN" },
-              { k: "engineer" as const, label: "ENGINEER" },
-            ]).map((m) => (
-              <button
-                key={m.k}
-                onClick={() => setApiDocsMode(m.k)}
-                className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all"
-                style={{
-                  color: apiDocsMode === m.k ? "var(--crt-amber)" : "var(--text-tertiary)",
-                  borderColor: apiDocsMode === m.k ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
-                  background: apiDocsMode === m.k ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
-                }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+        {apiTabView === "schema" && (
+          <input
+            value={apiFilter}
+            onChange={(e) => setApiFilter(e.target.value)}
+            placeholder="Filter… (e.g. jobs, screenshot)"
+            className="ml-auto text-[11px] px-2.5 py-1 rounded outline-none w-52"
+            style={{ background: "var(--bg-secondary)", border: `1px solid ${subtleBorder}`, color: "var(--text-primary)" }}
+          />
         )}
       </div>
     );
 
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const base = `${origin}${apiUrl.startsWith("http") ? "" : apiUrl}` || apiUrl;
-
-    const docsHuman = (
-      <div className="max-w-2xl flex flex-col gap-5 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>What is this?</div>
-          <p>
-            This console runs an AI coding agent on the host&apos;s server. You describe what you want in plain
-            words — &quot;build me a page that shows the weather&quot; — and a task starts in the background, shows its
-            work live, and leaves you a working result you can open in the APP tab.
-          </p>
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Getting started</div>
-          <ol className="list-decimal ml-5 flex flex-col gap-1">
-            <li>Sign in with your crypto wallet, or let the browser make a free local key for you (&quot;Use Local Key&quot;).</li>
-            <li>The first time, you&apos;ll be shown the Terms of Use — agreeing asks your wallet to sign them.</li>
-            <li>Type what you want in the bar at the bottom and press Enter.</li>
-            <li>Watch progress under TASKS; the finished work shows up in APP and CODE.</li>
-          </ol>
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Who can do what</div>
-          <p>
-            <b>Anyone</b> can watch: every task and its output is a public ledger.
-            <br /><b>Invited people</b> (whitelisted or holding a QR invite) can submit tasks — their work lives in
-            their own private workspace on the server.
-            <br /><b>The owner</b> can additionally manage modules, processes, and access.
-          </p>
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-green)" }}>Good to know</div>
-          <p>
-            Tasks run on someone else&apos;s computer and are publicly visible — don&apos;t paste passwords or secrets
-            into a prompt. If something looks stuck, check TASKS: tasks keep running in the background even if you
-            close the page. Flip this page to ENGINEER (top right) for the technical version.
-          </p>
-        </section>
-      </div>
-    );
-
-    const codeBlock = (s: string) => (
-      <pre
-        className="text-[11px] rounded p-3 overflow-x-auto whitespace-pre"
-        style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-      >
-        {s}
-      </pre>
-    );
-
-    const docsEngineer = (
-      <div className="max-w-2xl flex flex-col gap-5 text-[13px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Base URL</div>
-          {codeBlock(base)}
-          <p className="mt-1">
-            Reads on the job ledger are public. Mutations need a bearer token; module/system mutations are owner-only
-            (cross-module ones additionally need a replay-protected <code>x-sudo</code> signature). Full catalog with
-            per-endpoint auth levels: the SCHEMA pane.
-          </p>
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Authenticate</div>
-          <p className="mb-1.5">
-            Challenge → EIP-191 <code>personal_sign</code> → verify. A non-owner wallet&apos;s first challenge embeds the
-            Terms of Use, so the signature covers them. Tokens are HMAC-signed, valid 24h.
-          </p>
-          {codeBlock(`# 1. get a challenge
-curl "${base}/auth/challenge?address=0xYOU"
-# 2. personal_sign the returned message with your wallet, then:
-curl -X POST ${base}/auth/verify \\
-  -H 'content-type: application/json' \\
-  -d '{"address":"0xYOU","message":"<challenge>","signature":"0x<sig>"}'
-# → {"token":"...","address":"0xyou"}`)}
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Run a task</div>
-          {codeBlock(`curl -X POST ${base}/jobs \\
-  -H "authorization: Bearer $TOKEN" \\
-  -H 'content-type: application/json' \\
-  -d '{"prompt":"add a dark mode toggle","model":"claude-sonnet-5"}'
-# follow live output (SSE, public):
-curl -N ${base}/jobs/<id>/stream`)}
-          <p className="mt-1">
-            Non-owner submissions are sandboxed to your server-side workspace (<code>~/.mod/peers/&lt;address&gt;</code>);
-            <code>work_dir</code> resolves inside it. The whole ledger is world-readable at <code>GET /jobs</code>.
-          </p>
-        </section>
-        <section>
-          <div className="text-[11px] uppercase font-bold tracking-[0.16em] mb-1.5" style={{ color: "var(--crt-blue)" }}>Debug</div>
-          <p>
-            <code>GET /health</code> reports liveness and whether auth is disabled (<code>local</code>). Process logs for
-            this module are in the LOGS pane (owner-only). 401 on a mutation almost always means a missing/expired
-            token — sign in again.
-          </p>
-        </section>
-      </div>
-    );
+    const filter = apiFilter.trim().toLowerCase();
+    const visible = (apiSchema?.endpoints || [])
+      .map((ep, i) => ({ ep, i }))
+      .filter(({ ep }) => !filter || `${ep.method} ${ep.path} ${ep.desc}`.toLowerCase().includes(filter));
+    const sections = API_SECTION_ORDER
+      .map((title) => ({ title, rows: visible.filter(({ ep }) => endpointSection(ep.path) === title) }))
+      .filter((s) => s.rows.length > 0);
 
     const schemaPane = !apiSchema ? (
       <div className="text-[12px] p-4" style={{ color: "var(--text-tertiary)" }}>
@@ -8198,99 +8857,61 @@ curl -N ${base}/jobs/<id>/stream`)}
       </div>
     ) : (
       <div className="flex flex-col max-w-3xl">
-        <p className="text-[12px] mb-3" style={{ color: "var(--text-tertiary)" }}>
-          {apiSchema.auth_note} Click a row to load it in the playground.
-          {" "}Badges: <span style={{ color: "var(--crt-green)" }}>PUBLIC</span> = no sign-in,{" "}
-          <span style={{ color: "var(--crt-blue)" }}>BEARER</span> = any signed-in user,{" "}
-          <span style={{ color: "var(--crt-amber)" }}>OWNER</span> = host only.
+        <p className="text-[12px] mb-1" style={{ color: "var(--text-tertiary)", lineHeight: 1.6 }}>
+          Everything this module can do, callable right here — click a row, fill in the blanks, and hit{" "}
+          <span style={{ color: "var(--crt-blue)", fontWeight: 700 }}>TRY IT</span>.{" "}
+          <span style={{ color: "var(--crt-green)" }}>ANYONE</span> works without signing in,{" "}
+          <span style={{ color: "var(--crt-blue)" }}>SIGNED IN</span> needs your wallet session, and{" "}
+          <span style={{ color: "var(--crt-amber)" }}>OWNER</span> is host-only.
+          {token && token !== "local" ? " Requests use your current sign-in automatically." : ""}
         </p>
-        {apiSchema.endpoints.map((ep, i) => (
-          <button
-            key={i}
-            onClick={() => {
-              setTryMethod(ep.method);
-              setTryPath(ep.path.split("?")[0].replace(/:(\w+)/g, "<$1>"));
-              setTryBody("");
-              setTryStatus(null);
-              setTryResp(null);
-              setApiTabView("try");
-            }}
-            className="flex items-center gap-2 px-2 py-1.5 text-left transition-colors rounded"
-            style={{ borderBottom: `1px solid ${subtleBorder}44` }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = cardHoverBg)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-          >
-            <span className="text-[10px] font-bold w-12 shrink-0" style={{ color: ep.method === "GET" ? "var(--crt-green)" : "var(--crt-amber)" }}>
-              {ep.method}
-            </span>
-            <code className="text-[11px] shrink-0" style={{ color: "var(--text-primary)" }}>{ep.path}</code>
-            {authBadge(ep.auth)}
-            <span className="text-[11px] truncate" style={{ color: "var(--text-tertiary)" }}>{ep.desc}</span>
-          </button>
+        {sections.length === 0 && (
+          <div className="text-[12px] py-6 text-center" style={{ color: "var(--text-tertiary)" }}>
+            Nothing matches “{apiFilter}”.
+          </div>
+        )}
+        {sections.map((section) => (
+          <div key={section.title} className="flex flex-col">
+            <div
+              className="text-[10px] uppercase font-bold tracking-widest mt-4 mb-1 px-1"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              {section.title}
+            </div>
+            {section.rows.map(({ ep, i }) => (
+              <div
+                key={i}
+                className="rounded"
+                style={{
+                  border: `1px solid ${apiExpanded === i ? "color-mix(in srgb, var(--crt-blue) 35%, transparent)" : "transparent"}`,
+                  borderBottomColor: apiExpanded === i ? undefined : `${subtleBorder}44`,
+                  marginBottom: apiExpanded === i ? 8 : 0,
+                }}
+              >
+                <button
+                  onClick={() => expandRow(i)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-left transition-colors rounded"
+                  style={{ background: apiExpanded === i ? tintBg : "transparent" }}
+                  onMouseEnter={(e) => { if (apiExpanded !== i) e.currentTarget.style.background = cardHoverBg; }}
+                  onMouseLeave={(e) => { if (apiExpanded !== i) e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span className="text-[10px] font-bold w-12 shrink-0" style={{ color: methodColor(ep.method) }}>
+                    {ep.method}
+                  </span>
+                  <code className="text-[11px] shrink-0" style={{ color: "var(--text-primary)" }}>{ep.path.split("?")[0]}</code>
+                  {authBadge(ep.auth)}
+                  <span className="text-[11px] truncate flex-1" style={{ color: "var(--text-tertiary)" }}>
+                    {plainDesc(ep.desc)}
+                  </span>
+                  <span className="text-[10px] shrink-0" style={{ color: apiExpanded === i ? "var(--crt-blue)" : "var(--text-tertiary)" }}>
+                    {apiExpanded === i ? "▾" : "▸"}
+                  </span>
+                </button>
+                {apiExpanded === i && renderExpanded(ep)}
+              </div>
+            ))}
+          </div>
         ))}
-      </div>
-    );
-
-    const tryPane = (
-      <div className="flex flex-col gap-2 max-w-3xl">
-        <div className="flex items-center gap-2">
-          <select
-            value={tryMethod}
-            onChange={(e) => setTryMethod(e.target.value)}
-            className="text-[12px] font-bold px-2 py-1.5 rounded outline-none"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-          >
-            {["GET", "POST", "PUT", "DELETE"].map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <input
-            value={tryPath}
-            onChange={(e) => setTryPath(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") sendTryRequest(); }}
-            placeholder="/health"
-            className="flex-1 text-[12px] font-mono px-2.5 py-1.5 rounded outline-none"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-          />
-          <button
-            onClick={sendTryRequest}
-            disabled={trySending || !tryPath.trim()}
-            className="text-[11px] px-4 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
-            style={{
-              color: "var(--bg-primary)",
-              background: "var(--crt-blue)",
-              opacity: trySending || !tryPath.trim() ? 0.4 : 1,
-            }}
-          >
-            {trySending ? "…" : "Send"}
-          </button>
-        </div>
-        {tryMethod !== "GET" && (
-          <textarea
-            value={tryBody}
-            onChange={(e) => setTryBody(e.target.value)}
-            placeholder='{"prompt": "…"}  — JSON body'
-            rows={4}
-            className="text-[12px] font-mono px-2.5 py-1.5 rounded outline-none resize-y"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-          />
-        )}
-        <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-          {token && token !== "local"
-            ? "Requests are sent with your bearer token — owner/bearer endpoints work if your account allows them."
-            : "Not signed in — only PUBLIC endpoints will succeed."}
-          {tryStatus && (
-            <span className="ml-2 font-bold" style={{ color: tryStatus.includes("OK") ? "var(--crt-green)" : "var(--crt-amber)" }}>
-              → {tryStatus}
-            </span>
-          )}
-        </div>
-        {tryResp !== null && (
-          <pre
-            className="text-[11px] rounded p-3 overflow-auto whitespace-pre max-h-[50vh]"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)", color: "var(--text-primary)" }}
-          >
-            {tryResp}
-          </pre>
-        )}
       </div>
     );
 
@@ -8301,7 +8922,7 @@ curl -N ${base}/jobs/<id>/stream`)}
           renderLogsTab()
         ) : (
           <div className="flex-1 overflow-y-auto p-4">
-            {apiTabView === "docs" ? (apiDocsMode === "human" ? docsHuman : docsEngineer) : apiTabView === "schema" ? schemaPane : tryPane}
+            {schemaPane}
           </div>
         )}
       </div>
@@ -8475,9 +9096,6 @@ curl -N ${base}/jobs/<id>/stream`)}
     const edges: Array<{ from: string; to: string }> = [];
     for (const m of connected) for (const d of depsOf(m.name)) edges.push({ from: m.name, to: d });
 
-    const nodeColor = (name: string) =>
-      liveOf(name) === true ? "var(--crt-green)" : liveOf(name) === false ? "#888" : "var(--crt-amber)";
-
     const NodeCard = ({ name, mini }: { name: string; mini?: boolean }) => {
       const m = byName.get(name)!;
       const live = liveOf(name);
@@ -8486,16 +9104,16 @@ curl -N ${base}/jobs/<id>/stream`)}
       return (
         <button
           onClick={() => openModule(m)}
-          className={`text-left border rounded transition-all flex flex-col justify-center group ${mini ? "px-2 py-1.5" : "px-3 py-2"}`}
+          className={`hub-card text-left flex flex-col justify-center group ${mini ? "px-2 py-1.5" : "px-3 py-2"}`}
+          data-live={live === true ? "true" : undefined}
+          data-selected={isSel ? "true" : undefined}
           style={{
             width: mini ? undefined : NODE_W,
             height: mini ? undefined : NODE_H,
-            borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)",
-            background: isSel ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "var(--bg-secondary, var(--bg-primary))",
+            borderRadius: mini ? 10 : undefined,
+            ["--hub-accent" as any]: hubHue(name),
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 55%, transparent)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 60%, transparent)" : nodeColor(name) === "var(--crt-green)" ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"; }}
-          title={m.description || name}
+          title={[m.description || name, m.updated_at ? `updated ${timeSince(m.updated_at)}` : null, m.cid ? `cid ${m.cid}` : null].filter(Boolean).join(" · ")}
         >
           <div className="flex items-center gap-1.5 min-w-0">
             <span className={`shrink-0 ${live === true ? "led-pulse" : ""}`} style={{ color: dot, fontSize: "9px" }}>●</span>
@@ -8608,6 +9226,13 @@ curl -N ${base}/jobs/<id>/stream`)}
       if (st.app === false || st.api === false) return false;
       return null;
     };
+    // Status filter — counts are taken before the split so the pills show
+    // both sides regardless of which one is selected.
+    const runningCount = mods.filter((m) => liveOf(m.name) === true).length;
+    const stoppedCount = mods.length - runningCount;
+    if (hubRunFilter !== "all") {
+      mods = mods.filter((m) => (liveOf(m.name) === true) === (hubRunFilter === "running"));
+    }
     // Online modules first, then alphabetical — the things you're running
     // float to the top.
     mods = [...mods].sort((a, b) => {
@@ -8615,13 +9240,15 @@ curl -N ${base}/jobs/<id>/stream`)}
       const lb = liveOf(b.name) === true ? 0 : 1;
       return la - lb || a.name.localeCompare(b.name);
     });
-    const onlineCount = mods.filter((m) => liveOf(m.name) === true).length;
+    const onlineCount = runningCount;
 
     return (
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Slow-drifting aurora behind the card wall */}
+        <div className="hub-aurora" aria-hidden />
         {/* Hub toolbar */}
         <div
-          className="flex items-center gap-3 px-4 py-2.5 shrink-0 flex-wrap"
+          className="flex items-center gap-3 px-4 py-2.5 shrink-0 flex-wrap relative z-[1]"
           style={{ borderBottom: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--crt-green) 4%, transparent)" }}
         >
           <span className="text-[14px] font-bold font-code text-crt-green flex items-center gap-1.5" style={{ letterSpacing: "0.04em" }}>
@@ -8673,6 +9300,21 @@ curl -N ${base}/jobs/<id>/stream`)}
               );
             })}
           </div>
+          {/* Running-status filter — driven by the same liveness probes as the
+              card dots, so "running" means a green app or api probe. */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-code uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>status:</span>
+            {([["all", "all", null], ["running", "● running", runningCount], ["stopped", "○ stopped", stoppedCount]] as const).map(([key, label, count]) => (
+              <button
+                key={key}
+                onClick={() => setHubRunFilter(key)}
+                className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${hubRunFilter === key ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+                title={key === "all" ? "Show every module" : key === "running" ? "Only modules with a live app or API" : "Only modules that aren't running"}
+              >
+                {label}{count !== null ? ` (${count})` : ""}
+              </button>
+            ))}
+          </div>
           {/* Owner filter — "all" / "mine" + a single dropdown for everyone
               else, so the row stays on one line instead of a pill per owner. */}
           {hubOwners.length > 1 && (
@@ -8721,7 +9363,7 @@ curl -N ${base}/jobs/<id>/stream`)}
         </div>
 
         {/* Module grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 relative z-[1]">
           {mods.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
               <span className="text-[40px]" style={{ color: "var(--crt-green)", opacity: 0.15 }}>▦</span>
@@ -8738,34 +9380,55 @@ curl -N ${base}/jobs/<id>/stream`)}
             >
               <button
                 onClick={() => { setAddError(null); setAddOpen(true); }}
-                className="text-left rounded p-3 transition-all flex flex-col items-center justify-center gap-1.5 group min-h-[104px]"
-                style={{
-                  border: "1px dashed color-mix(in srgb, var(--accent-color) 40%, transparent)",
-                  background: "color-mix(in srgb, var(--accent-color) 4%, transparent)",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent-color)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 9%, transparent)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent-color) 40%, transparent)"; e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 4%, transparent)"; }}
+                className="hub-add-card text-left p-3 flex flex-col items-center justify-center gap-1.5 group min-h-[104px]"
                 title="Import from GitHub or a snapshot CID"
               >
-                <span className="text-[24px] leading-none" style={{ color: "var(--accent-color)" }}>＋</span>
+                <span className="hub-add-card__plus text-[26px] leading-none">＋</span>
                 <span className="text-[12px] font-code font-bold" style={{ color: "var(--accent-color)" }}>Add a module</span>
                 <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)" }}>GitHub · CID</span>
               </button>
-              {mods.map((m) => {
+              {(() => {
+                // Same name published by DIFFERENT owners → one card with an
+                // owner picker, your copy as the default face. Same-owner
+                // twins (core/x vs orbit/x) stay separate cards — there the
+                // tree prefix, not the owner, is what tells them apart.
+                const groups = new Map<string, typeof mods>();
+                for (const mm of mods) {
+                  const g = groups.get(mm.name);
+                  if (g) g.push(mm); else groups.set(mm.name, [mm]);
+                }
+                const chosenFor = (name: string, group: typeof mods) =>
+                  group.find((v) => v.path === hubOwnerPick[name]) ??
+                  (myOwner ? group.find((v) => v.owner === myOwner) : undefined) ??
+                  group[0];
+                const cards: Array<{ m: typeof mods[number]; variants: typeof mods }> = [];
+                const collapsed = new Set<string>();
+                for (const mm of mods) {
+                  if (collapsed.has(mm.name)) continue;
+                  const group = groups.get(mm.name)!;
+                  const distinctOwners = new Set(group.map((v) => (v.owner || "").toLowerCase()));
+                  if (group.length > 1 && distinctOwners.size > 1) {
+                    collapsed.add(mm.name);
+                    cards.push({ m: chosenFor(mm.name, group), variants: group });
+                  } else {
+                    cards.push({ m: mm, variants: [mm] });
+                  }
+                }
+                return cards.map(({ m, variants }, i) => {
                 const live = liveOf(m.name);
                 const isSel = m.name === selectedModule;
                 const dotColor = live === true ? "var(--crt-green)" : live === false ? "#888" : "color-mix(in srgb, var(--crt-amber) 60%, transparent)";
                 return (
                   <button
-                    key={m.name}
+                    key={m.path}
                     onClick={() => openModule(m)}
-                    className="text-left border rounded p-3 transition-all flex flex-col gap-2 group"
+                    className="hub-card text-left p-3 flex flex-col gap-2 group"
+                    data-live={live === true ? "true" : undefined}
+                    data-selected={isSel ? "true" : undefined}
                     style={{
-                      borderColor: isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)",
-                      background: isSel ? "color-mix(in srgb, var(--crt-green) 7%, transparent)" : "var(--bg-secondary, transparent)",
+                      ["--hub-accent" as any]: hubHue(m.name),
+                      animationDelay: `${Math.min(i * 26, 390)}ms`,
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 45%, transparent)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = isSel ? "color-mix(in srgb, var(--crt-green) 55%, transparent)" : "var(--border-color)"; }}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -8775,8 +9438,11 @@ curl -N ${base}/jobs/<id>/stream`)}
                           style={{ color: dotColor, fontSize: "10px" }}
                           title={live === true ? "online" : live === false ? "offline" : "checking…"}
                         >●</span>
-                        <span className="font-code font-bold text-[14px] truncate" style={{ color: "var(--text-primary)" }}>
-                          {m.name}
+                        <span className="font-code font-bold text-[14px] truncate" style={{ color: "var(--text-primary)" }} title={m.display}>
+                          {/* Same name can exist in both scanned trees (core/config
+                              vs orbit/config) — the tree prefix is what tells the
+                              twins apart. */}
+                          <span style={{ opacity: 0.45, fontWeight: 400 }}>{m.category}/</span>{m.name}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -8802,21 +9468,138 @@ curl -N ${base}/jobs/<id>/stream`)}
                     <div className="text-[11px] leading-snug font-code line-clamp-2 min-h-[28px]" style={{ color: "var(--text-tertiary)" }}>
                       {m.description || <span style={{ opacity: 0.4 }}>{m.path.replace(/^.*\/mod\/orbit\//, "orbit/").replace(/^.*\/mod\/core\//, "core/")}</span>}
                     </div>
-                    <div className="flex items-center justify-between">
-                      {m.owner ? (
-                        <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.5 }} title={m.owner}>
-                          {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
+                    {/* Meta row: last-updated (newest file mtime) */}
+                    {m.updated_at ? (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="text-[9px] font-code shrink-0"
+                          style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
+                          title={`Last updated ${formatDate(m.updated_at)}`}
+                        >
+                          ⟳ {timeSince(m.updated_at)}
                         </span>
-                      ) : <span />}
-                      <span className="text-[10px] font-code text-crt-green opacity-0 group-hover:opacity-100 transition-opacity">edit →</span>
+                      </div>
+                    ) : null}
+                    {/* Owner row: owner (a picker when several owners publish
+                        this name — yours is the default) + copyable CID. */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {variants.length > 1 ? (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setHubOwnerMenu((cur) => (cur?.name === m.name ? null : { name: m.name, x: r.left, y: r.bottom + 4 }));
+                            }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); (e.currentTarget as HTMLElement).click(); } }}
+                            className="text-[9px] font-mono px-1 py-0.5 border rounded-sm shrink-0 cursor-pointer transition-colors hover:border-crt-green/50"
+                            style={{
+                              borderColor: "var(--border-color)",
+                              color: myOwner && m.owner === myOwner ? "var(--crt-green)" : "var(--text-tertiary)",
+                            }}
+                            title={`${variants.length} owners publish “${m.name}” — pick whose copy this card shows (yours is the default)\n${m.owner || ""}`}
+                          >
+                            {m.owner ? `${m.owner.slice(0, 6)}..${m.owner.slice(-4)}` : "no owner"}
+                            {myOwner && m.owner === myOwner ? " · you" : ""} ▾
+                          </span>
+                        ) : m.owner ? (
+                          <span className="text-[9px] font-mono shrink-0" style={{ color: "var(--text-tertiary)", opacity: 0.5 }} title={m.owner}>
+                            {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
+                          </span>
+                        ) : null}
+                        {m.cid ? (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); copyCid(`hub:${m.path}`, m.cid!); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); copyCid(`hub:${m.path}`, m.cid!); } }}
+                            className="text-[9px] font-code truncate cursor-pointer transition-opacity hover:opacity-100"
+                            style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === `hub:${m.path}` ? 1 : 0.55 }}
+                            title={`CID ${m.cid} — click to copy`}
+                          >
+                            {copiedCid === `hub:${m.path}` ? "✓ copied" : `⌬ ${m.cid.slice(0, 12)}…`}
+                          </span>
+                        ) : (
+                          <span
+                            className="text-[9px] font-code shrink-0"
+                            style={{ color: "var(--text-tertiary)", opacity: 0.35 }}
+                            title="No snapshot CID in the registry yet — snapshot the module to publish one"
+                          >
+                            no cid
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className="text-[10px] font-code font-bold opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all"
+                        style={{ color: "color-mix(in srgb, var(--hub-accent) 75%, var(--text-primary))" }}
+                      >edit →</span>
                     </div>
                   </button>
                 );
-              })}
+                });
+              })()}
             </div>
           )}
+          {renderHubOwnerMenu()}
         </div>
       </div>
+    );
+  };
+
+  // ── Hub owner-picker popover ─────────────────────────────────────────
+  // Shown when a hub card's name is published by several owners. Rendered
+  // fixed at the chip's screen position (the card clips overflow), with a
+  // transparent backdrop that closes it on any outside click.
+  const renderHubOwnerMenu = () => {
+    if (!hubOwnerMenu) return null;
+    const group = moduleList.filter(isRealModule).filter((v) => v.name === hubOwnerMenu.name);
+    if (group.length === 0) return null;
+    const me = address && address !== "local" ? address.toLowerCase() : null;
+    const current =
+      group.find((v) => v.path === hubOwnerPick[hubOwnerMenu.name]) ??
+      (me ? group.find((v) => (v.owner || "").toLowerCase() === me) : undefined) ??
+      group[0];
+    return (
+      <>
+        <div className="fixed inset-0 z-[120]" onClick={() => setHubOwnerMenu(null)} />
+        <div
+          className="fixed z-[121] rounded-md border overflow-hidden py-0.5"
+          style={{
+            left: hubOwnerMenu.x,
+            top: hubOwnerMenu.y,
+            minWidth: 190,
+            background: "var(--bg-primary)",
+            borderColor: "var(--border-color-strong, var(--border-color))",
+            boxShadow: "0 10px 36px rgba(0,0,0,0.45)",
+          }}
+        >
+          {group.map((v) => {
+            const you = !!(me && (v.owner || "").toLowerCase() === me);
+            const on = v.path === current.path;
+            return (
+              <div
+                key={v.path}
+                onClick={() => {
+                  setHubOwnerPick((p) => ({ ...p, [hubOwnerMenu.name]: v.path }));
+                  setHubOwnerMenu(null);
+                }}
+                className="px-3 py-1.5 text-[11px] font-mono cursor-pointer transition-colors hover:bg-crt-green/10 flex items-center gap-2"
+                style={{ color: on ? "var(--crt-green)" : "var(--text-secondary)" }}
+                title={`${v.owner || "no owner"}\n${v.path}`}
+              >
+                <span className="w-2 shrink-0">{on ? "▸" : ""}</span>
+                <span className="truncate">
+                  {v.owner ? `${v.owner.slice(0, 6)}..${v.owner.slice(-4)}` : "no owner"}
+                  {you ? " · you" : ""}
+                </span>
+                <span className="font-code shrink-0" style={{ opacity: 0.45 }}>{v.category}/</span>
+              </div>
+            );
+          })}
+        </div>
+      </>
     );
   };
 
@@ -10192,15 +10975,16 @@ curl -N ${base}/jobs/<id>/stream`)}
   };
 
   // Browser-style address bar (the "omnibox"), lifted out of the APP tab into
-  // the header's top-right corner. It's now the single way to navigate the
+  // the header's top-left corner. It's now the single way to navigate the
   // /{mod} namespace — the old module-name search dropdown was redundant with
   // it, so it's gone. ‹ › step through modules; clicking the URL edits it (the
   // /{mod} path autocompletes against the registry, and the host is editable
   // to re-root the same names onto a different host's registrar).
   const renderOmnibox = () => {
     const modName = selectedModule || "claude";
-    const appModName = omniForeignMod || (modName === "claude" ? (isEmbedded ? "web" : "claude") : modName);
-    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
+    // Mirror renderAppApiTab: claude's own APP is the web front-door.
+    const appModName = omniForeignMod || (modName === "claude" ? "web" : modName);
+    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin(mounted)).replace(/\/+$/, "")}/${appModName}`;
     const stepModule = (dir: 1 | -1) => {
       const list = moduleList
         .filter(isRealModule)
@@ -10244,7 +11028,7 @@ curl -N ${base}/jobs/<id>/stream`)}
       setOmniEditing(false);
     };
     return (
-      <div className="flex items-center gap-1.5 shrink-0" style={{ width: 320, maxWidth: "34vw" }}>
+      <div className="flex items-center gap-1.5 flex-1 min-w-0" style={{ minWidth: 320, maxWidth: 760 }}>
         {([-1, 1] as const).map((dir) => (
           <button
             key={dir}
@@ -10426,18 +11210,16 @@ curl -N ${base}/jobs/<id>/stream`)}
     const hasApi = false;
     const sub: "app" | "api" = "app";
     const modName = selectedModule || "claude";
-    // claude's APP tab points at the real claude app (/claude). The console IS
-    // the claude module, so at the top level this simply re-shows the claude
-    // app in the iframe. To avoid infinite nesting, an already-embedded copy
-    // (this console running inside an iframe) breaks the chain by falling back
-    // to the web front-door instead of iframing /claude again. A foreign
-    // /{mod} typed into the omnibox (resolvable only by the foreign host's
+    // claude's APP tab embeds the web front-door, never /claude itself: the
+    // console IS the claude app, so iframing it would nest a second console
+    // (double header/composer/task chips) inside this one. A foreign /{mod}
+    // typed into the omnibox (resolvable only by the foreign host's
     // registrar) wins over both.
-    const appModName = omniForeignMod || (modName === "claude" ? (isEmbedded ? "web" : "claude") : modName);
+    const appModName = omniForeignMod || (modName === "claude" ? "web" : modName);
     // Gateway URL shown in the omnibox and loaded in the iframe. Caddy
     // proxies {host}/{mod} → the module's app; the host defaults to this
     // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
-    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin()).replace(/\/+$/, "")}/${appModName}`;
+    const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin(mounted)).replace(/\/+$/, "")}/${appModName}`;
     const logsOpen = moduleLogsOpen !== null;
     // Logs follow the active sub-view, so the APP/API toggle doubles as a
     // "logs of each" switch: flip to APP → app logs, flip to API → api logs.
@@ -10466,7 +11248,7 @@ curl -N ${base}/jobs/<id>/stream`)}
         }
       >
         {/* Control row: LOGS + EXPAND. The browser-style address bar (omnibox)
-            that used to live here now sits in the header's top-right corner
+            that used to live here now sits in the header's top-left corner
             (renderOmnibox) so it persists across every tab. */}
         {(hasApp || hasApi) && (
           <div
@@ -10490,6 +11272,22 @@ curl -N ${base}/jobs/<id>/stream`)}
             >
               {logsOpen ? "✕ LOGS" : "▤ LOGS"}
             </button>
+            {/* PHONE — preview the embedded app at a mobile viewport
+                (390×844 device frame). Toggles back to the full-width view. */}
+            {hasApp && (
+              <button
+                onClick={() => setAppPhoneView((v) => !v)}
+                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                style={{
+                  color: appPhoneView ? "var(--crt-blue)" : "var(--text-tertiary)",
+                  background: appPhoneView ? "color-mix(in srgb, var(--crt-blue) 12%, transparent)" : "transparent",
+                  border: `1px solid ${appPhoneView ? "color-mix(in srgb, var(--crt-blue) 40%, transparent)" : "var(--border-color)"}`,
+                }}
+                title={appPhoneView ? "Back to full-width view" : "Preview at a phone viewport (390×844)"}
+              >
+                {appPhoneView ? "▭ FULL" : "▯ PHONE"}
+              </button>
+            )}
             {/* EXPAND — blow the embedded app up to a full-viewport overlay
                 (hides the console chrome). Toggles back to MINIMIZE. */}
             {hasApp && (
@@ -10724,7 +11522,12 @@ curl -N ${base}/jobs/<id>/stream`)}
         </div>
       )}
 
-      {/* ── Compact Nav Bar ───────────────────────────────────────── */}
+      {/* ── Header: two stacked rows — compact nav bar (top) + module
+          tabs (second row below). The wrapper stacks them vertically; the
+          nav bar itself keeps its own flex-row (desktop) layout. Its height
+          is published to --header-h so the sign-in drawer starts below it. */}
+      <div ref={headerRef} className="flex flex-col shrink-0" style={{ background: "var(--bg-secondary)" }}>
+      {/* ── Compact Nav Bar (top row) ──────────────────────────────── */}
       <div
         className={isMobile ? "flex flex-col shrink-0" : "flex flex-row items-center shrink-0"}
         style={{
@@ -10732,7 +11535,7 @@ curl -N ${base}/jobs/<id>/stream`)}
           borderBottom: `1px solid ${subtleBorder}`,
           // The nav rail spans the full viewport height (fixed, far left),
           // so the header starts to its right instead of underneath it.
-          paddingLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) : undefined,
+          paddingLeft: !isMobile ? 0 : undefined,
         }}
       >
         {/* Module selector + mod tabs (app/code/overview). On desktop this is
@@ -10741,13 +11544,18 @@ curl -N ${base}/jobs/<id>/stream`)}
             phone it stacks BELOW the HUB/TASKS + account row via flex
             `order`. */}
         <div
-          className={`flex items-center py-0.5 ${isMobile ? "px-4" : "pl-4 pr-2 flex-1 min-w-0"}`}
+          className={`flex items-center py-0.5 ${isMobile ? "px-4" : "pl-3 pr-2 flex-1 min-w-0"}`}
           style={{ order: isMobile ? 2 : 1 }}
         >
+          {/* Browser-style address bar — anchored in the top-LEFT corner of the
+              header row (the orbit mark that used to sit here is gone). It is
+              the single way to jump between modules (type a /{mod}, ‹ › to
+              step). Desktop only: the phone header stacks and has no room. */}
+          {!isMobile && <div className="pr-3 flex-1 min-w-0 flex">{renderOmnibox()}</div>}
           <div className="flex items-center gap-3">
             {/* Module/Folder selector dropdown */}
             <div className="relative" ref={headerModuleRef}>
-              {showHeaderModuleDropdown && (isMobile || !leftRailOpen) ? (
+              {showHeaderModuleDropdown && isMobile ? (
                 <div className="flex items-center gap-0">
                   <input
                     type="text"
@@ -10824,52 +11632,17 @@ curl -N ${base}/jobs/<id>/stream`)}
                     >DIR</button>
                   </div>
                 </div>
-              ) : (
+              ) : isMobile ? (
                 <div className="flex items-center gap-0.5">
-                  {/* Merged name+search: the module name IS the search box.
-                      Clicking it swaps it for the search input in place
-                      (recents suggested immediately, filter as you type).
-                      On desktop the mark keeps the nav-rail toggle. */}
-                  {!isMobile && (
-                    <button
-                      onClick={() => setLeftRailOpen((o) => !o)}
-                      className="cursor-pointer transition-opacity hover:opacity-70 mr-1.5"
-                      title={leftRailOpen ? "Collapse nav rail" : "Open nav rail"}
-                      aria-label={leftRailOpen ? "Collapse nav rail" : "Open nav rail"}
-                    >
-                      <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setShowHeaderModuleDropdown(true);
-                      setHeaderModuleSearch("");
-                      if (selectorMode === "modules") {
-                        if (!moduleList.length) fetchModules("");
-                      } else {
-                        fetchFolders("");
-                      }
-                      // With the rail open the search lives THERE — hand the
-                      // keyboard straight to the rail input instead of
-                      // spawning a second box in the header.
-                      if (!isMobile && leftRailOpen) {
-                        requestAnimationFrame(() => railSearchRef.current?.focus());
-                      }
-                    }}
-                    className="flex items-center gap-1.5 font-bold text-crt-green font-code cursor-pointer hover:text-crt-green/80 transition-colors"
-                    style={{ letterSpacing: "0.01em", fontSize: "14px" }}
-                    title="Search / switch module (Tab toggles folders)"
-                  >
-                    {isMobile && (
-                      <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
-                    )}
-                    {prettyModName(selectedModule) || "Claude"}
-                    <span style={{ opacity: 0.25, fontSize: "9px", lineHeight: 1 }} aria-hidden>▾</span>
-                  </button>
+                  {/* Just the orbit mark (phone only — on desktop the address
+                      bar owns the top-left corner and the mark is gone). */}
+                  <span className="flex items-center" aria-label="orbit">
+                    <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
+                  </span>
                 </div>
-              )}
+              ) : null}
               {/* Modules dropdown */}
-              {showHeaderModuleDropdown && (isMobile || !leftRailOpen) && selectorMode === "modules" && moduleList.length > 0 && (() => {
+              {showHeaderModuleDropdown && isMobile && selectorMode === "modules" && moduleList.length > 0 && (() => {
                 const owners = [...new Set(moduleList.map(m => m.owner).filter(Boolean))] as string[];
                 // Substring-filtered (the server-side /modules?q= ranking can
                 // be fuzzy, but the dropdown should only show names that
@@ -10934,11 +11707,6 @@ curl -N ${base}/jobs/<id>/stream`)}
                             <span className="text-[10px] text-crt-green shrink-0">▸</span>
                           )}
                           <span className={`text-[13px] font-code truncate ${m.name === selectedModule ? 'text-crt-green font-bold' : 'text-crt-green/80'}`}>{m.name}</span>
-                          {m.cid && (
-                            <span className="text-[10px] px-1 py-0.5 border font-code shrink-0 border-crt-green/12 text-crt-green/20" title={m.cid}>
-                              {m.cid.slice(0, 6)}..{m.cid.slice(-4)}
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0 ml-2">
                           {m.app_url && (
@@ -10958,6 +11726,17 @@ curl -N ${base}/jobs/<id>/stream`)}
                             {m.owner.slice(0, 6)}..{m.owner.slice(-4)}
                           </span>
                         )}
+                        {m.cid && (
+                          /* mousedown, not click: the row selects on mousedown */
+                          <span
+                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); copyCid(`dd:${m.path}`, m.cid!); }}
+                            className="text-[10px] font-code shrink-0 cursor-pointer"
+                            style={{ color: "var(--crt-purple, #c084fc)", opacity: copiedCid === `dd:${m.path}` ? 1 : 0.5 }}
+                            title={`CID ${m.cid} — click to copy`}
+                          >
+                            {copiedCid === `dd:${m.path}` ? "✓ copied" : `⌬ ${m.cid.slice(0, 6)}..${m.cid.slice(-4)}`}
+                          </span>
+                        )}
                         {m.path && (
                           <span className="text-[10px] font-mono text-crt-green/15 truncate" title={m.path}>
                             {m.path.replace(/^.*\/mod\/orbit\//, "orbit/").replace(/^.*\/mod\//, "~/mod/")}
@@ -10971,7 +11750,7 @@ curl -N ${base}/jobs/<id>/stream`)}
                 );
               })()}
               {/* Folders dropdown with embedding suggestions */}
-              {showHeaderModuleDropdown && (isMobile || !leftRailOpen) && selectorMode === "folders" && (folderList.length > 0 || folderSuggestions.length > 0) && (
+              {showHeaderModuleDropdown && isMobile && selectorMode === "folders" && (folderList.length > 0 || folderSuggestions.length > 0) && (
                 <div
                   className="absolute left-0 top-full mt-1 border border-crt-blue/20 max-h-[450px] overflow-y-auto z-[80] rounded min-w-[380px]"
                   style={{ background: "var(--bg-primary)", boxShadow: "0 12px 48px rgba(0,0,0,0.15)" }}
@@ -11078,68 +11857,10 @@ curl -N ${base}/jobs/<id>/stream`)}
 
           </div>
 
-          {/* Mod tabs — inline with the module selector on the second-level
-              row (HUB/TASKS moved up to the top-level row). On phone the row
-              may wrap; `flex-wrap` keeps everything on-screen. */}
-          <div className="flex items-center gap-0 ml-2 sm:ml-4 flex-wrap nav-tabs-mobile-scroll">
-          {([
-            // APP leads — the live module interface is the first thing you see.
-            // Shown whenever the module exposes an app.
-            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
-              ? [{
-                  key: "app" as const,
-                  label: "APP",
-                  icon: <AppIcon size={13} />,
-                  color: "var(--crt-green)",
-                  activeKeys: ["app", "api"],
-                  target: "app",
-                }]
-              : []),
-            // CODE merges the file browser and the version history into one
-            // tab (the sub-toggle inside picks between Files and Versions).
-            { key: "files" as const, label: "CODE", icon: <CodeIcon size={13} />, color: "var(--text-primary)" },
-            // API — docs (human/engineer), endpoint schema with auth levels,
-            // an interactive playground, and the module's process logs.
-            { key: "apitab" as const, label: "API", icon: <ApiIcon size={13} />, color: "var(--crt-blue)" },
-            // OVERVIEW is the module's profile/chrome — kept last now that the
-            // app leads. (The EDIT view moved out of the tab row: it's the
-            // rail's EDIT button.)
-            { key: "overview" as const, label: "OVERVIEW", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
-          ]).map((tab) => {
-            const t = tab as any;
-            const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setSidebarView(t.target || tab.key)}
-                className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
-                style={{
-                  letterSpacing: "0.02em",
-                  color: isActive ? tab.color : "var(--text-tertiary)",
-                  opacity: isActive ? 1 : 0.4,
-                  borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
-                  background: isActive ? `color-mix(in srgb, ${tab.color} 6%, transparent)` : "transparent",
-                  marginBottom: "-1px",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.opacity = "0.7";
-                    e.currentTarget.style.color = tab.color;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.opacity = "0.4";
-                    e.currentTarget.style.color = "var(--text-tertiary)";
-                  }
-                }}
-              >
-                <span className="flex items-center">{tab.icon}</span>
-                {tab.label}
-              </button>
-            );
-          })}
-          </div>
+          {/* Mod tabs moved OUT of this top row — they now render in the
+              dedicated second header row below the nav bar (see the
+              "Module tabs (second header row)" block after this header). */}
+
         </div>
 
         {/* ── Account controls. On desktop they sit inline at the right end
@@ -11174,6 +11895,10 @@ curl -N ${base}/jobs/<id>/stream`)}
                   active: tasksActive,
                   badge: runningCount > 0 ? runningCount : null,
                   onClick: () => {
+                    // Always land on the task LIST (running work first) — not
+                    // whichever task happened to be open last.
+                    setSelectedJob(null);
+                    setStreamOutput("");
                     setSidebarView("tasks");
                   },
                 },
@@ -11558,11 +12283,13 @@ curl -N ${base}/jobs/<id>/stream`)}
               >
                 {isOwner && (
                   <span
-                    className="shrink-0 inline-block rounded-full"
-                    style={{ width: "6px", height: "6px", background: "var(--crt-green)", boxShadow: "0 0 6px var(--crt-green)" }}
-                  />
+                    className="shrink-0 text-[13px] leading-none"
+                    title="Owner"
+                    style={{ color: "var(--crt-amber)", textShadow: "0 0 6px color-mix(in srgb, var(--crt-amber) 60%, transparent)" }}
+                  >
+                    ♛
+                  </span>
                 )}
-                {isOwner && <span className="font-bold" style={{ letterSpacing: "0.08em", opacity: 0.75 }}>OWNER</span>}
                 {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
                 <span className="text-[9px]" style={{ opacity: 0.6 }}>
                   {showOwnerSidebar ? "◨" : "◧"}
@@ -11610,14 +12337,15 @@ curl -N ${base}/jobs/<id>/stream`)}
                     </div>
                     {isOwner && (
                       <span
-                        className="text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 rounded shrink-0"
+                        className="text-[12px] leading-none px-1.5 py-0.5 rounded shrink-0"
+                        title="Owner"
                         style={{
                           color: "var(--crt-amber)",
                           background: "color-mix(in srgb, var(--crt-amber) 10%, transparent)",
                           border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
                         }}
                       >
-                        OWNER
+                        ♛
                       </span>
                     )}
                   </div>
@@ -11662,7 +12390,6 @@ curl -N ${base}/jobs/<id>/stream`)}
                   <button
                     onClick={() => {
                       setProfileMenuOpen(false);
-                      setAccountTab("owner");
                       setShowOwnerSidebar(v => !v);
                     }}
                     className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
@@ -11711,13 +12438,124 @@ curl -N ${base}/jobs/<id>/stream`)}
         </div>
       </div>
 
+      {/* ── Module tabs (second header row) ─────────────────────────
+          The APP / CODE / API / OVERVIEW tabs, moved out of the top nav
+          bar into their own row directly beneath it. Left padding tracks
+          the nav rail so the tabs align under the module name above. */}
+      <div
+        className="flex items-center gap-0 flex-wrap nav-tabs-mobile-scroll"
+        style={{
+          background: "var(--bg-secondary)",
+          borderBottom: `1px solid ${subtleBorder}`,
+          paddingLeft: 16,
+          paddingRight: 16,
+        }}
+      >
+          {([
+            // APP leads — the live module interface is the first thing you see.
+            // Shown whenever the module exposes an app.
+            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
+              ? [{
+                  key: "app" as const,
+                  label: "APP",
+                  icon: <AppIcon size={13} />,
+                  color: "var(--crt-green)",
+                  activeKeys: ["app", "api"],
+                  target: "app",
+                }]
+              : []),
+            // CODE merges the file browser and the version history into one
+            // tab (the sub-toggle inside picks between Files and Versions).
+            { key: "files" as const, label: "CODE", icon: <CodeIcon size={13} />, color: "var(--text-primary)" },
+            // API — docs (human/engineer), endpoint schema with auth levels,
+            // an interactive playground, and the module's process logs.
+            { key: "apitab" as const, label: "API", icon: <ApiIcon size={13} />, color: "var(--crt-blue)" },
+            // OVERVIEW is the module's profile/chrome — kept last now that the
+            // app leads. (The EDIT view moved out of the tab row: it's the
+            // rail's EDIT button.)
+            { key: "overview" as const, label: "OVERVIEW", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
+          ]).map((tab) => {
+            const t = tab as any;
+            const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setSidebarView(t.target || tab.key)}
+                className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
+                style={{
+                  letterSpacing: "0.02em",
+                  color: isActive ? tab.color : "var(--text-tertiary)",
+                  opacity: isActive ? 1 : 0.4,
+                  borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
+                  background: isActive ? `color-mix(in srgb, ${tab.color} 6%, transparent)` : "transparent",
+                  marginBottom: "-1px",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.opacity = "0.7";
+                    e.currentTarget.style.color = tab.color;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.opacity = "0.4";
+                    e.currentTarget.style.color = "var(--text-tertiary)";
+                  }
+                }}
+              >
+                <span className="flex items-center">{tab.icon}</span>
+                {tab.label}
+              </button>
+            );
+          })}
+          {/* Owner bubble — the selected module's configured owner, pinned to
+              the right end of the tabs row. Green + "YOU" when it's the
+              signed-in wallet; click copies the full address. */}
+          {(() => {
+            const modOwner = selectedModuleInfo?.owner || moduleConfig?.owner || null;
+            if (!modOwner) return null;
+            const mine = !!address && address !== "local" && address.toLowerCase() === String(modOwner).toLowerCase();
+            const short = modOwner.length > 12 ? `${modOwner.slice(0, 6)}…${modOwner.slice(-4)}` : modOwner;
+            return (
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(modOwner).then(() => {
+                    setOwnerBubbleCopied(true);
+                    setTimeout(() => setOwnerBubbleCopied(false), 1200);
+                  }).catch(() => {});
+                }}
+                className="ml-auto my-0.5 flex items-center gap-1.5 text-[9px] font-bold font-code uppercase px-2.5 py-[3px] rounded-full transition-colors"
+                style={mine ? {
+                  color: "var(--crt-green)",
+                  border: "1px solid rgba(52,211,153,0.35)",
+                  background: "rgba(52,211,153,0.08)",
+                  letterSpacing: "0.06em",
+                } : {
+                  color: "var(--text-tertiary)",
+                  border: `1px solid ${subtleBorder}`,
+                  background: "transparent",
+                  letterSpacing: "0.06em",
+                }}
+                title={`Owner: ${modOwner}${mine ? " (you)" : ""} — click to copy`}
+              >
+                <span style={{ opacity: 0.6 }}>owner</span>
+                <span className="font-mono normal-case">
+                  {ownerBubbleCopied ? "copied ✓" : short}
+                </span>
+                {mine && <span>· YOU</span>}
+              </button>
+            );
+          })()}
+      </div>
+      </div>
+
 
       {error && (
         <div
           className="mr-4 mt-2 p-3 border-2 border-crt-red/50"
           style={{
             background: "rgba(239,68,68,0.05)",
-            marginLeft: !isMobile ? (leftRailOpen ? leftRailWidth : 22) + 16 : 16,
+            marginLeft: !isMobile ? 16 : 16,
           }}
         >
           <div className="text-[14px] text-crt-red flex items-center gap-2">
@@ -11728,206 +12566,118 @@ curl -N ${base}/jobs/<id>/stream`)}
 
       <div className="flex-1 flex flex-row overflow-hidden relative">
 
-        {/* ── Left nav rail: recent modules + bottom HUB/TASKS nav ─────
-            Quick-draw navigation on the far left. The recent list lets
-            you flip between the modules you've been working on without
-            reopening the hub; the HUB/TASKS pills live at the BOTTOM of
-            the rail (with the create/edit actions) so they don't clash
-            with the mod tabs in the header above.
-            Desktop only — on phone the header HUB button / module picker
-            cover this in the limited width. */}
-        {/* Spacer — the rail itself is position:fixed so it can span the
-            entire viewport height (over the header); this holds its width
-            in the flex row so the main content doesn't slide under it. */}
+        {/* ── Recents rail (desktop) — a slim vertical tab on the far left
+            that expands into a drag-resizable quick-switch list of the
+            modules you opened most recently. Collapsed it's a 22px reopen
+            strip, so it never eats space you didn't ask for. */}
         {!isMobile && (
-          <div className="shrink-0" style={{ order: 0, width: leftRailOpen ? leftRailWidth : 22 }} />
-        )}
-        {!isMobile && (
-          leftRailOpen ? (
+          recentsRailOpen ? (
             <div
-              ref={leftRailRef}
-              className="flex flex-col overflow-hidden"
+              className="flex flex-col overflow-hidden shrink-0 relative"
               style={{
-                position: "fixed",
-                left: 0,
-                top: 0,
-                // Stop above the docked composer so the ask bar spans the
-                // entire viewport width (0px when floating/minimized).
-                bottom: "var(--composer-dock-h, 0px)",
-                zIndex: 40,
-                width: leftRailWidth,
+                order: 0,
+                width: recentsRailWidth,
                 background: "var(--bg-secondary, var(--bg-primary))",
-                borderRight: "1px solid var(--border-color)",
+                borderRight: `1px solid ${subtleBorder}`,
               }}
             >
-              {/* Drag handle — the rail/content divider. Rides the right
-                  edge; drag to resize the rail. */}
+              {/* Drag handle on the rail/content divider */}
               <div
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setIsRailDragging(true);
-                }}
-                onDoubleClick={() => setLeftRailWidth(212)}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  bottom: 0,
-                  right: 0,
-                  width: 6,
-                  cursor: "col-resize",
-                  zIndex: 5,
-                  background: isRailDragging ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "transparent",
-                  transition: "background 0.15s ease",
-                }}
-                onMouseEnter={(e) => { if (!isRailDragging) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 22%, transparent)"; }}
-                onMouseLeave={(e) => { if (!isRailDragging) e.currentTarget.style.background = "transparent"; }}
+                onMouseDown={(e) => { e.preventDefault(); setIsRecentsRailDragging(true); }}
+                onDoubleClick={() => setRecentsRailWidth(208)}
+                className="absolute top-0 bottom-0 right-0 z-10"
+                style={{ width: 5, cursor: "col-resize", background: isRecentsRailDragging ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "transparent", transition: "background 0.15s ease" }}
+                onMouseEnter={(e) => { if (!isRecentsRailDragging) e.currentTarget.style.background = "color-mix(in srgb, var(--crt-green) 22%, transparent)"; }}
+                onMouseLeave={(e) => { if (!isRecentsRailDragging) e.currentTarget.style.background = "transparent"; }}
                 title="Drag to resize (double-click to reset)"
               />
-              {/* Rail top row — the rail spans the full viewport height now,
-                  so this is the top-left corner of the screen. This IS the one
-                  module search: a live input whose results render in the rail
-                  list right below it (no separate header box or dropdown).
-                  Tab / the MOD·DIR toggle switches to folder search. */}
-              <div className="px-2 pt-2 shrink-0 flex items-center gap-1.5">
-                <div
-                  className="flex items-center gap-1.5 px-2 rounded-md flex-1 min-w-0 transition-all"
-                  style={{
-                    border: `1px solid ${showHeaderModuleDropdown ? "color-mix(in srgb, var(--accent-color) 45%, transparent)" : "var(--border-color)"}`,
-                    background: "var(--bg-primary)",
-                  }}
-                >
-                  <span
-                    className="text-[13px] shrink-0"
-                    style={{ color: "var(--crt-green)", textShadow: "0 0 5px color-mix(in srgb, var(--crt-green) 45%, transparent)" }}
-                    aria-hidden
-                  >
-                    ⌕
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 shrink-0"
+                style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+              >
+                <span className="text-[10px] font-bold font-code uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}>
+                  Recent
+                </span>
+                {recentModules.length > 0 && (
+                  <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+                    {[...new Set(recentModules)].length}
                   </span>
-                  <input
-                    ref={railSearchRef}
-                    type="text"
-                    value={headerModuleSearch}
-                    onFocus={() => {
-                      setShowHeaderModuleDropdown(true);
-                      if (selectorMode === "modules") {
-                        if (!moduleList.length) fetchModules(headerModuleSearch);
-                      } else {
-                        fetchFolders(headerModuleSearch);
-                        if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch);
-                      }
-                    }}
-                    onChange={(e) => {
-                      setHeaderModuleSearch(e.target.value);
-                      if (selectorMode === "modules") {
-                        fetchModules(e.target.value);
-                      } else {
-                        fetchFolders(e.target.value);
-                        fetchFolderSuggestions(e.target.value);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Tab") {
-                        e.preventDefault();
-                        const next = selectorMode === "modules" ? "folders" : "modules";
-                        setSelectorMode(next);
-                        if (next === "folders") { fetchFolders(headerModuleSearch); if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch); }
-                        else { fetchModules(headerModuleSearch); }
-                      }
-                      if (e.key === "Enter") {
-                        if (selectorMode === "modules") {
-                          // Top VISIBLE rail row — railMatches renders the list.
-                          const first = railMatches(headerModuleSearch)[0];
-                          if (first) {
-                            selectModule(first);
-                            setHeaderModuleSearch("");
-                            setShowHeaderModuleDropdown(false);
-                            railSearchRef.current?.blur();
-                          }
-                        } else {
-                          const pick = folderSuggestions[0] || folderList[0];
-                          if (pick) {
-                            setWorkDir(pick.path);
-                            setSelectedModule(pick.name.split("/").pop() || pick.name);
-                            setSelectedModuleInfo(null);
-                            setHeaderModuleSearch("");
-                            setShowHeaderModuleDropdown(false);
-                            railSearchRef.current?.blur();
-                          }
-                        }
-                      }
-                      if (e.key === "Escape") {
-                        setShowHeaderModuleDropdown(false);
-                        setHeaderModuleSearch("");
-                        railSearchRef.current?.blur();
-                      }
-                    }}
-                    placeholder={selectorMode === "modules" ? "Search modules…" : "Search folders…"}
-                    className="font-code text-[12px] py-1.5 bg-transparent outline-none flex-1 min-w-0"
-                    style={{ color: "var(--text-primary)" }}
-                    title="Search modules (Tab toggles folders)"
-                    aria-label="Search modules"
-                  />
-                </div>
-                {/* Mode toggle rides the search box while it's active */}
-                {showHeaderModuleDropdown && (
-                  <div className="flex shrink-0 border border-crt-green/20 rounded overflow-hidden">
-                    <button
-                      onMouseDown={(e) => { e.preventDefault(); setSelectorMode("modules"); fetchModules(headerModuleSearch); }}
-                      className={`text-[9px] px-1.5 py-1 font-code transition-colors ${selectorMode === "modules" ? "bg-crt-green/15 text-crt-green" : "text-crt-green/30 hover:text-crt-green/50"}`}
-                    >MOD</button>
-                    <button
-                      onMouseDown={(e) => { e.preventDefault(); setSelectorMode("folders"); fetchFolders(headerModuleSearch); if (headerModuleSearch) fetchFolderSuggestions(headerModuleSearch); }}
-                      className={`text-[9px] px-1.5 py-1 font-code transition-colors ${selectorMode === "folders" ? "bg-crt-blue/15 text-crt-blue" : "text-crt-green/30 hover:text-crt-green/50"}`}
-                    >DIR</button>
-                  </div>
                 )}
+                {railTasks.running > 0 && (
+                  <span
+                    className="led-pulse flex items-center gap-1 px-1.5 py-[1px] rounded-full font-code text-[9px] font-bold uppercase"
+                    style={{
+                      color: "var(--crt-green)",
+                      border: "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)",
+                      background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                      boxShadow: "0 0 10px -3px var(--crt-green)",
+                      letterSpacing: "0.1em",
+                    }}
+                    title={`${railTasks.running} task${railTasks.running === 1 ? "" : "s"} running${railTasks.pending ? ` · ${railTasks.pending} queued` : ""}`}
+                  >
+                    {railTasks.running} live
+                  </span>
+                )}
+                {railTasks.running === 0 && railTasks.pending > 0 && (
+                  <span
+                    className="led-pulse px-1.5 py-[1px] rounded-full font-code text-[9px] font-bold"
+                    style={{
+                      color: "var(--crt-amber)",
+                      border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                      background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
+                    }}
+                    title={`${railTasks.pending} task${railTasks.pending === 1 ? "" : "s"} queued`}
+                  >
+                    +{railTasks.pending}
+                  </span>
+                )}
+                {(railTasks.completed > 0 || railTasks.failed > 0) && (
+                  <span className="font-code text-[9px] font-bold flex items-center gap-1" title={`${railTasks.completed} done · ${railTasks.failed} failed (recent tasks)`}>
+                    {railTasks.completed > 0 && <span style={{ color: "var(--crt-green)", opacity: 0.7 }}>✓{railTasks.completed}</span>}
+                    {railTasks.failed > 0 && <span style={{ color: "var(--crt-red, #ef4444)", opacity: 0.85 }}>✕{railTasks.failed}</span>}
+                  </span>
+                )}
+                <button
+                  onClick={() => setRecentsRailOpen(false)}
+                  className="ml-auto text-[11px] transition-opacity opacity-40 hover:opacity-100"
+                  style={{ color: "var(--text-secondary, var(--text-tertiary))", lineHeight: 1 }}
+                  title="Collapse the recents rail"
+                  aria-label="Collapse the recents rail"
+                >
+                  «
+                </button>
               </div>
-
-              {/* Module list: search matches, or — when the search box is
-                  empty — a RECENT/MINE toggle showing one list at a time. */}
-              <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1 flex flex-col gap-0.5">
-                {(() => {
-                  const sectionHeader = (label: string) => (
-                    <div
-                      key={`hdr-${label}`}
-                      className="px-1 pt-2 pb-1 text-[10px] font-bold font-code uppercase shrink-0"
-                      style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}
-                    >
-                      {label}
-                    </div>
-                  );
-                  // In-progress work (pending/running jobs), grouped by the
-                  // module its work_dir points at — rendered under that
-                  // module's rail row so you can see, copy, and QR-share the
-                  // task hash without leaving the rail.
-                  const activeByMod = new Map<string, Job[]>();
-                  for (const j of jobs) {
-                    if (j.status !== "running" && j.status !== "pending") continue;
-                    const mod = j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null;
-                    if (!mod) continue;
-                    const list = activeByMod.get(mod) || [];
-                    list.push(j);
-                    activeByMod.set(mod, list);
-                  }
-                  const row = (name: string, info: typeof moduleList[0] | undefined, keyPrefix: string) => {
+              <div className="flex-1 overflow-y-auto px-2 py-1.5 flex flex-col gap-0.5">
+                {[...new Set(recentModules)].length > 0 ? (
+                  [...new Set(recentModules)].map((name) => {
+                    const info = moduleList.find((m) => m.name === name);
                     const st = moduleStatuses[name];
                     const live = st ? (st.app === true || st.api === true ? true : (st.app === false || st.api === false ? false : null)) : null;
-                    const active = name === selectedModule && sidebarView !== "hub";
-                    const activeJobs = activeByMod.get(name) || [];
-                    const tasksOpen = expandedTaskMods.has(name);
+                    const active = name === selectedModule && sidebarView !== "hub" && sidebarView !== "tasks";
+                    const tasks = railTasks.byModule[name];
+                    const hasRunning = !!tasks && tasks.running > 0;
+                    const hasQueued = !!tasks && tasks.pending > 0;
+                    const hasDone = !!tasks && tasks.completed > 0;
+                    const hasFailed = !!tasks && tasks.failed > 0;
+                    const taskTitle = tasks
+                      ? [
+                          [
+                            tasks.running ? `${tasks.running} running` : "",
+                            tasks.pending ? `${tasks.pending} queued` : "",
+                            tasks.completed ? `${tasks.completed} done` : "",
+                            tasks.failed ? `${tasks.failed} failed` : "",
+                          ].filter(Boolean).join(" · "),
+                          ...tasks.prompts,
+                        ].join("\n")
+                      : undefined;
                     return (
-                      <div key={`${keyPrefix}-${name}`} className="flex flex-col">
                       <button
+                        key={`recent-${name}`}
                         onClick={() => {
                           if (info) selectModule(info);
                           else setSelectedModule(name);
-                          // Picking a row IS the search's resolution — reset it.
-                          if (showHeaderModuleDropdown) {
-                            setShowHeaderModuleDropdown(false);
-                            setHeaderModuleSearch("");
-                          }
                         }}
-                        className="group flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
                         style={{
                           color: active ? "var(--accent-color)" : "var(--text-secondary, var(--text-tertiary))",
                           background: active ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "transparent",
@@ -11946,259 +12696,108 @@ curl -N ${base}/jobs/<id>/stream`)}
                             boxShadow: live === true ? "0 0 6px var(--crt-green)" : "none",
                           }}
                         />
-                        <span className="truncate">{name}</span>
-                        {activeJobs.length > 0 && (
+                        <span className="truncate flex-1 min-w-0">{name}</span>
+                        {hasRunning && (
                           <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => { e.stopPropagation(); toggleTaskMod(name); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); toggleTaskMod(name); } }}
-                            className="shrink-0 px-1 rounded-sm font-code font-bold led-pulse cursor-pointer hover:brightness-125"
+                            className="shrink-0 flex items-center gap-1 px-1.5 py-[1px] rounded-full font-code"
                             style={{
-                              fontSize: 9,
-                              color: "var(--crt-amber, #fbbf24)",
-                              border: "1px solid color-mix(in srgb, var(--crt-amber, #fbbf24) 40%, transparent)",
+                              color: "var(--crt-green)",
+                              border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
+                              background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                              boxShadow: "0 0 10px -2px var(--crt-green)",
                             }}
-                            title={`${activeJobs.length} task${activeJobs.length > 1 ? "s" : ""} in progress — click to ${tasksOpen ? "collapse" : "expand"}`}
-                            aria-label={`${tasksOpen ? "Collapse" : "Expand"} ${activeJobs.length} in-progress task${activeJobs.length > 1 ? "s" : ""}`}
-                            aria-expanded={tasksOpen}
+                            title={taskTitle}
                           >
-                            {tasksOpen ? "▾" : "▸"}⚙{activeJobs.length}
+                            <span
+                              className="animate-spin shrink-0"
+                              style={{
+                                width: 8, height: 8, borderRadius: 999,
+                                border: "1.5px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
+                                borderTopColor: "var(--crt-green)",
+                              }}
+                            />
+                            <span className="text-[10px] font-bold leading-none">{tasks.running}</span>
+                            {hasQueued && (
+                              <span className="text-[9px] leading-none" style={{ opacity: 0.6 }}>+{tasks.pending}</span>
+                            )}
                           </span>
                         )}
-                        {/* span, not button: the row is already a <button> */}
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => { e.stopPropagation(); shareModuleQr(name, info?.cid); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); shareModuleQr(name, info?.cid); } }}
-                          className="ml-auto shrink-0 opacity-30 group-hover:opacity-100 hover:!opacity-100 transition-opacity cursor-pointer"
-                          style={{ fontSize: 11, lineHeight: 1 }}
-                          title={`Share ${name} as a QR code (app link / import / CID)`}
-                          aria-label={`Share ${name} as QR`}
-                        >
-                          ⛶
-                        </span>
-                      </button>
-                      {/* In-progress tasks/edits for this module: hash to
-                          copy + QR, click opens the task's live output.
-                          Collapsed by default — the ⚙N badge expands. */}
-                      {tasksOpen && activeJobs.map((j) => (
-                        <div
-                          key={`${keyPrefix}-${name}-job-${j.id}`}
-                          className="flex items-center gap-1.5 pl-6 pr-2 py-1 font-code cursor-pointer rounded-md transition-all"
-                          style={{ fontSize: 10, color: "var(--text-tertiary)" }}
-                          onClick={() => { viewJob(j); setSidebarView("tasks"); }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-amber, #fbbf24) 7%, transparent)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                          title={`${j.status} · ${j.prompt.slice(0, 140)}`}
-                        >
+                        {!hasRunning && hasQueued && (
                           <span
-                            className={j.status === "running" ? "led-pulse" : ""}
-                            style={{ color: "var(--crt-amber, #fbbf24)", fontSize: 8 }}
-                          >●</span>
-                          <span className="truncate font-mono" style={{ color: "var(--text-secondary, var(--text-tertiary))" }}>
-                            {j.id.slice(0, 8)}
-                          </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            className="ml-auto shrink-0 hover:brightness-150 cursor-pointer"
-                            style={{ color: copiedTaskHash === j.id ? "var(--crt-green)" : "var(--text-tertiary)", fontSize: 10 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard?.writeText(j.id).catch(() => {});
-                              setCopiedTaskHash(j.id);
-                              setTimeout(() => setCopiedTaskHash((c) => (c === j.id ? null : c)), 1200);
+                            className="led-pulse shrink-0 px-1.5 py-[1px] rounded-full font-code text-[10px] leading-none"
+                            style={{
+                              color: "var(--crt-amber)",
+                              border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
+                              background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
                             }}
-                            title={copiedTaskHash === j.id ? "Copied!" : `Copy task hash ${j.id}`}
-                            aria-label="Copy task hash"
+                            title={taskTitle}
                           >
-                            {copiedTaskHash === j.id ? "✓" : "⧉"}
+                            +{tasks.pending}
                           </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            className="shrink-0 hover:brightness-150 cursor-pointer"
-                            style={{ color: "var(--text-tertiary)", fontSize: 10 }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openQrShare(`Task · ${name} · ${j.id.slice(0, 8)}`, [
-                                { label: "Hash", value: j.id, hint: `${j.status} task on ${name} — full job hash` },
-                              ]);
-                            }}
-                            title={`Show task hash ${j.id.slice(0, 8)}… as a QR code`}
-                            aria-label="Show task hash as QR"
-                          >
-                            ⛶
-                          </span>
-                        </div>
-                      ))}
-                      </div>
-                    );
-                  };
-                  // The same name can appear under both core/ and orbit/
-                  // (registry, app, web) — one rail row per name, first hit
-                  // wins, so the list never shows identical twins.
-                  const dedupeByName = (list: typeof moduleList) => {
-                    const seen = new Set<string>();
-                    return list.filter((m) => (seen.has(m.name) ? false : (seen.add(m.name), true)));
-                  };
-                  // DIR mode — the rail is the results surface for folder
-                  // search too (no separate dropdown anywhere).
-                  if (showHeaderModuleDropdown && selectorMode === "folders") {
-                    const pickFolder = (f: { name: string; path: string; has_config?: boolean; has_mod?: boolean }) => {
-                      setWorkDir(f.path);
-                      const folderName = f.name.split("/").pop() || f.name;
-                      setSelectedModule(folderName);
-                      setSelectedModuleInfo(null);
-                      setHeaderModuleSearch("");
-                      setShowHeaderModuleDropdown(false);
-                      if (f.has_config || f.has_mod) fetchModuleConfig(folderName);
-                    };
-                    const folderRow = (f: typeof folderList[0] & { score?: number; preview?: string }, keyPrefix: string) => (
-                      <button
-                        key={`${keyPrefix}-${f.path}`}
-                        onClick={() => pickFolder(f)}
-                        className="flex flex-col px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
-                        style={{ color: "var(--text-secondary, var(--text-tertiary))", border: "1px solid transparent" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "color-mix(in srgb, var(--crt-blue, #60a5fa) 8%, transparent)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                        title={f.path}
-                      >
-                        <span className="flex items-center gap-2 min-w-0 w-full">
-                          <span className="shrink-0" style={{ color: "var(--crt-blue, #60a5fa)", opacity: 0.6, fontSize: 10 }}>
-                            {typeof f.score === "number" ? "◈" : "▸"}
-                          </span>
-                          <span className="truncate">{f.name}</span>
-                          {typeof f.score === "number" && (
-                            <span className="ml-auto shrink-0 font-mono" style={{ fontSize: 9, opacity: 0.45 }}>{(f.score * 100).toFixed(0)}%</span>
-                          )}
-                        </span>
-                        <span className="truncate font-mono" style={{ fontSize: 10, opacity: 0.4, paddingLeft: 18 }}>
-                          {f.display || f.path}
-                        </span>
-                      </button>
-                    );
-                    if (folderSuggestions.length === 0 && folderList.length === 0) {
-                      return (
-                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                          No folders found. Type to search.
-                        </div>
-                      );
-                    }
-                    return (
-                      <>
-                        {folderSuggestions.length > 0 && sectionHeader("Suggested")}
-                        {folderSuggestions.map((f) => folderRow(f, "fsuggest"))}
-                        {folderList.length > 0 && sectionHeader(folderList.length > 30 ? `Folders · 30 of ${folderList.length}` : `Folders · ${folderList.length}`)}
-                        {folderList.slice(0, 30).map((f) => folderRow(f, "folder"))}
-                        {folderList.length > 30 && (
-                          <div className="px-2 py-2 text-[10px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
-                            Type to narrow the remaining {folderList.length - 30}.
-                          </div>
                         )}
-                      </>
+                        {hasDone && (
+                          <span
+                            className="shrink-0 px-1 py-[1px] rounded-full font-code text-[10px] leading-none"
+                            style={{ color: "var(--crt-green)", opacity: 0.75 }}
+                            title={taskTitle}
+                          >
+                            ✓{tasks.completed}
+                          </span>
+                        )}
+                        {hasFailed && (
+                          <span
+                            className="shrink-0 px-1 py-[1px] rounded-full font-code text-[10px] font-bold leading-none"
+                            style={{
+                              color: "var(--crt-red, #ef4444)",
+                              border: "1px solid color-mix(in srgb, var(--crt-red, #ef4444) 35%, transparent)",
+                              background: "color-mix(in srgb, var(--crt-red, #ef4444) 8%, transparent)",
+                            }}
+                            title={taskTitle}
+                          >
+                            ✕{tasks.failed}
+                          </span>
+                        )}
+                      </button>
                     );
-                  }
-                  // MOD mode — while the search is active its query filters
-                  // the rail (ranked recents-first; Enter picks the top row).
-                  const q = (showHeaderModuleDropdown && selectorMode === "modules" ? headerModuleSearch : "").trim().toLowerCase();
-                  if (q) {
-                    const matches = railMatches(headerModuleSearch);
-                    if (matches.length === 0) {
-                      return (
-                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                          No modules match “{headerModuleSearch.trim()}”.
-                        </div>
-                      );
-                    }
-                    return (
-                      <>
-                        {sectionHeader(`Matches · ${matches.length}`)}
-                        {matches.map((m) => row(m.name, m, "match"))}
-                      </>
-                    );
-                  }
-                  const me = address && address !== "local" ? address.toLowerCase() : null;
-                  // One list at a time — RECENT (default) or MINE, picked by
-                  // the toggle. Belt-and-braces dedupe on recents:
-                  // localStorage is shared across every modc2 module, so a
-                  // stale writer can still hand us the same name many times.
-                  const recents = [...new Set(recentModules)];
-                  const owned = me
-                    ? dedupeByName(moduleList.filter(isRealModule).filter((m) => m.owner && m.owner.toLowerCase() === me))
-                    : [];
-                  const tab = railListTab;
-                  const tabBtn = (key: "recent" | "mine", label: string, count: number) => (
-                    <button
-                      key={`railtab-${key}`}
-                      onClick={() => setRailListTab(key)}
-                      className="px-1 text-[10px] font-bold font-code uppercase shrink-0 transition-colors"
-                      style={{
-                        letterSpacing: "0.16em",
-                        color: tab === key ? "var(--accent-color)" : "var(--text-tertiary)",
-                        opacity: tab === key ? 1 : 0.55,
-                      }}
-                    >
-                      {label}{count > 0 ? ` · ${count}` : ""}
-                    </button>
-                  );
-                  return (
-                    <>
-                      <div className="flex items-center gap-2.5 pt-2 pb-1 shrink-0">
-                        {tabBtn("recent", "Recent", recents.length)}
-                        {tabBtn("mine", "Mine", owned.length)}
-                      </div>
-                      {tab === "recent" ? (
-                        recents.length > 0 ? (
-                          recents.map((name) => row(name, moduleList.find((m) => m.name === name), "recent"))
-                        ) : (
-                          <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                            Modules you open show up here.
-                          </div>
-                        )
-                      ) : owned.length > 0 ? (
-                        owned.map((m) => row(m.name, m, "mine"))
-                      ) : (
-                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                          {me ? "No modules owned by this wallet yet." : "Sign in to see modules you own."}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+                  })
+                ) : (
+                  <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                    Modules you open show up here.
+                  </div>
+                )}
               </div>
-
-              {/* Rail footer is gone — CREATE/EDIT live in the header "+"
-                  panel and the composer "+", HUB/TASKS moved to the header's
-                  right side, and the rail collapses via the header mark. */}
             </div>
           ) : (
-            // Collapsed: a thin reopen tab on the far left (stops above the
-            // docked composer, like the open rail).
+            // Collapsed: a thin reopen tab hugging the left edge.
             <button
-              onClick={() => setLeftRailOpen(true)}
-              className="flex items-center justify-center transition-all hover:brightness-125"
+              onClick={() => {
+                setRecentsRailOpen(true);
+                if (!moduleList.length) fetchModules("");
+              }}
+              className="flex items-center justify-center transition-all hover:brightness-125 shrink-0"
               style={{
-                position: "fixed",
-                left: 0,
-                top: 0,
-                bottom: "var(--composer-dock-h, 0px)",
-                zIndex: 40,
+                order: 0,
                 width: 22,
                 background: "var(--bg-secondary, var(--bg-primary))",
-                borderRight: "1px solid var(--border-color)",
+                borderRight: `1px solid ${subtleBorder}`,
                 color: "var(--text-tertiary)",
                 writingMode: "vertical-rl",
                 fontSize: 10,
                 letterSpacing: "0.18em",
                 fontFamily: "var(--font-code, monospace)",
               }}
-              title="Open nav rail (HUB + tasks + recent)"
-              aria-label="Open nav rail"
+              title={railTasks.running > 0 ? `Open the recents rail — ${railTasks.running} task${railTasks.running === 1 ? "" : "s"} running` : "Open the recents rail"}
+              aria-label="Open the recents rail"
             >
-              ▦ NAV »
+              RECENT »
+              {railTasks.running > 0 && (
+                <span
+                  className="led-pulse font-bold"
+                  style={{ color: "var(--crt-green)", textShadow: "0 0 8px var(--crt-green)", marginTop: 8 }}
+                >
+                  ●{railTasks.running}
+                </span>
+              )}
             </button>
           )
         )}
@@ -12407,10 +13006,20 @@ curl -N ${base}/jobs/<id>/stream`)}
             const cfgOwner: string | null = cfg?.owner || null;
             const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
             const moduleInfo = selectedModuleInfo;
-            // The merged panel shows the wallet section only for real wallet
-            // sessions (not local/password-less). Without one, only the owner
-            // controls render.
+            // The wallet tab only exists for real wallet sessions (not
+            // local/password-less or QR-handoff phone sessions).
             const hasWallet = !!(address && address !== "local" && walletType);
+            const canSudo = !!(token && token !== "local" && youAreOwner);
+            // One tab per function; a tab that doesn't apply to this session
+            // simply doesn't render. Falls back to the first available tab
+            // when the remembered one disappears (e.g. wallet disconnected).
+            const accountTabs: { id: typeof accountTab; label: string; glyph: string; accent: string }[] = [
+              ...(hasWallet ? [{ id: "wallet" as const, label: "Wallet", glyph: "◇", accent: "var(--crt-green)" }] : []),
+              { id: "access" as const, label: "Access", glyph: "◎", accent: "var(--crt-amber)" },
+              ...(canSudo ? [{ id: "sudo" as const, label: "Sudo", glyph: "⚿", accent: "#cc785c" }] : []),
+              ...(selectedModule ? [{ id: "module" as const, label: "Module", glyph: "⌬", accent: "var(--crt-blue)" }] : []),
+            ];
+            const activeAccountTab = accountTabs.some((t) => t.id === accountTab) ? accountTab : accountTabs[0].id;
             return (
               <div className="flex flex-col h-full overflow-hidden">
                 {/* Header */}
@@ -12422,15 +13031,6 @@ curl -N ${base}/jobs/<id>/stream`)}
                   }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      style={{
-                        fontSize: 14,
-                        color: "var(--crt-amber)",
-                        textShadow: "0 0 12px color-mix(in srgb, var(--crt-amber) 65%, transparent)",
-                      }}
-                    >
-                      ◈
-                    </span>
                     <span
                       className="text-[12px] font-bold uppercase tracking-[0.12em] truncate leading-tight"
                       style={{ color: "var(--text-secondary)" }}
@@ -12466,66 +13066,67 @@ curl -N ${base}/jobs/<id>/stream`)}
                   </button>
                 </div>
 
-                {/* Merged account body — one continuous scroll. The wallet view
-                    (for real wallet sessions) flows directly above the owner
-                    controls; there is no longer an Owner/Wallet tab toggle. */}
+                {/* Tab strip — one tab per function. The tab labels replace
+                    the old WALLET/OWNER section dividers. */}
+                <div
+                  className="flex items-stretch gap-1 px-2 shrink-0"
+                  style={{ borderBottom: `1px solid ${subtleBorder}` }}
+                >
+                  {accountTabs.map((t) => {
+                    const on = t.id === activeAccountTab;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setAccountTab(t.id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] transition-all focus-ring"
+                        style={{
+                          color: on ? t.accent : "var(--text-tertiary)",
+                          borderBottom: `2px solid ${on ? t.accent : "transparent"}`,
+                          background: on
+                            ? `linear-gradient(180deg, transparent, color-mix(in srgb, ${t.accent} 7%, transparent))`
+                            : "transparent",
+                          marginBottom: -1,
+                        }}
+                        aria-selected={on}
+                        role="tab"
+                      >
+                        <span aria-hidden style={{ opacity: on ? 1 : 0.55 }}>{t.glyph}</span>
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="flex-1 overflow-y-auto flex flex-col">
-                {hasWallet && (
-                  <>
-                    <div
-                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      <span style={{ color: "var(--crt-green)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-green) 55%, transparent)" }}>◇</span>
-                      Wallet
-                      <span
-                        className="flex-1 h-px ml-1.5"
-                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-green) 22%, transparent), transparent)" }}
-                        aria-hidden
-                      />
-                    </div>
-                    {/* Embedded wallet view in flow mode — its own header/scroll
-                        are suppressed so it shares this panel's single scroll. */}
-                    <WalletModal
-                      address={address}
-                      walletType={walletType}
-                      inline
-                      embedded
-                      flow
-                      onClose={() => setShowOwnerSidebar(false)}
-                      onDisconnect={() => {
-                        setShowOwnerSidebar(false);
-                        disconnect();
-                      }}
-                      onNetworkChange={() => {
-                        const ethereum = (window as any).ethereum;
-                        if (ethereum) {
-                          ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
-                            setCurrentChainId(parseInt(cid, 16));
-                          }).catch(() => {});
-                        }
-                      }}
-                    />
-                    <div
-                      className="flex items-center gap-1.5 px-4 pt-3 pb-1.5 text-[9px] uppercase tracking-[0.18em] shrink-0"
-                      style={{ color: "var(--text-tertiary)", borderTop: `1px solid ${subtleBorder}` }}
-                    >
-                      <span style={{ color: "var(--crt-amber)", textShadow: "0 0 8px color-mix(in srgb, var(--crt-amber) 55%, transparent)" }}>◈</span>
-                      Owner
-                      <span
-                        className="flex-1 h-px ml-1.5"
-                        style={{ background: "linear-gradient(90deg, color-mix(in srgb, var(--crt-amber) 22%, transparent), transparent)" }}
-                        aria-hidden
-                      />
-                    </div>
-                  </>
+                {/* WALLET — the embedded wallet view carries balance, address,
+                    network and disconnect; nothing here repeats it. */}
+                {activeAccountTab === "wallet" && hasWallet && (
+                  <WalletModal
+                    address={address}
+                    walletType={walletType}
+                    inline
+                    embedded
+                    flow
+                    onClose={() => setShowOwnerSidebar(false)}
+                    onDisconnect={() => {
+                      setShowOwnerSidebar(false);
+                      disconnect();
+                    }}
+                    onNetworkChange={() => {
+                      const ethereum = (window as any).ethereum;
+                      if (ethereum) {
+                        ethereum.request({ method: "eth_chainId" }).then((cid: string) => {
+                          setCurrentChainId(parseInt(cid, 16));
+                        }).catch(() => {});
+                      }
+                    }}
+                  />
                 )}
                 <div className="p-4 flex flex-col gap-3">
+                  {/* ACCESS — who controls this module and who gets in:
+                      owner identity, phone handoff, whitelist, QR invites. */}
                   {/* Owner identity — gradient avatar derived from the address;
-                      the whole row is click-to-copy. Hidden when the connected
-                      wallet IS the owner and its address already shows in the
-                      wallet card above (the YOU badge covers it). */}
-                  {cfgOwner && !(hasWallet && youAreOwner) && (() => {
+                      the whole row is click-to-copy. */}
+                  {activeAccountTab === "access" && cfgOwner && (() => {
                     const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
                     const h1 = seed % 360;
                     const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
@@ -12580,7 +13181,7 @@ curl -N ${base}/jobs/<id>/stream`)}
                   {/* Phone sign-in — hand this session to another device via a
                       single-use QR. Any signed-in user (you can only hand off
                       yourself); hidden in local mode where auth is disabled. */}
-                  {token && token !== "local" && address && (() => {
+                  {activeAccountTab === "access" && token && token !== "local" && address && (() => {
                     const accent = "var(--crt-green)";
                     const live = handoff && handoff.exp > nowSec ? handoff : null;
                     const left = live ? Math.max(0, live.exp - nowSec) : 0;
@@ -12652,10 +13253,10 @@ curl -N ${base}/jobs/<id>/stream`)}
                     );
                   })()}
 
-                  {/* Sudo session & policy — one signature unlocks privileged
+                  {/* SUDO — session & policy: one signature unlocks privileged
                       cross-module ops for a window (default 1 hour); the owner
                       tailors the window and which actions always re-ask. */}
-                  {token && token !== "local" && youAreOwner && (() => {
+                  {activeAccountTab === "sudo" && canSudo && (() => {
                     const accent = "#cc785c"; // claude clay, matches the Sudo sheet
                     const info = sudoInfo;
                     const left = info?.active && info.expires ? Math.max(0, info.expires - nowSec) : 0;
@@ -12793,8 +13394,8 @@ curl -N ${base}/jobs/<id>/stream`)}
                     );
                   })()}
 
-                  {/* Module info */}
-                  {selectedModule && (
+                  {/* MODULE — version / CID / created for the selected module */}
+                  {activeAccountTab === "module" && selectedModule && (
                     <div className="section-card" data-accent="blue">
                       <span className="section-card__bar" />
                       <div className="section-card__head">
@@ -12886,6 +13487,7 @@ curl -N ${base}/jobs/<id>/stream`)}
                   {/* Whitelist — owner edits inline; non-owners get read-only
                       rows and a hint about who can edit. Each row is
                       click-to-copy; owner gets an X to revoke. */}
+                  {activeAccountTab === "access" && (
                   <div className="section-card" data-accent="green">
                     <span className="section-card__bar" />
                     <div className="section-card__head">
@@ -13086,125 +13688,115 @@ curl -N ${base}/jobs/<id>/stream`)}
                       )}
                     </div>
                   </div>
+                  )}
 
                   {/* Share edit access — the same QR-invite minting card as the
                       module OVERVIEW tab, surfaced here because this panel is
                       where the owner manages who gets in. */}
-                  {renderShareAccessCard()}
+                  {activeAccountTab === "access" && renderShareAccessCard()}
 
-                  {/* Owner-only quick actions */}
-                  {isOwner && (
-                    <div className="section-card" data-accent="red">
-                      <span className="section-card__bar" />
-                      <div className="section-card__head">
-                        <div className="section-card__title">
-                          <span className="section-card__glyph">⚙</span>
-                          Owner Actions
-                        </div>
-                      </div>
-                      <div className="section-card__body flex flex-col gap-2">
-                        <button
-                          onClick={() => {
-                            setShowOwnerSidebar(false);
-                            setShowKillDialog(true);
-                          }}
-                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
-                          style={{
-                            borderColor: "color-mix(in srgb, var(--crt-red) 26%, transparent)",
-                            background: "color-mix(in srgb, var(--crt-red) 5%, transparent)",
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 13%, transparent)";
-                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 45%, transparent)";
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 5%, transparent)";
-                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 26%, transparent)";
-                          }}
-                          title="Kill a process by PID or port (Cmd/Ctrl+K)"
-                        >
-                          <span
-                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
-                            style={{
-                              width: 26,
-                              height: 26,
-                              color: "var(--crt-red)",
-                              background: "color-mix(in srgb, var(--crt-red) 12%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--crt-red) 28%, transparent)",
-                            }}
-                            aria-hidden
-                          >
-                            ⏻
-                          </span>
-                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                            <span className="text-[12px]" style={{ color: "var(--crt-red)" }}>Kill process</span>
-                            <span className="text-[10px] truncate" style={{ color: "color-mix(in srgb, var(--crt-red) 55%, var(--text-tertiary))" }}>
-                              Stop a process by PID or port
-                            </span>
-                          </span>
-                          <span
-                            className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              color: "var(--crt-red)",
-                              border: "1px solid color-mix(in srgb, var(--crt-red) 30%, transparent)",
-                              opacity: 0.85,
-                            }}
-                          >
-                            ⌘K
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowOwnerSidebar(false);
-                            disconnect();
-                          }}
-                          className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
-                          style={{
-                            borderColor: "var(--border-color)",
-                            background: "var(--bg-secondary)",
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)";
-                            e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 30%, var(--border-color))";
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = "var(--bg-secondary)";
-                            e.currentTarget.style.borderColor = "var(--border-color)";
-                          }}
-                        >
-                          <span
-                            className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
-                            style={{
-                              width: 26,
-                              height: 26,
-                              color: "var(--text-secondary)",
-                              background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--text-tertiary) 25%, transparent)",
-                            }}
-                            aria-hidden
-                          >
-                            ⎋
-                          </span>
-                          <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                            <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Sign out</span>
-                            <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
-                              End this session and disconnect
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                    </div>
+                  {/* Kill process — a sudo-gated op, so it lives on the SUDO
+                      tab right under the session policy. */}
+                  {activeAccountTab === "sudo" && isOwner && (
+                    <button
+                      onClick={() => {
+                        setShowOwnerSidebar(false);
+                        setShowKillDialog(true);
+                      }}
+                      className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                      style={{
+                        borderColor: "color-mix(in srgb, var(--crt-red) 26%, transparent)",
+                        background: "color-mix(in srgb, var(--crt-red) 5%, transparent)",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 13%, transparent)";
+                        e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 45%, transparent)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 5%, transparent)";
+                        e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 26%, transparent)";
+                      }}
+                      title="Kill a process by PID or port (Cmd/Ctrl+K)"
+                    >
+                      <span
+                        className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                        style={{
+                          width: 26,
+                          height: 26,
+                          color: "var(--crt-red)",
+                          background: "color-mix(in srgb, var(--crt-red) 12%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--crt-red) 28%, transparent)",
+                        }}
+                        aria-hidden
+                      >
+                        ⏻
+                      </span>
+                      <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                        <span className="text-[12px]" style={{ color: "var(--crt-red)" }}>Kill process</span>
+                        <span className="text-[10px] truncate" style={{ color: "color-mix(in srgb, var(--crt-red) 55%, var(--text-tertiary))" }}>
+                          Stop a process by PID or port
+                        </span>
+                      </span>
+                      <span
+                        className="text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                        style={{
+                          color: "var(--crt-red)",
+                          border: "1px solid color-mix(in srgb, var(--crt-red) 30%, transparent)",
+                          opacity: 0.85,
+                        }}
+                      >
+                        ⌘K
+                      </span>
+                    </button>
                   )}
 
-                  {/* Footer — anchors the empty space below the cards */}
+                  {/* Sign out — only for sessions with no WALLET tab (e.g.
+                      QR-handoff phone sessions); wallet sessions disconnect
+                      from the wallet view, so no duplicate button. */}
+                  {activeAccountTab === "access" && token && token !== "local" && !hasWallet && (
+                    <button
+                      onClick={() => {
+                        setShowOwnerSidebar(false);
+                        disconnect();
+                      }}
+                      className="flex items-center gap-2.5 text-left px-2.5 py-2 rounded-lg border transition-colors"
+                      style={{
+                        borderColor: "var(--border-color)",
+                        background: "var(--bg-secondary)",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = "color-mix(in srgb, var(--crt-red) 8%, transparent)";
+                        e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 30%, var(--border-color))";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = "var(--bg-secondary)";
+                        e.currentTarget.style.borderColor = "var(--border-color)";
+                      }}
+                    >
+                      <span
+                        className="flex items-center justify-center shrink-0 text-[12px] rounded-md"
+                        style={{
+                          width: 26,
+                          height: 26,
+                          color: "var(--text-secondary)",
+                          background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)",
+                          border: "1px solid color-mix(in srgb, var(--text-tertiary) 25%, transparent)",
+                        }}
+                        aria-hidden
+                      >
+                        ⎋
+                      </span>
+                      <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                        <span className="text-[12px]" style={{ color: "var(--text-primary)" }}>Sign out</span>
+                        <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                          End this session and disconnect
+                        </span>
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Spacer — anchors the cards to the top of the pane */}
                   <div className="flex-1" />
-                  <div
-                    className="flex items-center justify-center gap-1.5 pt-3 pb-1 text-[9px] uppercase tracking-[0.18em] shrink-0"
-                    style={{ color: "var(--text-tertiary)", opacity: 0.55 }}
-                  >
-                    <span style={{ color: "var(--crt-amber)" }}>◈</span>
-                    owner controls
-                  </div>
                 </div>
                 </div>
               </div>
@@ -13659,11 +14251,14 @@ curl -N ${base}/jobs/<id>/stream`)}
 
       {/* Sign-in drawer — connect a wallet when there's no session. Lives over
           the hub as a right-side panel (the hub stays visible behind it)
-          instead of the old full-screen sign-in takeover. */}
+          instead of the old full-screen sign-in takeover. Starts BELOW the
+          header (--header-h) so it docks under it rather than covering it. */}
       {!token && signInOpen && (
         <div
-          className="fixed top-0 right-0 h-full z-[150] flex flex-col"
+          className="fixed right-0 z-[150] flex flex-col"
           style={{
+            top: "var(--header-h, 0px)",
+            height: "calc(100% - var(--header-h, 0px))",
             width: 360,
             maxWidth: "100vw",
             borderLeft: `1px solid ${subtleBorder}`,

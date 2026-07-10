@@ -2,9 +2,10 @@
 
 // Global nav, folded into the top header as a dropdown — replaces the old
 // LeftNav rail. The square mark + current section name sit top-left; clicking
-// opens a menu with every destination (STRAT / MARKETS / TRADERS / TRADES /
-// DOCS). Wallet + trading-wallet chrome is NOT here — it's a WALLET tab
-// inside the STRAT page.
+// opens a menu with every destination (STRAT / TRADERS / TRADES / DOCS).
+// Market detail pages (/markets/[slug]) are still reachable via trade rows,
+// just not from the nav. Wallet + trading-wallet chrome is NOT here — it's a
+// WALLET tab inside the STRAT page.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,16 +28,6 @@ const NAV: NavItem[] = [
       <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" />
         <path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />
-      </svg>
-    ),
-  },
-  {
-    href: "/markets",
-    label: "MARKETS",
-    icon: (
-      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M3 3v18h18" />
-        <path d="M7 14l4-4 3 3 5-6" />
       </svg>
     ),
   },

@@ -257,10 +257,19 @@ export default function Workspace() {
           ← explorer
         </Link>
         <div className="ws-title" key={fullPulse} data-pulse={fullPulse > 0 || undefined}>
-          Workspace
-          <span className="ws-sub">
-            {wins.length}/{MAX_WIN} windows
+          <span className="ws-title-glyph" aria-hidden>
+            ▦
           </span>
+          Workspace
+        </div>
+        <div
+          className="ws-pips"
+          title={`${wins.length} of ${MAX_WIN} windows`}
+          aria-label={`${wins.length} of ${MAX_WIN} windows open`}
+        >
+          {Array.from({ length: MAX_WIN }, (_, i) => (
+            <span key={i} className={`ws-pip ${i < wins.length ? "on" : ""}`} />
+          ))}
         </div>
         <span className="ws-flex" />
         <button
@@ -542,18 +551,95 @@ function Picker({
   onCancel?: () => void;
 }) {
   const [q, setQ] = useState("");
-  const list = useMemo(() => {
-    if (!mods) return [];
+  const [sel, setSel] = useState(0);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const recent = useMemo(() => recents.get(), []);
+
+  // Searching ranks name-prefix > name > description; browsing shows recents
+  // first, then everything alphabetically. One flat list keeps keyboard
+  // selection simple across both sections.
+  const { list, recentCount } = useMemo(() => {
+    if (!mods) return { list: [] as Module[], recentCount: 0 };
     const s = q.trim().toLowerCase();
-    return mods
-      .filter(
-        (m) =>
-          !s ||
-          m.name.toLowerCase().includes(s) ||
-          m.description.toLowerCase().includes(s),
-      )
-      .slice(0, 60);
-  }, [mods, q]);
+    if (s) {
+      const rank = (m: Module) =>
+        m.name.toLowerCase().startsWith(s)
+          ? 0
+          : m.name.toLowerCase().includes(s)
+            ? 1
+            : m.description.toLowerCase().includes(s)
+              ? 2
+              : 3;
+      const list = mods
+        .map((m) => [m, rank(m)] as const)
+        .filter(([, r]) => r < 3)
+        .sort((a, b) => a[1] - b[1] || a[0].name.localeCompare(b[0].name))
+        .map(([m]) => m);
+      return { list, recentCount: 0 };
+    }
+    const rec = recent
+      .map((n) => mods.find((m) => m.name === n))
+      .filter((m): m is Module => !!m)
+      .slice(0, 6);
+    const recSet = new Set(rec.map((m) => m.name));
+    const rest = mods
+      .filter((m) => !recSet.has(m.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { list: [...rec, ...rest], recentCount: rec.length };
+  }, [mods, q, recent]);
+
+  const selIdx = Math.min(sel, Math.max(0, list.length - 1));
+
+  useEffect(() => {
+    gridRef.current
+      ?.querySelector(`[data-idx="${selIdx}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selIdx]);
+
+  function onKey(e: React.KeyboardEvent) {
+    if (!list.length) {
+      if (e.key === "Escape" && onCancel) onCancel();
+      return;
+    }
+    // resolved template gives the live column count for up/down moves
+    const cols = gridRef.current
+      ? getComputedStyle(gridRef.current).gridTemplateColumns.split(" ").length
+      : 1;
+    const step: Record<string, number> = {
+      ArrowRight: 1,
+      ArrowLeft: -1,
+      ArrowDown: cols,
+      ArrowUp: -cols,
+    };
+    if (e.key in step) {
+      e.preventDefault();
+      setSel(Math.max(0, Math.min(list.length - 1, selIdx + step[e.key])));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      onChoose(list[selIdx].name);
+    } else if (e.key === "Escape" && onCancel) {
+      onCancel();
+    }
+  }
+
+  const tile = (m: Module, i: number) => (
+    <button
+      key={m.name}
+      className={`ws-app ${i === selIdx ? "sel" : ""} ${current === m.name ? "on" : ""}`}
+      data-idx={i}
+      onClick={() => onChoose(m.name)}
+      onMouseEnter={() => setSel(i)}
+      title={m.description}
+    >
+      <span className="ws-app-ic" style={{ background: m.color || hue(m.name) }}>
+        {(m.icon || m.name[0]).slice(0, 1)}
+      </span>
+      <span className="ws-app-tx">
+        <span className="ws-app-nm">{m.name}</span>
+        <span className="ws-app-ds">{m.description}</span>
+      </span>
+    </button>
+  );
 
   return (
     <div className="ws-picker">
@@ -561,34 +647,35 @@ function Picker({
         <input
           autoFocus
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setSel(0);
+          }}
+          onKeyDown={onKey}
           placeholder={mods ? "search apps to open…" : "loading apps…"}
           spellCheck={false}
         />
+        {mods && (
+          <span className="ws-picker-count">
+            {list.length} app{list.length === 1 ? "" : "s"}
+          </span>
+        )}
         {onCancel && (
           <button className="ws-btn" onClick={onCancel}>
             cancel
           </button>
         )}
       </div>
-      <div className="ws-picker-grid">
-        {list.map((m) => (
-          <button
-            key={m.name}
-            className={`ws-app ${current === m.name ? "on" : ""}`}
-            onClick={() => onChoose(m.name)}
-            title={m.description}
-          >
-            <span className="ws-app-ic" style={{ background: m.color || hue(m.name) }}>
-              {(m.icon || m.name[0]).slice(0, 1)}
-            </span>
-            <span className="ws-app-nm">{m.name}</span>
-          </button>
-        ))}
+      <div className="ws-picker-grid" ref={gridRef}>
+        {recentCount > 0 && <div className="ws-picker-sec">recent</div>}
+        {list.slice(0, recentCount).map((m, i) => tile(m, i))}
+        {recentCount > 0 && <div className="ws-picker-sec">all apps</div>}
+        {list.slice(recentCount).map((m, i) => tile(m, i + recentCount))}
         {mods && list.length === 0 && (
-          <div className="ws-picker-empty">no apps match</div>
+          <div className="ws-picker-empty">no apps match “{q.trim()}”</div>
         )}
       </div>
+      <div className="ws-picker-foot">↑↓←→ navigate · ↵ open{onCancel ? " · esc cancel" : ""}</div>
     </div>
   );
 }

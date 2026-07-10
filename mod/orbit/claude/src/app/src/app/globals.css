@@ -29,31 +29,12 @@
   animation: profileMenuExpandLeft 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-:root {
-  --crt-green: #34d399;
-  --crt-amber: #fbbf24;
-  --crt-blue: #60a5fa;
-  --crt-red: #f87171;
-  --crt-dark: #0f172a;
-  --pixel-border: 1px;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #64748b;
-  --accent-color: #60a5fa;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tint: rgba(96,165,250,0.04);
-  --border-color: rgba(255,255,255,0.08);
-  --border-color-strong: rgba(255,255,255,0.15);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.4);
-}
-
+/* The bare :root MUST match the dark theme exactly — data-theme is set
+   client-side, so any divergence here paints as a wrong-palette flash on
+   first load before hydration. */
+:root,
 :root[data-theme="dark"] {
+  --pixel-border: 1px;
   /* Bento glass palette — soft tiles on a deep gradient */
   --crt-green: #34d399;
   --crt-amber: #fbbf24;
@@ -1306,6 +1287,182 @@ pre.font-code,
 @media (max-width: 767px) {
   .task-chip   { font-size: 12.5px; }
   .task-action { font-size: 12.5px; padding: 5px 12px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * HUB card wall — every module gets its own neon accent (--hub-accent,
+ * hashed from the module name in JS). Glass tile + accent wash, a sheen
+ * that sweeps across on hover, a soft lift-and-glow, and a staggered
+ * entrance so the wall cascades in instead of popping.
+ * ──────────────────────────────────────────────────────────────────────*/
+@keyframes hub-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hub-card {
+  --hub-accent: var(--accent-color);
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--hub-accent) 18%, var(--border-color));
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 9%, transparent), transparent 55%),
+    var(--glass-bg, var(--bg-secondary));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent), var(--shadow-sm);
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* accent bar down the left edge */
+.hub-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hub-accent) 85%, transparent),
+    color-mix(in srgb, var(--hub-accent) 20%, transparent));
+  opacity: 0.7;
+  pointer-events: none;
+  transition: opacity 200ms ease, box-shadow 200ms ease;
+}
+
+/* sheen sweep — glides across the tile once per hover */
+.hub-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 40%,
+    color-mix(in srgb, var(--hub-accent) 14%, rgba(255,255,255,0.10)) 50%,
+    transparent 60%);
+  transform: translateX(-130%) skewX(-10deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--hub-accent) 50%, var(--border-color-strong));
+  box-shadow:
+    0 14px 34px -14px color-mix(in srgb, var(--hub-accent) 50%, rgba(0,0,0,0.5)),
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 22%, transparent),
+    var(--shadow-md);
+}
+.hub-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--hub-accent) 60%, transparent);
+}
+.hub-card:hover::after {
+  transform: translateX(130%) skewX(-10deg);
+  opacity: 1;
+  transition: transform 600ms cubic-bezier(0.3, 0.6, 0.3, 1), opacity 150ms ease;
+}
+.hub-card:active { transform: translateY(-1px) scale(0.995); }
+
+/* online modules idle with a faint green halo — alive at a glance */
+.hub-card[data-live="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 26%, var(--border-color));
+  box-shadow:
+    0 0 18px -8px color-mix(in srgb, var(--crt-green) 45%, transparent),
+    0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent),
+    var(--shadow-sm);
+}
+
+/* the module currently loaded in the editor */
+.hub-card[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 60%, transparent);
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 16%, transparent), transparent 60%),
+    var(--glass-bg, var(--bg-secondary));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 30%, transparent),
+    0 8px 26px -12px color-mix(in srgb, var(--hub-accent) 45%, transparent);
+}
+
+/* "Add a module" tile — gradient dashed invite that glows on approach */
+.hub-add-card {
+  position: relative;
+  border-radius: 16px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent-color) 45%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 7%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 5%, transparent));
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease, background 200ms ease;
+}
+.hub-add-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-color);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 13%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 9%, transparent));
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--accent-color) 45%, transparent);
+}
+.hub-add-card__plus {
+  background: linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hub-add-card:hover .hub-add-card__plus { transform: scale(1.18) rotate(90deg); }
+
+/* Aurora backdrop for the HUB — two slow-drifting color blobs behind the
+ * card wall. Pure transform animation (GPU-cheap), pointer-transparent. */
+.hub-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.hub-aurora::before,
+.hub-aurora::after {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.14;
+  will-change: transform;
+}
+.hub-aurora::before {
+  top: -18%;
+  left: -10%;
+  background: radial-gradient(circle, var(--accent-color), transparent 65%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.hub-aurora::after {
+  bottom: -22%;
+  right: -8%;
+  background: radial-gradient(circle, var(--accent-color-2, var(--crt-blue)), transparent 65%);
+  animation: aurora-b 34s ease-in-out infinite alternate;
+}
+@keyframes aurora-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(10vw, 7vh, 0) scale(1.18); }
+}
+@keyframes aurora-b {
+  from { transform: translate3d(0, 0, 0) scale(1.12); }
+  to   { transform: translate3d(-9vw, -7vh, 0) scale(0.95); }
+}
+:root[data-theme="light"] .hub-aurora::before,
+:root[data-theme="light"] .hub-aurora::after { opacity: 0.09; }
+
+/* Respect users who asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .hub-card, .hub-add-card { animation: none; }
+  .hub-card:hover::after { transition: none; opacity: 0; }
+  .hub-aurora::before, .hub-aurora::after { animation: none; }
+  .hub-add-card:hover .hub-add-card__plus { transform: none; }
 }
 
 /* Reusable status pill that picks up an accent via --pill-accent. Used by

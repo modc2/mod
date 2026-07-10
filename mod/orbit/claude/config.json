@@ -10,7 +10,7 @@
     "bloctime_gate": true,
     "bloctime_ttl": 60,
     "onchain_registry": false,
-    "icon": "✦",
+    "icon": "\u2726",
     "color": "#cc785c",
     "deps": [
         "chain",
@@ -49,6 +49,13 @@
         "show_changelog",
         "get_version",
         "restore_version",
+        "default_prompt",
+        "save_prompt",
+        "list_prompts",
+        "get_prompt",
+        "import_prompt",
+        "share_prompt",
+        "delete_prompt",
         "get_owner",
         "set_owner",
         "is_owner",
@@ -75,7 +82,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmTSZnUHEjpguuwZmV1g358FV2chitDkJsJpVp475V58pU",
+    "schema": "QmYuDGukQnDGEH3aj68V1m3eo2qVvEBE371op7c3Q3c5fn",
     "endpoints": {
         "/health": {
             "method": "GET",
@@ -123,7 +130,7 @@
                 "GET"
             ],
             "auth": "GET: false, POST: true",
-            "docs": "Submit a job (auth) or list ALL jobs (public — tasks form a public code ledger)"
+            "docs": "Submit a job (auth) or list ALL jobs (public \u2014 tasks form a public code ledger)"
         },
         "/jobs/{id}": {
             "method": [

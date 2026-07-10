@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import hashlib
 import signal
 import subprocess
 import threading
@@ -9,6 +10,27 @@ import urllib.error
 from pathlib import Path
 from typing import Optional, Dict, Any, Union, List
 import mod as m
+
+
+# ── Default system prompt ────────────────────────────────────────────
+# The prompt every task inherits when the user hasn't chained their own.
+# Shown in the console (SYSTEM PROMPTS manager) so people can read, fork,
+# and share it — not a hidden string. Keep it short, opinionated, honest.
+DEFAULT_SYSTEM_PROMPT = """You are a builder in the Orbit — a fleet of small, composable modules that each own one job and talk to each other over the mod protocol. You write code that ships.
+
+HOW YOU WORK
+- Read before you write. Match the file you're in: its naming, its idioms, its comment density. New code should look like it was always there.
+- Prefer the smallest change that fully solves the problem. Delete more than you add when you can.
+- Verify. Run the tests, drive the flow, read the output — don't claim it works because it should.
+- Be honest about state. If something is a stub, say stub. If a test failed, show the failure. No cheerful hand-waving.
+
+WHAT GOOD LOOKS LIKE
+- Simple beats clever. The best design is the one the next person understands without you.
+- One module, one responsibility. Reach for an existing module before inventing a new one.
+- Secrets and per-user state live off-tree (~/.mod/<module>/), never in committed config.
+- Leave the codebase better lit than you found it: clear names, a why-comment where the reason isn't obvious.
+
+Ship it clean. Make Steve proud."""
 
 
 class Mod:
@@ -26,7 +48,8 @@ class Mod:
     description = "Claude AI interface — jobs, code ops, IPFS versioning, and module management."
     endpoints = [
         'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'tail',
-        'create_module', 'edit_module', 'analyze_code', 'generate_code',
+        'create_module', 'edit_module', 'import_module', 'delete_module',
+        'fork_module', 'analyze_code', 'generate_code',
         'refactor', 'debug', 'edit_file', 'run_task', 'batch_process',
         'bg', 'bg_status', 'bg_list', 'snapshot', 'changelog',
         'get_version', 'restore_version', 'health', 'modules',
@@ -34,6 +57,8 @@ class Mod:
         'set_owner', 'get_owner', 'is_owner', 'is_bloctime_owner',
         'is_trusted', 'is_whitelisted', 'editors', 'add_editor', 'remove_editor',
         'register_onchain', 'permissions', 'ensure_env',
+        'default_prompt', 'save_prompt', 'list_prompts', 'get_prompt',
+        'import_prompt', 'share_prompt', 'delete_prompt',
         'install', 'setup', 'serve',
         'kill', 'kill_port', 'status', 'logs', 'scan', 'fix',
     ]
@@ -55,6 +80,10 @@ class Mod:
         self.default_path = default_path or cfg.get('default_path', os.path.expanduser('~/mod'))
         self._owner = cfg.get('owner') or self.key.address.lower()
         self._history_dir = Path(self._module_dir()) / '.history'
+        # Shareable prompt catalog. Bodies live in localfs (IPFS CID) so any
+        # prompt can be shared by CID; the catalog index lives off-tree next to
+        # the other private state (~/.mod/claude/). Overridable in tests.
+        self._prompts_dir = Path(os.path.expanduser('~/.mod/claude'))
         # dynamic API lifecycle
         self._idle_timeout = idle_timeout or cfg.get('idle_timeout', 300)  # seconds
         self._last_activity = 0.0
@@ -400,17 +429,28 @@ class Mod:
 
     # ── HTTP helpers ──────────────────────────────────────────────
 
-    def _request(self, method: str, path: str, data: dict = None, timeout: int = 30) -> dict:
+    def _request(self, method: str, path: str, data: dict = None, timeout: int = 30,
+                 headers: dict = None) -> dict:
         """Make a request to the API server. Auto-starts API if needed."""
         self._ensure_api()
         url = f"{self.api_url}{path}"
         body = json.dumps(data).encode() if data else None
-        headers = {'Content-Type': 'application/json'} if data else {}
-        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        req_headers = {'Content-Type': 'application/json'} if data else {}
+        if headers:
+            req_headers.update(headers)
+        req = urllib.request.Request(url, data=body, headers=req_headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 self._touch_activity()
                 return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            # The server answered — surface its JSON error instead of
+            # pretending it's unreachable (401/403 from the owner gates).
+            self._touch_activity()
+            try:
+                return json.loads(e.read().decode())
+            except Exception:
+                return {'error': f'HTTP {e.code} {e.reason}'}
         except urllib.error.URLError as e:
             raise ConnectionError(
                 f"API server not reachable at {self.api_url} — "
@@ -882,6 +922,97 @@ class Mod:
         return self.submit(prompt=prompt, model=model, module_name=module_name,
                            creation_mode="edit", key=key)
 
+    # ── mod protocol: owner-only module management (terminal) ──────
+    # Module creation and deletion are owner-only end to end: the API rejects
+    # non-owner tokens, and these helpers sign with the local owner key so the
+    # whole lifecycle (import/fork/delete/snapshot/restore) is drivable from
+    # the terminal — `m claude/import_module`, `m claude/delete_module`.
+
+    def _auth_headers(self, key=None) -> dict:
+        """Bearer token headers signed by the given key (default: owner)."""
+        return {'Authorization': f'Bearer {self.token(key=key)}'}
+
+    def _sudo_message(self, action: str, target: str, time_s: int, nonce: str) -> str:
+        """The exact sudo message. MUST stay byte-for-byte in sync with the
+        Rust `sudo_message` (sudo.rs) and the frontend `buildSudoMessage`."""
+        return "\n".join([
+            "MOD Claude Sudo Authorization",
+            f"action: {action}",
+            f"target: {target}",
+            f"time: {time_s}",
+            f"nonce: {nonce}",
+            "",
+            "Authorizing a privileged cross-module operation as the owner. "
+            "Free signature, not a transaction.",
+        ])
+
+    def _sudo_header(self, action: str, target: str, key=None) -> dict:
+        """Build a replay-protected x-sudo header: EIP-191 personal_sign over
+        the canonical sudo message, base64url(no-pad) JSON envelope."""
+        import base64
+        import secrets
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        k = m.key(key) if key else self.key
+        time_s = int(time.time())
+        nonce = secrets.token_hex(16)
+        message = self._sudo_message(action, target, time_s, nonce)
+        signed = Account.sign_message(encode_defunct(text=message), k.private_key)
+        envelope = json.dumps({
+            'action': action,
+            'target': target,
+            'time': time_s,
+            'nonce': nonce,
+            'key': k.address,
+            'signature': signed.signature.hex() if signed.signature.hex().startswith('0x')
+                         else '0x' + signed.signature.hex(),
+        })
+        encoded = base64.urlsafe_b64encode(envelope.encode()).decode().rstrip('=')
+        return {'x-sudo': encoded}
+
+    def import_module(self, name: str, github: str = None, cid: str = None,
+                      category: str = 'orbit', key=None) -> dict:
+        """Import a new module from a GitHub repo or snapshot CID. Owner-only.
+
+        m claude/import_module mymod github=https://github.com/user/repo
+        m claude/import_module mymod cid=Qm...
+        """
+        self.require_owner(key, operation="import_module")
+        if not github and not cid:
+            return {'error': 'provide github=<clone url> or cid=<snapshot cid>'}
+        data = {
+            'source': 'github' if github else 'cid',
+            'name': name,
+            'category': category,
+        }
+        if github:
+            data['url'] = github
+        else:
+            data['cid'] = cid
+        return self._request('POST', '/modules/import', data,
+                             timeout=120, headers=self._auth_headers(key))
+
+    def delete_module(self, name: str, key=None) -> dict:
+        """Delete a module directory. Owner-only; signs the sudo authorization
+        with the local owner key (deleting anything but claude requires it).
+
+        m claude/delete_module mymod
+        """
+        self.require_owner(key, operation="delete_module")
+        headers = self._auth_headers(key)
+        if name != 'claude':
+            headers.update(self._sudo_header('delete', name, key))
+        return self._request('DELETE', f'/modules/{name}', headers=headers)
+
+    def fork_module(self, name: str, cid: str, target_name: str = None, key=None) -> dict:
+        """Fork a module from a snapshot CID into the portal tree. Owner-only."""
+        self.require_owner(key, operation="fork_module")
+        data = {'cid': cid}
+        if target_name:
+            data['target_name'] = target_name
+        return self._request('POST', f'/modules/{name}/fork', data,
+                             timeout=120, headers=self._auth_headers(key))
+
     # ── read-only helpers (API endpoints) ─────────────────────────
 
     def health(self) -> dict:
@@ -1111,6 +1242,169 @@ class Mod:
             "cid": entry['cid'],
             "count": len(restored),
         }
+
+    # ── shareable prompts (localfs / IPFS CID) ────────────────────
+    # A prompt is just a named block of text (a system prompt, or a reusable
+    # task prompt). We keep a small catalog index off-tree and push each body
+    # into localfs so it gets a content-address (CID) — that CID is the share
+    # link. `list_prompts` is the HUB's gallery; `import_prompt` pulls someone
+    # else's CID into your catalog. Writes are open (anyone can contribute a
+    # prompt); the author is recorded and only the author/owner can delete.
+
+    def _prompts_path(self) -> Path:
+        return self._prompts_dir / 'prompts.json'
+
+    def _load_prompts(self) -> list:
+        p = self._prompts_path()
+        if not p.exists():
+            return []
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            return []
+        return data if isinstance(data, list) else data.get('prompts', [])
+
+    def _save_prompts(self, prompts: list):
+        self._prompts_dir.mkdir(parents=True, exist_ok=True)
+        self._prompts_path().write_text(json.dumps(prompts, indent=2))
+
+    def _localfs_put(self, text: str) -> Optional[str]:
+        """Push text into localfs (IPFS), returning its CID. None if unavailable."""
+        try:
+            return m.mod('ipfs')().put(text)
+        except Exception:
+            return None
+
+    def _localfs_get(self, cid: str) -> Optional[str]:
+        """Fetch text from localfs (IPFS) by CID. None if unavailable."""
+        try:
+            return m.mod('ipfs')().get(cid)
+        except Exception:
+            return None
+
+    def default_prompt(self) -> dict:
+        """The nice default system prompt, ready to show, fork, or share."""
+        return {
+            "id": "default",
+            "name": "Default",
+            "icon": ">_",
+            "kind": "system",
+            "body": DEFAULT_SYSTEM_PROMPT,
+            "builtin": True,
+        }
+
+    def save_prompt(self, title: str, body: str, kind: str = "system",
+                    icon: str = ">_", tags=None, key=None) -> dict:
+        """Save a prompt to the catalog and push its body into localfs.
+
+        Returns the catalog entry, including the `cid` share link. Re-saving a
+        prompt with the same title updates it in place (new CID, same id).
+        """
+        title = (title or "").strip()
+        body = body or ""
+        if not title:
+            raise ValueError("prompt needs a title")
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        author = None
+        try:
+            author = self._resolve_address(key)
+        except Exception:
+            pass
+        cid = self._localfs_put(body)
+        prompts = self._load_prompts()
+        now = time.time()
+        existing = next((p for p in prompts if p.get("title") == title), None)
+        if existing:
+            existing.update({
+                "body": body, "kind": kind, "icon": icon,
+                "tags": tags or existing.get("tags", []),
+                "cid": cid, "updated": now,
+                "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            entry = existing
+        else:
+            entry = {
+                "id": "p_" + hashlib.sha256(
+                    f"{title}{now}".encode()).hexdigest()[:12],
+                "title": title, "body": body, "kind": kind, "icon": icon,
+                "tags": tags or [], "author": author, "cid": cid,
+                "builtin": False, "created": now,
+                "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            prompts.append(entry)
+        self._save_prompts(prompts)
+        return entry
+
+    def list_prompts(self, kind: str = None) -> list:
+        """The prompt gallery — every saved prompt, newest first (public)."""
+        prompts = self._load_prompts()
+        if kind:
+            prompts = [p for p in prompts if p.get("kind") == kind]
+        return sorted(prompts, key=lambda p: p.get("created", 0), reverse=True)
+
+    def get_prompt(self, id: str = None, cid: str = None) -> Optional[dict]:
+        """Fetch one prompt by local id or by CID (pulls body from localfs)."""
+        for p in self._load_prompts():
+            if (id and p.get("id") == id) or (cid and p.get("cid") == cid):
+                return p
+        if cid:
+            body = self._localfs_get(cid)
+            if body is not None:
+                return {"cid": cid, "body": body, "kind": "system",
+                        "title": None, "imported": True}
+        return None
+
+    def import_prompt(self, cid: str, title: str = None, key=None) -> dict:
+        """Pull a shared prompt (by CID) from localfs into your catalog."""
+        if not cid:
+            raise ValueError("import_prompt needs a cid")
+        existing = next((p for p in self._load_prompts()
+                         if p.get("cid") == cid), None)
+        if existing:
+            return existing
+        body = self._localfs_get(cid)
+        if body is None:
+            return {"error": f"could not fetch {cid} from localfs"}
+        return self.save_prompt(title or f"imported-{cid[:8]}", body, key=key)
+
+    def share_prompt(self, id: str) -> dict:
+        """Ensure a prompt is in localfs and return its shareable CID + link."""
+        p = self.get_prompt(id=id)
+        if not p:
+            return {"error": f"prompt not found: {id}"}
+        cid = p.get("cid") or self._localfs_put(p.get("body", ""))
+        if cid and cid != p.get("cid"):
+            p["cid"] = cid
+            prompts = self._load_prompts()
+            for i, e in enumerate(prompts):
+                if e.get("id") == id:
+                    prompts[i] = p
+            self._save_prompts(prompts)
+        if not cid:
+            return {"error": "localfs unavailable — could not produce a CID"}
+        return {"id": id, "cid": cid, "title": p.get("title"),
+                "gateway": f"https://ipfs.io/ipfs/{cid}"}
+
+    def delete_prompt(self, id: str, key=None) -> dict:
+        """Delete a prompt from the catalog. Author or owner only."""
+        prompts = self._load_prompts()
+        target = next((p for p in prompts if p.get("id") == id), None)
+        if not target:
+            return {"error": f"prompt not found: {id}"}
+        author = target.get("author")
+        caller = None
+        try:
+            caller = self._resolve_address(key)
+        except Exception:
+            pass
+        allowed = self.is_owner(key) or (
+            author and caller and author.lower() == caller.lower())
+        if not allowed:
+            raise PermissionError("only the author or owner can delete a prompt")
+        prompts = [p for p in prompts if p.get("id") != id]
+        self._save_prompts(prompts)
+        return {"deleted": id, "remaining": len(prompts)}
 
     # ── conversational (OpenRouter) ───────────────────────────────
 

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback } from "react";
-import type { Module } from "@/lib/api";
+import { gatewayUrl, type Module } from "@/lib/api";
+import { LivePreview } from "./LivePreview";
 
 // Deterministic accent for modules that don't declare a color — hash the name
 // into a pleasant hue so the grid stays colorful without being random per-render.
@@ -12,10 +13,19 @@ function hueFromName(name: string): string {
   return `hsl(${h} 70% 64%)`;
 }
 
+// Middle-truncate long identifiers (addresses, CIDs) so they fit one line but
+// stay recognizable by their head/tail — the full value rides along in `title`.
+function shorten(s: string, head = 6, tail = 4): string {
+  return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
+}
+
 export function ModuleCard({ m, index }: { m: Module; index: number }) {
   const glow = m.color || hueFromName(m.name);
   const label = (m.icon || m.name[0] || "m").slice(0, 1);
   const depCount = m.deps?.length ?? 0;
+  const owner =
+    typeof m.config?.owner === "string" && m.config.owner ? (m.config.owner as string) : null;
+  const cid = m.schema || null;
 
   // Feed the cursor position to the CSS spotlight (.card::after).
   const track = useCallback((e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -36,6 +46,11 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
         } as React.CSSProperties
       }
     >
+      {m.has_app && (
+        <div className="card-media">
+          <LivePreview url={gatewayUrl(m.name)} label={label} glow={glow} />
+        </div>
+      )}
       <div className="card-top">
         <span className="avatar" style={{ background: glow }}>
           {label}
@@ -51,6 +66,22 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
         )}
       </div>
       <div className="desc">{m.description || "No description provided."}</div>
+      {(owner || cid) && (
+        <div className="card-meta">
+          {owner && (
+            <span className="meta-row" title={`Owner: ${owner}`}>
+              <span className="meta-k">owner</span>
+              <span className="meta-v">{shorten(owner)}</span>
+            </span>
+          )}
+          {cid && (
+            <span className="meta-row" title={`CID: ${cid}`}>
+              <span className="meta-k">cid</span>
+              <span className="meta-v">{shorten(cid)}</span>
+            </span>
+          )}
+        </div>
+      )}
       <div className="card-foot">
         {m.has_rust && <span className="tag rust">rust</span>}
         {m.has_app && <span className="tag app">app</span>}

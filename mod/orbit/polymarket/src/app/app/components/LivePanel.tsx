@@ -431,8 +431,11 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       address: auth.address,
       // Honor the strat's TRADE SIZE floor — was hardcoded to $1 before,
       // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
-      // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $1.
-      minOrderSize: activeStrat.minTrade ?? 1,
+      // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $5.
+      minOrderSize: activeStrat.minTrade ?? 5,
+      // Concurrent open-positions cap — the engine skips a BUY that would
+      // open a NEW token while this many are already held.
+      maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
       // Ceiling for the proportional sizing. Without this, a single whale
       // trade from a high-volume trader could blow the proportional mirror
       // past the user's TRADE SIZE max and chew through capital in one shot.
@@ -491,7 +494,8 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       intervalMs,
       creds: auth.clobCreds,
       address: auth.address,
-      minOrderSize: activeStrat.minTrade ?? 1,
+      minOrderSize: activeStrat.minTrade ?? 5,
+      maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
       maxOrderSize: activeStrat.maxTrade,
       backtestDays: activeStrat.backtestDays ?? 3,
       maxSlippageBps: 300,

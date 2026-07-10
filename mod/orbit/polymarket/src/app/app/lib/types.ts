@@ -131,9 +131,13 @@ export interface SavedIndex {
   traders: IndexTrader[];
   backtestDays?: number;
   capital?: number; // simulation capital in USD (default 1000)
-  minTrade?: number; // minimum trade size in USD (default 1)
+  minTrade?: number; // minimum trade size in USD (default 5)
   maxTrade?: number; // maximum trade size in USD (default 100)
   maxTradesPerHour?: number; // maximum trades per hour (default 10)
+  // Max concurrent open positions (default 10). The live engine skips a
+  // mirror BUY that would open a NEW token while this many are already held;
+  // topping up an existing hold still goes through.
+  maxOpenPositions?: number;
   rebalancePeriod?: number; // rebalance period in hours (default 24)
   rebalanceHour?: number; // hour of day to rebalance 0-23 (default 0 = midnight)
   rebalanceMinutes?: number; // BACKTEST-only poll cadence (historical sim aggregation)

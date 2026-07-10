@@ -47,22 +47,33 @@ interface PositionLite {
   bestBid: number | null;
 }
 
-// Probe the CLOB book for a token and return its best bid, or null when the
-// book is empty/gone (resolved or dead market — a SELL there can never fill).
-// Errors return undefined = "unknown": we keep showing the position rather
-// than hiding it on a flaky network read.
+// Probe the CLOB book for a token and return its best bid.
+//   number → there's a bid; a SELL can fill here.
+//   null   → the book exists but has no bids, OR the CLOB has no book for
+//            this token at all (upstream 404 — a resolved/dead market). Either
+//            way a SELL can never fill, so the position is unsellable.
+//   undefined → the read was inconclusive (throttled/network/5xx). We DON'T
+//            hide on this — a flaky poll shouldn't make a real position vanish.
 async function fetchBestBid(tokenId: string): Promise<number | null | undefined> {
   try {
     const r = await fetch(`/api/polymarket/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
-    if (!r.ok) return undefined;
-    const book = await r.json();
-    const bids = Array.isArray(book?.bids) ? book.bids : [];
-    let best = 0;
-    for (const b of bids) {
-      const px = Number(b?.price);
-      if (Number.isFinite(px) && px > best) best = px;
+    if (r.ok) {
+      const book = await r.json();
+      const bids = Array.isArray(book?.bids) ? book.bids : [];
+      let best = 0;
+      for (const b of bids) {
+        const px = Number(b?.price);
+        if (Number.isFinite(px) && px > best) best = px;
+      }
+      return best > 0 ? best : null;
     }
-    return best > 0 ? best : null;
+    // Non-OK: the proxy wraps the upstream status in the error body. A 404
+    // means "no order book exists for this token" = definitively unsellable.
+    // A 429/5xx is just throttling = inconclusive, keep the position visible.
+    const body = await r.json().catch(() => ({}));
+    const msg = String((body as { error?: string })?.error ?? "");
+    if (msg.includes("404")) return null;
+    return undefined;
   } catch {
     return undefined;
   }

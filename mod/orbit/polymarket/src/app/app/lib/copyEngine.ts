@@ -125,6 +125,10 @@ export interface CopyEngineConfig {
       mirrors every observed trade (11k trades / 7d = $58 of gas burns the
       gross P&L). Defaults to 3. */
   maxPerCycle?: number;
+  /** Cap on concurrent open positions. The backend live engine skips a
+      mirror BUY that would open a NEW token while this many are already
+      held; topping up an existing hold still goes through. Default 10. */
+  maxOpenPositions?: number;
   /** Minimum shares per order used in the CLOB sizing floor (strat-supplied;
       backend defaults to Polymarket's 5-share minimum when omitted). */
   minShares?: number;

@@ -25,6 +25,7 @@ except ImportError:
 from .skills.mod import Skills
 from .agents.mod import Agents
 from .memory.memory import Memory
+from .library.mod import Library
 
 
 # ── path sandboxing ────────────────────────────────────────────────
@@ -88,21 +89,23 @@ RULES:
     }
 
     DEFAULT_MODELS = {
-        'model.openrouter': 'anthropic/claude-sonnet-4-5-20250929',
-        'openrouter': 'anthropic/claude-sonnet-4-5-20250929',
+        'model.openrouter': 'anthropic/claude-sonnet-4.5',
+        'openrouter': 'anthropic/claude-sonnet-4.5',
         'venice': 'deepseek-v3.2',
     }
 
     # curated model choices per provider for the UI selector (free-text still allowed)
     MODELS = {
         'openrouter': [
-            'anthropic/claude-sonnet-4-5-20250929',
-            'anthropic/claude-3.5-haiku',
-            'openai/gpt-4o',
-            'openai/gpt-4o-mini',
-            'google/gemini-2.0-flash-exp',
-            'meta-llama/llama-3.3-70b-instruct',
+            'anthropic/claude-sonnet-4.5',
+            'anthropic/claude-opus-4.8',
+            'anthropic/claude-haiku-4.5',
+            'openai/gpt-5',
+            'openai/gpt-5-mini',
+            'google/gemini-2.5-pro',
+            'google/gemini-2.5-flash',
             'deepseek/deepseek-chat',
+            'qwen/qwen3-coder',
         ],
         'venice': [
             'deepseek-v3.2',
@@ -185,7 +188,9 @@ RULES:
             provider: str = None,
             path: str = None,
             temperature: float = 0.0,
-            max_tokens: int = 100000,
+            # per-step output cap: one step is a single small JSON plan; a huge
+            # cap makes providers pre-reserve credits and 402 on low balances
+            max_tokens: int = 8192,
             steps: int = 25,
             skills: list = None,
             mod: str = None,
@@ -198,7 +203,7 @@ RULES:
         """Run the agent loop: query -> LLM -> parse step -> execute skill -> repeat.
 
         Args:
-            model: model name on the provider (e.g. 'anthropic/claude-sonnet-4-5-20250929' for openrouter,
+            model: model name on the provider (e.g. 'anthropic/claude-sonnet-4.5' for openrouter,
                    'deepseek-v3.2' for venice). Defaults to provider's default model.
             provider: LLM provider — 'openrouter', 'venice', or any module path. Switches at runtime.
             allowed_paths: list of allowed write paths, or None for unrestricted (owner).
@@ -206,7 +211,7 @@ RULES:
         """
         if provider:
             self.set_provider(provider)
-        model = model or self.DEFAULT_MODELS.get(self._provider, 'anthropic/claude-sonnet-4-5-20250929')
+        model = model or self.DEFAULT_MODELS.get(self._provider, 'anthropic/claude-sonnet-4.5')
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
         path = path or (m.dp(mod) if m and mod else os.getcwd())
@@ -432,9 +437,15 @@ class Mod(Agent):
         except Exception:
             self._acl_path = self.module_dir / '.acl.json'
         self._acl = self._load_acl()
+
+        # unified library (prompts / skills / memory / agent market)
+        # user collections persist off-tree under ~/.mod/agent/library/
+        self.library = Library(skills=self.skills, agents=self.agents)
+
         self._public_actions = {'status', 'health', 'skills', 'schema',
                                 'agents', 'agent', 'chains', 'agent_cids',
-                                'agent_load'}
+                                'agent_load', 'library', 'prompts', 'prompt_add',
+                                'prompt_rm', 'memory', 'memory_add', 'memory_rm'}
         self._admin_actions = {'run', 'plan', 'skill', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install'}
@@ -611,6 +622,13 @@ class Mod(Agent):
             'chains': lambda: self.agents.chains(),
             'agent_cids': lambda: self.agents.forward(action='cids'),
             'agent_load': lambda: self.agents.load(kwargs.get('cid', ''), shares=kwargs.get('shares')),
+            'library': lambda: self.library.items(q=kwargs.get('q'), kind=kwargs.get('kind'), tag=kwargs.get('tag')),
+            'prompts': lambda: {'prompts': self.library.prompts()},
+            'prompt_add': lambda: self.library.prompt_add(kwargs.get('name', ''), kwargs.get('text', ''), kwargs.get('description', ''), kwargs.get('tags'), kwargs.get('id')),
+            'prompt_rm': lambda: self.library.prompt_rm(kwargs.get('id', '')),
+            'memory': lambda: {'memory': self.library.notes()},
+            'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id')),
+            'memory_rm': lambda: self.library.note_rm(kwargs.get('id', '')),
             # admin (owner + granted)
             'run': lambda: self._run(**kwargs),
             'plan': lambda: super(Mod, self).plan(kwargs.get('output', ''), safety=kwargs.get('safety', False)),
@@ -676,7 +694,7 @@ class Mod(Agent):
                 provider=agent_provider,
                 path=kwargs.get('path'),
                 temperature=kwargs.get('temperature', 0.0),
-                max_tokens=kwargs.get('max_tokens', 100000),
+                max_tokens=kwargs.get('max_tokens', 8192),
                 steps=kwargs.get('steps', 25),
                 skills=agent_skills,
                 mod=kwargs.get('mod'),

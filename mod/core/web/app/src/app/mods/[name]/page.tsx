@@ -6,6 +6,7 @@ import { api, gatewayUrl, recents, type Module } from "@/lib/api";
 import { Nav, Footer } from "../../components/Chrome";
 import Explorer from "../../components/Explorer";
 import RegisterPanel from "../../components/RegisterPanel";
+import { LivePreview } from "../../components/LivePreview";
 
 function hueFromName(name: string): string {
   let h = 0;
@@ -87,6 +88,17 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
             <p className="detail-desc">
               {m.description || "No description provided."}
             </p>
+
+            {m.has_app && (
+              <div className="detail-hero">
+                <LivePreview
+                  url={appUrl}
+                  label={(m.icon || m.name[0]).slice(0, 1)}
+                  glow={glow}
+                  onOpen={() => setTab("app")}
+                />
+              </div>
+            )}
 
             <div className="tabs">
               <button

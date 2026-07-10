@@ -60,8 +60,10 @@ const LOG_CAP: usize = 1000;
 // configs and partial payloads keep working — nothing is hardcoded into the
 // engine's behavior.
 //
-/// Polymarket's hard $1 minimum notional per order (sizing floor default).
-fn default_min_order_size() -> f64 { 1.0 }
+/// Owner's default per-order floor in USDC ($5). Sub-floor proportional
+/// mirrors are clamped UP to this so they fill. Polymarket's own hard CLOB
+/// floor ($1 / 5 shares) is enforced separately in `clob_min_notional`.
+fn default_min_order_size() -> f64 { 5.0 }
 /// Polymarket's 5-share minimum per order (sizing floor default).
 fn default_min_shares() -> f64 { 5.0 }
 /// Proportional-sizing lookback window (days) for a trader's volume.
@@ -69,6 +71,10 @@ fn default_backtest_days() -> u32 { 3 }
 /// Orders placed per cycle before the rest defer to the next one — a fan-out
 /// backstop. Defaults to the strat's `maxPerCycle` notion.
 fn default_max_orders_per_cycle() -> usize { 10 }
+/// Cap on concurrent open positions (distinct tokens held). A mirror BUY that
+/// would open a NEW token while this many are already held is skipped; topping
+/// up an existing hold doesn't raise concurrency and always passes.
+fn default_max_open_positions() -> usize { 10 }
 /// Spacing between successive order placements within a cycle (ms).
 fn default_order_delay_ms() -> u64 { 300 }
 /// Spacing between successive per-trader `/activity` fetches inside one cycle
@@ -112,6 +118,35 @@ pub struct TraderEntry {
 }
 fn default_true() -> bool { true }
 
+/// Auto-watchlist: instead of a hand-picked trader list, the engine
+/// periodically re-derives "the top traders who actually traded in the last
+/// N hours" per topic tag and swaps them into the session's watchlist.
+/// Discovery walks gamma's highest-24h-volume open events for each
+/// `tag_slug`, pulls each market's recent fills from the data-api, ranks
+/// wallets by in-window notional (a trader qualifies with ≥1 fill in the
+/// window), and weights the merged list proportionally to that notional.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoTradersConfig {
+    /// gamma tag slugs to discover markets from (e.g. ["bitcoin", "weather"]).
+    pub tags: Vec<String>,
+    /// Activity window (hours) — a trader must have ≥1 fill within it.
+    #[serde(default = "default_auto_hours")]
+    pub hours: u32,
+    /// Traders kept per tag (merged across tags, notionals summed).
+    #[serde(rename = "topPerTag", default = "default_auto_top_per_tag")]
+    pub top_per_tag: usize,
+    /// How often the watchlist is re-derived.
+    #[serde(rename = "refreshMinutes", default = "default_auto_refresh_minutes")]
+    pub refresh_minutes: u64,
+    /// Markets sampled per tag (bounds discovery HTTP fan-out).
+    #[serde(rename = "marketsPerTag", default = "default_auto_markets_per_tag")]
+    pub markets_per_tag: usize,
+}
+fn default_auto_hours() -> u32 { 24 }
+fn default_auto_top_per_tag() -> usize { 5 }
+fn default_auto_refresh_minutes() -> u64 { 60 }
+fn default_auto_markets_per_tag() -> usize { 8 }
+
 /// What the engine needs to run a session. Persisted to disk verbatim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineConfig {
@@ -130,7 +165,7 @@ pub struct EngineConfig {
     /// Owner's minimum order size in USDC (strat `minTrade`). A mirror whose
     /// proportional notional lands below this — but whose leader trade still
     /// clears the CLOB floor — is clamped UP to it so it fills instead of being
-    /// skipped. Defaults to Polymarket's $1 hard floor when omitted.
+    /// skipped. Defaults to $5 when omitted (CLOB's own hard floor is $1).
     #[serde(rename = "minOrderSize", default = "default_min_order_size")]
     pub min_order_size: f64,
     /// Owner's per-order ceiling in USDC (strat `maxTrade`). `None` ⇒ no cap.
@@ -151,6 +186,12 @@ pub struct EngineConfig {
     /// fills at once.
     #[serde(rename = "maxOrdersPerCycle", default = "default_max_orders_per_cycle")]
     pub max_orders_per_cycle: usize,
+    /// Cap on concurrent open positions (strat `maxOpenPositions`). A mirror
+    /// BUY that would open a position in a NEW token while this many are
+    /// already held is skipped; adds to an already-held token still go
+    /// through. Rebalance SELLs free slots naturally.
+    #[serde(rename = "maxOpenPositions", default = "default_max_open_positions")]
+    pub max_open_positions: usize,
     /// Spacing between successive order placements within a cycle (ms).
     #[serde(rename = "orderDelayMs", default = "default_order_delay_ms")]
     pub order_delay_ms: u64,
@@ -185,6 +226,12 @@ pub struct EngineConfig {
     /// log/rail) but never produce a mirror order. Empty/None ⇒ all markets.
     #[serde(rename = "marketQuery", default)]
     pub market_query: Option<String>,
+    /// Auto-watchlist. When set, `traders` is engine-managed: re-derived on
+    /// start and every `refreshMinutes` from each tag's most active recent
+    /// traders, then persisted — any hand-edited list is overwritten on the
+    /// next refresh. `None` ⇒ the hand-picked `traders` list is used as-is.
+    #[serde(rename = "autoTraders", default)]
+    pub auto_traders: Option<AutoTradersConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,7 +447,9 @@ async fn fetch_held_positions(http: &reqwest::Client, wallet: &str) -> Vec<HeldP
 // ─── Handle / Registry ─────────────────────────────────────────────────
 
 pub struct EngineHandle {
-    pub config: EngineConfig,
+    /// Behind a lock because the auto-watchlist refresh rewrites `traders`
+    /// mid-session; `config_of` (→ /live/status) reads the current snapshot.
+    pub config: RwLock<EngineConfig>,
     pub state: Arc<RwLock<EngineState>>,
     pub cancel: Arc<AtomicBool>,
     pub task: parking_lot::Mutex<Option<JoinHandle<()>>>,
@@ -531,7 +580,7 @@ impl EngineRegistry {
     pub fn config_of(&self, eoa: &str) -> Option<EngineConfig> {
         self.engines
             .get(&eoa.to_lowercase())
-            .map(|h| h.config.clone())
+            .map(|h| h.config.read().clone())
     }
 
     /// Every EOA with a persisted session on disk. Used by the scheduled
@@ -788,7 +837,7 @@ impl EngineRegistry {
         let cancel = Arc::new(AtomicBool::new(false));
 
         let handle = Arc::new(EngineHandle {
-            config: cfg.clone(),
+            config: RwLock::new(cfg.clone()),
             state: state.clone(),
             cancel: cancel.clone(),
             task: parking_lot::Mutex::new(None),
@@ -830,7 +879,7 @@ impl EngineRegistry {
     /// The main loop.
     async fn run_loop(
         self: Arc<Self>,
-        cfg: EngineConfig,
+        mut cfg: EngineConfig,
         state: Arc<RwLock<EngineState>>,
         cancel: Arc<AtomicBool>,
     ) {
@@ -854,8 +903,103 @@ impl EngineRegistry {
             }
         }
 
+        // Auto-watchlist refresh clock. 0 ⇒ refresh before the first cycle so
+        // a brand-new auto session never polls a stale hand-picked list.
+        let mut last_watchlist_refresh_ms: i64 = 0;
+
         loop {
             if cancel.load(Ordering::Acquire) { break; }
+
+            // ── Auto-watchlist refresh ──
+            // Re-derive "top traders active in the window" per tag, swap them
+            // into cfg.traders, and persist so a restart resumes the same
+            // list. New traders' cursors start at the refresh instant: they
+            // must NOT inherit the engine-start default (start − interval) or
+            // hours of their old activity would be mirrored as "new" at once.
+            if let Some(auto) = cfg.auto_traders.clone() {
+                let now = chrono::Utc::now().timestamp_millis();
+                let due = last_watchlist_refresh_ms == 0
+                    || now - last_watchlist_refresh_ms
+                        >= (auto.refresh_minutes.max(5) * 60_000) as i64;
+                if due {
+                    last_watchlist_refresh_ms = now;
+                    let mut exclude: HashSet<String> = HashSet::new();
+                    exclude.insert(cfg.eoa.to_lowercase());
+                    exclude.insert(cfg.address.to_lowercase());
+                    match discover_top_traders(&self.http, &auto, &exclude).await {
+                        Ok(list) if !list.is_empty() => {
+                            let stamped = chrono::Utc::now().timestamp_millis();
+                            let roster = list
+                                .iter()
+                                .map(|t| {
+                                    format!(
+                                        "{}… ({:.0}%)",
+                                        t.address.get(..8).unwrap_or(&t.address),
+                                        t.weight * 100.0
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" · ");
+                            {
+                                let mut s = state.write();
+                                for t in &list {
+                                    s.trader_cursors
+                                        .entry(t.address.to_lowercase())
+                                        .or_insert(stamped);
+                                }
+                                push_log(&mut s.log, LogEntry {
+                                    id: format!("watchlist-{}", stamped),
+                                    timestamp: stamped,
+                                    kind: "WATCHLIST".into(),
+                                    reason: Some(format!(
+                                        "auto-watchlist · {} traders active in last {}h across tags [{}] · {}",
+                                        list.len(),
+                                        auto.hours,
+                                        auto.tags.join(", "),
+                                        roster
+                                    )),
+                                    trader_address: None,
+                                    trades_seen: None,
+                                });
+                            }
+                            cfg.traders = list;
+                            self.persist_config(&cfg);
+                            if let Some(h) = self.engines.get(&cfg.eoa.to_lowercase()) {
+                                *h.config.write() = cfg.clone();
+                            }
+                        }
+                        Ok(_) => {
+                            let mut s = state.write();
+                            push_log(&mut s.log, LogEntry {
+                                id: format!("watchlist-{}", now),
+                                timestamp: now,
+                                kind: "WATCHLIST".into(),
+                                reason: Some(
+                                    "auto-watchlist refresh found no qualifying traders — keeping current list"
+                                        .into(),
+                                ),
+                                trader_address: None,
+                                trades_seen: None,
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!(eoa = %cfg.eoa, error = %e, "auto-watchlist refresh failed");
+                            let mut s = state.write();
+                            push_log(&mut s.log, LogEntry {
+                                id: format!("watchlist-{}", now),
+                                timestamp: now,
+                                kind: "ERROR".into(),
+                                reason: Some(format!(
+                                    "WATCHLIST_REFRESH_FAILED: {} — keeping current list",
+                                    e
+                                )),
+                                trader_address: None,
+                                trades_seen: None,
+                            });
+                        }
+                    }
+                }
+            }
 
             let cycle_started_at = chrono::Utc::now().timestamp_millis();
             let mut new_observed: Vec<ObservedTrade> = Vec::new();
@@ -1147,6 +1291,36 @@ impl EngineRegistry {
                     None,
                 ));
                 break;
+            }
+
+            // ── Concurrent-positions cap ──
+            // Opening a NEW token past `max_open_positions` is skipped and
+            // marked copied (same as REBALANCE_SKIP) so the same leader trade
+            // isn't reconsidered every cycle; topping up an already-held token
+            // doesn't raise concurrency and always passes.
+            let (already_held, open_count) = {
+                let s = state.read();
+                (
+                    s.positions.get(&trade.token_id).map_or(false, |p| p.size > 0.0),
+                    s.positions.values().filter(|p| p.size > 0.0).count(),
+                )
+            };
+            if !already_held && open_count >= cfg.max_open_positions {
+                {
+                    let mut s = state.write();
+                    insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                    push_log(&mut s.log, mk_log(
+                        "SKIP",
+                        &trade.id,
+                        format!(
+                            "MAX_POSITIONS · {}/{} open — not opening a new position · {}",
+                            open_count, cfg.max_open_positions, trade.market
+                        ),
+                        Some(&trade.trader),
+                    ));
+                }
+                self.persist_state(&cfg.eoa, &state.read());
+                continue;
             }
 
             // ── Capital-aware rebalance ──
@@ -1487,6 +1661,123 @@ async fn fetch_recent_activity(http: &reqwest::Client, address: &str) -> Result<
     } else {
         Ok(Vec::new())
     }
+}
+
+// ─── Auto-watchlist discovery ────────────────────────────────────────────
+
+/// Derive the top traders active in the last `auto.hours` for each gamma tag.
+///
+/// Per tag: take the highest-24h-volume open events (`tag_slug`), sample up to
+/// `markets_per_tag` of their markets, pull each market's recent fills from
+/// the data-api, and sum per-wallet notional inside the window (dust fills
+/// under $1 are ignored — the 0.001¢ spam buys would otherwise pollute the
+/// ranking). Keep the `top_per_tag` wallets per tag, merge across tags by
+/// summing notionals, and weight the final list proportionally to notional.
+/// `exclude` (own EOA/proxy) never qualifies — copying yourself feeds back.
+async fn discover_top_traders(
+    http: &reqwest::Client,
+    auto: &AutoTradersConfig,
+    exclude: &HashSet<String>,
+) -> Result<Vec<TraderEntry>> {
+    let cutoff_ms =
+        chrono::Utc::now().timestamp_millis() - (auto.hours.max(1) as i64) * 3_600_000;
+    let mut merged: HashMap<String, f64> = HashMap::new();
+
+    for tag in &auto.tags {
+        // Highest-24h-volume open events for the tag; a handful of events is
+        // plenty — each carries its own market list.
+        let url = format!(
+            "{}/events?closed=false&limit=4&order=volume24hr&ascending=false&tag_slug={}",
+            GAMMA_API, tag
+        );
+        let events: Value = match http.get(&url).send().await {
+            Ok(r) => serde_json::from_str(&r.text().await.unwrap_or_default())
+                .unwrap_or(Value::Null),
+            Err(e) => {
+                tracing::warn!(tag = %tag, error = %e, "auto-watchlist: events fetch failed");
+                continue;
+            }
+        };
+        let mut condition_ids: Vec<String> = Vec::new();
+        if let Some(evs) = events.as_array() {
+            'outer: for ev in evs {
+                let Some(markets) = ev.get("markets").and_then(|m| m.as_array()) else {
+                    continue;
+                };
+                for m in markets {
+                    if let Some(cid) = m.get("conditionId").and_then(|c| c.as_str()) {
+                        condition_ids.push(cid.to_string());
+                        if condition_ids.len() >= auto.markets_per_tag.max(1) {
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut per_tag: HashMap<String, f64> = HashMap::new();
+        for (i, cid) in condition_ids.iter().enumerate() {
+            if i > 0 {
+                // Same Cloudflare rate-limit spacing the poll loop uses.
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            let url = format!("{}/trades?market={}&limit=200", DATA_API, cid);
+            let trades: Value = match http.get(&url).send().await {
+                Ok(r) => serde_json::from_str(&r.text().await.unwrap_or_default())
+                    .unwrap_or(Value::Null),
+                Err(e) => {
+                    tracing::warn!(market = %cid, error = %e, "auto-watchlist: trades fetch failed");
+                    continue;
+                }
+            };
+            let Some(items) = trades.as_array() else { continue };
+            for t in items {
+                let wallet = t
+                    .get("proxyWallet")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if wallet.is_empty() || exclude.contains(&wallet) {
+                    continue;
+                }
+                // data-api trade timestamps are unix SECONDS.
+                let ts_ms = t.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0) * 1000;
+                if ts_ms < cutoff_ms {
+                    continue;
+                }
+                let size = t.get("size").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let price = t.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let notional = size * price;
+                if notional < 1.0 {
+                    continue;
+                }
+                *per_tag.entry(wallet).or_insert(0.0) += notional;
+            }
+        }
+
+        let mut ranked: Vec<(String, f64)> = per_tag.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (wallet, notional) in ranked.into_iter().take(auto.top_per_tag.max(1)) {
+            *merged.entry(wallet).or_insert(0.0) += notional;
+        }
+    }
+
+    let total: f64 = merged.values().sum();
+    if total <= 0.0 {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<TraderEntry> = merged
+        .into_iter()
+        .map(|(address, notional)| TraderEntry {
+            address,
+            // Floor tiny weights so a whale in one tag can't zero out the
+            // other tag's traders entirely.
+            weight: (notional / total).max(0.02),
+            enabled: true,
+        })
+        .collect();
+    out.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(out)
 }
 
 // ─── Server-side Sharpe / ROI scoring ───────────────────────────────────

@@ -95,6 +95,8 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
       ...(config.minShares !== undefined && { minShares: config.minShares }),
       // Strat's top-N per-cycle cap → engine's max orders per cycle.
       ...(config.maxPerCycle !== undefined && { maxOrdersPerCycle: config.maxPerCycle }),
+      // Concurrent open-positions cap — engine skips new-token BUYs past it.
+      ...(config.maxOpenPositions !== undefined && { maxOpenPositions: config.maxOpenPositions }),
       ...(config.autoExecute !== undefined && { autoExecute: config.autoExecute }),
       // Market-topic filter — backend only mirrors trades in matching markets.
       ...(config.marketQuery && { marketQuery: config.marketQuery }),

@@ -14,6 +14,14 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.28);
+  color: #fff;
 }
 
 /* scrollbar */
@@ -75,4 +83,26 @@ html, body {
 select option {
   background: #111;
   color: #ccc;
+}
+
+/* ── library market ─────────────────────────────────────────────── */
+
+.library-bg {
+  background:
+    radial-gradient(ellipse 55% 38% at 18% 0%, rgba(59, 130, 246, 0.055), transparent),
+    radial-gradient(ellipse 45% 32% at 85% 8%, rgba(167, 139, 250, 0.045), transparent),
+    radial-gradient(ellipse 40% 30% at 50% 100%, rgba(52, 211, 153, 0.025), transparent);
+}
+
+.lib-card {
+  will-change: transform;
+}
+
+@keyframes lib-pop {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.lib-pop {
+  animation: lib-pop 0.16s ease-out;
 }

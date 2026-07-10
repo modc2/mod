@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
+import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, CategorySlug } from "../lib/polymarket";
 import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardPresets";
@@ -19,7 +20,11 @@ import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import LivePanel from "./LivePanel";
-import StratSourceViewer from "./StratSourceViewer";
+// Client-only: the `?raw` source imports resolve to different strings in the
+// server and client bundles (server sees a shorter transform), so SSR-ing the
+// viewer text-mismatches on hydration (React #425). No SEO value in strat
+// source — skip SSR entirely.
+const StratSourceViewer = nextDynamic(() => import("./StratSourceViewer"), { ssr: false });
 import UserStratsPanel from "./UserStratsPanel";
 import ThemeToggle from "./ThemeToggle";
 import WalletTokenPanel from "./WalletTokenPanel";
@@ -622,8 +627,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const [backtestDays, setBacktestDays] = useState(3);
   const [backtestDaysInput, setBacktestDaysInput] = useState("3");
   const [capital, setCapital] = useState(DEFAULT_CAPITAL);
-  const [minTrade, setMinTrade] = useState(1);
+  const [minTrade, setMinTrade] = useState(5);
   const [maxTrade, setMaxTrade] = useState(100);
+  // Max concurrent open positions — the live engine skips a mirror BUY that
+  // would open a NEW token while this many are already held.
+  const [maxOpenPositions, setMaxOpenPositions] = useState(10);
   // Top-N cap (mirrors CopyEngineConfig.maxPerCycle). The backtest applies
   // the same sampling the live engine does so the displayed P&L reflects
   // what live will actually execute after Sharpe-rank filtering.
@@ -683,19 +691,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // glance from here.
   const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE" | "WALLET">("STRATS");
 
-  // STRAT subtabs — SOURCE (the strat's code), TRADERS (leaderboard +
-  // watchlist editor), PARAMS (every tuning knob). Params used to live in
-  // a docked panel above the tabs on every view; they're a subtab now and
-  // render nowhere else. Selection persists across reloads.
-  const [stratTab, setStratTab] = useState<"SOURCE" | "TRADERS" | "PARAMS">(() => {
-    if (typeof window === "undefined") return "TRADERS";
-    const v = window.localStorage.getItem("stratSubTab");
-    return v === "SOURCE" || v === "PARAMS" ? v : "TRADERS";
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try { window.localStorage.setItem("stratSubTab", stratTab); } catch {}
-  }, [stratTab]);
+  // STRAT layout — the old SOURCE / TRADERS / PARAMS subtabs are merged:
+  // one TRADERS + PARAMS panel (traders on top, every tuning knob below,
+  // one header) with the strat's SOURCE code always rendered underneath.
 
   // ── Embedded top-traders leaderboard (STRATS mode) ──
   // The standalone /traders page was folded into strat management: discovering
@@ -857,10 +855,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       }
     }
     setCapital(activeIndex.capital ?? DEFAULT_CAPITAL);
-    setMinTrade(activeIndex.minTrade ?? 1);
+    setMinTrade(activeIndex.minTrade ?? 5);
     setMaxTrade(activeIndex.maxTrade ?? 100);
     setMaxTradesPerHour(activeIndex.maxTradesPerHour ?? 10);
     setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
+    setMaxOpenPositions(activeIndex.maxOpenPositions ?? 10);
     setMarketQuery(activeIndex.marketQuery ?? "");
     setMarketQueryInput(activeIndex.marketQuery ?? "");
     const tf = activeIndex.tradeFilters ?? {};
@@ -1057,6 +1056,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
   };
 
+  const updateMaxOpenPositions = (n: number) => {
+    const clamped = Math.max(1, n);
+    setMaxOpenPositions(clamped);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { maxOpenPositions: clamped, updatedAt: Date.now() });
+    }
+  };
+
   // ── Poll interval (persist to strategy) ──
   const updateRebalanceMinutes = (minutes: number) => {
     setRebalanceMinutes(minutes);
@@ -1215,10 +1222,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         // Re-hydrate backtest/sizing params so external strat edits flow
         // into the backtest + config bar without a strat switch.
         setCapital(found.capital ?? DEFAULT_CAPITAL);
-        setMinTrade(found.minTrade ?? 1);
+        setMinTrade(found.minTrade ?? 5);
         setMaxTrade(found.maxTrade ?? 100);
         setMaxTradesPerHour(found.maxTradesPerHour ?? 10);
         setMaxPerCycle(found.maxPerCycle ?? 3);
+        setMaxOpenPositions(found.maxOpenPositions ?? 10);
         setMarketQuery(found.marketQuery ?? "");
         setMarketQueryInput(found.marketQuery ?? "");
         setTradeFilters(found.tradeFilters ?? {});
@@ -1293,9 +1301,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setTraderData(new Map());
     setTraderTrades(new Map());
     setCapital(DEFAULT_CAPITAL);
-    setMinTrade(1);
+    setMinTrade(5);
     setMaxTrade(100);
     setMaxTradesPerHour(10);
+    setMaxOpenPositions(10);
     setSamplePct(100);
     setRebalancePeriod(0);
     setRebalanceHour(0);
@@ -1304,9 +1313,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       ...activeIndex,
       traders: [],
       capital: DEFAULT_CAPITAL,
-      minTrade: 1,
+      minTrade: 5,
       maxTrade: 100,
       maxTradesPerHour: 10,
+      maxOpenPositions: 10,
       rebalancePeriod: 0,
       rebalanceHour: 0,
       rebalanceMinutes: 5 / 60,
@@ -2016,6 +2026,30 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return { matched, total };
   }, [watchlist, traderTrades, backtestDays, marketQuery]);
 
+  // Per-trader params bite — how many of each trader's in-window trades
+  // survive the FULL params gate (market keywords AND side/price/size/
+  // category trade filters). Renders as the FILT column in the trader rows,
+  // so selecting a trader shows on the spot which slice of their flow the
+  // current params would actually copy.
+  const paramsFilterActive = marketQuery.trim() !== "" || tradeFiltersActive(tradeFilters);
+  const traderFilteredByAddr = useMemo(() => {
+    const cutoff = Date.now() - backtestDays * 24 * 60 * 60 * 1000;
+    const m = new Map<string, { matched: number; total: number }>();
+    for (const addr of allTraderAddrs) {
+      const trades = traderTrades.get(addr);
+      if (!trades) continue;
+      let total = 0;
+      let matched = 0;
+      for (const t of trades) {
+        if (t.timestamp < cutoff) continue;
+        total++;
+        if (marketMatchesQuery(t.market, marketQuery) && tradeMatchesFilters(t, tradeFilters)) matched++;
+      }
+      m.set(addr, { matched, total });
+    }
+    return m;
+  }, [allTraderAddrs, traderTrades, backtestDays, marketQuery, tradeFilters]);
+
   // ══════════════════════════════════════════
   // ── RENDER ──
   // ══════════════════════════════════════════
@@ -2092,37 +2126,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           />
         </div>
 
-        {/* ── STRAT subtabs ──
-            SOURCE = the strat's code, TRADERS = leaderboard + watchlist
-            editor, PARAMS = every tuning knob. The old always-docked
-            params panel is gone — params render here and nowhere else. */}
-        {mode === "STRATS" && (
-          <div className="flex items-center gap-1.5 border-t border-pixel-border/40 pt-2">
-            {(
-              [
-                { id: "SOURCE", label: "SOURCE", hint: "Strat code — read built-ins, edit your uploads" },
-                { id: "TRADERS", label: "TRADERS", hint: "Browse the leaderboard + manage who you copy" },
-                { id: "PARAMS", label: "PARAMS", hint: "Window, capital, trade band, throttle, market focus, trade filters" },
-              ] as { id: typeof stratTab; label: string; hint: string }[]
-            ).map((t) => {
-              const active = stratTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setStratTab(t.id)}
-                  title={t.hint}
-                  className={`text-[11px] font-mono tracking-[0.15em] px-3 py-1 rounded border transition-colors ${
-                    active
-                      ? "border-green-400/60 text-green-400 bg-green-400/[0.08]"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* ── WALLET tab ──
@@ -2149,15 +2152,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         </div>
       )}
 
-      {/* ── PARAMS subtab (STRAT tab only) ──
-          All strat tuning in one place: window / capital / trade band /
-          throttle / top-N / sample / poll cadence / market focus / per-trade
-          filters. The status row keeps the strat picker + data-freshness
-          chips so a stalled poll loop is still diagnosable from here. */}
-      {mode === "STRATS" && stratTab === "PARAMS" && activeIndex && (
+      {/* ── TRADERS + PARAMS (STRAT tab) ──
+          One header for the whole strat editor: who you copy (add bar,
+          leaderboard browser, watchlist rows) and every tuning knob
+          (window / capital / trade band / throttle / top-N / sample /
+          poll cadence / market focus / per-trade filters) in the same
+          panel. The FILT column on each trader row shows live how many
+          of that trader's in-window trades the current params keep.
+          The strat's SOURCE code renders directly below this panel.
+          The status row keeps the strat picker + data-freshness chips
+          so a stalled poll loop is still diagnosable from here. */}
+      {mode === "STRATS" && activeIndex && (
         <div className="pixel-panel px-3 py-2.5 space-y-2.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">PARAMS</span>
+            <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">TRADERS + PARAMS</span>
             <div className="w-2 h-2 bg-green-400 shrink-0" />
             <select
               value={activeIndex.id}
@@ -2215,7 +2223,318 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </>
             )}
           </div>
-          <div className="border-t border-pixel-border/40 pt-2.5">
+          {/* ── TRADERS — add bar + leaderboard browser + watchlist rows ── */}
+          <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
+              </div>
+              {loading && (
+                <span className="text-[12px] text-green-400 font-mono animate-pulse shrink-0">
+                  {loadedCount}/{watchlist.length}
+                </span>
+              )}
+            </div>
+
+            {/* Leaderboard browser — the old standalone /traders page, folded
+                in and collapsible so it doesn't crowd the editor. Clicking a
+                trader toggles them in/out of the active strat. */}
+            <div className="border border-pixel-border/60 rounded-[var(--radius-sm)]">
+              <button
+                onClick={() => setBrowseOpen((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-left group/bt"
+              >
+                <span className="flex items-center gap-2.5">
+                  <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${browseOpen ? "rotate-90" : ""}`}>▸</span>
+                  <span
+                    className="text-[13px] font-bold text-pixel-white uppercase tracking-[0.18em] group-hover/bt:text-green-400 transition-colors"
+                    style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
+                  >
+                    Browse Traders
+                  </span>
+                  <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
+                    leaderboard · click a trader to add
+                  </span>
+                </span>
+                {allTraderAddrs.length > 0 && (
+                  <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
+                    {allTraderAddrs.length} in strat
+                  </span>
+                )}
+              </button>
+              {browseOpen && (
+                <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
+                  {/* Pinned leaderboards — named filter combos (e.g. "BTC ≥3/day")
+                      that auto-refresh hourly (FiltersContext's reloadKey timer).
+                      Click to apply, × to unpin. */}
+                  <div className="flex items-center gap-1.5 flex-wrap pb-3 mb-3 border-b border-pixel-border/40">
+                    <span className="text-[10px] text-pixel-gray tracking-[0.15em] mr-1">PINNED</span>
+                    {presets.map((p) => (
+                      <span
+                        key={p.id}
+                        className="pixel-btn text-[11px] pl-2 pr-1 py-0.5 flex items-center gap-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
+                      >
+                        <button onClick={() => applyPreset(p)} title="Apply this leaderboard's filters">
+                          {p.name}
+                        </button>
+                        <button
+                          onClick={() => deletePreset(p.id)}
+                          className="text-pixel-gray/60 hover:text-red-400"
+                          title="Unpin"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      onClick={saveCurrentAsPreset}
+                      className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
+                      title="Pin the current filters (category / market / min trades-per-day / window) as a named leaderboard — refreshes hourly"
+                    >
+                      + PIN CURRENT
+                    </button>
+                  </div>
+                  <CopyTrading
+                    days={browseDays}
+                    minTradesPerDay={browseMinTradesPerDay}
+                    reloadKey={browseReloadKey}
+                    search={searchFilter}
+                    category={browseCategory}
+                    marketQuery={browseMarketQuery}
+                    selectedAddresses={allTraderAddrs}
+                    onSelect={(addr) => {
+                      const a = addr.toLowerCase();
+                      // Remove using the exact stored casing (removeTrader matches
+                      // case-sensitively); add new entries lowercased to match the
+                      // app's storage convention.
+                      const stored = allTraderAddrs.find((x) => x.toLowerCase() === a);
+                      if (stored) removeTrader(stored);
+                      else addTrader(a);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Watchlist editor — everyone in the strat, with the FILT column
+                showing how the params below bite each trader's flow. */}
+            {allTraderAddrs.length > 0 && (
+              <div className="space-y-1">
+                {/* Toolbar: count + actions + weight sum */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[14px] text-pixel-gray tracking-wider">{watchlist.length}/{allTraderAddrs.length} ACTIVE</span>
+                    <button
+                      onClick={equalizeWeights}
+                      className="pixel-btn text-[13px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
+                      title="Equalize all weights"
+                    >
+                      EQ
+                    </button>
+                    {totalWeight !== 100 && totalWeight > 0 && (
+                      <button
+                        onClick={normalizeWeights}
+                        className="pixel-btn text-[13px] px-2 py-1 border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors"
+                        title="Normalize weights to 100%"
+                      >
+                        NORM
+                      </button>
+                    )}
+                    <button
+                      onClick={resetStrat}
+                      className="pixel-btn text-[13px] px-2 py-1 border-red-400/60 text-red-400 hover:bg-red-400/10 transition-colors"
+                      title="Reset strat — clears traders, weights, and tuning back to defaults"
+                    >
+                      RESET
+                    </button>
+                  </div>
+                  <span className={`text-[15px] font-mono ${
+                    totalWeight === 100 ? "text-pixel-gray" : totalWeight > 0 ? "text-amber-400" : "text-pixel-gray"
+                  }`}>
+                    {totalWeight}%
+                  </span>
+                </div>
+
+                {/* Column headers */}
+                <div className="flex items-center text-[12px] text-pixel-gray tracking-wider px-0.5 border-t border-pixel-border pt-1">
+                  <span className="w-5 shrink-0" />
+                  <span className="w-5 shrink-0" />
+                  <span className="flex-1">ADDRESS</span>
+                  <span className="w-12 text-right" title="Total trades observed in the loaded history window">TXS</span>
+                  <span className="w-14 text-right" title="Time since this trader's most recent trade">LAST</span>
+                  <span className="w-10 text-right" title="Trades by this trader in the last 24h — 0 means dormant">24H</span>
+                  <span className="w-16 text-right" title="In-window trades passing the PARAMS below (market keywords + trade filter) — the slice the strat would actually copy">FILT</span>
+                  <span className="w-16 text-right">P&L</span>
+                  <span className="flex-1 text-center">WEIGHT</span>
+                  <span className="w-5" />
+                </div>
+
+                {/* Trader rows */}
+                <div className="space-y-0">
+                  {traderSummaries.map((t, i) => {
+                    const curvePnl = traderCurvePnl.get(t.address);
+                    const displayPnl = curvePnl ?? t.totalPnl;
+                    const pnlColor = displayPnl > 0 ? "text-green-400"
+                      : displayPnl < 0 ? "text-red-400" : "text-pixel-gray-light";
+                    const w = traderWeights[t.address] || 0;
+                    return (
+                      <div key={t.address} className={`flex items-center gap-0.5 px-0.5 py-1 hover:bg-pixel-white/5 transition-colors group border-b border-pixel-border/20 last:border-b-0 ${t.enabled ? "" : "opacity-40"}`}>
+                        {/* Toggle enabled/disabled */}
+                        <button
+                          onClick={() => toggleTrader(t.address)}
+                          className="w-4 shrink-0 flex items-center justify-center"
+                          title={t.enabled ? "Hide trader" : "Show trader"}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full transition-colors ${t.enabled ? "bg-green-400" : "bg-pixel-gray"}`} />
+                        </button>
+                        <span className="text-[12px] text-pixel-gray font-mono w-5 shrink-0 text-center">{i + 1}</span>
+                        <button
+                          onClick={() => goToTrader(t.address)}
+                          className="flex-1 text-left text-[15px] font-mono text-pixel-white hover:text-green-400 transition-colors truncate"
+                        >
+                          {shortAddress(t.address)}
+                        </button>
+                        {/* TXS — total trade count in the loaded history window.
+                            Tooltips show the absolute number; cell rendered with
+                            a "K" suffix for large counts to keep the column tight. */}
+                        {(() => {
+                          const stats = traderTradeStatsByAddr.get(t.address);
+                          const total = stats?.total ?? null;
+                          return (
+                            <span
+                              className="w-12 text-right text-[13px] font-mono text-pixel-gray-light"
+                              title={total === null ? "Loading…" : `${total.toLocaleString()} total trades observed`}
+                            >
+                              {total === null ? "…" : total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)}
+                            </span>
+                          );
+                        })()}
+                        {/* LAST — short-form "5m" / "3h" / "2d" since the most
+                            recent trade. Red when stale (>24h), amber when warming
+                            (>1h), green when fresh. */}
+                        {(() => {
+                          const stats = traderTradeStatsByAddr.get(t.address);
+                          if (!stats) {
+                            return (
+                              <span className="w-14 text-right text-[13px] font-mono text-pixel-gray">…</span>
+                            );
+                          }
+                          const ageMs = Date.now() - stats.lastTs;
+                          const cls =
+                            ageMs < 3_600_000 ? "text-green-400" :
+                            ageMs < 86_400_000 ? "text-amber-400" :
+                            "text-red-400";
+                          const short = (() => {
+                            const sec = Math.floor(ageMs / 1000);
+                            if (sec < 60) return `${sec}s`;
+                            const m = Math.floor(sec / 60);
+                            if (m < 60) return `${m}m`;
+                            const h = Math.floor(m / 60);
+                            if (h < 24) return `${h}h`;
+                            return `${Math.floor(h / 24)}d`;
+                          })();
+                          return (
+                            <span
+                              className={`w-14 text-right text-[13px] font-mono ${cls}`}
+                              title={`Last trade ${new Date(stats.lastTs).toLocaleString()}`}
+                            >
+                              {short}
+                            </span>
+                          );
+                        })()}
+                        {/* 24H activity — red when dormant, amber when thin,
+                            green when active. Pure visual cue, no filtering. */}
+                        {(() => {
+                          const c24 = trades24hByAddr.get(t.address);
+                          const activityCls = c24 === undefined
+                            ? "text-pixel-gray"
+                            : c24 === 0
+                              ? "text-red-400"
+                              : c24 < 3
+                                ? "text-amber-400"
+                                : "text-green-400";
+                          const title = c24 === undefined
+                            ? "Loading trade history…"
+                            : c24 === 0
+                              ? "No trades in last 24h — trader may be dormant"
+                              : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
+                          return (
+                            <span
+                              className={`w-10 text-right text-[13px] font-mono ${activityCls}`}
+                              title={title}
+                            >
+                              {c24 === undefined ? "…" : c24}
+                            </span>
+                          );
+                        })()}
+                        {/* FILT — how many of this trader's in-window trades pass
+                            the params below (market keywords AND per-trade
+                            filters). Red when the params exclude this trader
+                            entirely; gray "all" when no filter is active. */}
+                        {(() => {
+                          const f = traderFilteredByAddr.get(t.address);
+                          if (!f) {
+                            return (
+                              <span className="w-16 text-right text-[13px] font-mono text-pixel-gray">…</span>
+                            );
+                          }
+                          const compact = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+                          if (!paramsFilterActive) {
+                            return (
+                              <span
+                                className="w-16 text-right text-[13px] font-mono text-pixel-gray-light"
+                                title={`${f.total} trades in the ${backtestDays}d window — no params filter active, everything passes`}
+                              >
+                                {compact(f.total)}
+                              </span>
+                            );
+                          }
+                          const cls = f.matched === 0 ? "text-red-400" : "text-amber-300";
+                          return (
+                            <span
+                              className={`w-16 text-right text-[13px] font-mono ${cls}`}
+                              title={`${f.matched}/${f.total} trades in the ${backtestDays}d window pass the current params (market keywords + trade filter)`}
+                            >
+                              {compact(f.matched)}/{compact(f.total)}
+                            </span>
+                          );
+                        })()}
+                        <span className={`w-16 text-right text-[15px] font-mono ${pnlColor}`}>
+                          {curvePnl !== undefined ? formatPnl(curvePnl) : t.loaded ? formatPnl(t.totalPnl) : "..."}
+                        </span>
+                        {/* Weight slider + value */}
+                        <div className="flex-1 flex items-center gap-1 px-1">
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={w}
+                            onChange={(e) => updateWeight(t.address, parseInt(e.target.value, 10))}
+                            className="flex-1 h-[4px] appearance-none bg-pixel-border rounded cursor-grab accent-green-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:bg-green-400 [&::-webkit-slider-thumb]:cursor-grab"
+                          />
+                          <span className="text-[14px] font-mono text-pixel-gray w-9 text-right shrink-0">{w}%</span>
+                        </div>
+                        <button
+                          onClick={() => removeTrader(t.address)}
+                          className="w-5 text-center text-[13px] text-pixel-gray hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Remove trader"
+                        >
+                          x
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── PARAMS — every knob; the filters gate the traders above,
+              and the FILT column re-counts on every edit here ── */}
+          <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
+            <div className="text-[10px] text-pixel-gray tracking-[0.22em]">
+              PARAMS · FILTERS APPLY TO THE SELECTED TRADERS ABOVE
+            </div>
             <div className="flex items-end gap-2 flex-wrap">
               <Field label="WINDOW" suffix="DAYS">
                 <input
@@ -2311,6 +2630,21 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   }}
                   onFocus={(e) => e.target.select()}
                   title="Top-N candidates copied per scan (by score)"
+                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                />
+              </Field>
+
+              <Field label="MAX POS">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={maxOpenPositions}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                    if (!isNaN(v) && v > 0) updateMaxOpenPositions(v);
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  title="Max concurrent open positions — the live engine skips BUYs that would open a new position past this cap"
                   className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
                 />
               </Field>
@@ -2537,13 +2871,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
       {/* Strat list + "+ New" moved to the left StratSidebar (managed there). */}
 
-      {/* ── SOURCE subtab — the strat's code ──
+      {/* ── SOURCE — the strat's code, always below TRADERS + PARAMS ──
           Read-only for built-in TS strats; editable for user-uploaded
           mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
-      {mode === "STRATS" && stratTab === "SOURCE" && <StratSourceViewer />}
+      {mode === "STRATS" && <StratSourceViewer />}
 
-      {/* ── Add trader bar (STRAT → TRADERS subtab + BACKTEST) ── */}
-      {(mode === "BACKTEST" || (mode === "STRATS" && stratTab === "TRADERS")) && (
+      {/* ── Add trader bar (BACKTEST — on STRAT it lives inside TRADERS + PARAMS) ── */}
+      {mode === "BACKTEST" && (
         <div className="pixel-panel px-3 py-1.5">
           <div className="flex items-center gap-2">
             <div className="flex-1">
@@ -2560,267 +2894,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         </div>
       )}
 
-      {/* ── TRADERS subtab — browse top traders ──
-          The old standalone /traders page, folded in: the full leaderboard for
-          discovering who to copy, collapsible so it doesn't crowd the strat
-          editor. Clicking a trader toggles them in/out of the active strat. */}
-      {mode === "STRATS" && stratTab === "TRADERS" && (
-        <div className="pixel-panel border-2 border-pixel-border">
-          <button
-            onClick={() => setBrowseOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left group/bt"
-          >
-            <span className="flex items-center gap-2.5">
-              <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${browseOpen ? "rotate-90" : ""}`}>▸</span>
-              <span
-                className="text-[14px] font-bold text-pixel-white uppercase tracking-[0.18em] group-hover/bt:text-green-400 transition-colors"
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
-              >
-                Browse Traders
-              </span>
-              <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                leaderboard · click a trader to add
-              </span>
-            </span>
-            {allTraderAddrs.length > 0 && (
-              <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
-                {allTraderAddrs.length} in strat
-              </span>
-            )}
-          </button>
-          {browseOpen && (
-            <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
-              {/* Pinned leaderboards — named filter combos (e.g. "BTC ≥3/day")
-                  that auto-refresh hourly (FiltersContext's reloadKey timer).
-                  Click to apply, × to unpin. */}
-              <div className="flex items-center gap-1.5 flex-wrap pb-3 mb-3 border-b border-pixel-border/40">
-                <span className="text-[10px] text-pixel-gray tracking-[0.15em] mr-1">PINNED</span>
-                {presets.map((p) => (
-                  <span
-                    key={p.id}
-                    className="pixel-btn text-[11px] pl-2 pr-1 py-0.5 flex items-center gap-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                  >
-                    <button onClick={() => applyPreset(p)} title="Apply this leaderboard's filters">
-                      {p.name}
-                    </button>
-                    <button
-                      onClick={() => deletePreset(p.id)}
-                      className="text-pixel-gray/60 hover:text-red-400"
-                      title="Unpin"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <button
-                  onClick={saveCurrentAsPreset}
-                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                  title="Pin the current filters (category / market / min trades-per-day / window) as a named leaderboard — refreshes hourly"
-                >
-                  + PIN CURRENT
-                </button>
-              </div>
-              <CopyTrading
-                days={browseDays}
-                minTradesPerDay={browseMinTradesPerDay}
-                reloadKey={browseReloadKey}
-                search={searchFilter}
-                category={browseCategory}
-                marketQuery={browseMarketQuery}
-                selectedAddresses={allTraderAddrs}
-                onSelect={(addr) => {
-                  const a = addr.toLowerCase();
-                  // Remove using the exact stored casing (removeTrader matches
-                  // case-sensitively); add new entries lowercased to match the
-                  // app's storage convention.
-                  const stored = allTraderAddrs.find((x) => x.toLowerCase() === a);
-                  if (stored) removeTrader(stored);
-                  else addTrader(a);
-                }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Trader editor panel (STRAT → TRADERS subtab) ── */}
-      {mode === "STRATS" && stratTab === "TRADERS" && allTraderAddrs.length > 0 && (
-        <div className="pixel-panel px-3 py-2 space-y-1">
-          {/* Toolbar: count + actions + weight sum */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[14px] text-pixel-gray tracking-wider">{watchlist.length}/{allTraderAddrs.length} ACTIVE</span>
-              <button
-                onClick={equalizeWeights}
-                className="pixel-btn text-[13px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                title="Equalize all weights"
-              >
-                EQ
-              </button>
-              {totalWeight !== 100 && totalWeight > 0 && (
-                <button
-                  onClick={normalizeWeights}
-                  className="pixel-btn text-[13px] px-2 py-1 border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors"
-                  title="Normalize weights to 100%"
-                >
-                  NORM
-                </button>
-              )}
-              <button
-                onClick={resetStrat}
-                className="pixel-btn text-[13px] px-2 py-1 border-red-400/60 text-red-400 hover:bg-red-400/10 transition-colors"
-                title="Reset strat — clears traders, weights, and tuning back to defaults"
-              >
-                RESET
-              </button>
-            </div>
-            <span className={`text-[15px] font-mono ${
-              totalWeight === 100 ? "text-pixel-gray" : totalWeight > 0 ? "text-amber-400" : "text-pixel-gray"
-            }`}>
-              {totalWeight}%
-            </span>
-          </div>
-
-          {/* Column headers */}
-          <div className="flex items-center text-[12px] text-pixel-gray tracking-wider px-0.5 border-t border-pixel-border pt-1">
-            <span className="w-5 shrink-0" />
-            <span className="w-5 shrink-0" />
-            <span className="flex-1">ADDRESS</span>
-            <span className="w-12 text-right" title="Total trades observed in the loaded history window">TXS</span>
-            <span className="w-14 text-right" title="Time since this trader's most recent trade">LAST</span>
-            <span className="w-10 text-right" title="Trades by this trader in the last 24h — 0 means dormant">24H</span>
-            <span className="w-16 text-right">P&L</span>
-            <span className="flex-1 text-center">WEIGHT</span>
-            <span className="w-5" />
-          </div>
-
-          {/* Trader rows */}
-          <div className="space-y-0">
-            {traderSummaries.map((t, i) => {
-              const curvePnl = traderCurvePnl.get(t.address);
-              const displayPnl = curvePnl ?? t.totalPnl;
-              const pnlColor = displayPnl > 0 ? "text-green-400"
-                : displayPnl < 0 ? "text-red-400" : "text-pixel-gray-light";
-              const w = traderWeights[t.address] || 0;
-              return (
-                <div key={t.address} className={`flex items-center gap-0.5 px-0.5 py-1 hover:bg-pixel-white/5 transition-colors group border-b border-pixel-border/20 last:border-b-0 ${t.enabled ? "" : "opacity-40"}`}>
-                  {/* Toggle enabled/disabled */}
-                  <button
-                    onClick={() => toggleTrader(t.address)}
-                    className="w-4 shrink-0 flex items-center justify-center"
-                    title={t.enabled ? "Hide trader" : "Show trader"}
-                  >
-                    <div className={`w-1.5 h-1.5 rounded-full transition-colors ${t.enabled ? "bg-green-400" : "bg-pixel-gray"}`} />
-                  </button>
-                  <span className="text-[12px] text-pixel-gray font-mono w-5 shrink-0 text-center">{i + 1}</span>
-                  <button
-                    onClick={() => goToTrader(t.address)}
-                    className="flex-1 text-left text-[15px] font-mono text-pixel-white hover:text-green-400 transition-colors truncate"
-                  >
-                    {shortAddress(t.address)}
-                  </button>
-                  {/* TXS — total trade count in the loaded history window.
-                      Tooltips show the absolute number; cell rendered with
-                      a "K" suffix for large counts to keep the column tight. */}
-                  {(() => {
-                    const stats = traderTradeStatsByAddr.get(t.address);
-                    const total = stats?.total ?? null;
-                    return (
-                      <span
-                        className="w-12 text-right text-[13px] font-mono text-pixel-gray-light"
-                        title={total === null ? "Loading…" : `${total.toLocaleString()} total trades observed`}
-                      >
-                        {total === null ? "…" : total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)}
-                      </span>
-                    );
-                  })()}
-                  {/* LAST — short-form "5m" / "3h" / "2d" since the most
-                      recent trade. Red when stale (>24h), amber when warming
-                      (>1h), green when fresh. */}
-                  {(() => {
-                    const stats = traderTradeStatsByAddr.get(t.address);
-                    if (!stats) {
-                      return (
-                        <span className="w-14 text-right text-[13px] font-mono text-pixel-gray">…</span>
-                      );
-                    }
-                    const ageMs = Date.now() - stats.lastTs;
-                    const cls =
-                      ageMs < 3_600_000 ? "text-green-400" :
-                      ageMs < 86_400_000 ? "text-amber-400" :
-                      "text-red-400";
-                    const short = (() => {
-                      const sec = Math.floor(ageMs / 1000);
-                      if (sec < 60) return `${sec}s`;
-                      const m = Math.floor(sec / 60);
-                      if (m < 60) return `${m}m`;
-                      const h = Math.floor(m / 60);
-                      if (h < 24) return `${h}h`;
-                      return `${Math.floor(h / 24)}d`;
-                    })();
-                    return (
-                      <span
-                        className={`w-14 text-right text-[13px] font-mono ${cls}`}
-                        title={`Last trade ${new Date(stats.lastTs).toLocaleString()}`}
-                      >
-                        {short}
-                      </span>
-                    );
-                  })()}
-                  {/* 24H activity — red when dormant, amber when thin,
-                      green when active. Pure visual cue, no filtering. */}
-                  {(() => {
-                    const c24 = trades24hByAddr.get(t.address);
-                    const activityCls = c24 === undefined
-                      ? "text-pixel-gray"
-                      : c24 === 0
-                        ? "text-red-400"
-                        : c24 < 3
-                          ? "text-amber-400"
-                          : "text-green-400";
-                    const title = c24 === undefined
-                      ? "Loading trade history…"
-                      : c24 === 0
-                        ? "No trades in last 24h — trader may be dormant"
-                        : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
-                    return (
-                      <span
-                        className={`w-10 text-right text-[13px] font-mono ${activityCls}`}
-                        title={title}
-                      >
-                        {c24 === undefined ? "…" : c24}
-                      </span>
-                    );
-                  })()}
-                  <span className={`w-16 text-right text-[15px] font-mono ${pnlColor}`}>
-                    {curvePnl !== undefined ? formatPnl(curvePnl) : t.loaded ? formatPnl(t.totalPnl) : "..."}
-                  </span>
-                  {/* Weight slider + value */}
-                  <div className="flex-1 flex items-center gap-1 px-1">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={w}
-                      onChange={(e) => updateWeight(t.address, parseInt(e.target.value, 10))}
-                      className="flex-1 h-[4px] appearance-none bg-pixel-border rounded cursor-grab accent-green-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:bg-green-400 [&::-webkit-slider-thumb]:cursor-grab"
-                    />
-                    <span className="text-[14px] font-mono text-pixel-gray w-9 text-right shrink-0">{w}%</span>
-                  </div>
-                  <button
-                    onClick={() => removeTrader(t.address)}
-                    className="w-5 text-center text-[13px] text-pixel-gray hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                    title="Remove trader"
-                  >
-                    x
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Active view ── */}
       {activeIndex && (
         <>
@@ -2830,8 +2903,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
               <div className="text-[12px] text-pixel-gray-light">
                 ADD TRADERS FROM{" "}
-                <button onClick={() => { setMode("STRATS"); setStratTab("TRADERS"); }} className="text-pixel-white hover:text-green-400 transition-colors">
-                  STRAT → TRADERS
+                <button onClick={() => { setMode("STRATS"); setBrowseOpen(true); }} className="text-pixel-white hover:text-green-400 transition-colors">
+                  STRAT → TRADERS + PARAMS
                 </button>.
               </div>
             </div>

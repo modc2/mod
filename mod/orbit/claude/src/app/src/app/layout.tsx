@@ -20,7 +20,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    // data-theme is rendered server-side (dark default) and corrected for a
+    // saved light preference by the blocking script below, so the first paint
+    // already has the final palette — no theme flip after hydration.
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{if(localStorage.getItem("claude_jobs_theme")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}',
+          }}
+        />
+      </head>
       <body>
         {children}
       </body>
