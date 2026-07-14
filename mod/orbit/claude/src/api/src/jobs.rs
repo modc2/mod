@@ -374,13 +374,24 @@ impl ClaudeJobManager {
         // Delivered via --append-system-prompt, NOT the job prompt, so it
         // never shows up in the user-visible task text.
         let module_note = if req.module_name.is_none() {
+            let mod_root = std::path::PathBuf::from(&anchor_dir)
+                .join("mod")
+                .to_string_lossy()
+                .to_string();
             let orbit_root = std::path::PathBuf::from(&anchor_dir)
                 .join("mod/orbit")
                 .to_string_lossy()
                 .to_string();
-            if work_dir.starts_with(&format!("{}/", orbit_root)) {
-                let job_user = req.user_address.clone().unwrap_or_default();
-                let peers_only = !job_user.is_empty() && !crate::auth::is_owner(&job_user);
+            let job_user = req.user_address.clone().unwrap_or_default();
+            let peers_only = !job_user.is_empty() && !crate::auth::is_owner(&job_user);
+            if work_dir.trim_end_matches('/') == mod_root && !peers_only {
+                // The whole-tree "mod" selection: the job's cwd spans every
+                // module, so tell the agent cross-module edits are in scope.
+                Some(format!(
+                    "You are working on the ENTIRE module tree at {}. Every directory under {}/orbit (community modules) and {}/core (protocol modules) is a mod — you may read and edit ANY of them in this run, and cross-module changes are expected when the request spans modules. You may also create new modules under {}/orbit (scaffold a directory with a config.json and a mod.py or src/) or fork an existing one by copying its directory to a new name and updating self-references (config.json name, ports, routes). Prefer touching only the modules the request actually needs.",
+                    work_dir, mod_root, mod_root, mod_root
+                ))
+            } else if work_dir.starts_with(&format!("{}/", orbit_root)) {
                 let create_root = if peers_only {
                     format!("{}/peers", orbit_root)
                 } else {

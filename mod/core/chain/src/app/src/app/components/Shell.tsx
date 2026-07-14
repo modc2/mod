@@ -13,6 +13,7 @@ const NAV = [
   { key: 'control', label: 'Control', href: '/control' },
   { key: 'protocol', label: 'Protocol', href: '/protocol' },
   { key: 'admin', label: 'Owner', href: '/admin' },
+  { key: 'docs', label: 'Docs', href: '/docs' },
 ] as const
 
 export type NavKey = typeof NAV[number]['key']
@@ -63,7 +64,7 @@ export function Shell({ active, right, children, footer }: {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-5 space-y-4">
         {children}
       </main>
 

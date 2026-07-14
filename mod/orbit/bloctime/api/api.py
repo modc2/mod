@@ -142,6 +142,15 @@ class SetInflationReq(BaseModel):
     epoch_length: int = 43200  # blocks per epoch
 
 
+def _call(fn, default=None):
+    """Call a contract view, degrading to `default` where the deployed
+    (older) contract lacks the function and reverts."""
+    try:
+        return fn.call()
+    except Exception:
+        return default
+
+
 # ── Core Endpoints ──────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -179,9 +188,9 @@ async def overview(req: Optional[AddressReq] = None):
         total_staked += amount
         total_bloctime += bt_balance
 
-    delegate_addr = contract.functions.delegates(addr).call()
-    pending_rewards = contract.functions.earned(addr).call()
-    voting_power = contract.functions.getVotingPower(addr).call()
+    delegate_addr = _call(contract.functions.delegates(addr), ZERO_ADDR)
+    pending_rewards = _call(contract.functions.earned(addr), 0)
+    voting_power = _call(contract.functions.getVotingPower(addr), 0)
 
     return {"result": {
         "address": addr,
@@ -276,7 +285,11 @@ async def get_points():
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
 
-    pts = contract.functions.getPoints().call()
+    try:
+        pts = contract.functions.getPoints().call()
+    except Exception:
+        # Deployed contract predates getPoints — no curve to show.
+        pts = []
     return {"result": [{"blocks": p[0], "multiplier": p[1], "multiplierX": p[1] / 10000} for p in pts]}
 
 
@@ -302,14 +315,19 @@ async def stats():
     total_bt = contract.functions.totalBlocTime().call()
     next_id = contract.functions.nextStakeId().call()
     supply = contract.functions.totalSupply().call()
-    epoch = contract.functions.currentEpoch().call()
-    epoch_reward = contract.functions.getEpochReward(epoch).call() if epoch > 0 else 0
-    total_distributed = contract.functions.totalDistributed().call()
-    last_dist = contract.functions.lastDistributionEpoch().call()
+
+    # The deployed testnet contract may predate the inflation/epoch
+    # functions — degrade to core staking stats instead of failing.
+    try:
+        epoch = contract.functions.currentEpoch().call()
+        epoch_reward = contract.functions.getEpochReward(epoch).call() if epoch > 0 else 0
+        total_distributed = contract.functions.totalDistributed().call()
+        last_dist = contract.functions.lastDistributionEpoch().call()
+        infl = contract.functions.getInflationParams().call()
+    except Exception:
+        epoch, epoch_reward, total_distributed, last_dist, infl = 0, 0, 0, 0, None
 
     bt_addr, ntv_addr, deploy = _load_deploy_info()
-
-    infl = contract.functions.getInflationParams().call()
 
     return {"result": {
         "totalBlocTime": str(total_bt),
@@ -329,7 +347,7 @@ async def stats():
             "minRewardPerEpoch": str(infl[2]),
             "epochLength": infl[3],
             "startBlock": infl[4],
-        },
+        } if infl else None,
     }}
 
 
@@ -341,10 +359,10 @@ async def get_voting_power(req: AddressReq):
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
     addr = Web3.to_checksum_address(req.address)
-    vp = contract.functions.getVotingPower(addr).call()
-    delegate_addr = contract.functions.delegates(addr).call()
+    vp = _call(contract.functions.getVotingPower(addr), 0)
+    delegate_addr = _call(contract.functions.delegates(addr), ZERO_ADDR)
     balance = contract.functions.balanceOf(addr).call()
-    delegated = contract.functions.delegatedVotingPower(addr).call()
+    delegated = _call(contract.functions.delegatedVotingPower(addr), 0)
     return {"result": {
         "votingPower": str(vp),
         "delegate": delegate_addr if delegate_addr != ZERO_ADDR else "",
@@ -359,10 +377,10 @@ async def get_rewards(req: AddressReq):
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
     addr = Web3.to_checksum_address(req.address)
-    pending = contract.functions.earned(addr).call()
-    epoch = contract.functions.currentEpoch().call()
-    epoch_reward = contract.functions.getEpochReward(epoch).call() if epoch > 0 else 0
-    total_distributed = contract.functions.totalDistributed().call()
+    pending = _call(contract.functions.earned(addr), 0)
+    epoch = _call(contract.functions.currentEpoch(), 0)
+    epoch_reward = _call(contract.functions.getEpochReward(epoch), 0) if epoch > 0 else 0
+    total_distributed = _call(contract.functions.totalDistributed(), 0)
     return {"result": {
         "pendingRewards": str(pending),
         "currentEpoch": epoch,
@@ -376,11 +394,11 @@ async def get_inflation_params():
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
-    infl = contract.functions.getInflationParams().call()
-    epoch = contract.functions.currentEpoch().call()
-    epoch_reward = contract.functions.getEpochReward(epoch).call() if epoch > 0 else 0
-    total_distributed = contract.functions.totalDistributed().call()
-    last_dist = contract.functions.lastDistributionEpoch().call()
+    infl = _call(contract.functions.getInflationParams(), (0, 0, 0, 0, 0))
+    epoch = _call(contract.functions.currentEpoch(), 0)
+    epoch_reward = _call(contract.functions.getEpochReward(epoch), 0) if epoch > 0 else 0
+    total_distributed = _call(contract.functions.totalDistributed(), 0)
+    last_dist = _call(contract.functions.lastDistributionEpoch(), 0)
     return {"result": {
         "initialRewardPerEpoch": str(infl[0]),
         "halvingInterval": infl[1],
@@ -400,7 +418,7 @@ async def get_inflation_curve():
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
-    infl = contract.functions.getInflationParams().call()
+    infl = _call(contract.functions.getInflationParams(), (0, 0, 0, 0, 0))
     halving_interval = infl[1]
     if halving_interval == 0:
         return {"result": {"points": [], "halvingInterval": 0, "totalEpochs": 0}}

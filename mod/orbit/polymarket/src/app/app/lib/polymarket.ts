@@ -57,6 +57,9 @@ export function timeAgo(ts: number): string {
 // ── API helpers ─────────────────────────────────────────────────
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+/** Base URL of the module API — for callers that need non-proxy routes
+ *  (deposit-wallet info, live engine status) without hardcoding the path. */
+export const API_BASE = API_URL;
 
 // Bare `fetch` surfaces any momentary blip — a wifi hiccup, a laptop wake, a
 // Caddy graceful-reload — as a thrown "Failed to fetch". The live engine polls
@@ -390,6 +393,21 @@ export async function fetchGlobalTrades(limit = 100, offset = 0): Promise<Global
   const params: Record<string, string> = { limit: String(limit), takerOnly: "false" };
   if (offset > 0) params.offset = String(offset);
   const raw = await polyApi("trades", params) as unknown;
+  return mapDataApiTrades(raw);
+}
+
+/** Every fill executed BY a specific wallet (the user's trading wallet), via
+ *  the `user-trades` virtual endpoint → data-api `/trades?user=<wallet>`.
+ *  Distinct endpoint name so the proxy gives it a 60s near-live TTL instead
+ *  of the global tape's 1h freshness window. */
+export async function fetchUserTrades(user: string, limit = 100, offset = 0): Promise<GlobalTrade[]> {
+  const params: Record<string, string> = { user, limit: String(limit), takerOnly: "false" };
+  if (offset > 0) params.offset = String(offset);
+  const raw = await polyApi("user-trades", params) as unknown;
+  return mapDataApiTrades(raw);
+}
+
+function mapDataApiTrades(raw: unknown): GlobalTrade[] {
   const arr = Array.isArray(raw) ? raw : [];
   return arr
     .map((t: Record<string, unknown>) => {

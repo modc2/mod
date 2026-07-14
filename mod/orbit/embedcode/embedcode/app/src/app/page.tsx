@@ -13,6 +13,7 @@ interface SearchResult {
   score: number;
   chunk_index: number;
   total_chunks: number;
+  start_line?: number;
   collection: string;
 }
 
@@ -191,7 +192,9 @@ export default function Home() {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-gray-500 shrink-0 text-xs">{expandedResult === i ? 'v' : '>'}</span>
-                        <span className="text-sm text-gray-300 truncate font-mono">{r.path}</span>
+                        <span className="text-sm text-gray-300 truncate font-mono">
+                          {r.path}{r.start_line ? `:${r.start_line}` : ''}
+                        </span>
                         <span className="text-xs text-gray-600 shrink-0">
                           chunk {r.chunk_index + 1}/{r.total_chunks}
                         </span>

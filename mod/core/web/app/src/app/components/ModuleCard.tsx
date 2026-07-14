@@ -59,6 +59,11 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
           <div className="title">{m.name}</div>
           <div className="ver">v{m.version}</div>
         </div>
+        {m.on_web && (
+          <span className="onweb" title={`Live on the web at ${gatewayUrl(m.name)}`}>
+            ● live
+          </span>
+        )}
         {m.registered && (
           <span className="onchain" title="Registered in the on-chain Registry">
             ⛓ on-chain

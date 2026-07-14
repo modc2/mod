@@ -8,10 +8,10 @@ services:
     container_name: bitstore
     image: mod:latest
     ports:
-      - "${GATEWAY_PORT:-50131}:${GATEWAY_PORT:-50131}"
+      - "${GATEWAY_PORT:-50251}:${GATEWAY_PORT:-50251}"
     restart: unless-stopped
     environment:
-      - GATEWAY_PORT=${GATEWAY_PORT:-50131}
+      - GATEWAY_PORT=${GATEWAY_PORT:-50251}
     volumes:
       - ~/mod:/root/mod:ro
       - ~/.mod:/root/.mod

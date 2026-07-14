@@ -17,6 +17,7 @@ use axum::{
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, SystemTime};
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
@@ -30,6 +31,11 @@ const CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
 /// `?refresh=1` is ignored if the shot is younger than this (public route —
 /// keeps a hostile refresh loop from pinning chrome at 100% CPU).
 const REFRESH_FLOOR: Duration = Duration::from_secs(60);
+/// `?fresh=1` captures synchronously (the console's snap-on-submit toggle
+/// attaches the shot to a job, so it must show the app as it is NOW, not a
+/// stale cache). This floor keeps rapid-fire submits from stacking chrome
+/// runs while still being "current" for any human-paced submission.
+const FRESH_FLOOR: Duration = Duration::from_secs(10);
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
@@ -181,11 +187,20 @@ fn chrome_slots() -> &'static Semaphore {
 
 /// Run one capture: pre-flight the route through local caddy, then let chrome
 /// render and screenshot it. Writes atomically (tmp + rename) so readers never
-/// see a half-written PNG.
-async fn capture(name: &str, dest: &Path) -> Result<(), String> {
+/// see a half-written PNG. `path` is a sub-route within the module ("" or
+/// "/foo?x=1"), `w`×`h` the viewport, `budget_ms` the virtual-time budget the
+/// SPA gets to settle.
+async fn capture(
+    name: &str,
+    path: &str,
+    w: u32,
+    h: u32,
+    budget_ms: u64,
+    dest: &Path,
+) -> Result<(), String> {
     let bin = browser_bin().ok_or("no headless chromium available on this host")?;
     let host = gateway_host();
-    let url = format!("https://{}/{}", host, name);
+    let url = format!("https://{}/{}{}", host, name, path);
 
     // Pre-flight: only screenshot routes that actually answer. This also
     // pokes the activator awake for sleeping modules before chrome shows up.
@@ -217,11 +232,11 @@ async fn capture(name: &str, dest: &Path) -> Result<(), String> {
         .arg("--hide-scrollbars")
         .arg("--disable-extensions")
         .arg("--force-color-profile=srgb")
-        .arg("--window-size=800,500")
+        .arg(format!("--window-size={},{}", w, h))
         .arg(format!("--screenshot={}", tmp.display()))
         // Fast-forward timers/animations so SPAs settle without a wall-clock wait.
-        .arg("--virtual-time-budget=10000")
-        .arg("--timeout=25000")
+        .arg(format!("--virtual-time-budget={}", budget_ms))
+        .arg(format!("--timeout={}", budget_ms + 15_000))
         .arg(format!("--host-resolver-rules=MAP {} 127.0.0.1", host))
         .arg("--ignore-certificate-errors")
         .arg(&url)
@@ -272,7 +287,7 @@ async fn capture_locked(name: &str, png: &Path, min_age: Duration) -> Result<(),
     if age_of(png).map(|a| a < min_age).unwrap_or(false) {
         return Ok(()); // someone else just captured it
     }
-    match capture(name, png).await {
+    match capture(name, "", 800, 500, 10_000, png).await {
         Ok(()) => Ok(()),
         Err(e) => {
             note_failure(png, &e);
@@ -284,6 +299,7 @@ async fn capture_locked(name: &str, png: &Path, min_age: Duration) -> Result<(),
 #[derive(Deserialize)]
 pub struct ShotQuery {
     refresh: Option<String>,
+    fresh: Option<String>,
 }
 
 /// GET /modules/:name/screenshot — the module's app as a PNG "profile pic".
@@ -302,6 +318,7 @@ pub async fn module_screenshot(
 
     let png = shots_dir().join(format!("{}.png", name));
     let force = matches!(q.refresh.as_deref(), Some("1") | Some("true"));
+    let fresh = matches!(q.fresh.as_deref(), Some("1") | Some("true"));
     let age = age_of(&png);
 
     let serve = |path: &Path| -> axum::response::Response {
@@ -318,6 +335,20 @@ pub async fn module_screenshot(
             Err(_) => (StatusCode::NOT_FOUND, "no screenshot").into_response(),
         }
     };
+
+    // ?fresh=1 — capture inline and only then answer, so the caller gets a
+    // shot of the app as it is right now (unless one was taken seconds ago,
+    // which is current enough). Failure still serves a stale shot if any
+    // exists: an out-of-date attachment beats none.
+    if fresh {
+        let result = capture_locked(&name, &png, FRESH_FLOOR).await;
+        return if png.is_file() {
+            serve(&png)
+        } else {
+            let why = result.err().unwrap_or_else(|| "no screenshot".to_string());
+            (StatusCode::NOT_FOUND, format!("capture failed: {}", why)).into_response()
+        };
+    }
 
     match age {
         Some(a) if !force && a < FRESH_TTL => serve(&png),

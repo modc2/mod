@@ -1,4 +1,6 @@
 {
+  "name": "orbit",
+  "description": "The orbit tree — root folder of the community/experimental modules. Every folder in here is a mod, including this one.",
   "urls": {
     "api": "http://localhost:8851",
     "app": "http://localhost:8852"

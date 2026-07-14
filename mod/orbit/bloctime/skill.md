@@ -53,6 +53,24 @@ m bloctime/serve
 m bloctime/kill
 ```
 
+### App mod
+
+The frontend is its own mod (`app/mod.py`) representing the Next.js console —
+identity, UI map, endpoints it consumes, and lifecycle:
+
+```bash
+m bloctime/app                      # info: url, port, framework, running state
+m bloctime/app ui                   # declarative map of the UI (tabs, panels, actions)
+m bloctime/app endpoints            # API endpoints the frontend calls
+m bloctime.app/serve                # start next dev on 8852 (serves at /bloctime)
+m bloctime.app/status               # running? http 200? api up?
+m bloctime.app/build                # production build
+m bloctime.app/logs n=100
+m bloctime.app/kill
+```
+
+The app serves under basePath `/bloctime` → http://localhost:8852/bloctime.
+
 ## API Endpoints
 
 | Method | Path | Description |

@@ -16,8 +16,12 @@ const DATA_API: &str = "https://data-api.polymarket.com";
 // — it must NOT resolve to the CLOB API's `/trades`, which is an
 // authenticated (API-key-gated) endpoint for the caller's own fills and
 // returns 401 for anyone else's market history.
+// `user-trades` likewise rewrites to data-api `/trades?user=<wallet>` but is a
+// DISTINCT endpoint name so it gets its own near-live TTL — the signed-in
+// user's own fill tape must not sit behind the global tape's 1h freshness.
 const DATA_PREFIXES: &[&str] = &[
     "positions", "closed-positions", "trades", "activity", "value", "holders", "users/", "v1/", "market-trades",
+    "user-trades",
 ];
 const CLOB_PREFIXES: &[&str] = &[
     "prices-history", "book", "books", "midpoint", "midpoints", "price",
@@ -35,7 +39,7 @@ fn select_upstream(endpoint: &str) -> &'static str {
 }
 
 fn rewrite_endpoint(endpoint: &str) -> &str {
-    if endpoint == "market-trades" {
+    if endpoint == "market-trades" || endpoint == "user-trades" {
         "trades"
     } else {
         endpoint

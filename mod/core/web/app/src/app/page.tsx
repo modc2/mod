@@ -112,6 +112,7 @@ export default function Home() {
         (a, b) =>
           b.matched - a.matched ||
           b.nameHits - a.nameHits ||
+          Number(b.m.on_web) - Number(a.m.on_web) ||
           a.m.name.localeCompare(b.m.name),
       )
       .map((r) => r.m);
@@ -119,6 +120,10 @@ export default function Home() {
 
   const onchainCount = useMemo(
     () => (mods ? mods.filter((m) => m.registered).length : 0),
+    [mods],
+  );
+  const onWebCount = useMemo(
+    () => (mods ? mods.filter((m) => m.on_web).length : 0),
     [mods],
   );
   const chainUp = registry?.available ?? false;
@@ -149,6 +154,10 @@ export default function Home() {
                   <span className="sep">·</span>
                   <span>
                     <b>{info?.stats.functions ?? 0}</b> functions
+                  </span>
+                  <span className="sep">·</span>
+                  <span className="onweb-count" title="Modules the gateway serves live on the web">
+                    ● <b>{onWebCount}</b> live
                   </span>
                   <span className="sep">·</span>
                   <span

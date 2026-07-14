@@ -1013,6 +1013,95 @@ class Mod:
         return self._request('POST', f'/modules/{name}/fork', data,
                              timeout=120, headers=self._auth_headers(key))
 
+    # ── merge requests: fork → propose → review → agentic merge ───
+    # Anyone signed-in can fork a module into their sandboxed workspace,
+    # edit it, and open a merge request (a {base_cid, head_cid} pair in the
+    # shared blob store). The owner approves and the merge itself is done
+    # BY THE AGENT: a job three-way merges base/head/live semantically.
+
+    def mr_fork(self, module: str, refresh: bool = False, key=None) -> dict:
+        """Fork a module into your workspace, pinned to a base CID.
+
+        m claude/mr_fork polymarket
+        """
+        return self._request('POST', f'/modules/{module}/mr-fork',
+                             {'refresh': refresh}, timeout=120,
+                             headers=self._auth_headers(key))
+
+    def mr_open(self, module: str, title: str, description: str = '',
+                head_cid: str = None, base_cid: str = None,
+                message: str = '', key=None) -> dict:
+        """Open a merge request from your fork (or from raw snapshot CIDs).
+
+        m claude/mr_open polymarket title="fix fee calc"
+        m claude/mr_open polymarket title="import" head_cid=<cid>
+        """
+        data = {'title': title, 'description': description, 'message': message}
+        if head_cid:
+            data['head_cid'] = head_cid
+        if base_cid:
+            data['base_cid'] = base_cid
+        return self._request('POST', f'/modules/{module}/merge-requests',
+                             data, timeout=120, headers=self._auth_headers(key))
+
+    def mrs(self, module: str = None) -> dict:
+        """List merge requests (all, or for one module). Public ledger."""
+        path = f'/modules/{module}/merge-requests' if module else '/merge-requests'
+        return self._request('GET', path)
+
+    def mr(self, id: str) -> dict:
+        """Get one merge request (reconciles a finished merge job)."""
+        return self._request('GET', f'/merge-requests/{id}')
+
+    def mr_diff(self, id: str, key=None) -> dict:
+        """Changed files + conflicts vs the live tree for an MR."""
+        return self._request('GET', f'/merge-requests/{id}/diff',
+                             headers=self._auth_headers(key))
+
+    def mr_comment(self, id: str, body: str = '', action: str = None, key=None) -> dict:
+        """Comment on an MR. action=approve|request_changes needs a trusted reviewer.
+
+        m claude/mr_comment mr_ab12 body="nice" action=approve
+        """
+        data = {'body': body}
+        if action:
+            data['action'] = action
+        return self._request('POST', f'/merge-requests/{id}/comment',
+                             data, headers=self._auth_headers(key))
+
+    def mr_update(self, id: str, head_cid: str = None, message: str = '', key=None) -> dict:
+        """Push a new revision (re-snapshots your fork unless head_cid given)."""
+        data = {'message': message}
+        if head_cid:
+            data['head_cid'] = head_cid
+        return self._request('POST', f'/merge-requests/{id}/update',
+                             data, timeout=120, headers=self._auth_headers(key))
+
+    def mr_close(self, id: str, key=None) -> dict:
+        """Close an MR (author or trusted reviewer)."""
+        return self._request('POST', f'/merge-requests/{id}/close',
+                             {}, headers=self._auth_headers(key))
+
+    def mr_merge(self, id: str, instructions: str = None, model: str = None, key=None) -> dict:
+        """Owner-approve an MR and hand the merge to the agent (three-way
+        semantic merge of base/head/live; auto-snapshot first). Signs the
+        sudo authorization when the target module isn't claude.
+
+        m claude/mr_merge mr_ab12 instructions="keep the new fee tests"
+        """
+        self.require_owner(key, operation="mr_merge")
+        headers = self._auth_headers(key)
+        target = self.mr(id).get('module')
+        if target and target != 'claude':
+            headers.update(self._sudo_header('merge', target, key))
+        data = {}
+        if instructions:
+            data['instructions'] = instructions
+        if model:
+            data['model'] = model
+        return self._request('POST', f'/merge-requests/{id}/merge',
+                             data or {}, timeout=120, headers=headers)
+
     # ── read-only helpers (API endpoints) ─────────────────────────
 
     def health(self) -> dict:

@@ -39,8 +39,8 @@ def get_mod():
 class EmbedRequest(BaseModel):
     path: str
     collection: Optional[str] = None
-    chunk_size: int = 512
-    overlap: int = 64
+    chunk_size: int = 64
+    overlap: int = 16
     extensions: Optional[List[str]] = None
 
 class SearchRequest(BaseModel):

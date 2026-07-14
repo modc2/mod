@@ -281,6 +281,11 @@ class Mod:
             'explorer': f"https://sepolia.basescan.org/address/{contracts.get('bloctime', '')}",
         }
 
+    def app(self, fn='info', **kwargs):
+        """The BlocTime app submodule — see app/mod.py (m bloctime.app)."""
+        app_mod = m.mod('bloctime.app')()
+        return getattr(app_mod, fn)(**kwargs)
+
     def call(self, fn='health', params=None, timeout=10):
         import requests as req
         url = f'http://localhost:{self.api_port}/{fn}'

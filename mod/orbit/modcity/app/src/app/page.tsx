@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, ReactNode, useCallback } from 'react'
+import { Component, useEffect, useRef, useState, ReactNode, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import {
   api, ownerId, FALLBACK_CATALOG, FALLBACK_STYLES, MANIFESTO, SECTIONS,
@@ -11,6 +11,24 @@ const Configurator = dynamic(() => import('@/components/Configurator'), {
   ssr: false,
   loading: () => <div className="w-full h-[72vh] min-h-[560px] rounded-2xl border border-white/10 bg-black/40 grid place-items-center text-white/40 text-sm">booting the 3D foundry…</div>,
 })
+
+// the 3D foundry must never take the page down with it — if anything inside
+// throws (driver quirks, exotic embeds), degrade to a quiet card instead.
+class FoundryBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (this.state.failed) return (
+      <div className="w-full h-[72vh] min-h-[560px] rounded-2xl border border-white/10 bg-black/40 grid place-items-center text-center px-6">
+        <div>
+          <div className="text-lg font-bold tracking-tight">The 3D foundry couldn&apos;t start here</div>
+          <p className="mt-2 text-sm text-white/50 max-w-md mx-auto leading-relaxed">Your browser or this embed blocked 3D rendering. The catalog, styles and gallery below still work — open the page in a regular browser to build.</p>
+        </div>
+      </div>
+    )
+    return this.props.children
+  }
+}
 
 function fmtUSD(n: number) {
   if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M'
@@ -143,8 +161,10 @@ export default function Page() {
           </div>
         </Reveal>
         <Reveal delay={80}>
-          <Configurator catalog={catalog} styles={styles} owner={owner} loadDoc={loadDoc}
-            onSaved={() => loadGallery(owner)} onBrickCreated={() => { loadCatalog(owner); loadGallery(owner) }} />
+          <FoundryBoundary>
+            <Configurator catalog={catalog} styles={styles} owner={owner} loadDoc={loadDoc}
+              onSaved={() => loadGallery(owner)} onBrickCreated={() => { loadCatalog(owner); loadGallery(owner) }} />
+          </FoundryBoundary>
         </Reveal>
       </section>
 

@@ -780,21 +780,36 @@ class Registry:
         self.store.gc(aggressive=True)
         return {'status': 'registry cleared'}
 
-    def root(self, encrypt=True, update=True, **kwargs) -> str:
+    def cid_exists(self, cid: str) -> bool:
+        """Check that a CID's block is actually resolvable in the store."""
+        if not cid or not isinstance(cid, str):
+            return False
+        try:
+            self.get(cid)
+            return True
+        except Exception:
+            return False
+
+    def snapshot(self, encrypt=True) -> str:
+        """Take a fresh snapshot of the registry and update the root CID."""
+        registry = self.registry()
+        if encrypt:
+            registry = self.key.encrypt(registry)
+        root_cid = self.put(registry)
+        # wrap in a dict: m.get swallows non-dict payloads (returns default)
+        m.put(self.path('root_cid.json'), {'cid': root_cid, 'time': m.time()})
+        return root_cid
+
+    def root(self, encrypt=True, update=False, **kwargs) -> str:
         path = self.path('root_cid.json')
-        root_cid = m.get(path, None, update=update)
-        if root_cid is None:
-            registry = self.registry()
-            if encrypt:
-                registry = self.key.encrypt(registry)
-            root_cid = self.put(registry)
-            m.put(path, root_cid)
+        root_cid = m.get(path, {}, update=update).get('cid')
+        # a cached root CID can be stale (block gc'd/removed) — re-snapshot if it doesn't resolve
+        if not self.cid_exists(root_cid):
+            root_cid = self.snapshot(encrypt=encrypt)
         return root_cid
 
     def get_root(self, decrypt=True, **kwargs) -> Dict[str, Any]:
-        path = self.path('root_cid.json')
-        root_cid = m.get(path, None)
-        assert root_cid is not None, "Root CID not found. Please generate it first."
+        root_cid = self.root(encrypt=decrypt)
         registry = self.get(root_cid)
         if decrypt:
             registry = self.key.decrypt(registry)

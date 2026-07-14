@@ -10,8 +10,11 @@ import {
   StratHistory,
   ProposedTrade,
   emptyHistory,
-} from "./strats/base";
-import { getStrat } from "./strats/registry";
+  tickRoundPrice,
+  clobMinNotional,
+  POLYMARKET_MIN_USD,
+  POLYMARKET_MIN_SHARES,
+} from "./strats/strat";
 import { marketMatchesQuery } from "./marketQuery";
 import { tradeMatchesFilters } from "./tradeFilters";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
@@ -183,32 +186,12 @@ const TAKER_FEE_BPS = 0;
 // the resulting order always hits ≥5 shares regardless of trade price.
 //
 // User-configurable minOrderSize is the strat's per-trade USD floor;
-// these constants are the hard API limit we MUST clamp to regardless
-// of strat settings. Without them, users who dropped the floor to $0.01
-// via the auto-fix banner produced cascades of rejected $0.01 orders.
-const POLYMARKET_MIN_USD = 1.0;
-const POLYMARKET_MIN_SHARES = 5;
-
-/** Smallest mirror notional that CLOB will accept at the given price
- *  — combines the $1 notional floor and the 5-share share floor. */
-function clobMinNotional(price: number): number {
-  const sharesFloor = POLYMARKET_MIN_SHARES * Math.max(price, 1e-9);
-  return Math.max(POLYMARKET_MIN_USD, sharesFloor);
-}
-
-// Polymarket binary markets use a 0.01 (1¢) tick size by default; some
-// fine-grained markets use 0.001. Leader trade prices come back from the
-// data-api with full f64 precision (e.g. 0.5099601593625498 from an
-// implied-price derivation), which trips a "Price breaks minimum tick
-// size" 400. Round every price we send to 2 decimals so it always lands
-// on a tick — slight cost is we round to the nearest cent rather than
-// the leader's exact fill, which is negligible for copy trading and
-// avoids per-market tick lookups.
-function tickRoundPrice(p: number): number {
-  if (!Number.isFinite(p)) return 0;
-  const clamped = Math.max(0.01, Math.min(0.99, p));
-  return Math.round(clamped * 100) / 100;
-}
+// POLYMARKET_MIN_USD / POLYMARKET_MIN_SHARES / clobMinNotional /
+// tickRoundPrice (imported from strats/strat.ts — one definition for
+// engine, backtest, and the Strat class itself) are the hard API limits
+// we MUST clamp to regardless of strat settings. Without them, users who
+// dropped the floor to $0.01 via the auto-fix banner produced cascades
+// of rejected $0.01 orders.
 
 // ── Token ID Cache ─────────────────────────────────────────────
 
@@ -313,10 +296,10 @@ export class CopyEngine {
   private roiRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private roiRefreshInFlight = false;
   // The strategy decides scoring + sizing per candidate — and may
-  // originate its own trades from history (propose). Swap by pointing
-  // this at any class extending Strat. Default = CopyTrader. The engine
-  // handles everything else (cycle loop, balance check, deposit wallet,
-  // CLOB submission, log persistence).
+  // originate its own trades from history (propose). ONE standard class
+  // (strats/strat.ts), fully param-driven; the engine handles everything
+  // else (cycle loop, balance check, deposit wallet, CLOB submission,
+  // log persistence).
   private strat: Strat;
   // The most recent cycle's assembled history — every strat hook receives
   // it. Kept on the instance so out-of-cycle helpers (bestBuyCandidateEP)
@@ -332,9 +315,9 @@ export class CopyEngine {
     this.config = config;
     this.tokenMap = loadTokenMap();
     this.negRiskMap = loadNegRiskMap();
-    // Active strategy. Pass `strat` to override, or change the default
-    // in src/app/app/lib/strats/registry.ts to swap globally.
-    this.strat = strat ?? getStrat(undefined, {
+    // Active strategy — the one standard Strat class, configured straight
+    // from the engine config. Pass `strat` to inject a subclass override.
+    this.strat = strat ?? new Strat({
       maxPerCycle: config.maxPerCycle,
       marketQuery: config.marketQuery,
       tradeFilters: config.tradeFilters,
@@ -1189,8 +1172,8 @@ export class CopyEngine {
       // Every strat hook receives it. `trades` fills during Phase 1 (each
       // trader's full lookback window lands before any hook runs on that
       // trader's fills; the whole watchlist is in by Phase 3/4). Positions
-      // are an extra API call, fetched only when the strat class actually
-      // originates trades (overrides propose).
+      // are an extra API call, fetched only when the strat actually
+      // originates trades (strat.proposes()).
       const history: StratHistory = {
         trades: [],
         traderStats: this.traderRoiStats,
@@ -1329,7 +1312,7 @@ export class CopyEngine {
           for (const trade of newTrades) {
             const stratTrade = this.buildStratTrade(trade, trader, copyRatio, totalWeight);
             // Strat pre-filter — runs before scoring/sizing per the Strat
-            // contract (base.ts). Default CopyTrader passes everything.
+            // contract (strats/strat.ts). Default params pass everything.
             if (!this.strat.shouldMirror(stratTrade, history)) {
               this.addLog({
                 id: uid(),
@@ -1384,7 +1367,7 @@ export class CopyEngine {
 
       // ── Phase 2: rank BUYs by EXPECTED PROFIT and slice top N ──
       // SELLs always execute. BUYs compete for the strat's maxPerCycle
-      // budget (a CopyTrader knob, overridable per-strat). score = EP in
+      // budget (a per-strat param). score = EP in
       // dollars (roi × mirror$). Non-positive-EP buys never execute — no
       // edge means no reason to spend capital or rotate a position for them.
       const maxPerCycle = this.strat.maxPerCycle();
@@ -1519,8 +1502,8 @@ export class CopyEngine {
                 {
                   tokenID: tokenId,
                   // Use the strat's limit price (already tick-rounded
-                  // by the strat). For BUYs the default CopyTrader widens
-                  // toward fillable by `slippageBps`; SELLs widen down.
+                  // by the strat). For BUYs the default widens toward
+                  // fillable by `slippageBps`; SELLs widen down.
                   price: decision.limitPrice,
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
@@ -1907,11 +1890,11 @@ export class CopyEngine {
   // Used by both observed-trade enrichment (score for UI display) and the
   // execution path (score + sizing). One builder = one source of truth
   // for the engine→strat hand-off.
-  /** True when the active strat class overrides `propose` — i.e. it
-   *  originates trades from history rather than only mirroring. Gates the
-   *  per-cycle positions fetch and Phase 4. */
+  /** True when the active strat originates trades from history rather
+   *  than only mirroring (param-driven via `params.flow`, or a subclass
+   *  propose override). Gates the per-cycle positions fetch and Phase 4. */
   private stratProposes(): boolean {
-    return this.strat.propose !== Strat.prototype.propose;
+    return this.strat.proposes();
   }
 
   /** Phase 4 body: ask the strat for history-driven proposals and submit

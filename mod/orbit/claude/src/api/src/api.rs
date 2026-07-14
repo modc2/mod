@@ -3,6 +3,7 @@
 use crate::auth;
 use crate::credits;
 use crate::jobs::{ClaudeJobManager, SubmitRequest};
+use crate::merge;
 use crate::process;
 use crate::sudo;
 use crate::userspace;
@@ -113,6 +114,14 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/modules/:name/fork", post(fork_module))
             .route("/modules/:name/restore", post(restore_module))
             .route("/modules/import", post(import_module))
+            // Merge requests: fork→propose→review are open to every signed-in
+            // user (that's the point); the merge itself is owner-gated inside.
+            .route("/modules/:name/mr-fork", post(mr_fork_module))
+            .route("/modules/:name/merge-requests", post(open_merge_request))
+            .route("/merge-requests/:id/comment", post(mr_comment))
+            .route("/merge-requests/:id/update", post(mr_update))
+            .route("/merge-requests/:id/close", post(mr_close))
+            .route("/merge-requests/:id/merge", post(mr_merge))
             .route("/modules/:name/process", post(module_process))
             .route("/modules/:name/logs", post(module_logs))
             .route("/files/write", post(file_write))
@@ -167,6 +176,14 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/versions/:version", get(get_version))
         .route("/modules/:name/versions", get(list_module_versions))
         .route("/modules/:name/registry", get(module_registry))
+        .route("/autosnap/status", get(crate::autosnap::status_handler))
+        // MR metadata is part of the public code ledger (like /jobs); the
+        // diff/file bodies are default-deny like the /files/* endpoints.
+        .route("/merge-requests", get(list_all_mrs))
+        .route("/modules/:name/merge-requests", get(list_module_mrs))
+        .route("/merge-requests/:id", get(get_mr))
+        .route("/merge-requests/:id/diff", get(mr_diff))
+        .route("/merge-requests/:id/file", get(mr_file))
         .route("/owner", get(get_owner))
         // Public by design: the grant id (from the owner's QR) IS the capability.
         .route("/grants/:id/redeem", post(redeem_grant_guest))
@@ -241,10 +258,21 @@ async fn api_schema() -> impl IntoResponse {
             e("DELETE", "/jobs/:id", "bearer", "Delete a job record (yours, or any if owner)"),
             e("GET", "/modules", "public", "All modules in the anchor tree"),
             e("GET", "/modules/:name/config", "public", "A module's config.json"),
-            e("GET", "/modules/:name/screenshot", "public", "PNG screenshot of the module's app"),
+            e("GET", "/modules/:name/screenshot", "public", "PNG screenshot of the module's app (?fresh=1 captures now)"),
             e("GET", "/modules/:name/versions", "public", "Snapshot chain for a module"),
             e("GET", "/modules/:name/registry", "public", "On-chain registry status"),
             e("POST", "/modules/import", "owner", "Import a module: {github} or {cid}"),
+            e("POST", "/modules/:name/mr-fork", "bearer", "Fork a module into your workspace pinned to a base CID: {refresh?}"),
+            e("GET", "/merge-requests", "public", "All merge requests (public ledger)"),
+            e("GET", "/modules/:name/merge-requests", "public", "Merge requests for a module"),
+            e("POST", "/modules/:name/merge-requests", "bearer", "Open an MR: {title, description?, head_cid?, base_cid?} (defaults to your fork)"),
+            e("GET", "/merge-requests/:id", "public", "One merge request"),
+            e("GET", "/merge-requests/:id/diff", "bearer", "Changed files + conflicts vs the live tree"),
+            e("GET", "/merge-requests/:id/file?path=&which=base|head|live", "bearer", "File content from either side of an MR"),
+            e("POST", "/merge-requests/:id/comment", "bearer", "Comment: {body, action?: approve|request_changes (trusted only)}"),
+            e("POST", "/merge-requests/:id/update", "bearer", "Author pushes a new revision: {head_cid?, message?}"),
+            e("POST", "/merge-requests/:id/close", "bearer", "Close an MR (author or trusted)"),
+            e("POST", "/merge-requests/:id/merge", "owner", "Agentic merge: stages base/head trees and submits a three-way merge job (x-sudo for non-claude modules)"),
             e("POST", "/modules/:name/snapshot", "owner", "Snapshot module to content-addressed storage"),
             e("POST", "/modules/:name/fork", "owner", "Fork a module"),
             e("POST", "/modules/:name/restore", "owner", "Restore module from a snapshot CID"),
@@ -264,7 +292,7 @@ async fn api_schema() -> impl IntoResponse {
             e("POST", "/grants", "owner", "Create a timed access grant"),
             e("DELETE", "/grants/:id", "owner", "Revoke a grant"),
             e("POST", "/grants/:id/redeem", "public", "Redeem a QR grant as a walletless guest"),
-            e("POST", "/auth/handoff", "bearer", "Mint a one-time phone sign-in code"),
+            e("POST", "/auth/handoff", "bearer", "Mint a one-time phone sign-in code (optional ttl secs, 60–86400)"),
             e("POST", "/auth/handoff/redeem", "public", "Redeem a handoff code for a token"),
             e("GET", "/sudo/status", "owner", "Sudo session + policy"),
             e("POST", "/sudo/policy", "owner", "Set sudo session policy"),
@@ -684,20 +712,30 @@ async fn revoke_grant(
 }
 
 // ── Session handoff — QR sign-in on another device ───────────────────
-// A signed-in browser mints a single-use, 5-minute code bound to its OWN
-// identity; another device (the same person's phone) trades the code for a
-// fresh bearer token as that address — no wallet or signing needed there.
-// Minting requires auth (any signed-in user, not just the owner: you can
-// only hand off yourself). Redemption is public: the code is the capability.
+// A signed-in browser mints a single-use code bound to its OWN identity
+// (default 5 minutes, minter-chosen TTL clamped in auth.rs); another device
+// (the same person's phone) trades the code for a fresh bearer token as that
+// address — no wallet or signing needed there. Minting requires auth (any
+// signed-in user, not just the owner: you can only hand off yourself).
+// Redemption is public: the code is the capability.
 
-async fn create_handoff(headers: axum::http::HeaderMap) -> impl IntoResponse {
+#[derive(Deserialize)]
+struct CreateHandoffRequest {
+    ttl: Option<i64>,
+}
+
+async fn create_handoff(
+    headers: axum::http::HeaderMap,
+    body: Option<Json<CreateHandoffRequest>>,
+) -> impl IntoResponse {
     let address = match auth::extract_address_from_headers(&headers) {
         Ok(a) => a,
         Err(e) => {
             return (StatusCode::UNAUTHORIZED, Json(json!({ "error": e }))).into_response()
         }
     };
-    let (code, exp) = auth::create_handoff(&address);
+    let ttl = body.and_then(|Json(b)| b.ttl);
+    let (code, exp) = auth::create_handoff(&address, ttl);
     println!("✓ Handoff code minted for {} (until {})", address, exp);
     (StatusCode::OK, Json(json!({ "code": code, "exp": exp, "address": address }))).into_response()
 }
@@ -1211,6 +1249,46 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
         .as_ref()
         .and_then(|v| v.get("data").and_then(|d| d.as_object()).or_else(|| v.as_object()));
 
+    // The module tree root itself is selectable as the "mod" module. Its
+    // work_dir spans orbit/ AND core/, so a single job can edit any module —
+    // the cross-module escape hatch. Its config.json lives at the anchor
+    // root ({anchor}/config.json, name "mod"), one level above the tree.
+    let mod_root = format!("{}/mod", anchor);
+    if std::path::Path::new(&mod_root).is_dir()
+        && (query.is_empty() || "mod".contains(&query))
+    {
+        let root_config: serde_json::Value =
+            std::fs::read_to_string(format!("{}/config.json", anchor))
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+                .unwrap_or_else(|| json!({}));
+        let mut newest: u64 = 0;
+        newest_mtime(std::path::Path::new(&mod_root), 1, &mut newest);
+        modules.push(json!({
+            "name": "mod",
+            "path": mod_root,
+            "display": mod_root.replacen(&home, "~", 1),
+            "category": "root",
+            "has_config": true,
+            "app_url": serde_json::Value::Null,
+            "api_url": serde_json::Value::Null,
+            "description": "The whole module tree — every mod under orbit/ and core/. Select it for cross-module work: one job can read and edit any module.",
+            "fns": Vec::<String>::new(),
+            "has_app_dir": false,
+            "has_server_dir": false,
+            "has_api_dir": false,
+            "owner": host_owner.clone(),
+            "version": root_config.get("version").and_then(|v| v.as_str()),
+            "cid": serde_json::Value::Null,
+            "deps": Vec::<String>::new(),
+            "created_at": std::fs::metadata(&mod_root).ok()
+                .and_then(|m| m.created().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
+            "updated_at": if newest > 0 { Some(newest) } else { None },
+        }));
+    }
+
     // Scan both orbit/ and core/ directories
     let scan_dirs = vec![
         (format!("{}/mod/orbit", anchor), "orbit"),
@@ -1220,6 +1298,64 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
     for (scan_dir, category) in &scan_dirs {
         let dir_path = std::path::Path::new(scan_dir);
         if !dir_path.is_dir() { continue; }
+        // The tree roots are themselves mods: a config.json at orbit/ or
+        // core/ names the tree, and the hub lists it as a card under its own
+        // tab. Dir hints (app/, api/) are ignored here — at the root those
+        // are sibling MODULES named "app"/"api", not this mod's services.
+        let root_config = dir_path.join("config.json");
+        if let Some(config) = std::fs::read_to_string(&root_config)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        {
+            let name = config.get("name").and_then(|v| v.as_str()).unwrap_or(category).to_string();
+            if query.is_empty() || name.to_lowercase().contains(&query) {
+                let full_path = dir_path.to_string_lossy().to_string();
+                let urls = config.get("urls");
+                let app_url = urls.and_then(|u| u.get("app")).and_then(|v| v.as_str())
+                    .or_else(|| config.get("app_url").and_then(|v| v.as_str()));
+                let api_url = urls.and_then(|u| u.get("api")).and_then(|v| v.as_str())
+                    .or_else(|| config.get("api_url").and_then(|v| v.as_str()));
+                let str_list = |key: &str| -> Vec<String> {
+                    config.get(key).and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                        .unwrap_or_default()
+                };
+                let cid = registry_map.as_ref().and_then(|reg| {
+                    reg.iter().find_map(|(_, owner_mods)| {
+                        owner_mods.as_object().and_then(|m| {
+                            m.get(&name.to_lowercase()).or_else(|| m.get(&name)).and_then(|v| v.as_str())
+                        })
+                    })
+                }).map(String::from);
+                // Depth 1: the root's own files only — recursing here would
+                // walk every module's tree on each /modules call.
+                let mut newest: u64 = 0;
+                newest_mtime(dir_path, 1, &mut newest);
+                modules.push(json!({
+                    "name": name,
+                    "path": full_path,
+                    "display": full_path.replacen(&home, "~", 1),
+                    "category": category,
+                    "has_config": true,
+                    "app_url": app_url,
+                    "api_url": api_url,
+                    "description": config.get("description").and_then(|v| v.as_str()),
+                    "fns": str_list("fns"),
+                    "has_app_dir": false,
+                    "has_server_dir": false,
+                    "has_api_dir": false,
+                    "owner": host_owner.clone().or_else(|| config.get("owner").and_then(|v| v.as_str()).map(String::from)),
+                    "version": config.get("version").and_then(|v| v.as_str()),
+                    "cid": cid,
+                    "deps": str_list("deps"),
+                    "created_at": std::fs::metadata(dir_path).ok()
+                        .and_then(|m| m.created().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs()),
+                    "updated_at": if newest > 0 { Some(newest) } else { None },
+                }));
+            }
+        }
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -1541,11 +1677,17 @@ async fn get_module_config(
         .unwrap_or_else(|| format!("{}/mod", home))
         .replacen("~", &home, 1);
 
-    // Search orbit/ and core/ for the module
-    let search_dirs = vec![
-        format!("{}/mod/orbit/{}", anchor, name),
-        format!("{}/mod/core/{}", anchor, name),
-    ];
+    // Search orbit/ and core/ for the module. The tree-root mods resolve
+    // above the module dirs: "mod" (the whole tree) keeps its config at the
+    // anchor root, "orbit"/"core" at their tree roots.
+    let search_dirs = match name.as_str() {
+        "mod" => vec![anchor.clone()],
+        "orbit" | "core" => vec![format!("{}/mod/{}", anchor, name)],
+        _ => vec![
+            format!("{}/mod/orbit/{}", anchor, name),
+            format!("{}/mod/core/{}", anchor, name),
+        ],
+    };
 
     for module_dir in &search_dirs {
         let base = std::path::Path::new(module_dir);
@@ -2615,12 +2757,19 @@ async fn module_logs(
 // localfs CID then re-registering it so the api module's "latest" pointer
 // moves backwards along the chain.
 
-const API_MODULE_URL: &str = "http://host.docker.internal:8000";
+/// The mod-protocol api module (FastAPI). Under the old docker deployment it
+/// lived at host.docker.internal; under pm2-on-host that name doesn't resolve
+/// and every registry push silently failed (= "no cid" cards). Default to
+/// loopback, keep an env override for containerized runs.
+fn api_module_url() -> String {
+    std::env::var("CLAUDE_API_MODULE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8000".to_string())
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ApiRegResult {
-    cid: Option<String>,
-    prev: Option<String>,
+pub(crate) struct ApiRegResult {
+    pub(crate) cid: Option<String>,
+    pub(crate) prev: Option<String>,
     #[allow(dead_code)]
     key: Option<String>,
     #[allow(dead_code)]
@@ -2632,7 +2781,7 @@ struct ApiRegResult {
 /// Push a change through the mod-protocol api module. `comment` distinguishes
 /// snapshots, restores, forks etc. — useful when browsing registry history.
 /// 30s timeout: api/reg locally takes ~15-20s for non-cached snapshots.
-async fn mod_protocol_register(
+pub(crate) async fn mod_protocol_register(
     module: &str,
     comment: &str,
 ) -> Result<ApiRegResult, String> {
@@ -2641,7 +2790,7 @@ async fn mod_protocol_register(
         .build()
         .map_err(|e| format!("http client: {e}"))?;
     let resp = client
-        .post(format!("{API_MODULE_URL}/api/reg"))
+        .post(format!("{}/api/reg", api_module_url()))
         .json(&serde_json::json!({ "mod": module, "comment": comment }))
         .send()
         .await
@@ -2783,7 +2932,7 @@ async fn module_registry(Path(name): Path<String>) -> impl IntoResponse {
         }
     };
     let resp = client
-        .post(format!("{API_MODULE_URL}/api/mod"))
+        .post(format!("{}/api/mod", api_module_url()))
         .json(&json!({ "key": name }))
         .send()
         .await;
@@ -2799,7 +2948,7 @@ async fn module_registry(Path(name): Path<String>) -> impl IntoResponse {
         Err(e) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({
-                "error": format!("api module unreachable at {API_MODULE_URL}: {e}"),
+                "error": format!("api module unreachable at {}: {e}", api_module_url()),
                 "hint": "is `m api/serve` running on port 8000?"
             })),
         )
@@ -3277,6 +3426,882 @@ async fn import_module(
             "registry_error": registry_err,
             "origin": origin,
         })),
+    )
+        .into_response()
+}
+
+// ══════════════════════ Merge Requests ══════════════════════════════
+//
+// CID-native contribution flow for modules:
+//   1. POST /modules/:name/mr-fork        — any signed-in user pins the live
+//      tree to a base CID and materializes it in THEIR sandboxed workspace
+//      (~/.mod/peers/<addr>/forks/<name>). They edit it with the same
+//      sandboxed jobs / file writes they already have.
+//   2. POST /modules/:name/merge-requests — snapshot the fork to a head CID
+//      and open an MR = {base_cid, head_cid} + review metadata. A raw
+//      head_cid is also accepted, so proposals can arrive purely as CIDs.
+//   3. comment / request_changes / approve / update — the review loop.
+//   4. POST /merge-requests/:id/merge     — owner-approved AGENTIC MERGE:
+//      base+head trees are staged on disk, the live tree auto-snapshotted,
+//      and an agent job runs a three-way merge brief (conflicts precomputed
+//      from manifests). The job's completion auto-snapshot mints the merged
+//      version CID, which reconciles back onto the MR lazily on read.
+
+/// Resolve the identity string an MR flow files things under: the lowercased
+/// caller address, or "local" for the trusted host CLI (empty caller).
+fn mr_identity(caller: &str) -> String {
+    if caller.is_empty() {
+        "local".to_string()
+    } else {
+        caller.to_lowercase()
+    }
+}
+
+fn mr_fork_dir(caller: &str, module: &str) -> std::path::PathBuf {
+    userspace::peer_root(&mr_identity(caller))
+        .join("forks")
+        .join(module)
+}
+
+/// 401 unless the request carries a valid bearer token (or local mode).
+fn require_bearer(headers: &axum::http::HeaderMap) -> Result<String, axum::response::Response> {
+    let caller = auth::extract_address_from_headers(headers).unwrap_or_default();
+    if caller.is_empty() && !local_mode() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "auth required" })),
+        )
+            .into_response());
+    }
+    Ok(caller)
+}
+
+fn mr_not_found(id: &str) -> axum::response::Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": format!("merge request '{id}' not found") })),
+    )
+        .into_response()
+}
+
+fn mr_not_found_module(name: &str) -> axum::response::Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": format!("module '{name}' not found") })),
+    )
+        .into_response()
+}
+
+/// If an MR is `merging`, fold the merge job's terminal state back into the
+/// record: completed → merged (+ merged_cid from the job's auto-snapshot
+/// version record), failed/cancelled → merge_failed. Lazy on read so no
+/// background reconciler is needed.
+fn reconcile_mr(mgr: &ClaudeJobManager, mut mr: merge::MergeRequest) -> merge::MergeRequest {
+    if mr.status != "merging" {
+        return mr;
+    }
+    let Some(job_id) = mr.merge_job_id.clone() else {
+        mr.status = "merge_failed".to_string();
+        let _ = merge::save_mr(&mr);
+        return mr;
+    };
+    let Some(job) = mgr.get_job(&job_id) else {
+        return mr;
+    };
+    match format!("{}", job.status).as_str() {
+        "completed" => {
+            mr.status = "merged".to_string();
+            mr.merged_cid = read_versions(&mr.module)
+                .iter()
+                .rev()
+                .find(|v| v.job_id.as_deref() == Some(job_id.as_str()))
+                .map(|v| v.cid.clone());
+            mr.updated_at = merge::now_ts();
+            mr.comments.push(merge::MrComment {
+                author: "agent".to_string(),
+                body: match &mr.merged_cid {
+                    Some(c) => format!("merge job {job_id} completed — merged tree cid {c}"),
+                    None => format!("merge job {job_id} completed (no tree change recorded — see the job output)"),
+                },
+                action: Some("system".to_string()),
+                timestamp: merge::now_ts(),
+            });
+            let _ = merge::save_mr(&mr);
+        }
+        "failed" | "cancelled" => {
+            mr.status = "merge_failed".to_string();
+            mr.updated_at = merge::now_ts();
+            mr.comments.push(merge::MrComment {
+                author: "agent".to_string(),
+                body: format!("merge job {job_id} ended without completing — inspect the job and retry"),
+                action: Some("system".to_string()),
+                timestamp: merge::now_ts(),
+            });
+            let _ = merge::save_mr(&mr);
+        }
+        _ => {}
+    }
+    mr
+}
+
+#[derive(Deserialize, Default)]
+struct MrForkBody {
+    /// Discard an existing fork working copy and re-fork from the live tree.
+    #[serde(default)]
+    refresh: bool,
+}
+
+async fn mr_fork_module(
+    headers: axum::http::HeaderMap,
+    Path(name): Path<String>,
+    body: Option<Json<MrForkBody>>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if !valid_module_slug(&name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid module name" })),
+        )
+            .into_response();
+    }
+    let Some(root) = module_root_for(&name) else {
+        return mr_not_found_module(&name);
+    };
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let fork_dir = mr_fork_dir(&caller, &name);
+    if fork_dir.exists() {
+        if body.refresh {
+            if let Err(e) = std::fs::remove_dir_all(&fork_dir) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("clearing old fork: {e}") })),
+                )
+                    .into_response();
+            }
+        } else {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "you already have a fork of this module",
+                    "fork_path": userspace::display_path(&caller, &fork_dir),
+                    "hint": "keep editing it, or pass {\"refresh\": true} to discard it and re-fork from the live tree",
+                })),
+            )
+                .into_response();
+        }
+    }
+    // Pin the live tree: snapshot writes the blobs, the manifest CID is base.
+    let store = default_store();
+    let (base_cid, manifest) = match snapshot_dir(&root, &store) {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("snapshotting live tree: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    if let Err(e) = restore_into(&fork_dir, &base_cid, &store) {
+        let _ = std::fs::remove_dir_all(&fork_dir);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("materializing fork: {e}") })),
+        )
+            .into_response();
+    }
+    let meta = merge::ForkMeta {
+        module: name.clone(),
+        base_cid: base_cid.clone(),
+        author: mr_identity(&caller),
+        forked_at: merge::now_ts(),
+    };
+    let _ = std::fs::write(
+        fork_dir.join(merge::FORK_META_FILE),
+        serde_json::to_vec_pretty(&meta).unwrap_or_default(),
+    );
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "ok": true,
+            "module": name,
+            "base_cid": base_cid,
+            "fork_path": userspace::display_path(&caller, &fork_dir),
+            "file_count": manifest.files.len(),
+            "next": "edit the fork (agent jobs / file writes in your workspace), then POST /modules/{name}/merge-requests",
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct OpenMrBody {
+    title: String,
+    #[serde(default)]
+    description: String,
+    /// CID-native path: propose an already-snapshotted tree.
+    #[serde(default)]
+    head_cid: Option<String>,
+    /// Override the recorded fork base (required if head_cid has no fork).
+    #[serde(default)]
+    base_cid: Option<String>,
+    #[serde(default)]
+    message: String,
+}
+
+async fn open_merge_request(
+    headers: axum::http::HeaderMap,
+    Path(name): Path<String>,
+    Json(body): Json<OpenMrBody>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let title = body.title.trim().to_string();
+    if title.is_empty() || title.len() > 200 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "title required (≤200 chars)" })),
+        )
+            .into_response();
+    }
+    if body.description.len() > 5000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "description too long (≤5000 chars)" })),
+        )
+            .into_response();
+    }
+    let Some(root) = module_root_for(&name) else {
+        return mr_not_found_module(&name);
+    };
+    let store = default_store();
+    let author = mr_identity(&caller);
+    let fork_dir = mr_fork_dir(&caller, &name);
+
+    let (base_cid, head_cid, fork_path) = if let Some(head) = body.head_cid.clone() {
+        // CID-native proposal: both trees must already be manifests in the store.
+        if let Err(e) = merge::load_manifest(&store, &head) {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        }
+        let base = match body.base_cid.clone() {
+            Some(b) => {
+                if let Err(e) = merge::load_manifest(&store, &b) {
+                    return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+                }
+                b
+            }
+            // No base stated: pin the live tree now — the diff is "what this
+            // proposal changes relative to current upstream".
+            None => match snapshot_dir(&root, &store) {
+                Ok((c, _)) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("snapshotting live tree: {e}") })),
+                    )
+                        .into_response();
+                }
+            },
+        };
+        (base, head, None)
+    } else {
+        // Default path: snapshot the caller's fork working copy.
+        if !fork_dir.is_dir() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "no fork found — POST /modules/{name}/mr-fork first, or pass head_cid",
+                })),
+            )
+                .into_response();
+        }
+        let meta: Option<merge::ForkMeta> = std::fs::read_to_string(fork_dir.join(merge::FORK_META_FILE))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+        let base = match body.base_cid.clone().or(meta.map(|m| m.base_cid)) {
+            Some(b) => b,
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "fork has no recorded base — pass base_cid explicitly" })),
+                )
+                    .into_response();
+            }
+        };
+        if let Err(e) = merge::load_manifest(&store, &base) {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        }
+        let head = match snapshot_dir(&fork_dir, &store) {
+            Ok((c, _)) => c,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("snapshotting fork: {e}") })),
+                )
+                    .into_response();
+            }
+        };
+        (base, head, Some(userspace::display_path(&caller, &fork_dir)))
+    };
+
+    if base_cid == head_cid {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "no changes: head tree is identical to base" })),
+        )
+            .into_response();
+    }
+
+    let ts = merge::now_ts();
+    let mr = merge::MergeRequest {
+        id: merge::new_mr_id(),
+        module: name,
+        author,
+        title,
+        description: body.description,
+        base_cid,
+        head_cid: head_cid.clone(),
+        revisions: vec![merge::MrRevision {
+            head_cid,
+            message: if body.message.is_empty() { "initial revision".into() } else { body.message },
+            timestamp: ts,
+        }],
+        status: "open".to_string(),
+        comments: vec![],
+        created_at: ts,
+        updated_at: ts,
+        merge_job_id: None,
+        merged_cid: None,
+        fork_path,
+    };
+    if let Err(e) = merge::save_mr(&mr) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    (StatusCode::CREATED, Json(json!(mr))).into_response()
+}
+
+async fn list_all_mrs(State(mgr): State<AppState>) -> impl IntoResponse {
+    let mrs: Vec<_> = merge::list_mrs(None)
+        .into_iter()
+        .map(|m| reconcile_mr(&mgr, m))
+        .collect();
+    Json(json!({ "count": mrs.len(), "merge_requests": mrs }))
+}
+
+async fn list_module_mrs(
+    State(mgr): State<AppState>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let mrs: Vec<_> = merge::list_mrs(Some(&name))
+        .into_iter()
+        .map(|m| reconcile_mr(&mgr, m))
+        .collect();
+    Json(json!({ "module": name, "count": mrs.len(), "merge_requests": mrs }))
+}
+
+async fn get_mr(State(mgr): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    match merge::load_mr(&id) {
+        Some(mr) => Json(json!(reconcile_mr(&mgr, mr))).into_response(),
+        None => mr_not_found(&id),
+    }
+}
+
+/// Cap for hashing the live tree when computing upstream drift.
+const MR_LIVE_HASH_MAX: u64 = 200 * 1024 * 1024;
+
+async fn mr_diff(headers: axum::http::HeaderMap, Path(id): Path<String>) -> impl IntoResponse {
+    // Diff bodies expose module code — same default-deny stance as /files/*.
+    if let Err(r) = require_bearer(&headers) {
+        return r;
+    }
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let store = default_store();
+    let base = match merge::load_manifest(&store, &mr.base_cid) {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    };
+    let head = match merge::load_manifest(&store, &mr.head_cid) {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    };
+    let changes = merge::diff_manifests(&base, &head);
+    // Conflicts vs the CURRENT live tree — best-effort (diff still renders
+    // if the module vanished or is too big to hash).
+    let (conflicts, live_cid, live_error) = match module_root_for(&mr.module) {
+        Some(root) => match crate::snapshots::hash_dir(&root, MR_LIVE_HASH_MAX) {
+            Ok((cid, live)) => (merge::conflict_paths(&changes, &base, &live), Some(cid), None),
+            Err(e) => (vec![], None, Some(e)),
+        },
+        None => (vec![], None, Some(format!("module '{}' not found", mr.module))),
+    };
+    Json(json!({
+        "id": mr.id,
+        "module": mr.module,
+        "status": mr.status,
+        "base_cid": mr.base_cid,
+        "head_cid": mr.head_cid,
+        "changes": changes,
+        "conflicts": conflicts,
+        "live_cid": live_cid,
+        "live_error": live_error,
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct MrFileQuery {
+    path: String,
+    /// base | head | live
+    #[serde(default = "default_mr_which")]
+    which: String,
+}
+
+fn default_mr_which() -> String {
+    "head".to_string()
+}
+
+const MR_FILE_MAX: u64 = 2 * 1024 * 1024;
+
+async fn mr_file(
+    headers: axum::http::HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<MrFileQuery>,
+) -> impl IntoResponse {
+    if let Err(r) = require_bearer(&headers) {
+        return r;
+    }
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let rel = q.path.trim_start_matches('/');
+    if rel.contains("..") || rel.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid path" })),
+        )
+            .into_response();
+    }
+    let store = default_store();
+    let bytes: Result<Vec<u8>, String> = match q.which.as_str() {
+        "live" => match module_root_for(&mr.module) {
+            Some(root) => {
+                let p = root.join(rel);
+                match p.metadata() {
+                    Ok(md) if md.len() > MR_FILE_MAX => Err("file too large".into()),
+                    _ => std::fs::read(&p).map_err(|e| format!("read live {rel}: {e}")),
+                }
+            }
+            None => Err(format!("module '{}' not found", mr.module)),
+        },
+        which @ ("base" | "head") => {
+            let cid = if which == "base" { &mr.base_cid } else { &mr.head_cid };
+            match merge::load_manifest(&store, cid) {
+                Ok(m) => match m.files.iter().find(|f| f.path == rel) {
+                    Some(entry) if entry.size > MR_FILE_MAX => Err("file too large".into()),
+                    Some(entry) => store.get(&entry.cid),
+                    None => Err(format!("{rel} not present in {which} tree")),
+                },
+                Err(e) => Err(e),
+            }
+        }
+        other => Err(format!("which must be base|head|live, got '{other}'")),
+    };
+    match bytes {
+        Ok(b) => match String::from_utf8(b) {
+            Ok(content) => Json(json!({
+                "id": mr.id, "path": rel, "which": q.which,
+                "size": content.len(), "content": content,
+            }))
+            .into_response(),
+            Err(_) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": "binary file" })),
+            )
+                .into_response(),
+        },
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct MrCommentBody {
+    #[serde(default)]
+    body: String,
+    /// comment (default) | approve | request_changes — the latter two are
+    /// review verdicts and require a trusted reviewer (owner or whitelist).
+    #[serde(default)]
+    action: Option<String>,
+}
+
+async fn mr_comment(
+    headers: axum::http::HeaderMap,
+    State(mgr): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<MrCommentBody>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let mut mr = reconcile_mr(&mgr, mr);
+    let action = body.action.unwrap_or_else(|| "comment".to_string());
+    let trusted = auth::is_trusted(&caller) || (caller.is_empty() && local_mode());
+    let text = body.body.trim().to_string();
+    if text.len() > 5000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "comment too long (≤5000 chars)" })),
+        )
+            .into_response();
+    }
+    let text = match action.as_str() {
+        "comment" => {
+            if text.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "comment body required" })),
+                )
+                    .into_response();
+            }
+            text
+        }
+        "approve" | "request_changes" => {
+            if !trusted {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "review verdicts (approve/request_changes) require a trusted reviewer" })),
+                )
+                    .into_response();
+            }
+            if !mr.is_actionable() {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({ "error": format!("MR is {} — no further review verdicts", mr.status) })),
+                )
+                    .into_response();
+            }
+            mr.status = if action == "approve" { "approved" } else { "changes_requested" }.to_string();
+            if text.is_empty() {
+                if action == "approve" { "approved".to_string() } else { "changes requested".to_string() }
+            } else {
+                text
+            }
+        }
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("unknown action '{other}' (comment|approve|request_changes)") })),
+            )
+                .into_response();
+        }
+    };
+    mr.comments.push(merge::MrComment {
+        author: mr_identity(&caller),
+        body: text,
+        action: Some(action),
+        timestamp: merge::now_ts(),
+    });
+    mr.updated_at = merge::now_ts();
+    if let Err(e) = merge::save_mr(&mr) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    Json(json!(mr)).into_response()
+}
+
+#[derive(Deserialize)]
+struct MrUpdateBody {
+    /// New head tree; omitted → re-snapshot the author's fork working copy.
+    #[serde(default)]
+    head_cid: Option<String>,
+    #[serde(default)]
+    message: String,
+}
+
+async fn mr_update(
+    headers: axum::http::HeaderMap,
+    State(mgr): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<MrUpdateBody>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let mut mr = reconcile_mr(&mgr, mr);
+    if mr_identity(&caller) != mr.author {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "only the MR author can push revisions" })),
+        )
+            .into_response();
+    }
+    if matches!(mr.status.as_str(), "merged" | "merging" | "closed") {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": format!("MR is {} — open a new one", mr.status) })),
+        )
+            .into_response();
+    }
+    let store = default_store();
+    let head = match body.head_cid {
+        Some(h) => {
+            if let Err(e) = merge::load_manifest(&store, &h) {
+                return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+            }
+            h
+        }
+        None => {
+            let fork_dir = mr_fork_dir(&caller, &mr.module);
+            if !fork_dir.is_dir() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "no fork working copy found — pass head_cid" })),
+                )
+                    .into_response();
+            }
+            match snapshot_dir(&fork_dir, &store) {
+                Ok((c, _)) => c,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": format!("snapshotting fork: {e}") })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    };
+    if head == mr.head_cid {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "no changes since the current revision" })),
+        )
+            .into_response();
+    }
+    let ts = merge::now_ts();
+    mr.head_cid = head.clone();
+    mr.revisions.push(merge::MrRevision {
+        head_cid: head,
+        message: if body.message.is_empty() { "revision".into() } else { body.message },
+        timestamp: ts,
+    });
+    // A new revision reopens a changes_requested / merge_failed MR.
+    mr.status = "open".to_string();
+    mr.updated_at = ts;
+    if let Err(e) = merge::save_mr(&mr) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    Json(json!(mr)).into_response()
+}
+
+async fn mr_close(
+    headers: axum::http::HeaderMap,
+    State(mgr): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let mut mr = reconcile_mr(&mgr, mr);
+    let trusted = auth::is_trusted(&caller) || (caller.is_empty() && local_mode());
+    if mr_identity(&caller) != mr.author && !trusted {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "only the author or a trusted reviewer can close an MR" })),
+        )
+            .into_response();
+    }
+    if matches!(mr.status.as_str(), "merged" | "merging") {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": format!("MR is {} — cannot close", mr.status) })),
+        )
+            .into_response();
+    }
+    mr.status = "closed".to_string();
+    mr.updated_at = merge::now_ts();
+    if let Err(e) = merge::save_mr(&mr) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    Json(json!(mr)).into_response()
+}
+
+#[derive(Deserialize, Default)]
+struct MrMergeBody {
+    #[serde(default)]
+    model: Option<String>,
+    /// Extra owner guidance appended to the merge brief.
+    #[serde(default)]
+    instructions: Option<String>,
+}
+
+async fn mr_merge(
+    headers: axum::http::HeaderMap,
+    State(mgr): State<AppState>,
+    Path(id): Path<String>,
+    body: Option<Json<MrMergeBody>>,
+) -> impl IntoResponse {
+    let caller = match require_bearer(&headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    // Merging rewrites a live module from contributed code — owner-only, like
+    // /restore, and sudo-bound when the target is any module but claude.
+    if !local_mode() && !auth::is_owner(&caller) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Owner-only: merging changes a live module; only the configured owner may approve it" })),
+        )
+            .into_response();
+    }
+    let Some(mr) = merge::load_mr(&id) else {
+        return mr_not_found(&id);
+    };
+    let mut mr = reconcile_mr(&mgr, mr);
+    if !matches!(mr.status.as_str(), "open" | "approved" | "changes_requested" | "merge_failed") {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": format!("MR is {} — nothing to merge", mr.status) })),
+        )
+            .into_response();
+    }
+    let Some(root) = module_root_for(&mr.module) else {
+        return mr_not_found_module(&mr.module);
+    };
+    if mr.module != "claude" {
+        if let Some(denied) = sudo_gate(&headers, "merge", &mr.module) {
+            return denied;
+        }
+    }
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let store = default_store();
+    let base = match merge::load_manifest(&store, &mr.base_cid) {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    };
+    let head = match merge::load_manifest(&store, &mr.head_cid) {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response(),
+    };
+    let changes = merge::diff_manifests(&base, &head);
+    if changes.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "MR contains no file changes" })),
+        )
+            .into_response();
+    }
+    // Stage BASE and HEAD on disk for the merge agent.
+    let staging = merge::staging_dir(&mr.id);
+    let _ = std::fs::remove_dir_all(&staging);
+    for (sub, cid) in [("base", &mr.base_cid), ("head", &mr.head_cid)] {
+        if let Err(e) = restore_into(&staging.join(sub), cid, &store) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("staging {sub}: {e}") })),
+            )
+                .into_response();
+        }
+    }
+    let conflicts = crate::snapshots::hash_dir(&root, MR_LIVE_HASH_MAX)
+        .map(|(_, live)| merge::conflict_paths(&changes, &base, &live))
+        .unwrap_or_default();
+    // Safety net: pin the pre-merge live tree so the merge is one restore
+    // away from undone.
+    if let Ok((auto_cid, _)) = snapshot_dir(&root, &store) {
+        let auto_msg = format!("auto-snapshot before merging {}", mr.id);
+        let (rcid, rprev) = match mod_protocol_register(&mr.module, &auto_msg).await {
+            Ok(r) => (r.cid, r.prev),
+            Err(_) => (None, None),
+        };
+        let _ = append_version(
+            &mr.module,
+            VersionRecord {
+                cid: auto_cid,
+                message: auto_msg,
+                author: caller.clone(),
+                timestamp: merge::now_ts(),
+                parent: None,
+                registry_cid: rcid,
+                registry_prev: rprev,
+                action: Some("auto-snapshot".to_string()),
+                job_id: None,
+            },
+        );
+    }
+    let mut prompt = merge::build_merge_prompt(&mr, &root, &staging, &changes, &conflicts);
+    if let Some(extra) = body.instructions.filter(|s| !s.trim().is_empty()) {
+        prompt.push_str(&format!("\n\nOwner instructions for this merge:\n{}", extra.trim()));
+    }
+    // Submitted under the approving owner's identity → runs unsandboxed with
+    // write access to the live module tree, like any owner edit job.
+    let job = mgr
+        .submit(SubmitRequest {
+            prompt,
+            model: body.model.unwrap_or_else(|| "claude-fable-5".to_string()),
+            work_dir: Some(root.to_string_lossy().into_owned()),
+            module_name: None,
+            creation_mode: None,
+            fork_source: None,
+            anchor_dir: None,
+            images: None,
+            agent_type: None,
+            system_prompt: None,
+            user_address: Some(caller.clone()),
+        })
+        .await;
+    mr.status = "merging".to_string();
+    mr.merge_job_id = Some(job.id.clone());
+    mr.updated_at = merge::now_ts();
+    mr.comments.push(merge::MrComment {
+        author: mr_identity(&caller),
+        body: format!("agentic merge started → job {}", job.id),
+        action: Some("system".to_string()),
+        timestamp: merge::now_ts(),
+    });
+    if let Err(e) = merge::save_mr(&mr) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({ "ok": true, "merge_request": mr, "job_id": job.id })),
     )
         .into_response()
 }

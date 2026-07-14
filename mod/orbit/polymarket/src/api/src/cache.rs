@@ -157,7 +157,13 @@ impl ProxyCache {
     /// Get TTL for an endpoint (used for Cache-Control headers).
     pub fn ttl_for_endpoint(endpoint: &str) -> Duration {
         let ep = endpoint.to_lowercase();
-        if Self::is_persistent(&ep) {
+        if ep.starts_with("user-trades") {
+            // The signed-in user's own fill tape — must be near-live so an
+            // executed order shows up within a poll cycle, not an hour later.
+            // (Checked before is_persistent: "user-trades" doesn't prefix-match
+            // "trades" so it's memory-only, but keep the guard explicit.)
+            Duration::from_secs(60)
+        } else if Self::is_persistent(&ep) {
             Duration::from_secs(86400) // 24 hours — data is on disk, no need to refetch
         } else if ep.starts_with("markets") || ep.starts_with("events") || ep.contains("search") {
             Duration::from_secs(90) // 90 seconds — keep markets fresh

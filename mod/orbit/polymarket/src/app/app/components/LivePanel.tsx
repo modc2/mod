@@ -408,7 +408,14 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
   // rebalanceMinutes only affects BACKTEST cadence and isn't a live precondition.
   const hasRebalance = true;
   const hasCapital = liveCapital > 0;
-  const canStart = hasWallet && hasCreds && hasTraders && hasRebalance && hasCapital;
+  // Funds are NOT a start precondition. The engine defaults to dry-run
+  // (autoExecute=false server-side), so an unfunded wallet can still test
+  // any strat against live flow — mirrors are sized with paper capital
+  // (the strat's BACKTEST capital, $1K default) until real USDC shows up.
+  // The FUND NOW banner still tells them real trading needs a deposit.
+  const paperCapital = (activeStrat?.capital ?? 0) > 0 ? activeStrat!.capital! : 1000;
+  const effectiveCapital = hasCapital ? liveCapital : paperCapital;
+  const canStart = hasWallet && hasCreds && hasTraders && hasRebalance;
 
   // Direct toggle — no confirmation step. The user explicitly asked to
   // always be able to start/stop without a confirm dialog blocking them.
@@ -425,7 +432,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
     startLive({
       strategyId: activeStrat.id,
       traders: activeStrat.traders.filter((t) => t.enabled !== false),
-      capital: liveCapital,
+      capital: effectiveCapital,
       intervalMs: livePollMin * 60_000,
       creds: auth.clobCreds,
       address: auth.address,
@@ -453,7 +460,10 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
 
     updateIndex(activeStrat.id, {
       liveEnabled: true,
-      capital: liveCapital,
+      // Never persist a $0 balance into the strat — strat.capital doubles as
+      // the BACKTEST tab's simulated capital, and 0 would zero out every
+      // simulated trade there.
+      capital: effectiveCapital,
       // Persist both for backwards compat — `rebalanceMinutes` is the
       // canonical field the STRAT panel writes; we mirror it into
       // `livePollMinutes` so older code paths keep working.
@@ -461,7 +471,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       livePollMinutes: livePollMin,
       updatedAt: Date.now(),
     });
-  }, [isLive, auth, activeStrat, liveCapital, livePollMin, startLive, stopLive]);
+  }, [isLive, auth, activeStrat, effectiveCapital, livePollMin, startLive, stopLive]);
 
   const status = engineState?.status || "stopped";
   const nextIn = engineState?.nextCycleAt ? engineState.nextCycleAt - now : 0;
@@ -490,7 +500,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
     startLive({
       strategyId: activeStrat.id,
       traders: activeStrat.traders.filter((t) => t.enabled !== false),
-      capital: liveCapital,
+      capital: effectiveCapital,
       intervalMs,
       creds: auth.clobCreds,
       address: auth.address,
@@ -502,7 +512,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       marketQuery: activeStrat.marketQuery,
       tradeFilters: activeStrat.tradeFilters,
     });
-  }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, liveCapital, startLive, stopLive]);
+  }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, effectiveCapital, startLive, stopLive]);
 
   return (
     <div className="space-y-1">
@@ -578,7 +588,11 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
               title={
                 isLive
                   ? "Stop the live copy engine"
-                  : canStart ? "Start the live copy engine — places real orders" : "Complete the checklist above to enable"
+                  : canStart
+                    ? (hasCapital
+                        ? "Start the live copy engine — places real orders"
+                        : `Start in paper mode — wallet is unfunded, mirrors are sized against $${paperCapital} simulated capital and no real orders fill`)
+                    : "Complete the checklist above to enable"
               }
               className={`pixel-btn text-[14px] px-2.5 py-1 transition-colors ${
                 isLive
@@ -653,7 +667,10 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
           { ok: !!activeStrat, label: "STRAT", action: null },
           { ok: hasTraders, label: "TRADERS", action: null },
           { ok: hasRebalance, label: "REBALANCE", action: null },
-          { ok: hasCapital, label: "CAPITAL", action: null },
+          // Capital never blocks — with $0 on-chain the engine starts in
+          // paper sizing (strat's backtest capital) and dry-run does the
+          // rest. The pill just tells the user which mode they're in.
+          { ok: true, label: hasCapital ? "CAPITAL" : "CAPITAL·PAPER", action: null },
         ];
         const okCount = items.filter((i) => i.ok).length;
         return (
@@ -1396,9 +1413,9 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
           the chart and execution feed lead the view. */}
 
       {/* ── Active strat params ──
-          Removed: the STRAT params panel here was a read-only mirror of the
-          left StratSidebar's PARAMETERS section — pure duplication. The
-          sidebar is now the single place to view + edit strat config. */}
+          Removed: the STRAT params panel here was a read-only mirror of
+          the STRAT → PARAMS subtab — pure duplication. That subtab is the
+          single place to view + edit strat config. */}
 
       {/* ── Custom strats / Strategy Hub moved to the STRATS tab top bar ──
           (publish · fork · fund). See CopyIndex STRATS-mode hub bar. */}

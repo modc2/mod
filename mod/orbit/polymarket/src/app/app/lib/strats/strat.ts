@@ -1,31 +1,39 @@
-// Canonical Strat base class for the live + backtest engines.
+// THE Strat class — the one, standard strategy class.
 //
-// A strategy IS a class. The engine is parameterized by it: pick a class in
-// the registry (registry.ts), construct it with its params, and the engine
-// drives everything through five hooks. Every hook receives the full
-// `StratHistory` — the observed trade history across all watched traders,
-// per-trader stats, open positions, and balance — so a strat can reason
-// over ANY history of the data, not just the single trade in front of it.
+// A strategy IS this class. There is no registry and no subclass zoo: the
+// live engine (copyEngine.ts) and the backtest (CopyIndex.tsx) both do
+// `new Strat(params)` and drive everything through five hooks. Every hook
+// receives the full `StratHistory` — the observed trade history across all
+// watched traders, per-trader stats, open positions, and balance — so the
+// strat can reason over ANY history of the data, not just the single trade
+// in front of it.
 //
-// The five hooks (all have working defaults — override any subset):
+// Everything a strategy can do is a PARAM on this one class:
 //
-//   maxPerCycle()                     per-cycle BUY budget (fee control)
+//   maxPerCycle      per-cycle BUY budget (fee control)
+//   marketQuery      free-text market-topic gate
+//   tradeFilters     semantic per-trade gates (side/price/size/category)
+//   mirror           false = never mirror per-trade (origination only)
+//   slippageBps      limit-price widening toward the fillable side
+//   flow { … }       opt-in flow-momentum ORIGINATION: buy watchlist
+//                    consensus from history, exit when flow flips
+//
+// The five hooks (all have working defaults driven by those params):
+//
+//   maxPerCycle()                     per-cycle BUY budget
 //   shouldMirror(trade, history)      pre-filter observed upstream trades
 //   scoreCandidate(trade, s, history) rank candidates by expected $ edge
 //   sizeAndPrice(trade, c, history)   final notional + limit price
-//   propose(history, c)               ORIGINATE trades from history alone —
-//                                     not tied to any upstream trade. This
-//                                     is how non-copy strats (momentum,
-//                                     mean-reversion, market making) plug
-//                                     into the same engine.
+//   propose(history, c)               ORIGINATE trades from history alone
 //
 // The engine handles plumbing — cycle loop, balance check, deposit wallet,
 // CLOB submission, log persistence, ROI stats refresh. The strat only
 // decides WHAT to trade, in WHAT size, at WHAT price.
 //
-// Mirrors src/strats/base/mod.py (sync → signal → execute) so a strat can
-// be authored in TS or Python against the same idea: history in, trade
-// intents out.
+// The class stays subclassable for power users (override any hook, hand
+// the instance to CopyEngine's constructor), but the standard path is
+// params on this one class. Mirrors src/strats/base/mod.py (sync → signal
+// → execute) for users who author strats in Python.
 
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
 import type { TradeFilters } from "../types";
@@ -34,7 +42,7 @@ import { tradeMatchesFilters } from "../tradeFilters";
 
 // ── Shared per-trade context the strat sees ──────────────────────
 
-/** A single observed upstream trade from a watched trader. Strats decide
+/** A single observed upstream trade from a watched trader. The strat decides
     whether/how to mirror it. */
 export interface TraderTrade extends PolymarketTrade {
   /** Address of the watched trader who placed this trade. */
@@ -64,7 +72,7 @@ export interface StratHistory {
   /** Per-trader ROI / Sharpe stats, keyed by lowercased address. */
   traderStats: Record<string, TraderRoiStats>;
   /** Open positions in the trading wallet. Fetched per-cycle only when the
-      strat class overrides `propose` (extra API call); empty otherwise. */
+      strat originates trades (`proposes()` true); empty otherwise. */
   positions: PolymarketPosition[];
   /** Usable USDC balance in the trading wallet. null = not yet read. */
   balance: number | null;
@@ -107,13 +115,13 @@ export interface SizeConstraints {
   capital: number;
 }
 
-/** Output of a strat's per-candidate decision. The engine consumes this
+/** Output of the strat's per-candidate decision. The engine consumes this
     rather than letting the strat call placeOrder itself — keeps order
     submission, retries, and logging in one place. */
 export interface CandidateDecision {
   /** Mirror notional in USD. 0 = skip. */
   mirrorNotional: number;
-  /** Limit price (0–1). Strats can widen for slippage tolerance. */
+  /** Limit price (0–1). Widened by `slippageBps` toward the fillable side. */
   limitPrice: number;
   /** Optional human-readable reason — surfaced in the BALANCE log row
       when a clamp/widening fired (e.g. "clamped up to CLOB floor"). */
@@ -141,10 +149,27 @@ export interface ProposedTrade {
 
 // ── Params ───────────────────────────────────────────────────────
 
-/** Common tunables every strat understands. Strat-specific params extend
-    this — the class's generic parameter `P` declares them, the registry
-    passes them through, and `this.params` carries them at runtime. */
+/** Flow-momentum origination params. Setting `params.flow` (even `{}`)
+    turns origination ON: the strat aggregates window flow across the
+    watchlist and proposes entries where several traders pile into the
+    same side, and exits when a held position's flow flips net-SELL. */
+export interface FlowParams {
+  /** How far back (minutes) to aggregate flow. Default 90. */
+  lookbackMinutes?: number;
+  /** Minimum distinct watched traders on the same side before the signal
+      counts as consensus. Default 2. */
+  minTraders?: number;
+  /** Minimum aggregate BUY notional (USD) across those traders. Default 50. */
+  minFlowUsd?: number;
+  /** Max simultaneous open positions origination may hold. Default 5. */
+  maxPositions?: number;
+}
+
+/** The one params surface. Every strategy is a value of this interface —
+    saved strats, share bundles, and the engine config all reduce to it. */
 export interface StratParams {
+  /** Display name echoed in the UI / execution log. Default "strat". */
+  name?: string;
   /** Max BUYs to act on per cycle. The single most important fee-control
       knob. Default 3. */
   maxPerCycle?: number;
@@ -154,24 +179,49 @@ export interface StratParams {
   /** Semantic per-trade filters (side / price band / size band / category),
       AND-ed with `marketQuery` in `shouldMirror`. */
   tradeFilters?: TradeFilters;
+  /** false = never mirror individual upstream trades (origination only).
+      Default true. */
+  mirror?: boolean;
+  /** Limit-price widening in basis points toward the fillable side
+      (BUY = up, SELL = down) so mirrors don't sit unfilled behind the
+      market. 300 = 3¢ tolerance on a 100¢ market. Default 300. */
+  slippageBps?: number;
+  /** Opt-in flow-momentum origination — see FlowParams. Absent = pure
+      mirror strat, `propose` returns []. */
+  flow?: FlowParams;
+}
+
+// ── Flow aggregation internals ───────────────────────────────────
+
+interface MarketFlow {
+  conditionId: string;
+  market: string;
+  outcome: string;
+  buyUsd: number;
+  sellUsd: number;
+  buyers: Set<string>;
+  sellers: Set<string>;
+  lastPrice: number;
+  lastTs: number;
 }
 
 // ── The Strat class ──────────────────────────────────────────────
 
-/** Abstract base every strategy extends, parameterized by its params type.
-    All hooks have working defaults, so a custom strat overrides only what
-    it changes — a pure originator overrides `propose` and nothing else;
-    a copy-flavored strat tweaks `scoreCandidate` or `adjustPrice`. */
-export abstract class Strat<P extends StratParams = StratParams> {
+/** The standard strategy class. Construct it with `StratParams` and hand
+    it to the engine — mirroring, scoring, sizing, and (opt-in) origination
+    are all param-driven defaults. Subclassing still works for behavior no
+    param expresses: override any hook and pass the instance to CopyEngine. */
+export class Strat {
   /** Display name in the UI / log. */
-  abstract readonly name: string;
+  readonly name: string;
 
-  /** The params the class was constructed with — echoed for the UI and
+  /** The params the strat was constructed with — echoed for the UI and
       logs so a running engine can always show its exact configuration. */
-  readonly params: P;
+  readonly params: StratParams;
 
-  constructor(params?: P) {
-    this.params = (params ?? {}) as P;
+  constructor(params: StratParams = {}) {
+    this.params = params;
+    this.name = params.name ?? "strat";
   }
 
   // ── Hook 1: per-cycle BUY cap ──
@@ -183,12 +233,13 @@ export abstract class Strat<P extends StratParams = StratParams> {
 
   // ── Hook 2: pre-filter ──
   // Return false to skip an observed trade entirely (before scoring,
-  // sizing, or any side-effects). Default applies the two generic gates:
-  //   1. market-topic query (`params.marketQuery`)
-  //   2. semantic trade filters (`params.tradeFilters`)
-  // Override to add dimensions (time-of-day, flow context from history, …).
+  // sizing, or any side-effects). Default applies three generic gates:
+  //   1. `params.mirror === false` → never mirror (origination-only strat)
+  //   2. market-topic query (`params.marketQuery`)
+  //   3. semantic trade filters (`params.tradeFilters`)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   shouldMirror(trade: TraderTrade, history: StratHistory): boolean {
+    if (this.params.mirror === false) return false;
     return (
       marketMatchesQuery(trade.market, this.params.marketQuery ?? "") &&
       tradeMatchesFilters(trade, this.params.tradeFilters ?? {})
@@ -263,18 +314,140 @@ export abstract class Strat<P extends StratParams = StratParams> {
   // Propose trades from the history alone — no upstream trade required.
   // Runs once per cycle AFTER the mirror pass, with the COMPLETE cycle
   // history. The engine tick-rounds prices, clamps to the CLOB floor,
-  // caps to `maxPerCycle` proposals, and logs each with your `reason`.
-  // Default: originate nothing (pure copy strat).
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // caps to `maxPerCycle` proposals, and logs each with the `reason`.
+  // Default: flow-momentum origination when `params.flow` is set —
+  // ENTRIES on watchlist consensus (≥ minTraders distinct buyers,
+  // aggregate ≥ minFlowUsd, net flow positive) in markets not already
+  // held, ranked by net flow, sized by conviction and clamped into the
+  // user's trade band; EXITS on held positions whose window flow flipped
+  // net-SELL. Without `params.flow`: originate nothing (pure mirror).
   propose(history: StratHistory, c: SizeConstraints): ProposedTrade[] {
-    return [];
+    const flow = this.params.flow;
+    if (!flow) return [];
+
+    const minTraders = flow.minTraders ?? 2;
+    const minFlowUsd = flow.minFlowUsd ?? 50;
+    const maxPositions = flow.maxPositions ?? 5;
+    const flows = this.aggregateFlow(history);
+    const proposals: ProposedTrade[] = [];
+
+    const held = new Map(
+      history.positions
+        .filter((p) => p.size > 0)
+        .map((p) => [`${p.conditionId.toLowerCase()}:${(p.outcome || "Yes").toLowerCase()}`, p]),
+    );
+
+    // EXITS first — freed capital funds the entries below.
+    for (const [key, pos] of held) {
+      const f = flows.get(key);
+      if (!f) continue;
+      const netUsd = f.buyUsd - f.sellUsd;
+      if (netUsd < 0 && f.sellers.size >= minTraders) {
+        proposals.push({
+          conditionId: pos.conditionId,
+          outcome: pos.outcome,
+          market: pos.market,
+          side: "SELL",
+          notional: pos.value,
+          limitPrice: tickRoundPrice(pos.currentPrice * 0.97),
+          reason: `FLOW FLIPPED · ${f.sellers.size} traders net -$${Math.abs(netUsd).toFixed(0)} in window`,
+        });
+      }
+    }
+
+    // ENTRIES — strongest net-BUY consensus first.
+    const openSlots = Math.max(0, maxPositions - held.size);
+    const entries = [...flows.entries()]
+      .filter(([key, f]) =>
+        !held.has(key) &&
+        f.buyers.size >= minTraders &&
+        f.buyUsd >= minFlowUsd &&
+        f.buyUsd > f.sellUsd &&
+        f.lastPrice > 0.02 && f.lastPrice < 0.95,
+      )
+      .sort((a, b) => (b[1].buyUsd - b[1].sellUsd) - (a[1].buyUsd - a[1].sellUsd))
+      .slice(0, openSlots);
+
+    for (const [, f] of entries) {
+      // Conviction sizing: share of capital proportional to this market's
+      // slice of total net flow, clamped into the user's trade band.
+      const netUsd = f.buyUsd - f.sellUsd;
+      const raw = Math.min(c.capital / Math.max(maxPositions, 1), netUsd);
+      const notional = Math.min(Math.max(raw, c.userFloor, c.clobFloor), c.userCeiling);
+      proposals.push({
+        conditionId: f.conditionId,
+        outcome: f.outcome,
+        market: f.market,
+        side: "BUY",
+        notional,
+        // Chase up to 2¢ past the last observed print so the entry fills.
+        limitPrice: tickRoundPrice(f.lastPrice + 0.02),
+        reason: `CONSENSUS · ${f.buyers.size} traders +$${netUsd.toFixed(0)} net BUY in ${flow.lookbackMinutes ?? 90}m`,
+      });
+    }
+
+    return proposals;
+  }
+
+  // ── Capability probe ──
+  // True when this strat originates trades — gates the engine's per-cycle
+  // positions fetch and Phase 4. Param-driven (`params.flow`), with a
+  // prototype check so a subclass that overrides `propose` still counts.
+  proposes(): boolean {
+    return !!this.params.flow || this.propose !== Strat.prototype.propose;
   }
 
   // ── Overridable price shaping used by the default sizeAndPrice ──
-  // Default: the leader's own price. Override to widen for slippage
-  // tolerance (see CopyTrader) or quote your own level. Caller tick-rounds.
+  // Widens the leader's price by `slippageBps` toward whichever side is
+  // fillable (BUY = up, SELL = down) so mirrors don't sit unfilled behind
+  // the market. slippageBps: 0 quotes the leader's exact price. Caller
+  // tick-rounds.
   protected adjustPrice(trade: TraderTrade): number {
-    return trade.price;
+    const bps = (this.params.slippageBps ?? 300) / 10_000;
+    if (trade.side === "BUY") return Math.min(trade.price * (1 + bps), 0.99);
+    return Math.max(trade.price * (1 - bps), 0.01);
+  }
+
+  // Aggregate observed flow per market+outcome over the flow lookback
+  // window. Shared by propose()'s entry and exit passes.
+  private aggregateFlow(history: StratHistory): Map<string, MarketFlow> {
+    const lookbackMs = (this.params.flow?.lookbackMinutes ?? 90) * 60_000;
+    const cutoff = history.now - lookbackMs;
+    const flows = new Map<string, MarketFlow>();
+    for (const t of history.trades) {
+      if (t.timestamp < cutoff) continue;
+      if (!marketMatchesQuery(t.market, this.params.marketQuery ?? "")) continue;
+      const outcome = t.outcome || "Yes";
+      const key = `${t.conditionId.toLowerCase()}:${outcome.toLowerCase()}`;
+      let f = flows.get(key);
+      if (!f) {
+        f = {
+          conditionId: t.conditionId,
+          market: t.market,
+          outcome,
+          buyUsd: 0,
+          sellUsd: 0,
+          buyers: new Set(),
+          sellers: new Set(),
+          lastPrice: t.price,
+          lastTs: t.timestamp,
+        };
+        flows.set(key, f);
+      }
+      if (t.side === "BUY") {
+        f.buyUsd += t.notional;
+        f.buyers.add(t.trader.toLowerCase());
+      } else {
+        f.sellUsd += t.notional;
+        f.sellers.add(t.trader.toLowerCase());
+      }
+      // trades are newest-first; keep the newest price we've seen.
+      if (t.timestamp > f.lastTs) {
+        f.lastTs = t.timestamp;
+        f.lastPrice = t.price;
+      }
+    }
+    return flows;
   }
 }
 
@@ -299,7 +472,7 @@ export function clobMinNotional(price: number): number {
   return Math.max(POLYMARKET_MIN_USD, POLYMARKET_MIN_SHARES * Math.max(price, 1e-9));
 }
 
-// Re-exports so a strat file only has to `import from "./base"`.
+// Re-exports so a strat consumer only has to `import from "./strat"`.
 export type { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader };
 export type { TradeFilters } from "../types";
 export { marketMatchesQuery } from "../marketQuery";

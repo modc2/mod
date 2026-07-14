@@ -847,19 +847,25 @@ struct Handoff {
 
 static HANDOFFS: OnceLock<std::sync::Mutex<HashMap<String, Handoff>>> = OnceLock::new();
 
-/// How long a handoff QR stays scannable. Short on purpose: the code is a
-/// bearer capability for the minter's whole identity.
+/// Default lifetime of a handoff QR. Short on purpose: the code is a
+/// bearer capability for the minter's whole identity. The minter may pick
+/// a different TTL, clamped to [HANDOFF_TTL_MIN, HANDOFF_TTL_MAX].
 pub const HANDOFF_TTL: i64 = 300;
+pub const HANDOFF_TTL_MIN: i64 = 60;
+pub const HANDOFF_TTL_MAX: i64 = 86_400;
 
 fn handoff_store() -> &'static std::sync::Mutex<HashMap<String, Handoff>> {
     HANDOFFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-/// Mint a single-use handoff code for `address`. Returns (code, expiry).
-pub fn create_handoff(address: &str) -> (String, i64) {
+/// Mint a single-use handoff code for `address`. `ttl` is the requested
+/// lifetime in seconds (None → HANDOFF_TTL), clamped so a caller can't mint
+/// an effectively-immortal identity capability. Returns (code, expiry).
+pub fn create_handoff(address: &str, ttl: Option<i64>) -> (String, i64) {
     let now = chrono::Utc::now().timestamp();
     let code = hex::encode(rand::random::<[u8; 16]>());
-    let exp = now + HANDOFF_TTL;
+    let ttl = ttl.unwrap_or(HANDOFF_TTL).clamp(HANDOFF_TTL_MIN, HANDOFF_TTL_MAX);
+    let exp = now + ttl;
     let mut map = handoff_store().lock().unwrap();
     map.retain(|_, h| h.exp > now);
     map.insert(
@@ -1151,7 +1157,7 @@ mod tests {
     #[test]
     fn test_handoff_roundtrip_single_use() {
         let addr = "0xABCDef1234567890abcdef1234567890abcdef12";
-        let (code, exp) = create_handoff(addr);
+        let (code, exp) = create_handoff(addr, None);
         assert!(exp > chrono::Utc::now().timestamp());
 
         // Redeems to the lowercased bound address…
@@ -1165,6 +1171,22 @@ mod tests {
     #[test]
     fn test_handoff_unknown_code() {
         assert!(redeem_handoff("nope").is_err());
+    }
+
+    #[test]
+    fn test_handoff_ttl_clamped() {
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        let now = chrono::Utc::now().timestamp();
+
+        // Requested TTL is honored within bounds…
+        let (_, exp) = create_handoff(addr, Some(3600));
+        assert!((exp - now - 3600).abs() <= 2);
+
+        // …and clamped outside them (can't mint an immortal or instant code).
+        let (_, exp) = create_handoff(addr, Some(999_999_999));
+        assert!(exp - now <= HANDOFF_TTL_MAX + 2);
+        let (_, exp) = create_handoff(addr, Some(0));
+        assert!(exp - now >= HANDOFF_TTL_MIN - 2);
     }
 
     #[test]

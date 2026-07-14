@@ -33,7 +33,7 @@ const IDLE_MS = parseInt(process.env.IDLE_MS || String(parseInt(process.env.IDLE
 const SWEEP_MS = parseInt(process.env.SWEEP_SECONDS || "60", 10) * 1000;
 const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "30000", 10);
 // Modules that must never be auto-stopped (the gateway/infra itself).
-const PIN = new Set((process.env.ACTIVATOR_PIN || "web,claude").split(",").map((s) => s.trim()).filter(Boolean));
+const PIN = new Set((process.env.ACTIVATOR_PIN || "claude").split(",").map((s) => s.trim()).filter(Boolean));
 // If set, the idle sweep ONLY ever stops these modules — the ones whose gateway
 // traffic is actually routed through the activator. Prevents sleeping a module
 // that's still reached directly (it would have no wake path). Empty = manage all

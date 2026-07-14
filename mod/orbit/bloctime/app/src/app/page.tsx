@@ -18,7 +18,13 @@ import {
   ChartBarIcon,
 } from '@heroicons/react/24/outline'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8851'
+// Remote browsers can't reach localhost:8851 — go through the gateway's
+// /api/bloctime route unless we're actually running on localhost.
+const isLocal = typeof window !== 'undefined' &&
+  ['localhost', '127.0.0.1'].includes(window.location.hostname)
+const API_URL = isLocal
+  ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8851')
+  : '/api/bloctime'
 
 // ── Types ───────────────────────────────────────────────────────────────
 

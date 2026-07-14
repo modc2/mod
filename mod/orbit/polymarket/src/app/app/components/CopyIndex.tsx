@@ -7,8 +7,8 @@ import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, f
 import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardPresets";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { getStrat } from "../lib/strats/registry";
-import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/base";
+import { Strat } from "../lib/strats/strat";
+import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams, useFilters } from "../context/FiltersContext";
@@ -627,6 +627,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const [backtestDays, setBacktestDays] = useState(3);
   const [backtestDaysInput, setBacktestDaysInput] = useState("3");
   const [capital, setCapital] = useState(DEFAULT_CAPITAL);
+  // Funds source for the backtest sizing. SIM = paper capital (the CAPITAL
+  // param, $1K default) — needs no wallet and no deposit; WALLET = the
+  // deposit wallet's live USDC balance, so the preview sizes exactly like a
+  // real deployment would. Persisted per-strat.
+  const [fundsMode, setFundsMode] = useState<"SIM" | "WALLET">("SIM");
+  // Deposit-wallet USDC balance for the WALLET side of the toggle.
+  // null = unknown (no wallet connected, or the read failed).
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [minTrade, setMinTrade] = useState(5);
   const [maxTrade, setMaxTrade] = useState(100);
   // Max concurrent open positions — the live engine skips a mirror BUY that
@@ -700,7 +708,21 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // who to copy and assembling a strat now live in one place. The leaderboard
   // reads the shared TopBar filters (category / window / market topic), and
   // selecting a trader toggles them in/out of the active strat.
+  // The add-trader bar lives inside this collapsible too, so remember the
+  // expand/contract choice across reloads. Read after mount (not in the
+  // useState initializer) to avoid a hydration mismatch, and keep writes
+  // quota-safe — modc2.com modules share one localStorage origin.
   const [browseOpen, setBrowseOpen] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("polymarket.stratTradersOpen") === "1") setBrowseOpen(true);
+    } catch { /* storage unavailable — stay collapsed */ }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("polymarket.stratTradersOpen", browseOpen ? "1" : "0");
+    } catch { /* quota full — non-fatal, just don't persist */ }
+  }, [browseOpen]);
   const {
     category: browseCategory,
     daysAgo: browseDaysAgo,
@@ -854,7 +876,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         setCustomDaysInput("");
       }
     }
-    setCapital(activeIndex.capital ?? DEFAULT_CAPITAL);
+    // Backtests are always paper — a strat carrying capital 0 (persisted
+    // from an unfunded wallet or imported that way) would zero every
+    // simulated trade, so fall back to the $1K default.
+    setCapital(activeIndex.capital && activeIndex.capital > 0 ? activeIndex.capital : DEFAULT_CAPITAL);
+    // Funds source (SIM vs WALLET) — the wallet-balance sync effect below
+    // overwrites `capital` with the live balance when this lands on WALLET.
+    setFundsMode(activeIndex.fundsMode === "WALLET" ? "WALLET" : "SIM");
     setMinTrade(activeIndex.minTrade ?? 5);
     setMaxTrade(activeIndex.maxTrade ?? 100);
     setMaxTradesPerHour(activeIndex.maxTradesPerHour ?? 10);
@@ -883,6 +911,55 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex?.id]);
+
+  // ── Backtest funds source (SIM paper capital vs live WALLET balance) ──
+  // Poll the deposit wallet's USDC balance (60s) while signed in so the
+  // WALLET pill can show it. A missing wallet or failed read leaves it null —
+  // the toggle then pins to SIM and the backtest keeps running on paper.
+  useEffect(() => {
+    if (!auth.address) {
+      setWalletBalance(null);
+      return;
+    }
+    let cancelled = false;
+    const fetchBalance = async () => {
+      try {
+        const res = await fetch(`/api/polymarket/deposit-wallet/info?eoa=${auth.address}`);
+        if (!res.ok) return;
+        const info = await res.json() as { usdcBalance?: string | null };
+        const bal = info.usdcBalance != null ? Number(info.usdcBalance) : NaN;
+        if (!cancelled && Number.isFinite(bal)) setWalletBalance(bal);
+      } catch { /* keep last known value — never block the backtest on RPC */ }
+    };
+    void fetchBalance();
+    const t = setInterval(fetchBalance, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [auth.address]);
+
+  // Overwrite `capital` (the single input every backtest memo reads) with
+  // the live balance while the WALLET source is selected. Only the override
+  // lives here — restoring the SIM amount happens in updateFundsMode, so a
+  // 60s balance poll can never stomp a freshly-typed CAPITAL in SIM mode.
+  // Declared after the strat-load effect so it wins on strat switch.
+  useEffect(() => {
+    if (fundsMode === "WALLET" && walletBalance != null && walletBalance > 0) {
+      setCapital(Math.max(1, Math.floor(walletBalance)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fundsMode, walletBalance, activeIndex?.id]);
+
+  const updateFundsMode = (mode: "SIM" | "WALLET") => {
+    setFundsMode(mode);
+    if (mode === "SIM") {
+      // Re-read from storage — `activeIndex` can hold a stale capital after
+      // param edits (updateIndex persists without setActiveIndex).
+      const fresh = activeIndex ? loadIndexes().find((s) => s.id === activeIndex.id) : null;
+      setCapital(fresh?.capital && fresh.capital > 0 ? fresh.capital : DEFAULT_CAPITAL);
+    }
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { fundsMode: mode, updatedAt: Date.now() });
+    }
+  };
 
   // ── Persist helper ──
   const persistIndex = useCallback((idx: SavedIndex) => {
@@ -1025,8 +1102,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const updateCapital = (amt: number) => {
     const clamped = Math.max(1, Math.round(amt));
     setCapital(clamped);
+    // Typing a CAPITAL amount is an explicit "size with this simulated
+    // figure" — flip a WALLET-pinned strat back to SIM so the balance sync
+    // doesn't silently overwrite what the user just entered.
+    setFundsMode("SIM");
     if (activeIndex) {
-      updateIndex(activeIndex.id, { capital: clamped, updatedAt: Date.now() });
+      updateIndex(activeIndex.id, { capital: clamped, fundsMode: "SIM", updatedAt: Date.now() });
     }
   };
   const capitalPresets = [1000, 5000, 10000, 50000];
@@ -1221,7 +1302,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         setActiveIndex(found);
         // Re-hydrate backtest/sizing params so external strat edits flow
         // into the backtest + config bar without a strat switch.
-        setCapital(found.capital ?? DEFAULT_CAPITAL);
+        setCapital(found.capital && found.capital > 0 ? found.capital : DEFAULT_CAPITAL);
         setMinTrade(found.minTrade ?? 5);
         setMaxTrade(found.maxTrade ?? 100);
         setMaxTradesPerHour(found.maxTradesPerHour ?? 10);
@@ -1410,12 +1491,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   }, [tradersWithBuys, traderWeights, totalWeight, capital]);
 
   // ── Strat instance — single source of truth for live + backtest ──
-  // The live engine instantiates its OWN copy from the registry (so the
-  // backtest can re-render without disturbing the live cycle's state),
-  // but both reference the same class with the same opts. Drop a new
-  // strat into src/app/app/lib/strats/registry.ts and BOTH adopt it.
+  // The live engine instantiates its OWN copy (so the backtest can
+  // re-render without disturbing the live cycle's state), but both
+  // construct the SAME standard Strat class (src/app/app/lib/strats/
+  // strat.ts) with the same params — what you backtest is what trades.
   const backtestStrat = useMemo(
-    () => getStrat(undefined, { maxPerCycle, marketQuery, tradeFilters }),
+    () => new Strat({ maxPerCycle, marketQuery, tradeFilters }),
     [maxPerCycle, marketQuery, tradeFilters],
   );
 
@@ -2065,10 +2146,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         <div className="flex items-center gap-2">
           {(
             [
+              // BACKTEST/LIVE are always reachable — backtests run on
+              // simulated funds (no wallet, no deposit), and an empty
+              // watchlist renders an add-traders empty state instead of a
+              // dead grey tab (which read as "needs a funded wallet").
               { id: "STRATS", label: "STRAT", disabled: false },
               { id: "HUB", label: "HUB", disabled: false },
-              { id: "BACKTEST", label: "BACKTEST", disabled: watchlist.length === 0 },
-              { id: "LIVE", label: "LIVE", disabled: watchlist.length === 0 },
+              { id: "BACKTEST", label: "BACKTEST", disabled: false },
+              { id: "LIVE", label: "LIVE", disabled: false },
               { id: "WALLET", label: "WALLET", disabled: false },
             ] as { id: typeof mode; label: string; disabled: boolean }[]
           ).map((t) => {
@@ -2223,22 +2308,15 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </>
             )}
           </div>
-          {/* ── TRADERS — add bar + leaderboard browser + watchlist rows ── */}
+          {/* ── TRADERS — browse/add bar + watchlist rows ── */}
           <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
-              </div>
-              {loading && (
-                <span className="text-[12px] text-green-400 font-mono animate-pulse shrink-0">
-                  {loadedCount}/{watchlist.length}
-                </span>
-              )}
-            </div>
-
-            {/* Leaderboard browser — the old standalone /traders page, folded
-                in and collapsible so it doesn't crowd the editor. Clicking a
-                trader toggles them in/out of the active strat. */}
+            {/* Browse Traders + add bar — one collapsible unit: the browse
+                toggle is the bar's header with the ADD TRADER bar directly
+                below it inside the same div, so expanding/contracting the
+                bar shows/hides the whole trader-picking UI (add bar,
+                pinned leaderboards, leaderboard browser) together.
+                Clicking a leaderboard trader toggles them in/out of the
+                active strat. */}
             <div className="border border-pixel-border/60 rounded-[var(--radius-sm)]">
               <button
                 onClick={() => setBrowseOpen((v) => !v)}
@@ -2253,17 +2331,29 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     Browse Traders
                   </span>
                   <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                    leaderboard · click a trader to add
+                    add by address · leaderboard · click a trader to add
                   </span>
                 </span>
-                {allTraderAddrs.length > 0 && (
-                  <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
-                    {allTraderAddrs.length} in strat
-                  </span>
-                )}
+                <span className="flex items-center gap-2 shrink-0">
+                  {loading && (
+                    <span className="text-[12px] text-green-400 font-mono animate-pulse">
+                      {loadedCount}/{watchlist.length}
+                    </span>
+                  )}
+                  {allTraderAddrs.length > 0 && (
+                    <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
+                      {allTraderAddrs.length} in strat
+                    </span>
+                  )}
+                </span>
               </button>
               {browseOpen && (
                 <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
+                  {/* ADD TRADER bar — lives under the browse header inside the
+                      same collapsible so both fold away together. */}
+                  <div className="pb-3">
+                    <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
+                  </div>
                   {/* Pinned leaderboards — named filter combos (e.g. "BTC ≥3/day")
                       that auto-refresh hourly (FiltersContext's reloadKey timer).
                       Click to apply, × to unpin. */}
@@ -2869,7 +2959,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         </div>
       )}
 
-      {/* Strat list + "+ New" moved to the left StratSidebar (managed there). */}
+      {/* Strat list + "+ New" live in the TopBar strat picker (HeaderStratPicker). */}
 
       {/* ── SOURCE — the strat's code, always below TRADERS + PARAMS ──
           Read-only for built-in TS strats; editable for user-uploaded
@@ -2907,6 +2997,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   STRAT → TRADERS + PARAMS
                 </button>.
               </div>
+              {mode === "BACKTEST" && (
+                <div className="text-[11px] text-pixel-gray tracking-wider">
+                  BACKTESTS RUN ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
+                </div>
+              )}
             </div>
           )}
 
@@ -3007,6 +3102,65 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  {/* ── FUNDS source toggle ──
+                      Backtests never spend real money. SIM sizes the replay
+                      with the CAPITAL param (editable inline, $1K default) so
+                      it works with no wallet and no deposit; WALLET pins the
+                      sizing to the deposit wallet's live USDC balance so the
+                      preview matches an actual deployment. */}
+                  <div
+                    className="inline-flex items-center gap-1 text-[12px] font-mono h-[24px] px-2 border border-pixel-border/60 text-pixel-gray"
+                    title="Funds used to size simulated trades — backtests never spend real money. SIM = paper capital (no wallet needed); WALLET = your live USDC balance."
+                  >
+                    <span className="tracking-[0.15em]">FUNDS</span>
+                    <button
+                      type="button"
+                      onClick={() => updateFundsMode("SIM")}
+                      className={`px-1.5 tracking-wider transition-colors ${
+                        fundsMode === "SIM" ? "text-green-400" : "text-pixel-gray hover:text-pixel-white"
+                      }`}
+                      title="Simulated funds — size trades with the paper CAPITAL amount"
+                    >
+                      SIM
+                    </button>
+                    {fundsMode === "SIM" ? (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        defaultValue={String(capital)}
+                        key={`sim-${capital}`}
+                        onBlur={(e) => {
+                          const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                          if (!isNaN(v) && v > 0) updateCapital(v);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        className="bg-transparent w-12 text-right font-mono text-[13px] text-green-400 outline-none"
+                        title="Simulated capital in USD — persists to the strat's CAPITAL param"
+                      />
+                    ) : (
+                      <span className="w-12 text-right text-pixel-gray">${capital}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => updateFundsMode("WALLET")}
+                      disabled={walletBalance == null || walletBalance <= 0}
+                      className={`px-1.5 ml-1 tracking-wider border-l border-pixel-border/40 pl-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                        fundsMode === "WALLET" ? "text-green-400" : "text-pixel-gray hover:text-pixel-white"
+                      }`}
+                      title={
+                        walletBalance == null
+                          ? "Connect a wallet to size against your real balance — SIM backtests work without one"
+                          : walletBalance <= 0
+                            ? "Wallet is unfunded — backtests still run on simulated funds"
+                            : `Size trades with your live USDC balance ($${walletBalance.toFixed(2)})`
+                      }
+                    >
+                      WALLET{walletBalance != null && walletBalance > 0 ? ` $${Math.floor(walletBalance)}` : ""}
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-[13px] font-mono">

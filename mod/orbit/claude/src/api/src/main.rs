@@ -5,10 +5,12 @@
 //! Authentication via MetaMask signature verification.
 
 mod auth;
+mod autosnap;
 mod credits;
 mod jobs;
 mod api;
 mod snapshots;
+mod merge;
 mod screenshots;
 mod userspace;
 mod sudo;
@@ -37,6 +39,10 @@ async fn main() {
 
     // Mark any previously-running jobs as failed (stale from crash)
     manager.recover_stale_jobs().ok();
+
+    // Background CID minting: once a minute, snapshot+register any module
+    // that has no registry CID yet, so hub cards never sit at "no cid".
+    autosnap::spawn();
 
     println!("Claude Jobs server starting on port {}", port);
     api::serve(manager, port).await;

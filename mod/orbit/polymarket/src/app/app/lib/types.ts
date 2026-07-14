@@ -131,6 +131,11 @@ export interface SavedIndex {
   traders: IndexTrader[];
   backtestDays?: number;
   capital?: number; // simulation capital in USD (default 1000)
+  // Backtest funds source: "SIM" sizes the replay with `capital` (paper —
+  // works with no wallet and no deposit); "WALLET" mirrors the deposit
+  // wallet's live USDC balance so the preview matches what would actually
+  // deploy. Default SIM.
+  fundsMode?: "SIM" | "WALLET";
   minTrade?: number; // minimum trade size in USD (default 5)
   maxTrade?: number; // maximum trade size in USD (default 100)
   maxTradesPerHour?: number; // maximum trades per hour (default 10)

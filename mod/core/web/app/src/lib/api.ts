@@ -18,6 +18,8 @@ export type Module = {
   has_rust: boolean;
   has_app: boolean;
   mount: string;
+  /** True when the gateway routes this module on the public web (modc2.com/{name}). */
+  on_web: boolean;
   schema: string | null;
   config: Record<string, unknown>;
   /** True when the chain module reports this module in the on-chain Registry. */
@@ -59,6 +61,7 @@ export type Stats = {
   functions: number;
   rust_apis: number;
   apps: number;
+  on_web: number;
 };
 
 export type Info = {

@@ -1681,9 +1681,10 @@ a.fn-chip:hover {
   box-shadow: 0 0 8px rgba(255, 178, 122, 0.5);
 }
 
-/* ── On-chain badge + deps tag on cards ─────────────────────────────────── */
+/* ── Live-on-web / on-chain badges + deps tag on cards ──────────────────── */
 
-.card .onchain {
+.card .onchain,
+.card .onweb {
   margin-left: auto;
   align-self: flex-start;
   font-family: var(--mono);
@@ -1695,6 +1696,18 @@ a.fn-chip:hover {
   border-radius: 999px;
   padding: 3px 9px;
   white-space: nowrap;
+}
+.card .onweb {
+  color: #7dffa8;
+  border-color: rgba(125, 255, 168, 0.32);
+  background: rgba(125, 255, 168, 0.07);
+}
+.nav-sub-meta .onweb-count {
+  color: #7dffa8;
+}
+/* When both badges show, only the first floats right; the next sits beside it. */
+.card .onweb ~ .onchain {
+  margin-left: 8px;
 }
 .tag.deps {
   color: var(--accent);

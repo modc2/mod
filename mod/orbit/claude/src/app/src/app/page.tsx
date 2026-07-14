@@ -511,6 +511,17 @@ function ModuleAvatar({ apiUrl, name, hasApp }: { apiUrl: string; name: string; 
 
 // ── Main Component ───────────────────────────────────────────────────
 
+// A signed-in identity remembered for quick switching from the ACCOUNT
+// sidebar. The bearer token rides along so switching back needs no new wallet
+// signature; an expired token just drops that identity to the sign-in drawer
+// on its first authed call.
+type SavedAccount = {
+  address: string;
+  token: string;
+  walletType: "metamask" | "subwallet" | "local" | "password" | null;
+  ts: number;
+};
+
 export default function Home() {
   const [address, setAddress] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -518,6 +529,10 @@ export default function Home() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [bootPhase, setBootPhase] = useState(0);
   const [walletType, setWalletType] = useState<"metamask" | "subwallet" | "local" | "password" | null>(null);
+  // Every wallet identity that has signed in from this browser, newest first —
+  // the ACCOUNT sidebar renders these as one-click switch targets so multiple
+  // owners/EOAs can trade places without re-signing (until a token expires).
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [ownerAddress, setOwnerAddress] = useState<string | null>(null);
   // Terms-of-Use agreement modal shown to non-owner wallets before their
@@ -548,6 +563,9 @@ export default function Home() {
   const [editingSysPrompt, setEditingSysPrompt] = useState<SysPromptBlock | null>(null);
   const [creatingSysPrompt, setCreatingSysPrompt] = useState(false);
   const [sysPromptDraft, setSysPromptDraft] = useState({ name: "", text: "" });
+  // The "sent with every task" preview is collapsed by default — the header
+  // line (name + char count) is enough at a glance; click it to expand.
+  const [sysPromptPreviewOpen, setSysPromptPreviewOpen] = useState(false);
   // Which agent runs the task. Defaults to "mod" (this module's claude-code
   // harness — the only one wired today); the selector also surfaces sibling
   // agents (codex, agent) that will bring their own parameter sets.
@@ -596,7 +614,14 @@ export default function Home() {
   // False until after the first client render, so URL strings derived from
   // window.location (see defaultGatewayOrigin) hydrate identically to the server.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // True when this console is itself inside an iframe (e.g. the APP tab of an
+  // outer console). Embedded copies map /claude → the web front-door so the
+  // console never iframes itself more than one level deep.
+  const [isEmbedded, setIsEmbedded] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    try { setIsEmbedded(window.self !== window.top); } catch { setIsEmbedded(true); }
+  }, []);
   // Custom gateway origin ("https://otherhost.xyz") — null = this site.
   const [gatewayHostOverride, setGatewayHostOverride] = useState<string | null>(null);
   // A /{mod} committed while on a foreign host that this site's registrar
@@ -643,6 +668,13 @@ export default function Home() {
   // only ones without. "stopped" includes not-yet-probed modules — anything
   // not confirmed live — so the split always covers the whole grid.
   const [hubRunFilter, setHubRunFilter] = useState<"all" | "running" | "stopped">("all");
+  // Hub sort: "live" floats online modules first (the original behavior),
+  // "updated" is newest-edited first (file mtime from /modules), "name" is
+  // plain A-Z. Persisted — a few bytes, safeSetItem guards the shared quota.
+  const [hubSort, setHubSort] = useState<"live" | "updated" | "name">("live");
+  // Hub tree tabs: the scan roots (orbit/, core/) are tabs, not a prefix on
+  // every card title. null = all trees.
+  const [hubTreeFilter, setHubTreeFilter] = useState<string | null>(null);
   // Same module name published by DIFFERENT owners collapses into one hub
   // card with an owner picker. Maps name → path of the copy being shown;
   // not persisted, so every load defaults back to YOUR copy when you own one.
@@ -668,6 +700,11 @@ export default function Home() {
   const [images, setImages] = useState<Array<{ name: string; data: string }>>(
     []
   );
+  // Snap-on-submit: when ON, each submitted task gets a fresh screenshot of
+  // the selected module's app page attached as an image, so the agent sees
+  // what the app looks like at the moment of the request. ON by default;
+  // turning it off is persisted ("0") and honored on load.
+  const [snapAppOnSubmit, setSnapAppOnSubmit] = useState(true);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
@@ -723,12 +760,13 @@ export default function Home() {
   const [guestExp, setGuestExp] = useState<number | null>(null);
 
   // ── Phone sign-in (session handoff QR) ─────────────────────────────
-  // A signed-in browser mints a single-use, 5-min code bound to its OWN
-  // identity (POST /auth/handoff); scanning the QR opens `?handoff=<code>`,
-  // which the mount hook below trades for a bearer token as the SAME address
-  // — so your phone signs in without a wallet or any signing. Distinct from
-  // grants, which invite someone ELSE in.
+  // A signed-in browser mints a single-use code bound to its OWN identity
+  // (POST /auth/handoff, minter-picked TTL clamped server-side); scanning the
+  // QR opens `?handoff=<code>`, which the mount hook below trades for a
+  // bearer token as the SAME address — so your phone signs in without a
+  // wallet or any signing. Distinct from grants, which invite someone ELSE in.
   const [handoff, setHandoff] = useState<{ code: string; exp: number } | null>(null);
+  const [handoffTtl, setHandoffTtl] = useState(300);
   const [handoffBusy, setHandoffBusy] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
 
@@ -805,7 +843,7 @@ export default function Home() {
   const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
   const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
   const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
-  const [accountTab, setAccountTab] = useState<"wallet" | "access" | "sudo" | "module">("access");
+  const [accountTab, setAccountTab] = useState<"wallet" | "access" | "tasks" | "hub">("access");
   const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
@@ -907,10 +945,9 @@ export default function Home() {
   const [tryResp, setTryResp] = useState<string | null>(null);
   const [tryRespKind, setTryRespKind] = useState<"text" | "image">("text");
   const [trySending, setTrySending] = useState(false);
-  // Inner tab inside the OVERVIEW view — keeps the identity hero always
-  // visible while INFO / ACCESS / LOGS / CONFIG swap below it instead of
-  // stacking into one long scroll.
-  const [overviewTab, setOverviewTab] = useState<"info" | "access" | "logs" | "config">("info");
+  // INFO tab (internal key still "overview"): whether the raw config.json
+  // tree is expanded below the compact identity card.
+  const [overviewTab, setOverviewTab] = useState<"info" | "config">("info");
   // Sub-view inside the merged CODE tab: the file tree vs. the snapshot
   // version history. Versions used to be its own top-level mod tab; it's
   // now folded into CODE alongside the files browser.
@@ -1122,7 +1159,7 @@ export default function Home() {
 
   // Pick the best default tab for a module based on its capabilities.
   // We land on APP (the live module interface) whenever the module has one —
-  // the real thing first, OVERVIEW chrome only when there's no app to show.
+  // the real thing first, INFO chrome only when there's no app to show.
   // claude's APP embeds the real claude app (see appModName in
   // renderAppApiTab); an embedded copy falls back to the web front-door so it
   // doesn't iframe itself forever.
@@ -1412,6 +1449,11 @@ export default function Home() {
     const savedAgent = localStorage.getItem("claude_jobs_agent");
     if (savedAgent) setAgentType(savedAgent);
 
+    if (localStorage.getItem("claude_snap_app_on_submit") === "0") setSnapAppOnSubmit(false);
+
+    const savedHubSort = localStorage.getItem("claude_hub_sort");
+    if (savedHubSort === "updated" || savedHubSort === "name") setHubSort(savedHubSort);
+
     // Load the system-prompt chain; migrate the legacy single saved prompt
     // into it as the first block (already on) so it keeps applying.
     let loadedChain: SysPromptBlock[] = [];
@@ -1501,8 +1543,10 @@ export default function Home() {
     const savedSide = localStorage.getItem("claude_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
     const savedAccountTab = localStorage.getItem("claude_account_tab");
-    if (savedAccountTab === "owner") setAccountTab("access"); // legacy pre-tabs value
-    else if (savedAccountTab === "wallet" || savedAccountTab === "access" || savedAccountTab === "sudo" || savedAccountTab === "module")
+    // Legacy values: "owner" pre-dates tabs; "sudo" merged into ACCESS and
+    // "module" was removed when TASKS / MY HUB took their slots.
+    if (savedAccountTab === "owner" || savedAccountTab === "sudo" || savedAccountTab === "module") setAccountTab("access");
+    else if (savedAccountTab === "wallet" || savedAccountTab === "access" || savedAccountTab === "tasks" || savedAccountTab === "hub")
       setAccountTab(savedAccountTab);
     const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
     if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
@@ -1863,7 +1907,8 @@ export default function Home() {
     try {
       const r = await fetch(`${apiUrl}/auth/handoff`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ttl: handoffTtl }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "HANDOFF MINT FAILED");
@@ -1874,7 +1919,7 @@ export default function Home() {
     } finally {
       setHandoffBusy(false);
     }
-  }, [apiUrl, token]);
+  }, [apiUrl, token, handoffTtl]);
 
   const handoffUrl = useCallback((code: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -2220,6 +2265,62 @@ export default function Home() {
     if (esRef.current) esRef.current.close();
   };
 
+  // ── Saved accounts (quick switch) ─────────────────────────────────
+  // Restore the remembered-identities list once on mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("claude_jobs_accounts");
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        setSavedAccounts(arr.filter((a) => a && typeof a.address === "string" && typeof a.token === "string"));
+      }
+    } catch { /* corrupt entry — start fresh */ }
+  }, []);
+
+  // Upsert the live session into the list on every successful sign-in (or
+  // restore). Guests and auth-off local mode are excluded — neither is a
+  // wallet identity worth switching back to. Capped small: modc2 modules
+  // share one localStorage origin, so persisted blobs must stay tiny.
+  useEffect(() => {
+    if (!token || !address || token === "local" || address === "local" || address.startsWith("guest_")) return;
+    setSavedAccounts((prev) => {
+      const entry: SavedAccount = { address, token, walletType, ts: Date.now() };
+      const next = [entry, ...prev.filter((a) => a.address !== address)].slice(0, 8);
+      safeSetItem("claude_jobs_accounts", JSON.stringify(next));
+      return next;
+    });
+  }, [token, address, walletType]);
+
+  // Swap the live session to a remembered identity: same bookkeeping as a
+  // fresh sign-in, minus the wallet round-trip. Per-session state is reset so
+  // nothing from the previous identity bleeds through.
+  const switchAccount = (acct: SavedAccount) => {
+    if (acct.address === address) return;
+    if (esRef.current) esRef.current.close();
+    setJobs([]);
+    setSelectedJob(null);
+    setStreamOutput("");
+    setTokenStats(null);
+    setGuestExp(null);
+    setToken(acct.token);
+    setAddress(acct.address);
+    setWalletType(acct.walletType);
+    localStorage.removeItem("claude_jobs_signed_out");
+    safeSetItem("claude_jobs_token", acct.token);
+    safeSetItem("claude_jobs_address", acct.address);
+    if (acct.walletType) safeSetItem("claude_jobs_wallet_type", acct.walletType);
+    else localStorage.removeItem("claude_jobs_wallet_type");
+  };
+
+  const forgetAccount = (addr: string) => {
+    setSavedAccounts((prev) => {
+      const next = prev.filter((a) => a.address !== addr);
+      safeSetItem("claude_jobs_accounts", JSON.stringify(next));
+      return next;
+    });
+  };
+
   // ── Token Stats ───────────────────────────────────────────────────
 
   const loadTokenStats = async () => {
@@ -2294,9 +2395,15 @@ export default function Home() {
         // A 401 with a token means the server no longer honors it (expired or
         // the API restarted with a new signing secret) — drop the session so
         // the sign-in screen comes back instead of every action failing.
+        // EXCEPT the sudo challenge: privileged ops reply 401 {sudo_required}
+        // while the session token is still perfectly valid — authFetchSudo
+        // handles that by raising the Sudo sheet, so keep the session intact.
         if (response.status === 401 && token !== "local") {
-          disconnect();
-          setAuthError("SESSION EXPIRED — SIGN IN AGAIN");
+          const body = await response.clone().json().catch(() => null);
+          if (!body?.sudo_required) {
+            disconnect();
+            setAuthError("SESSION EXPIRED — SIGN IN AGAIN");
+          }
         }
         return response;
       } catch (error) {
@@ -3074,6 +3181,18 @@ export default function Home() {
     }
   }, [streamOutput]);
 
+  // Resolve a selected module name to the work_dir a job should run in.
+  // Prefer the scanned path from /modules — it covers core/ modules and the
+  // tree-root mods ("mod" = whole orbit+core tree for cross-module work,
+  // "orbit"/"core" = their trees). Fall back to the orbit convention for
+  // names not (yet) in the list.
+  const moduleWorkDir = (name: string): string => {
+    const m = moduleList.find((x) => x.name === name);
+    if (m?.path) return m.path;
+    if (name === "mod") return `${anchorDir}/mod`;
+    return `${anchorDir}/mod/orbit/${name}`;
+  };
+
   const submitJob = async () => {
     if (!prompt.trim() || !token) return;
     setSubmitting(true);
@@ -3096,7 +3215,32 @@ export default function Home() {
         body.system_prompt = activePersonality.prompt;
       }
       if (agentType && agentType !== "default") body.agent_type = agentType;
-      if (images.length > 0) body.images = images;
+
+      // Snap-on-submit: attach a fresh screenshot of the selected module's
+      // app page so the agent sees the UI exactly as it looks right now.
+      // Best-effort — a failed capture (module has no app, chrome missing)
+      // never blocks the submit.
+      let jobImages = images;
+      if (snapAppOnSubmit && selectedModule.trim()) {
+        try {
+          const res = await fetch(
+            `${apiUrl}/modules/${encodeURIComponent(selectedModule)}/screenshot?fresh=1`
+          );
+          if (res.ok && (res.headers.get("content-type") || "").startsWith("image/")) {
+            const blob = await res.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = () => reject(new Error("snapshot read failed"));
+              reader.readAsDataURL(blob);
+            });
+            jobImages = [...images, { name: `app-page-${selectedModule}.png`, data: dataUrl }];
+          }
+        } catch {
+          // non-fatal — submit without the snapshot
+        }
+      }
+      if (jobImages.length > 0) body.images = jobImages;
 
       // Edit mode - edit existing module
       if (creationMode === "edit") {
@@ -3108,7 +3252,7 @@ export default function Home() {
             setSubmitting(false);
             return;
           }
-          body.work_dir = `${anchorDir}/mod/orbit/${selectedModule}`;
+          body.work_dir = moduleWorkDir(selectedModule);
         }
         // Otherwise use the manual work_dir input
         else if (workDir.trim()) {
@@ -3317,7 +3461,15 @@ export default function Home() {
   const extractModuleFromWorkDir = (workDir: string): string | null => {
     // Modules live under both orbit/ and core/ — attribute jobs to either.
     const match = workDir.match(/\/(?:orbit|core)\/([^/]+)/);
-    return match ? match[1] : null;
+    if (match) return match[1];
+    // Tree roots are themselves selectable mods: …/mod/mod is the whole
+    // orbit+core tree ("mod", cross-module jobs), …/mod/orbit and …/mod/core
+    // are the tree-root mods.
+    const trimmed = workDir.replace(/\/+$/, "");
+    if (/\/mod\/orbit$/.test(trimmed)) return "orbit";
+    if (/\/mod\/core$/.test(trimmed)) return "core";
+    if (/\/mod\/mod$/.test(trimmed)) return "mod";
+    return null;
   };
 
   // Task tally per module — feeds the recents-rail badges so you can see each
@@ -3483,7 +3635,7 @@ export default function Home() {
           return;
         }
         body.prompt = headerEditPrompt.trim();
-        body.work_dir = `${anchorDir}/mod/orbit/${selectedModule}`;
+        body.work_dir = moduleWorkDir(selectedModule);
         body.creation_mode = "edit";
       } else {
         let finalName = headerNewName.trim();
@@ -3784,6 +3936,16 @@ export default function Home() {
     if (sidebarView === "hub") fetchModules("");
   }, [sidebarView, fetchModules]);
 
+  // Keep the hub fresh: the API's autosnap loop mints registry CIDs in the
+  // background and updated_at moves as jobs edit modules, so re-pull the
+  // card wall once a minute while the hub is open. Always the unfiltered
+  // list — the hub's own filter box narrows client-side.
+  useEffect(() => {
+    if (sidebarView !== "hub") return;
+    const iv = setInterval(() => fetchModules(""), 60_000);
+    return () => clearInterval(iv);
+  }, [sidebarView, fetchModules]);
+
   // Auto-select default module and keep selectedModuleInfo in sync with moduleList
   useEffect(() => {
     if (selectedModule && moduleList.length > 0) {
@@ -4077,8 +4239,8 @@ export default function Home() {
     setModuleLogsLoading(false);
   }, [selectedModule, token, authFetch]);
 
-  // Auto-refresh logs (in overview's inline logs panel, the dedicated LOGS
-  // tab, or the API tab's logs pane)
+  // Auto-refresh logs (in the APP control-row logs viewer, the dedicated
+  // LOGS tab, or the API tab's logs pane)
   useEffect(() => {
     const inLogsTab = sidebarView === "logs" || (sidebarView === "apitab" && apiTabView === "logs");
     if (!moduleLogsAutoRefresh || (!moduleLogsOpen && !inLogsTab)) return;
@@ -5907,6 +6069,31 @@ export default function Home() {
                   />
                 )}
 
+                {/* Snap-on-submit toggle — attach a fresh screenshot of the
+                    selected module's app page to each submitted task */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !snapAppOnSubmit;
+                    setSnapAppOnSubmit(next);
+                    safeSetItem("claude_snap_app_on_submit", next ? "1" : "0");
+                  }}
+                  className="px-2 py-1 text-[11px] font-pixel uppercase border rounded transition-colors flex items-center gap-1"
+                  style={{
+                    borderColor: snapAppOnSubmit ? "rgba(96,165,250,0.5)" : "rgba(100,116,139,0.3)",
+                    color: snapAppOnSubmit ? "#60a5fa" : "var(--text-tertiary)",
+                    background: snapAppOnSubmit ? "rgba(96,165,250,0.1)" : "transparent",
+                  }}
+                  title={
+                    snapAppOnSubmit
+                      ? `ON: a fresh screenshot of ${selectedModule || "the module"}'s app page is attached to each task you submit`
+                      : "OFF: click to attach a fresh screenshot of the module's app page to each task you submit"
+                  }
+                >
+                  <span>📷</span>
+                  <span>SNAP {snapAppOnSubmit ? "ON" : "OFF"}</span>
+                </button>
+
                 {/* Image count badge */}
                 {images.length > 0 && (
                   <div className="relative group flex items-center">
@@ -6900,6 +7087,7 @@ export default function Home() {
                   const sources = [
                     { key: "new", label: "NEW", active: showHeaderCreateForm === "create", disabled: false },
                     { key: "fork", label: "FORK", active: showHeaderCreateForm === "fork", disabled: !selectedModule },
+                    { key: "edit", label: "EDIT", active: isEdit, disabled: !selectedModule },
                     { key: "git", label: "GIT", active: showHeaderCreateForm === "import" && headerImportSource === "github", disabled: false },
                     { key: "cid", label: "CID", active: showHeaderCreateForm === "import" && headerImportSource === "cid", disabled: false },
                   ];
@@ -6911,6 +7099,10 @@ export default function Home() {
                       if (!selectedModule) return;
                       setHeaderNewName(selectedModule + "-fork"); setHeaderGithubUrl("");
                       setShowHeaderCreateForm("fork");
+                    } else if (key === "edit") {
+                      if (!selectedModule) return;
+                      setHeaderEditPrompt("");
+                      setShowHeaderCreateForm("edit");
                     } else {
                       setHeaderNewName("");
                       setHeaderImportSource(key === "git" ? "github" : "cid");
@@ -6956,14 +7148,13 @@ export default function Home() {
                           ✕
                         </button>
                       </div>
-                      {!isEdit && (
-                        <div className="flex gap-1">
+                      <div className="flex gap-1">
                           {sources.map((s) => (
                             <button
                               key={s.key}
                               onClick={() => pickSource(s.key)}
                               disabled={s.disabled}
-                              title={s.disabled ? "Select a module to fork" : s.label}
+                              title={s.disabled ? `Select a module to ${s.key}` : s.label}
                               className="flex-1 text-[10px] font-bold py-1 font-code border rounded-sm transition-all disabled:cursor-not-allowed"
                               style={{
                                 letterSpacing: "0.04em",
@@ -6977,7 +7168,6 @@ export default function Home() {
                             </button>
                           ))}
                         </div>
-                      )}
                       {isEdit ? (
                         <textarea
                           autoFocus
@@ -7470,151 +7660,35 @@ export default function Home() {
                       className="flex-1 rounded-xl px-3 py-2 min-w-0"
                       style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
                     >
-                      <div className="text-[9px] font-bold uppercase mb-1" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                      <button
+                        onClick={() => setSysPromptPreviewOpen((v) => !v)}
+                        className="text-[9px] font-bold uppercase focus-ring flex items-center gap-1 w-full text-left"
+                        style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", marginBottom: sysPromptPreviewOpen ? 4 : 0 }}
+                        aria-expanded={sysPromptPreviewOpen}
+                        title={sysPromptPreviewOpen ? "Collapse the prompt preview" : "Show the full prompt"}
+                      >
+                        <span aria-hidden="true" style={{ opacity: 0.7 }}>{sysPromptPreviewOpen ? "▾" : "▸"}</span>
                         {chainedSystemPrompt
                           ? `sent with every task · chain × ${activeSysPrompts.length}`
                           : `sent with every task · "${activePersonality.name}"`}
                         {` · ${(chainedSystemPrompt || activePersonality.prompt).length} chars`}
-                      </div>
-                      <pre
-                        className="text-[10px] font-mono whitespace-pre-wrap m-0 max-h-[140px] overflow-y-auto"
-                        style={{ color: "var(--text-secondary)" }}
-                      >
-                        {chainedSystemPrompt || activePersonality.prompt}
-                      </pre>
+                      </button>
+                      {sysPromptPreviewOpen && (
+                        <pre
+                          className="text-[10px] font-mono whitespace-pre-wrap m-0 max-h-[140px] overflow-y-auto"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {chainedSystemPrompt || activePersonality.prompt}
+                        </pre>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             )}
-          {/* ── Params strip — TASKS + the request params (mod / model /
-              PARAMS toggle) all share ONE line above the ask band, on
-              every screen size. ── */}
-          <div className="mb-2 flex items-center gap-2 flex-wrap">
-            {/* PARAMS toggle — leftmost, leading the mod/model chips it
-                expands (auth + mod/model/agent + system prompt chain) */}
-            <button
-              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
-              className="shrink-0 text-[12px] font-bold uppercase px-3.5 py-2 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
-              style={activeSysPrompts.length > 0 ? {
-                color: activeModelChip.color,
-                letterSpacing: "0.08em",
-                border: `1px solid ${activeModelChip.color}40`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                boxShadow: glassShadow,
-              } : {
-                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
-                letterSpacing: "0.08em",
-                border: `1px solid ${glassBorder}`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                boxShadow: glassShadow,
-              }}
-              title="Agent + auth + params sent with every task (module, model, system prompts)"
-              aria-expanded={systemPromptOpen}
-            >
-              PARAMS
-              {activeSysPrompts.length > 0 && (
-                <span
-                  className="inline-flex items-center justify-center text-[11px] font-mono rounded-full px-1"
-                  style={{
-                    minWidth: 16,
-                    background: `${activeModelChip.color}30`,
-                    color: activeModelChip.color,
-                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
-                  }}
-                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
-                >
-                  {activeSysPrompts.length}
-                </span>
-              )}
-            </button>
-            {/* Module chip — the mod the agent is editing. Click jumps
-                straight into the searchable mod picker in PARAMS. */}
-            <button
-              onClick={() => {
-                setSystemPromptOpen(true);
-                safeSetItem("claude_system_prompt_open", "1");
-                setModPickerQuery("");
-                setModPickerOpen(true);
-                if (!moduleList.length) fetchModules("");
-                setTimeout(() => modPickerInputRef.current?.focus(), 0);
-              }}
-              className="inline-flex items-center gap-1 text-[13px] font-mono px-3.5 py-2 rounded-full focus-ring transition-all hover:brightness-125 max-w-[46vw] sm:max-w-[220px]"
-              style={{
-                color: "#fbbf24",
-                border: "1px solid rgba(251,191,36,0.25)",
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                boxShadow: glassShadow,
-              }}
-              title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
-            >
-              <span className="truncate">{selectedModule || "select mod"}</span>
-              <span style={{ opacity: 0.55, fontSize: 11 }}>▾</span>
-            </button>
-            {/* Model chip — which model runs the task; opens PARAMS */}
-            <button
-              onClick={() => { setSystemPromptOpen(true); safeSetItem("claude_system_prompt_open", "1"); }}
-              className="inline-flex items-center text-[13px] font-mono px-3.5 py-2 rounded-full focus-ring transition-all hover:brightness-125 max-w-[34vw] sm:max-w-[200px]"
-              style={{
-                color: activeModelChip.color,
-                border: `1px solid ${activeModelChip.color}40`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                boxShadow: glassShadow,
-              }}
-              title={`Model: ${activeModelChip.label} — click to change in PARAMS`}
-            >
-              <span className="truncate">{activeModelChip.label}</span>
-            </button>
-            <div className="flex-1" />
-            {/* TASKS pill — opens the full-page TASKS view; shows a count
-                while jobs run. Right-anchored opposite the params chips. */}
-            {(() => {
-              const running = jobs.filter(j => j.status === "running" || j.status === "pending");
-              if (running.length === 0) return null;
-              return (
-                <button
-                  onClick={() => setSidebarView("tasks")}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-full font-code text-[13px] font-bold uppercase transition-all hover:brightness-125 focus-ring"
-                  style={{
-                    background: glassBg,
-                    backdropFilter: "blur(24px) saturate(1.5)",
-                    WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                    border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
-                    color: "var(--text-secondary)",
-                    letterSpacing: "0.06em",
-                    boxShadow: glassShadow,
-                  }}
-                  title="Open the full-page tasks view"
-                >
-                  <span
-                    className="animate-spin inline-block"
-                    style={{ color: "var(--crt-blue)", fontSize: 14, lineHeight: 1 }}
-                  >
-                    ⟳
-                  </span>
-                  <span>Tasks</span>
-                  <span className="font-mono text-[12px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                    {running.length}
-                  </span>
-                </button>
-              );
-            })()}
-          </div>
           {/* ── The band — everything lives on ONE line at the bottom:
               [+] [ask agent…] [imgs] [▶] — module/model/agent/auth
-              chips live on the params strip above, not on the band. ── */}
+              chips live on the params strip below, not on the band. ── */}
           <div
             className="flex gap-1.5 sm:gap-2 items-stretch rounded-full"
             style={{
@@ -7670,9 +7744,9 @@ export default function Home() {
                   fontWeight: 300,
                   lineHeight: 1,
                 }}
-                title="Build, fork or import a module"
+                title="Build, fork, edit or import a module"
                 aria-expanded={!!(showHeaderCreateForm && createAnchor === "composer")}
-                aria-label="Build, fork or import a module"
+                aria-label="Build, fork, edit or import a module"
               >
                 +
               </button>
@@ -7818,6 +7892,165 @@ export default function Home() {
             >
               ─
             </button>
+          </div>
+          {/* ── Params strip — TASKS + the request params (mod / model /
+              PARAMS toggle) share ONE compact line BELOW the ask band.
+              Never wraps — if the chips overflow, the row scrolls
+              sideways so nothing is hidden. ── */}
+          <div
+            className="mt-2 flex items-center gap-1.5 overflow-x-auto"
+            style={{ scrollbarWidth: "thin" }}
+          >
+            {/* PARAMS toggle — leftmost, leading the mod/model chips it
+                expands (auth + mod/model/agent + system prompt chain) */}
+            <button
+              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
+              className="shrink-0 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
+              style={activeSysPrompts.length > 0 ? {
+                color: activeModelChip.color,
+                letterSpacing: "0.08em",
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              } : {
+                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
+                letterSpacing: "0.08em",
+                border: `1px solid ${glassBorder}`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              }}
+              title="Agent + auth + params sent with every task (module, model, system prompts)"
+              aria-expanded={systemPromptOpen}
+            >
+              PARAMS
+              {activeSysPrompts.length > 0 && (
+                <span
+                  className="inline-flex items-center justify-center text-[10px] font-mono rounded-full px-1"
+                  style={{
+                    minWidth: 14,
+                    background: `${activeModelChip.color}30`,
+                    color: activeModelChip.color,
+                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
+                  }}
+                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
+                >
+                  {activeSysPrompts.length}
+                </span>
+              )}
+            </button>
+            {/* Module chip — the mod the agent is editing. Click jumps
+                straight into the searchable mod picker in PARAMS. */}
+            <button
+              onClick={() => {
+                setSystemPromptOpen(true);
+                safeSetItem("claude_system_prompt_open", "1");
+                setModPickerQuery("");
+                setModPickerOpen(true);
+                if (!moduleList.length) fetchModules("");
+                setTimeout(() => modPickerInputRef.current?.focus(), 0);
+              }}
+              className="shrink-0 inline-flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125 max-w-[46vw] sm:max-w-[220px]"
+              style={{
+                color: "#fbbf24",
+                border: "1px solid rgba(251,191,36,0.25)",
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                boxShadow: glassShadow,
+              }}
+              title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
+            >
+              <span className="truncate">{selectedModule || "select mod"}</span>
+              <span style={{ opacity: 0.55, fontSize: 9 }}>▾</span>
+            </button>
+            {/* Model chip — which model runs the task; opens PARAMS */}
+            <button
+              onClick={() => { setSystemPromptOpen(true); safeSetItem("claude_system_prompt_open", "1"); }}
+              className="shrink-0 inline-flex items-center text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125 max-w-[34vw] sm:max-w-[200px]"
+              style={{
+                color: activeModelChip.color,
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                boxShadow: glassShadow,
+              }}
+              title={`Model: ${activeModelChip.label} — click to change in PARAMS`}
+            >
+              <span className="truncate">{activeModelChip.label}</span>
+            </button>
+            <div className="flex-1" />
+            {/* HUB / TASKS — the console nav, moved down from the header to
+                the chat bar. Right-anchored opposite the params chips; TASKS
+                carries the running-job count while work is in flight. */}
+            {(() => {
+              const running = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+              const pills = [
+                {
+                  key: "hub" as const,
+                  icon: <HubIcon size={12} />,
+                  label: "Hub",
+                  color: "var(--crt-green)",
+                  title: "HUB — open the module hub",
+                  onClick: () => setSidebarView("hub"),
+                  badge: null as number | null,
+                },
+                {
+                  key: "tasks" as const,
+                  icon: running > 0
+                    ? <span className="animate-spin inline-block" style={{ fontSize: 11, lineHeight: 1 }}>⟳</span>
+                    : <TasksIcon size={12} />,
+                  label: "Tasks",
+                  color: "var(--crt-blue)",
+                  title: "TASKS — open the full-page tasks view",
+                  onClick: () => {
+                    // Always land on the task LIST (running work first) — not
+                    // whichever task happened to be open last.
+                    setSelectedJob(null);
+                    setStreamOutput("");
+                    setSidebarView("tasks");
+                  },
+                  badge: running > 0 ? running : null,
+                },
+              ];
+              return pills.map((p) => {
+                const active = sidebarView === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={p.onClick}
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-code text-[11px] font-bold uppercase transition-all hover:brightness-125 focus-ring"
+                    style={{
+                      background: active ? `color-mix(in srgb, ${p.color} 14%, transparent)` : glassBg,
+                      backdropFilter: "blur(24px) saturate(1.5)",
+                      WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                      border: `1px solid color-mix(in srgb, ${p.color} ${active ? 55 : 30}%, transparent)`,
+                      color: active ? p.color : "var(--text-secondary)",
+                      letterSpacing: "0.06em",
+                      boxShadow: glassShadow,
+                    }}
+                    title={p.title}
+                    aria-pressed={active}
+                  >
+                    <span className="inline-flex" style={{ color: p.color }}>{p.icon}</span>
+                    <span>{p.label}</span>
+                    {p.badge != null && (
+                      <span className="font-mono text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                        {p.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              });
+            })()}
           </div>
       </>
     );
@@ -9219,6 +9452,16 @@ export default function Home() {
     if (ownerFilter) {
       mods = mods.filter((m) => m.owner === ownerFilter);
     }
+    // Tree tabs — orbit/ and core/ used to prefix every card title; now each
+    // tree is a tab. Counts are taken before the split so an active tab
+    // still shows the size of the others.
+    const treeNames = [...new Set(
+      moduleList.filter(isRealModule).map((m) => m.category).filter(Boolean),
+    )].sort();
+    const treeCounts = new Map(treeNames.map((t) => [t, mods.filter((m) => m.category === t).length]));
+    if (hubTreeFilter) {
+      mods = mods.filter((m) => m.category === hubTreeFilter);
+    }
     const liveOf = (name: string): boolean | null => {
       const st = moduleStatuses[name];
       if (!st) return null;
@@ -9233,9 +9476,12 @@ export default function Home() {
     if (hubRunFilter !== "all") {
       mods = mods.filter((m) => (liveOf(m.name) === true) === (hubRunFilter === "running"));
     }
-    // Online modules first, then alphabetical — the things you're running
-    // float to the top.
+    // Sort — "live" keeps the original order (online modules first, then
+    // alphabetical), "updated" puts the newest-edited module first using the
+    // per-card mtime the API already reports, "name" is plain A-Z.
     mods = [...mods].sort((a, b) => {
+      if (hubSort === "updated") return (b.updated_at || 0) - (a.updated_at || 0) || a.name.localeCompare(b.name);
+      if (hubSort === "name") return a.name.localeCompare(b.name);
       const la = liveOf(a.name) === true ? 0 : 1;
       const lb = liveOf(b.name) === true ? 0 : 1;
       return la - lb || a.name.localeCompare(b.name);
@@ -9257,6 +9503,30 @@ export default function Home() {
           <span className="text-[11px] font-code" style={{ color: "var(--text-tertiary)" }}>
             {mods.length} modules · <span className="text-crt-green">{onlineCount} online</span>
           </span>
+          {/* Tree tabs — the scan roots (orbit/, core/) as tabs instead of a
+              per-card name prefix. Each root is itself a mod (config.json at
+              the tree root), so it also shows up as a card under its tab. */}
+          {treeNames.length > 0 && (
+            <div className="flex items-center border rounded overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+              {[null, ...treeNames].map((t) => {
+                const on = hubTreeFilter === t;
+                return (
+                  <button
+                    key={t ?? "all"}
+                    onClick={() => setHubTreeFilter(t)}
+                    className="text-[11px] font-code px-2.5 py-1 transition-colors uppercase"
+                    style={{
+                      color: on ? "var(--crt-green)" : "var(--text-tertiary)",
+                      background: on ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                    }}
+                    title={t ? `Only modules in the ${t}/ tree` : "Modules from every tree"}
+                  >
+                    {t ?? "all"}{t ? ` (${treeCounts.get(t) ?? 0})` : ""}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <button
             onClick={() => { setAddError(null); setAddOpen(true); }}
             className="flex items-center gap-1.5 text-[11px] font-code px-3 py-1.5 rounded-md transition-all font-bold"
@@ -9312,6 +9582,20 @@ export default function Home() {
                 title={key === "all" ? "Show every module" : key === "running" ? "Only modules with a live app or API" : "Only modules that aren't running"}
               >
                 {label}{count !== null ? ` (${count})` : ""}
+              </button>
+            ))}
+          </div>
+          {/* Sort — live-first (original), newest-edited first, or A-Z. */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-code uppercase" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>sort:</span>
+            {([["live", "● live"], ["updated", "⟳ updated"], ["name", "az name"]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => { setHubSort(key); safeSetItem("claude_hub_sort", key); }}
+                className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${hubSort === key ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
+                title={key === "live" ? "Online modules first, then A-Z" : key === "updated" ? "Most recently edited first (newest file mtime)" : "Alphabetical"}
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -9397,6 +9681,12 @@ export default function Home() {
                   const g = groups.get(mm.name);
                   if (g) g.push(mm); else groups.set(mm.name, [mm]);
                 }
+                // Tree prefixes moved to the toolbar tabs — a card title only
+                // keeps its prefix when the same name exists in BOTH trees
+                // (core/config vs orbit/config), where it's the disambiguator.
+                const prefixed = new Set(
+                  [...groups].filter(([, g]) => new Set(g.map((v) => v.category)).size > 1).map(([n]) => n),
+                );
                 const chosenFor = (name: string, group: typeof mods) =>
                   group.find((v) => v.path === hubOwnerPick[name]) ??
                   (myOwner ? group.find((v) => v.owner === myOwner) : undefined) ??
@@ -9439,10 +9729,7 @@ export default function Home() {
                           title={live === true ? "online" : live === false ? "offline" : "checking…"}
                         >●</span>
                         <span className="font-code font-bold text-[14px] truncate" style={{ color: "var(--text-primary)" }} title={m.display}>
-                          {/* Same name can exist in both scanned trees (core/config
-                              vs orbit/config) — the tree prefix is what tells the
-                              twins apart. */}
-                          <span style={{ opacity: 0.45, fontWeight: 400 }}>{m.category}/</span>{m.name}
+                          {prefixed.has(m.name) && <span style={{ opacity: 0.45, fontWeight: 400 }}>{m.category}/</span>}{m.name}
                         </span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -9864,7 +10151,7 @@ export default function Home() {
   //    TEMPORARY edit rights (default 1h), optionally protected by a
   //    locally-generated key shared out of band. The id rides the QR;
   //    the key never does. Backed by GET/POST/DELETE /grants. Rendered
-  //    in BOTH the module OVERVIEW tab and the ACCOUNT sidebar; owner-
+  //    in the ACCOUNT sidebar (the INFO tab dropped its copy); owner-
   //    only: it renders nothing for anyone else.
   const renderShareAccessCard = () => {
     if (!isOwner) return null;
@@ -10083,17 +10370,30 @@ export default function Home() {
         {/* Profile Content */}
         <div className="flex-1 overflow-y-auto">
           {sidebarView === "overview" && (
-            <div className="p-4 flex flex-col gap-4">
+            <div className="p-4 flex flex-col gap-3">
 
-              {/* Module Info — definition list on top, big stats grid on
-                  bottom. Section header gets an accent bar + glyph so it
-                  reads at a glance instead of fading into the muted tone. */}
+              {/* INFO — one compact identity card. Whitelist + share-access
+                  live in the ACCOUNT sidebar, logs in the LOGS tab / API
+                  pane, so this tab is just the module's vitals, a slim
+                  actions bar, and an on-demand config tree. */}
               <div className="section-card">
                 <span className="section-card__bar" />
                 <div className="section-card__head">
                   <div className="section-card__title">
                     <span className="section-card__glyph">◇</span>
-                    Module
+                    Info
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {cfg?.version && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 22%, transparent)" }}>
+                        v{cfg.version}
+                      </span>
+                    )}
+                    {cfg?.port && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded" style={{ color: "var(--crt-blue)", background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-blue) 22%, transparent)" }}>
+                        :{cfg.port}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
@@ -10141,173 +10441,56 @@ export default function Home() {
                     </div>
                   )}
                   {info?.cid && (
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-center gap-3">
                       <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>CID</span>
-                      <span className="font-mono text-[11px] break-all" style={{ color: "var(--text-tertiary)" }}>{info.cid}</span>
-                    </div>
-                  )}
-                </div>
-                {/* Stat grid — punchier than the inline row. */}
-                <div
-                  className="grid grid-cols-4 gap-px"
-                  style={{
-                    background: "var(--border-color)",
-                    borderTop: "1px solid var(--border-color)",
-                  }}
-                >
-                  {[
-                    { label: "fns", value: cfg?.fns?.length ?? 0, color: "var(--crt-amber)" },
-                    { label: "endpoints", value: cfg?.endpoints ? Object.keys(cfg.endpoints).length : 0, color: "var(--crt-amber)" },
-                    {
-                      label: "app",
-                      value: info?.has_app_dir ? "yes" : "no",
-                      color: info?.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)",
-                    },
-                    {
-                      label: "api",
-                      value: (info?.has_api_dir || info?.has_server_dir) ? "yes" : "no",
-                      color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)",
-                    },
-                  ].map((s) => (
-                    <div key={s.label} className="flex flex-col items-center justify-center py-2.5" style={{ background: "var(--bg-primary)" }}>
-                      <span className="text-[18px] font-bold leading-none" style={{ color: s.color, letterSpacing: "-0.02em" }}>{s.value}</span>
-                      <span className="text-[9px] uppercase mt-1 tracking-wider" style={{ color: "var(--text-tertiary)" }}>{s.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Whitelist — owner-managed list of EOAs trusted to EDIT the
-                  orbit (sign in + owner-level edit access: host files,
-                  unsandboxed jobs, core/+orbit/ writes). Owner-only powers
-                  (whitelist mgmt, kill, delete/rename) stay with the owner.
-                  Backed by GET/POST/DELETE /whitelist on the Rust API;
-                  non-owners see read-only rows + a hint.
-                  Owner gets a click-to-remove X per row and a 0x… input
-                  with ADD. Always-visible: a new caller checking whether
-                  they were granted access shouldn't need owner perms to
-                  read the list. */}
-              <div className="section-card" data-accent="green">
-                <span className="section-card__bar" />
-                <div className="section-card__head">
-                  <div className="section-card__title min-w-0">
-                    <span className="section-card__glyph">◐</span>
-                    Whitelist
-                    <span
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
-                      style={{
-                        color: "var(--crt-green)",
-                        background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                        border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
-                      }}
-                    >
-                      {whitelist.length}
-                    </span>
-                  </div>
-                  <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                    {isOwner ? "owner edit" : "read-only"}
-                  </span>
-                </div>
-                <div className="pl-5 pr-4 py-3 flex flex-col gap-2">
-                  {whitelist.length === 0 ? (
-                    <div className="text-[11px] py-2 text-center" style={{ color: "var(--text-tertiary)" }}>
-                      No editors whitelisted yet. Whitelisted addresses get owner-level edit access to the orbit. The configured owner is always allowed.
-                    </div>
-                  ) : (
-                    whitelist.map((addr) => {
-                      const isCaller = address && address.toLowerCase() === addr.toLowerCase();
-                      return (
-                        <div
-                          key={addr}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded"
-                          style={{
-                            background: isCaller ? "color-mix(in srgb, var(--crt-green) 6%, transparent)" : "var(--bg-secondary)",
-                            border: `1px solid ${isCaller ? "color-mix(in srgb, var(--crt-green) 30%, transparent)" : "var(--border-color)"}`,
-                          }}
-                        >
-                          <span
-                            className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ background: "var(--crt-green)", boxShadow: isCaller ? "0 0 4px var(--crt-green)" : "none" }}
-                          />
-                          <button
-                            onClick={() => navigator.clipboard?.writeText(addr).catch(() => {})}
-                            className="font-mono text-[11px] truncate flex-1 text-left transition-colors cursor-pointer"
-                            style={{ color: "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
-                            title={`${addr} — click to copy`}
-                          >
-                            {addr}
-                          </button>
-                          {isCaller && (
-                            <span
-                              className="text-[8px] font-bold uppercase tracking-widest px-1 py-[1px] rounded shrink-0"
-                              style={{ background: "var(--crt-green)", color: "var(--bg-primary)" }}
-                            >
-                              YOU
-                            </span>
-                          )}
-                          {isOwner && (
-                            <button
-                              onClick={() => removeFromWhitelist(addr)}
-                              disabled={whitelistBusy}
-                              className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
-                              style={{
-                                color: "var(--crt-red)",
-                                background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
-                                border: "1px solid color-mix(in srgb, var(--crt-red) 22%, transparent)",
-                              }}
-                              title={`Remove ${addr.slice(0, 6)}…${addr.slice(-4)} from the whitelist`}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                  {isOwner && (
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        type="text"
-                        value={whitelistInput}
-                        onChange={(e) => { setWhitelistInput(e.target.value); setWhitelistError(null); }}
-                        onKeyDown={(e) => { if (e.key === "Enter" && whitelistInput.trim()) addToWhitelist(whitelistInput); }}
-                        placeholder="0x… address to whitelist"
-                        disabled={whitelistBusy}
-                        className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded outline-none"
-                        style={{
-                          color: "var(--text-primary)",
-                          background: "var(--bg-secondary)",
-                          border: `1px solid ${whitelistError ? "color-mix(in srgb, var(--crt-red) 45%, transparent)" : "var(--border-color)"}`,
-                        }}
-                      />
                       <button
-                        onClick={() => addToWhitelist(whitelistInput)}
-                        disabled={whitelistBusy || !whitelistInput.trim()}
-                        className="text-[10px] px-3 py-1.5 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
-                        style={{
-                          color: "var(--crt-green)",
-                          background: "color-mix(in srgb, var(--crt-green) 12%, transparent)",
-                          border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
-                        }}
+                        onClick={() => copyValue("$info.cid", info.cid)}
+                        title={`Click to copy\n${info.cid}`}
+                        className="font-mono text-[11px] cursor-pointer text-left"
+                        style={{ color: copiedPath === "$info.cid" ? jsonCopiedColor : "var(--text-tertiary)", background: "transparent", border: "none", padding: 0 }}
                       >
-                        {whitelistBusy ? "…" : "Add"}
+                        {copiedPath === "$info.cid" ? "copied ✓" : (info.cid.length > 20 ? `${info.cid.slice(0, 10)}…${info.cid.slice(-6)}` : info.cid)}
                       </button>
                     </div>
                   )}
-                  {whitelistError && (
-                    <div className="text-[10px] mt-1" style={{ color: "var(--crt-red)" }}>
-                      {whitelistError}
+                  {!!info?.created_at && (
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Created</span>
+                      <button
+                        onClick={() => copyValue("$info.created", new Date(info.created_at! * 1000).toISOString())}
+                        title={`Click to copy\n${new Date(info.created_at * 1000).toISOString()}`}
+                        className="font-mono text-[11px] cursor-pointer text-left"
+                        style={{ color: copiedPath === "$info.created" ? jsonCopiedColor : "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
+                      >
+                        {copiedPath === "$info.created" ? "copied ✓" : `${formatDate(info.created_at)} · ${timeSince(info.created_at)}`}
+                      </button>
                     </div>
                   )}
-                  {!isOwner && (
-                    <div className="text-[9px] uppercase tracking-wider mt-1" style={{ color: "var(--text-tertiary)" }}>
-                      Only the configured owner ({cfg?.owner ? `${cfg.owner.slice(0, 6)}…${cfg.owner.slice(-4)}` : "—"}) can edit this list.
+                  {!!info?.updated_at && (
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 w-16 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>Updated</span>
+                      <button
+                        onClick={() => copyValue("$info.updated", new Date(info.updated_at! * 1000).toISOString())}
+                        title={`Click to copy\n${new Date(info.updated_at * 1000).toISOString()}`}
+                        className="font-mono text-[11px] cursor-pointer text-left"
+                        style={{ color: copiedPath === "$info.updated" ? jsonCopiedColor : "var(--text-secondary)", background: "transparent", border: "none", padding: 0 }}
+                      >
+                        {copiedPath === "$info.updated" ? "copied ✓" : `${formatDate(info.updated_at)} · ${timeSince(info.updated_at)}`}
+                      </button>
                     </div>
                   )}
                 </div>
+                {/* Slim stat strip — replaces the old 4-up stat grid. */}
+                <div
+                  className="flex items-center gap-4 flex-wrap px-4 py-2 text-[11px] font-mono"
+                  style={{ borderTop: "1px solid var(--border-color)", color: "var(--text-tertiary)" }}
+                >
+                  <span><span style={{ color: "var(--crt-amber)", fontWeight: 700 }}>{cfg?.fns?.length ?? 0}</span> fns</span>
+                  <span><span style={{ color: "var(--crt-amber)", fontWeight: 700 }}>{cfg?.endpoints ? Object.keys(cfg.endpoints).length : 0}</span> endpoints</span>
+                  <span style={{ color: info?.has_app_dir ? "var(--crt-green)" : "var(--text-tertiary)" }}>app {info?.has_app_dir ? "✓" : "—"}</span>
+                  <span style={{ color: (info?.has_api_dir || info?.has_server_dir) ? "var(--crt-green)" : "var(--text-tertiary)" }}>api {(info?.has_api_dir || info?.has_server_dir) ? "✓" : "—"}</span>
+                </div>
               </div>
-
-              {renderShareAccessCard()}
 
               {/* Utility toolbar — process start/stop/restart already live
                   on the API/APP tiles above, so this is just the cross-
@@ -10351,6 +10534,32 @@ export default function Home() {
                 >
                   <span style={{ opacity: 0.85 }}>♡</span> Check Health
                 </button>
+                <button
+                  onClick={() => setOverviewTab(overviewTab === "config" ? "info" : "config")}
+                  className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
+                  style={{
+                    border: `1px solid color-mix(in srgb, var(--crt-green) ${overviewTab === "config" ? "45%" : "28%"}, transparent)`,
+                    color: "var(--crt-green)",
+                    background: overviewTab === "config" ? "color-mix(in srgb, var(--crt-green) 14%, transparent)" : "color-mix(in srgb, var(--crt-green) 7%, transparent)",
+                  }}
+                  title="Toggle the raw config.json tree"
+                >
+                  <span style={{ opacity: 0.85 }}>{"{}"}</span> Config
+                </button>
+                {cfg && (
+                  <button
+                    onClick={() => copyValue("$root", cfg)}
+                    className="text-[10px] px-3 py-1.5 rounded-md uppercase font-bold tracking-wider transition-all flex items-center gap-1.5 hover:brightness-125"
+                    style={{
+                      border: `1px solid ${copiedPath === "$root" ? `color-mix(in srgb, ${jsonCopiedColor} 30%, transparent)` : "color-mix(in srgb, var(--crt-blue) 28%, transparent)"}`,
+                      color: copiedPath === "$root" ? jsonCopiedColor : "var(--crt-blue)",
+                      background: copiedPath === "$root" ? jsonCopiedBg : "color-mix(in srgb, var(--crt-blue) 7%, transparent)",
+                    }}
+                    title="Copy config.json to clipboard"
+                  >
+                    <span style={{ opacity: 0.85 }}>⧉</span> {copiedPath === "$root" ? "Copied" : "Copy Config"}
+                  </button>
+                )}
                 <div className="flex-1" />
                 {selectedModule && (isOwner || (cfg?.owner && address && cfg.owner.toLowerCase() === address.toLowerCase())) && (
                   confirmDeleteModule === selectedModule ? (
@@ -10396,153 +10605,9 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Logs */}
-              {(info?.api_url || info?.app_url) && (
-              <div className="section-card" data-accent="amber">
-                <span className="section-card__bar" />
-                <div className="section-card__head">
-                  <div className="section-card__title">
-                    <span className="section-card__glyph">▤</span>
-                    Logs
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => { setModuleLogsAutoRefresh(!moduleLogsAutoRefresh); if (!moduleLogsOpen) setModuleLogsOpen("api"); }}
-                      className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold transition-all"
-                      style={{
-                        borderColor: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
-                        color: moduleLogsAutoRefresh ? "var(--crt-green)" : "var(--text-tertiary)",
-                        background: moduleLogsAutoRefresh ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
-                      }}
-                    >
-                      {moduleLogsAutoRefresh ? "LIVE" : "AUTO"}
-                    </button>
-                    {moduleLogsOpen && (
-                      <button
-                        onClick={fetchModuleLogs}
-                        className="text-[9px] px-1.5 py-0.5 rounded-sm border uppercase font-bold transition-all"
-                        style={{ borderColor: "color-mix(in srgb, var(--border-color) 50%, transparent)", color: "var(--text-tertiary)" }}
-                      >
-                        {moduleLogsLoading ? "..." : "REFRESH"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="p-3 flex flex-col gap-2">
-                  {/* Source tabs */}
-                  <div className="flex items-center gap-1.5">
-                    {info?.api_url && (
-                      <button
-                        onClick={() => setModuleLogsOpen(moduleLogsOpen === "api" ? null : "api")}
-                        className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
-                        style={{
-                          borderColor: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
-                          color: moduleLogsOpen === "api" ? "var(--crt-blue)" : "var(--text-tertiary)",
-                          background: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 8%, transparent)" : "transparent",
-                        }}
-                      >
-                        API LOGS
-                      </button>
-                    )}
-                    {info?.app_url && (
-                      <button
-                        onClick={() => setModuleLogsOpen(moduleLogsOpen === "app" ? null : "app")}
-                        className="text-[10px] px-2.5 py-1 rounded-sm border uppercase font-bold transition-all hover:brightness-125"
-                        style={{
-                          borderColor: moduleLogsOpen === "app" ? "color-mix(in srgb, var(--crt-amber) 50%, transparent)" : "color-mix(in srgb, var(--border-color) 50%, transparent)",
-                          color: moduleLogsOpen === "app" ? "var(--crt-amber)" : "var(--text-tertiary)",
-                          background: moduleLogsOpen === "app" ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
-                        }}
-                      >
-                        APP LOGS
-                      </button>
-                    )}
-                  </div>
-                  {/* Log output */}
-                  {moduleLogsOpen && (
-                    <div className="border rounded overflow-hidden" style={{ borderColor: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 25%, transparent)" : "color-mix(in srgb, var(--crt-amber) 25%, transparent)" }}>
-                      <div className="flex items-center justify-between px-3 py-1" style={{ background: moduleLogsOpen === "api" ? "color-mix(in srgb, var(--crt-blue) 4%, transparent)" : "color-mix(in srgb, var(--crt-amber) 4%, transparent)", borderBottom: "1px solid var(--border-color)" }}>
-                        <span className="text-[9px] font-bold uppercase" style={{ color: moduleLogsOpen === "api" ? "var(--crt-blue)" : "var(--crt-amber)", letterSpacing: "0.05em" }}>
-                          {moduleLogsOpen.toUpperCase()} LOGS
-                        </span>
-                        <button onClick={() => setModuleLogsOpen(null)} className="text-[9px] font-bold uppercase" style={{ color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer" }}>
-                          CLOSE
-                        </button>
-                      </div>
-                      <pre
-                        className="px-3 py-2 text-[11px] overflow-auto"
-                        style={{
-                          color: "var(--text-secondary)",
-                          fontFamily: "var(--font-code, monospace)",
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-all",
-                          lineHeight: "1.5",
-                          maxHeight: "300px",
-                          background: "var(--bg-primary)",
-                          margin: 0,
-                        }}
-                        ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
-                      >
-                        {(() => {
-                          const keys = Object.keys(moduleLogs);
-                          const matchKey = keys.find(k => k.toLowerCase().includes(moduleLogsOpen));
-                          return matchKey ? moduleLogs[matchKey] || "(empty)" : keys.length > 0 ? moduleLogs[keys[0]] || "(empty)" : moduleLogsLoading ? "Loading..." : "(no logs found)";
-                        })()}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-              )}
-
-              {/* Scripts & Ports */}
-              <div className="section-card" data-accent="green">
-                <span className="section-card__bar" />
-                <div className="section-card__head">
-                  <div className="section-card__title">
-                    <span className="section-card__glyph">▸</span>
-                    Scripts &amp; Ports
-                  </div>
-                </div>
-                <div className="p-3 flex flex-col gap-1.5 text-[12px] font-mono">
-                  {cfg?.scripts?.start && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 w-14 shrink-0">start</span>
-                      <span className="text-crt-green/60">{cfg.scripts.start}</span>
-                    </div>
-                  )}
-                  {cfg?.scripts?.stop && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 w-14 shrink-0">stop</span>
-                      <span className="text-crt-green/60">{cfg.scripts.stop}</span>
-                    </div>
-                  )}
-                  {cfg?.scripts?.docker && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-crt-green/30 w-14 shrink-0">docker</span>
-                      <span className="text-crt-green/60">{cfg.scripts.docker}</span>
-                    </div>
-                  )}
-                  {!cfg?.scripts?.start && !cfg?.scripts?.stop && !cfg?.scripts?.docker && (
-                    <>
-                      {info?.has_app_dir && (
-                        <div className="flex items-center gap-3">
-                          <span className="text-crt-green/30 w-14 shrink-0">start</span>
-                          <span className="text-crt-green/60">scripts/start.sh</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {cfg?.port && (
-                    <div className="flex items-center gap-3 pt-1" style={{ borderTop: "1px solid var(--border-color)" }}>
-                      <span className="text-crt-amber/50 w-14 shrink-0 font-bold">port</span>
-                      <span className="text-crt-amber font-bold">{cfg.port}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Config */}
+              {/* Raw config.json — hidden until the CONFIG action above
+                  toggles it on. */}
+              {overviewTab === "config" && (
               <div className="section-card" data-accent="amber">
                 <span className="section-card__bar" />
                 <div className="section-card__head">
@@ -10593,6 +10658,7 @@ export default function Home() {
                   </div>
                 )}
               </div>
+              )}
             </div>
           )}
         </div>
@@ -10982,8 +11048,9 @@ export default function Home() {
   // to re-root the same names onto a different host's registrar).
   const renderOmnibox = () => {
     const modName = selectedModule || "claude";
-    // Mirror renderAppApiTab: claude's own APP is the web front-door.
-    const appModName = omniForeignMod || (modName === "claude" ? "web" : modName);
+    // Mirror renderAppApiTab: /claude stays /claude at top level; only an
+    // embedded copy falls back to the web front-door (recursion guard).
+    const appModName = omniForeignMod || (modName === "claude" && isEmbedded ? "web" : modName);
     const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin(mounted)).replace(/\/+$/, "")}/${appModName}`;
     const stepModule = (dir: 1 | -1) => {
       const list = moduleList
@@ -11028,7 +11095,9 @@ export default function Home() {
       setOmniEditing(false);
     };
     return (
-      <div className="flex items-center gap-1.5 flex-1 min-w-0" style={{ minWidth: 320, maxWidth: 760 }}>
+      <div className="flex items-center gap-1.5 flex-1 min-w-0" style={{ minWidth: isMobile ? 0 : 320, maxWidth: 760 }}>
+        {/* HUB / TASKS moved out of the header — they live as labeled pills
+            on the composer's params strip (the chat bar) now. */}
         {([-1, 1] as const).map((dir) => (
           <button
             key={dir}
@@ -11210,12 +11279,12 @@ export default function Home() {
     const hasApi = false;
     const sub: "app" | "api" = "app";
     const modName = selectedModule || "claude";
-    // claude's APP tab embeds the web front-door, never /claude itself: the
-    // console IS the claude app, so iframing it would nest a second console
-    // (double header/composer/task chips) inside this one. A foreign /{mod}
-    // typed into the omnibox (resolvable only by the foreign host's
-    // registrar) wins over both.
-    const appModName = omniForeignMod || (modName === "claude" ? "web" : modName);
+    // claude's APP tab embeds the real claude app, one level deep: an
+    // embedded copy (window.self !== window.top) maps claude → the web
+    // front-door instead, so the console never iframes itself forever. A
+    // foreign /{mod} typed into the omnibox (resolvable only by the foreign
+    // host's registrar) wins over both.
+    const appModName = omniForeignMod || (modName === "claude" && isEmbedded ? "web" : modName);
     // Gateway URL shown in the omnibox and loaded in the iframe. Caddy
     // proxies {host}/{mod} → the module's app; the host defaults to this
     // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
@@ -11545,12 +11614,12 @@ export default function Home() {
             `order`. */}
         <div
           className={`flex items-center py-0.5 ${isMobile ? "px-4" : "pl-3 pr-2 flex-1 min-w-0"}`}
-          style={{ order: isMobile ? 2 : 1 }}
+          style={{ order: isMobile ? 3 : 1 }}
         >
           {/* Browser-style address bar — anchored in the top-LEFT corner of the
               header row (the orbit mark that used to sit here is gone). It is
               the single way to jump between modules (type a /{mod}, ‹ › to
-              step). Desktop only: the phone header stacks and has no room. */}
+              step). On phone it gets its own full-width row below instead. */}
           {!isMobile && <div className="pr-3 flex-1 min-w-0 flex">{renderOmnibox()}</div>}
           <div className="flex items-center gap-3">
             {/* Module/Folder selector dropdown */}
@@ -11863,381 +11932,29 @@ export default function Home() {
 
         </div>
 
+        {/* Phone: the address bar gets its own slim full-width row between
+            the account row and the module tabs — same omnibox as desktop,
+            so the current module URL is visible (and editable) on mobile. */}
+        {isMobile && (
+          <div className="flex px-4 py-1" style={{ order: 2, borderBottom: `1px solid ${subtleBorder}` }}>
+            {renderOmnibox()}
+          </div>
+        )}
+
         {/* ── Account controls. On desktop they sit inline at the right end
             of the single header row (no standalone top bar). On phone this
             becomes its own row ABOVE the module row (flex `order: 1`). The
-            HUB/TASKS buttons live here on BOTH desktop and phone — the nav
-            rail no longer carries them (its footer cluster is gone). */}
+            HUB/TASKS buttons moved out of here — they're icon-only marks
+            docked beside the URL inside the omnibox (renderOmnibox). */}
         <div
           className={`flex items-center py-1 ${isMobile ? "px-4" : "pl-2 pr-4 shrink-0"}`}
           style={isMobile ? { order: 1, borderBottom: `1px solid ${subtleBorder}` } : { order: 2 }}
         >
-          <div className="flex items-center gap-0">
-            {(() => {
-              const hubActive = sidebarView === "hub";
-              const tasksActive = sidebarView === "tasks";
-              const runningCount = jobs.filter(j => j.status === "running" || j.status === "pending").length;
-              const topTabs = [
-                {
-                  key: "hub",
-                  label: "HUB",
-                  icon: <HubIcon size={13} />,
-                  color: "var(--crt-green)",
-                  active: hubActive,
-                  badge: null as number | null,
-                  onClick: () => setSidebarView("hub"),
-                },
-                {
-                  key: "tasks",
-                  label: "TASKS",
-                  icon: <TasksIcon size={13} />,
-                  color: "var(--crt-blue)",
-                  active: tasksActive,
-                  badge: runningCount > 0 ? runningCount : null,
-                  onClick: () => {
-                    // Always land on the task LIST (running work first) — not
-                    // whichever task happened to be open last.
-                    setSelectedJob(null);
-                    setStreamOutput("");
-                    setSidebarView("tasks");
-                  },
-                },
-              ];
-              return topTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={tab.onClick}
-                  className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
-                  style={{
-                    letterSpacing: "0.02em",
-                    color: tab.active ? tab.color : "var(--text-tertiary)",
-                    opacity: tab.active ? 1 : 0.45,
-                    borderBottom: tab.active ? `2px solid ${tab.color}` : "2px solid transparent",
-                    background: tab.active ? `color-mix(in srgb, ${tab.color} 6%, transparent)` : "transparent",
-                    marginBottom: "-1px",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!tab.active) {
-                      e.currentTarget.style.opacity = "0.75";
-                      e.currentTarget.style.color = tab.color;
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!tab.active) {
-                      e.currentTarget.style.opacity = "0.45";
-                      e.currentTarget.style.color = "var(--text-tertiary)";
-                    }
-                  }}
-                  title={tab.key === "tasks" ? "Open the full-page tasks view" : "Open the module hub"}
-                >
-                  <span className="flex items-center">{tab.icon}</span>
-                  {tab.label}
-                  {tab.badge != null && (
-                    <span
-                      className="text-[9px] font-mono px-1 py-[1px] rounded"
-                      style={{
-                        color: tab.color,
-                        background: `color-mix(in srgb, ${tab.color} 14%, transparent)`,
-                        border: `1px solid color-mix(in srgb, ${tab.color} 35%, transparent)`,
-                      }}
-                    >
-                      {tab.badge}
-                    </span>
-                  )}
-                </button>
-              ));
-            })()}
-          </div>
-
           {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-          {/* Wrench: BUILD / FORK / EDIT actions side panel.
-              Lives on the RIGHT of the header. Clicking opens a
-              tabbed panel anchored under the icon (right-aligned). */}
-            <div className="relative flex items-center gap-1.5" ref={headerCreateRef}>
-              {/* "+" opens the BUILD / FORK / EDIT / IMPORT panel. Always
-                  shown — the rail no longer carries CREATE/EDIT actions. */}
-              <button
-                onClick={() => {
-                  setCreateAnchor("header");
-                  setShowHeaderCreateForm((f) => (f ? null : "create"));
-                }}
-                className="flex items-center justify-center transition-all hover:brightness-125 rounded-sm"
-                style={{
-                  width: 28,
-                  height: 28,
-                  border: `1px solid ${showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.25)"}`,
-                  color: showHeaderCreateForm ? "var(--crt-green)" : "rgba(16,185,129,0.55)",
-                  background: showHeaderCreateForm ? "rgba(16,185,129,0.10)" : "transparent",
-                  fontSize: 15,
-                  lineHeight: 1,
-                }}
-                title="Build / fork / edit / import a module"
-                aria-expanded={!!showHeaderCreateForm}
-                aria-label="Build, fork, edit or import a module"
-              >
-                +
-              </button>
-              {/* The wrench that used to live here is gone — the edit view is
-                  reached via the rail's bottom EDIT action. */}
-
-              {showHeaderCreateForm && createAnchor === "header" && (
-                <div
-                  className="absolute right-0 top-full mt-1 border z-50 flex flex-col min-w-[320px]"
-                  style={{
-                    background: "var(--bg-primary)",
-                    borderColor: showHeaderCreateForm === "fork"
-                      ? "rgba(245,158,11,0.3)"
-                      : showHeaderCreateForm === "edit"
-                      ? "rgba(59,130,246,0.3)"
-                      : showHeaderCreateForm === "import"
-                      ? "rgba(34,211,238,0.3)"
-                      : "rgba(16,185,129,0.3)",
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.20)",
-                  }}
-                >
-                  {/* Tabs */}
-                  <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                    {([
-                      { key: "create" as const, label: "+ BUILD", color: "var(--crt-green)", rgb: "16,185,129" },
-                      { key: "fork"   as const, label: "⑂ FORK",  color: "var(--crt-amber)", rgb: "245,158,11" },
-                      { key: "edit"   as const, label: "✎ EDIT",  color: "var(--crt-blue)",  rgb: "59,130,246" },
-                      { key: "import" as const, label: "⇩ IMPORT", color: "#22d3ee",         rgb: "34,211,238" },
-                    ]).map((tab) => {
-                      const isActive = showHeaderCreateForm === tab.key;
-                      const disabled = tab.key === "edit" && !selectedModule;
-                      return (
-                        <button
-                          key={tab.key}
-                          onClick={() => {
-                            if (disabled) return;
-                            if (tab.key === "fork") {
-                              setHeaderNewName(selectedModule ? selectedModule + "-fork" : "");
-                              setHeaderGithubUrl("");
-                            } else if (tab.key === "create") {
-                              setHeaderNewName("");
-                              setHeaderGithubUrl("");
-                            } else if (tab.key === "import") {
-                              setHeaderNewName("");
-                              setHeaderGithubUrl("");
-                              setHeaderCid("");
-                            } else {
-                              setHeaderEditPrompt("");
-                            }
-                            setShowHeaderCreateForm(tab.key);
-                          }}
-                          disabled={disabled}
-                          className="flex-1 text-[11px] font-bold py-1.5 px-2 font-code transition-all disabled:cursor-not-allowed"
-                          style={{
-                            letterSpacing: "0.02em",
-                            color: isActive ? tab.color : `rgba(${tab.rgb}, ${disabled ? 0.2 : 0.5})`,
-                            background: isActive ? `rgba(${tab.rgb}, 0.08)` : "transparent",
-                            borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
-                          }}
-                          title={disabled ? "Select a module to edit" : tab.label}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Active form */}
-                  <div className="p-3 flex flex-col gap-2">
-                    <div className="text-[12px] font-bold uppercase" style={{
-                      letterSpacing: "0.02em",
-                      color: showHeaderCreateForm === "fork"
-                        ? "var(--crt-amber)"
-                        : showHeaderCreateForm === "edit"
-                        ? "var(--crt-blue)"
-                        : showHeaderCreateForm === "import"
-                        ? "#22d3ee"
-                        : "var(--crt-green)",
-                    }}>
-                      {showHeaderCreateForm === "fork"
-                        ? `⑂ FORK FROM ${selectedModule?.toUpperCase() || "?"}`
-                        : showHeaderCreateForm === "edit"
-                        ? `✎ EDIT ${selectedModule?.toUpperCase() || "?"}`
-                        : showHeaderCreateForm === "import"
-                        ? "⇩ IMPORT MODULE"
-                        : "+ BUILD MODULE"}
-                    </div>
-                    {showHeaderCreateForm === "edit" ? (
-                      <textarea
-                        autoFocus
-                        value={headerEditPrompt}
-                        onChange={(e) => setHeaderEditPrompt(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="describe the edit..."
-                        rows={3}
-                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none resize-none"
-                        style={{
-                          borderColor: "rgba(59,130,246,0.3)",
-                          color: "var(--text-primary)",
-                        }}
-                      />
-                    ) : showHeaderCreateForm === "import" ? (
-                      <>
-                        {/* Source toggle — clone a git repo or restore a snapshot CID */}
-                        <div className="flex gap-1">
-                          {(["github", "cid"] as const).map((s) => (
-                            <button
-                              key={s}
-                              onClick={() => setHeaderImportSource(s)}
-                              className="flex-1 text-[11px] font-bold py-1 px-2 font-code border transition-all"
-                              style={{
-                                letterSpacing: "0.02em",
-                                color: headerImportSource === s ? "#22d3ee" : "rgba(34,211,238,0.45)",
-                                borderColor: headerImportSource === s ? "rgba(34,211,238,0.5)" : "rgba(34,211,238,0.15)",
-                                background: headerImportSource === s ? "rgba(34,211,238,0.08)" : "transparent",
-                              }}
-                            >
-                              {s === "github" ? "GITHUB" : "CID"}
-                            </button>
-                          ))}
-                        </div>
-                        {headerImportSource === "github" ? (
-                          <input
-                            type="text"
-                            autoFocus
-                            value={headerGithubUrl}
-                            onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") headerCreateOrFork();
-                              if (e.key === "Escape") setShowHeaderCreateForm(null);
-                            }}
-                            placeholder="https://github.com/user/repo.git"
-                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            autoFocus
-                            value={headerCid}
-                            onChange={(e) => setHeaderCid(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") headerCreateOrFork();
-                              if (e.key === "Escape") setShowHeaderCreateForm(null);
-                            }}
-                            placeholder="snapshot cid..."
-                            className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                            style={{ borderColor: "rgba(34,211,238,0.3)", color: "var(--text-primary)" }}
-                          />
-                        )}
-                        <input
-                          type="text"
-                          value={headerNewName}
-                          onChange={(e) => setHeaderNewName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") headerCreateOrFork();
-                            if (e.key === "Escape") setShowHeaderCreateForm(null);
-                          }}
-                          placeholder={
-                            headerImportSource === "github"
-                              ? (deriveNameFromUrl(headerGithubUrl) ? `name: ${deriveNameFromUrl(headerGithubUrl)} (auto)` : "module name (auto from url)...")
-                              : "module name..."
-                          }
-                          className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                          style={{ borderColor: "rgba(34,211,238,0.2)", color: "var(--text-primary)" }}
-                        />
-                      </>
-                    ) : (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={headerNewName}
-                        onChange={(e) => setHeaderNewName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="module name..."
-                        className="px-2 py-1.5 text-[14px] bg-transparent border font-code outline-none"
-                        style={{
-                          borderColor: showHeaderCreateForm === "fork" ? "rgba(245,158,11,0.3)" : "rgba(16,185,129,0.3)",
-                          color: "var(--text-primary)",
-                        }}
-                      />
-                    )}
-                    {showHeaderCreateForm === "create" && (
-                      <input
-                        type="text"
-                        value={headerGithubUrl}
-                        onChange={(e) => setHeaderGithubUrl(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") headerCreateOrFork();
-                          if (e.key === "Escape") setShowHeaderCreateForm(null);
-                        }}
-                        placeholder="github url (optional)..."
-                        className="px-2 py-1.5 text-[14px] bg-transparent border border-crt-green/20 font-code outline-none"
-                        style={{ color: "var(--text-primary)" }}
-                      />
-                    )}
-                    {/* Model selector — drives the same shared model state the
-                        composer uses, so EDIT/FORK/BUILD jobs run on the model
-                        picked here (previously this panel had no picker and
-                        silently inherited the composer's choice). IMPORT is a
-                        deterministic clone/restore — no agent, no model. */}
-                    {showHeaderCreateForm !== "import" && (
-                    <select
-                      value={model}
-                      onChange={(e) => {
-                        setModel(e.target.value);
-                        safeSetItem("claude_jobs_model", e.target.value);
-                      }}
-                      className="px-2 py-1 text-[12px] bg-transparent text-crt-green border border-crt-green/20 font-code uppercase cursor-pointer hover:border-crt-green/40 transition-colors self-start"
-                      title={`Model: ${modelLabel(model)} (${model})`}
-                    >
-                      {MODEL_OPTIONS.map(m => (
-                        <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={headerCreateOrFork}
-                        disabled={(showHeaderCreateForm === "edit"
-                          ? !headerEditPrompt.trim()
-                          : showHeaderCreateForm === "import"
-                          ? (headerImportSource === "github" ? !headerGithubUrl.trim() : !headerCid.trim())
-                          : !headerNewName.trim()) || submitting}
-                        className="pixel-btn text-[14px] py-1 px-4 uppercase flex-1"
-                        style={{
-                          letterSpacing: "0.01em",
-                          opacity: (showHeaderCreateForm === "edit"
-                            ? headerEditPrompt.trim()
-                            : showHeaderCreateForm === "import"
-                            ? (headerImportSource === "github" ? headerGithubUrl.trim() : headerCid.trim())
-                            : headerNewName.trim()) ? 1 : 0.4,
-                        }}
-                      >
-                        {submitting
-                          ? "..."
-                          : showHeaderCreateForm === "fork"
-                          ? "FORK"
-                          : showHeaderCreateForm === "edit"
-                          ? "EDIT"
-                          : showHeaderCreateForm === "import"
-                          ? "IMPORT"
-                          : "BUILD"}
-                      </button>
-                      <button
-                        onClick={() => setShowHeaderCreateForm(null)}
-                        className="text-[14px] px-2 py-1 border border-crt-red/20 text-crt-red/50 hover:text-crt-red hover:border-crt-red/40 transition-all"
-                      >
-                        ESC
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* The header "+" (BUILD / FORK / EDIT / IMPORT) moved down to
+              the chat bar — the composer band's "+" opens the same create
+              form (renderCompactCreateForm), popping up above the bar. */}
             {/* Single identity chip — owner + user are one panel. The module
                 owner's identity (for non-owner viewers) lives inside the
                 profile dropdown below, so the top-right corner never shows a
@@ -12439,7 +12156,7 @@ export default function Home() {
       </div>
 
       {/* ── Module tabs (second header row) ─────────────────────────
-          The APP / CODE / API / OVERVIEW tabs, moved out of the top nav
+          The APP / CODE / API / INFO tabs, moved out of the top nav
           bar into their own row directly beneath it. Left padding tracks
           the nav rail so the tabs align under the module name above. */}
       <div
@@ -12470,10 +12187,10 @@ export default function Home() {
             // API — docs (human/engineer), endpoint schema with auth levels,
             // an interactive playground, and the module's process logs.
             { key: "apitab" as const, label: "API", icon: <ApiIcon size={13} />, color: "var(--crt-blue)" },
-            // OVERVIEW is the module's profile/chrome — kept last now that the
-            // app leads. (The EDIT view moved out of the tab row: it's the
-            // rail's EDIT button.)
-            { key: "overview" as const, label: "OVERVIEW", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
+            // INFO (né OVERVIEW) is the module's compact profile — kept last
+            // now that the app leads. (The EDIT view moved out of the tab
+            // row: it's the rail's EDIT button.)
+            { key: "overview" as const, label: "INFO", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
           ]).map((tab) => {
             const t = tab as any;
             const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
@@ -12629,12 +12346,6 @@ export default function Home() {
                     title={`${railTasks.pending} task${railTasks.pending === 1 ? "" : "s"} queued`}
                   >
                     +{railTasks.pending}
-                  </span>
-                )}
-                {(railTasks.completed > 0 || railTasks.failed > 0) && (
-                  <span className="font-code text-[9px] font-bold flex items-center gap-1" title={`${railTasks.completed} done · ${railTasks.failed} failed (recent tasks)`}>
-                    {railTasks.completed > 0 && <span style={{ color: "var(--crt-green)", opacity: 0.7 }}>✓{railTasks.completed}</span>}
-                    {railTasks.failed > 0 && <span style={{ color: "var(--crt-red, #ef4444)", opacity: 0.85 }}>✕{railTasks.failed}</span>}
                   </span>
                 )}
                 <button
@@ -13005,7 +12716,6 @@ export default function Home() {
             const cfg = effectiveConfig;
             const cfgOwner: string | null = cfg?.owner || null;
             const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
-            const moduleInfo = selectedModuleInfo;
             // The wallet tab only exists for real wallet sessions (not
             // local/password-less or QR-handoff phone sessions).
             const hasWallet = !!(address && address !== "local" && walletType);
@@ -13016,8 +12726,8 @@ export default function Home() {
             const accountTabs: { id: typeof accountTab; label: string; glyph: string; accent: string }[] = [
               ...(hasWallet ? [{ id: "wallet" as const, label: "Wallet", glyph: "◇", accent: "var(--crt-green)" }] : []),
               { id: "access" as const, label: "Access", glyph: "◎", accent: "var(--crt-amber)" },
-              ...(canSudo ? [{ id: "sudo" as const, label: "Sudo", glyph: "⚿", accent: "#cc785c" }] : []),
-              ...(selectedModule ? [{ id: "module" as const, label: "Module", glyph: "⌬", accent: "var(--crt-blue)" }] : []),
+              { id: "tasks" as const, label: "Tasks", glyph: "◷", accent: "var(--crt-blue)" },
+              ...(address ? [{ id: "hub" as const, label: "My Hub", glyph: "⌂", accent: "#cc785c" }] : []),
             ];
             const activeAccountTab = accountTabs.some((t) => t.id === accountTab) ? accountTab : accountTabs[0].id;
             return (
@@ -13178,6 +12888,101 @@ export default function Home() {
                     );
                   })()}
 
+                  {/* Switch account — every wallet identity that signed in from
+                      this browser, one click to trade places. Tokens are reused
+                      so no re-signing; an expired one falls back to sign-in. */}
+                  {activeAccountTab === "access" && savedAccounts.some((a) => a.address !== (address || "")) && (
+                    <div className="section-card" data-accent="amber">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⇌</span>
+                          Switch Account
+                        </div>
+                        <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                          {savedAccounts.length} signed in here
+                        </span>
+                      </div>
+                      <div className="section-card__body flex flex-col gap-1.5">
+                        <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                          Identities that signed in from this browser. Switching reuses the saved
+                          session — <span style={{ color: "var(--text-secondary)" }}>no wallet signature</span>;
+                          an expired session just asks you to sign in again.
+                        </div>
+                        {savedAccounts.map((acct) => {
+                          const isActive = !!address && acct.address === address;
+                          const isCfgOwner = !!cfgOwner && acct.address.toLowerCase() === cfgOwner.toLowerCase();
+                          const seed = Array.from(acct.address.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
+                          const h1 = seed % 360;
+                          const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
+                          const short = acct.address.length > 18 ? `${acct.address.slice(0, 8)}…${acct.address.slice(-6)}` : acct.address;
+                          return (
+                            <div
+                              key={acct.address}
+                              className="flex items-center gap-2.5 px-2.5 py-2 rounded-[12px] transition-all"
+                              style={{
+                                border: `1px solid ${isActive ? "color-mix(in srgb, var(--crt-green) 35%, var(--border-color))" : "var(--border-color)"}`,
+                                background: isActive ? "color-mix(in srgb, var(--crt-green) 6%, transparent)" : "var(--bg-secondary)",
+                                cursor: isActive ? "default" : "pointer",
+                              }}
+                              onClick={() => !isActive && switchAccount(acct)}
+                              onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-amber) 40%, var(--border-color))"; }}
+                              onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.borderColor = "var(--border-color)"; }}
+                              title={isActive ? `${acct.address} — current session` : `Switch to ${acct.address}`}
+                              role="button"
+                              aria-pressed={isActive}
+                            >
+                              <span
+                                className="shrink-0 rounded-full"
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  background: `linear-gradient(135deg, hsl(${h1} 75% 58%), hsl(${h2} 70% 38%))`,
+                                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.15)",
+                                  opacity: isActive ? 1 : 0.75,
+                                }}
+                                aria-hidden
+                              />
+                              <span className="flex flex-col min-w-0 flex-1 leading-tight">
+                                <span className="font-mono text-[11.5px] truncate" style={{ color: isActive ? "var(--crt-green)" : "var(--text-primary)" }}>
+                                  {isCfgOwner && <span style={{ color: "var(--crt-amber)" }} title="Owner of this module">♛ </span>}
+                                  {short}
+                                </span>
+                                <span className="text-[8.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                                  {acct.walletType || "wallet"}{isCfgOwner ? " · owner" : ""}
+                                </span>
+                              </span>
+                              {isActive ? (
+                                <span
+                                  className="shrink-0 text-[8.5px] font-bold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-full"
+                                  style={{
+                                    color: "var(--crt-green)",
+                                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                                    background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                                  }}
+                                >
+                                  active
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); forgetAccount(acct.address); }}
+                                  className="shrink-0 flex items-center justify-center transition-all"
+                                  style={{ width: 20, height: 20, borderRadius: 999, color: "var(--text-tertiary)", fontSize: 10, border: "1px solid transparent" }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--crt-red)"; e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-red) 35%, transparent)"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-tertiary)"; e.currentTarget.style.borderColor = "transparent"; }}
+                                  title={`Forget ${short} on this browser`}
+                                  aria-label={`Forget ${short}`}
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Phone sign-in — hand this session to another device via a
                       single-use QR. Any signed-in user (you can only hand off
                       yourself); hidden in local mode where auth is disabled. */}
@@ -13185,7 +12990,17 @@ export default function Home() {
                     const accent = "var(--crt-green)";
                     const live = handoff && handoff.exp > nowSec ? handoff : null;
                     const left = live ? Math.max(0, live.exp - nowSec) : 0;
-                    const fmtMMSS = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+                    const fmtMMSS = left >= 3600
+                      ? `${Math.floor(left / 3600)}:${String(Math.floor((left % 3600) / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`
+                      : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+                    const ttlChips = [
+                      { label: "5 min", s: 300 },
+                      { label: "15 min", s: 900 },
+                      { label: "1 hr", s: 3600 },
+                      { label: "6 hr", s: 21600 },
+                      { label: "24 hr", s: 86400 },
+                    ];
+                    const ttlLabel = (ttlChips.find((c) => c.s === handoffTtl) || ttlChips[0]).label;
                     return (
                       <div className="section-card" data-accent="green">
                         <span className="section-card__bar" />
@@ -13201,7 +13016,7 @@ export default function Home() {
                         <div className="section-card__body flex flex-col gap-2.5">
                           <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
                             Scan with your phone to open this console <span style={{ color: "var(--text-secondary)" }}>already signed in as you</span> —
-                            no wallet or signing there. The code is single-use and dies in 5 minutes.
+                            no wallet or signing there. The code is single-use and dies in <span style={{ color: "var(--text-secondary)" }}>{ttlLabel}</span>.
                           </div>
                           {live ? (
                             <div
@@ -13232,18 +13047,39 @@ export default function Home() {
                               </button>
                             </div>
                           ) : (
-                            <button
-                              onClick={createHandoff}
-                              disabled={handoffBusy}
-                              className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
-                              style={{
-                                color: "var(--bg-primary)",
-                                background: accent,
-                                border: `1px solid ${accent}`,
-                              }}
-                            >
-                              {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
-                            </button>
+                            <>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                                  expires in
+                                </span>
+                                {ttlChips.map((c) => (
+                                  <button
+                                    key={c.s}
+                                    onClick={() => setHandoffTtl(c.s)}
+                                    className="text-[9.5px] px-2 py-1 rounded font-mono uppercase tracking-wider transition-all"
+                                    style={
+                                      handoffTtl === c.s
+                                        ? { color: "var(--bg-primary)", background: accent, border: `1px solid ${accent}` }
+                                        : { color: "var(--text-tertiary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }
+                                    }
+                                  >
+                                    {c.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <button
+                                onClick={createHandoff}
+                                disabled={handoffBusy}
+                                className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                                style={{
+                                  color: "var(--bg-primary)",
+                                  background: accent,
+                                  border: `1px solid ${accent}`,
+                                }}
+                              >
+                                {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
+                              </button>
+                            </>
                           )}
                           {handoffError && (
                             <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{handoffError}</div>
@@ -13253,10 +13089,12 @@ export default function Home() {
                     );
                   })()}
 
-                  {/* SUDO — session & policy: one signature unlocks privileged
-                      cross-module ops for a window (default 1 hour); the owner
-                      tailors the window and which actions always re-ask. */}
-                  {activeAccountTab === "sudo" && canSudo && (() => {
+                  {/* Sudo session & policy — lives on ACCESS now (it's the
+                      privileged half of access control): one signature unlocks
+                      privileged cross-module ops for a window (default 1 hour);
+                      the owner tailors the window and which actions always
+                      re-ask. Owner-only via canSudo. */}
+                  {activeAccountTab === "access" && canSudo && (() => {
                     const accent = "#cc785c"; // claude clay, matches the Sudo sheet
                     const info = sudoInfo;
                     const left = info?.active && info.expires ? Math.max(0, info.expires - nowSec) : 0;
@@ -13394,95 +13232,152 @@ export default function Home() {
                     );
                   })()}
 
-                  {/* MODULE — version / CID / created for the selected module */}
-                  {activeAccountTab === "module" && selectedModule && (
-                    <div className="section-card" data-accent="blue">
-                      <span className="section-card__bar" />
-                      <div className="section-card__head">
-                        <div className="section-card__title">
-                          <span className="section-card__glyph">⌬</span>
-                          Module
+                  {/* TASKS — your recent agent jobs; a row click opens the
+                      full task panel. Jobs without a recorded user_address
+                      pre-date per-user attribution and stay visible. */}
+                  {activeAccountTab === "tasks" && (() => {
+                    const me = (address || "").toLowerCase();
+                    const mine = jobs
+                      .filter((j) => !me || !j.user_address || j.user_address.toLowerCase() === me)
+                      .slice(0, 40);
+                    return (
+                      <div className="section-card" data-accent="blue">
+                        <span className="section-card__bar" />
+                        <div className="section-card__head">
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">◷</span>
+                            Tasks
+                          </div>
+                          <span
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                            style={{
+                              color: "var(--crt-blue)",
+                              background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
+                              border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
+                            }}
+                          >
+                            {mine.length}
+                          </span>
+                        </div>
+                        <div className="section-card__body flex flex-col gap-1">
+                          {mine.length === 0 ? (
+                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
+                              No tasks yet — submit a prompt to start one.
+                            </span>
+                          ) : (
+                            mine.map((j) => {
+                              const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "claude";
+                              const sc =
+                                j.status === "running" ? "var(--crt-green)"
+                                : j.status === "pending" ? "var(--crt-amber)"
+                                : j.status === "failed" ? "var(--crt-red)"
+                                : j.status === "completed" ? "var(--crt-blue)"
+                                : "var(--text-tertiary)";
+                              const p = j.prompt.replace(/\s+/g, " ").trim();
+                              return (
+                                <button
+                                  key={j.id}
+                                  onClick={() => { viewJob(j); setShowOwnerSidebar(false); }}
+                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
+                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-blue) 40%, var(--border-color))")}
+                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
+                                  title={p}
+                                >
+                                  <span
+                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{ background: sc, boxShadow: j.status === "running" ? `0 0 4px ${sc}` : "none" }}
+                                  />
+                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                                    <span className="text-[11px] truncate" style={{ color: "var(--text-primary)" }}>
+                                      {p.length > 64 ? `${p.slice(0, 64)}…` : p || "(no prompt)"}
+                                    </span>
+                                    <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                                      {mod} · {j.status}
+                                    </span>
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
                         </div>
                       </div>
-                      <div className="section-card__body flex flex-col text-[12px]">
-                        {(moduleInfo?.version || cfg?.version) && (
-                          <div className="flex items-center justify-between gap-3 py-1.5">
-                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
-                              Version
-                            </span>
-                            <span
-                              className="font-mono text-[11px] px-1.5 py-0.5 rounded"
-                              style={{
-                                color: "var(--crt-blue)",
-                                background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
-                                border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
-                              }}
-                            >
-                              v{String(moduleInfo?.version || cfg?.version).replace(/^v/i, "")}
-                            </span>
+                    );
+                  })()}
+
+                  {/* MY HUB — the hub with just you: modules whose configured
+                      owner is the signed-in address. Click one to open it. */}
+                  {activeAccountTab === "hub" && (() => {
+                    const me = (address || "").toLowerCase();
+                    const mineMods = moduleList
+                      .filter(isRealModule)
+                      .filter((m) => m.owner && m.owner.toLowerCase() === me);
+                    return (
+                      <div className="section-card" data-accent="amber">
+                        <span className="section-card__bar" />
+                        <div className="section-card__head">
+                          <div className="section-card__title">
+                            <span className="section-card__glyph">⌂</span>
+                            My Hub
                           </div>
-                        )}
-                        {(moduleInfo?.cid || cfg?.cid) && (() => {
-                          const cid = String(moduleInfo?.cid || cfg?.cid);
-                          const justCopied = copiedWlAddr === cid;
-                          return (
-                            <div
-                              className="flex items-center justify-between gap-3 py-1.5"
-                              style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
-                            >
-                              <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
-                                CID
-                              </span>
-                              <span className="flex items-center gap-1.5 min-w-0">
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard?.writeText(cid).catch(() => {});
-                                  setCopiedWlAddr(cid);
-                                  setTimeout(() => setCopiedWlAddr(c => (c === cid ? null : c)), 1200);
-                                }}
-                                className="font-mono text-[11px] truncate text-right cursor-pointer transition-colors"
-                                style={{
-                                  color: justCopied ? "var(--crt-green)" : "var(--text-secondary)",
-                                  background: "transparent",
-                                  border: "none",
-                                  padding: 0,
-                                }}
-                                title={justCopied ? "Copied!" : `${cid} — click to copy`}
-                              >
-                                {justCopied ? "✓ copied" : (cid.length > 20 ? `${cid.slice(0, 9)}…${cid.slice(-8)}` : cid)}
-                              </button>
-                              <button
-                                onClick={() => shareCidQr(cid, selectedModule)}
-                                className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-all"
-                                style={{
-                                  color: "var(--crt-green)",
-                                  background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
-                                  border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
-                                }}
-                                title="Share this module's snapshot CID as a QR code"
-                              >
-                                ⛶
-                              </button>
-                              </span>
-                            </div>
-                          );
-                        })()}
-                        {moduleInfo?.created_at && (
-                          <div
-                            className="flex items-center justify-between gap-3 py-1.5"
-                            style={{ borderTop: "1px solid color-mix(in srgb, var(--border-color) 60%, transparent)" }}
+                          <span
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                            style={{
+                              color: "#cc785c",
+                              background: "color-mix(in srgb, #cc785c 10%, transparent)",
+                              border: "1px solid color-mix(in srgb, #cc785c 28%, transparent)",
+                            }}
                           >
-                            <span className="shrink-0 text-[10px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
-                              Created
+                            {mineMods.length}
+                          </span>
+                        </div>
+                        <div className="section-card__body flex flex-col gap-1">
+                          {mineMods.length === 0 ? (
+                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
+                              No modules owned by this address yet. Modules you create or claim as owner show up here.
                             </span>
-                            <span className="truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                              {new Date(moduleInfo.created_at * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
-                            </span>
-                          </div>
-                        )}
+                          ) : (
+                            mineMods.map((m) => {
+                              const st = moduleStatuses[m.name];
+                              const live = !!(st && (st.app || st.api));
+                              return (
+                                <button
+                                  key={m.name}
+                                  onClick={() => { selectModule(m); setShowOwnerSidebar(false); }}
+                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
+                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, #cc785c 45%, var(--border-color))")}
+                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
+                                  title={m.description || m.name}
+                                >
+                                  <span
+                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                                    style={{
+                                      background: live ? "var(--crt-green)" : "var(--text-tertiary)",
+                                      boxShadow: live ? "0 0 4px var(--crt-green)" : "none",
+                                    }}
+                                  />
+                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
+                                    <span className="text-[11px] font-mono truncate" style={{ color: "var(--text-primary)" }}>
+                                      {m.name}
+                                    </span>
+                                    {m.description && (
+                                      <span className="text-[9.5px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                                        {m.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-[9px] font-mono uppercase tracking-wider shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                                    {m.category}
+                                  </span>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Whitelist — owner edits inline; non-owners get read-only
                       rows and a hint about who can edit. Each row is
@@ -13690,14 +13585,13 @@ export default function Home() {
                   </div>
                   )}
 
-                  {/* Share edit access — the same QR-invite minting card as the
-                      module OVERVIEW tab, surfaced here because this panel is
-                      where the owner manages who gets in. */}
+                  {/* Share edit access — the QR-invite minting card; this
+                      panel is where the owner manages who gets in. */}
                   {activeAccountTab === "access" && renderShareAccessCard()}
 
-                  {/* Kill process — a sudo-gated op, so it lives on the SUDO
-                      tab right under the session policy. */}
-                  {activeAccountTab === "sudo" && isOwner && (
+                  {/* Kill process — a sudo-gated op, kept with the sudo
+                      session card now that sudo lives on ACCESS. */}
+                  {activeAccountTab === "access" && isOwner && (
                     <button
                       onClick={() => {
                         setShowOwnerSidebar(false);

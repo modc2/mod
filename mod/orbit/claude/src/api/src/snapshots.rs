@@ -255,6 +255,14 @@ fn tree_bytes(dir: &Path, acc: &mut u64) {
     }
 }
 
+/// Total content bytes a snapshot of `root` would read (same skip rules),
+/// so callers can refuse oversized trees before touching any file bodies.
+pub fn dir_bytes(root: &Path) -> u64 {
+    let mut total = 0u64;
+    tree_bytes(root, &mut total);
+    total
+}
+
 /// Hash a directory without writing any blobs: returns the exact
 /// (tree_cid, manifest) that snapshot_dir would produce, so file-browser
 /// hashes line up with VERSIONS snapshot CIDs. `max_bytes` bounds the total

@@ -13,7 +13,7 @@ interface Endpoint {
   example?: string;
 }
 
-// The five hooks of the Strat class — src/app/app/lib/strats/base.ts.
+// The five hooks of the Strat class — src/app/app/lib/strats/strat.ts.
 const STRAT_HOOKS = [
   {
     hook: "maxPerCycle()",
@@ -47,11 +47,11 @@ const STRAT_HOOKS = [
   },
 ];
 
-// StratHistory — what every hook receives. src/app/app/lib/strats/base.ts.
+// StratHistory — what every hook receives. src/app/app/lib/strats/strat.ts.
 const HISTORY_FIELDS = [
   { name: "trades", type: "TraderTrade[]", desc: "Observed upstream trades across ALL watched traders inside the lookback window (backtestDays), newest-first. Each carries trader address, watchlist weight, proportional copyRatio, and $ notional." },
   { name: "traderStats", type: "Record<address, TraderRoiStats>", desc: "Per-trader window ROI / stdev / Sharpe / sample size — same stats that drive scoring." },
-  { name: "positions", type: "PolymarketPosition[]", desc: "Open positions in the trading wallet. Fetched per-cycle only for strats that override propose; empty otherwise (and in backtests)." },
+  { name: "positions", type: "PolymarketPosition[]", desc: "Open positions in the trading wallet. Fetched per-cycle only for strats that originate trades (proposes() true); empty otherwise (and in backtests)." },
   { name: "balance", type: "number | null", desc: "Usable USDC in the trading wallet. null = not read yet (backtests)." },
   { name: "capital", type: "number", desc: "The strat's allocated capital in USD." },
   { name: "watchlist", type: "IndexTrader[]", desc: "Enabled traders with their weights." },
@@ -68,50 +68,48 @@ const PROPOSED_FIELDS = [
   { name: "reason", type: "string?", desc: "Shown verbatim in the execution log next to the order." },
 ];
 
-const BUILTIN_STRATS = [
+const STRAT_MODES = [
   {
-    name: "copytrader",
+    name: "mirror (default)",
     kind: "mirror",
-    desc: "The reference subclass. Mirrors watched traders' fills proportionally, ranked by ROI-weighted expected profit. Overrides ONE hook (adjustPrice: slippage-widened limit pricing) — everything else is inherited base behavior.",
-    params: "maxPerCycle · marketQuery · tradeFilters · slippageBps · minSampleSize",
+    desc: "Mirrors watched traders' fills proportionally, ranked by ROI-weighted expected profit, limit prices slippage-widened toward the fillable side. This is `new Strat(params)` with no extras — every knob is a param.",
+    params: "maxPerCycle · marketQuery · tradeFilters · slippageBps",
   },
   {
-    name: "flowmomentum",
+    name: "flow origination",
     kind: "history-driven",
-    desc: "The reference propose() strat. Never mirrors per-trade — aggregates window flow across the watchlist and originates entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
-    params: "lookbackMinutes · minTraders · minFlowUsd · maxPositions · marketQuery",
+    desc: "Set `flow: {…}` (and optionally `mirror: false`) to originate from history instead of per-trade mirroring: aggregates window flow across the watchlist and proposes entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
+    params: "flow.lookbackMinutes · flow.minTraders · flow.minFlowUsd · flow.maxPositions · mirror",
   },
 ];
 
-const CUSTOM_STRAT_EXAMPLE = `// my_strat.ts — drop next to base.ts, register in registry.ts
-import { Strat, StratParams, StratHistory, ProposedTrade,
-         SizeConstraints, tickRoundPrice } from "./base";
+const CUSTOM_STRAT_EXAMPLE = `// A strategy IS one class: new Strat(params). Configure, don't subclass:
+import { Strat } from "./strat";
 
-export interface MyOpts extends StratParams {
-  minEdge?: number;          // your tunables are ordinary class params
-}
+const mirror = new Strat({
+  name: "CONSERVATIVE FAVORITES",
+  maxPerCycle: 1,
+  tradeFilters: { sides: "buy", minPrice: 0.65, maxPrice: 0.95 },
+  slippageBps: 300,
+});
 
-export class MyStrat extends Strat<MyOpts> {
-  readonly name = "my_strat";
+const momentum = new Strat({
+  name: "FLOW MOMENTUM",
+  mirror: false,                       // never mirror per-trade
+  flow: { minTraders: 2, minFlowUsd: 50, lookbackMinutes: 90 },
+});
 
-  // Take ANY history of the data and propose trades…
-  propose(h: StratHistory, c: SizeConstraints): ProposedTrade[] {
-    const out: ProposedTrade[] = [];
-    // …aggregate h.trades / h.traderStats / h.positions however you like…
-    return out;
-  }
-
-  // …or re-score the mirror candidates against that history.
-  scoreCandidate(trade, stats, h: StratHistory): number {
+// Behavior no param expresses? Override a hook and hand the instance
+// to the engine: new CopyEngine(config, myStrat).
+class MyStrat extends Strat {
+  scoreCandidate(trade, stats, h) {
     const flowInMarket = h.trades
       .filter((t) => t.conditionId === trade.conditionId && t.side === "BUY")
       .reduce((s, t) => s + t.notional, 0);
     const base = stats ? stats.roi * trade.notional * trade.copyRatio : 0;
     return base * (1 + Math.log1p(flowInMarket) / 10);
   }
-}
-
-// registry.ts:  my_strat: MyStrat as StratClass,`;
+}`;
 
 const ENDPOINTS: Endpoint[] = [
   {
@@ -363,15 +361,15 @@ export default function DocsPage() {
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>
           <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
             <p>
-              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is a class</span>:
-              the engine is parameterized by it, constructs it with its params, and drives it through five hooks. Every hook
-              receives the full observed history of the data — trades across the watchlist, per-trader stats, open positions,
-              balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
+              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is ONE class</span>:
+              the engine constructs <code className="text-pixel-white">new Strat(params)</code> and drives it through five hooks.
+              Every hook receives the full observed history of the data — trades across the watchlist, per-trader stats, open
+              positions, balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
               <span className="text-pixel-white">propose</span> its own from any aggregation of that history.
             </p>
             <p>
               The same class runs everywhere: the BACKTEST preview, the top-N sampling shown in the feed, and the LIVE
-              engine all construct the identical class from the registry, so what you backtest is what trades.
+              engine all construct the identical class with the identical params, so what you backtest is what trades.
             </p>
           </div>
         </div>
@@ -383,11 +381,11 @@ export default function DocsPage() {
           <div className="pixel-panel p-4 space-y-3">
             <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
               <p>
-                <code className="text-pixel-white">abstract class Strat&lt;P extends StratParams&gt;</code> —{" "}
-                <span className="font-mono">src/app/app/lib/strats/base.ts</span>. The generic parameter{" "}
-                <code className="text-pixel-white">P</code> declares the class&apos;s tunables; the registry constructs the class with
-                them and <code className="text-pixel-white">this.params</code> carries them at runtime. All five hooks have working
-                defaults — a custom strategy overrides only what it changes.
+                <code className="text-pixel-white">class Strat</code> —{" "}
+                <span className="font-mono">src/app/app/lib/strats/strat.ts</span>. The one standard strategy class:{" "}
+                <code className="text-pixel-white">StratParams</code> declares every tunable, the engine constructs the class with
+                them, and <code className="text-pixel-white">this.params</code> carries them at runtime. All five hooks have working
+                param-driven defaults — a strategy is a params value, not a new class.
               </p>
             </div>
             <FieldTable
@@ -417,18 +415,18 @@ export default function DocsPage() {
           </div>
 
           <div className="pixel-panel p-4 space-y-3">
-            <div className="text-[11px] text-pixel-white">Built-in classes</div>
+            <div className="text-[11px] text-pixel-white">Built-in modes — one class, param-selected</div>
             <table className="pixel-table">
               <thead>
                 <tr>
-                  <th>CLASS</th>
+                  <th>MODE</th>
                   <th>KIND</th>
                   <th>BEHAVIOR</th>
                   <th>PARAMS</th>
                 </tr>
               </thead>
               <tbody>
-                {BUILTIN_STRATS.map((s, i) => (
+                {STRAT_MODES.map((s, i) => (
                   <tr key={i}>
                     <td className="text-pixel-white font-mono whitespace-nowrap">{s.name}</td>
                     <td className="text-pixel-gray whitespace-nowrap">{s.kind}</td>
@@ -447,9 +445,9 @@ export default function DocsPage() {
           <div className="pixel-panel p-4 space-y-3">
             <div className="text-[11px] text-pixel-white">Write your own</div>
             <div className="text-[11px] text-pixel-gray-light leading-relaxed">
-              1 — extend <code className="text-pixel-white">Strat&lt;YourOpts&gt;</code> and override any subset of the hooks. 2 —
-              add the class to <span className="font-mono">registry.ts</span>. 3 — done: backtest, top-N sampling, and the
-              live engine all pick it up. Python authors: the same shape exists at{" "}
+              A strategy is <code className="text-pixel-white">new Strat(params)</code> — pick the params, done: backtest,
+              top-N sampling, and the live engine all run it. For behavior no param expresses, subclassing still works —
+              override any hook and pass the instance to the engine. Python authors: the same shape exists at{" "}
               <span className="font-mono">src/strats/base/mod.py</span> (sync → signal → execute).
             </div>
             <pre className="text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-3 border border-pixel-border overflow-x-auto leading-[1.5]">

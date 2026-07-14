@@ -91,6 +91,7 @@ export default function Configurator({
   const [fullscreen, setFullscreen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
+  const [glFailed, setGlFailed] = useState(false)
   const [constraints, setConstraints] = useState<Constraints>({ lot_w: 5, lot_d: 5, max_floors: 8 })
   const [showParams, setShowParams] = useState(false)
   const [showDesigner, setShowDesigner] = useState(false)
@@ -174,12 +175,28 @@ export default function Configurator({
 
   // ── Scene (once) ──────────────────────────────────────────────
   useEffect(() => {
-    const mount = mountRef.current!
+    const mount = mountRef.current
+    if (!mount) return
+    // WebGL is unavailable in some embeds / headless browsers — three.js throws
+    // on construction there, which would take down the whole page. Probe first
+    // and degrade to the 2D elevation view instead.
+    let renderer: THREE.WebGLRenderer
+    try {
+      const probe = document.createElement('canvas')
+      if (!probe.getContext('webgl2') && !probe.getContext('webgl')) throw new Error('webgl unavailable')
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch {
+      if (cellsRef.current.size === 0 && !loadDoc) {
+        for (const [x, z, stack] of SEED) cellsRef.current.set(key(x, z), [...stack])
+      }
+      setGlFailed(true)
+      setTick((t) => t + 1)
+      return
+    }
     const scene = new THREE.Scene()
     const W = mount.clientWidth, H = mount.clientHeight
     const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 1000)
     camera.position.set(15, 12, 18)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(W, H)
     renderer.shadowMap.enabled = true
@@ -722,6 +739,41 @@ export default function Configurator({
   const comp = stats?.compliance
   const activeCode = constraints.code && constraints.code !== 'none' ? CODE_INDEX[constraints.code] : undefined
   const swatchOf = (m: ModuleSpec) => m.color || style.palette[m.tone] || style.accent
+
+  // no WebGL (headless capture, GPU-less embed) — show a 2D elevation of the
+  // design instead of the interactive foundry, and never crash the page.
+  if (glFailed) {
+    const cells = serialize()
+    const est = localEstimate(cells, style, mergedCatalog, constraints)
+    const byId = Object.fromEntries(mergedCatalog.map((m) => [m.id, m]))
+    const cols = [...cells].sort((a, b) => a.x - b.x || a.z - b.z)
+    return (
+      <div className="relative w-full h-[72vh] min-h-[560px] rounded-2xl overflow-hidden border border-white/10 grid place-items-center"
+        style={{ background: `linear-gradient(180deg, ${style?.sky || '#0a0a0f'}26, rgba(5,5,10,0.85))` }}>
+        <div className="text-center px-6">
+          <div className="flex items-end justify-center gap-[5px] mb-8 min-h-[120px]">
+            {cols.map((c, i) => (
+              <div key={i} className="flex flex-col-reverse gap-[3px]">
+                {c.stack.slice(0, HARD_MAX).map((id, j) => {
+                  const spec = byId[id]
+                  return <span key={j} className="w-6 h-6 rounded-[3px] border border-black/40 shadow-lg"
+                    style={{ background: spec?.color || style?.palette[spec?.tone || 'warm'] || '#888', opacity: spec?.glass ? 0.55 : 1 }} />
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="text-lg font-bold tracking-tight">
+            {est.module_count} panels · {est.floors} floors · {fmtUSD(est.price_usd)}
+          </div>
+          <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/40">{style?.name} · elevation view</div>
+          <p className="mt-4 text-sm text-white/50 max-w-md mx-auto leading-relaxed">
+            The interactive 3D foundry needs WebGL, which this browser or embed doesn&apos;t expose —
+            open the page in a regular browser to stack panels, forge modules and save designs.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={rootRef} className={`overflow-hidden border border-white/10 bg-black/40 select-none ${fullscreen ? 'fixed inset-0 z-[80] w-screen h-screen rounded-none' : 'relative w-full h-[72vh] min-h-[560px] rounded-2xl'}`}>
