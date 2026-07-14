@@ -2,7 +2,7 @@
 
 use crate::auth;
 use crate::credits;
-use crate::jobs::{ClaudeJobManager, SubmitRequest};
+use crate::jobs::{ClaudeJobManager, JobStatus, SubmitRequest};
 use crate::merge;
 use crate::process;
 use crate::sudo;
@@ -2506,6 +2506,11 @@ struct ProcessRequest {
     /// processes whose name carries that token (`<mod>-api`, `<mod>-app`) are
     /// acted on — lets the UI restart one service without touching the other.
     target: Option<String>,
+    /// Override the self-restart guard. Restarting/stopping claude's own api
+    /// process kills the job manager and orphans every in-flight job, so we
+    /// refuse while jobs are running unless the caller explicitly forces it.
+    #[serde(default)]
+    force: Option<bool>,
 }
 
 /// Read a module's config.json (handles the nested `<name>/config.json` layout).
@@ -2646,6 +2651,43 @@ async fn module_process(
             "processes": procs.iter().map(process::Proc::to_json).collect::<Vec<_>>(),
         }))
         .into_response();
+    }
+
+    // Self-restart guard. Restarting/stopping claude's OWN api process tears
+    // down *this* job manager and orphans every in-flight job — the #1 cause of
+    // tasks "hanging" (their SSE stream dies, then they fail with "Server
+    // restarted"). A job that edits the claude module and then bounces it kills
+    // itself and its siblings. So while jobs are in flight, refuse to touch the
+    // api process unless the caller passes force:true. App-only restarts are
+    // always fine — the jobs live in the api, and the app is `next dev` (it
+    // hot-reloads without a restart anyway).
+    if name == "claude"
+        && matches!(action.as_str(), "restart" | "stop" | "start")
+        && body.target.as_deref() != Some("app")
+        && !body.force.unwrap_or(false)
+    {
+        let busy = _mgr
+            .list_jobs()
+            .into_iter()
+            .filter(|j| matches!(j.status, JobStatus::Running | JobStatus::Pending))
+            .count();
+        if busy > 0 {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": format!(
+                        "Refusing to {} claude-api while {} job(s) are still running — that would \
+                         kill the job manager and orphan them. Let the jobs finish, target the app \
+                         only (\"target\":\"app\"), or pass \"force\":true to override.",
+                        action, busy
+                    ),
+                    "running_jobs": busy,
+                    "module": name,
+                    "action": action,
+                })),
+            )
+                .into_response();
+        }
     }
 
     let (ok, output) = process::act(backend, &action, &procs, &module_path, &name, &config);

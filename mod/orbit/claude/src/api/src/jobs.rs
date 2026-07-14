@@ -258,15 +258,68 @@ impl JobStore {
         conn.execute("DELETE FROM claude_jobs WHERE id = ?1", params![id]).ok();
     }
 
+    /// Startup reaper for jobs left `running`/`pending` by a previous api
+    /// process (clean restart, crash, or OOM). Each running job's output is
+    /// pumped into SQLite by an in-process reader task; when the api goes down
+    /// that task dies, so nothing will ever advance the job — even though the
+    /// claude child was spawned with `setsid` and may still be alive as an
+    /// orphan (reparented to init, writing to a now-closed pipe). Leaving those
+    /// rows `running` is exactly the "task hangs forever" symptom.
+    ///
+    /// So: for every stale row, if its process group is still alive, SIGKILL it
+    /// (its reader is gone — it can only linger, never finish), then mark the
+    /// job failed. Rows with no live process are just marked failed.
     fn mark_stale_running_as_failed(&self) {
         let conn = self.conn();
         let now = Utc::now().timestamp();
-        conn.execute(
-            "UPDATE claude_jobs SET status = 'failed', error = 'Server restarted', updated_at = ?1 WHERE status = 'running' OR status = 'pending'",
-            params![now],
-        )
-        .ok();
+
+        // Collect stale rows first (can't mutate while a query stmt is live).
+        let stale: Vec<(String, Option<i64>)> = {
+            let mut stmt = match conn
+                .prepare("SELECT id, pid FROM claude_jobs WHERE status = 'running' OR status = 'pending'")
+            {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+                })
+                .map(|it| it.filter_map(Result::ok).collect())
+                .unwrap_or_default();
+            rows
+        };
+
+        for (id, pid) in stale {
+            let mut err = "Server restarted".to_string();
+            if let Some(pid) = pid {
+                if pid > 0 && pid_alive(pid as u32) {
+                    // Orphaned process group with no reader — reap it so it
+                    // stops squatting resources, then record why the job ended.
+                    unsafe {
+                        libc::kill(-(pid as i32), libc::SIGKILL);
+                        libc::kill(pid as i32, libc::SIGKILL);
+                    }
+                    err = "Server restarted (orphaned process reaped)".to_string();
+                }
+            }
+            conn.execute(
+                "UPDATE claude_jobs SET status = 'failed', error = ?1, updated_at = ?2 WHERE id = ?3",
+                params![err, now, id],
+            )
+            .ok();
+        }
     }
+}
+
+/// True if `pid` still names a live process. `kill(pid, 0)` sends no signal but
+/// performs the existence + permission check; api runs as root, so a `0` return
+/// (or `EPERM`) means the pid is alive. Only a clean ESRCH means it's gone.
+fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 // ── Job Manager ──────────────────────────────────────────────────────
