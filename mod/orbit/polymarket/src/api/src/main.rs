@@ -23,6 +23,12 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(50091);
 
     let http = reqwest::Client::builder()
+        // Public Polygon RPCs + Polymarket data-api now reject requests that
+        // carry no User-Agent (reqwest sends none by default) with 401/403.
+        // That surfaced as phantom $0 balances and "0 trades observed" — a
+        // browser-like UA is all they want. Keep this or on-chain reads and
+        // trader polling silently break again.
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .pool_max_idle_per_host(64)
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
@@ -159,9 +165,19 @@ async fn main() -> anyhow::Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Owner-only access gate + signed terms acceptance (access.rs). Applied
+    // here (not inside polymarket_api::router()) so unit/integration tests
+    // exercise routes without minting tokens; the deployed binary is what's
+    // gated. Guard wraps EVERYTHING merged above it — the /access/* routes
+    // exempt themselves inside the middleware.
+    let access = polymarket_api::AccessStore::from_env();
     let app = Router::new()
-        .merge(polymarket_api::router())
-        .with_state(state)
+        .merge(polymarket_api::router().with_state(state))
+        .merge(polymarket_api::access::router(access.clone()))
+        .layer(axum::middleware::from_fn_with_state(
+            access.clone(),
+            polymarket_api::access::guard,
+        ))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

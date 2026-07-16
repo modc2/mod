@@ -13,9 +13,11 @@
 // History persists across reloads — first time you open the panel after
 // 2 weeks of running you'll see the full 2-week curve.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { fetchPositions } from "../lib/polymarket";
+import { getOwnerAddress } from "../lib/access";
+import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
+import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 
 interface DepositWalletInfo {
   depositWallet: string;
@@ -79,11 +81,9 @@ async function fetchBestBid(tokenId: string): Promise<number | null | undefined>
   }
 }
 
-interface Snapshot {
-  t: number;       // unix ms
-  liq: number;     // $ in deposit wallet
-  pos: number;     // sum of position market values
-}
+// Snapshot shape (t/liq/pos) is shared with the backtest's simulated curve
+// so LIVE and BACKTEST render through the exact same EquityChart.
+type Snapshot = EquitySnapshot;
 
 // History is keyed PER ACCOUNT. One shared key meant signing in with a
 // different wallet inherited the previous account's curve, then appended
@@ -94,6 +94,21 @@ const historyKey = (eoa: string) => `poly_portfolio_history_v2:${eoa.toLowerCase
 // so a fill or withdrawal shows up within seconds instead of half a minute.
 const PORTFOLIO_HISTORY_CAP = 3000;
 const POLL_MS = 30_000;
+
+// Redeem events stamped on the chart (the fills feed only carries CLOB
+// trades — a redeem is an on-chain CTF call, invisible there). Persisted
+// per-EOA so the amber dots survive reloads like the curve does.
+type RedeemMark = { t: number; usd: number; n: number };
+const redeemMarksKey = (eoa: string) => `poly_redeem_marks_v1:${eoa.toLowerCase()}`;
+
+function loadRedeemMarks(eoa: string): RedeemMark[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(redeemMarksKey(eoa)) || "[]");
+    return Array.isArray(arr) ? arr.filter((m) => typeof m?.t === "number") : [];
+  } catch {
+    return [];
+  }
+}
 
 function loadHistory(eoa: string): Snapshot[] {
   try {
@@ -184,96 +199,6 @@ function PieChart({ liq, pos }: { liq: number; pos: number }) {
   );
 }
 
-// ── Line chart (2 series) ──────────────────────────────────────────────
-
-function LineChart({ history }: { history: Snapshot[] }) {
-  if (history.length < 2) {
-    return (
-      <div className="flex items-center justify-center h-40 text-pixel-muted text-xs text-center px-4">
-        Not enough history yet — the panel snapshots every 45s. Come back
-        after a few minutes to see the curve.
-      </div>
-    );
-  }
-  const W = 600;
-  const H = 160;
-  const PAD_L = 40;
-  const PAD_R = 8;
-  const PAD_T = 8;
-  const PAD_B = 18;
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
-  const t0 = history[0].t;
-  const t1 = history[history.length - 1].t;
-  const tspan = Math.max(1, t1 - t0);
-
-  let vmax = 0;
-  for (const s of history) {
-    if (s.liq > vmax) vmax = s.liq;
-    if (s.pos > vmax) vmax = s.pos;
-    if (s.liq + s.pos > vmax) vmax = s.liq + s.pos;
-  }
-  if (vmax <= 0) vmax = 1;
-
-  const x = (t: number) => PAD_L + ((t - t0) / tspan) * innerW;
-  const y = (v: number) => PAD_T + innerH - (v / vmax) * innerH;
-
-  const liqPath = history.map((s, i) => `${i === 0 ? "M" : "L"}${x(s.t).toFixed(1)},${y(s.liq).toFixed(1)}`).join(" ");
-  const posPath = history.map((s, i) => `${i === 0 ? "M" : "L"}${x(s.t).toFixed(1)},${y(s.pos).toFixed(1)}`).join(" ");
-  const totalPath = history.map((s, i) => `${i === 0 ? "M" : "L"}${x(s.t).toFixed(1)},${y(s.liq + s.pos).toFixed(1)}`).join(" ");
-
-  // Y-axis ticks at 0, 50%, 100%.
-  const yTicks = [0, vmax / 2, vmax];
-
-  return (
-    <div className="space-y-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-44">
-        {/* Gridlines + tick labels */}
-        {yTicks.map((v, i) => (
-          <g key={i}>
-            <line x1={PAD_L} y1={y(v)} x2={W - PAD_R} y2={y(v)}
-              stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" />
-            <text x={PAD_L - 4} y={y(v) + 3} fontSize="9" fill="currentColor"
-              fillOpacity="0.5" textAnchor="end">
-              {fmtUsd(v)}
-            </text>
-          </g>
-        ))}
-        {/* Total (faint, behind) */}
-        <path d={totalPath} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" strokeDasharray="3 3" />
-        {/* Positions */}
-        <path d={posPath} fill="none" stroke="#f59e0b" strokeWidth="2" />
-        {/* Liquidity */}
-        <path d={liqPath} fill="none" stroke="#10b981" strokeWidth="2" />
-        {/* X-axis time labels (start/end) */}
-        <text x={PAD_L} y={H - 4} fontSize="9" fill="currentColor" fillOpacity="0.5">
-          {fmtRelTime(t1, t0)}
-        </text>
-        <text x={W - PAD_R} y={H - 4} fontSize="9" fill="currentColor"
-          fillOpacity="0.5" textAnchor="end">
-          now
-        </text>
-      </svg>
-      <div className="flex items-center gap-4 text-xs flex-wrap">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-0.5" style={{ background: "#10b981" }} />
-          <span className="text-pixel-muted">Cash</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-0.5" style={{ background: "#f59e0b" }} />
-          <span className="text-pixel-muted">Positions</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-0.5 border-t border-dashed" />
-          <span className="text-pixel-muted">Total</span>
-        </span>
-        <span className="ml-auto text-pixel-muted">{history.length} points</span>
-      </div>
-    </div>
-  );
-}
-
 // ── Main panel ─────────────────────────────────────────────────────────
 
 type Mode = "pie" | "line";
@@ -300,13 +225,25 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
   // Positions hidden because they're unrealizable (no bid, not redeemable).
   const [hiddenInfo, setHiddenInfo] = useState<{ count: number; value: number }>({ count: 0, value: 0 });
+  // Trading (deposit) wallet — the address whose fills draw the chart markers.
+  const [tradingWallet, setTradingWallet] = useState<string | null>(null);
+  // My executed fills (deposit-wallet trades) → BUY/SELL dots on the curve.
+  const [fills, setFills] = useState<GlobalTrade[]>([]);
+  const [redeemMarks, setRedeemMarks] = useState<RedeemMark[]>([]);
+  // In-flight guard so the auto-redeem effect can't stack requests.
+  const redeemBusy = useRef(false);
 
-  const eoa = auth.address;
+  // Owner-only console: the funded wallet is the signed-in owner (from the
+  // access token), which is authoritative. Fall back to the connected wallet
+  // only if there's no token yet. Using auth.address alone made the panel read
+  // a stale/previous wallet (e.g. the old owner) and show $0.
+  const eoa = getOwnerAddress() ?? auth.address;
 
   // (Re)load the persisted curve whenever the signed-in account changes so
   // one account's history never bleeds into another's chart.
   useEffect(() => {
     setHistory(eoa ? loadHistory(eoa) : []);
+    setRedeemMarks(eoa ? loadRedeemMarks(eoa) : []);
   }, [eoa]);
 
   const refresh = useCallback(async () => {
@@ -326,6 +263,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       if (r.ok) {
         const j = (await r.json()) as DepositWalletInfo;
         wallet = j.depositWallet;
+        setTradingWallet(j.depositWallet || null);
         nextLiq = Number(j.usdcBalance) / 1_000_000;
         liqOk = true;
       }
@@ -459,6 +397,127 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     return () => clearInterval(t);
   }, [refresh]);
 
+  // My executed fills — drawn as BUY/SELL dots on the curve so the chart
+  // answers "which trade caused this move". 60s cadence matches the
+  // user-trades proxy TTL; more often would just re-serve the cache.
+  useEffect(() => {
+    if (!tradingWallet) return;
+    let dead = false;
+    const load = async () => {
+      try {
+        const t = await fetchUserTrades(tradingWallet, 300);
+        if (!dead) setFills(t);
+      } catch { /* markers are decoration — never surface a fetch error */ }
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { dead = true; clearInterval(id); };
+  }, [tradingWallet]);
+
+  // Fills + redeem events inside the visible history window → chart markers.
+  const markers = useMemo<EquityMarker[]>(() => {
+    if (history.length < 2) return [];
+    const t0 = history[0].t;
+    const out: EquityMarker[] = fills
+      .filter((f) => f.timestamp >= t0)
+      .map((f) => ({
+        t: f.timestamp,
+        side: f.side,
+        usd: f.size * f.price,
+        label: `${f.market} · ${f.outcome} @ ${Math.round(f.price * 100)}¢`,
+      }));
+    for (const r of redeemMarks) {
+      if (r.t >= t0) {
+        out.push({
+          t: r.t,
+          side: "REDEEM",
+          usd: r.usd,
+          label: `${r.n} settled market${r.n === 1 ? "" : "s"} redeemed`,
+        });
+      }
+    }
+    out.sort((a, b) => a.t - b.t);
+    return out;
+  }, [fills, redeemMarks, history]);
+
+  // ── Redeem (auto + manual) ──
+  // Settled markets have no order book, so their winnings sit stranded as
+  // CTF tokens until redeemPositions runs. The backend engine auto-redeems
+  // for running sessions; this covers everyone else (idempotent — a redeem
+  // of an already-redeemed condition just pays 0).
+  const doRedeem = useCallback(async (opts: { auto: boolean }) => {
+    if (!eoa || redeemBusy.current) return;
+    const red = positions.filter((p) => p.redeemable);
+    if (red.length === 0) return;
+    const claimable = red.reduce((s, p) => s + p.value, 0);
+    if (
+      !opts.auto &&
+      !confirm(
+        `Redeem ${red.length} settled position(s) (~${fmtUsd(claimable)} → cash)?\n\nConverts winning tokens to USDC on-chain (gasless) and wraps it into your trading balance. SELL can't cash these out — the markets have already resolved.`,
+      )
+    ) {
+      return;
+    }
+    redeemBusy.current = true;
+    setRedeeming(true);
+    setRedeemStatus(`${opts.auto ? "auto-" : ""}redeeming ${red.length} settled position(s)…`);
+    try {
+      const r = await fetch("/api/polymarket/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ eoa }),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        conditions?: number;
+        valueRedeemed?: number;
+        skipped?: number;
+        error?: string;
+      };
+      if (r.ok) {
+        const v = Number(j.valueRedeemed ?? 0);
+        const n = Number(j.conditions ?? 0);
+        const skipped = Number(j.skipped ?? 0);
+        setRedeemStatus(
+          `${opts.auto ? "auto-" : ""}redeemed ${n} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} skipped` : ""}`,
+        );
+        // Stamp the event on the chart. The curve is NOT reset — a redeem
+        // just moves value from Positions to Cash, Total stays continuous,
+        // and wiping history would erase the markers' context.
+        if (n > 0) {
+          const mark: RedeemMark = { t: Date.now(), usd: v, n };
+          setRedeemMarks((prev) => {
+            const next = [...prev, mark].slice(-200);
+            try { localStorage.setItem(redeemMarksKey(eoa), JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
+      } else {
+        setRedeemStatus(null);
+        setLastError(`redeem: ${j.error ?? `HTTP ${r.status}`}`);
+      }
+    } catch (e) {
+      setRedeemStatus(null);
+      setLastError(`redeem: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setRedeeming(false);
+    redeemBusy.current = false;
+    setTimeout(refresh, 6_000);
+  }, [eoa, positions, refresh]);
+
+  // AUTO-REDEEM — settled positions cash themselves out; capital shouldn't
+  // sit stranded behind a button. 5-min cooldown (persisted, quota-safe)
+  // because the data-api keeps listing just-redeemed positions as redeemable
+  // for a minute or two — without it every poll would re-fire the tx.
+  useEffect(() => {
+    if (!eoa || redeeming || !positions.some((p) => p.redeemable)) return;
+    const key = `poly_auto_redeem_at:${eoa.toLowerCase()}`;
+    let last = 0;
+    try { last = Number(localStorage.getItem(key) || 0); } catch {}
+    if (Date.now() - last < 5 * 60_000) return;
+    try { localStorage.setItem(key, String(Date.now())); } catch {}
+    doRedeem({ auto: true });
+  }, [eoa, positions, redeeming, doRedeem]);
+
   const total = liq + posValue;
 
   // Unrealized P&L across every open position (mark-to-market vs avg entry),
@@ -580,7 +639,9 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         {mode === "pie" ? (
           <PieChart liq={liq} pos={posValue} />
         ) : (
-          <LineChart history={history} />
+          // Markers ride the Positions line — that's the line a fill actually
+          // moves (BUY: pos ↑ cash ↓; SELL/REDEEM: pos ↓ cash ↑).
+          <EquityChart history={history} markers={markers} markerLine="pos" />
         )}
       </div>
 
@@ -668,67 +729,24 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         </div>
       )}
 
-      {/* REDEEM → CASH — settled markets have no order book, so a SELL can't
-          cash them out ("invalid token id"). Their winning tokens must be
-          REDEEMED to USDC on-chain. Shown only when resolved positions are
-          held; lists how many and how much is claimable. */}
+      {/* Settled positions — redeemed AUTOMATICALLY (see the auto-redeem
+          effect above); this row just narrates it, with a manual kick as a
+          fallback for when the auto pass is inside its cooldown. */}
       {positions.some((p) => p.redeemable) && (() => {
         const red = positions.filter((p) => p.redeemable);
         const claimable = red.reduce((s, p) => s + p.value, 0);
         return (
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-pixel-muted whitespace-nowrap">
-              {red.length} settled · ~{fmtUsd(claimable)} to claim
+              {red.length} settled · ~{fmtUsd(claimable)} · auto-redeems to cash
             </span>
             <button
-              onClick={async () => {
-                if (!eoa) return;
-                if (
-                  !confirm(
-                    `Redeem ${red.length} settled position(s) (~${fmtUsd(claimable)} → cash)?\n\nConverts winning tokens to USDC on-chain (gasless) and wraps it into your trading balance. SELL can't cash these out — the markets have already resolved.`,
-                  )
-                ) {
-                  return;
-                }
-                setRedeeming(true);
-                setRedeemStatus(`redeeming ${red.length} settled position(s)…`);
-                try {
-                  const r = await fetch("/api/polymarket/redeem", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ eoa }),
-                  });
-                  const j = (await r.json().catch(() => ({}))) as {
-                    conditions?: number;
-                    valueRedeemed?: number;
-                    skipped?: number;
-                    error?: string;
-                  };
-                  if (r.ok) {
-                    const v = Number(j.valueRedeemed ?? 0);
-                    const skipped = Number(j.skipped ?? 0);
-                    setRedeemStatus(
-                      `redeemed ${j.conditions ?? 0} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} skipped` : ""}`,
-                    );
-                    // Curves redraw from the post-redeem state.
-                    try { localStorage.removeItem(historyKey(eoa)); } catch {}
-                    setHistory([]);
-                  } else {
-                    setRedeemStatus(null);
-                    setLastError(`redeem: ${j.error ?? `HTTP ${r.status}`}`);
-                  }
-                } catch (e) {
-                  setRedeemStatus(null);
-                  setLastError(`redeem: ${e instanceof Error ? e.message : String(e)}`);
-                }
-                setRedeeming(false);
-                setTimeout(refresh, 6_000);
-              }}
+              onClick={() => doRedeem({ auto: false })}
               disabled={redeeming}
               className="text-[10px] px-2 py-0.5 bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded"
-              title="Redeem resolved-market winnings to USDC (gasless, on-chain). A SELL can't cash these out because settled markets have no order book."
+              title="Settled winnings redeem themselves automatically (every few minutes). This forces a pass right now."
             >
-              {redeeming ? "REDEEMING…" : "REDEEM → CASH"}
+              {redeeming ? "REDEEMING…" : "REDEEM NOW"}
             </button>
           </div>
         );
@@ -816,13 +834,8 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                 }
                 setSellStatus(`sold ${ok} ✓ · ${fail} failed`);
                 setSelling(false);
-                // Reset portfolio history so the curves redraw from the
-                // post-sell state instead of dragging the old positions
-                // wedge across the time axis.
-                if (ok > 0) {
-                  try { localStorage.removeItem(historyKey(eoa)); } catch {}
-                  setHistory([]);
-                }
+                // History is kept — the drop in the Positions line IS the
+                // story, and the SELL markers on the curve explain it.
                 setTimeout(refresh, 4_000);
               }}
               disabled={selling || posValue <= 0}

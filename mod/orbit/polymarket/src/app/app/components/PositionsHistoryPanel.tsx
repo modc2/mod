@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { getOwnerAddress } from "../lib/access";
 import {
   fetchPositions,
   fetchClosedPositions,
@@ -61,7 +62,8 @@ export default function PositionsHistoryPanel() {
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
 
-  const eoa = auth.address;
+  // Prefer the signed-in owner (funded wallet) over the connected wallet.
+  const eoa = getOwnerAddress() ?? auth.address;
 
   const refresh = useCallback(async () => {
     if (!eoa) return;

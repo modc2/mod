@@ -375,15 +375,19 @@ pub async fn is_deposit_wallet_deployed(
 }
 
 /// Public Polygon RPC endpoints, tried in order. A single endpoint
-/// (polygon.drpc.org) rate-limits and times out under load, which used
-/// to surface as phantom `$0.00` balances — a failed read was silently
-/// coerced to zero upstream. polygon-rpc.com and rpc.ankr.com are
-/// deliberately excluded: they gate-keep with API keys / 401s. Mirrors
-/// the fallback list the Python side already uses (mod.py `_POLYGON_RPCS`).
+/// Keyless Polygon JSON-RPC endpoints, tried in order until one returns a
+/// well-formed result. All of these require a browser-like User-Agent (set
+/// on the shared reqwest client in main.rs) — without it they answer 401/403,
+/// which used to surface as phantom `$0.00` balances because a failed read
+/// was silently coerced to zero upstream. polygon-rpc.com and rpc.ankr.com
+/// are excluded: they gate-keep with API keys even with a UA. llamarpc was
+/// dropped — its DNS no longer resolves.
 const POLYGON_RPCS: &[&str] = &[
     "https://polygon.drpc.org",
     "https://polygon-bor-rpc.publicnode.com",
-    "https://polygon.llamarpc.com",
+    "https://polygon.api.onfinality.io/public",
+    "https://polygon.gateway.tenderly.co",
+    "https://1rpc.io/matic",
 ];
 
 /// POST a JSON-RPC body to Polygon, walking the endpoint list until one

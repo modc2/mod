@@ -11,6 +11,7 @@ import { networkById, withRpcFallback } from "../lib/networks";
 import type { SavedIndex, PolymarketTrade } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
+import { getOwnerAddress } from "../lib/access";
 import ThemeToggle from "./ThemeToggle";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
@@ -125,6 +126,8 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
     case "BALANCE": return <span className="text-amber-400">BAL</span>;
     case "CYCLE_START": return <span className="text-pixel-gray">---</span>;
     case "CYCLE_END": return <span className="text-green-400">END</span>;
+    case "REDEEM": return <span className="text-amber-400">RDM</span>;
+    case "WATCHLIST": return <span className="text-amber-400">WLST</span>;
     default: return <span className="text-pixel-gray">???</span>;
   }
 }
@@ -252,21 +255,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
   const TRADES_PAGE_SIZE = 25;
 
 
-  // Two-tab split of the LIVE view:
-  //   "all"  — ALL TRADES: live feed of trades from the traders you follow
-  //            (the engine's upstream observed-trades ring buffer).
-  //   "mine" — MY TRADES: your portfolio + stats + your own fills/copies +
-  //            strat params + custom strats.
-  // The tab drives the execution-log filter (all→upstream feed, mine→my
-  // fills). Critical alert banners (CLOB creds, empty wallet) and the pinned
-  // trading-wallet panel stay outside the tabs so they're never hidden.
-  const [liveTab, setLiveTab] = useState<"all" | "mine" | "split">("all");
-  // SPLIT view shows the watched-trader feed and my-trades feed side by side,
-  // each with its own pagination so scrolling one doesn't move the other.
-  const [splitPageAll, setSplitPageAll] = useState(0);
-  const [splitPageMine, setSplitPageMine] = useState(0);
-
-  // ── Actual on-chain fills (FILLS tab) ──────────────────────────
+  // ── Actual on-chain fills (FILLS filter) ──────────────────────
   // The engine log (MY TRADES) is in-memory and resets when the session
   // restarts; it also hides DRY_RUN decisions. The FILLS tab instead pulls
   // the *ground-truth* fill history straight from Polymarket's data-api for
@@ -278,14 +267,16 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
   const [fillsWallet, setFillsWallet] = useState<string | null>(null);
 
   const loadFills = useCallback(async () => {
-    if (!auth.address) return;
+    // Owner-only console: fills belong to the signed-in owner's funded wallet.
+    const eoa = getOwnerAddress() ?? auth.address;
+    if (!eoa) return;
     setFillsLoading(true);
     setFillsError(null);
     try {
       // Resolve the deposit wallet (where V2 trades actually land), then
       // paginate its full activity history (cutoff 0 = all of it).
       const info = await fetch(
-        `/api/polymarket/deposit-wallet/info?eoa=${auth.address}`,
+        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       ).then((r) => (r.ok ? r.json() : null));
       const wallet: string | undefined = info?.depositWallet;
@@ -300,30 +291,15 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
     }
   }, [auth.address]);
 
-  // ── Live-page tab nav ──
-  // The LIVE view previously stacked 6+ panels vertically and overflowed
-  // the screen on anything < 1080p. Tabs group related panels so only the
-  // section the user is looking at is visible.
-  // Split the LIVE view into focused tabs — "OVERVIEW" used to mean
-  // PortfolioPanel + the 7-stat metric grid + the skip-floor banner all
-  // stacked, which is the over-stuffed view the user flagged. Now:
-  //   PNL    — pie + over-time curve + top positions (PortfolioPanel)
-  //   TRADES — execution log + filters
-  //   STATS  — balance/orders/volume/cycles/sync grid + last fetch + banners
-  //   WALLET — trading wallet deposit/withdraw + V1 proxy
-  //   PARAMS — auto-trading config + signer + funding + checklist (ex-SETUP)
-  // Fetch on-chain fills while the FILLS filter is selected on the MY TRADES
-  // tab; refresh every 60s. Skipped on ALL TRADES (which shows the upstream
-  // feed from engine state and needs no data-api call).
+  // Fetch on-chain fills while the FILLS filter is selected; refresh every
+  // 60s. Skipped on the other filters (they read engine state and need no
+  // data-api call).
   useEffect(() => {
-    // Load fills for the MY FILLS filter, and always in SPLIT (the right
-    // column defaults to fills there).
-    const needFills = liveTab === "split" || (liveTab === "mine" && tradesFilter === "fills");
-    if (!needFills) return;
+    if (tradesFilter !== "fills") return;
     void loadFills();
     const t = setInterval(() => void loadFills(), 60_000);
     return () => clearInterval(t);
-  }, [liveTab, tradesFilter, loadFills]);
+  }, [tradesFilter, loadFills]);
 
   // Tick for countdown
   useEffect(() => {
@@ -606,50 +582,21 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
         </div>
       </div>
 
-      {/* ── Two-tab layout ──
-          A horizontal tab bar splits the LIVE view into TRADES (portfolio +
-          stats + execution log) and PARAMS (preconditions + strat config +
-          custom strats + wallet help). The pinned trading-wallet panel and
-          the critical CLOB/funding alert banners live OUTSIDE the tabs so
-          they're visible no matter which tab is selected. */}
+      {/* ── Single-column layout ──
+          The old ALL TRADES / MY TRADES / SIDE-BY-SIDE tab bar is gone — it
+          hid the stats grid and checklist behind an arbitrary tab and made
+          "where are my trades?" a navigation puzzle. Everything now stacks
+          in one always-visible flow (checklist → portfolio → stats → one
+          TRADES panel); the trader-feed/copies/fills split lives as a
+          segmented filter INSIDE the trades panel header instead. */}
       <div className="space-y-3">
 
-      {auth.connected && (
-        <div className="flex border-b border-pixel-border">
-          {([["all", "ALL TRADES"], ["mine", "MY TRADES"], ["split", "SIDE-BY-SIDE"]] as const).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => {
-                setLiveTab(id);
-                // Tab drives the log feed: ALL TRADES → upstream (watched
-                // traders), MY TRADES → my on-chain fills. SPLIT keeps the
-                // upstream feed on the left and a mine feed on the right, so
-                // coerce any "upstream" filter to a my-trades one (fills).
-                if (id === "all") setTradesFilter("upstream");
-                else if (id === "mine") setTradesFilter("fills");
-                else if (tradesFilter === "upstream") setTradesFilter("fills");
-                setTradesPage(0);
-                setSplitPageAll(0);
-                setSplitPageMine(0);
-              }}
-              className={`px-5 py-2 text-[13px] font-mono tracking-[0.18em] uppercase border-b-2 -mb-px transition-all duration-150 ${
-                liveTab === id
-                  ? "border-green-400 text-green-400 glow-green"
-                  : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/5"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Preconditions ── (PARAMS tab)
-          Moved to the TOP so the user knows what's blocking GO LIVE before
-          scrolling through funding panels. Compact pill row: each step is
-          green-filled when satisfied, amber-outline when actionable, muted
-          when stale. The summary count tells you "5/6 ready" at a glance. */}
-      {liveTab === "mine" && !isLive && (() => {
+      {/* ── Preconditions ──
+          Shown whenever the engine is stopped so the user knows what's
+          blocking GO LIVE. Compact pill row: each step is green-filled when
+          satisfied, muted when not. The summary count tells you "5/6 ready"
+          at a glance. */}
+      {!isLive && (() => {
         const items = [
           { ok: hasWallet, label: "WALLET", action: null as null | { label: string; disabled: boolean; onClick: () => void } },
           {
@@ -666,6 +613,12 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
           },
           { ok: !!activeStrat, label: "STRAT", action: null },
           { ok: hasTraders, label: "TRADERS", action: null },
+          // The strat's market keywords — never a blocker, but part of what
+          // "going live" means: with keywords set the engine only mirrors
+          // matching markets, so the checklist says so out loud.
+          ...(activeStrat?.marketQuery?.trim()
+            ? [{ ok: true, label: `⌕ ${activeStrat.marketQuery.trim()}`, action: null }]
+            : []),
           { ok: hasRebalance, label: "REBALANCE", action: null },
           // Capital never blocks — with $0 on-chain the engine starts in
           // paper sizing (strat's backtest capital) and dry-run does the
@@ -693,7 +646,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
                     }`}
                   >
                     <span className="text-[10px]">{item.ok ? "✓" : "○"}</span>
-                    <span>{item.label}</span>
+                    <span className="max-w-[240px] truncate" title={item.label}>{item.label}</span>
                     {item.action && (
                       <button
                         onClick={item.action.onClick}
@@ -772,9 +725,9 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
         </div>
       )}
 
-      {/* ── Portfolio — pinned ABOVE the tab bar so equity (cash + positions,
-          not just free capital), the performance-over-time curve, and every
-          open position's live P&L stay visible on every tab. */}
+      {/* ── Portfolio — equity (cash + positions, not just free capital),
+          the performance-over-time curve, and every open position's live
+          P&L, always visible. */}
       {auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
 
       {/* ── Full position record — every position this account ever held,
@@ -788,10 +741,10 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
           authorized signer — no separate "TURN ON AUTO-TRADING" step
           to flip. Auto-trading is on by construction. */}
 
-      {/* ── Stats (when live) ── (MY TRADES tab)
+      {/* ── Stats (when live) ──
           Card grid; LAST SYNC tracks the most recent successful Polymarket
           data-api pull, LAST FETCH surfaces the CYCLE_END summary. */}
-      {liveTab === "mine" && isLive && engineState && (
+      {isLive && engineState && (
         <div className="pixel-panel border-2 border-pixel-border p-2">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
             <StatCard
@@ -952,21 +905,13 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       )}
 
       {/* ── Trades / Execution Log (filterable + paginated) ──
-          The full engine log is dominated by CYCLE_START/END heartbeats — the
-          "TRADES" view filters to just the entries you actually copy or skip,
-          which is what the user usually wants when monitoring. Pagination
-          keeps the panel a fixed height instead of growing across the page. */}
-      {(liveTab === "all" || liveTab === "mine" || liveTab === "split") && isLive && engineState && (() => {
-        // One feed renderer, parameterized so SPLIT can show two at once. The
-        // params shadow the outer tradesFilter/tradesPage/setTradesPage so the
-        // body below needs no rewrite; `setTradesFilter` stays the shared
-        // setter (filter buttons drive whichever feed shows them).
-        const renderFeed = (
-          tradesFilter: "upstream" | "trades" | "all" | "fills",
-          tradesPage: number,
-          setTradesPage: (v: number | ((p: number) => number)) => void,
-          showFilterButtons: boolean,
-        ) => {
+          ONE trades panel — the old ALL/MY/SIDE-BY-SIDE page tabs collapsed
+          into the segmented filter in this panel's header. The full engine
+          log is dominated by CYCLE_START/END heartbeats — the COPIES view
+          filters to just the entries you actually copy or skip, which is
+          what the user usually wants when monitoring. Pagination keeps the
+          panel a fixed height instead of growing across the page. */}
+      {isLive && engineState && (() => {
         const isUpstream = tradesFilter === "upstream";
         const isFills = tradesFilter === "fills";
         // UPSTREAM tab pulls from the engine's observed-trades ring buffer
@@ -1070,63 +1015,45 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
         const safePage = Math.min(tradesPage, totalPages - 1);
         const start = safePage * TRADES_PAGE_SIZE;
         const pageEntries = displayItems.slice(start, start + TRADES_PAGE_SIZE);
-        const headerLabel =
-          tradesFilter === "upstream" ? "TRADER TRADES" :
-          tradesFilter === "trades" ? "MY TRADES" :
-          tradesFilter === "fills" ? "MY FILLS" : "ALL TRADES";
         const countLabel =
           tradesFilter === "upstream" ? "from watched traders" :
-          tradesFilter === "trades" ? "decisions on my account" :
+          tradesFilter === "trades" ? "engine decisions" :
           tradesFilter === "fills" ? "on-chain fills" : "log entries";
+        // One segmented filter replaces the old ALL TRADES / MY TRADES /
+        // SIDE-BY-SIDE page tabs: TRADERS = watched-trader feed (with the
+        // ✓/⊘/✗ mirror outcome inline), COPIES = engine decisions, FILLS =
+        // on-chain ground truth, LOG = everything incl. heartbeats.
+        const FILTERS: { id: typeof tradesFilter; label: string; title: string }[] = [
+          { id: "upstream", label: "TRADERS", title: "Live feed of what your watched traders are doing — each row shows whether the engine copied (✓), skipped (⊘) or failed (✗) it" },
+          { id: "trades", label: "COPIES", title: "Orders the engine placed (or tried to) on your account — copies, skips, errors" },
+          { id: "fills", label: "FILLS", title: "Your ACTUAL on-chain fills from Polymarket (ground truth — survives restarts)" },
+          { id: "all", label: "LOG", title: "Everything: trades, decisions, cycle heartbeats, errors" },
+        ];
         return (
           <div className="pixel-panel border-2 border-pixel-border">
             <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
-              <span className="text-[14px] text-pixel-gray tracking-wider shrink-0">{headerLabel}</span>
-              <span className="text-[12px] text-pixel-gray font-mono shrink-0">
+              <span className="text-[14px] text-pixel-white tracking-wider shrink-0">TRADES</span>
+              <div className="flex items-center rounded-md border border-pixel-border/70 bg-pixel-black/40 p-0.5 shrink-0">
+                {FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => { setTradesFilter(f.id); setTradesPage(0); }}
+                    className={`px-2.5 py-0.5 text-[11px] font-mono tracking-[0.14em] rounded transition-colors ${
+                      tradesFilter === f.id
+                        ? "bg-green-400/15 text-green-400 border border-green-400/50"
+                        : "border border-transparent text-pixel-gray hover:text-pixel-white"
+                    }`}
+                    title={f.title}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto text-[12px] text-pixel-gray font-mono shrink-0">
                 {isFills && displayItems.length !== sorted.length
                   ? `${displayItems.length} trades · ${sorted.length} fills batched`
                   : `${sorted.length} ${countLabel}`}
               </span>
-              {/* On ALL TRADES the feed is fixed to the watched-trader stream,
-                  so no filter buttons. On MY TRADES, let the user switch
-                  between copy decisions, on-chain fills, and the full log. */}
-              {showFilterButtons && (
-              <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => { setTradesFilter("trades"); setTradesPage(0); }}
-                  className={`pixel-btn text-[11px] px-2 py-0.5 ${
-                    tradesFilter === "trades"
-                      ? "border-green-400 text-green-400 bg-green-400/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white"
-                  }`}
-                  title="Orders the engine placed (or tried to) on your account — copies, skips, errors"
-                >
-                  MY TRADES
-                </button>
-                <button
-                  onClick={() => { setTradesFilter("fills"); setTradesPage(0); }}
-                  className={`pixel-btn text-[11px] px-2 py-0.5 ${
-                    tradesFilter === "fills"
-                      ? "border-green-400 text-green-400 bg-green-400/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white"
-                  }`}
-                  title="Your ACTUAL on-chain fills from Polymarket (ground truth — survives restarts)"
-                >
-                  MY FILLS
-                </button>
-                <button
-                  onClick={() => { setTradesFilter("all"); setTradesPage(0); }}
-                  className={`pixel-btn text-[11px] px-2 py-0.5 ${
-                    tradesFilter === "all"
-                      ? "border-green-400 text-green-400 bg-green-400/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white"
-                  }`}
-                  title="Everything: trades, decisions, cycle heartbeats, errors"
-                >
-                  ALL
-                </button>
-              </div>
-              )}
             </div>
             <div className="max-h-[300px] overflow-y-auto">
               {/* UPSTREAM rows look like the BACKTEST trade feed — trader,
@@ -1385,30 +1312,16 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
             )}
           </div>
         );
-        }; // end renderFeed
-
-        // SPLIT: watched-trader feed (left) + my-trades feed (right), each
-        // with independent pagination. The right column keeps the MY
-        // TRADES/FILLS/ALL filter buttons; the left is fixed to upstream.
-        if (liveTab === "split") {
-          return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 items-start">
-              {renderFeed("upstream", splitPageAll, setSplitPageAll, false)}
-              {renderFeed(tradesFilter === "upstream" ? "fills" : tradesFilter, splitPageMine, setSplitPageMine, true)}
-            </div>
-          );
-        }
-        return renderFeed(tradesFilter, tradesPage, setTradesPage, liveTab === "mine");
       })()}
 
       {/* ── Empty state when live but no log ── */}
-      {liveTab === "mine" && isLive && engineState && engineState.log.length === 0 && tradesFilter !== "fills" && (
+      {isLive && engineState && engineState.log.length === 0 && tradesFilter !== "fills" && tradesFilter !== "upstream" && (
         <div className="pixel-panel border-2 border-pixel-border px-3 py-4 text-center">
           <span className="text-[15px] text-pixel-gray">WAITING FOR FIRST CYCLE...</span>
         </div>
       )}
 
-      {/* ══ CONFIG ══ (MY TRADES tab)
+      {/* ══ CONFIG ══
           Custom strats and wallet admin moved BELOW the plots + trades so
           the chart and execution feed lead the view. */}
 
@@ -1423,7 +1336,7 @@ export default function LivePanel({ onFundNow }: { onFundNow?: () => void } = {}
       {/* ── WALLET help banner (collapsible) ──
           Explains which wallet to use. Collapsed state persists across
           reloads so users who know the layout don't get the wall of text. */}
-      {liveTab === "mine" && auth.connected && (() => {
+      {auth.connected && (() => {
         const KEY = "poly_wallet_help_open";
         const [open, setOpen] = [
           (() => {
