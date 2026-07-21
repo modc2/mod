@@ -43,6 +43,20 @@ UNIT_M = 3.0
 UNIT_AREA_M2 = UNIT_M * UNIT_M
 FLOOR_H_M = UNIT_M                  # one stacked module ≈ one storey ≈ 3 m
 
+# ━━ Pro-forma benchmarks — savings vs site-built + ROI ━━━━━━━━━━━━━━━
+# North-American urban low-rise typicals. Every figure is overridable
+# per-design through constraints: site_built_cost_m2, monthly_rent_usd,
+# rent_per_m2_mo, land_cost_usd, soft_cost_pct, vacancy_pct, opex_pct.
+SITE_BUILT_COST_M2 = 3400        # USD/m² hard cost, conventional stick-built
+SITE_BUILT_CARBON_KG_M2 = 650    # kg CO₂e/m² embodied, conventional build
+RENT_PER_M2_MO = 30.0            # USD/m²/month asking-rent default
+SOFT_COST_PCT = 15.0             # design + permits + fees, % of hard cost
+VACANCY_PCT = 5.0                # % of gross rent lost to vacancy
+OPEX_PCT = 25.0                  # operating costs, % of collected rent
+SITE_MONTHS_BASE = 8.0           # site-built schedule = base + area-scaled
+SITE_MONTHS_PER_M2 = 1 / 25.0
+MODULAR_SITE_MONTHS = 2.0        # foundations + crane set + hookup
+
 # ━━ Canadian laneway / ADU code presets ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Building-envelope limits for accessory dwelling units (laneway houses,
 # garden suites). Selecting one flags whether a design fits a municipality's
@@ -818,12 +832,124 @@ class Mod:
             'footprint_m2': round(footprint_cells * UNIT_AREA_M2, 1),
             'cost_breakdown': self._cost_breakdown(specs, st),
         }
+        # façade takeoff — modules price structure + fit-out + cassettes; the
+        # exposed envelope is priced per-panel from the active skin, so choosing
+        # (or forging) a cheaper panel visibly changes the building's cost.
+        env = self._envelope(cells, constraints or {}) if cells else None
+        if env and env['panel_count']:
+            result['price_usd'] += env['subtotal_usd']
+            result['price_per_m2'] = round(result['price_usd'] / area) if area else 0
+            result['embodied_carbon_kg'] += env['carbon_kg']
+            result['lead_time_days'] = (max(lead, env['lead_days']) + assembly) if specs else 0
+            result['cost_breakdown']['envelope'] = env
+            result['cost_breakdown']['total_usd'] = \
+                result['cost_breakdown']['module_subtotal_usd'] + env['subtotal_usd']
+        fin = self._financials(result, constraints or {})
+        if fin:
+            result['financials'] = fin
         if constraints:
             plot = self._plot_metrics(constraints, result)
             if plot:
                 result['plot'] = plot
             result['compliance'] = self._check(result, constraints, max_ax, max_az)
         return result
+
+    def _envelope(self, cells, constraints):
+        """Façade panel takeoff: count the EXPOSED wall / curtain faces of a
+        composition (party walls between adjacent modules are culled, exactly
+        as rendered) and price them with the active skin panel
+        (``constraints.skin``) or the built-in defaults."""
+        idx = self._spec_index()
+        pidx = self._panel_index()
+        skin = pidx.get((constraints or {}).get('skin') or '')
+        wall = skin if skin and skin.get('kind') != 'curtain' else _PANEL_INDEX['clt_solid']
+        curtain = skin if skin and skin.get('kind') == 'curtain' else _PANEL_INDEX['curtain_glass']
+        occ = {}
+        for c in (cells or []):
+            if isinstance(c, dict):
+                occ[(int(c.get('x', 0)), int(c.get('z', 0)))] = c.get('stack', [])
+
+        def is_open(x, z, level):
+            stack = occ.get((x, z), [])
+            s = idx.get(stack[level]) if level < len(stack) else None
+            return (not s) or s['id'] == 'garden' or \
+                   (s.get('category') == 'outdoor' and not s.get('glass'))
+
+        walls = curtains = 0
+        for (x, z), stack in occ.items():
+            for level, mid in enumerate(stack):
+                s = idx.get(mid)
+                if not s or is_open(x, z, level):
+                    continue
+                exposed = sum(1 for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                              if is_open(x + dx, z + dz, level))
+                if s.get('glass'):
+                    curtains += exposed
+                else:
+                    walls += exposed
+        items = []
+        for pn, qty, kind in ((wall, walls, 'wall'), (curtain, curtains, 'curtain')):
+            if qty:
+                items.append({'id': pn['id'], 'name': pn['name'], 'kind': kind, 'qty': qty,
+                              'unit_price': pn['price'], 'line_total': pn['price'] * qty,
+                              'unit_carbon_kg': pn.get('carbon_kg', 0)})
+        return {
+            'skin': skin['id'] if skin else None,
+            'items': items,
+            'panel_count': walls + curtains,
+            'subtotal_usd': sum(i['line_total'] for i in items),
+            'carbon_kg': sum(i['unit_carbon_kg'] * i['qty'] for i in items),
+            'lead_days': max((pn['lead_days'] for pn, q, _ in
+                              ((wall, walls, 0), (curtain, curtains, 0)) if q), default=0),
+        }
+
+    def _financials(self, est, c):
+        """Pro-forma: what modular saves vs a conventional site-built job of
+        the same floor area, plus rental ROI (yield-on-cost, payback). Every
+        benchmark is overridable through constraints."""
+        area = est.get('floor_area_m2') or 0
+        if not area:
+            return None
+        c = c or {}
+        hard = est['price_usd']
+        site_m2 = float(c.get('site_built_cost_m2') or SITE_BUILT_COST_M2)
+        soft_pct = float(c.get('soft_cost_pct') if c.get('soft_cost_pct') is not None else SOFT_COST_PCT)
+        land = float(c.get('land_cost_usd') or 0)
+        vac = float(c.get('vacancy_pct') if c.get('vacancy_pct') is not None else VACANCY_PCT)
+        opex = float(c.get('opex_pct') if c.get('opex_pct') is not None else OPEX_PCT)
+        rent_m2 = float(c.get('rent_per_m2_mo') or RENT_PER_M2_MO)
+        rent = float(c.get('monthly_rent_usd') or round(area * rent_m2))
+
+        all_in = hard * (1 + soft_pct / 100) + land
+        site_hard = area * site_m2
+        site_all_in = site_hard * (1 + soft_pct / 100) + land
+        savings = site_all_in - all_in
+        modular_months = round(est.get('lead_time_days', 0) / 30 + MODULAR_SITE_MONTHS, 1)
+        site_months = round(SITE_MONTHS_BASE + area * SITE_MONTHS_PER_M2, 1)
+        months_saved = max(0.0, round(site_months - modular_months, 1))
+        annual_gross = rent * 12 * (1 - vac / 100)
+        noi = annual_gross * (1 - opex / 100)
+        return {
+            'all_in_cost_usd': round(all_in),
+            'site_built_cost_usd': round(site_all_in),
+            'savings_usd': round(savings),
+            'savings_pct': round(savings / site_all_in * 100, 1) if site_all_in else 0,
+            'modular_months': modular_months,
+            'site_built_months': site_months,
+            'months_saved': months_saved,
+            'early_revenue_usd': round(months_saved * rent),
+            'monthly_rent_usd': round(rent),
+            'annual_noi_usd': round(noi),
+            'yield_on_cost_pct': round(noi / all_in * 100, 2) if all_in else 0,
+            'payback_years': round(all_in / noi, 1) if noi > 0 else None,
+            'carbon_saved_kg': round(area * SITE_BUILT_CARBON_KG_M2 - est.get('embodied_carbon_kg', 0)),
+            'assumptions': {
+                'site_built_cost_m2': site_m2, 'rent_per_m2_mo': rent_m2,
+                'land_cost_usd': land, 'soft_cost_pct': soft_pct,
+                'vacancy_pct': vac, 'opex_pct': opex,
+                'site_built_carbon_kg_m2': SITE_BUILT_CARBON_KG_M2,
+            },
+        }
 
     def _cost_breakdown(self, specs, st):
         """Bill of quantities: every distinct module priced per-unit (style-
