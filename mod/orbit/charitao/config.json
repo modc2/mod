@@ -1,0 +1,38 @@
+{
+    "name": "charitao",
+    "version": "1.0.0",
+    "description": "Proof-of-donation Bittensor subnet: miners donate TAO from their registered coldkey to whitelisted charity addresses; validators verify transfers on chain and set weights so emissions always cover donations at a fixed, predictable profit margin (coverage-ratio budget + burn weight + carryover queue). Local sim works out of the box; state lives in ~/.mod/charitao/.",
+    "anchor": "mod.py",
+    "icon": "\ud83e\udec0",
+    "color": "#e8618c",
+    "app_port": 50270,
+    "route": true,
+    "urls": {
+        "app": "https://modc2.com/charitao",
+        "gateway": "https://modc2.com/charitao"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "status",
+        "charities",
+        "add_charity",
+        "remove_charity",
+        "verify_charity",
+        "simulate",
+        "donate",
+        "epoch",
+        "leaderboard",
+        "results",
+        "projection",
+        "suggest_donation",
+        "reset",
+        "test",
+        "serve",
+        "kill",
+        "deploy",
+        "stop_worker"
+    ],
+    "key": "charitao",
+    "schema": "QmNfEmeHVm4MXvHTkxMJVgHhQ6HDYtWg3rRJTCHHHTaZez"
+}
