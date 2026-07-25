@@ -1009,7 +1009,8 @@ async function showCode(){
           Open on GitHub ${ic('out')}</a>
       </div>` +
       (latest ? `<div class="cbar">${ic('commit')}
-        <span class="cauthor">${esc(latest.author)}</span>
+        ${latest.author && latest.author !== 'Your Name'
+          ? `<span class="cauthor">${esc(latest.author)}</span>` : ''}
         <span class="cmsg">${esc(latest.msg)}</span>
         <a class="chash" href="https://github.com/${GIT.repo}/commit/${latest.short}"
           target="_blank" rel="noopener">${latest.short}</a>
