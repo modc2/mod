@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 use std::collections::HashSet;
 use base64::Engine;
 use uuid::Uuid;
@@ -61,6 +61,11 @@ pub struct ClaudeJob {
     pub updated_at: i64,
     #[serde(default)]
     pub user_address: String,
+    /// localfs CID of the finished task bundle (prompt + output + metadata),
+    /// registered in the store module's index — None until the task reaches
+    /// a terminal state and the store bridge has run.
+    #[serde(default)]
+    pub cid: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +118,71 @@ fn normalize_model(model: &str) -> String {
     }
 }
 
+/// Resolve the model for a job, expanding the special `auto` value.
+///
+/// `auto` (or `claude-auto`) means "let a fast model read the task and pick the
+/// right tier for me": a quick Haiku classification pass buckets the prompt into
+/// simple / medium / hard, which maps to Haiku 4.5 / Sonnet 5 / Opus 5. Any
+/// other value passes straight through `normalize_model`. A `[1m]` (1M-context)
+/// suffix on the request is preserved onto whatever tier `auto` lands on.
+async fn resolve_model(requested: &str, prompt: &str, claude_bin: &str) -> String {
+    let trimmed = requested.trim();
+    let one_m = trimmed.ends_with("[1m]");
+    let base = trimmed.strip_suffix("[1m]").unwrap_or(trimmed);
+    if base != "auto" && base != "claude-auto" {
+        return normalize_model(requested);
+    }
+    let tier = classify_complexity(prompt, claude_bin).await;
+    let model = match tier.as_str() {
+        "simple" => "claude-haiku-4-5",
+        "hard" => "claude-opus-5",
+        _ => "claude-sonnet-5", // "medium" and any fallback
+    };
+    if one_m {
+        format!("{model}[1m]")
+    } else {
+        model.to_string()
+    }
+}
+
+/// Ask a fast model to bucket a task's difficulty into simple|medium|hard for
+/// the `auto` router. Only the head of the prompt is sent (a difficulty read
+/// doesn't need the whole thing, and short == fast + cheap). Returns "medium"
+/// on any timeout/error so `auto` degrades to the balanced tier, never a crash.
+async fn classify_complexity(prompt: &str, claude_bin: &str) -> String {
+    let head: String = prompt.chars().take(2000).collect();
+    let classify_prompt = format!(
+        "You are a task-complexity router for a coding agent. Read the TASK below and \
+reply with EXACTLY ONE lowercase word, nothing else:\n\
+- simple = trivial/mechanical (rename, typo, one-line edit, a quick factual question)\n\
+- medium = normal feature work, a focused bug fix, a moderate refactor\n\
+- hard = architecture, multi-file changes, tricky debugging, deep reasoning\n\n\
+TASK:\n{head}"
+    );
+    let fut = Command::new(claude_bin)
+        .arg("--print")
+        .arg("--model")
+        .arg("claude-haiku-4-5")
+        .arg("--dangerously-skip-permissions")
+        .arg(&classify_prompt)
+        .stdin(std::process::Stdio::null())
+        .output();
+    let out = match tokio::time::timeout(std::time::Duration::from_secs(25), fut).await {
+        Ok(Ok(o)) => o,
+        _ => return "medium".to_string(),
+    };
+    let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    // Check the strongest signals first; "simple" wins over "medium" if both
+    // somehow appear, and "hard" is the deliberate upgrade signal.
+    if text.contains("hard") {
+        "hard".to_string()
+    } else if text.contains("simple") {
+        "simple".to_string()
+    } else {
+        "medium".to_string()
+    }
+}
+
 // ── SQLite Job Store ─────────────────────────────────────────────────
 
 struct JobStore {
@@ -157,17 +227,21 @@ impl JobStore {
             [],
         )
         .ok(); // Ignore error if column already exists
+
+        // Migration: localfs CID of the task bundle (existing DBs)
+        conn.execute("ALTER TABLE claude_jobs ADD COLUMN cid TEXT", [])
+            .ok();
     }
 
     fn insert(&self, job: &ClaudeJob) {
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO claude_jobs (id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO claude_jobs (id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 job.id, job.prompt, job.model, job.work_dir,
                 job.status.to_string(), job.output, job.error, job.pid,
-                job.created_at, job.updated_at, job.user_address
+                job.created_at, job.updated_at, job.user_address, job.cid
             ],
         )
         .expect("SQLite insert failed");
@@ -193,6 +267,30 @@ impl JobStore {
         .ok();
     }
 
+    fn update_cid(&self, id: &str, cid: &str) {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE claude_jobs SET cid = ?1 WHERE id = ?2",
+            params![cid, id],
+        )
+        .ok();
+    }
+
+    /// Terminal jobs that never got a task CID (pre-feature rows, or bridge
+    /// failures) — oldest first so the backfill preserves creation order.
+    fn terminal_missing_cid(&self, limit: usize) -> Vec<String> {
+        let conn = self.conn();
+        let mut stmt = match conn.prepare(
+            "SELECT id FROM claude_jobs WHERE cid IS NULL AND status IN ('completed','failed','cancelled') ORDER BY created_at ASC LIMIT ?1",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
+    }
+
     fn append_output(&self, id: &str, text: &str) {
         let conn = self.conn();
         let now = Utc::now().timestamp();
@@ -206,7 +304,7 @@ impl JobStore {
     fn get(&self, id: &str) -> Option<ClaudeJob> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address FROM claude_jobs WHERE id = ?1")
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid FROM claude_jobs WHERE id = ?1")
             .ok()?;
 
         stmt.query_row(params![id], |row| {
@@ -222,6 +320,35 @@ impl JobStore {
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 user_address: row.get::<_, String>(10).unwrap_or_default(),
+                cid: row.get::<_, Option<String>>(11).unwrap_or(None),
+            })
+        })
+        .ok()
+    }
+
+    /// Look a job up by its task-bundle CID — the replay deep link
+    /// (`?replay=<cid>`) resolves through here before falling back to the
+    /// localfs blob (which also serves tasks minted on other consoles).
+    fn get_by_cid(&self, cid: &str) -> Option<ClaudeJob> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid FROM claude_jobs WHERE cid = ?1 LIMIT 1")
+            .ok()?;
+
+        stmt.query_row(params![cid], |row| {
+            Ok(ClaudeJob {
+                id: row.get(0)?,
+                prompt: row.get(1)?,
+                model: row.get(2)?,
+                work_dir: row.get(3)?,
+                status: JobStatus::from_str(&row.get::<_, String>(4)?),
+                output: row.get(5)?,
+                error: row.get(6)?,
+                pid: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                user_address: row.get::<_, String>(10).unwrap_or_default(),
+                cid: row.get::<_, Option<String>>(11).unwrap_or(None),
             })
         })
         .ok()
@@ -230,7 +357,7 @@ impl JobStore {
     fn list(&self) -> Vec<ClaudeJob> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address FROM claude_jobs ORDER BY created_at DESC LIMIT 100")
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid FROM claude_jobs ORDER BY created_at DESC LIMIT 100")
             .unwrap();
 
         stmt.query_map([], |row| {
@@ -246,6 +373,7 @@ impl JobStore {
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 user_address: row.get::<_, String>(10).unwrap_or_default(),
+                cid: row.get::<_, Option<String>>(11).unwrap_or(None),
             })
         })
         .unwrap()
@@ -327,6 +455,12 @@ fn pid_alive(pid: u32) -> bool {
 pub struct ClaudeJobManager {
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
+    /// Live stdin writers, one per running job. The CLI runs in stream-json
+    /// input mode, so pushing a user message here mid-run steers the agent —
+    /// the message is injected at the next tool boundary, exactly like typing
+    /// while Claude Code works. The entry is dropped when the turn's `result`
+    /// event lands (which closes stdin and lets the CLI exit).
+    stdin_gates: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<String>>>>,
     cancelled: Arc<RwLock<HashSet<String>>>,
     claude_bin: String,
 }
@@ -341,6 +475,7 @@ impl ClaudeJobManager {
         Ok(Self {
             store: Arc::new(store),
             streams: Arc::new(RwLock::new(HashMap::new())),
+            stdin_gates: Arc::new(RwLock::new(HashMap::new())),
             cancelled: Arc::new(RwLock::new(HashSet::new())),
             claude_bin,
         })
@@ -500,10 +635,17 @@ impl ClaudeJobManager {
             enhanced_prompt
         };
 
+        // Resolve the claude binary and the concrete model up front. `auto`
+        // triggers a fast Haiku classification pass inside resolve_model, so the
+        // job row records the model that ACTUALLY ran (not the literal "auto"),
+        // which is what the console badge shows.
+        let claude_bin = which_claude().unwrap_or_else(|| self.claude_bin.clone());
+        let model = resolve_model(&req.model, &enhanced_prompt, &claude_bin).await;
+
         let job = ClaudeJob {
             id: id.clone(),
             prompt: enhanced_prompt.clone(),
-            model: req.model.clone(),
+            model: model.clone(),
             work_dir: work_dir.clone(),
             status: JobStatus::Pending,
             output: String::new(),
@@ -512,6 +654,7 @@ impl ClaudeJobManager {
             created_at: now,
             updated_at: now,
             user_address: req.user_address.clone().unwrap_or_default(),
+            cid: None,
         };
 
         self.store.insert(&job);
@@ -523,16 +666,24 @@ impl ClaudeJobManager {
             streams.insert(id.clone(), tx.clone());
         }
 
+        // Stdin channel for the CLI's stream-json input: the job prompt is the
+        // first message, and any mid-run guidance the user types is pushed
+        // through the same gate. Registered BEFORE spawn so guidance sent
+        // while the process is still starting is queued, never lost.
+        let (stdin_tx, stdin_rx) = mpsc::unbounded_channel::<String>();
+        stdin_tx.send(enhanced_prompt.clone()).ok();
+        {
+            let mut gates = self.stdin_gates.write().await;
+            gates.insert(id.clone(), stdin_tx);
+        }
+
         // Spawn the process
         let store = Arc::clone(&self.store);
         let streams = Arc::clone(&self.streams);
+        let stdin_gates = Arc::clone(&self.stdin_gates);
         let cancelled = Arc::clone(&self.cancelled);
-        // Re-resolve claude binary at spawn time (not just init) so it picks up
-        // newly installed binaries without requiring a server restart.
-        let claude_bin = which_claude().unwrap_or_else(|| self.claude_bin.clone());
         let job_id = id.clone();
         let prompt = enhanced_prompt;
-        let model = normalize_model(&req.model);
         let agent_type = req.agent_type;
         let system_prompt = req.system_prompt;
 
@@ -555,7 +706,7 @@ impl ClaudeJobManager {
             };
 
         tokio::spawn(async move {
-            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), module_note.as_deref(), sandbox, store, streams, cancelled, tx).await;
+            run_claude_process(&job_id, &prompt, &model, &work_dir, &claude_bin, agent_type.as_deref(), system_prompt.as_deref(), module_note.as_deref(), sandbox, store, streams, stdin_gates, stdin_rx, cancelled, tx).await;
         });
 
         self.store.get(&id).unwrap_or(job)
@@ -567,6 +718,10 @@ impl ClaudeJobManager {
 
     pub fn get_job(&self, id: &str) -> Option<ClaudeJob> {
         self.store.get(id)
+    }
+
+    pub fn get_job_by_cid(&self, cid: &str) -> Option<ClaudeJob> {
+        self.store.get_by_cid(cid)
     }
 
     pub fn delete_job(&self, id: &str) {
@@ -612,6 +767,39 @@ impl ClaudeJobManager {
         }
         let mut streams = self.streams.write().await;
         streams.remove(id);
+        self.stdin_gates.write().await.remove(id);
+        Ok(())
+    }
+
+    /// Inject a user message into a RUNNING job — the console's "guide the
+    /// task" feature. The CLI runs with stream-json input, so the message is
+    /// delivered to the agent at its next tool boundary (same mechanism as
+    /// typing while Claude Code works). A visible marker is appended to the
+    /// job log and broadcast to live stream subscribers so the guidance shows
+    /// up inline in the output, right where it was injected.
+    pub async fn steer_job(&self, id: &str, message: &str) -> Result<(), String> {
+        let job = self
+            .store
+            .get(id)
+            .ok_or_else(|| format!("Job {} not found", id))?;
+        if !matches!(job.status, JobStatus::Running | JobStatus::Pending) {
+            return Err("Job is not running — guidance only works on an active task".to_string());
+        }
+        let sender = {
+            let gates = self.stdin_gates.read().await;
+            gates.get(id).cloned()
+        }
+        .ok_or_else(|| "Task is wrapping up — too late to guide it".to_string())?;
+        sender
+            .send(message.to_string())
+            .map_err(|_| "Task stdin already closed".to_string())?;
+
+        let marker = format!("\n\n◈ GUIDANCE ▸ {}\n\n", message.trim());
+        self.store.append_output(id, &marker);
+        let streams = self.streams.read().await;
+        if let Some(tx) = streams.get(id) {
+            tx.send(marker).ok();
+        }
         Ok(())
     }
 
@@ -619,6 +807,31 @@ impl ClaudeJobManager {
         let streams = self.streams.read().await;
         streams.get(id).map(|tx| tx.subscribe())
     }
+
+    /// Backfill task CIDs for terminal jobs that predate the store bridge
+    /// (or whose bridge run failed): one slow serial pass after startup, so
+    /// every past task also becomes a store object. Kill switch shared with
+    /// the live path: CLAUDE_TASK_CIDS=0.
+    pub fn spawn_cid_backfill(&self) {
+        if !task_cids_enabled() {
+            return;
+        }
+        let store = Arc::clone(&self.store);
+        tokio::spawn(async move {
+            // Let the server finish booting before shelling out to python.
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            for id in store.terminal_missing_cid(500) {
+                let s = Arc::clone(&store);
+                let jid = id.clone();
+                let _ = tokio::task::spawn_blocking(move || publish_task_to_store(&jid, &s)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        });
+    }
+}
+
+fn task_cids_enabled() -> bool {
+    std::env::var("CLAUDE_TASK_CIDS").unwrap_or_default() != "0"
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -681,6 +894,8 @@ async fn run_claude_process(
     sandbox: Option<(u32, u32)>,
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
+    stdin_gates: Arc<RwLock<HashMap<String, mpsc::UnboundedSender<String>>>>,
+    stdin_rx: mpsc::UnboundedReceiver<String>,
     cancelled: Arc<RwLock<HashSet<String>>>,
     tx: broadcast::Sender<String>,
 ) {
@@ -689,6 +904,7 @@ async fn run_claude_process(
         let err = format!("Failed to create work_dir '{}': {}", work_dir, e);
         store.update_status(job_id, &JobStatus::Failed, Some(&err));
         tx.send(format!("[ERROR] {}\n", err)).ok();
+        stdin_gates.write().await.remove(job_id);
         return;
     }
 
@@ -713,6 +929,12 @@ async fn run_claude_process(
         .arg("--verbose")
         .arg("--model")
         .arg(model)
+        // stream-json INPUT keeps stdin open for the whole run: the prompt is
+        // the first message, and mid-run guidance from POST /jobs/:id/message
+        // rides the same pipe. The CLI injects late messages at the next tool
+        // boundary (steering) and exits once stdin closes after the turn ends.
+        .arg("--input-format")
+        .arg("stream-json")
         .arg("--output-format")
         .arg("stream-json")
         .arg("--dangerously-skip-permissions");
@@ -738,10 +960,11 @@ async fn run_claude_process(
         cmd.arg("--append-system-prompt").arg(&append_sp);
     }
 
-    cmd.arg(prompt)
-        .env("PATH", &child_path)
+    // The prompt is NOT an argv arg anymore — it arrives as the first
+    // stream-json stdin message (already queued in stdin_rx by submit()).
+    cmd.env("PATH", &child_path)
         .current_dir(work_dir)
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -765,23 +988,28 @@ async fn run_claude_process(
         }
         // Sandboxed (non-owner): the dropped-privilege child cannot read root's
         // 0600 credentials file, so point HOME at its own writable workspace and
-        // let it authenticate via the inherited ANTHROPIC_API_KEY (env survives
-        // setuid). As a fallback, forward the OAuth access token explicitly.
+        // forward the OAuth access token explicitly. The credentials file wins
+        // over any inherited ANTHROPIC_API_KEY — the parent's env may carry a
+        // long-dead token from whichever session originally started the server,
+        // while the CLI keeps the file refreshed.
         Some(_) => {
             cmd.env("HOME", work_dir);
-            if std::env::var("ANTHROPIC_API_KEY").is_err() && !home.is_empty() {
-                let creds_path = format!("{}/.claude/.credentials.json", home);
-                if let Ok(raw) = std::fs::read_to_string(&creds_path) {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                        if let Some(tok) = v
-                            .get("claudeAiOauth")
+            let file_token = if home.is_empty() {
+                None
+            } else {
+                std::fs::read_to_string(format!("{}/.claude/.credentials.json", home))
+                    .ok()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                    .and_then(|v| {
+                        v.get("claudeAiOauth")
                             .and_then(|o| o.get("accessToken"))
                             .and_then(|t| t.as_str())
-                        {
-                            cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
-                        }
-                    }
-                }
+                            .map(|s| s.to_string())
+                    })
+            };
+            if let Some(tok) = file_token {
+                cmd.env_remove("ANTHROPIC_API_KEY");
+                cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
             }
         }
     }
@@ -824,6 +1052,7 @@ async fn run_claude_process(
                 claude_bin, e, work_dir, child_path);
             store.update_status(job_id, &JobStatus::Failed, Some(&err));
             tx.send(format!("[ERROR] {}\n", err)).ok();
+            stdin_gates.write().await.remove(job_id);
             return;
         }
     };
@@ -834,16 +1063,58 @@ async fn run_claude_process(
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
+    // Stdin writer: serialize each queued text (initial prompt + any mid-run
+    // guidance) as a stream-json user message. When the gate is dropped
+    // (turn's `result` event, cancel, or cleanup) the channel closes; the
+    // writer drains what's left, then drops stdin — EOF is what tells the CLI
+    // the session is over.
+    let child_stdin = child.stdin.take();
+    let stdin_task = tokio::spawn(async move {
+        let mut stdin = match child_stdin {
+            Some(s) => s,
+            None => return,
+        };
+        let mut rx = stdin_rx;
+        while let Some(text) = rx.recv().await {
+            let msg = serde_json::json!({
+                "type": "user",
+                "message": { "role": "user", "content": [{ "type": "text", "text": text }] }
+            });
+            let line = format!("{}\n", msg);
+            if stdin.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+            let _ = stdin.flush().await;
+        }
+        // rx closed → drop stdin → CLI sees EOF and finishes up.
+    });
+
     let mut stdout_reader = BufReader::new(stdout).lines();
     let mut stderr_reader = BufReader::new(stderr).lines();
 
     let store_out = Arc::clone(&store);
     let tx_out = tx.clone();
     let id_out = job_id.to_string();
+    let gates_out = Arc::clone(&stdin_gates);
 
     let stdout_task = tokio::spawn(async move {
         let mut parser = StreamParser::new();
         while let Ok(Some(line)) = stdout_reader.next_line().await {
+            // A `result` event ends the turn: drop the stdin gate so the
+            // writer closes stdin and the CLI exits. (Guidance injected
+            // mid-turn is absorbed INTO that turn — verified CLI behavior —
+            // so one result means the work, guidance included, is done. A
+            // message raced in just before the result still drains to stdin
+            // before EOF and runs as one final turn.)
+            if line.contains("\"type\":\"result\"") {
+                let is_result = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|t| t == "result"))
+                    .unwrap_or(false);
+                if is_result {
+                    gates_out.write().await.remove(&id_out);
+                }
+            }
             if let Some(text) = parser.parse(&line) {
                 if !text.is_empty() {
                     store_out.append_output(&id_out, &text);
@@ -851,6 +1122,8 @@ async fn run_claude_process(
                 }
             }
         }
+        // stdout EOF = the process is gone; make sure the gate dies with it.
+        gates_out.write().await.remove(&id_out);
     });
 
     let store_err = Arc::clone(&store);
@@ -867,6 +1140,8 @@ async fn run_claude_process(
 
     let _ = stdout_task.await;
     let _ = stderr_task.await;
+    // Gate is gone by now (stdout EOF handler) — the writer drains and exits.
+    let _ = stdin_task.await;
 
     // Wait for exit status
     let status = child.wait().await;
@@ -900,9 +1175,28 @@ async fn run_claude_process(
         }
     }
 
+    // Every task that reached a terminal state (completed, failed, cancelled)
+    // becomes a content-addressed object: the bundle (prompt + output + meta)
+    // is put into localfs and registered in the store module's index via the
+    // python store bridge, so the TASKS ledger is visible in store.
+    if task_cids_enabled() {
+        let store_pub = Arc::clone(&store);
+        let id_pub = job_id.to_string();
+        let published = tokio::task::spawn_blocking(move || {
+            publish_task_to_store(&id_pub, &store_pub)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(cid) = published {
+            tx.send(format!("[STORE] task → localfs cid {}\n", cid)).ok();
+        }
+    }
+
     tx.send("[DONE]\n".to_string()).ok();
 
     // Clean up
+    stdin_gates.write().await.remove(job_id);
     let mut s = streams.write().await;
     s.remove(job_id);
 }
@@ -932,7 +1226,15 @@ fn snapshot_after_job(
     let parent = history.last().map(|v| v.cid.clone());
     // The stored prompt may carry the injected "Note: you are working on…"
     // suffix and image-path preamble — keep just the human request, one line.
-    let human = prompt.split("\n\nNote: you are working on").next().unwrap_or(prompt);
+    const IMG_PREAMBLE_END: &str =
+        "]\n\nPlease read and analyze the attached image files above.\n\n";
+    let mut human = prompt;
+    if human.starts_with("[Attached images: ") {
+        if let Some(idx) = human.find(IMG_PREAMBLE_END) {
+            human = &human[idx + IMG_PREAMBLE_END.len()..];
+        }
+    }
+    let human = human.split("\n\nNote: you are working on").next().unwrap_or(human);
     let line = human.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
     let message: String = if line.chars().count() > 120 {
         format!("{}…", line.chars().take(119).collect::<String>())
@@ -953,6 +1255,152 @@ fn snapshot_after_job(
     };
     append_version(&module, record).ok()?;
     Some((cid, module))
+}
+
+/// Publish a finished task into localfs + the store index by shelling out to
+/// the python store bridge (src/api/store_bridge.py). Builds a self-contained
+/// JSON bundle (prompt, output, status, metadata, and — when the job produced
+/// a module snapshot — that version's CID), pipes it to the bridge, records
+/// the returned localfs CID on the job row, and returns it. Every failure is
+/// non-fatal: the task itself already finished, and the startup backfill
+/// retries anything left without a CID.
+fn publish_task_to_store(job_id: &str, store: &JobStore) -> Option<String> {
+    use std::io::Write;
+    use std::process::{Command as StdCommand, Stdio};
+
+    let job = store.get(job_id)?;
+    if !matches!(
+        job.status,
+        JobStatus::Completed | JobStatus::Failed | JobStatus::Cancelled
+    ) {
+        return None;
+    }
+    if job.cid.is_some() {
+        return job.cid;
+    }
+
+    // Pair the task with the module version its completion snapshotted, when
+    // one exists — the versions log tags "edit" records with the job id.
+    let module = crate::snapshots::module_for_work_dir(&job.work_dir).map(|(name, _)| name);
+    let version_cid = module.as_deref().and_then(|name| {
+        crate::snapshots::read_versions(name)
+            .iter()
+            .rev()
+            .find(|v| v.job_id.as_deref() == Some(job_id))
+            .map(|v| v.cid.clone())
+    });
+
+    let owner = if job.user_address.is_empty() {
+        crate::auth::get_owner_address().unwrap_or_default()
+    } else {
+        job.user_address.clone()
+    };
+
+    let bundle = task_bundle_json(&job, module, version_cid);
+    let short: String = job.id.chars().take(8).collect();
+    let envelope = serde_json::json!({
+        "task": bundle,
+        "owner": owner,
+        "key": format!("claude-task-{}.json", short),
+    });
+
+    let bridge = store_bridge_path()?;
+
+    let mut child = StdCommand::new("python3")
+        .arg(&bridge)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child
+        .stdin
+        .take()?
+        .write_all(envelope.to_string().as_bytes())
+        .ok()?;
+    let out = child.wait_with_output().ok()?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // The bridge keeps stdout to one JSON line, but parse defensively: take
+    // the last line that decodes and carries a cid.
+    let cid = stdout.lines().rev().find_map(|l| {
+        serde_json::from_str::<serde_json::Value>(l.trim())
+            .ok()?
+            .get("cid")?
+            .as_str()
+            .map(|s| s.to_string())
+    })?;
+    store.update_cid(job_id, &cid);
+    Some(cid)
+}
+
+/// The self-contained, content-addressed shape of one task — what gets put
+/// into localfs and what `GET /tasks/:cid` returns. One builder so the
+/// published blob and the replay endpoint can never drift apart.
+pub fn task_bundle_json(
+    job: &ClaudeJob,
+    module: Option<String>,
+    version_cid: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "claude-task",
+        "version": 1,
+        "id": job.id,
+        "prompt": job.prompt,
+        "model": job.model,
+        "work_dir": job.work_dir,
+        "status": job.status.to_string(),
+        "output": job.output,
+        "error": job.error,
+        "user_address": job.user_address,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "module": module,
+        "module_version_cid": version_cid,
+    })
+}
+
+/// Path to the python store bridge, or None when it isn't installed.
+fn store_bridge_path() -> Option<String> {
+    let bridge = std::env::var("CLAUDE_STORE_BRIDGE").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        format!("{}/mod/mod/orbit/claude/src/api/store_bridge.py", home)
+    });
+    if std::path::Path::new(&bridge).exists() {
+        Some(bridge)
+    } else {
+        None
+    }
+}
+
+/// Fetch a task bundle straight from localfs by CID via the store bridge —
+/// the portable half of replay: a QR minted on one console resolves on any
+/// console that shares (or has synced) the blob store, even when the job
+/// isn't in the local ledger. Blocking — call from spawn_blocking.
+pub fn fetch_task_bundle(cid: &str) -> Option<serde_json::Value> {
+    use std::process::{Command as StdCommand, Stdio};
+    // CIDs are base58/base32/hex tokens; refuse anything else outright.
+    if cid.is_empty() || cid.len() > 128 || !cid.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let bridge = store_bridge_path()?;
+    let out = StdCommand::new("python3")
+        .arg(&bridge)
+        .arg("get")
+        .arg(cid)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v = stdout
+        .lines()
+        .rev()
+        .find_map(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())?;
+    if !v.is_object() || v.get("error").is_some() {
+        return None;
+    }
+    Some(v)
 }
 
 // ── Stateful Stream Parser ───────────────────────────────────────────

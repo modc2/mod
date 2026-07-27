@@ -17,9 +17,21 @@ interface Props {
   onToggleWatch: () => void;
   onBack: () => void;
   days?: number;
+  // Per-trader lookback override (null = following the global window; 0 = ALL
+  // history). When onDaysChange is provided the LOOKBACK pill row renders and
+  // clicking the active override pill toggles back to the global window.
+  daysOverride?: number | null;
+  globalDays?: number;
+  onDaysChange?: (d: number | null) => void;
   searchFilter?: string;
   categoryFilter?: CategorySlug;
+  // Non-null when the trade-history sync failed (rate limit / outage). The
+  // stats and tabs must not present 0 trades as a real answer in that case.
+  tradesError?: string | null;
+  onRetrySync?: () => void;
 }
+
+const LOOKBACK_PRESETS = [1, 3, 7, 14, 30, 60, 90, 0]; // 0 = ALL history
 
 type PosSort = "market" | "size" | "avgPrice" | "currentPrice" | "pnlUsd";
 type TradeSort = "timestamp" | "market" | "price" | "size" | "pnl";
@@ -54,12 +66,14 @@ function DailyActivityChart({ data }: { data: { date: string; buys: number; sell
   return (
     <div className="pixel-panel p-5">
       <div className="text-[16px] text-pixel-gray-light tracking-wider mb-4">DAILY TRADE ACTIVITY</div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "auto", maxHeight: 160 }}>
+      {/* currentColor (via text-pixel-white) flips with the theme — the old
+          hardcoded #fff bars vanished on the white light-mode panel. */}
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full text-pixel-white" style={{ height: "auto", maxHeight: 160 }}>
         {/* Grid */}
         {yTicks.map((v, i) => (
           <g key={i}>
-            <line x1={pad.left} y1={toY(v)} x2={W - pad.right} y2={toY(v)} stroke="#222" strokeWidth={1} />
-            <text x={pad.left - 6} y={toY(v) + 3} textAnchor="end" fill="#666" fontSize={9} fontFamily="'IBM Plex Mono', monospace">{v}</text>
+            <line x1={pad.left} y1={toY(v)} x2={W - pad.right} y2={toY(v)} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
+            <text x={pad.left - 6} y={toY(v) + 3} textAnchor="end" fill="currentColor" fillOpacity={0.45} fontSize={9} fontFamily="'IBM Plex Mono', monospace">{v}</text>
           </g>
         ))}
         {/* Bars */}
@@ -69,21 +83,21 @@ function DailyActivityChart({ data }: { data: { date: string; buys: number; sell
           const sellH = (d.sells / yMax) * ch;
           return (
             <g key={i}>
-              {/* Buys (white, bottom) */}
-              <rect x={cx - barW / 2} y={toY(d.buys + d.sells)} width={barW} height={buyH} fill="#fff" />
+              {/* Buys (foreground, bottom) */}
+              <rect x={cx - barW / 2} y={toY(d.buys + d.sells)} width={barW} height={buyH} fill="currentColor" />
               {/* Sells (gray, stacked on top) */}
-              <rect x={cx - barW / 2} y={toY(d.buys + d.sells)} width={barW} height={sellH} fill="#666" />
+              <rect x={cx - barW / 2} y={toY(d.buys + d.sells)} width={barW} height={sellH} style={{ fill: "var(--pixel-gray)" }} />
               {/* X label */}
-              <text x={cx} y={H - 8} textAnchor="middle" fill="#666" fontSize={8} fontFamily="'IBM Plex Mono', monospace">{d.date}</text>
+              <text x={cx} y={H - 8} textAnchor="middle" fill="currentColor" fillOpacity={0.45} fontSize={8} fontFamily="'IBM Plex Mono', monospace">{d.date}</text>
             </g>
           );
         })}
         {/* Axes */}
-        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={H - pad.bottom} stroke="#444" strokeWidth={1} />
-        <line x1={pad.left} y1={H - pad.bottom} x2={W - pad.right} y2={H - pad.bottom} stroke="#444" strokeWidth={1} />
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={H - pad.bottom} stroke="currentColor" strokeOpacity={0.28} strokeWidth={1} />
+        <line x1={pad.left} y1={H - pad.bottom} x2={W - pad.right} y2={H - pad.bottom} stroke="currentColor" strokeOpacity={0.28} strokeWidth={1} />
       </svg>
       <div className="flex items-center gap-4 mt-1 text-[13px] text-pixel-gray">
-        <div className="flex items-center gap-1"><div className="w-2 h-2 bg-white" /> BUYS</div>
+        <div className="flex items-center gap-1"><div className="w-2 h-2 bg-pixel-white" /> BUYS</div>
         <div className="flex items-center gap-1"><div className="w-2 h-2 bg-pixel-gray" /> SELLS</div>
       </div>
     </div>
@@ -99,20 +113,26 @@ export default function TraderProfile({
   onToggleWatch,
   onBack,
   days = 30,
+  daysOverride = null,
+  globalDays,
+  onDaysChange,
   searchFilter = "",
   categoryFilter = "",
+  tradesError = null,
+  onRetrySync,
 }: Props) {
-  const dayLabel = `${days}D`;
+  const dayLabel = days > 0 ? `${days}D` : "ALL-TIME";
+  const [customDays, setCustomDays] = useState("");
   const [posSort, setPosSort] = useState<PosSort>("pnlUsd");
   const [posSortDir, setPosSortDir] = useState<SortDir>("desc");
   const [tradeSort, setTradeSort] = useState<TradeSort>("timestamp");
   const [tradeSortDir, setTradeSortDir] = useState<SortDir>("desc");
   const [showCurrent, setShowCurrent] = useState(false);
-  type ProfileTab = "chart" | "open" | "closed" | "all";
+  type ProfileTab = "chart" | "positions" | "open" | "closed" | "all";
   const [profileTab, setProfileTab] = useState<ProfileTab>("chart");
-  // Editable keyword filter over THIS trader's trades — lives next to the
-  // trade table so it's discoverable, and combines with the TopBar search
-  // (both must match). Filters market titles, case-insensitive.
+  // Selected-market filter over THIS trader's trades — set by clicking a
+  // market name in the trade/results tables. No standing input: the chip in
+  // the tab bar only appears while a market is selected (✕ clears it).
   const [tradeQuery, setTradeQuery] = useState("");
 
   const handlePosSort = (col: PosSort) => {
@@ -125,7 +145,11 @@ export default function TraderProfile({
     else { setTradeSort(col); setTradeSortDir("desc"); }
   };
 
-  const cutoffMs = useMemo(() => Date.now() - days * 24 * 60 * 60 * 1000, [days]);
+  // days = 0 means ALL history → cutoff at epoch so nothing is filtered out.
+  const cutoffMs = useMemo(
+    () => (days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0),
+    [days],
+  );
 
   // Replay full trade history with FIFO bookkeeping to compute realized
   // P&L on each SELL and track the matching buy price/time.
@@ -494,6 +518,74 @@ export default function TraderProfile({
         </button>
       </div>
 
+      {/* ── Per-trader lookback window ──
+          Pills set how far back this trader's stats/curve/tables reach.
+          The choice is saved for THIS trader (persisted by the page);
+          clicking the active pill again clears it back to the global window. */}
+      {onDaysChange && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] text-pixel-gray tracking-wider">LOOKBACK</span>
+          {LOOKBACK_PRESETS.map((d) => {
+            const active = days === d;
+            return (
+              <button
+                key={d}
+                onClick={() => onDaysChange(daysOverride === d ? null : d)}
+                title={d === 0 ? "All available history" : `Last ${d} days`}
+                className={`px-2 py-1 border-2 text-[13px] font-mono tracking-wider transition-colors ${
+                  active
+                    ? daysOverride !== null
+                      ? "border-pixel-white text-pixel-white bg-pixel-white/10"
+                      : "border-pixel-gray-light text-pixel-gray-light"
+                    : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
+                }`}
+              >
+                {d === 0 ? "ALL" : `${d}D`}
+              </button>
+            );
+          })}
+          {/* Custom non-preset override shows as its own active pill */}
+          {days > 0 && !LOOKBACK_PRESETS.includes(days) && (
+            <button
+              onClick={() => onDaysChange(null)}
+              title={`Custom ${days}-day window — click to reset`}
+              className="px-2 py-1 border-2 border-pixel-white text-pixel-white bg-pixel-white/10 text-[13px] font-mono tracking-wider"
+            >
+              {days}D
+            </button>
+          )}
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={customDays}
+              onChange={(e) => setCustomDays(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const n = parseInt(customDays, 10);
+                  if (Number.isFinite(n) && n > 0 && n <= 365) onDaysChange(n);
+                  setCustomDays("");
+                }
+              }}
+              onBlur={() => {
+                const n = parseInt(customDays, 10);
+                if (Number.isFinite(n) && n > 0 && n <= 365) onDaysChange(n);
+                setCustomDays("");
+              }}
+              placeholder="N"
+              title="Custom lookback in days (1–365) — Enter to apply"
+              className="w-12 bg-transparent border-2 border-pixel-border px-1 py-1 text-[13px] font-mono text-pixel-white text-center placeholder:text-pixel-gray focus:border-pixel-white outline-none"
+            />
+            <span className="text-[13px] text-pixel-gray font-mono">D</span>
+          </div>
+          <span className="text-[12px] text-pixel-gray tracking-wider">
+            {daysOverride !== null
+              ? "SAVED FOR THIS TRADER"
+              : `FOLLOWING GLOBAL${globalDays ? ` (${globalDays}D)` : ""}`}
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <div className="pixel-panel p-12 text-center">
           <div className="text-sm text-pixel-white animate-pulse glow-green">
@@ -502,6 +594,32 @@ export default function TraderProfile({
         </div>
       ) : (
         <>
+          {/* Trade-sync failure — say so loudly. Without this banner a
+              rate-limited /activity fetch rendered "$0 / 0 trades" stats
+              that looked like a real answer next to 100 open positions. */}
+          {tradesError && (
+            <div className="pixel-panel-red p-4 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-[15px] text-red-400 tracking-wider">
+                  TRADE HISTORY SYNC FAILED — {tradesError}
+                </div>
+                <div className="text-[13px] text-pixel-gray mt-1">
+                  {trades.length > 0
+                    ? `SHOWING ${trades.length} TRADES FETCHED BEFORE THE FAILURE — STATS MAY BE INCOMPLETE`
+                    : "STATS BELOW ARE NOT REAL ZEROS — THE TRADE FEED COULD NOT BE LOADED"}
+                </div>
+              </div>
+              {onRetrySync && (
+                <button
+                  onClick={onRetrySync}
+                  className="pixel-btn border-pixel-white text-pixel-white hover:bg-pixel-white/10 text-[15px]"
+                >
+                  RETRY SYNC
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {([
@@ -535,6 +653,7 @@ export default function TraderProfile({
             <div className="flex items-center border-b-2 border-pixel-border">
               {([
                 { id: "chart" as ProfileTab, label: "P&L", count: pnlCurve.length },
+                { id: "positions" as ProfileTab, label: "POSITIONS", count: filteredPositions.length },
                 { id: "open" as ProfileTab, label: "OPEN", count: openTrades.length },
                 { id: "closed" as ProfileTab, label: "CLOSED", count: closedTrades.length },
                 { id: "all" as ProfileTab, label: "ALL", count: filteredTrades.length },
@@ -552,31 +671,115 @@ export default function TraderProfile({
                   <span className="ml-1.5 text-[13px] text-pixel-gray">{tab.count}</span>
                 </button>
               ))}
-              {/* Editable keyword filter over this trader's trades — narrows
-                  every tab (P&L curve, OPEN/CLOSED/ALL tables) and the stats
-                  above. Combines with the TopBar search: both must match. */}
-              <div className="ml-auto mr-2 flex items-center gap-1">
-                <input
-                  type="text"
-                  value={tradeQuery}
-                  onChange={(e) => setTradeQuery(e.target.value)}
-                  placeholder="FILTER TRADES..."
-                  className="bg-transparent border-2 border-pixel-border focus:border-pixel-white outline-none px-2 py-1 text-[13px] font-mono text-pixel-white placeholder:text-pixel-gray w-40"
-                />
-                {tradeQuery && (
+              {/* Selected-market chip — only shown once a market is picked
+                  (click a market name in any table below). Narrows every tab
+                  (P&L curve, OPEN/CLOSED/ALL tables) and the stats above. */}
+              {tradeQuery && (
+                <div className="ml-auto mr-2 flex items-center gap-1 min-w-0">
+                  <span
+                    className="border-2 border-pixel-border px-2 py-1 text-[13px] font-mono text-pixel-white truncate max-w-[280px]"
+                    title={tradeQuery}
+                  >
+                    {tradeQuery}
+                  </span>
                   <button
                     onClick={() => setTradeQuery("")}
                     className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
-                    title="Clear trade filter"
+                    title="Clear market filter"
                   >
                     ✕
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Tab content */}
-            {profileTab === "chart" ? (
+            {profileTab === "positions" ? (
+              /* ── Current open positions (data-api /positions) ── */
+              sortedPositions.length > 0 ? (
+                <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
+                  <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "700px" }}>
+                    <colgroup>
+                      <col style={{ width: "34%" }} />
+                      <col style={{ width: "70px" }} />
+                      <col style={{ width: "80px" }} />
+                      <col style={{ width: "70px" }} />
+                      <col style={{ width: "70px" }} />
+                      <col style={{ width: "80px" }} />
+                      <col style={{ width: "85px" }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className={`sortable ${posSort === "market" ? "sorted" : ""}`} onClick={() => handlePosSort("market")}>
+                          MARKET <SortArrow active={posSort === "market"} dir={posSortDir} />
+                        </th>
+                        <th>OUTCOME</th>
+                        <th className={`sortable text-right ${posSort === "size" ? "sorted" : ""}`} onClick={() => handlePosSort("size")}>
+                          SHARES <SortArrow active={posSort === "size"} dir={posSortDir} />
+                        </th>
+                        <th className={`sortable text-right ${posSort === "avgPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("avgPrice")}>
+                          AVG <SortArrow active={posSort === "avgPrice"} dir={posSortDir} />
+                        </th>
+                        <th className={`sortable text-right ${posSort === "currentPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("currentPrice")}>
+                          NOW <SortArrow active={posSort === "currentPrice"} dir={posSortDir} />
+                        </th>
+                        <th className="text-right">VALUE</th>
+                        <th className={`sortable text-right ${posSort === "pnlUsd" ? "sorted" : ""}`} onClick={() => handlePosSort("pnlUsd")}>
+                          P&L <SortArrow active={posSort === "pnlUsd"} dir={posSortDir} />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedPositions.slice(0, 300).map((p, i) => {
+                        const profit = p.pnlUsd > 0;
+                        const flat = p.pnlUsd === 0;
+                        return (
+                          <tr key={`${p.conditionId}-${p.outcome}-${i}`}>
+                            <td
+                              className={`truncate cursor-pointer hover:text-green-400 ${
+                                tradeQuery === p.market ? "text-green-400" : "text-pixel-white"
+                              }`}
+                              title={`${p.market} — click to filter trades to this market`}
+                              onClick={() =>
+                                setTradeQuery((q) => (q === p.market ? "" : p.market))
+                              }
+                            >
+                              {p.market}
+                            </td>
+                            <td>
+                              <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">
+                                {p.outcome || "—"}{p.redeemable ? " · RESOLVED" : ""}
+                              </span>
+                            </td>
+                            <td className="num text-right text-pixel-white font-mono">
+                              {p.size.toFixed(0)}
+                            </td>
+                            <td className="num text-right text-pixel-gray-light font-mono">
+                              {Math.round(p.avgPrice * 100)}c
+                            </td>
+                            <td className="num text-right text-pixel-white font-mono">
+                              {Math.round(p.currentPrice * 100)}c
+                            </td>
+                            <td className="num text-right text-pixel-white font-mono">
+                              ${p.value.toFixed(2)}
+                            </td>
+                            <td className={`num text-right font-mono ${flat ? "text-pixel-gray-light" : profit ? "text-green-400" : "text-red-400"}`}>
+                              {`${p.pnlUsd >= 0 ? "+" : ""}$${p.pnlUsd.toFixed(2)}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-8 text-center">
+                  <div className="text-[15px] text-pixel-gray">
+                    {filterActive ? "NO MATCHING POSITIONS" : "NO OPEN POSITIONS"}
+                  </div>
+                </div>
+              )
+            ) : profileTab === "chart" ? (
               <div className="p-0">
                 {pnlCurve.length > 0 ? (
                   <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
@@ -586,7 +789,9 @@ export default function TraderProfile({
                       {`${dayLabel} P&L CURVE`}
                     </div>
                     <div className="text-[15px] text-pixel-gray">
-                      {filterActive
+                      {tradesError
+                        ? "TRADE FEED UNAVAILABLE — RETRY SYNC ABOVE"
+                        : filterActive
                         ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
                         : positions.length > 0
                         ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"
@@ -653,7 +858,15 @@ export default function TraderProfile({
                             <td className="text-pixel-gray font-mono">
                               {timeAgo(trade.timestamp)}
                             </td>
-                            <td className="text-pixel-white truncate" title={trade.market}>
+                            <td
+                              className={`truncate cursor-pointer hover:text-green-400 ${
+                                tradeQuery === trade.market ? "text-green-400" : "text-pixel-white"
+                              }`}
+                              title={`${trade.market} — click to filter to this market`}
+                              onClick={() =>
+                                setTradeQuery((q) => (q === trade.market ? "" : trade.market))
+                              }
+                            >
                               {trade.market}
                             </td>
                             <td>
@@ -755,7 +968,15 @@ export default function TraderProfile({
                         : "text-red-400";
                       return (
                         <tr key={m.conditionId}>
-                          <td className="text-pixel-white truncate" title={m.market}>
+                          <td
+                            className={`truncate cursor-pointer hover:text-green-400 ${
+                              m.market && tradeQuery === m.market ? "text-green-400" : "text-pixel-white"
+                            }`}
+                            title={`${m.market || m.conditionId} — click to filter to this market`}
+                            onClick={() =>
+                              m.market && setTradeQuery((q) => (q === m.market ? "" : m.market))
+                            }
+                          >
                             {m.market || m.conditionId.slice(0, 12)}
                           </td>
                           <td className="num text-right text-pixel-gray-light font-mono">

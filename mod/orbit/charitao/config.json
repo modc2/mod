@@ -1,7 +1,7 @@
 {
     "name": "charitao",
     "version": "1.0.0",
-    "description": "Proof-of-donation Bittensor subnet: miners donate TAO from their registered coldkey to whitelisted charity addresses; validators verify transfers on chain and set weights so emissions always cover donations at a fixed, predictable profit margin (coverage-ratio budget + burn weight + carryover queue). Local sim works out of the box; state lives in ~/.mod/charitao/.",
+    "description": "Proof-of-donation Bittensor subnet: miners donate TAO from their registered coldkey to DAO-whitelisted charity addresses; validators verify transfers on chain and set weights so emissions cover donations at the APR the DAO weighting assigns per charity and amount. Curation is governed by an admin multisig (M-of-N proposals) that can vote itself over to token (bloctime) voting power. Local sim works out of the box; state lives in ~/.mod/charitao/.",
     "anchor": "mod.py",
     "icon": "\ud83e\udec0",
     "color": "#e8618c",
@@ -19,6 +19,17 @@
         "add_charity",
         "remove_charity",
         "verify_charity",
+        "flag_charity",
+        "dao",
+        "init_dao",
+        "propose",
+        "approve",
+        "reject",
+        "proposals",
+        "set_weight",
+        "set_tiers",
+        "set_power_source",
+        "apr",
         "simulate",
         "donate",
         "epoch",
@@ -34,5 +45,5 @@
         "stop_worker"
     ],
     "key": "charitao",
-    "schema": "QmNfEmeHVm4MXvHTkxMJVgHhQ6HDYtWg3rRJTCHHHTaZez"
+    "schema": "Qmcpp2WNhFeYtRwVFLKYgDraMpPXdDC6oEaW4MaPKxTfX2"
 }

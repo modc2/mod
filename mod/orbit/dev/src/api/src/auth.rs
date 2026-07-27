@@ -1,150 +1,1214 @@
-//! mod **protocol-auth** token verification — the Rust counterpart of
-//! `mod/core/server/auth/auth/auth.py` (and a copy of the venice gateway's
-//! verifier).
-//!
-//! A client (browser wallet) builds a time-bounded bearer token:
-//!
-//!   1. `sigData = JSON.stringify({ data, time })`   (compact, no spaces)
-//!   2. `signature = personal_sign(sigData)`         (EIP-191, MetaMask)
-//!   3. `token = base64url(JSON.stringify({ data, time, key, signature }))`
-//!
-//! and sends it as `Authorization: Bearer <token>`. We verify statelessly:
-//! reconstruct `sigData` byte-for-byte, recover the signer address from the
-//! EIP-191 signature, require it to equal the embedded `key`, within `max_age`
-//! seconds of now. No server-side nonce/session table.
+//! MetaMask signature authentication — challenge/verify + bearer token middleware
 
-use base64::Engine;
+use axum::{
+    extract::{Query, Request, State},
+    http::{header, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Json,
+};
+use hmac::{Hmac, Mac};
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
-use serde_json::Value;
-use sha3::{Digest, Keccak256};
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use sha3::Digest;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-/// Verify a protocol-auth bearer token. On success returns the signer's
-/// lowercase 0x-prefixed Ethereum address. On any failure returns an error
-/// string suitable for a 401 body (no secrets leak through it).
-pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, String> {
-    let token = token.trim();
-    let raw = b64url_decode(token).map_err(|e| format!("bad token encoding: {e}"))?;
-    let envelope: Value =
-        serde_json::from_slice(&raw).map_err(|e| format!("bad token json: {e}"))?;
+type HmacSha256 = Hmac<Sha256>;
 
-    let data = envelope.get("data").cloned().unwrap_or(Value::Object(Default::default()));
-    let time = envelope
-        .get("time")
-        .and_then(|v| v.as_str())
-        .ok_or("token missing time")?;
-    let key = envelope
-        .get("key")
-        .and_then(|v| v.as_str())
-        .ok_or("token missing key")?;
-    let signature = envelope
-        .get("signature")
-        .and_then(|v| v.as_str())
-        .ok_or("token missing signature")?;
+use std::sync::OnceLock;
 
-    if !key.starts_with("0x") || key.len() != 42 {
-        return Err("token key is not an ethereum address".into());
+/// Server secret for HMAC token signing. Persisted at ~/.mod/claude/server.secret
+/// so bearer tokens survive API restarts — this server restarts itself after
+/// self-edit jobs, and a fresh random secret would 401 every signed-in browser.
+static SERVER_SECRET: OnceLock<[u8; 32]> = OnceLock::new();
+
+fn secret_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("dev")
+        .join("server.secret")
+}
+
+pub fn init_secret() {
+    let path = secret_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() == 32 {
+            let mut secret = [0u8; 32];
+            secret.copy_from_slice(&bytes);
+            SERVER_SECRET.set(secret).ok();
+            return;
+        }
     }
-
-    // Staleness check (abs diff, mirroring the Python verifier).
-    let t: f64 = time.parse().map_err(|_| "token time not a number".to_string())?;
-    let now = chrono::Utc::now().timestamp() as f64;
-    if (now - t).abs() > max_age_secs as f64 {
-        return Err(format!("token is stale ({}s > {}s)", (now - t).abs() as i64, max_age_secs));
+    use rand::RngCore;
+    let mut secret = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut secret);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
     }
+    if std::fs::write(&path, secret).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
+    }
+    SERVER_SECRET.set(secret).ok();
+}
 
-    // Reconstruct the exact signed string: {"data":<data>,"time":"<time>"}.
-    let data_str = serde_json::to_string(&data).map_err(|e| e.to_string())?;
-    let time_str = serde_json::to_string(time).map_err(|e| e.to_string())?; // adds quotes
-    let sig_data = format!("{{\"data\":{data_str},\"time\":{time_str}}}");
+fn get_secret() -> &'static [u8; 32] {
+    SERVER_SECRET.get().expect("Server secret not initialized")
+}
 
-    // The mod auth scheme accepts two signing modes, mirroring the Python
-    // verifier: (1) EIP-191 `personal_sign` — what browser wallets produce;
-    // (2) plain `keccak256(message)` — what an in-process mod key produces.
-    // Try both and accept either match.
-    let msg = sig_data.as_bytes();
-    let eip191_prehash = {
-        let prefix = format!("\x19Ethereum Signed Message:\n{}", msg.len());
-        let mut buf = Vec::with_capacity(prefix.len() + msg.len());
-        buf.extend_from_slice(prefix.as_bytes());
-        buf.extend_from_slice(msg);
-        keccak256(&buf)
+/// Pending challenges: address → nonce message
+pub type ChallengeStore = Arc<RwLock<HashMap<String, String>>>;
+
+pub fn new_challenge_store() -> ChallengeStore {
+    Arc::new(RwLock::new(HashMap::new()))
+}
+
+// ── Terms of Use ─────────────────────────────────────────────────────
+//
+// Every non-owner wallet must sign the current terms once before it can
+// sign in. The terms are embedded in the challenge message itself, so the
+// wallet signature covers them; acceptance is recorded per-address in
+// ~/.mod/claude/terms_accepted.json and re-required when the version bumps.
+
+pub const TERMS_VERSION: u32 = 1;
+pub const TERMS_MARKER: &str = "Claude Jobs Terms of Use (v1)";
+pub const TERMS_TEXT: &str = "\
+1. This service runs coding tasks on the operator's infrastructure. Your \
+prompts, task output, and files a task touches may be visible to the \
+operator, and tasks appear in a world-readable job ledger.
+2. You will not use the service for unlawful, abusive, or malicious \
+activity, or to access data or systems you are not authorized to access.
+3. Access is granted at the operator's discretion and may be limited, \
+suspended, or revoked at any time without notice.
+4. You are responsible for your wallet, its keys, and everything submitted \
+from your address.
+5. The service is provided \"as is\", without warranty of any kind. To the \
+maximum extent permitted by law, the operator is not liable for any damages \
+or losses arising from its use.";
+
+fn terms_accepted_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("dev")
+        .join("terms_accepted.json")
+}
+
+fn read_terms_accepted() -> HashMap<String, serde_json::Value> {
+    std::fs::read_to_string(terms_accepted_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// True when this address needs no terms signature: the configured owner
+/// (or the first user, who becomes owner) sets the terms rather than
+/// agreeing to them, and already-recorded acceptances stay valid until
+/// TERMS_VERSION bumps.
+pub fn terms_satisfied(addr: &str) -> bool {
+    match get_owner_address() {
+        Some(owner) if owner != addr => {}
+        _ => return true,
+    }
+    read_terms_accepted()
+        .get(addr)
+        .and_then(|v| v.get("version"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v >= TERMS_VERSION as u64)
+        .unwrap_or(false)
+}
+
+fn record_terms_acceptance(addr: &str) {
+    let mut map = read_terms_accepted();
+    map.insert(
+        addr.to_string(),
+        serde_json::json!({
+            "version": TERMS_VERSION,
+            "accepted_at": chrono::Utc::now().timestamp(),
+        }),
+    );
+    let path = terms_accepted_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(s) = serde_json::to_string_pretty(&map) {
+        std::fs::write(&path, s).ok();
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TermsQuery {
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+/// Public: the current terms text plus whether the given address still has
+/// to sign them, so the app can show the agreement before requesting a
+/// wallet signature.
+pub async fn terms(Query(q): Query<TermsQuery>) -> impl IntoResponse {
+    let required = match q.address.as_deref() {
+        Some(a) if !a.is_empty() => !terms_satisfied(&a.to_lowercase()),
+        _ => true,
     };
-    let plain_prehash = keccak256(msg);
+    Json(serde_json::json!({
+        "version": TERMS_VERSION,
+        "title": TERMS_MARKER,
+        "text": TERMS_TEXT,
+        "required": required,
+    }))
+}
 
-    for prehash in [eip191_prehash, plain_prehash] {
-        if let Ok(addr) = recover_address(&prehash, signature) {
-            if addr.eq_ignore_ascii_case(key) {
-                return Ok(key.to_lowercase());
+// ── Endpoints ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ChallengeQuery {
+    pub address: String,
+}
+
+#[derive(Serialize)]
+pub struct ChallengeResponse {
+    pub message: String,
+}
+
+pub async fn challenge(
+    State(store): State<ChallengeStore>,
+    Query(q): Query<ChallengeQuery>,
+) -> impl IntoResponse {
+    let addr = q.address.to_lowercase();
+    let nonce = hex::encode(rand::random::<[u8; 16]>());
+    let mut message = format!(
+        "Sign this message to authenticate with Claude Jobs.\n\nAddress: {}\nNonce: {}",
+        addr, nonce
+    );
+    // First sign-in from a non-owner wallet also signs the terms: embedding
+    // them in the challenge makes the signature cover the exact text.
+    if !terms_satisfied(&addr) {
+        message.push_str(&format!(
+            "\n\nBy signing you accept the {}:\n{}",
+            TERMS_MARKER, TERMS_TEXT
+        ));
+    }
+
+    let mut challenges = store.write().await;
+    challenges.insert(addr, message.clone());
+
+    Json(ChallengeResponse { message })
+}
+
+#[derive(Deserialize)]
+pub struct VerifyRequest {
+    pub address: String,
+    pub signature: String,
+    pub message: String,
+    /// Optional QR edit-grant id — lets a non-whitelisted address sign in for
+    /// the grant's window (and registers their time-boxed edit access).
+    #[serde(default)]
+    pub grant: Option<String>,
+    /// Optional second-factor key for the grant above.
+    #[serde(default)]
+    pub grant_key: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct VerifyResponse {
+    pub token: String,
+    pub address: String,
+}
+
+pub async fn verify(
+    State(store): State<ChallengeStore>,
+    Json(req): Json<VerifyRequest>,
+) -> Result<Json<VerifyResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let addr = req.address.to_lowercase();
+
+    // Check challenge exists
+    {
+        let challenges = store.read().await;
+        match challenges.get(&addr) {
+            Some(expected) if *expected == req.message => {}
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "Invalid or expired challenge" })),
+                ));
             }
         }
     }
-    Err("signature does not match token key".into())
-}
 
-/// Recover the signer's 0x address from a 65-byte signature over a 32-byte
-/// prehash. Accepts both legacy `v ∈ {27,28}` and `v ∈ {0,1}`.
-fn recover_address(prehash: &[u8; 32], signature_hex: &str) -> Result<String, String> {
-    let sig_hex = signature_hex.strip_prefix("0x").unwrap_or(signature_hex);
-    let sig_bytes = hex::decode(sig_hex).map_err(|_| "signature not hex".to_string())?;
-    if sig_bytes.len() != 65 {
-        return Err(format!("signature must be 65 bytes, got {}", sig_bytes.len()));
+    // Recover signer from signature
+    let recovered = recover_eth_address(&req.message, &req.signature).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Signature verification failed: {}", e) })),
+        )
+    })?;
+
+    if recovered.to_lowercase() != addr {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Signer does not match address" })),
+        ));
     }
-    let rec_raw = sig_bytes[64];
-    let rec_id = if rec_raw >= 27 { rec_raw - 27 } else { rec_raw };
-    let recovery_id = RecoveryId::from_byte(rec_id).ok_or("bad recovery id")?;
-    let signature = Signature::from_slice(&sig_bytes[..64]).map_err(|e| format!("bad sig: {e}"))?;
-    let vk = VerifyingKey::recover_from_prehash(prehash, &signature, recovery_id)
-        .map_err(|e| format!("recover failed: {e}"))?;
-    Ok(address_from_pubkey(&vk))
+
+    // Remove used challenge
+    {
+        let mut challenges = store.write().await;
+        challenges.remove(&addr);
+    }
+
+    // Sign-in gate: owner → always; whitelisted addresses → allowed; else delegate
+    // to optional `gate_command` (owner-defined executable that returns 0 to allow).
+    // If no owner is set yet, this user claims ownership.
+    let existing_owner = get_owner_address();
+    let is_new_owner = match existing_owner {
+        Some(owner) => {
+            if owner != addr
+                && !read_whitelist().iter().any(|w| w == &addr)
+                && !run_gate_command(&addr)
+            {
+                // Last chance: a QR edit-grant. Redeeming one lets this address
+                // in for the grant's window and records its time-boxed access.
+                match req.grant.as_deref() {
+                    Some(gid) => {
+                        match redeem_grant(gid, req.grant_key.as_deref(), &addr) {
+                            Ok(exp) => {
+                                println!("✓ Grant redeemed: {} via {} (until {})", addr, gid, exp);
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Grant redemption failed for {}: {}", addr, e);
+                                return Err((
+                                    StatusCode::FORBIDDEN,
+                                    Json(serde_json::json!({ "error": e })),
+                                ));
+                            }
+                        }
+                    }
+                    None => {
+                        // Echo the verified signer + configured owner so a wrong active
+                        // MetaMask account is obvious. Log it too — this path was silent.
+                        eprintln!(
+                            "✗ Sign-in denied: signer {} is not owner ({}), not whitelisted, no gate matched",
+                            addr, owner
+                        );
+                        return Err((
+                            StatusCode::FORBIDDEN,
+                            Json(serde_json::json!({
+                                "error": format!(
+                                    "Sign-in not permitted: signed-in address {} is not the owner ({}), not whitelisted, and no gate matched. Check which account is active in your wallet.",
+                                    addr, owner
+                                )
+                            })),
+                        ));
+                    }
+                }
+            }
+            false
+        }
+        None => {
+            let owner_path = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".mod")
+                .join("dev")
+                .join("owner.json");
+            if let Some(parent) = owner_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            let owner_data = serde_json::json!({ "owner": addr });
+            match serde_json::to_string_pretty(&owner_data) {
+                Ok(json_str) => {
+                    std::fs::write(&owner_path, json_str).ok();
+                    true
+                }
+                Err(_) => false,
+            }
+        }
+    };
+
+    // Terms gate: the challenge for a not-yet-accepted address embeds the
+    // terms, so a valid signature over a message carrying the marker IS the
+    // acceptance. A message without it means a stale/forged challenge —
+    // send the client back through sign-in.
+    if !is_new_owner && !terms_satisfied(&addr) {
+        if req.message.contains(TERMS_MARKER) {
+            record_terms_acceptance(&addr);
+            println!("✓ Terms v{} accepted by {}", TERMS_VERSION, addr);
+        } else {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "Terms of Use acceptance required — refresh and sign in again",
+                    "terms_required": true,
+                })),
+            ));
+        }
+    }
+
+    let token = mint_token(&addr);
+
+    if is_new_owner {
+        println!("✓ First user authenticated - set as owner: {}", addr);
+    }
+
+    Ok(Json(VerifyResponse {
+        token,
+        address: addr,
+    }))
 }
 
-/// Ethereum address = last 20 bytes of keccak256(uncompressed_pubkey[1..]).
-fn address_from_pubkey(vk: &VerifyingKey) -> String {
-    let point = vk.to_encoded_point(false);
-    let bytes = point.as_bytes(); // 0x04 || X || Y
-    let hash = keccak256(&bytes[1..]);
-    format!("0x{}", hex::encode(&hash[12..]))
+/// Mint a bearer token for an authenticated identity: address:timestamp:hmac.
+pub fn mint_token(address: &str) -> String {
+    let timestamp = chrono::Utc::now().timestamp();
+    let payload = format!("{}:{}", address, timestamp);
+    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+    mac.update(payload.as_bytes());
+    let sig = hex::encode(mac.finalize().into_bytes());
+    format!("{}:{}", payload, sig)
 }
 
-pub fn keccak256(data: &[u8]) -> [u8; 32] {
-    let mut h = Keccak256::new();
-    h.update(data);
-    let out = h.finalize();
-    let mut o = [0u8; 32];
-    o.copy_from_slice(&out);
-    o
+// ── Middleware ────────────────────────────────────────────────────────
+
+pub async fn auth_middleware(req: Request, next: Next) -> Response {
+    // Try Bearer token first (Claude API native token)
+    let auth_header = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if auth_header.starts_with("Bearer ") {
+        let token = &auth_header[7..];
+        return match validate_token(token) {
+            Ok(_addr) => next.run(req).await,
+            Err(e) => (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": e })),
+            )
+                .into_response(),
+        };
+    }
+
+    // Try core app token in "token" header (Base64URL JSON with EIP-191 signature)
+    let core_token = req
+        .headers()
+        .get("token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !core_token.is_empty() {
+        return match validate_core_token(core_token) {
+            Ok(_addr) => next.run(req).await,
+            Err(e) => (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": format!("Core token: {}", e) })),
+            )
+                .into_response(),
+        };
+    }
+
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({ "error": "Missing authentication — provide Bearer token or core app token" })),
+    )
+        .into_response()
 }
 
-/// Decode unpadded (or padded) base64url. The JS client strips `=` padding to
-/// match Python's `urlsafe_b64encode(...).rstrip(b'=')`.
-fn b64url_decode(s: &str) -> Result<Vec<u8>, String> {
-    let trimmed = s.trim_end_matches('=');
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(trimmed)
-        .map_err(|e| e.to_string())
+pub fn validate_token(token: &str) -> Result<String, String> {
+    // Format: address:timestamp:hmac
+    let parts: Vec<&str> = token.splitn(3, ':').collect();
+    if parts.len() != 3 {
+        return Err("Invalid token format".to_string());
+    }
+
+    let address = parts[0];
+    let timestamp: i64 = parts[1]
+        .parse()
+        .map_err(|_| "Invalid timestamp".to_string())?;
+    let provided_sig = parts[2];
+
+    // Check expiry (24 hours). Guest tokens (walletless QR redemption) are
+    // exempt here — they live and die with their grant, checked below.
+    let is_guest = address.starts_with(GUEST_PREFIX);
+    let now = chrono::Utc::now().timestamp();
+    if !is_guest && now - timestamp > 86400 {
+        return Err("Token expired".to_string());
+    }
+
+    // Verify HMAC
+    let payload = format!("{}:{}", address, timestamp);
+    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+    mac.update(payload.as_bytes());
+    let expected = hex::encode(mac.finalize().into_bytes());
+
+    if expected != provided_sig {
+        return Err("Invalid token signature".to_string());
+    }
+
+    // A guest identity only means anything while its grant redemption is live,
+    // so access ends the moment the grant expires or is revoked.
+    if is_guest && !grant_active(address) {
+        return Err("Guest access expired".to_string());
+    }
+
+    Ok(address.to_string())
 }
+
+/// Validate a core app token (Base64URL-encoded JSON with EIP-191 signature).
+///
+/// Token format (after Base64URL decode + JSON parse):
+///   { "data": "", "time": "1712345678", "key": "0x...", "signature": "0x...", "dataHash": "..." }
+///
+/// The signature is EIP-191 personal_sign over the string:
+///   {"data":"<data>","time":"<time>"}
+pub fn validate_core_token(token: &str) -> Result<String, String> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+    // Base64URL decode
+    let decoded = URL_SAFE_NO_PAD
+        .decode(token)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
+    let json_str = String::from_utf8(decoded)
+        .map_err(|e| format!("UTF-8 decode failed: {}", e))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("JSON parse failed: {}", e))?;
+
+    let data = parsed.get("data").and_then(|v| v.as_str()).unwrap_or("");
+    let time_str = parsed.get("time").and_then(|v| v.as_str())
+        .ok_or("Missing 'time' field")?;
+    let key = parsed.get("key").and_then(|v| v.as_str())
+        .ok_or("Missing 'key' field")?;
+    let signature = parsed.get("signature").and_then(|v| v.as_str())
+        .ok_or("Missing 'signature' field")?;
+
+    // Check staleness (1 hour max)
+    let token_time: i64 = time_str.parse()
+        .map_err(|_| "Invalid timestamp".to_string())?;
+    let now = chrono::Utc::now().timestamp();
+    if (now - token_time).abs() > 3600 {
+        return Err("Core token expired".to_string());
+    }
+
+    // Reconstruct the signed message: {"data":"<data>","time":"<time>"}
+    let sign_message = format!("{{\"data\":{},\"time\":{}}}",
+        serde_json::to_string(data).unwrap_or_else(|_| format!("\"{}\"", data)),
+        serde_json::to_string(time_str).unwrap_or_else(|_| format!("\"{}\"", time_str)),
+    );
+
+    // Verify EIP-191 signature (MetaMask personal_sign)
+    let recovered = recover_eth_address(&sign_message, signature)
+        .map_err(|e| format!("Signature verification failed: {}", e))?;
+
+    if recovered.to_lowercase() != key.to_lowercase() {
+        return Err(format!(
+            "Address mismatch: recovered {} but token says {}",
+            recovered, key
+        ));
+    }
+
+    Ok(key.to_lowercase())
+}
+
+/// Extract address from a bearer token in the Authorization header
+pub fn extract_address_from_header(auth_header: &str) -> Result<String, String> {
+    if !auth_header.starts_with("Bearer ") {
+        return Err("Missing bearer token".to_string());
+    }
+    validate_token(&auth_header[7..])
+}
+
+/// Extract address from request headers — tries Authorization (Bearer) first, then core app token header
+pub fn extract_address_from_headers(headers: &axum::http::HeaderMap) -> Result<String, String> {
+    // Try Bearer token first
+    let auth_header = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if let Ok(addr) = extract_address_from_header(auth_header) {
+        return Ok(addr);
+    }
+
+    // Try core app token header
+    let core_token = headers
+        .get("token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !core_token.is_empty() {
+        return validate_core_token(core_token);
+    }
+
+    Err("No valid auth token found".to_string())
+}
+
+/// Read the owner address — config.json "owner" field takes priority, then ~/.mod/claude/owner.json
+pub fn get_owner_address() -> Option<String> {
+    // Priority 1: config.json "owner" field (live-editable)
+    if let Some(owner) = read_config_owner() {
+        return Some(owner);
+    }
+
+    // Priority 2: owner.json
+    let owner_path = dirs::home_dir()?
+        .join(".mod")
+        .join("dev")
+        .join("owner.json");
+
+    let content = std::fs::read_to_string(&owner_path).ok()?;
+    let data: serde_json::Value = serde_json::from_str(&content).ok()?;
+    data.get("owner").and_then(|v| v.as_str()).map(|s| s.to_lowercase())
+}
+
+/// Read the "owner" field from config.json (re-read each call so live edits take effect)
+fn read_config_owner() -> Option<String> {
+    let config_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .and_then(|d| {
+            let mut dir = d.as_path();
+            for _ in 0..5 {
+                let candidate = dir.join("config.json");
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+                dir = dir.parent()?;
+            }
+            None
+        })
+        .unwrap_or_else(|| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            std::path::PathBuf::from(format!("{}/mod/mod/orbit/dev/config.json", home))
+        });
+
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let data: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let owner = data.get("owner").and_then(|v| v.as_str())?.to_lowercase();
+    if owner.is_empty() { None } else { Some(owner) }
+}
+
+/// Check if an address is the system owner
+pub fn is_owner(address: &str) -> bool {
+    match get_owner_address() {
+        Some(owner) => address.to_lowercase() == owner,
+        None => false,
+    }
+}
+
+/// Check if an address is *trusted* to edit — the configured owner OR a
+/// whitelisted address. Trusted callers get the owner's wider edit surface
+/// (host filesystem access, unsandboxed jobs, core/ + orbit/ writes) because
+/// everything in the orbit belongs to the host owner and the whitelist is the
+/// owner's explicit delegation of edit rights.
+///
+/// Owner-only *powers* — managing the whitelist, changing the owner, killing
+/// processes, process control, and destructive module ops (delete/rename/
+/// restore) — stay gated on `is_owner`, NOT this. Only edit capability widens.
+pub fn is_trusted(address: &str) -> bool {
+    if address.is_empty() {
+        return false;
+    }
+    if is_owner(address) {
+        return true;
+    }
+    let addr = address.to_lowercase();
+    if read_whitelist().iter().any(|w| w == &addr) {
+        return true;
+    }
+    // Time-boxed QR grants: a holder who redeemed a still-valid edit grant gets
+    // the same edit surface as a whitelisted editor, until the grant expires.
+    grant_active(&addr)
+}
+
+// ── Time-boxed edit grants (QR hand-off) ─────────────────────────────
+//
+// The owner mints a *grant*: a short, random id that confers temporary
+// edit access (default 1h) to whoever redeems it, optionally protected by
+// a second-factor *key* the owner shares out of band. The id travels in a
+// QR code; the key is supplied separately so a leaked QR alone is useless.
+//
+// Redemption is bound to the redeemer's signed-in address (during sign-in),
+// so access cleaves an auditable trail and the grant can serve multiple
+// people. Everything lives off-repo in ~/.mod/claude/grants.json next to the
+// whitelist; the grant window is absolute (created → created+ttl), so the QR
+// stops working — and every redeemer's access ends — at the same moment.
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Grant {
+    /// Random, URL-safe id carried by the QR code.
+    pub id: String,
+    /// Unix expiry — access (and redemption) ends here.
+    pub exp: i64,
+    /// Seconds of life the owner asked for (for display/echo).
+    pub ttl: i64,
+    /// sha256(key) hex if the owner set a second-factor key; absent otherwise.
+    #[serde(default)]
+    pub key_hash: Option<String>,
+    /// Optional human label so the owner remembers what a grant was for.
+    #[serde(default)]
+    pub label: Option<String>,
+    pub created: i64,
+    #[serde(default)]
+    pub revoked: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Redemption {
+    pub address: String,
+    pub exp: i64,
+    pub grant: String,
+    pub redeemed: i64,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct GrantsFile {
+    #[serde(default)]
+    pub grants: Vec<Grant>,
+    #[serde(default)]
+    pub redemptions: Vec<Redemption>,
+}
+
+pub fn grants_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("grants.json"))
+}
+
+/// Read the grants file, tolerating a missing/corrupt file (returns empty).
+pub fn read_grants() -> GrantsFile {
+    let path = match grants_path() {
+        Some(p) => p,
+        None => return GrantsFile::default(),
+    };
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+pub fn write_grants(file: &GrantsFile) -> Result<(), String> {
+    let path = grants_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(file).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+fn sha256_hex(s: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(s.as_bytes());
+    hex::encode(h.finalize())
+}
+
+/// Drop expired grants and redemptions, plus redemptions whose grant is gone or
+/// revoked. Returns the pruned file (callers persist it).
+fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
+    file.grants.retain(|g| !g.revoked && g.exp > now);
+    let live: std::collections::HashSet<String> =
+        file.grants.iter().map(|g| g.id.clone()).collect();
+    file.redemptions
+        .retain(|r| r.exp > now && live.contains(&r.grant));
+    file
+}
+
+/// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
+/// never stored in the clear. Returns the created grant.
+pub fn create_grant(
+    ttl: i64,
+    key: Option<&str>,
+    label: Option<&str>,
+) -> Result<Grant, String> {
+    let now = chrono::Utc::now().timestamp();
+    let id = hex::encode(rand::random::<[u8; 12]>());
+    let grant = Grant {
+        id,
+        exp: now + ttl,
+        ttl,
+        key_hash: key.map(sha256_hex),
+        label: label
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        created: now,
+        revoked: false,
+    };
+    let mut file = prune_grants(read_grants(), now);
+    file.grants.push(grant.clone());
+    write_grants(&file)?;
+    Ok(grant)
+}
+
+/// Active (unexpired, unrevoked) grants and live redemptions, for the owner UI.
+pub fn list_grants() -> GrantsFile {
+    let now = chrono::Utc::now().timestamp();
+    let pruned = prune_grants(read_grants(), now);
+    // Persist the prune so the file doesn't grow unbounded; ignore write errors.
+    let _ = write_grants(&pruned);
+    pruned
+}
+
+/// Revoke a grant by id (and cut every session it opened). Returns true if found.
+pub fn revoke_grant(id: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let before = file.grants.len();
+    file.grants.retain(|g| g.id != id);
+    let removed = file.grants.len() != before;
+    if removed {
+        file.redemptions.retain(|r| r.grant != id);
+        let _ = write_grants(&file);
+    }
+    removed
+}
+
+/// Redeem a grant for `address`. Validates existence, expiry, and the optional
+/// key, then records (or refreshes) the redemption. Returns the access expiry.
+pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut file = prune_grants(read_grants(), now);
+    let addr = address.to_lowercase();
+
+    let grant = file
+        .grants
+        .iter()
+        .find(|g| g.id == id)
+        .cloned()
+        .ok_or("Invalid or expired invite")?;
+
+    if let Some(expected) = &grant.key_hash {
+        let supplied = key.map(|k| k.trim()).filter(|k| !k.is_empty());
+        match supplied {
+            Some(k) if &sha256_hex(k) == expected => {}
+            Some(_) => return Err("Wrong key for this invite".to_string()),
+            None => return Err("This invite requires a key".to_string()),
+        }
+    }
+
+    // Upsert the redemption (re-redeeming just refreshes it to the grant window).
+    file.redemptions.retain(|r| !(r.address == addr && r.grant == id));
+    file.redemptions.push(Redemption {
+        address: addr,
+        exp: grant.exp,
+        grant: grant.id.clone(),
+        redeemed: now,
+    });
+    write_grants(&file)?;
+    Ok(grant.exp)
+}
+
+/// Prefix for walletless guest identities minted by QR redemption. Can never
+/// collide with a real signer: Ethereum addresses always start with "0x".
+pub const GUEST_PREFIX: &str = "guest_";
+
+/// Walletless redemption: anyone holding the grant id (from the QR) trades it
+/// for a fresh guest identity whose redemption — and therefore whose bearer
+/// token — expires with the grant. Returns (guest address, access expiry).
+pub fn redeem_grant_guest(id: &str, key: Option<&str>) -> Result<(String, i64), String> {
+    let guest = format!("{}{}", GUEST_PREFIX, hex::encode(rand::random::<[u8; 4]>()));
+    let exp = redeem_grant(id, key, &guest)?;
+    Ok((guest, exp))
+}
+
+/// True if `address` holds an unexpired redemption of a live grant.
+pub fn grant_active(address: &str) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    let addr = address.to_lowercase();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    file.redemptions
+        .iter()
+        .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+}
+
+// ── Session handoff (QR sign-in on another device) ──────────────────
+//
+// A signed-in browser mints a short-lived, SINGLE-USE code bound to its own
+// identity. The code rides a QR; another device (typically the same person's
+// phone) opens `?handoff=<code>` and trades it for a fresh bearer token as
+// the SAME address — no wallet or signature needed on that device. This is
+// distinct from grants: a grant invites *someone else* in (guest identity /
+// time-boxed access), a handoff moves *your own* session across devices.
+//
+// Codes live in memory only: they expire in minutes and are consumed on
+// first redemption, so a restart merely voids any un-scanned QR.
+
+struct Handoff {
+    address: String,
+    exp: i64,
+}
+
+static HANDOFFS: OnceLock<std::sync::Mutex<HashMap<String, Handoff>>> = OnceLock::new();
+
+/// Default lifetime of a handoff QR. Short on purpose: the code is a
+/// bearer capability for the minter's whole identity. The minter may pick
+/// a different TTL, clamped to [HANDOFF_TTL_MIN, HANDOFF_TTL_MAX].
+pub const HANDOFF_TTL: i64 = 300;
+pub const HANDOFF_TTL_MIN: i64 = 60;
+pub const HANDOFF_TTL_MAX: i64 = 86_400;
+
+fn handoff_store() -> &'static std::sync::Mutex<HashMap<String, Handoff>> {
+    HANDOFFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Mint a single-use handoff code for `address`. `ttl` is the requested
+/// lifetime in seconds (None → HANDOFF_TTL), clamped so a caller can't mint
+/// an effectively-immortal identity capability. Returns (code, expiry).
+pub fn create_handoff(address: &str, ttl: Option<i64>) -> (String, i64) {
+    let now = chrono::Utc::now().timestamp();
+    let code = hex::encode(rand::random::<[u8; 16]>());
+    let ttl = ttl.unwrap_or(HANDOFF_TTL).clamp(HANDOFF_TTL_MIN, HANDOFF_TTL_MAX);
+    let exp = now + ttl;
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.insert(
+        code.clone(),
+        Handoff {
+            address: address.to_lowercase(),
+            exp,
+        },
+    );
+    (code, exp)
+}
+
+/// Redeem (and consume) a handoff code. Returns the bound address.
+pub fn redeem_handoff(code: &str) -> Result<String, String> {
+    let now = chrono::Utc::now().timestamp();
+    let mut map = handoff_store().lock().unwrap();
+    map.retain(|_, h| h.exp > now);
+    map.remove(code)
+        .map(|h| h.address)
+        .ok_or_else(|| "Invalid, expired, or already-used sign-in code".to_string())
+}
+
+/// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.
+/// Kept off-repo because the whitelist is private; mounted into the container as a volume.
+pub fn private_dir() -> Option<std::path::PathBuf> {
+    Some(dirs::home_dir()?.join(".mod").join("dev"))
+}
+
+pub fn whitelist_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("whitelist.json"))
+}
+
+fn gate_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("gate.json"))
+}
+
+/// Read the lowercased whitelist from ~/.mod/claude/whitelist.json (a JSON string array).
+/// Returns [] if the file is absent or malformed — never errors.
+pub fn read_whitelist() -> Vec<String> {
+    let path = match whitelist_path() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    // Accept either `["0x..", ..]` or `{"addresses": ["0x..", ..]}`.
+    let arr = parsed
+        .as_array()
+        .cloned()
+        .or_else(|| parsed.get("addresses").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default();
+    arr.into_iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+        .collect()
+}
+
+/// Persist the whitelist back to ~/.mod/claude/whitelist.json (used by the owner-only
+/// management endpoints in api.rs). Returns an error string on failure.
+pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
+    let path = whitelist_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(&addresses).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+/// Read the optional `gate_command` from ~/.mod/claude/gate.json — a shell command that the
+/// owner defines to authorize sign-in based on arbitrary logic (token-gated, NFT-gated, etc).
+/// File format: {"command": "..."}.
+fn read_gate_command() -> Option<String> {
+    let path = gate_path()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let data: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let cmd = data.get("command").and_then(|v| v.as_str())?.trim().to_string();
+    if cmd.is_empty() { None } else { Some(cmd) }
+}
+
+/// Invoke the owner-defined `gate_command` (if any). The address is passed as $1 and on
+/// stdin as `{"address":"0x.."}`. Exit code 0 ⇒ allow, anything else ⇒ deny.
+/// Returns false if no command is configured (deny by default).
+pub fn run_gate_command(address: &str) -> bool {
+    let cmd = match read_gate_command() {
+        Some(c) => c,
+        None => return false,
+    };
+    let payload = serde_json::json!({ "address": address }).to_string();
+    let mut child = match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .arg("--")
+        .arg(address)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gate_command spawn failed: {}", e);
+            return false;
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(payload.as_bytes());
+    }
+    match child.wait() {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
+// ── Ethereum Signature Recovery ──────────────────────────────────────
+
+pub fn recover_eth_address(message: &str, signature: &str) -> Result<String, String> {
+    // Strip 0x prefix
+    let sig_hex = signature.strip_prefix("0x").unwrap_or(signature);
+    let sig_bytes = hex::decode(sig_hex).map_err(|e| format!("Bad hex: {}", e))?;
+
+    if sig_bytes.len() != 65 {
+        return Err(format!("Signature must be 65 bytes, got {}", sig_bytes.len()));
+    }
+
+    // Split into r,s,v
+    let r_s = &sig_bytes[..64];
+    let v = sig_bytes[64];
+
+    // MetaMask uses v = 27 or 28. RecoveryId::new(is_y_odd, is_x_reduced)
+    let recovery_id = match v {
+        27 | 0 => RecoveryId::new(false, false),
+        28 | 1 => RecoveryId::new(true, false),
+        _ => return Err(format!("Invalid recovery id: {}", v)),
+    };
+
+    // EIP-191 personal_sign hash: "\x19Ethereum Signed Message:\n" + len + message
+    let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+    let mut hasher = sha3::Keccak256::new();
+    hasher.update(prefix.as_bytes());
+    hasher.update(message.as_bytes());
+    let hash = hasher.finalize();
+
+    let signature =
+        Signature::from_slice(r_s).map_err(|e| format!("Bad signature: {}", e))?;
+
+    let recovered_key = VerifyingKey::recover_from_prehash(&hash, &signature, recovery_id)
+        .map_err(|e| format!("Recovery failed: {}", e))?;
+
+    // Public key → Ethereum address (keccak256 of uncompressed pubkey without 0x04 prefix)
+    let pubkey_bytes = recovered_key.to_encoded_point(false);
+    let pubkey_raw = &pubkey_bytes.as_bytes()[1..]; // skip 0x04
+
+    let mut addr_hasher = sha3::Keccak256::new();
+    addr_hasher.update(pubkey_raw);
+    let addr_hash = addr_hasher.finalize();
+
+    let address = format!("0x{}", hex::encode(&addr_hash[12..]));
+    Ok(address)
+}
+
+// ── Tests ────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k256::ecdsa::SigningKey;
 
-    #[test]
-    fn rejects_garbage() {
-        assert!(verify_token("not-a-token", 3600).is_err());
-        assert!(verify_token("", 3600).is_err());
+    fn ensure_secret() {
+        // OnceLock only sets once, safe to call multiple times
+        let _ = SERVER_SECRET.set([42u8; 32]);
     }
 
     #[test]
-    fn rejects_tampered_address() {
-        // Well-formed envelope but signature won't recover to `key`.
-        let env = serde_json::json!({
-            "data": {"scope": "dev"},
-            "time": format!("{}", chrono::Utc::now().timestamp()),
-            "key": "0x000000000000000000000000000000000000dead",
-            "signature": format!("0x{}", "11".repeat(65)),
-        });
-        let token = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(serde_json::to_vec(&env).unwrap());
-        assert!(verify_token(&token, 3600).is_err());
+    fn test_token_roundtrip() {
+        ensure_secret();
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        let timestamp = chrono::Utc::now().timestamp();
+        let payload = format!("{}:{}", addr, timestamp);
+
+        let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+        mac.update(payload.as_bytes());
+        let sig = hex::encode(mac.finalize().into_bytes());
+        let token = format!("{}:{}", payload, sig);
+
+        let result = validate_token(&token);
+        assert!(result.is_ok(), "Token validation failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), addr);
+    }
+
+    #[test]
+    fn test_token_expired() {
+        ensure_secret();
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        // 2 days ago
+        let timestamp = chrono::Utc::now().timestamp() - 172800;
+        let payload = format!("{}:{}", addr, timestamp);
+
+        let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+        mac.update(payload.as_bytes());
+        let sig = hex::encode(mac.finalize().into_bytes());
+        let token = format!("{}:{}", payload, sig);
+
+        let result = validate_token(&token);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Token expired");
+    }
+
+    #[test]
+    fn test_token_tampered() {
+        ensure_secret();
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        let timestamp = chrono::Utc::now().timestamp();
+        let token = format!("{}:{}:badhmacsignature", addr, timestamp);
+
+        let result = validate_token(&token);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid token signature");
+    }
+
+    #[test]
+    fn test_token_bad_format() {
+        ensure_secret();
+        // No colons at all
+        let result = validate_token("garbage");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Invalid token format");
+
+        // Only two parts (need 3: address:timestamp:hmac)
+        let result2 = validate_token("only:two");
+        assert!(result2.is_err());
+        assert_eq!(result2.unwrap_err(), "Invalid token format");
+
+        // Three parts but non-numeric timestamp
+        let result3 = validate_token("addr:notanumber:sig");
+        assert!(result3.is_err());
+        assert_eq!(result3.unwrap_err(), "Invalid timestamp");
+    }
+
+    #[test]
+    fn test_recover_eth_address_with_known_key() {
+        // Generate a new secp256k1 key pair
+        let signing_key = SigningKey::random(&mut rand::thread_rng());
+        let verifying_key = signing_key.verifying_key();
+
+        // Derive the expected Ethereum address from the public key
+        let pubkey_bytes = verifying_key.to_encoded_point(false);
+        let pubkey_raw = &pubkey_bytes.as_bytes()[1..]; // skip 0x04 prefix
+        let mut addr_hasher = sha3::Keccak256::new();
+        addr_hasher.update(pubkey_raw);
+        let addr_hash = addr_hasher.finalize();
+        let expected_address = format!("0x{}", hex::encode(&addr_hash[12..]));
+
+        // Sign a message using EIP-191 personal_sign
+        let message = "Hello Claude Jobs";
+        let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
+        let mut hasher = sha3::Keccak256::new();
+        hasher.update(prefix.as_bytes());
+        hasher.update(message.as_bytes());
+        let hash = hasher.finalize();
+
+        let (sig, recid) = signing_key
+            .sign_prehash_recoverable(&hash)
+            .expect("signing failed");
+
+        // Build the 65-byte signature: r (32) + s (32) + v (1)
+        let mut sig_bytes = Vec::with_capacity(65);
+        sig_bytes.extend_from_slice(&sig.to_bytes());
+        // v = 27 + recovery_id (0 or 1)
+        let v: u8 = if recid.is_y_odd().into() { 28 } else { 27 };
+        sig_bytes.push(v);
+
+        let sig_hex = format!("0x{}", hex::encode(&sig_bytes));
+
+        // Recover and verify
+        let recovered = recover_eth_address(message, &sig_hex).expect("recovery failed");
+        assert_eq!(
+            recovered.to_lowercase(),
+            expected_address.to_lowercase(),
+            "Recovered address doesn't match expected"
+        );
+    }
+
+    #[test]
+    fn test_handoff_roundtrip_single_use() {
+        let addr = "0xABCDef1234567890abcdef1234567890abcdef12";
+        let (code, exp) = create_handoff(addr, None);
+        assert!(exp > chrono::Utc::now().timestamp());
+
+        // Redeems to the lowercased bound address…
+        let redeemed = redeem_handoff(&code).expect("redeem failed");
+        assert_eq!(redeemed, addr.to_lowercase());
+
+        // …and only once.
+        assert!(redeem_handoff(&code).is_err());
+    }
+
+    #[test]
+    fn test_handoff_unknown_code() {
+        assert!(redeem_handoff("nope").is_err());
+    }
+
+    #[test]
+    fn test_handoff_ttl_clamped() {
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        let now = chrono::Utc::now().timestamp();
+
+        // Requested TTL is honored within bounds…
+        let (_, exp) = create_handoff(addr, Some(3600));
+        assert!((exp - now - 3600).abs() <= 2);
+
+        // …and clamped outside them (can't mint an immortal or instant code).
+        let (_, exp) = create_handoff(addr, Some(999_999_999));
+        assert!(exp - now <= HANDOFF_TTL_MAX + 2);
+        let (_, exp) = create_handoff(addr, Some(0));
+        assert!(exp - now >= HANDOFF_TTL_MIN - 2);
+    }
+
+    #[test]
+    fn test_recover_bad_signature_length() {
+        let result = recover_eth_address("hello", "0xdeadbeef");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("65 bytes"));
+    }
+
+    #[test]
+    fn test_recover_bad_hex() {
+        let result = recover_eth_address("hello", "0xZZZZ");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Bad hex"));
+    }
+
+    #[test]
+    fn test_recover_invalid_v() {
+        // 64 bytes of zeros + v=99 (invalid)
+        let sig = format!("0x{}{:02x}", "00".repeat(64), 99u8);
+        let result = recover_eth_address("hello", &sig);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid recovery id"));
     }
 }

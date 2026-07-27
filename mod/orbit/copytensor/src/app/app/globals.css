@@ -436,6 +436,36 @@ input[type="radio"] {
   box-shadow: 0 0 24px rgba(74, 222, 128, 0.18), inset 0 0 30px rgba(74, 222, 128, 0.04);
 }
 
+/* Market card in light mode — the hardcoded near-black gradient above is
+   dark-only; without this the whole subnet grid stays black on white. */
+[data-theme="light"] .market-card {
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  border-color: rgba(17, 24, 39, 0.10);
+}
+[data-theme="light"] .market-card:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f6f7f9 100%);
+  border-color: rgba(17, 24, 39, 0.20);
+  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.10), 0 0 0 1px rgba(22, 163, 74, 0.12);
+}
+
+/* Loading placeholder — same footprint as the card it stands in for, so the
+   grid doesn't jump when data lands. */
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.8; }
+}
+.skeleton-pulse {
+  animation: skeleton-breathe 1.6s ease-in-out infinite;
+}
+
+/* Cells that hold a stacked label + sub-label (validator name over its
+   ss58, stake over its share bar) need to breathe past the one-line
+   default and must not clip their second row. */
+.pixel-table td.stack {
+  white-space: normal;
+  overflow: visible;
+}
+
 /* Recharts overrides — vibey numerics */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {

@@ -5,6 +5,10 @@
 //   OPEN   — live holdings, mark-to-market unrealized P&L (from /positions).
 //   CLOSED — fully exited positions (sold and/or redeemed), realized P&L
 //            computed upstream by the data-api /closed-positions endpoint.
+//            Also includes DEAD rows still in /positions: markets resolved
+//            against us (or 0¢ dust below the $1 CLOB sell floor) keep their
+//            worthless tokens until redeem sweeps them, so the data-api
+//            reports them as "open" — economically they are closed losses.
 // Open rows lead (biggest first), closed rows follow newest-first, with
 // realized / unrealized / net totals pinned in the header so the account's
 // full trading record is one glance.
@@ -32,7 +36,7 @@ interface Row {
   value: number;       // open: mark-to-market value · closed: 0 (exited)
   pnl: number;         // open: unrealized · closed: realized
   redeemable: boolean;
-  ts: number;          // closed: close time (ms) · open: 0
+  ts: number;          // closed: close time (ms) · open + dead-unsettled: 0
 }
 
 function fmtUsd(v: number): string {
@@ -103,22 +107,40 @@ export default function PositionsHistoryPanel() {
   }, [refresh]);
 
   const rows = useMemo<Row[]>(() => {
-    const openRows: Row[] = open
+    // A held position is DEAD (closed loss, not open) when its mark is ~0¢:
+    // either the market resolved (redeemable) with our side at zero, or the
+    // tokens are 0¢ dust worth less than the $1 CLOB minimum — unsellable
+    // either way, so the loss is final even before redeem sweeps the tokens.
+    const isDead = (p: PolymarketPosition, mark: number) =>
+      p.redeemable ? mark < 0.05 : mark <= 0.005 && p.value < 1;
+
+    const held = open
       .filter((p) => p.size > 0)
-      .map((p) => ({
-        key: `o:${p.conditionId}:${p.outcome}`,
-        status: "open" as const,
-        market: p.market,
-        outcome: p.outcome,
-        size: p.size,
-        avgPrice: p.avgPrice,
-        curPrice: p.size > 0 ? p.value / p.size : p.currentPrice,
-        value: p.value,
-        pnl: p.pnlUsd,
-        redeemable: p.redeemable,
-        ts: 0,
-      }))
+      .map((p) => {
+        const mark = p.size > 0 ? p.value / p.size : p.currentPrice;
+        const dead = isDead(p, mark);
+        return {
+          key: `o:${p.conditionId}:${p.outcome}`,
+          status: dead ? ("closed" as const) : ("open" as const),
+          market: p.market,
+          outcome: p.outcome,
+          size: p.size,
+          avgPrice: p.avgPrice,
+          curPrice: mark,
+          value: p.value,
+          pnl: p.pnlUsd,
+          redeemable: !dead && p.redeemable,
+          ts: 0,
+        };
+      });
+    const openRows: Row[] = held
+      .filter((r) => r.status === "open")
       .sort((a, b) => b.value - a.value);
+    // Dead rows lead the closed section — they're the freshest outcomes even
+    // though the data-api hasn't settled them into /closed-positions yet.
+    const deadRows: Row[] = held
+      .filter((r) => r.status === "closed")
+      .sort((a, b) => a.pnl - b.pnl);
     const closedRows: Row[] = closed
       .map((p) => ({
         key: `c:${p.conditionId}:${p.outcome}:${p.timestamp}`,
@@ -134,7 +156,7 @@ export default function PositionsHistoryPanel() {
         ts: p.timestamp,
       }))
       .sort((a, b) => b.ts - a.ts);
-    return [...openRows, ...closedRows];
+    return [...openRows, ...deadRows, ...closedRows];
   }, [open, closed]);
 
   const unrealized = useMemo(
@@ -236,7 +258,7 @@ export default function PositionsHistoryPanel() {
                           ? "border-green-400/40 text-green-400/90"
                           : "border-red-400/40 text-red-400/90"
                       }`}
-                      title={r.curPrice >= 0.999 ? "Resolved in your favor / fully exited" : r.curPrice <= 0.001 ? "Resolved against you / fully exited" : "Fully exited"}
+                      title={r.ts === 0 ? "Market resolved against you — tokens are worthless; auto-redeem will sweep them" : r.curPrice >= 0.999 ? "Resolved in your favor / fully exited" : r.curPrice <= 0.001 ? "Resolved against you / fully exited" : "Fully exited"}
                     >
                       {r.pnl >= 0 ? "WON" : "LOST"}
                     </span>
@@ -263,7 +285,7 @@ export default function PositionsHistoryPanel() {
                   <span className="opacity-70"> {pct >= 0 ? "+" : ""}{pct.toFixed(0)}%</span>
                 </span>
                 <span className="text-right text-pixel-muted text-[10px]">
-                  {r.status === "open" ? "live" : fmtWhen(r.ts)}
+                  {r.status === "open" ? "live" : r.ts > 0 ? fmtWhen(r.ts) : "ended"}
                 </span>
               </div>
             );

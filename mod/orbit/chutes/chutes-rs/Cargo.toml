@@ -1,0 +1,22 @@
+[package]
+name = "chutes-rs"
+version = "2.0.0"
+edition = "2021"
+description = "Chutes.ai MCP server — Rust backend for the chutes mod"
+
+[[bin]]
+name = "chutes-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors"] }
+futures-util = "0.3"
+
+[profile.release]
+opt-level = 2
+strip = true

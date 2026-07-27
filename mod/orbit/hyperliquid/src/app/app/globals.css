@@ -4,14 +4,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme tokens ─────────────────────────────────────────────────────────
+   Space-separated RGB triplets so Tailwind can apply <alpha-value>.
+   Dark is the default (matches the pre-theme look exactly); html.light
+   swaps every token. `--c-glass-hi/lo` back the Tailwind `white`/`black`
+   names: "high/low contrast vs the surface", not literal white/black. */
+:root, html.dark {
+  color-scheme: dark;
+  --c-bg: 4 6 10;
+  --c-bg2: 7 10 16;
+  --c-panel: 11 15 22;
+  --c-panel2: 16 21 31;
+  --c-border: 26 34 48;
+  --c-ink: 238 244 251;
+  --c-muted: 125 138 156;
+  --c-dim: 86 98 115;
+  --c-accent: 60 224 200;
+  --c-accent2: 92 200 255;
+  --c-warn: 255 204 77;
+  --c-loss: 255 93 115;
+  --c-win: 60 224 200;
+  --c-glass-hi: 255 255 255;
+  --c-glass-lo: 0 0 0;
+
+  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.18), 0 0 22px -6px rgb(var(--c-accent) / 0.45);
+  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.22), 0 0 48px -8px rgb(var(--c-accent) / 0.55);
+  --shadow-panel: 0 1px 0 rgba(255,255,255,0.04) inset, 0 18px 40px -22px rgba(0,0,0,0.9);
+  --shadow-lift: 0 20px 50px -24px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04);
+  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 38%, rgba(0,0,0,0.18));
+  --accent-grad: linear-gradient(135deg, #3ce0c8 0%, #5cc8ff 100%);
+  --text-grad: linear-gradient(120deg, #eef4fb 0%, #3ce0c8 55%, #5cc8ff 100%);
+
+  --chart-line: #2f9de4;           /* validated against the dark surface */
+  --chart-grid: rgba(255,255,255,0.06);
+  --chart-zero: rgba(255,255,255,0.16);
+  --chart-cross: rgba(255,255,255,0.2);
+  --chart-surface: #04060a;
+
+  --bloom-a: rgba(60,224,200,0.10);
+  --bloom-b: rgba(92,200,255,0.08);
+  --bloom-c: rgba(60,224,200,0.06);
+  --grid-line: rgba(255,255,255,0.018);
+  --sel-bg: rgba(60,224,200,0.25);
+  --sel-ink: #ffffff;
+  --scroll-thumb: rgb(var(--c-accent) / 0.18);
+  --scroll-thumb-hover: rgb(var(--c-accent) / 0.35);
+}
+
+/* Cool paper-white with the same mint identity — accents darken for
+   contrast, glass hairlines invert to ink-tinted, panels go frosted. */
+html.light {
+  color-scheme: light;
+  --c-bg: 243 246 250;
+  --c-bg2: 235 240 246;
+  --c-panel: 255 255 255;
+  --c-panel2: 244 248 252;
+  --c-border: 216 226 237;
+  --c-ink: 11 21 36;
+  --c-muted: 86 101 122;
+  --c-dim: 130 144 163;
+  --c-accent: 10 143 128;
+  --c-accent2: 4 118 190;
+  --c-warn: 176 98 5;
+  --c-loss: 208 41 67;
+  --c-win: 10 143 128;
+  --c-glass-hi: 15 26 43;
+  --c-glass-lo: 255 255 255;
+
+  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.25), 0 6px 18px -8px rgb(var(--c-accent) / 0.35);
+  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.30), 0 10px 32px -10px rgb(var(--c-accent) / 0.40);
+  --shadow-panel: 0 1px 0 rgba(255,255,255,0.85) inset, 0 14px 34px -22px rgba(23,43,77,0.30);
+  --shadow-lift: 0 18px 44px -24px rgba(23,43,77,0.25), 0 0 0 1px rgba(15,26,43,0.05);
+  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72) 38%, rgba(240,246,251,0.62));
+  --accent-grad: linear-gradient(135deg, #0da893 0%, #0a8fd6 100%);
+  --text-grad: linear-gradient(120deg, #0b1524 0%, #0a8f80 55%, #0476be 100%);
+
+  --chart-line: #1673b9;
+  --chart-grid: rgba(15,26,43,0.08);
+  --chart-zero: rgba(15,26,43,0.28);
+  --chart-cross: rgba(15,26,43,0.32);
+  --chart-surface: #ffffff;
+
+  --bloom-a: rgba(13,168,147,0.10);
+  --bloom-b: rgba(10,143,214,0.08);
+  --bloom-c: rgba(13,168,147,0.06);
+  --grid-line: rgba(15,26,43,0.030);
+  --sel-bg: rgba(10,143,128,0.22);
+  --sel-ink: #0b1524;
+  --scroll-thumb: rgb(var(--c-accent) / 0.30);
+  --scroll-thumb-hover: rgb(var(--c-accent) / 0.50);
+}
+
 html, body {
-  background: #04060a;
-  color: #eef4fb;
+  background: rgb(var(--c-bg));
+  color: rgb(var(--c-ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
 * { box-sizing: border-box; }
+
+/* Brief cross-fade when the toggle flips the theme (class added for ~350ms
+   so normal hover transitions stay untouched). */
+html.theme-switching, html.theme-switching *,
+html.theme-switching *::before, html.theme-switching *::after {
+  transition: background-color 0.3s ease, border-color 0.3s ease,
+              color 0.3s ease, fill 0.3s ease, stroke 0.3s ease,
+              box-shadow 0.3s ease !important;
+}
 
 /* Ambient backdrop: two slow mint/cyan light blooms over a faint grid.
    Fixed so it stays put while content scrolls — the "depth" layer. */
@@ -21,9 +121,9 @@ body::before {
   inset: 0;
   z-index: -2;
   background:
-    radial-gradient(60rem 60rem at 12% -10%, rgba(60, 224, 200, 0.10), transparent 60%),
-    radial-gradient(55rem 55rem at 100% 0%, rgba(92, 200, 255, 0.08), transparent 55%),
-    radial-gradient(50rem 50rem at 50% 120%, rgba(60, 224, 200, 0.06), transparent 60%);
+    radial-gradient(60rem 60rem at 12% -10%, var(--bloom-a), transparent 60%),
+    radial-gradient(55rem 55rem at 100% 0%, var(--bloom-b), transparent 55%),
+    radial-gradient(50rem 50rem at 50% 120%, var(--bloom-c), transparent 60%);
   pointer-events: none;
 }
 body::after {
@@ -32,8 +132,8 @@ body::after {
   inset: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
   -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
@@ -73,6 +173,19 @@ body::after {
            border border-loss/40 bg-loss/[0.06] transition-all duration-150
            hover:bg-loss/15 hover:border-loss/70 active:scale-[0.97];
   }
+  /* Joined segmented control — one bordered group instead of a row of
+     individually-bordered buttons; much calmer in a dense filter bar. */
+  .seg {
+    @apply inline-flex items-center rounded-md border border-white/[0.08]
+           bg-white/[0.02] p-0.5 gap-0.5;
+  }
+  .seg-btn {
+    @apply px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider rounded
+           text-muted transition-colors hover:text-ink;
+  }
+  .seg-btn-active {
+    @apply text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgb(var(--c-accent)/0.3)];
+  }
   .pill {
     @apply inline-flex items-center text-[10px] font-medium uppercase tracking-wider
            px-2 py-0.5 rounded-full border border-white/[0.08] bg-white/[0.03] text-muted;
@@ -101,28 +214,28 @@ body::after {
   .skeleton::after {
     @apply absolute inset-0 -translate-x-full animate-shimmer;
     content: "";
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+    background: linear-gradient(90deg, transparent, rgb(var(--c-glass-hi) / 0.07), transparent);
   }
 }
 
 /* Live status dot. */
 .live-dot {
-  box-shadow: 0 0 0 0 rgba(60, 224, 200, 0.6);
+  box-shadow: 0 0 0 0 rgb(var(--c-accent) / 0.6);
   animation: livePing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 @keyframes livePing {
-  0% { box-shadow: 0 0 0 0 rgba(60, 224, 200, 0.55); }
-  70% { box-shadow: 0 0 0 7px rgba(60, 224, 200, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(60, 224, 200, 0); }
+  0% { box-shadow: 0 0 0 0 rgb(var(--c-accent) / 0.55); }
+  70% { box-shadow: 0 0 0 7px rgb(var(--c-accent) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--c-accent) / 0); }
 }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(60, 224, 200, 0.18);
+  background: var(--scroll-thumb);
   border-radius: 6px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(60, 224, 200, 0.35); background-clip: padding-box; }
-::selection { background: rgba(60, 224, 200, 0.25); color: #fff; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+::selection { background: var(--sel-bg); color: var(--sel-ink); }

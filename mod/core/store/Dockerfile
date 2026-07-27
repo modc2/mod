@@ -63,11 +63,11 @@ COPY --from=app-builder /build/src /app/app/src
 RUN mkdir -p /data /tmp/store
 VOLUME ["/data"]
 
-ENV STORE_API_PORT=50150
+ENV STORE_API_PORT=50152
 ENV STORE_APP_PORT=50151
 ENV STORE_MODE=prod
-ENV NEXT_PUBLIC_API_URL="http://localhost:50150"
+ENV NEXT_PUBLIC_API_URL="http://localhost:50152"
 
-EXPOSE 50150 50151
+EXPOSE 50152 50151
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

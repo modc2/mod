@@ -2,8 +2,9 @@
     "name": "sshville",
     "version": "0.1.0",
     "description": "Manage multiple SSH remote connections; auth via MetaMask (ETH personal_sign) or SubWallet/Polkadot.js (sr25519, Bittensor-compatible). Rust axum backend.",
-    "port": 50180,
-    "app_port": 50181,
+    "port": 50182,
+    "app_port": 50183,
+    "route": true,
     "icon": "S",
     "color": "#10b981",
     "fns": [
@@ -14,6 +15,8 @@
         "list",
         "add",
         "remove",
+        "keys",
+        "remove_key",
         "test",
         "exec"
     ],
@@ -64,7 +67,33 @@
         "/connections/add": {
             "method": "POST",
             "auth": true,
-            "docs": "Add or upsert an SSH connection. Body: { name, host, port, user, auth_type, ciphertext, iv }"
+            "docs": "Add or upsert an SSH connection. Body: { name, host, port, user, auth_type, ciphertext, iv } or { ..., key_id } to reference a vault key"
+        },
+        "/vault": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": true,
+            "docs": "GET the wallet's vault KDF params (salt, verifier, kdf_iters); POST to create or rotate it. The vault passphrase never reaches the server \u2014 rotation posts the full key set re-encrypted client-side"
+        },
+        "/keys": {
+            "method": "GET",
+            "auth": true,
+            "docs": "List the wallet's vault keys (metadata only, no ciphertext) plus vault params"
+        },
+        "/keys/add": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Add or upsert a named key. Body: { name, kind: password|key, ciphertext, iv, id? } \u2014 ciphertext is AES-GCM under the client-only vault passphrase key"
+        },
+        "/keys/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": true,
+            "docs": "Fetch one key (with ciphertext) or delete it (refused while a connection references it)"
         },
         "/connections/{id}/test": {
             "method": "POST",
@@ -78,8 +107,8 @@
         }
     },
     "urls": {
-        "api": "http://localhost:50180",
-        "app": "http://localhost:50181"
+        "api": "http://localhost:50182",
+        "app": "http://localhost:50183"
     },
-    "schema": "QmfHUXwUaHVu3rXZjLrmzT9eVe5HfYspsCCuyTgjoqivsG"
+    "schema": "QmdnY6AmpxwjeBAu9geA9f1tsFoisHqfxbXVxCoHJAY3sH"
 }

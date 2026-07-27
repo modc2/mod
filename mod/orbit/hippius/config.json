@@ -1,7 +1,8 @@
 {
     "name": "hippius",
-    "version": "1.0.0",
-    "description": "Hippius substrate node + S3-compatible decentralized storage",
+    "version": "2.0.0",
+    "route": true,
+    "description": "BYOK console + API for Hippius decentralized S3 storage \u2014 your keys, never stored server-side",
     "port": 50142,
     "app_port": 50143,
     "urls": {
@@ -24,48 +25,74 @@
         "balance",
         "install"
     ],
+    "byok": {
+        "headers": [
+            "x-hip-key",
+            "x-hip-secret",
+            "x-hip-endpoint",
+            "x-hip-region"
+        ],
+        "get_keys": "https://console.hippius.com",
+        "default_endpoint": "https://s3.hippius.com",
+        "default_region": "decentralized"
+    },
     "env": {
-        "HIPPIUS_BIN": "path to hippius-node binary",
+        "HIPPIUS_BIN": "path to hippius-node binary (optional, CLI mod.py only)",
         "HIPPIUS_PATH": "node base path (default: ~/.hippius)",
         "HIPPIUS_RPC": "substrate RPC URL (default: http://127.0.0.1:9933)",
-        "HIPPIUS_S3_ENDPOINT": "S3 gateway endpoint (default: https://s3.hippius.com)",
-        "HIPPIUS_S3_KEY": "S3 access key ID",
-        "HIPPIUS_S3_SECRET": "S3 secret access key",
+        "HIPPIUS_S3_ENDPOINT": "S3 gateway endpoint for CLI use (default: https://s3.hippius.com)",
+        "HIPPIUS_S3_KEY": "S3 access key ID (CLI mod.py only \u2014 the API is BYOK per-request)",
+        "HIPPIUS_S3_SECRET": "S3 secret access key (CLI mod.py only)",
         "HIPPIUS_S3_BUCKET": "S3 bucket (default: mod)",
         "HIPPIUS_IPFS_GATEWAY": "IPFS retrieval gateway (default: https://get.hippius.network)"
     },
     "endpoints": {
-        "put": {
+        "verify": {
             "method": "POST",
-            "auth": true,
-            "docs": "Upload to S3/local node"
+            "auth": "byok",
+            "docs": "Validate x-hip-key/x-hip-secret by listing buckets"
         },
-        "get": {
+        "buckets": {
+            "method": "GET|POST|DELETE",
+            "auth": "byok",
+            "docs": "List / create {name, public} / delete buckets"
+        },
+        "buckets/{bucket}/objects": {
+            "method": "GET|POST|DELETE",
+            "auth": "byok",
+            "docs": "List (?prefix&token&limit), upload multipart, delete (?key)"
+        },
+        "buckets/{bucket}/objects/download": {
             "method": "GET",
-            "auth": false,
-            "docs": "Retrieve by CID"
+            "auth": "byok",
+            "docs": "Stream object (?key)"
         },
-        "pin": {
-            "method": "POST",
-            "auth": true,
-            "docs": "Pin CID via ipfs pallet"
-        },
-        "list": {
+        "buckets/{bucket}/objects/meta": {
             "method": "GET",
-            "auth": false,
-            "docs": "List recorded objects"
+            "auth": "byok",
+            "docs": "Head object incl. metadata/CID (?key)"
+        },
+        "buckets/{bucket}/presign": {
+            "method": "GET",
+            "auth": "byok",
+            "docs": "Presigned URL (?key&op=get|put&expires)"
+        },
+        "buckets/{bucket}/policy": {
+            "method": "GET|PUT",
+            "auth": "byok",
+            "docs": "Read / set {public} bucket policy"
         },
         "status": {
             "method": "GET",
             "auth": false,
-            "docs": "Module + daemon status"
+            "docs": "Hippius network reachability"
         },
-        "peers": {
+        "health": {
             "method": "GET",
             "auth": false,
-            "docs": "Substrate peers"
+            "docs": "Liveness"
         }
     },
-    "schema": "QmVuLpdopi74bLyniRm4tMF88ibykNdd46XDA7AdBMNuDw",
+    "schema": "QmNsSpb1z2mfdv9gTiHAD4Z5cVPtqaAXAH477TGFTE7WxG",
     "gateway_port": 50143
 }

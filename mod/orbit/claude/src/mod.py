@@ -47,7 +47,7 @@ class Mod:
 
     description = "Claude AI interface — jobs, code ops, IPFS versioning, and module management."
     endpoints = [
-        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'tail',
+        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'guide', 'tail',
         'create_module', 'edit_module', 'import_module', 'delete_module',
         'fork_module', 'analyze_code', 'generate_code',
         'refactor', 'debug', 'edit_file', 'run_task', 'batch_process',
@@ -782,6 +782,11 @@ class Mod:
     def cancel(self, job_id: str) -> dict:
         """Cancel a running job."""
         return self._request("POST", f"/jobs/{job_id}/cancel")
+
+    def guide(self, job_id: str, message: str) -> dict:
+        """Guide a RUNNING job mid-task: the message is injected into the
+        agent's session at its next tool boundary (Claude Code steering)."""
+        return self._request("POST", f"/jobs/{job_id}/message", {"message": message})
 
     def kill(self, pid: int = None, port: int = None, sig: str = "SIGKILL") -> dict:
         """Kill a process by PID, port, or both claude services (API+App) if no args given. Owner-only."""

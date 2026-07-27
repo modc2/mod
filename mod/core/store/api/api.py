@@ -81,6 +81,14 @@ Endpoints
     GET  /tickets                 my active (unused, unexpired) tickets
     GET  /ticket/{code}           redeem → serve object exactly once
 
+  marketplace (listings over stored objects; BlocTime-priced access)
+    GET    /market                browse the public storefront (q/tag/sort/free)
+    POST   /market/list           list an object you own (title/desc/tags/price_bloc)
+    DELETE /market/list           delist (seller; admin ⇒ logged takedown)
+    POST   /market/acquire        get an item — free, or hold >= price_bloc BlocTime
+    POST   /market/like           toggle a like (one per wallet)
+    GET    /market/mine           my listings + my acquisitions
+
   on-chain (chain mod: BlocTime + Registry)
     GET  /onchain                 Registry registration + BlocTime gate status
     GET  /onchain/bloctime        caller's BlocTime balance + holder flag
@@ -90,7 +98,7 @@ Access also honors on-chain BlocTime: a staked BlocTime holder is authorized to
 store as if whitelisted (config bloctime_gate, default on).
 
 Run (under pm2 — see ecosystem.config.js):
-    uvicorn api.api:app --host 0.0.0.0 --port 50150
+    uvicorn api.api:app --host 0.0.0.0 --port 50152
 """
 import json
 import os
@@ -109,6 +117,7 @@ from pydantic import BaseModel
 import mod as m  # noqa: E402
 
 from api.access import Access, infer_scheme  # noqa: E402
+from api.market import Market  # noqa: E402
 from api.onchain import OnChain  # noqa: E402
 from api import semantic  # noqa: E402
 
@@ -142,6 +151,10 @@ TERMS_VERSION = str(CONFIG.get('terms_version', '1.0'))
 # Access model: timed grants, data pools, QR auth handoff, CID-agnostic ACL.
 # SQLite alongside the JSON access state — off-chain, never committed.
 ACCESS = Access(PRIVATE_DIR / 'access.db')
+
+# Marketplace: listings/likes/acquisitions over stored objects. Priced items
+# are gated by on-chain BlocTime holdings; buying mints a permanent read grant.
+MARKET = Market(PRIVATE_DIR / 'market.json')
 
 # On-chain integration (chain mod): BlocTime holders earn store access, and the
 # module registers itself in the chain Registry. Tunable via config.json:
@@ -386,6 +399,62 @@ def status():
 @app.get('/backends')
 def backends():
     return {'backends': store_mod.backends()}
+
+
+@app.get('/backends/status')
+def backends_status(probe: bool = False,
+                    authorization: Optional[str] = Header(default=None)):
+    """Per-backend readiness for the app's BACKENDS tab.
+
+    Light by default (no network round-trips); `?probe=1` additionally
+    validates stored credentials against the remote service (owner only,
+    since it can be slow and leaks validity)."""
+    require_session(authorization)
+    if probe:
+        require_owner(authorization)
+        keyed = store_mod.keys()
+    else:
+        keyed = {}
+        for b in getattr(store_mod, 'KEYED_BACKENDS', ['hippius', 'lighthouse']):
+            try:
+                s = getattr(store_mod, b)().status()
+                keyed[b] = {'configured': bool(s.get('configured')),
+                            'needs_key': bool(s.get('needs_key'))}
+            except Exception as e:
+                keyed[b] = {'error': str(e), 'configured': False, 'needs_key': True}
+    out = {}
+    for b in store_mod.backends():
+        if b == 'both':
+            continue
+        out[b] = keyed.get(b, {'configured': True, 'needs_key': False})
+    return {'backends': out, 'probed': bool(probe)}
+
+
+class BackendKeyBody(BaseModel):
+    backend: str
+    api_key: Optional[str] = None          # lighthouse
+    s3_key: Optional[str] = None           # hippius
+    s3_secret: Optional[str] = None
+    s3_endpoint: Optional[str] = None
+    s3_bucket: Optional[str] = None
+
+
+@app.post('/backends/key')
+def backends_set_key(body: BackendKeyBody,
+                     authorization: Optional[str] = Header(default=None)):
+    """(owner) Persist API credentials for a keyed backend.
+
+    Keys are stored off-chain under ~/.mod/{hippius,lighthouse}/ — never in
+    committed config — and picked up by the backend modules on next use."""
+    require_owner(authorization)
+    creds = {k: v for k, v in body.dict().items()
+             if k != 'backend' and v is not None and str(v).strip()}
+    if not creds:
+        raise HTTPException(400, 'no credentials provided')
+    r = store_mod.set_key(body.backend, **creds)
+    if isinstance(r, dict) and r.get('error'):
+        raise HTTPException(400, r['error'])
+    return {'backend': body.backend.lower(), **(r if isinstance(r, dict) else {})}
 
 
 # ── identity / authorization ──
@@ -1177,6 +1246,160 @@ def ticket_claim(code: str):
     if 'error' in got:
         raise HTTPException(404, got['error'])
     return FileResponse(out, filename=cid)
+
+
+# ── marketplace ────────────────────────────────────────────────────
+
+def _market_annotate(listings: list, caller: Optional[str]) -> list:
+    """Attach object metadata (size/key/scheme/visibility) + caller-relative
+    flags (liked/owned/acquired/can_read) to raw listings."""
+    index = {o.get('cid'): o for o in store_mod.list(limit=100000)}
+    acquired = MARKET.acquired_by(caller) if caller else {}
+    for l in listings:
+        cid = l['cid']
+        meta = index.get(cid, {})
+        acl = ACCESS.get_acl(cid) or {}
+        l['key'] = meta.get('key')
+        l['size'] = meta.get('size')
+        l['scheme'] = acl.get('scheme') or infer_scheme(cid)
+        l['visibility'] = acl.get('visibility', 'public')
+        l['external_url'] = acl.get('url')
+        l['liked'] = MARKET.liked(cid, caller) if caller else False
+        l['owned'] = bool(caller and l['seller'] == caller)
+        l['acquired'] = cid in acquired
+        l['can_read'] = ACCESS.can_read(caller, cid)
+    return listings
+
+
+@app.get('/market')
+def market_browse(
+    q: str = '',
+    tag: str = '',
+    seller: str = '',
+    sort: str = 'hot',            # 'hot' | 'new' | 'top'
+    free: Optional[str] = None,   # truthy ⇒ free listings only
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Public storefront — no auth needed to window-shop. Signed-in callers
+    additionally see liked/owned/acquired/can_read flags per listing."""
+    caller = optional_session(authorization)
+    listings = MARKET.browse(q=q, tag=tag, seller=seller, sort=sort,
+                             free_only=_truthy(free) if free is not None else False,
+                             limit=limit)
+    return {'count': len(listings), 'sort': sort, 'tags': MARKET.tag_counts(),
+            'listings': _market_annotate(listings, caller)}
+
+
+class MarketListBody(BaseModel):
+    cid: str
+    title: str
+    description: str = ''
+    tags: list = []
+    price_bloc: float = 0.0       # 0 = free; >0 = buyer must HOLD this much BlocTime
+
+
+@app.post('/market/list')
+def market_list(body: MarketListBody, authorization: Optional[str] = Header(default=None)):
+    """List (or re-list with new metadata) an object you own on the market.
+    The object keeps its own visibility: listing a PRIVATE object sells access
+    (acquire mints a read grant); a public one is a discoverable free drop."""
+    addr = require_terms(require_authorized(authorization))
+    cid = body.cid.strip()
+    if not cid:
+        raise HTTPException(400, 'cid required')
+    if not (caller_owns(cid, addr) or is_admin(addr)):
+        raise HTTPException(403, 'you can only list objects you own')
+    existing = MARKET.get(cid)
+    if existing and existing['seller'] != addr and not is_admin(addr):
+        raise HTTPException(403, 'already listed by someone else')
+    try:
+        row = MARKET.upsert(cid, seller=addr, title=body.title,
+                            description=body.description, tags=body.tags,
+                            price_bloc=body.price_bloc)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _market_annotate([row], addr)[0]
+
+
+@app.delete('/market/list')
+def market_delist(cid: str, reason: Optional[str] = None,
+                  authorization: Optional[str] = Header(default=None)):
+    """Remove a listing. Sellers delist their own; the admin may delist ANY
+    listing (moderation) — logged to the takedown audit. Bytes stay stored."""
+    addr = require_session(authorization)
+    row = MARKET.get(cid)
+    if not row:
+        raise HTTPException(404, 'not listed')
+    own = row['seller'] == addr
+    if not own and not is_admin(addr):
+        raise HTTPException(403, 'not your listing')
+    MARKET.delist(cid)
+    if not own:
+        log_takedown(cid, by=addr, reason=reason or 'market delisting')
+    return {'cid': cid, 'delisted': True, 'takedown': not own}
+
+
+class MarketAcquireBody(BaseModel):
+    cid: str
+
+
+@app.post('/market/acquire')
+def market_acquire(body: MarketAcquireBody, authorization: Optional[str] = Header(default=None)):
+    """Get a listed item. Free ⇒ instant. Priced ⇒ the caller must HOLD at
+    least price_bloc BlocTime on-chain (holdings ARE the ticket — no custody).
+    Access lands as a permanent read grant, so the item appears under /shared
+    and every read path (get/preview/QR tickets) just works."""
+    addr = require_session(authorization)
+    cid = body.cid.strip()
+    row = MARKET.get(cid)
+    if not row:
+        raise HTTPException(404, 'not listed on the market')
+    if row['seller'] == addr:
+        return {'cid': cid, 'acquired': True, 'note': 'you are the seller'}
+    price = row['price_bloc']
+    if price > 0:
+        balance = float(ONCHAIN.bloctime_balance(addr) or 0)
+        if balance < price:
+            raise HTTPException(
+                402,
+                f'this item needs {price} BlocTime held on-chain — '
+                f'you hold {balance}. Stake BlocTime to unlock it.',
+            )
+    # Idempotent: skip the grant if one from the seller already covers it.
+    if not ACCESS.can_read(addr, cid):
+        ACCESS.create_grant(row['seller'], addr, cid=cid, scope='read')
+    MARKET.record_acquire(cid, addr)
+    fresh = MARKET.get(cid)
+    return {'cid': cid, 'acquired': True, 'price_bloc': price,
+            'downloads': fresh['downloads'] if fresh else row['downloads']}
+
+
+class MarketLikeBody(BaseModel):
+    cid: str
+
+
+@app.post('/market/like')
+def market_like(body: MarketLikeBody, authorization: Optional[str] = Header(default=None)):
+    """Toggle a like on a listing (one per address — it's wallet-signed)."""
+    addr = require_session(authorization)
+    r = MARKET.toggle_like(body.cid.strip(), addr)
+    if not r:
+        raise HTTPException(404, 'not listed on the market')
+    return r
+
+
+@app.get('/market/mine')
+def market_mine(authorization: Optional[str] = Header(default=None)):
+    """The caller's market activity: their listings + what they've acquired."""
+    addr = require_session(authorization)
+    listings = _market_annotate(MARKET.listings_by(addr), addr)
+    acquired_ts = MARKET.acquired_by(addr)
+    acquired = [{**row, 'acquired_at': ts}
+                for cid, ts in sorted(acquired_ts.items(), key=lambda kv: kv[1], reverse=True)
+                if (row := MARKET.get(cid))]
+    return {'address': addr, 'listings': listings,
+            'acquired': _market_annotate(acquired, addr)}
 
 
 # ── on-chain (BlocTime + Registry) ─────────────────────────────────

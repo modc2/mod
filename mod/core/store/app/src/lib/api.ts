@@ -4,10 +4,58 @@ function authHeaders(token: string | null): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Errors carry the status so callers can react (e.g. drop a dead session on 401)
+// without having to string-match the message.
+export class ApiError extends Error {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+// FastAPI answers with {"detail": ...}; pull the human part out of the envelope
+// so banners never show raw JSON.
+function detailOf(text: string): string {
+  try {
+    const body = JSON.parse(text);
+    const d = body?.detail ?? body?.error ?? body?.message;
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
+    if (d) return JSON.stringify(d);
+  } catch {
+    /* not JSON — fall through to the raw text */
+  }
+  return text.trim();
+}
+
+function messageFor(status: number, detail: string): string {
+  switch (status) {
+    case 401:
+      return "session expired — sign in again";
+    case 403:
+      return detail || "not authorized";
+    case 404:
+      // A 404 on an endpoint (not a missing CID) means the frontend reached
+      // something that isn't the store API — usually a stale/misrouted port.
+      return /not found$/i.test(detail) ? "store API unreachable — the service may be restarting" : detail;
+    case 429:
+      return detail || "rate limited — try again shortly";
+    case 451:
+      return detail || "blocked by the terms of service";
+    default:
+      if (status >= 500) return detail || "store API error — the service may be restarting";
+      return detail || `request failed (${status})`;
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    const detail = detailOf(await res.text().catch(() => ""));
+    throw new ApiError(res.status, detail, messageFor(res.status, detail));
   }
   return res.json() as Promise<T>;
 }
@@ -172,10 +220,63 @@ export interface Handoff {
   address: string;
 }
 
+export interface MarketListing {
+  cid: string;
+  seller: string;
+  title: string;
+  description: string;
+  tags: string[];
+  price_bloc: number;
+  created: number;
+  updated: number;
+  downloads: number;
+  likes: number;
+  key?: string | null;
+  size?: number | null;
+  scheme?: string;
+  visibility?: string;
+  external_url?: string | null;
+  liked?: boolean;
+  owned?: boolean;
+  acquired?: boolean;
+  acquired_at?: number;
+  can_read?: boolean;
+}
+
+export interface MarketBrowse {
+  count: number;
+  sort: string;
+  tags: Record<string, number>;
+  listings: MarketListing[];
+}
+
 export interface PutOpts {
   key?: string;
   public?: boolean;
   pool?: string;
+}
+
+export interface BackendStatus {
+  configured: boolean;
+  needs_key: boolean;
+  valid?: boolean | null;
+  error?: string;
+  source?: string | null;
+  usage?: Record<string, unknown>;
+}
+
+export interface BackendsStatusResponse {
+  backends: Record<string, BackendStatus>;
+  probed: boolean;
+}
+
+export interface BackendKeyBody {
+  backend: string;
+  api_key?: string; // lighthouse
+  s3_key?: string; // hippius
+  s3_secret?: string;
+  s3_endpoint?: string;
+  s3_bucket?: string;
 }
 
 export const api = {
@@ -187,6 +288,20 @@ export const api = {
   },
   async backends() {
     return json<{ backends: string[] }>(await fetch(`${BASE}/backends`));
+  },
+  async backendsStatus(token: string, probe = false) {
+    return json<BackendsStatusResponse>(
+      await fetch(`${BASE}/backends/status${probe ? "?probe=1" : ""}`, { headers: authHeaders(token) })
+    );
+  },
+  async setBackendKey(token: string, body: BackendKeyBody) {
+    return json<BackendStatus & { backend: string }>(
+      await fetch(`${BASE}/backends/key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify(body),
+      })
+    );
   },
   async me(token: string) {
     return json<MeResponse>(
@@ -397,6 +512,62 @@ export const api = {
         method: "DELETE",
         headers: authHeaders(token),
       })
+    );
+  },
+
+  // ── marketplace ──
+  async market(
+    params: { q?: string; tag?: string; seller?: string; sort?: string; free?: boolean } = {},
+    token?: string | null
+  ) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => v && qs.append(k, k === "free" ? "1" : String(v)));
+    return json<MarketBrowse>(
+      await fetch(`${BASE}/market?${qs.toString()}`, { headers: authHeaders(token ?? null) })
+    );
+  },
+  async marketList(
+    token: string,
+    body: { cid: string; title: string; description?: string; tags?: string[]; price_bloc?: number }
+  ) {
+    return json<MarketListing>(
+      await fetch(`${BASE}/market/list`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify(body),
+      })
+    );
+  },
+  async marketDelist(token: string, cid: string, reason?: string) {
+    const q = reason ? `&reason=${encodeURIComponent(reason)}` : "";
+    return json<{ cid: string; delisted: boolean; takedown: boolean }>(
+      await fetch(`${BASE}/market/list?cid=${encodeURIComponent(cid)}${q}`, {
+        method: "DELETE",
+        headers: authHeaders(token),
+      })
+    );
+  },
+  async marketAcquire(token: string, cid: string) {
+    return json<{ cid: string; acquired: boolean; price_bloc?: number; downloads?: number }>(
+      await fetch(`${BASE}/market/acquire`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ cid }),
+      })
+    );
+  },
+  async marketLike(token: string, cid: string) {
+    return json<{ cid: string; liked: boolean; likes: number }>(
+      await fetch(`${BASE}/market/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
+        body: JSON.stringify({ cid }),
+      })
+    );
+  },
+  async marketMine(token: string) {
+    return json<{ address: string; listings: MarketListing[]; acquired: MarketListing[] }>(
+      await fetch(`${BASE}/market/mine`, { headers: authHeaders(token) })
     );
   },
 

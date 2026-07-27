@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = std::env::var("SSHVILLE_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(50180);
+        .unwrap_or(50182);
 
     let store_path: PathBuf = std::env::var("SSHVILLE_STORE_DIR")
         .map(PathBuf::from)
@@ -33,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         store: Arc::new(store::Store::open(store_path.join("connections.json"))?),
+        keys: Arc::new(store::KeyStore::open(store_path.join("keys.json"))?),
         challenge: std::env::var("SSHVILLE_CHALLENGE")
             .unwrap_or_else(|_| "sshville-auth-v1".to_string()),
     };

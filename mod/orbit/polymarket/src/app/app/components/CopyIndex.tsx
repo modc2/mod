@@ -7,7 +7,7 @@ import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, f
 import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardPresets";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat } from "../lib/strats/strat";
+import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
@@ -15,22 +15,89 @@ import { useFilterParams, useFilters } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
 import CopyTrading from "./CopyTrading";
-import PnlChart from "./PnlChart";
+import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
-import LivePanel from "./LivePanel";
+import { pushStrat } from "../lib/stratSync";
+import LivePanel, { type LiveTab } from "./LivePanel";
 // Client-only: the `?raw` source imports resolve to different strings in the
 // server and client bundles (server sees a shorter transform), so SSR-ing the
 // viewer text-mismatches on hydration (React #425). No SEO value in strat
 // source — skip SSR entirely.
 const StratSourceViewer = nextDynamic(() => import("./StratSourceViewer"), { ssr: false });
-import UserStratsPanel from "./UserStratsPanel";
-import ThemeToggle from "./ThemeToggle";
 import WalletTokenPanel from "./WalletTokenPanel";
 import WalletPanel from "./WalletPanel";
 import WalletFundingPanel from "./WalletFundingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
+
+// ══════════════════════════════════════════
+// ── Subtab rail — second-level nav under the main STRAT / BACKTEST / LIVE
+//    tabs. WALLET lives HERE (under LIVE) instead of eating a main tab: it
+//    funds the engine, so it sits next to the engine. Each main tab gets its
+//    own accent so the rail reads as a mode switch, not just more buttons.
+// ══════════════════════════════════════════
+type MainTab = "STRATS" | "BACKTEST" | "LIVE";
+type StratSub = "build" | "source";
+type BacktestSub = "results" | "trades";
+type LiveSub = LiveTab | "wallet";
+
+const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title: string }[]> = {
+  STRATS: [
+    { id: "build", glyph: "◈", label: "BUILD", title: "Traders + params — who you copy and every tuning knob" },
+    { id: "source", glyph: "</>", label: "SOURCE", title: "The strat's code — read-only built-ins, editable uploads" },
+  ],
+  BACKTEST: [
+    { id: "results", glyph: "◔", label: "RESULTS", title: "Run the sim — P&L, fees, simulated equity curve" },
+    { id: "trades", glyph: "⇄", label: "TRADES", title: "Every simulated trade with its P&L impact" },
+  ],
+  LIVE: [
+    { id: "portfolio", glyph: "◔", label: "PORTFOLIO", title: "Equity + performance curve over time" },
+    { id: "stats", glyph: "σ", label: "STATS", title: "Engine stats — free cash, orders, volume, cycles, last sync" },
+    // POSITIONS folded into TRADES — one tab toggles positions ⇄ my fills ⇄
+    // copied-trader feed ⇄ engine log (same on-chain record at different grain).
+    { id: "trades", glyph: "⇄", label: "TRADES", title: "My positions · my fills · copied-trader feed · engine log" },
+    { id: "wallet", glyph: "$", label: "WALLET", title: "Deposit / withdraw / bridge — the wallet the engine trades through" },
+    { id: "help", glyph: "?", label: "HELP", title: "Which wallet do I use?" },
+  ],
+};
+
+// Active-pill accents (static strings — Tailwind can't see computed classes).
+// WALLET always glows amber ($$$) no matter which mode owns it.
+const SUB_ACCENT: Record<MainTab, string> = {
+  STRATS: "border-green-400/60 text-green-400 bg-green-400/[0.08] shadow-[0_0_16px_rgba(74,222,128,0.25)]",
+  BACKTEST: "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]",
+  LIVE: "border-cyan-400/60 text-cyan-300 bg-cyan-400/[0.08] shadow-[0_0_16px_rgba(34,211,238,0.25)]",
+};
+const WALLET_ACCENT = "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]";
+
+// Main-tab accents mirror the subtab rail's per-mode tones so STRAT / BACKTEST
+// / LIVE read as three distinct modes from the top row alone.
+const MAIN_ACTIVE: Record<MainTab, string> = {
+  STRATS: "text-green-400 bg-green-400/[0.08]",
+  BACKTEST: "text-amber-400 bg-amber-400/[0.08]",
+  LIVE: "text-cyan-300 bg-cyan-400/[0.08]",
+};
+const MAIN_BAR: Record<MainTab, string> = {
+  STRATS: "bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.7)]",
+  BACKTEST: "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]",
+  LIVE: "bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.7)]",
+};
+
+const SUB_KEYS: Record<MainTab, string> = {
+  STRATS: "polymarket.sub.strat",
+  BACKTEST: "polymarket.sub.backtest",
+  LIVE: "polyLiveTab", // shared with LivePanel's uncontrolled fallback
+};
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "NOW";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  return `${Math.floor(min / 60)}h ${min % 60}m`;
+}
 
 interface TraderSummary {
   address: string;
@@ -81,13 +148,15 @@ interface TraderBacktest {
   simulatedTrades: SimulatedTrade[];
 }
 
-// Polymarket fee structure (Polygon CLOB)
-// Taker fee: ~2% on matched notional; maker rebate not applicable for copy-trading
-// Gas: ~0.01 MATIC per tx on Polygon ≈ $0.005 per trade at typical MATIC prices
-// Note: fees are estimated on a simulated copy basis — not the trader's raw volume,
-// because your copy position scales to your capital, not theirs.
-const TAKER_FEE_BPS = 200; // 2% = 200 bps
-const GAS_PER_TRADE_USD = 0.005;
+// Polymarket costs — kept at LIVE-engine parity. The CLOB charges no
+// taker/maker fee on these markets (the engine places every order with
+// fee_rate_bps 0) and proxy-wallet trades are relayer-paid, i.e. gasless for
+// the user. The sim books the same zero costs so the backtest curve and a
+// live session measure the same thing; real friction (spread, unfilled GTC
+// limits) is unmodeled on BOTH sides. Bump these only if Polymarket starts
+// charging AND the live engine models the same charge.
+const TAKER_FEE_BPS = 0;
+const GAS_PER_TRADE_USD = 0;
 const DEFAULT_CAPITAL = 1000;
 
 // "12s" / "3m" / "1h4m" — terse relative-age formatter for lag chips.
@@ -406,6 +475,31 @@ function Field({
   );
 }
 
+// Titled cluster of PARAMS knobs — breaks the flat knob soup into scannable
+// SIZING / RISK / ENGINE / MARKETS cards. Wide rows (TRADE FILTER) span the
+// grid via className.
+function ParamGroup({
+  title,
+  hint,
+  className,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`rounded-[var(--radius-sm)] border border-pixel-border/50 bg-pixel-black/30 px-3 pt-2 pb-2.5 ${className ?? ""}`}>
+      <div className="flex items-baseline gap-2 mb-2 min-w-0">
+        <span className="text-[10px] font-bold text-green-400/80 tracking-[0.24em] shrink-0">{title}</span>
+        {hint && <span className="text-[10px] text-pixel-gray/80 truncate">{hint}</span>}
+      </div>
+      <div className="flex items-end gap-2.5 flex-wrap">{children}</div>
+    </div>
+  );
+}
+
 /* ── Header keyword-filter dropdown ──
    The strat's market-topic filter, surfaced in the header as editable chips.
    Comma/pipe groups OR, tokens within a group AND (lib/marketQuery.ts) — the
@@ -640,6 +734,24 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // Max concurrent open positions — the live engine skips a mirror BUY that
   // would open a NEW token while this many are already held.
   const [maxOpenPositions, setMaxOpenPositions] = useState(10);
+  // Per-position stop-loss, held as the integer PERCENT LOSS from entry that
+  // triggers the exit (10 = sell once the position is down 10%). Persisted on
+  // the strat as the DEFENDED 0–1 fraction of entry (`stopLoss` = 1 − loss%),
+  // which is what the live engine and the backtest sim both enforce — the UI
+  // just speaks the standard "max loss %" convention. Defaults ON at 25%
+  // (undefined ⇒ 0.75: exit once the price decays to 75% of entry); an
+  // explicit 0 is the off switch and is persisted as 0, not dropped.
+  const [stopLossPct, setStopLossPct] = useState(Math.round((1 - DEFAULT_STOP_LOSS) * 100));
+  // stored defend-fraction → displayed loss-% (and back, in updateStopLossPct).
+  const stopLossFracToLossPct = (frac: number | undefined): number => {
+    const f = frac ?? DEFAULT_STOP_LOSS;
+    return f > 0 && f < 1 ? Math.round((1 - f) * 100) : 0;
+  };
+  // Per-position take-profit as an absolute mark level (strat `takeProfit`,
+  // default 0.99 = liquidate once the market runs to the top tick — a
+  // decided market has ≤1¢ left to earn). No UI knob yet; the strat param
+  // is the override, 0 = off.
+  const takeProfitFrac = activeIndex?.takeProfit ?? DEFAULT_TAKE_PROFIT;
   // Top-N cap (mirrors CopyEngineConfig.maxPerCycle). The backtest applies
   // the same sampling the live engine does so the displayed P&L reflects
   // what live will actually execute after Sharpe-rank filtering.
@@ -667,7 +779,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // amount. Declared here (not next to feedOrder) so it's available to the
   // linkedTrades useMemo that fires earlier in the render.
   const [showAllTrades, setShowAllTrades] = useState(false);
-  const [maxTradesPerHour, setMaxTradesPerHour] = useState(10);
   // SAMPLE %: deterministically thin the in-window trades to this fraction.
   // 100 = keep all (default), 50 = keep ~half, 10 = keep ~tenth. Curve, feed,
   // and fee/gas/total stats all derive from the sampled set.
@@ -697,11 +808,46 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // which is blank until a wallet's connected and an engine is running. The
   // LIVE tab badges itself RUNNING so a live session is still obvious at a
   // glance from here.
-  const [mode, setMode] = useState<"STRATS" | "HUB" | "BACKTEST" | "LIVE" | "WALLET">("STRATS");
+  const [mode, setMode] = useState<MainTab>("STRATS");
 
-  // STRAT layout — the old SOURCE / TRADERS / PARAMS subtabs are merged:
-  // one TRADERS + PARAMS panel (traders on top, every tuning knob below,
-  // one header) with the strat's SOURCE code always rendered underneath.
+  // ── Subtabs — one remembered position per main tab, so flipping
+  // STRAT → LIVE → STRAT lands back where you were. Read after mount
+  // (not in the initializer) to dodge a hydration mismatch; writes are
+  // quota-safe — modc2.com modules share one localStorage origin.
+  const [stratSub, setStratSub] = useState<StratSub>("build");
+  const [backtestSub, setBacktestSub] = useState<BacktestSub>("results");
+  const [liveSub, setLiveSub] = useState<LiveSub>("portfolio");
+  useEffect(() => {
+    try {
+      const ss = localStorage.getItem(SUB_KEYS.STRATS);
+      if (ss === "build" || ss === "source") setStratSub(ss);
+      const bs = localStorage.getItem(SUB_KEYS.BACKTEST);
+      if (bs === "results" || bs === "trades") setBacktestSub(bs);
+      const ls = localStorage.getItem(SUB_KEYS.LIVE);
+      // "positions" was folded into the TRADES tab — migrate any persisted
+      // value so an old localStorage entry doesn't select a dead subtab.
+      const lsMapped = ls === "positions" ? "trades" : ls;
+      if (lsMapped && ["portfolio", "stats", "trades", "wallet", "help"].includes(lsMapped)) setLiveSub(lsMapped as LiveSub);
+    } catch { /* storage unavailable — keep defaults */ }
+  }, []);
+  const pickSub = useCallback((m: MainTab, id: string) => {
+    if (m === "STRATS") setStratSub(id as StratSub);
+    else if (m === "BACKTEST") setBacktestSub(id as BacktestSub);
+    else setLiveSub(id as LiveSub);
+    try { localStorage.setItem(SUB_KEYS[m], id); } catch { /* quota full — non-fatal */ }
+  }, []);
+  const activeSub = mode === "STRATS" ? stratSub : mode === "BACKTEST" ? backtestSub : liveSub;
+
+  // 1s tick for the rail's next-cycle countdown — only while the LIVE tab is
+  // showing a running engine (the echo replaces LivePanel's old strip, which
+  // moved up into the rail; see LivePanel controlled mode).
+  const [railNow, setRailNow] = useState(0);
+  useEffect(() => {
+    if (!(mode === "LIVE" && isLive)) return;
+    setRailNow(Date.now());
+    const iv = setInterval(() => setRailNow(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [mode, isLive]);
 
   // ── Embedded top-traders leaderboard (STRATS mode) ──
   // The standalone /traders page was folded into strat management: discovering
@@ -885,9 +1031,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setFundsMode(activeIndex.fundsMode === "WALLET" ? "WALLET" : "SIM");
     setMinTrade(activeIndex.minTrade ?? 5);
     setMaxTrade(activeIndex.maxTrade ?? 100);
-    setMaxTradesPerHour(activeIndex.maxTradesPerHour ?? 10);
     setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
     setMaxOpenPositions(activeIndex.maxOpenPositions ?? 10);
+    setStopLossPct(stopLossFracToLossPct(activeIndex.stopLoss));
     setMarketQuery(activeIndex.marketQuery ?? "");
     setMarketQueryInput(activeIndex.marketQuery ?? "");
     const tf = activeIndex.tradeFilters ?? {};
@@ -927,7 +1073,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         const res = await fetch(`/api/polymarket/deposit-wallet/info?eoa=${auth.address}`);
         if (!res.ok) return;
         const info = await res.json() as { usdcBalance?: string | null };
-        const bal = info.usdcBalance != null ? Number(info.usdcBalance) : NaN;
+        // usdcBalance is RAW 6-decimal token units (same as WalletChip /
+        // WalletPanel, which both divide by 1e6). Without the division the
+        // WALLET pill showed "$153867862" and — far worse — WALLET funds
+        // mode sized the whole backtest with ~$153M of paper capital.
+        const bal = info.usdcBalance != null ? Number(info.usdcBalance) / 1_000_000 : NaN;
         if (!cancelled && Number.isFinite(bal)) setWalletBalance(bal);
       } catch { /* keep last known value — never block the backtest on RPC */ }
     };
@@ -1013,7 +1163,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const handleRename = (id: string, name: string) => {
     if (!name.trim()) { setRenamingId(null); return; }
     const idx = loadIndexes().find((i) => i.id === id);
-    if (idx) persistIndex({ ...idx, name: name.trim() });
+    if (idx) {
+      const renamed = { ...idx, name: name.trim(), updatedAt: Date.now() };
+      persistIndex(renamed);
+      // Mirror the drawer picker: keep the encrypted server copy in step so
+      // the new name survives a fresh browser's local↔server merge.
+      if (localToken) pushStrat(renamed, localToken.token);
+    }
     setRenamingId(null);
   };
 
@@ -1129,19 +1285,28 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
   };
 
-  const updateMaxTradesPerHour = (max: number) => {
-    const clamped = Math.max(1, max);
-    setMaxTradesPerHour(clamped);
-    if (activeIndex) {
-      updateIndex(activeIndex.id, { maxTradesPerHour: clamped, updatedAt: Date.now() });
-    }
-  };
-
   const updateMaxOpenPositions = (n: number) => {
     const clamped = Math.max(1, n);
     setMaxOpenPositions(clamped);
     if (activeIndex) {
       updateIndex(activeIndex.id, { maxOpenPositions: clamped, updatedAt: Date.now() });
+    }
+  };
+
+  // Stop-loss, entered as the percent LOSS from entry that triggers the
+  // exit. Clamped to 5–95: below 5% the defended fraction (1 − loss) sits
+  // within the bid/ask spread and would fire on noise alone; the engine
+  // treats defend fractions ≥1.0 as off for the same reason. 0 = off.
+  const updateStopLossPct = (pct: number) => {
+    const clamped = pct <= 0 ? 0 : Math.max(5, Math.min(95, pct));
+    setStopLossPct(clamped);
+    if (activeIndex) {
+      // 0 persists as an explicit 0 (off) — dropping the field would just
+      // re-arm the 0.75 default on the next load.
+      updateIndex(activeIndex.id, {
+        stopLoss: clamped === 0 ? 0 : (100 - clamped) / 100,
+        updatedAt: Date.now(),
+      });
     }
   };
 
@@ -1305,9 +1470,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         setCapital(found.capital && found.capital > 0 ? found.capital : DEFAULT_CAPITAL);
         setMinTrade(found.minTrade ?? 5);
         setMaxTrade(found.maxTrade ?? 100);
-        setMaxTradesPerHour(found.maxTradesPerHour ?? 10);
         setMaxPerCycle(found.maxPerCycle ?? 3);
         setMaxOpenPositions(found.maxOpenPositions ?? 10);
+        setStopLossPct(stopLossFracToLossPct(found.stopLoss));
         setMarketQuery(found.marketQuery ?? "");
         setMarketQueryInput(found.marketQuery ?? "");
         setTradeFilters(found.tradeFilters ?? {});
@@ -1384,8 +1549,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setCapital(DEFAULT_CAPITAL);
     setMinTrade(5);
     setMaxTrade(100);
-    setMaxTradesPerHour(10);
     setMaxOpenPositions(10);
+    setStopLossPct(50);
     setSamplePct(100);
     setRebalancePeriod(0);
     setRebalanceHour(0);
@@ -1396,8 +1561,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       capital: DEFAULT_CAPITAL,
       minTrade: 5,
       maxTrade: 100,
-      maxTradesPerHour: 10,
       maxOpenPositions: 10,
+      stopLoss: DEFAULT_STOP_LOSS,
       rebalancePeriod: 0,
       rebalanceHour: 0,
       rebalanceMinutes: 5 / 60,
@@ -1523,25 +1688,38 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         if (entryNotional <= 0) continue;
         returns.push(t.realized / entryNotional);
       }
-      const n = returns.length;
-      let roi = 0, stdev = 0;
-      if (n > 0) {
-        roi = returns.reduce((s, r) => s + r, 0) / n;
-        if (n >= 2) {
-          const variance = returns.reduce((s, r) => s + (r - roi) ** 2, 0) / (n - 1);
-          stdev = Math.sqrt(variance);
-        }
-      }
-      const sharpe = n >= 3 && stdev > 0 ? roi / stdev : 0;
       out.set(addr, {
         address: addr.toLowerCase(),
         windowDays: 30,
-        roi, stdev, sampleSize: n, sharpe, cashDeployed,
+        ...statsFromReturns(returns),
+        cashDeployed,
         syncedAt: Date.now(),
       });
     }
     return out;
   }, [watchlist, traderTrades, traderData, marketQuery]);
+
+  // ── Per-trader copy ratio — same formula the live engine hands hooks:
+  // (capital × weightFraction) / max(buyVol, sellVol) over the window.
+  // The backtest used to pass copyRatio: 0 into scoreCandidate, which made
+  // every BUY score roi × notional × 0 = 0 — and the top-N filter only keeps
+  // scores > 0, so NO buy ever survived and every backtest executed 0 trades
+  // (the "P&L -$3.64 · 0 TXS · GROSS +$1.56" header nonsense).
+  const traderCopyRatio = useMemo(() => {
+    const out = new Map<string, number>();
+    const cutoff = Date.now() - backtestDays * 86400_000;
+    for (const addr of watchlist) {
+      let buyVol = 0, sellVol = 0;
+      for (const t of traderTrades.get(addr) || []) {
+        if (t.timestamp < cutoff || !marketMatchesQuery(t.market, marketQuery)) continue;
+        const v = t.price * t.size;
+        if (t.side === "BUY") buyVol += v; else sellVol += v;
+      }
+      const wFrac = totalWeight > 0 ? (traderWeights[addr] || 0) / totalWeight : 1 / watchlist.length;
+      out.set(addr, (capital * wFrac) / Math.max(buyVol, sellVol, 1));
+    }
+    return out;
+  }, [watchlist, traderTrades, traderWeights, totalWeight, backtestDays, capital, marketQuery]);
 
   // ── Backtest StratHistory — same shape the live engine hands hooks ──
   // Every strat hook takes the full observed history, so history-aware
@@ -1560,7 +1738,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         if (t.timestamp < windowCutoffMs) continue;
         trades.push({
           ...t, trader: addr, weight, weightFraction: weight / totalW,
-          copyRatio: 0, notional: t.price * t.size,
+          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
         });
       }
     }
@@ -1575,7 +1753,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       cycle: 0,
       now: Date.now(),
     };
-  }, [watchlist, traderTrades, traderStatsMap, traderWeights, backtestDays, capital]);
+  }, [watchlist, traderTrades, traderStatsMap, traderWeights, backtestDays, capital, traderCopyRatio]);
 
   // ── Top-N sampling: which BUY IDs survive the strat's filter ──
   // Goes through the SAME strat class the live engine uses (registry).
@@ -1584,7 +1762,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const keptBuyIds = useMemo(() => {
     if (watchlist.length === 0) return new Set<string>();
     const strat = backtestStrat;
-    const cycleBucketMs = Math.max(60_000, Math.round((rebalanceMinutes || 1) * 60_000));
+    // One bucket = one live engine cycle. Prefer the strat's LIVE poll
+    // cadence (what the engine actually runs at) over the backtest-only
+    // rebalanceMinutes knob; both share the engine's 60s minIntervalMs
+    // floor, so a 5s UI setting still buckets at the 1-min clamp live
+    // enforces.
+    const pollMin = activeIndex?.livePollMinutes ?? rebalanceMinutes ?? 1;
+    const cycleBucketMs = Math.max(60_000, Math.round((pollMin || 1) * 60_000));
     const windowCutoffMs = Date.now() - backtestDays * 86400_000;
     const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
 
@@ -1600,7 +1784,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         if (t.side !== "BUY") continue;
         const stratTrade: StratTraderTrade = {
           ...t, trader: addr, weight, weightFraction,
-          copyRatio: 0, notional: t.price * t.size,
+          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
         };
         // Same pre-filter the live engine applies — a filtered BUY never
         // enters the rank race, so it drops out of the backtest curve too.
@@ -1625,7 +1809,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       }
     }
     return kept;
-  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, backtestDays, backtestStrat, backtestHistory, traderWeights]);
+  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, activeIndex?.livePollMinutes, backtestDays, backtestStrat, backtestHistory, traderWeights, traderCopyRatio]);
 
   // ── Combined FIFO PnL curve (scaled to user's capital) ──
   const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
@@ -1681,33 +1865,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return { combined: buildCombinedPnlCurve(traderCurves), perTrader: traderCurves };
   }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, keptBuyIds, marketQuery]);
 
-  const combinedPnlCurve = combinedCurveData.combined;
-
-  // Chart-derived summary numbers. `weightedPnlAfterCosts` / `combinedRoi1k`
-  // use cashflow-only `estimatedPnl = sellVol - buyVol`, which under-reports
-  // performance whenever the window has more buys than sells (those buys are
-  // open positions with MTM value that the chart picks up but the cashflow
-  // proxy doesn't). Header + snapshot now match the curve.
-  const chartGrossPnl = combinedPnlCurve.length > 0
-    ? combinedPnlCurve[combinedPnlCurve.length - 1].pnl
-    : 0;
-  const chartNetPnl = chartGrossPnl - totalCosts;
-  const chartRoi = capital > 0 ? (chartNetPnl / capital) * 100 : 0;
-
-  // ── Persist backtest snapshot to SavedIndex for leaderboard ──
-  // (Moved below combinedPnlCurve so it can reference chart-derived values.)
-  useEffect(() => {
-    if (!activeIndex || backtests.length === 0 || loading) return;
-    const snap = {
-      lastPnl: Math.round(chartGrossPnl * 100) / 100,
-      lastPnlAfterCosts: Math.round(chartNetPnl * 100) / 100,
-      lastRoi1k: Math.round(chartRoi * 100) / 100,
-      lastTradeCount: totalTradeCount,
-      lastBacktestAt: Date.now(),
-    };
-    updateIndex(activeIndex.id, snap);
-  }, [activeIndex, chartGrossPnl, chartNetPnl, chartRoi, totalTradeCount, loading, backtests.length]);
-
   // Per-trader scaled MTM P&L from curves (consistent with chart)
   const traderCurvePnl = useMemo(() => {
     const map = new Map<string, number>();
@@ -1723,30 +1880,67 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   interface LinkedTrade {
     ts: number;
     market: string;
+    conditionId: string;
     trader: string;
     side: "BUY" | "SELL";
-    amount: number;       // scaled to user capital ($)
+    amount: number;       // executed notional at user scale ($)
     price: number;        // trade price (0-1)
     fee: number;          // trading fee ($)
-    realized: number;     // realized PnL on SELL (scaled)
-    runningPnl: number;   // combined running P&L after this trade
-    pnlDelta: number;     // change in P&L from previous trade
+    realized: number;     // realized PnL on SELL vs avg entry (user scale)
+    runningPnl: number;   // simulated equity − starting capital (MTM, net of costs)
+    pnlDelta: number;     // equity change caused by this trade (mark move + costs)
+    cash: number;         // simulated free cash after this trade
+    pos: number;          // simulated open-position value after this trade
     /** Sharpe-weighted EV score the live engine would have assigned this
         candidate when it was eligible. Undefined for SELLs (always honored)
         and for BUYs from traders without enough 30d closed trades. */
     score?: number;
     sharpe?: number;
+    /** P(success) the playbook priced this BUY at — the trader's smoothed
+        30d win rate (0.5 = coin-flip prior). Undefined on exits. */
+    successProb?: number;
   }
 
-  const linkedTrades = useMemo((): LinkedTrade[] => {
-    if (watchlist.length === 0 || loading) return [];
+  // ── Backtest portfolio simulation — the ONE source of truth ──
+  // Replays the constrained trade set through a simulated wallet: cash starts
+  // at CAPITAL, BUYs must fit the remaining cash (the live engine can't spend
+  // money it doesn't have), SELLs can only close inventory the sim actually
+  // holds, fees + gas come out of cash. Every surface on the BACKTEST tab —
+  // trade feed, equity curve, P&L/ROI header, fee row — derives from this one
+  // replay, so the numbers can never disagree with each other again (the old
+  // header mixed three different trade sets and showed "-$3.64 P&L, 0 TXS,
+  // GROSS +$1.56"). The equity history is the same {t, liq, pos} snapshot
+  // shape the LIVE portfolio records, rendered through the same EquityChart.
+  interface BacktestSim {
+    rows: LinkedTrade[];
+    equityHistory: EquitySnapshot[];
+    markers: EquityMarker[];
+    /** Trades dropped by the MIN size gate, the cash budget, or missing
+        inventory — surfaced in the fee row so 0 TXS is explainable. */
+    skipped: number;
+    netPnl: number;    // final equity − capital (fees/gas already paid)
+    grossPnl: number;  // netPnl before fees/gas
+    fees: number;
+    gas: number;
+    volume: number;    // total executed notional
+  }
+
+  const backtestSim = useMemo((): BacktestSim => {
+    const empty: BacktestSim = {
+      rows: [], equityHistory: [], markers: [],
+      skipped: 0, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
+    };
+    if (watchlist.length === 0 || loading) return empty;
     const cutoffMs = Date.now() - backtestDays * 86400_000;
 
     // Build from raw trades directly (not curve points) to use conditionId for filtering
     type RawEntry = {
       ts: number; market: string; conditionId: string; trader: string;
-      side: "BUY" | "SELL"; size: number; price: number; realized: number; scale: number;
-      score?: number; sharpe?: number;
+      side: "BUY" | "SELL"; size: number; price: number; realized: number;
+      /** Full strat-shaped trade — sizing goes through the SAME
+          sizeAndPrice hook the live engine calls, for both sides. */
+      stratTrade: StratTraderTrade;
+      score?: number; sharpe?: number; successProb?: number;
     };
     const allEntries: RawEntry[] = [];
 
@@ -1782,188 +1976,418 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       const windowAnnotated = annotated.filter((t) => t.side === "BUY" || t.hasBasis);
       if (windowAnnotated.length === 0) continue;
 
-      const wFrac = totalWeight > 0 ? (traderWeights[addr] || 0) / totalWeight : 1 / watchlist.length;
-      const buyVol = windowAnnotated.filter((t) => t.side === "BUY").reduce((s, t) => s + t.price * t.size, 0);
-      const sellVol = windowAnnotated.filter((t) => t.side === "SELL").reduce((s, t) => s + t.price * t.size, 0);
-      const traderVol = Math.max(buyVol, sellVol, 1);
-      const scale = (capital * wFrac) / traderVol;
-
       // Score via the SAME strat instance used live + by keptBuyIds — so
       // dropping in a new strat changes BUY scores in the chart tooltip
-      // and feed without any extra wiring.
+      // and feed without any extra wiring. copyRatio comes from the shared
+      // traderCopyRatio map — the same proportional ratio the live engine
+      // hands hooks — so sizing below scales exactly like a deployment.
       const stats = traderStatsMap.get(addr) ?? null;
       const sharpe = stats?.sharpe ?? 0;
       const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
       const weight = traderWeights[addr] || 0;
       const weightFraction = weight / totalW;
       for (const t of windowAnnotated) {
+        const stratTrade: StratTraderTrade = {
+          ...t, trader: addr, weight, weightFraction,
+          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
+        };
         let score: number | undefined;
         if (t.side === "BUY") {
-          const stratTrade: StratTraderTrade = {
-            ...t, trader: addr, weight, weightFraction,
-            copyRatio: 0, notional: t.price * t.size,
-          };
           const s = backtestStrat.scoreCandidate(stratTrade, stats, backtestHistory);
           if (s > 0) score = s;
         }
         allEntries.push({
           ts: t.timestamp, market: t.market, conditionId: t.conditionId || t.market,
           trader: addr, side: t.side, size: t.size, price: t.price,
-          realized: t.realized, scale,
+          realized: t.realized, stratTrade,
           score,
           sharpe: sharpe > 0 ? sharpe : undefined,
+          successProb: t.side === "BUY" ? successProbability(stats) : undefined,
         });
       }
     }
 
     allEntries.sort((a, b) => a.ts - b.ts);
 
-    // Compute derived fields per trade. Apply TRADE SIZE constraints so the
-    // displayed feed matches what the LIVE engine would actually do:
-    //   • amount < minTrade → skip entirely (dust order, no place)
-    //   • amount > maxTrade → clamp amount to maxTrade; SELL's realized P&L
-    //     scales down proportionally (capped trade ≠ free capped P&L)
-    // Then accumulate running P&L only over surviving trades, so the curve
-    // value at any row matches the column shown.
-    const derived: {
-      ts: number; market: string; trader: string; side: "BUY" | "SELL";
-      amount: number; price: number; fee: number; realized: number; pnlDelta: number;
-      score?: number; sharpe?: number;
-    }[] = [];
+    // Last time ANY leader trade touched each market — sorted ascending, so
+    // the final write per key is its max. Drives the settlement pass below.
+    const lastSeen = new Map<string, number>();
+    for (const e of allEntries) lastSeen.set(e.conditionId, e.ts);
+
+    // Current market prices for the final mark-to-market point — same source
+    // the live portfolio uses (position currentPrice), falling back to the
+    // last traded price the replay observed.
+    const curPx = new Map<string, number>();
+    for (const addr of watchlist) {
+      for (const p of traderData.get(addr) || []) {
+        const key = p.conditionId || p.market;
+        if (key && p.currentPrice > 0) curPx.set(key, p.currentPrice);
+      }
+    }
+
+    // Replay through the simulated wallet. TRADE SIZE constraints match the
+    // live engine: amount < MIN → dust, not placed; amount > MAX → clamped;
+    // a SELL only closes shares the sim actually holds. A BUY that doesn't
+    // fit the remaining cash triggers the SAME capital-aware rebalance the
+    // live engine runs (live_engine.rs `free_capital_via_sells`): sell the
+    // weakest-score holds the candidate out-scores by the rebalance margin,
+    // then place — only skip when no eligible hold can free enough. New
+    // positions past `maxOpenPositions` are skipped exactly like live's
+    // MAX_POSITIONS gate. SHOW ALL lifts every gate to preview the
+    // unconstrained mirror.
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    // Live defaults (live_engine.rs): rebalancing ON, candidate must
+    // out-score a hold by the shared playbook margin before that hold is
+    // sold to fund it.
+    const REBALANCE_MARGIN = 1 + REBALANCE_MARGIN_PCT;
+    let cash = capital;
+    const book = new Map<string, { shares: number; avgPx: number; entryScore: number; market: string }>();
+    const lastPx = new Map<string, number>();
+    const rows: LinkedTrade[] = [];
+    const equityHistory: EquitySnapshot[] = [];
+    const markers: EquityMarker[] = [];
+    let skipped = 0;
+    let fees = 0;
+    let volume = 0;
+
+    const posValue = (marks: Map<string, number>) => {
+      let v = 0;
+      for (const [k, b] of book) {
+        if (b.shares > 1e-9) v += b.shares * (marks.get(k) ?? lastPx.get(k) ?? b.avgPx);
+      }
+      return v;
+    };
+    const openCount = () => {
+      let n = 0;
+      for (const b of book.values()) if (b.shares > 1e-9) n++;
+      return n;
+    };
+
+    // Seed: all cash at the window start, so the curve starts at CAPITAL
+    // exactly like a fresh live deployment.
+    equityHistory.push({ t: Math.min(cutoffMs, allEntries[0]?.ts ?? cutoffMs), liq: capital, pos: 0 });
+
+    // Mark-to-market snapshots BETWEEN executed trades. Every observed leader
+    // trade moves a mark whether or not we act on it — without recording
+    // those moves the curve froze at the last fill and drew a dead-straight
+    // horizontal line from there to "now" (the sim kept skipping once cash
+    // ran out, so hours of real mark movement rendered as one flat segment).
+    // Bucketed so a 30d window doesn't emit tens of thousands of points.
+    const SNAP_MS = Math.max(15 * 60_000, (backtestDays * 86400_000) / 400);
+    let lastSnapT = equityHistory[0].t;
+    const snapshotMark = (ts: number) => {
+      if (ts - lastSnapT < SNAP_MS) return;
+      lastSnapT = ts;
+      equityHistory.push({ t: ts, liq: cash, pos: posValue(lastPx) });
+    };
+
+    // ── Settlement pass — the live engine's auto-redeem, simulated ──
+    // Short-lived markets (5-min "Bitcoin Up or Down", hourly, daily) RESOLVE
+    // mid-window. Live, the engine's 5-min auto-redeem pass converts those
+    // positions to cash; the sim had no such model, so the book filled up with
+    // dead resolved markets held at their last traded price FOREVER. Capital
+    // never came back, `maxOpenPositions` was permanently saturated, and every
+    // later BUY skipped — a 3d run on HFT leaders executed 42 trades in the
+    // first 20 minutes then drew a flat line with "1032 SKIPPED".
+    //
+    // A held market settles at its LAST OBSERVED price once (a) its leader
+    // feed has been quiet for the debounce window and (b) it has no live
+    // current price (leaders hold none of it today) — i.e. it resolved, or
+    // every leader exited and a copier would have exited with them. Settling
+    // at the last mark is expectation-neutral (the position was already
+    // valued there); what it fixes is freeing the cash and the position slot
+    // so the replay keeps trading like a live deployment. Gas is charged like
+    // any redeem; no taker fee (redeems aren't CLOB fills). Rendered as the
+    // same amber REDEEM markers the LIVE chart uses — not as feed rows.
+    const STALE_SETTLE_MS = 30 * 60_000;
+    let settles = 0;
+    const settleDead = (now: number) => {
+      for (const [k, b] of [...book]) {
+        if (b.shares <= 1e-9) { book.delete(k); continue; }
+        if (curPx.has(k)) continue; // market is alive today — keep marking
+        if (now - (lastSeen.get(k) ?? 0) < STALE_SETTLE_MS) continue;
+        const px = lastPx.get(k) ?? b.avgPx;
+        const proceeds = b.shares * px;
+        cash += proceeds - GAS_PER_TRADE_USD;
+        settles++;
+        book.delete(k);
+        markers.push({ t: now, side: "REDEEM", label: `SETTLE · ${b.market}`, usd: proceeds });
+        equityHistory.push({ t: now, liq: cash, pos: posValue(lastPx) });
+        lastSnapT = now;
+      }
+    };
+
     for (const t of allEntries) {
-      const rawAmount = t.price * t.size * t.scale;
-      // Skip dust trades — below the user-configured min size they wouldn't
-      // be placed by the live engine; showing them in the feed misleads.
-      if (!showAllTrades && rawAmount < minTrade) continue;
-      // Cap at max size; SELL realized P&L scales down because the smaller
-      // clamped position can only return a smaller absolute gain/loss.
-      // SHOW ALL skips both gates so the displayed amount is whatever the
-      // raw scaled mirror would be (no floor, no ceiling).
-      const clampRatio = showAllTrades || rawAmount <= maxTrade ? 1 : maxTrade / rawAmount;
-      // Keep full precision so sub-cent mirrors don't collapse to $0.00 in
-      // the table. The renderer formats with the right precision for tiny
-      // values (e.g. "0.42¢" instead of "0.00¢"); rounding here was the
-      // source of the "every row is $0.00" bug.
-      const amount = showAllTrades ? rawAmount : Math.min(rawAmount, maxTrade);
-      const realizedScaled = t.side === "SELL"
-        ? Math.round(t.realized * t.scale * clampRatio * 100) / 100
-        : 0;
-      const scaledShares = t.price > 0 ? amount / t.price : 0;
-      const fee = Math.round(scaledShares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000) * 100) / 100;
-      derived.push({
+      settleDead(t.ts);
+      const key = t.conditionId;
+      const prevEquity = cash + posValue(lastPx);
+      // Observed price is real market information whether or not we trade on
+      // it — the mark moves either way (that's what MTM means).
+      lastPx.set(key, t.price);
+      // Live stop-loss parity: the engine sells a hold once its price decays
+      // to ≤ entry × stopLoss (whole position, at the mark — same shape as
+      // its bid-priced exit), via the SAME `stopLossTriggered` helper the
+      // playbook exports (mirror of live_engine.rs `stop_loss_hit`). Checked
+      // on every mark move of a held market so the backtest fires at the
+      // same decay point live would. The tick that tripped the stop is then
+      // consumed — live never re-enters a market in the same cycle it just
+      // stopped out of.
+      // Live take-profit parity: the engine liquidates a hold once its bid
+      // runs to ≥ takeProfit (0.99 default — the market ran to ~100%, it's
+      // decided), via the SAME `takeProfitTriggered` helper the playbook
+      // exports (mirror of live_engine.rs `take_profit_hit`). Checked before
+      // the stop so the labels match live's precedence.
+      if (!showAllTrades && takeProfitFrac > 0) {
+        const topped = book.get(key);
+        if (topped && topped.shares > 1e-9 && takeProfitTriggered(t.price, takeProfitFrac)) {
+          const proceeds = topped.shares * t.price;
+          const sellFee = topped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+          const tpRealized = (t.price - topped.avgPx) * topped.shares;
+          cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+          fees += sellFee;
+          volume += proceeds;
+          book.delete(key);
+          const pos = posValue(lastPx);
+          const equity = cash + pos;
+          rows.push({
+            ts: t.ts,
+            market: topped.market,
+            conditionId: key,
+            trader: t.trader,
+            side: "SELL",
+            amount: proceeds,
+            price: t.price,
+            fee: round2(sellFee),
+            realized: round2(tpRealized),
+            runningPnl: round2(equity - capital),
+            pnlDelta: round2(equity - prevEquity),
+            cash: round2(cash),
+            pos: round2(pos),
+          });
+          equityHistory.push({ t: t.ts, liq: cash, pos });
+          lastSnapT = t.ts;
+          markers.push({ t: t.ts, side: "SELL", label: `TAKE PROFIT · ${topped.market}`, usd: proceeds });
+          skipped++;
+          continue;
+        }
+      }
+      if (!showAllTrades && stopLossPct > 0) {
+        const stopped = book.get(key);
+        if (stopped && stopped.shares > 1e-9 && stopLossTriggered(stopped.avgPx, t.price, (100 - stopLossPct) / 100)) {
+          const proceeds = stopped.shares * t.price;
+          const sellFee = stopped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+          const stopRealized = (t.price - stopped.avgPx) * stopped.shares;
+          cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+          fees += sellFee;
+          volume += proceeds;
+          book.delete(key);
+          const pos = posValue(lastPx);
+          const equity = cash + pos;
+          rows.push({
+            ts: t.ts,
+            market: stopped.market,
+            conditionId: key,
+            trader: t.trader,
+            side: "SELL",
+            amount: proceeds,
+            price: t.price,
+            fee: round2(sellFee),
+            realized: round2(stopRealized),
+            runningPnl: round2(equity - capital),
+            pnlDelta: round2(equity - prevEquity),
+            cash: round2(cash),
+            pos: round2(pos),
+          });
+          equityHistory.push({ t: t.ts, liq: cash, pos });
+          lastSnapT = t.ts;
+          markers.push({ t: t.ts, side: "SELL", label: `STOP LOSS · ${stopped.market}`, usd: proceeds });
+          skipped++;
+          continue;
+        }
+      }
+      // Size EXACTLY like the live engine: through the strat's sizeAndPrice
+      // hook, which clamps proportional dust UP to max(MIN, CLOB floor) and
+      // only skips true leader dust / no-legal-size cases. The old inline
+      // gate here (`rawAmount < minTrade → skip`) silently killed EVERY
+      // trade at small SIM funds — $100 spread over high-volume traders
+      // mirrors to pennies, so 100% of the replay was "N SKIPPED · 0 TXS"
+      // while a live deployment with identical params would have traded.
+      // SHOW ALL still previews the unconstrained proportional mirror.
+      const rawAmount = t.stratTrade.notional * t.stratTrade.copyRatio;
+      let gatedAmount: number;
+      if (showAllTrades) {
+        gatedAmount = rawAmount;
+      } else {
+        const decision = backtestStrat.sizeAndPrice(t.stratTrade, {
+          userFloor: minTrade,
+          userCeiling: maxTrade,
+          clobFloor: clobMinNotional(t.price),
+          capital,
+        }, backtestHistory);
+        if (decision.mirrorNotional <= 0) { skipped++; snapshotMark(t.ts); continue; }
+        gatedAmount = decision.mirrorNotional;
+      }
+
+      let amount: number;
+      let fee: number;
+      let realized = 0;
+      if (t.side === "BUY") {
+        amount = gatedAmount;
+        const shares = t.price > 0 ? amount / t.price : 0;
+        fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+        const cost = amount + fee + GAS_PER_TRADE_USD;
+        // Live MAX_POSITIONS gate: opening a NEW market past the cap is
+        // skipped; topping up an already-held one always passes.
+        const held = book.get(key);
+        if (!showAllTrades && !(held && held.shares > 1e-9) && openCount() >= maxOpenPositions) {
+          skipped++; snapshotMark(t.ts); continue;
+        }
+        // Live capital-aware rebalance (free_capital_via_sells): when the BUY
+        // doesn't fit the remaining cash, sell the weakest-score holds this
+        // candidate out-scores by ≥ the margin — weakest first, full position
+        // at its current mark — until the shortfall is covered. Without this
+        // the sim froze the moment cash ran out while a live deployment kept
+        // rotating capital into better-scoring trades.
+        if (!showAllTrades && cost > cash) {
+          const candScore = t.score ?? 0;
+          const sellable = [...book.entries()]
+            .filter(([k, b]) => k !== key && b.shares > 1e-9 && candScore >= b.entryScore * REBALANCE_MARGIN)
+            .sort((a, b) => a[1].entryScore - b[1].entryScore);
+          for (const [k, b] of sellable) {
+            if (cost <= cash) break;
+            const mark = lastPx.get(k) ?? b.avgPx;
+            const proceeds = b.shares * mark;
+            const sellFee = b.shares * Math.min(mark, 1 - mark) * (TAKER_FEE_BPS / 10_000);
+            cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+            fees += sellFee;
+            volume += proceeds;
+            book.delete(k);
+            const pos = posValue(lastPx);
+            const equity = cash + pos;
+            rows.push({
+              ts: t.ts,
+              market: b.market,
+              conditionId: k,
+              trader: t.trader,
+              side: "SELL",
+              amount: proceeds,
+              price: mark,
+              fee: round2(sellFee),
+              realized: round2((mark - b.avgPx) * b.shares),
+              runningPnl: round2(equity - capital),
+              pnlDelta: round2(equity - prevEquity),
+              cash: round2(cash),
+              pos: round2(pos),
+            });
+            equityHistory.push({ t: t.ts, liq: cash, pos });
+            markers.push({ t: t.ts, side: "SELL", label: `REBALANCE · ${b.market}`, usd: proceeds });
+          }
+          if (cost > cash) { skipped++; snapshotMark(t.ts); continue; } // nothing left to rotate out
+        }
+        cash -= cost;
+        const b = book.get(key) ?? { shares: 0, avgPx: 0, entryScore: 0, market: t.market };
+        const newShares = b.shares + shares;
+        b.avgPx = newShares > 0 ? (b.avgPx * b.shares + t.price * shares) / newShares : 0;
+        b.shares = newShares;
+        // Freeze the strongest score seen at entry — the bar a future
+        // candidate must clear (× margin) to rotate this hold out.
+        b.entryScore = Math.max(b.entryScore, t.score ?? 0);
+        book.set(key, b);
+      } else {
+        const b = book.get(key);
+        const held = b?.shares ?? 0;
+        if (!b || held <= 1e-9) { skipped++; snapshotMark(t.ts); continue; } // nothing to close at our scale
+        const shares = Math.min(t.price > 0 ? gatedAmount / t.price : 0, held);
+        amount = shares * t.price;
+        fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+        cash += amount - fee - GAS_PER_TRADE_USD;
+        realized = (t.price - b.avgPx) * shares;
+        b.shares -= shares;
+        if (b.shares <= 1e-9) book.delete(key);
+      }
+
+      fees += fee;
+      volume += amount;
+      const pos = posValue(lastPx);
+      const equity = cash + pos;
+      rows.push({
         ts: t.ts,
         market: t.market,
+        conditionId: key,
         trader: t.trader,
         side: t.side,
         amount,
         price: t.price,
-        fee,
-        realized: realizedScaled,
-        pnlDelta: realizedScaled,
+        fee: round2(fee),
+        realized: round2(realized),
+        runningPnl: round2(equity - capital),
+        pnlDelta: round2(equity - prevEquity),
+        cash: round2(cash),
+        pos: round2(pos),
         score: t.score,
         sharpe: t.sharpe,
+        successProb: t.successProb,
       });
-    }
-
-    let runningPnl = 0;
-    return derived.map((t) => {
-      runningPnl = Math.round((runningPnl + t.realized) * 100) / 100;
-      return { ...t, runningPnl };
-    });
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, backtestHistory, marketQuery]);
-
-  // liveCurve — built from the engine's actual order log. Each successful
-  // COPY_BUY / COPY_SELL becomes a point. P&L is a FIFO-realized running
-  // total: BUYs add to per-token basis queues, SELLs pop the oldest BUY at
-  // its filled price and compute (sell - buy) × shares. Only what actually
-  // executed on Polymarket is plotted — no historical replay.
-  const liveCurve = useMemo((): CurvePoint[] => {
-    if (!engineState) return [];
-    const trades = engineState.log
-      .filter((e) => (e.type === "COPY_BUY" || e.type === "COPY_SELL") && e.orderResult?.success)
-      .sort((a, b) => a.timestamp - b.timestamp);
-    if (trades.length === 0) return [];
-
-    // Per-token FIFO basis. Each entry is (price, shares).
-    const basis: Map<string, Array<[number, number]>> = new Map();
-    let running = 0;
-    const out: CurvePoint[] = [];
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      const side = t.side ?? "BUY";
-      const price = t.price ?? 0;
-      const notional = t.mirrorNotional ?? 0;
-      const shares = price > 0 ? notional / price : 0;
-      const tokenId = t.tokenId ?? t.conditionId ?? t.market ?? "";
-      let realized = 0;
-      if (side === "BUY") {
-        const q = basis.get(tokenId) ?? [];
-        q.push([price, shares]);
-        basis.set(tokenId, q);
-      } else {
-        // Pop earliest BUYs to realize PnL.
-        let remaining = shares;
-        const q = basis.get(tokenId) ?? [];
-        while (remaining > 0 && q.length > 0) {
-          const [bp, bs] = q[0];
-          const consumed = Math.min(bs, remaining);
-          realized += (price - bp) * consumed;
-          remaining -= consumed;
-          if (consumed >= bs) q.shift();
-          else q[0] = [bp, bs - consumed];
-        }
-        basis.set(tokenId, q);
-      }
-      running = Math.round((running + realized) * 100) / 100;
-      const d = new Date(t.timestamp);
-      out.push({
-        i,
-        ts: t.timestamp,
-        date: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
-        time: `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`,
-        pnl: running,
-        side,
-        realized,
-        market: t.market ?? "",
-        size: notional,
-        price,
-      });
-    }
-    return out;
-  }, [engineState]);
-
-  // chartCurve — what PnlChart actually plots.
-  //   LIVE mode  → liveCurve (engine's real executed orders)
-  //   BACKTEST   → linkedTrades-derived curve (constrained replay) or
-  //                combinedPnlCurve when SHOW ALL is on
-  // The two modes never share a series — historical replay is meaningless
-  // when monitoring live, and the live order log doesn't exist on BACKTEST.
-  const chartCurve = useMemo((): CurvePoint[] => {
-    if (mode === "LIVE") return liveCurve;
-    if (showAllTrades) return combinedPnlCurve;
-    if (linkedTrades.length === 0) return combinedPnlCurve;
-    return linkedTrades.map((t, i) => {
-      const d = new Date(t.ts);
-      return {
-        i,
-        ts: t.ts,
-        date: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
-        time: `${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`,
-        pnl: t.runningPnl,
+      equityHistory.push({ t: t.ts, liq: cash, pos });
+      lastSnapT = t.ts; // fills reset the mark-snapshot bucket
+      markers.push({
+        t: t.ts,
         side: t.side,
-        realized: t.realized,
-        market: t.market,
-        size: t.amount,
-        price: t.price,
-      };
+        usd: round2(amount),
+        label: `${t.market}${t.stratTrade.outcome ? ` · ${t.stratTrade.outcome}` : ""} @ ${Math.round(t.price * 100)}¢`,
+      });
+    }
+
+    // Final settlement sweep — anything still held in a dead market settles
+    // before the NOW mark, so resolved inventory shows as cash (what a live
+    // deployment would actually be holding today), not as phantom positions.
+    settleDead(Date.now());
+
+    // Final NOW point — open inventory re-marked at current market prices so
+    // the curve ends where a live deployment's portfolio would sit today.
+    const nowPos = posValue(curPx);
+    equityHistory.push({ t: Date.now(), liq: cash, pos: nowPos });
+
+    const gas = (rows.length + settles) * GAS_PER_TRADE_USD;
+    const netPnl = round2(cash + nowPos - capital);
+    return {
+      rows,
+      equityHistory,
+      markers,
+      skipped,
+      netPnl,
+      grossPnl: round2(netPnl + fees + gas),
+      fees: round2(fees),
+      gas: round2(gas),
+      volume: round2(volume),
+    };
+  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, backtestHistory, marketQuery, traderCopyRatio]);
+
+  const linkedTrades = backtestSim.rows;
+  const backtestRoi = capital > 0 ? (backtestSim.netPnl / capital) * 100 : 0;
+
+  // ── Persist backtest snapshot to SavedIndex for leaderboard ──
+  // All values come from the simulated-wallet replay above, so the leaderboard
+  // numbers match what the BACKTEST tab actually displays.
+  useEffect(() => {
+    if (!activeIndex || backtests.length === 0 || loading) return;
+    updateIndex(activeIndex.id, {
+      lastPnl: backtestSim.grossPnl,
+      lastPnlAfterCosts: backtestSim.netPnl,
+      lastRoi1k: Math.round(backtestRoi * 100) / 100,
+      lastTradeCount: backtestSim.rows.length,
+      lastBacktestAt: Date.now(),
     });
-  }, [mode, liveCurve, linkedTrades, combinedPnlCurve, showAllTrades]);
+  }, [activeIndex, backtestSim, backtestRoi, loading, backtests.length]);
 
   // ── Chart ↔ Trade feed hover linking ──
-  const [chartHighlight, setChartHighlight] = useState<number | null>(null);
+  // The equity chart pins its crosshair by TIMESTAMP (EquityChart's
+  // highlightT), and every feed row carries its ts — no index translation
+  // between two differently-filtered series anymore.
+  const [chartHighlightT, setChartHighlightT] = useState<number | null>(null);
   const [tradeHighlight, setTradeHighlight] = useState<number | null>(null);
   // Pinned trade selection — survives mouse-leave (unlike the hover-only
-  // chartHighlight/tradeHighlight pair above, which reset on every
+  // chartHighlightT/tradeHighlight pair above, which reset on every
   // mouseleave). Click a row to pin it; click again to unpin. Indexes into
   // `linkedTrades` (the origIdx used by the feed table below).
   const [selectedTradeIdx, setSelectedTradeIdx] = useState<number | null>(null);
@@ -1974,35 +2398,28 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const [indexTradeLimit, setIndexTradeLimit] = useState(100);
   const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
 
-  // Both hover-linking helpers index into the SAME series PnlChart plots
-  // (chartCurve), not the unfiltered combinedPnlCurve. Mixing the two
-  // crashes when the chart plots N points but combinedPnlCurve has fewer
-  // — clicking a chart dot tries combinedPnlCurve[idx] which is undefined.
-  const findCurveIdx = useCallback((ts: number): number | null => {
-    if (chartCurve.length === 0) return null;
-    let best = 0, bestDist = Infinity;
-    for (let i = 0; i < chartCurve.length; i++) {
-      const d = Math.abs(chartCurve[i].ts - ts);
-      if (d < bestDist) { bestDist = d; best = i; }
-    }
-    return best;
-  }, [chartCurve]);
-
-  const handleChartHover = useCallback((idx: number | null) => {
-    if (idx === null || chartCurve.length === 0 || linkedTrades.length === 0) {
-      setTradeHighlight(null);
+  // Chart marker hover → highlight the nearest feed row (and vice versa the
+  // feed rows set chartHighlightT directly). On leave, fall back to the
+  // pinned selection instead of clearing outright.
+  const handleChartHover = useCallback((t: number | null) => {
+    if (t === null || linkedTrades.length === 0) {
+      if (selectedTradeIdx !== null && linkedTrades[selectedTradeIdx]) {
+        setChartHighlightT(linkedTrades[selectedTradeIdx].ts);
+        setTradeHighlight(selectedTradeIdx);
+      } else {
+        setChartHighlightT(null);
+        setTradeHighlight(null);
+      }
       return;
     }
-    const point = chartCurve[idx];
-    if (!point) { setTradeHighlight(null); return; }
-    const ts = point.ts;
+    setChartHighlightT(t);
     let best = 0, bestDist = Infinity;
     for (let i = 0; i < linkedTrades.length; i++) {
-      const d = Math.abs(linkedTrades[i].ts - ts);
+      const d = Math.abs(linkedTrades[i].ts - t);
       if (d < bestDist) { bestDist = d; best = i; }
     }
     setTradeHighlight(best);
-  }, [chartCurve, linkedTrades]);
+  }, [linkedTrades, selectedTradeIdx]);
 
   // Drop a pinned selection once the feed it pointed into is rebuilt out
   // from under it (strat switch, market filter edit, new data fetched) —
@@ -2137,10 +2554,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
   return (
     <div className="min-w-0 space-y-2">
-      {/* ── Header: tabs ──
-          The strat list + go-live checklist live in the STRAT page's
-          account column (strats/page.tsx); wallet/token/QR + trading
-          wallet + funding are the WALLET tab here. */}
+      {/* ── Header: main tabs + subtab rail ──
+          Two-level nav: STRAT / BACKTEST / LIVE on top, a contextual
+          subtab rail below. Wallet/token/QR + trading wallet + funding
+          live under LIVE → WALLET ($ pill). */}
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
         <div className="flex items-center gap-2">
@@ -2150,12 +2567,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               // simulated funds (no wallet, no deposit), and an empty
               // watchlist renders an add-traders empty state instead of a
               // dead grey tab (which read as "needs a funded wallet").
+              // WALLET is no longer a main tab — it's the $ subtab under
+              // LIVE (SUBTABS above), next to the engine it funds.
               { id: "STRATS", label: "STRAT", disabled: false },
-              { id: "HUB", label: "HUB", disabled: false },
               { id: "BACKTEST", label: "BACKTEST", disabled: false },
               { id: "LIVE", label: "LIVE", disabled: false },
-              { id: "WALLET", label: "WALLET", disabled: false },
-            ] as { id: typeof mode; label: string; disabled: boolean }[]
+            ] as { id: MainTab; label: string; disabled: boolean }[]
           ).map((t) => {
             const active = mode === t.id;
             // Show a RUNNING chip on the LIVE tab while the engine is
@@ -2175,7 +2592,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
                 className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
                   active
-                    ? "text-green-400 bg-green-400/[0.08]"
+                    ? MAIN_ACTIVE[t.id]
                     : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
                 } disabled:opacity-30 disabled:cursor-not-allowed`}
               >
@@ -2191,7 +2608,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 )}
                 <span
                   className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
-                    active ? "bg-green-400 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
+                    active ? `${MAIN_BAR[t.id]} opacity-100` : "opacity-0"
                   }`}
                 />
               </button>
@@ -2211,28 +2628,76 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           />
         </div>
 
+        {/* ── Subtab rail — contextual second row, re-animates on mode swap
+            (key={mode}). Pills carry the mode's accent; WALLET is always
+            amber. Right side echoes free cash + next-cycle countdown while
+            the engine runs, so no subtab ever hides the numbers that
+            matter minute-to-minute. */}
+        <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
+        <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
+          {SUBTABS[mode].map((s) => {
+            const active = activeSub === s.id;
+            const accent = s.id === "wallet" ? WALLET_ACCENT : SUB_ACCENT[mode];
+            return (
+              <button
+                key={s.id}
+                onClick={() => pickSub(mode, s.id)}
+                title={s.title}
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
+                className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
+                  active
+                    ? accent
+                    : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
+                }`}
+              >
+                <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${active ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
+                  {s.glyph}
+                </span>
+                {s.label}
+              </button>
+            );
+          })}
+          {mode === "LIVE" && isLive && engineState && (
+            <span
+              className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
+              title="Free cash · time to next poll cycle — full breakdown in STATS"
+            >
+              <span className="text-pixel-white">
+                {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
+              </span>
+              {" · "}
+              <span className="text-green-400">
+                {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
+              </span>
+            </span>
+          )}
+        </div>
+
       </div>
 
-      {/* ── WALLET tab ──
-          Wallet/token/QR pairing + trading-wallet deposit/withdraw moved
-          here from the old account column — a two-column grid so the
-          panels (designed for a 300px rail) don't stretch full-width.
-          LIVE's FUND NOW banner jumps here via onFundNow. */}
-      {mode === "WALLET" && (
-        <div className="grid md:grid-cols-2 gap-2 items-start max-w-[1100px]">
-          <div className="space-y-2 min-w-0">
-            {/* Full wallet + token + sign-in-QR pairing panel. */}
-            <WalletTokenPanel />
-            {/* Bridge / send funds into Polygon USDC from any chain. */}
-            <WalletFundingPanel />
+      {/* ── LIVE → WALLET subtab ──
+          The MONEY panel (one flow for deposit / withdraw / send) is the
+          hero, full width at the top — LIVE's FUND NOW banner jumps here
+          via onFundNow. Session pairing, cross-chain bridging and the
+          legacy V1 Safe are secondary and sit in a grid below it.
+          Renders regardless of watchlist — you can fund before you copy. */}
+      {mode === "LIVE" && liveSub === "wallet" && (
+        <div className="space-y-2 max-w-[1100px]">
+          {/* ONE money panel: both balances, one amount, one button. */}
+          <div id="sidebar-wallet-panel">
+            <WalletPanel />
           </div>
-          <div className="space-y-2 min-w-0">
-            {/* Trading-wallet deposit/withdraw (V2). */}
-            <div id="sidebar-wallet-panel">
-              <WalletPanel />
+          <div className="grid md:grid-cols-2 gap-2 items-start">
+            <div className="space-y-2 min-w-0">
+              {/* Full wallet + token + sign-in-QR pairing panel. */}
+              <WalletTokenPanel />
             </div>
-            {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
-            <PolymarketAccountPanel />
+            <div className="space-y-2 min-w-0">
+              {/* Bridge / send funds into Polygon USDC from any chain. */}
+              <WalletFundingPanel />
+              {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
+              <PolymarketAccountPanel />
+            </div>
           </div>
         </div>
       )}
@@ -2247,23 +2712,52 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           The strat's SOURCE code renders directly below this panel.
           The status row keeps the strat picker + data-freshness chips
           so a stalled poll loop is still diagnosable from here. */}
-      {mode === "STRATS" && activeIndex && (
+      {mode === "STRATS" && stratSub === "build" && activeIndex && (
         <div className="pixel-panel px-3 py-2.5 space-y-2.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">TRADERS + PARAMS</span>
             <div className="w-2 h-2 bg-green-400 shrink-0" />
-            <select
-              value={activeIndex.id}
-              onChange={(e) => selectStrategy(e.target.value)}
-              className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
-              title="Switch active strat"
-            >
-              {savedIndexes.map((s) => (
-                <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            {/* Name doubles as the strat switcher; ✎ (or a double-click on
+                the name) turns it into an inline rename field. */}
+            {renamingId === activeIndex.id ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRename(activeIndex.id, renameValue);
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+                onBlur={() => handleRename(activeIndex.id, renameValue)}
+                maxLength={60}
+                className="bg-pixel-bg border border-green-400/60 px-1.5 py-0.5 text-[14px] font-mono text-green-400 font-bold outline-none w-[180px] shrink-0"
+                title="Enter to save · Esc to cancel"
+              />
+            ) : (
+              <>
+                <select
+                  value={activeIndex.id}
+                  onChange={(e) => selectStrategy(e.target.value)}
+                  onDoubleClick={() => { setRenamingId(activeIndex.id); setRenameValue(activeIndex.name); }}
+                  className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
+                  title="Switch active strat · double-click to rename"
+                >
+                  {savedIndexes.map((s) => (
+                    <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => { setRenamingId(activeIndex.id); setRenameValue(activeIndex.name); }}
+                  className="shrink-0 text-[12px] text-pixel-gray hover:text-green-400 px-1 leading-none"
+                  title={`Rename "${activeIndex.name}"`}
+                >
+                  ✎
+                </button>
+              </>
+            )}
             <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
             {activeIndex.lastPnlAfterCosts !== undefined && (
               <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -2621,229 +3115,248 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
           {/* ── PARAMS — every knob; the filters gate the traders above,
               and the FILT column re-counts on every edit here ── */}
-          <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
-            <div className="text-[10px] text-pixel-gray tracking-[0.22em]">
-              PARAMS · FILTERS APPLY TO THE SELECTED TRADERS ABOVE
+          <div className="border-t border-pixel-border/40 pt-3 space-y-2">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-pixel-white tracking-[0.26em]">PARAMS</span>
+              <span className="text-[10px] text-pixel-gray">
+                apply to the selected traders above — every edit re-runs the backtest and steers the live engine
+              </span>
             </div>
-            <div className="flex items-end gap-2 flex-wrap">
-              <Field label="WINDOW" suffix="DAYS">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={backtestDaysInput}
-                  onChange={(e) => setBacktestDaysInput(e.target.value)}
-                  onBlur={() => {
-                    const v = parseInt(backtestDaysInput, 10);
-                    if (!isNaN(v) && v > 0 && v <= 365) {
-                      updateBacktestDays(v);
-                      setBacktestDaysInput(String(v));
-                    } else {
-                      setBacktestDaysInput(String(backtestDays));
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+            <div className="grid gap-2 lg:grid-cols-2">
+              <ParamGroup title="SIZING" hint="how much each mirror bets">
+                <Field label="CAPITAL" prefix="$">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={capital}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v > 0) updateCapital(v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className="bg-transparent w-16 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
+                <Field label="TRADE SIZE" prefix="$">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={minTrade}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v >= 0) updateMinTrade(v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                  <span className="text-pixel-gray/60 mx-0.5">–</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={maxTrade}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v > 0) updateMaxTrade(v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
+                <Field label="SAMPLE" suffix="%">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={samplePct}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v >= 1 && v <= 100) setSamplePct(v);
+                      else if (e.target.value === "") setSamplePct(1);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="Deterministically keep this % of in-window trades — the curve, feed, and stats all update. Quick chips below set 10/25/50/75/100%."
+                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+              </ParamGroup>
+
+              <ParamGroup title="RISK" hint="exits & concurrency caps">
+                <Field label="STOP" suffix="%">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={stopLossPct}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      updateStopLossPct(isNaN(v) ? 0 : v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="Stop-loss: sell a position once it is DOWN this % from entry (10 = exit at a 10% loss, 50 = exit at half of entry) — caps a market trending to 0 at a known loss. 0 = off. Enforced live every scan and replayed identically in the backtest."
+                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
+                <Field label="MAX POS">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={maxOpenPositions}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v > 0) updateMaxOpenPositions(v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="Max concurrent open positions — the live engine skips BUYs that would open a new position past this cap"
+                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
+                {/* THROTTLE (maxTradesPerHour) removed — the knob was never
+                    enforced by the live engine OR the backtest, so it silently
+                    lied about behavior. Rate control is MAX/CYCLE × poll
+                    cadence, which both sides actually honor. */}
+                <Field label="MAX/CYCLE">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={maxPerCycle}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      if (!isNaN(v) && v > 0) updateMaxPerCycle(v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="Top-N candidates copied per scan (by score)"
+                    className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+              </ParamGroup>
+
+              <ParamGroup title="ENGINE" hint="scan cadence & lookback window">
+                <Field label="POLL EVERY">
+                  <select
+                    value={rebalanceMinutes}
+                    onChange={(e) => updateRebalanceMinutes(Number(e.target.value))}
+                    className="bg-transparent font-mono text-[13px] text-pixel-white outline-none cursor-pointer pr-1"
+                  >
+                    <option value={5 / 60}>5s</option>
+                    <option value={10 / 60}>10s</option>
+                    <option value={15 / 60}>15s</option>
+                    <option value={30 / 60}>30s</option>
+                    <option value={1}>1m</option>
+                    <option value={2}>2m</option>
+                    <option value={5}>5m</option>
+                    <option value={10}>10m</option>
+                    <option value={15}>15m</option>
+                    <option value={30}>30m</option>
+                    <option value={60}>1h</option>
+                    <option value={240}>4h</option>
+                    <option value={1440}>24h</option>
+                  </select>
+                </Field>
+
+                <Field label="WINDOW" suffix="DAYS">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={backtestDaysInput}
+                    onChange={(e) => setBacktestDaysInput(e.target.value)}
+                    onBlur={() => {
                       const v = parseInt(backtestDaysInput, 10);
                       if (!isNaN(v) && v > 0 && v <= 365) {
                         updateBacktestDays(v);
-                        setRefreshKey((k) => k + 1);
+                        setBacktestDaysInput(String(v));
+                      } else {
+                        setBacktestDaysInput(String(backtestDays));
                       }
-                    }
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const v = parseInt(backtestDaysInput, 10);
+                        if (!isNaN(v) && v > 0 && v <= 365) {
+                          updateBacktestDays(v);
+                          setRefreshKey((k) => k + 1);
+                        }
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+              </ParamGroup>
 
-              <Field label="CAPITAL" prefix="$">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={capital}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v > 0) updateCapital(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="bg-transparent w-16 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
+              <ParamGroup title="MARKETS" hint="only act on matching market titles">
+                {/* Market-topic filter — keeps a strat focused (e.g. "price of
+                    bitcoin") instead of copying every market a trader touches.
+                    Commits on blur / Enter so the backtest doesn't re-run per
+                    keystroke. The local `marketQueryInput` mirror lets the user
+                    type freely before committing. */}
+                <Field label="MARKET">
+                  <input
+                    type="text"
+                    value={marketQueryInput}
+                    onChange={(e) => setMarketQueryInput(e.target.value)}
+                    onBlur={() => updateMarketQuery(marketQueryInput)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        updateMarketQuery(marketQueryInput);
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    placeholder="all markets"
+                    title="Only act on markets whose title matches this query. Comma = OR (e.g. 'bitcoin, btc'), space = AND ('price bitcoin'). Blank = every market. Applies to backtest + live."
+                    className="bg-transparent w-44 font-mono text-[14px] text-pixel-white outline-none placeholder:text-pixel-gray/40"
+                  />
+                </Field>
 
-              <Field label="TRADE SIZE" prefix="$">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={minTrade}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v >= 0) updateMinTrade(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-                <span className="text-pixel-gray/60 mx-0.5">–</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={maxTrade}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v > 0) updateMaxTrade(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
-
-              <Field label="THROTTLE" suffix="/HR">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={maxTradesPerHour}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v > 0) updateMaxTradesPerHour(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
-
-              <Field label="MAX/CYCLE">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={maxPerCycle}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v > 0) updateMaxPerCycle(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  title="Top-N candidates copied per scan (by score)"
-                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
-
-              <Field label="MAX POS">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={maxOpenPositions}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v > 0) updateMaxOpenPositions(v);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  title="Max concurrent open positions — the live engine skips BUYs that would open a new position past this cap"
-                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
-
-              <Field label="SAMPLE" suffix="%">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={samplePct}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                    if (!isNaN(v) && v >= 1 && v <= 100) setSamplePct(v);
-                    else if (e.target.value === "") setSamplePct(1);
-                  }}
-                  onFocus={(e) => e.target.select()}
-                  title="Deterministically keep this % of in-window trades — the curve, feed, and stats all update. Quick chips below set 10/25/50/75/100%."
-                  className="bg-transparent w-8 text-right font-mono text-[14px] text-pixel-white outline-none"
-                />
-              </Field>
-
-              <Field label="POLL EVERY">
-                <select
-                  value={rebalanceMinutes}
-                  onChange={(e) => updateRebalanceMinutes(Number(e.target.value))}
-                  className="bg-transparent font-mono text-[13px] text-pixel-white outline-none cursor-pointer pr-1"
-                >
-                  <option value={5 / 60}>5s</option>
-                  <option value={10 / 60}>10s</option>
-                  <option value={15 / 60}>15s</option>
-                  <option value={30 / 60}>30s</option>
-                  <option value={1}>1m</option>
-                  <option value={2}>2m</option>
-                  <option value={5}>5m</option>
-                  <option value={10}>10m</option>
-                  <option value={15}>15m</option>
-                  <option value={30}>30m</option>
-                  <option value={60}>1h</option>
-                  <option value={240}>4h</option>
-                  <option value={1440}>24h</option>
-                </select>
-              </Field>
-
-              {/* Market-topic filter — keeps a strat focused (e.g. "price of
-                  bitcoin") instead of copying every market a trader touches.
-                  Commits on blur / Enter so the backtest doesn't re-run per
-                  keystroke. The local `marketQueryInput` mirror lets the user
-                  type freely before committing. */}
-              <Field label="MARKET">
-                <input
-                  type="text"
-                  value={marketQueryInput}
-                  onChange={(e) => setMarketQueryInput(e.target.value)}
-                  onBlur={() => updateMarketQuery(marketQueryInput)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateMarketQuery(marketQueryInput);
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  placeholder="all markets"
-                  title="Only act on markets whose title matches this query. Comma = OR (e.g. 'bitcoin, btc'), space = AND ('price bitcoin'). Blank = every market. Applies to backtest + live."
-                  className="bg-transparent w-44 font-mono text-[14px] text-pixel-white outline-none placeholder:text-pixel-gray/40"
-                />
-              </Field>
-
-              {/* Quick crypto presets — one click focuses the strat on a coin,
-                  OR-matching both the full name and ticker so e.g. "Bitcoin"
-                  catches "BTC above $100k" too. Bitcoin-first by design. */}
-              <div className="w-full flex items-center gap-1.5 flex-wrap pt-0.5">
-                <span className="text-[10px] text-pixel-gray tracking-[0.18em] leading-none">FOCUS</span>
-                {([
-                  ["Bitcoin", "bitcoin, btc"],
-                  ["Ethereum", "ethereum, eth"],
-                  ["Solana", "solana, sol"],
-                  ["Crypto", "bitcoin, btc, ethereum, eth, solana, sol, crypto, xrp, dogecoin"],
-                ] as const).map(([label, q]) => {
-                  const active = marketQueryInput.trim().toLowerCase() === q;
-                  return (
+                {/* Quick crypto presets — one click focuses the strat on a coin,
+                    OR-matching both the full name and ticker so e.g. "Bitcoin"
+                    catches "BTC above $100k" too. Bitcoin-first by design. */}
+                <div className="w-full flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <span className="text-[10px] text-pixel-gray tracking-[0.18em] leading-none">FOCUS</span>
+                  {([
+                    ["Bitcoin", "bitcoin, btc"],
+                    ["Ethereum", "ethereum, eth"],
+                    ["Solana", "solana, sol"],
+                    ["Crypto", "bitcoin, btc, ethereum, eth, solana, sol, crypto, xrp, dogecoin"],
+                  ] as const).map(([label, q]) => {
+                    const active = marketQueryInput.trim().toLowerCase() === q;
+                    return (
+                      <button
+                        key={label}
+                        onClick={() => { setMarketQueryInput(q); updateMarketQuery(q); }}
+                        title={`Only copy markets matching: ${q}`}
+                        className={`text-[10px] px-2 py-0.5 rounded border font-bold transition-colors ${
+                          active
+                            ? "border-amber-400/70 bg-amber-500/20 text-amber-300"
+                            : "border-pixel-border bg-pixel-black/60 text-pixel-gray-light hover:border-pixel-white/40"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                  {marketQueryInput.trim() && (
                     <button
-                      key={label}
-                      onClick={() => { setMarketQueryInput(q); updateMarketQuery(q); }}
-                      title={`Only copy markets matching: ${q}`}
-                      className={`text-[10px] px-2 py-0.5 rounded border font-bold transition-colors ${
-                        active
-                          ? "border-amber-400/70 bg-amber-500/20 text-amber-300"
-                          : "border-pixel-border bg-pixel-black/60 text-pixel-gray-light hover:border-pixel-white/40"
-                      }`}
+                      onClick={() => { setMarketQueryInput(""); updateMarketQuery(""); }}
+                      title="Clear the market focus — copy every market again."
+                      className="text-[10px] px-2 py-0.5 rounded border border-pixel-border bg-pixel-black/60 text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
                     >
-                      {label}
+                      ✕ all
                     </button>
-                  );
-                })}
-                {marketQueryInput.trim() && (
-                  <button
-                    onClick={() => { setMarketQueryInput(""); updateMarketQuery(""); }}
-                    title="Clear the market focus — copy every market again."
-                    className="text-[10px] px-2 py-0.5 rounded border border-pixel-border bg-pixel-black/60 text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
-                  >
-                    ✕ all
-                  </button>
-                )}
-              </div>
+                  )}
+                </div>
+              </ParamGroup>
 
               {/* Per-trade filter — orthogonal to MARKET: gates on the
                   leader's own trade attributes (side / entry price / size /
                   category) rather than the market title. AND-ed together.
                   Backtest + live engine + catch-up all honor these. */}
-              <div className="w-full flex items-center gap-2 flex-wrap pt-0.5">
-                <span className="text-[10px] text-pixel-gray tracking-[0.18em] leading-none">TRADE FILTER</span>
+              <ParamGroup
+                title="TRADE FILTER"
+                hint="gate on the leader's own trade — side, entry price, size, category"
+                className="lg:col-span-2"
+              >
                 <span className="flex items-center gap-1">
                   {(["both", "buy", "sell"] as const).map((s) => (
                     <button
@@ -2927,44 +3440,18 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     );
                   })}
                 </span>
-              </div>
+              </ParamGroup>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Strategy Hub (HUB tab) ──
-          Your own dedicated tab: publish / community / fork (UserStratsPanel).
-          FUND lives in the STRAT page's account column — this tab stays to
-          its actual job (publish/fork) instead of duplicating wallet chrome. */}
-      {mode === "HUB" && (
-        <div className="pixel-panel border-2 border-pixel-border">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-pixel-border/40">
-            <span className="flex items-center gap-2.5">
-              <span className="w-[3px] h-4 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
-              <span
-                className="text-[14px] font-bold text-pixel-white uppercase tracking-[0.18em]"
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
-              >
-                Strategy Hub
-              </span>
-              <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                publish · fork
-              </span>
-            </span>
-          </div>
-          <div className="px-4 pb-4 space-y-3 pt-4">
-            <UserStratsPanel eoa={auth.address ?? undefined} />
           </div>
         </div>
       )}
 
       {/* Strat list + "+ New" live in the TopBar strat picker (HeaderStratPicker). */}
 
-      {/* ── SOURCE — the strat's code, always below TRADERS + PARAMS ──
+      {/* ── STRAT → SOURCE subtab — the strat's code ──
           Read-only for built-in TS strats; editable for user-uploaded
           mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
-      {mode === "STRATS" && <StratSourceViewer />}
+      {mode === "STRATS" && stratSub === "source" && <StratSourceViewer />}
 
       {/* ── Add trader bar (BACKTEST — on STRAT it lives inside TRADERS + PARAMS) ── */}
       {mode === "BACKTEST" && (
@@ -2988,13 +3475,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {activeIndex && (
         <>
           {/* Empty trader state */}
-          {watchlist.length === 0 && mode !== "HUB" && mode !== "WALLET" && (
+          {watchlist.length === 0 && !(mode === "LIVE" && liveSub === "wallet") && (
             <div className="pixel-panel p-4 text-center space-y-2">
               <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
               <div className="text-[12px] text-pixel-gray-light">
                 ADD TRADERS FROM{" "}
-                <button onClick={() => { setMode("STRATS"); setBrowseOpen(true); }} className="text-pixel-white hover:text-green-400 transition-colors">
-                  STRAT → TRADERS + PARAMS
+                <button onClick={() => { setMode("STRATS"); pickSub("STRATS", "build"); setBrowseOpen(true); }} className="text-pixel-white hover:text-green-400 transition-colors">
+                  PARAMS → TRADERS + PARAMS
                 </button>.
               </div>
               {mode === "BACKTEST" && (
@@ -3010,8 +3497,17 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               BACKTEST tab; LIVE has its own <LivePanel /> rendered
               elsewhere with real-time engine state. Splitting this out
               of the STRAT panel above keeps the param row scannable. */}
-          {watchlist.length > 0 && mode === "BACKTEST" && (
+          {watchlist.length > 0 && mode === "BACKTEST" && backtestSub === "results" && (
             <div className="pixel-panel px-3 py-2.5 space-y-3">
+              {activeIndex?.momentum && (
+                <div className="text-[11px] font-mono tracking-[0.1em] px-2 py-1.5 border border-amber-400/50 text-amber-400/90 bg-amber-400/5">
+                  ⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
+                  only the copy-mirror side of the strat. Live, the engine also
+                  originates its own entries from rising prices, so live results
+                  will diverge from this curve. Judge momentum params in a DRY
+                  RUN live session instead.
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3">
                   <span className="text-[14px] text-pixel-white tracking-[0.2em]">
@@ -3164,31 +3660,29 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-[13px] font-mono">
-                  <div className="flex items-baseline gap-1.5">
+                  <div
+                    className="flex items-baseline gap-1.5"
+                    title="Final simulated equity minus starting capital — fees and gas already paid out of cash. Same accounting as the LIVE portfolio curve."
+                  >
                     <span className="text-[12px] text-pixel-gray tracking-[0.15em]">P&L</span>
-                    <span className={chartNetPnl >= 0 ? "text-green-400" : "text-red-400"}>
-                      {formatPnl(chartNetPnl)}
+                    <span className={backtestSim.netPnl >= 0 ? "text-green-400" : "text-red-400"}>
+                      {formatPnl(backtestSim.netPnl)}
                     </span>
                   </div>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-[12px] text-pixel-gray tracking-[0.15em]">ROI</span>
-                    <span className={chartRoi >= 0 ? "text-green-400" : "text-red-400"}>
-                      {chartRoi >= 0 ? "+" : ""}{chartRoi.toFixed(1)}%
+                    <span className={backtestRoi >= 0 ? "text-green-400" : "text-red-400"}>
+                      {backtestRoi >= 0 ? "+" : ""}{backtestRoi.toFixed(1)}%
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Fee/gas cost summary derived from the historical replay. */}
+              {/* Fee/gas cost summary — same simulated-wallet replay as the
+                  P&L header, the curve, and the feed, so the numbers agree. */}
               {(() => {
-                const feedFees = linkedTrades.reduce((s, t) => s + t.fee, 0);
-                const feedVolume = linkedTrades.reduce((s, t) => s + t.amount, 0);
-                const feedGas = linkedTrades.length * GAS_PER_TRADE_USD;
+                const { fees: feedFees, gas: feedGas, volume: feedVolume, grossPnl, skipped } = backtestSim;
                 const feedCosts = feedFees + feedGas;
-                const chartPnl = combinedPnlCurve.length > 0 ? combinedPnlCurve[combinedPnlCurve.length - 1].pnl : 0;
-                const feedPnl = linkedTrades.length > 0 ? linkedTrades[linkedTrades.length - 1].runningPnl : 0;
-                const grossPnl = chartPnl || feedPnl;
-                const netPnl = grossPnl - feedCosts;
                 const costWarning = feedCosts > 5 && (grossPnl <= 0 || feedCosts > grossPnl * 0.5);
                 return (
                   <>
@@ -3214,6 +3708,17 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                           <span className="text-amber-400">${feedCosts.toFixed(2)}</span>
                           <span className="text-[12px] text-pixel-gray/70">({linkedTrades.length} TXS)</span>
                         </div>
+                        {skipped > 0 && (
+                          <>
+                            <span className="text-pixel-border/60">·</span>
+                            <span
+                              className="text-[12px] text-pixel-gray/70 tracking-wider"
+                              title={`Trades the simulated wallet could NOT place: below the $${minTrade} MIN size, more than the remaining cash, or selling a position it never opened. Raise CAPITAL or lower MIN to execute more — SHOW ALL in the feed previews them.`}
+                            >
+                              {skipped} SKIPPED
+                            </span>
+                          </>
+                        )}
                       </div>
                       <div className="flex items-baseline gap-1.5">
                         <span className="text-[12px] text-pixel-gray tracking-[0.15em]">GROSS</span>
@@ -3239,36 +3744,41 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 );
               })()}
 
-              {/* BACKTEST PnL chart — constrained replay curve from
-                  linkedTrades. The LIVE branch lived here too before the
-                  split; now LivePanel renders its own real-time chart and
-                  this panel is BACKTEST-gated. */}
+              {/* BACKTEST equity chart — the simulated wallet's cash +
+                  positions over time, rendered through the SAME EquityChart
+                  the LIVE portfolio uses, so backtest and live plot the same
+                  quantity the same way. Markers are the replay's executed
+                  trades, hover-linked to the feed below. */}
               <div ref={chartPanelRef}>
-              {chartCurve.length >= 2 ? (
-                <PnlChart
-                  points={chartCurve}
-                  dayLabel={`${backtestDays}D INDEX`}
-                  tradesInWindow={chartCurve.filter((p) => p.side !== "MARK").map((p) => ({ timestamp: p.ts }))}
-                  highlightIndex={chartHighlight}
-                  onHoverChange={handleChartHover}
-                  linkedTrades={linkedTrades}
-                  shortAddress={shortAddress}
-                />
-              ) : !loading && watchlist.length > 0 ? (
-                <div className="p-6 text-center">
-                  <span className="text-[13px] text-pixel-gray">NOT ENOUGH TRADE DATA FOR PNL CURVE</span>
-                </div>
-              ) : loading ? (
+              {loading ? (
                 <div className="p-6 text-center">
                   <span className="text-[13px] text-pixel-gray animate-pulse">LOADING...</span>
                 </div>
-              ) : null}
+              ) : (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">
+                      {backtestDays}D SIMULATED EQUITY · CASH + POSITIONS (MTM) — SAME CURVE AS LIVE
+                    </span>
+                    <span className={`text-[13px] font-mono ${backtestSim.netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {formatPnl(backtestSim.netPnl)}
+                    </span>
+                  </div>
+                  <EquityChart
+                    history={backtestSim.equityHistory}
+                    markers={backtestSim.markers}
+                    highlightT={chartHighlightT}
+                    onHoverMarker={handleChartHover}
+                    emptyHint="NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."
+                  />
+                </div>
+              )}
               </div>
             </div>
           )}
 
-          {/* ── Trade feed — every trade with its P&L impact, linked to chart ── */}
-          {mode === "BACKTEST" && (() => {
+          {/* ── BACKTEST → TRADES subtab — every trade with its P&L impact ── */}
+          {mode === "BACKTEST" && backtestSub === "trades" && (() => {
             // Apply the trader filter BEFORE ordering so the running-P&L
             // values stay consistent with what's shown — feedTraderFilter
             // pre-trims linkedTrades to a single trader's contribution path.
@@ -3376,6 +3886,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                             <th>MARKET</th>
                             <th className="whitespace-nowrap">TRADER</th>
                             <th className="whitespace-nowrap">SIDE</th>
+                            <th className="text-right whitespace-nowrap" title="Probability of success the playbook priced this BUY at — the trader's Laplace-smoothed 30d win rate. Ranking score = P × ROI × mirror $.">P WIN</th>
                             <th className="text-right whitespace-nowrap">AMOUNT</th>
                             <th className="text-right whitespace-nowrap">PRICE</th>
                             <th className="text-right whitespace-nowrap">FEE</th>
@@ -3407,12 +3918,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                                   // a trade instead of the highlight vanishing the instant
                                   // the cursor moves off the row.
                                   setSelectedTradeIdx((cur) => (cur === origIdx ? null : origIdx));
-                                  setChartHighlight(findCurveIdx(t.ts));
+                                  setChartHighlightT(t.ts);
                                   setTradeHighlight(origIdx);
                                   chartPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                                 }}
                                 onMouseEnter={() => {
-                                  setChartHighlight(findCurveIdx(t.ts));
+                                  setChartHighlightT(t.ts);
                                   setTradeHighlight(origIdx);
                                 }}
                                 onMouseLeave={() => {
@@ -3421,10 +3932,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                                   // against the chart once the mouse leaves the row.
                                   if (selectedTradeIdx !== null) {
                                     const sel = linkedTrades[selectedTradeIdx];
-                                    setChartHighlight(sel ? findCurveIdx(sel.ts) : null);
+                                    setChartHighlightT(sel ? sel.ts : null);
                                     setTradeHighlight(selectedTradeIdx);
                                   } else {
-                                    setChartHighlight(null);
+                                    setChartHighlightT(null);
                                     setTradeHighlight(null);
                                   }
                                 }}
@@ -3469,6 +3980,21 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                                   }`}>
                                     {t.side}
                                   </span>
+                                </td>
+                                <td
+                                  className={`text-right font-mono whitespace-nowrap ${
+                                    t.successProb === undefined ? "text-pixel-gray"
+                                      : t.successProb >= 0.6 ? "text-green-400"
+                                      : t.successProb >= 0.5 ? "text-pixel-white"
+                                      : "text-red-400"
+                                  }`}
+                                  title={
+                                    t.successProb === undefined
+                                      ? "Exits aren't ranked — probability applies to BUY candidates"
+                                      : `P(success) ${(t.successProb * 100).toFixed(0)}% — trader's smoothed 30d win rate${t.score !== undefined ? ` · rank score $${t.score.toFixed(2)} = P × ROI × mirror $` : ""}`
+                                  }
+                                >
+                                  {t.successProb === undefined ? "—" : `${Math.round(t.successProb * 100)}%`}
                                 </td>
                                 <td className="text-right text-pixel-white font-mono whitespace-nowrap">
                                   {t.amount === 0
@@ -3520,9 +4046,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
             );
           })()}
 
-          {/* ── Live Panel ── */}
-          {mode === "LIVE" && watchlist.length > 0 && (
-            <LivePanel onFundNow={() => setMode("WALLET")} />
+          {/* ── Live Panel — controlled by the header's subtab rail; the
+              WALLET subtab renders its own panels above instead. ── */}
+          {mode === "LIVE" && liveSub !== "wallet" && watchlist.length > 0 && (
+            <LivePanel
+              tab={liveSub}
+              onTabChange={(t) => pickSub("LIVE", t)}
+              onFundNow={() => pickSub("LIVE", "wallet")}
+            />
           )}
         </>
       )}

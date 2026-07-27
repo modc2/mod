@@ -5,7 +5,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
-API_PORT=${STORE_API_PORT:-50150}
+API_PORT=${STORE_API_PORT:-50152}
 APP_PORT=${STORE_APP_PORT:-50151}
 
 only=""

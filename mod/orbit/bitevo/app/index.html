@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitevo — startup idea subnet</title>
+<style>
+:root{
+  --bg:#0b0e14; --panel:#121722; --panel2:#0f131d; --line:#1e2635;
+  --text:#d7dee9; --dim:#8593a8;
+  --accent:#5eead4; --accent2:#f0b429; --bad:#f87171; --good:#4ade80;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent);text-decoration:none}
+header{display:flex;align-items:center;gap:14px;padding:18px 26px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,14,20,.92);backdrop-filter:blur(8px);z-index:10}
+.logo{font-family:var(--mono);font-weight:700;font-size:20px;letter-spacing:2px}
+.logo span{color:var(--accent)}
+.tag{color:var(--dim);font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--bad);display:inline-block;margin-right:6px;transition:background .3s}
+.dot.ok{background:var(--good)}
+.spacer{flex:1}
+nav{display:flex;gap:4px;padding:10px 26px 0;border-bottom:1px solid var(--line)}
+nav button{background:none;border:none;color:var(--dim);font:600 13px/1 var(--mono);letter-spacing:1px;padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent}
+nav button.active{color:var(--accent);border-bottom-color:var(--accent)}
+main{padding:22px 26px;max-width:1180px;margin:0 auto}
+.grid{display:grid;gap:14px}
+.tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.tile .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.tile .v{font-family:var(--mono);font-size:22px;margin-top:4px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.card h3{margin:0 0 12px;font-size:13px;letter-spacing:1.5px;color:var(--accent2);font-family:var(--mono);text-transform:uppercase}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{color:var(--dim);text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:6px 10px;border-bottom:1px solid var(--line)}
+td{padding:7px 10px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-block;padding:2px 9px;border-radius:99px;border:1px solid var(--line);background:var(--panel2);font:600 11px var(--mono);color:var(--dim)}
+.pill.dec{color:var(--accent);border-color:#155e56}
+label{display:block;color:var(--dim);font-size:12px;margin:10px 0 4px}
+input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 10px;font:14px var(--mono)}
+textarea{min-height:84px;resize:vertical;font-family:inherit}
+button.act{margin-top:12px;background:var(--accent);color:#04211c;border:none;border-radius:8px;padding:9px 18px;font:700 13px var(--mono);letter-spacing:1px;cursor:pointer}
+button.act.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button.act:disabled{opacity:.45;cursor:wait}
+.out{margin-top:16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px;font:12.5px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word;max-height:480px;overflow:auto;color:#b7c3d6}
+.out:empty{display:none}
+.bars{margin-top:10px}
+.bar{display:grid;grid-template-columns:120px 1fr 44px;gap:10px;align-items:center;margin:6px 0;font:12px var(--mono)}
+.bar .tr{height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.bar .fi{height:100%;background:linear-gradient(90deg,#0d9488,var(--accent))}
+.composite{font:700 26px var(--mono);color:var(--accent);margin-top:8px}
+.pitch{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;background:var(--panel2)}
+.pitch h4{margin:0;font-family:var(--mono);color:var(--accent2)}
+.pitch .ol{color:var(--dim);font-style:italic;margin:4px 0 8px}
+.pitch dl{display:grid;grid-template-columns:130px 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}
+.pitch dt{color:var(--dim);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.pitch dd{margin:0}
+.fb{margin-top:10px;padding:10px;border-left:3px solid var(--accent2);background:#171207;border-radius:0 8px 8px 0;font-size:13px;color:#e6cf9a}
+.muted{color:var(--dim);font-size:13px}
+.err{color:var(--bad)}
+/* whitepaper */
+#wp{max-width:840px;margin:0 auto}
+#wp h1{font-size:30px;line-height:1.25;border-bottom:1px solid var(--line);padding-bottom:12px}
+#wp h2{font-size:21px;margin-top:34px;color:var(--accent)}
+#wp h3{font-size:16px;margin-top:24px;color:var(--accent2)}
+#wp p{color:#c3cddc}
+#wp code{font-family:var(--mono);font-size:.9em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+#wp pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto}
+#wp pre code{border:none;background:none;padding:0}
+#wp table{margin:14px 0}
+#wp td{font-family:inherit}
+#wp hr{border:none;border-top:1px solid var(--line);margin:26px 0}
+#wp li{margin:5px 0;color:#c3cddc}
+#wp strong{color:var(--text)}
+.view{display:none}.view.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BIT<span>EVO</span></div>
+  <div class="tag">miners pitch startups · validators judge · weights follow quality</div>
+  <div class="spacer"></div>
+  <div class="muted"><span id="apidot" class="dot"></span><span id="apitxt">api…</span></div>
+</header>
+<nav>
+  <button data-v="console" class="active">CONSOLE</button>
+  <button data-v="epochs">EPOCHS</button>
+  <button data-v="whitepaper">WHITEPAPER</button>
+</nav>
+<main>
+
+<!-- ── CONSOLE ─────────────────────────────────── -->
+<section id="v-console" class="view active">
+  <div class="grid tiles">
+    <div class="tile"><div class="k">Epochs run</div><div class="v" id="t-epochs">–</div></div>
+    <div class="tile"><div class="k">Local miners</div><div class="v" id="t-miners">–</div></div>
+    <div class="tile"><div class="k">Validator backend</div><div class="v" id="t-backend">–</div></div>
+    <div class="tile"><div class="k">Leader EMA</div><div class="v" id="t-top">–</div></div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h3>Leaderboard</h3>
+      <table id="lb"><thead><tr><th>uid</th><th>ema</th><th>last</th><th>epochs</th><th>trend</th></tr></thead><tbody></tbody></table>
+      <div class="muted" id="lb-empty">No miners scored yet — add miners and run an epoch, or simulate.</div>
+    </div>
+    <div class="card">
+      <h3>Backends</h3>
+      <table id="bk"><thead><tr><th>backend</th><th>default model</th><th>type</th></tr></thead><tbody></tbody></table>
+      <h3 style="margin-top:18px">Add miner</h3>
+      <label>backend</label><select id="m-backend"></select>
+      <label>model (optional)</label><input id="m-model" placeholder="default for backend">
+      <button class="act alt" id="b-miner">ADD MINER</button>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h3>Run epoch</h3>
+      <p class="muted">Challenge → miners pitch → validator judges → weights. Uses the local Claude CLI by default; can take a few minutes.</p>
+      <label>challenge type</label>
+      <select id="e-type"><option value="">auto (rotates)</option><option>open</option><option>vertical</option><option>problem_first</option><option>contrarian</option></select>
+      <button class="act" id="b-epoch">RUN EPOCH</button>
+      <button class="act alt" id="b-challenge">PREVIEW CHALLENGE</button>
+      <h3 style="margin-top:18px">Simulate</h3>
+      <label>miners</label><input id="s-n" type="number" value="2" min="1" max="12">
+      <label>backends (comma-sep)</label><input id="s-b" value="claude">
+      <label>epochs</label><input id="s-e" type="number" value="1" min="1" max="10">
+      <button class="act" id="b-sim">SIMULATE</button>
+    </div>
+    <div class="card">
+      <h3>Score an idea</h3>
+      <p class="muted">Submit any startup idea to the validator judge — six-criteria rubric, novelty weighted highest.</p>
+      <label>your idea</label>
+      <textarea id="i-idea" placeholder="e.g. Escrowed GPU-hour futures so ML teams can hedge training-cost volatility"></textarea>
+      <button class="act" id="b-score">JUDGE IT</button>
+      <div id="score-out"></div>
+    </div>
+  </div>
+
+  <div class="out" id="console-out"></div>
+</section>
+
+<!-- ── EPOCHS ──────────────────────────────────── -->
+<section id="v-epochs" class="view">
+  <div class="card">
+    <h3>Epoch archive</h3>
+    <div style="display:flex;gap:10px;align-items:end">
+      <div style="flex:0 0 140px"><label>epoch #</label><input id="ep-n" type="number" min="1" value="1"></div>
+      <button class="act" id="b-load-ep" style="margin-top:0">LOAD</button>
+      <button class="act alt" id="b-latest-ep" style="margin-top:0">LATEST</button>
+    </div>
+    <div id="ep-view" style="margin-top:16px"><div class="muted">Run an epoch first, then load it here — full challenge, every pitch, every score, final weights.</div></div>
+  </div>
+</section>
+
+<!-- ── WHITEPAPER ──────────────────────────────── -->
+<section id="v-whitepaper" class="view">
+  <div id="wp"><p class="muted">Loading whitepaper…</p></div>
+</section>
+
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const api=(p,opt)=>fetch('api'+p,opt).then(async r=>{const j=await r.json().catch(()=>({error:'bad json'}));if(!r.ok)throw new Error(j.detail||j.error||r.status);return j});
+const post=(p,body)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* tabs */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');$('#v-'+b.dataset.v).classList.add('active');
+  if(b.dataset.v==='whitepaper')loadWP();
+});
+
+/* status + leaderboard */
+async function refresh(){
+  try{
+    const {result:s}=await api('/status');
+    $('#apidot').classList.add('ok');$('#apitxt').textContent='api live';
+    $('#t-epochs').textContent=s.epochs??0;
+    $('#t-miners').textContent=s.miners??0;
+    $('#t-backend').textContent=s.backend??'–';
+    const lb=s.leaderboard||[];
+    $('#t-top').textContent=lb.length?lb[0].ema_score.toFixed(2):'–';
+    const tb=$('#lb tbody');tb.innerHTML='';
+    lb.forEach(r=>{const tr=document.createElement('tr');
+      const t=r.trend>0?`<span style="color:var(--good)">▲${r.trend}</span>`:r.trend<0?`<span style="color:var(--bad)">▼${r.trend}</span>`:'–';
+      tr.innerHTML=`<td>${r.uid}</td><td>${r.ema_score}</td><td>${r.last_score}</td><td>${r.num_epochs}</td><td>${t}</td>`;tb.appendChild(tr)});
+    $('#lb-empty').style.display=lb.length?'none':'block';
+    if($('#ep-n').value==='1'&&s.epochs)$('#ep-n').value=s.epochs;
+  }catch(e){$('#apidot').classList.remove('ok');$('#apitxt').textContent='api down'}
+}
+async function loadBackends(){
+  try{
+    const {result:b}=await api('/backends');
+    const tb=$('#bk tbody');tb.innerHTML='';const sel=$('#m-backend');sel.innerHTML='';
+    Object.entries(b).forEach(([k,v])=>{
+      const tr=document.createElement('tr');
+      const cls=v.type==='decentralized'?'pill dec':'pill';
+      tr.innerHTML=`<td>${k}</td><td>${esc(v.model)}</td><td><span class="${cls}">${v.type}</span></td>`;tb.appendChild(tr);
+      const o=document.createElement('option');o.value=k;o.textContent=k;sel.appendChild(o)});
+  }catch(e){}
+}
+
+/* actions */
+const out=$('#console-out');
+function busy(btn,on){btn.disabled=on;btn.dataset.t??=btn.textContent;btn.textContent=on?'WORKING…':btn.dataset.t}
+async function run(btn,fn){busy(btn,true);out.textContent='';try{const r=await fn();out.textContent=JSON.stringify(r.result??r,null,2)}catch(e){out.innerHTML=`<span class="err">${esc(e.message)}</span>`}busy(btn,false);refresh()}
+
+$('#b-miner').onclick=e=>run(e.target,()=>post('/miner',{backend:$('#m-backend').value,model:$('#m-model').value||null}));
+$('#b-challenge').onclick=e=>run(e.target,()=>api('/challenge'+($('#e-type').value?'?type='+$('#e-type').value:'')));
+$('#b-epoch').onclick=e=>run(e.target,()=>post('/epoch',{challenge_type:$('#e-type').value||null}));
+$('#b-sim').onclick=e=>run(e.target,()=>post('/simulate',{n_miners:+$('#s-n').value,epochs:+$('#s-e').value,backends:$('#s-b').value.split(',').map(x=>x.trim()).filter(Boolean)}));
+
+$('#b-score').onclick=async e=>{
+  const idea=$('#i-idea').value.trim();if(!idea)return;
+  busy(e.target,true);$('#score-out').innerHTML='<p class="muted">Judging…</p>';
+  try{
+    const {result:r}=await post('/score',{idea});
+    const b=r.breakdown||{};
+    $('#score-out').innerHTML=`<div class="composite">${(r.composite_score??0).toFixed(2)} / 10</div>
+      <div class="bars">${Object.entries(b).map(([k,v])=>`
+        <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`).join('')}</div>
+      ${r.feedback?`<div class="fb">${esc(r.feedback)}</div>`:''}`;
+  }catch(err){$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`}
+  busy(e.target,false);
+};
+
+/* epochs */
+async function loadEpoch(n){
+  const v=$('#ep-view');v.innerHTML='<p class="muted">Loading…</p>';
+  try{
+    const {result:r}=await api('/results'+(n?'?epoch='+n:''));
+    if(!r){v.innerHTML='<p class="muted">No archive for that epoch.</p>';return}
+    const scoreBy=Object.fromEntries((r.scores||[]).map(s=>[s.miner_uid,s]));
+    v.innerHTML=`
+      <div class="pitch"><h4>EPOCH ${r.epoch} · ${esc(r.challenge?.type)}</h4>
+        <div class="ol">${esc(r.challenge?.prompt)}</div>
+        <div class="muted">weights: ${esc(JSON.stringify(r.weights))}</div>
+        ${(r.scores||[]).length?'':'<div class="err" style="margin-top:6px">No scores archived for this epoch — validator scoring failed that run.</div>'}</div>
+      ${(r.responses||[]).map(resp=>{const p=resp.pitch||{},s=scoreBy[resp.miner_uid];return `
+        <div class="pitch">
+          <h4>${esc(p.company_name||'—')} <span class="pill">uid ${resp.miner_uid}</span> <span class="pill">${esc(resp.model_used||'')}</span>
+          ${s?`<span class="pill dec">${s.composite_score.toFixed(2)}</span>`:''}</h4>
+          <div class="ol">${esc(p.one_liner)}</div>
+          <dl>${['problem','solution','market','traction','business_model','team','defensibility','ask']
+            .filter(k=>p[k]).map(k=>`<dt>${k.replace('_',' ')}</dt><dd>${esc(p[k])}</dd>`).join('')}</dl>
+          ${s?`<div class="bars">${Object.entries(s.breakdown||{}).map(([k,val])=>`
+            <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,val*10)}%"></div></div><span>${(+val).toFixed(1)}</span></div>`).join('')}</div>
+          ${s.feedback?`<div class="fb">${esc(s.feedback)}</div>`:''}`:''}
+        </div>`}).join('')}`;
+  }catch(e){v.innerHTML=`<p class="err">${esc(e.message)}</p>`}
+}
+$('#b-load-ep').onclick=()=>loadEpoch(+$('#ep-n').value);
+$('#b-latest-ep').onclick=()=>loadEpoch(null);
+
+/* whitepaper — tiny markdown renderer */
+let wpLoaded=false;
+async function loadWP(){
+  if(wpLoaded)return;wpLoaded=true;
+  try{
+    const md=await fetch('whitepaper.md').then(r=>{if(!r.ok)throw 0;return r.text()});
+    $('#wp').innerHTML=renderMD(md);
+  }catch(e){$('#wp').innerHTML='<p class="err">Whitepaper unavailable.</p>';wpLoaded=false}
+}
+function inline(s){return esc(s)
+  .replace(/`([^`]+)`/g,'<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+  .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>')}
+function renderMD(md){
+  const lines=md.split('\n');let html='',i=0,list=null;
+  const closeList=()=>{if(list){html+=`</${list}>`;list=null}};
+  while(i<lines.length){
+    let l=lines[i];
+    if(l.startsWith('```')){closeList();let code='';i++;
+      while(i<lines.length&&!lines[i].startsWith('```')){code+=lines[i]+'\n';i++}
+      html+=`<pre><code>${esc(code)}</code></pre>`;i++;continue}
+    if(/^\|/.test(l)){closeList();let rows=[];
+      while(i<lines.length&&/^\|/.test(lines[i])){rows.push(lines[i]);i++}
+      html+='<table>'+rows.filter(r=>!/^\|[\s\-|:]+\|?$/.test(r)).map((r,ri)=>{
+        const cells=r.replace(/^\||\|$/g,'').split('|').map(c=>inline(c.trim()));
+        const tag=ri===0?'th':'td';
+        return '<tr>'+cells.map(c=>`<${tag}>${c}</${tag}>`).join('')+'</tr>'}).join('')+'</table>';continue}
+    const h=l.match(/^(#{1,4})\s+(.*)/);
+    if(h){closeList();html+=`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;i++;continue}
+    if(/^---+\s*$/.test(l)){closeList();html+='<hr>';i++;continue}
+    const ol=l.match(/^\s*\d+\.\s+(.*)/),ul=l.match(/^\s*[-*]\s+(.*)/);
+    if(ol||ul){const want=ol?'ol':'ul';
+      if(list!==want){closeList();html+=`<${want}>`;list=want}
+      html+=`<li>${inline((ol||ul)[1])}</li>`;i++;continue}
+    closeList();
+    if(l.trim())html+=`<p>${inline(l)}</p>`;
+    i++;
+  }
+  closeList();return html;
+}
+
+loadBackends();refresh();setInterval(refresh,15000);
+</script>
+</body>
+</html>

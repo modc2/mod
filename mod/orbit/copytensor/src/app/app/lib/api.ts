@@ -2,8 +2,12 @@ import type {
   AccountData,
   AccountWatch,
   CopyConfig,
+  CurveData,
   LeaderboardEntry,
+  MarketStats,
   PnlData,
+  PricePoint,
+  SubnetDetail,
   SubnetInfo,
   Trade,
 } from "./types";
@@ -31,12 +35,25 @@ export const fetchTaoPrice = () =>
 // ── subnets ──
 export const fetchSubnets = () => j<SubnetInfo[]>("/subnets");
 
+export const fetchMarket = () => j<MarketStats>("/market");
+
+export const fetchSubnetDetail = (netuid: number | string) =>
+  j<SubnetDetail>(`/subnets/${netuid}`);
+
+export const fetchSubnetHistory = (netuid: number | string, hours = 168) =>
+  j<PricePoint[]>(`/subnets/${netuid}/history?hours=${hours}`);
+
 // ── accounts ──
 export const fetchAccount = (ss58: string, days = 7) =>
   j<AccountData>(`/account/${ss58}?days=${days}`);
 
 export const fetchPnl = (ss58: string, days = 7) =>
   j<PnlData>(`/account/${ss58}/pnl?days=${days}`);
+
+// Equity / PnL curve rebuilt from local snapshots, with inferred trades
+// carrying the curve value at their timestamp (so markers sit on the line).
+export const fetchCurve = (ss58: string, days = 7) =>
+  j<CurveData>(`/account/${ss58}/curve?days=${days}`);
 
 // ── leaderboard ──
 export const fetchLeaderboard = (days = 7, top = 50) =>
@@ -118,6 +135,22 @@ export const fmtPct = (n: number, digits = 1) =>
 
 export const shortSs58 = (a: string) =>
   a.length > 14 ? `${a.slice(0, 8)}...${a.slice(-6)}` : a;
+
+// Big numbers in a narrow cell: 5.44M / 214.7K / 1,234 / 0.0827
+export const fmtCompact = (n: number | null | undefined, digits = 2) => {
+  if (n == null || !isFinite(n)) return "—";
+  const a = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (a >= 1e9) return `${sign}${(a / 1e9).toFixed(digits)}B`;
+  if (a >= 1e6) return `${sign}${(a / 1e6).toFixed(digits)}M`;
+  if (a >= 1e3) return `${sign}${(a / 1e3).toFixed(1)}K`;
+  if (a >= 1) return `${sign}${a.toFixed(digits)}`;
+  if (a === 0) return "0";
+  return `${sign}${a.toPrecision(3)}`;
+};
+
+// A stable accent per subnet — logo-less subnets still get an identity.
+export const netuidHue = (netuid: number) => (netuid * 47) % 360;
 
 export const ago = (ts: string) => {
   if (!ts) return "-";

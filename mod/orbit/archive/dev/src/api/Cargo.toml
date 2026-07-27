@@ -1,0 +1,51 @@
+[package]
+name = "dev-api"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "dev_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dev-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization — preserve_order so a parsed auth token's `data` object can be
+# re-serialized in the exact key order it was signed in (signature depends on it).
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+# HTTP client for upstream OpenAI-compatible providers. rustls so we don't need
+# system OpenSSL at build time. `stream` keeps chat-completion SSE unbuffered.
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+futures = "0.3"
+tokio-stream = "0.1"
+
+# Error handling
+anyhow = "1"
+
+# Crypto:
+#  k256    — secp256k1 ECDSA recovery to verify wallet-signed mod-protocol tokens.
+#  sha3    — Keccak-256 for EIP-191 hashing + Ethereum address derivation.
+#  aes-gcm — encrypt stored BYOK provider keys at rest.
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+base64 = "0.22"
+
+# Concurrency / state
+parking_lot = "0.12"
+
+# Time + logging
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

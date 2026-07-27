@@ -1,22 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { chain, type RegisterResult } from "@/lib/chain";
+import { chainWho } from "./StakePanel";
 
 // On-chain registration for a module, gated on BlocTime. One "Register" click:
 // if the key holds BlocTime it registers free; otherwise the API reports
 // payment_required and we surface a "Mint $1 & register" confirm — the $1 funds
-// the weekly pool paid out to BlocTime holders.
+// the weekly pool paid out to BlocTime holders. When the module is already in
+// the Registry the same form re-registers (updates the data CID).
 export default function RegisterPanel({
   name,
   schema,
+  registered = false,
   onRegistered,
 }: {
   name: string;
   schema: string | null;
+  registered?: boolean;
   onRegistered?: () => void;
 }) {
   const [key, setKey] = useState("");
+  useEffect(() => setKey(chainWho.get()), []);
   const [data, setData] = useState(schema || "");
   const [busy, setBusy] = useState(false);
   const [quote, setQuote] = useState<Extract<RegisterResult, { status: "payment_required" }> | null>(null);
@@ -26,6 +31,7 @@ export default function RegisterPanel({
   const submit = async (pay: boolean) => {
     setBusy(true);
     setErr(null);
+    if (key.trim() && !key.trim().startsWith("0x")) chainWho.set(key.trim());
     try {
       const res = await chain.register({
         name,
@@ -49,8 +55,10 @@ export default function RegisterPanel({
 
   if (done) {
     return (
-      <div className="panel reg-panel">
-        <h3>registered on-chain ✓</h3>
+      <div className="panel chain-card reg-panel">
+        <div className="chain-card-head">
+          <h3>registered on-chain ✓</h3>
+        </div>
         <p className="reg-note">
           <code>{name}</code> is now in the Registry, signed by{" "}
           <code>{done.address.slice(0, 10)}…</code>
@@ -63,12 +71,28 @@ export default function RegisterPanel({
   }
 
   return (
-    <div className="panel reg-panel">
-      <h3>register {name} on-chain</h3>
+    <div className="panel chain-card reg-panel">
+      <div className="chain-card-head">
+        <h3>{registered ? "update registration" : "register on-chain"}</h3>
+        {registered && (
+          <span className="onchain" title="Already in the on-chain Registry">
+            ⛓ registered
+          </span>
+        )}
+      </div>
       <p className="reg-note">
-        Registers this module in the on-chain Registry. Free if your key holds
-        BlocTime; otherwise mint $1 of MOD — the $1 funds the weekly pool paid
-        out to BlocTime holders.
+        {registered ? (
+          <>
+            <code>{name}</code> is in the on-chain Registry — re-register to
+            update its data CID.
+          </>
+        ) : (
+          <>
+            Registers <code>{name}</code> in the on-chain Registry. Free if
+            your key holds BlocTime; otherwise mint $1 of MOD — the $1 funds
+            the weekly pool paid out to BlocTime holders.
+          </>
+        )}
       </p>
 
       <label className="reg-field">
@@ -117,7 +141,11 @@ export default function RegisterPanel({
             disabled={busy || !data.trim()}
             onClick={() => submit(false)}
           >
-            {busy ? "registering…" : "Register on-chain"}
+            {busy
+              ? "registering…"
+              : registered
+                ? "⛓ Update on-chain"
+                : "⛓ Register on-chain"}
           </button>
         </div>
       )}

@@ -1,0 +1,22 @@
+{
+    "name": "sshland",
+    "version": "0.1.0",
+    "description": "SSH host and connection manager for the mod fleet. Keeps a local inventory of SSH hosts (~/.mod/sshland/hosts.json), and exposes fns to add, list, and test connections.",
+    "anchor": "mod.py",
+    "icon": "\ud83d\udd10",
+    "color": "#3fb68b",
+    "app_port": 50260,
+    "urls": {
+        "app": "https://modc2.com/sshland",
+        "gateway": "https://modc2.com/sshland"
+    },
+    "fns": [
+        "info",
+        "hosts",
+        "add",
+        "remove",
+        "test"
+    ],
+    "key": "sshland",
+    "schema": "QmZ5CgLjKLGcvbLTyBnoNsqEA1rgRuTpGCyMFPuxy5QAic"
+}

@@ -204,7 +204,17 @@ async fn live_status(
             "state": s,
         }))
             .into_response(),
-        None => Json(json!({"running": false})).into_response(),
+        // Stopped engine: serve the last persisted snapshot so the per-strat
+        // ledger / open positions don't vanish from the UI between sessions.
+        None => match state.engines.persisted_snapshot(&q.eoa) {
+            Some((cfg, st)) => Json(json!({
+                "running": false,
+                "config": cfg,
+                "state": st,
+            }))
+                .into_response(),
+            None => Json(json!({"running": false})).into_response(),
+        },
     }
 }
 
@@ -236,6 +246,11 @@ async fn live_execution(
 #[derive(Deserialize)]
 struct LiquidateBody {
     eoa: String,
+    /// Only sell positions whose best bid is at or above this price
+    /// (e.g. 0.99 = harvest near-certain winners into free capital).
+    /// Omitted = flatten everything.
+    #[serde(rename = "minPrice", default)]
+    min_price: Option<f64>,
 }
 
 /// Flatten an account: sell every held position at the marketable price.
@@ -243,7 +258,7 @@ async fn liquidate_handler(
     State(state): State<AppState>,
     Json(body): Json<LiquidateBody>,
 ) -> impl IntoResponse {
-    match state.engines.liquidate_all(&body.eoa).await {
+    match state.engines.liquidate_all(&body.eoa, body.min_price).await {
         Ok(result) => Json(json!({"ok": true, "result": result})).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
@@ -672,11 +687,22 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                     t.pnl = matching.iter().map(|m| m.pnl).sum();
                     t.recent_trades = matching.iter().map(|m| m.trades).sum();
                     t.market_titles = matching.iter().map(|m| m.title.clone()).collect();
+                    // Buy-accuracy over ONLY the matching markets — same
+                    // definition as the pipeline: bought positions that
+                    // ended up winning (saturated to $1) over decided
+                    // positions, capped at 100.
                     let total_wins: u32 = matching.iter().map(|m| m.wins).sum();
-                    let total_sells: u32 = matching.iter().map(|m| m.sells).sum();
-                    t.win_rate = if total_sells > 0 {
-                        (total_wins as f64 / total_sells as f64 * 100.0).round()
+                    let total_decided: u32 = matching.iter().map(|m| m.decided).sum();
+                    t.win_rate = if total_decided > 0 {
+                        (total_wins as f64 / total_decided as f64 * 100.0).round().min(100.0)
                     } else { -1.0 };
+                    // Sharpe scoped to the matching markets' closed-trade
+                    // returns — same query-scoped recompute the other stats
+                    // get, via the ONE `stats_from_returns` formula.
+                    let scoped_returns: Vec<f64> = matching.iter()
+                        .flat_map(|m| m.returns.iter().copied())
+                        .collect();
+                    t.sharpe = crate::live_engine::stats_from_returns(&scoped_returns).sharpe;
                     t.pnl_curve = None; // curve reflects all trades, clear for consistency
                 }
                 true
@@ -747,6 +773,12 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             "volume" => a.volume.partial_cmp(&b.volume),
             "positions" => a.positions.partial_cmp(&b.positions),
             "winRate" => a.win_rate.partial_cmp(&b.win_rate),
+            // Default SCORE metric — lets server pagination order the whole
+            // set by Sharpe instead of the old pnl proxy.
+            "sharpe" => a.sharpe.partial_cmp(&b.sharpe),
+            // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
+            // bottom on desc — unknown recency must not outrank known.
+            "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
             _ => a.pnl.partial_cmp(&b.pnl),
         };
         let c = cmp.unwrap_or(std::cmp::Ordering::Equal);

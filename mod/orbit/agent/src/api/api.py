@@ -10,12 +10,37 @@ Endpoints:
     GET  /schema       - get skill schemas for LLM
     GET  /agents       - list agent personas
     GET  /agents/{name} - get agent config
+    POST /agents       - create agent    PUT /agents/{name}  DELETE /agents/{name}
     GET  /chains       - list chain presets
     GET  /library      - unified index: prompts + skills + memory + agents (q/kind/tag filters)
     GET  /prompts      - prompt library      POST /prompts  DELETE /prompts/{id}
+    POST /prompts/import - install a shared prompt from its localfs CID
     GET  /memory       - memory notes        POST /memory   DELETE /memory/{id}
+    POST /memory/import - install a shared memory note from its localfs CID
+    GET  /conversations - the caller's saved console conversations (localfs-pinned)
+    POST /conversations - upsert a conversation  DELETE /conversations/{id}
+    POST /conversations/import - restore a shared conversation from its CID
+    GET  /vaults       - the caller's key-value vaults (store-module-backed)
+    POST /vaults       - create a vault          DELETE /vaults/{name}
+    GET  /vaults/{name}?reveal= - entries (private values masked unless reveal)
+    POST /vaults/{name}/entries - upsert {entry, value, private}
+    DELETE /vaults/{name}/entries/{entry} - remove one entry
+    GET  /vaults/public?address=&name= - anyone: a vault's public entries
+    GET  /toolboxes    - skill bundles       POST /toolboxes  DELETE /toolboxes/{name}
+    POST /toolboxes/{name}/snap   - snap a bundle onto the agent (unsnap to detach)
+    GET  /memory/state - memory subsystem layers (working/episodic/semantic)
+    GET  /memory/recall?q= - facts scored against a query
+    POST /memory/remember  - store a durable fact   DELETE /memory/facts/{id}
+    GET  /memory/episodes  - step trail    POST /memory/serve - own process :50119
+    GET  /whoami       - resolve a signed token to an address + role
+    GET  /credits      - deposit info + caller's credit balance/history
+    POST /credits/deposit - verify a USDT/USDC tx hash, credit the on-chain sender
+    POST /credits/grant   - owner: adjust an account's credits (± amount)
+    GET  /tasks        - server-side task registry (running + recent runs)
+    GET  /tasks/{id}   - one task with its step trace
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
+    POST /run/stream   - run the agent loop, streaming steps live (SSE)
     POST /skills/run   - run a single skill
 
 Usage:
@@ -23,9 +48,16 @@ Usage:
 """
 import os
 import sys
+import json
+import time
+import uuid
+import queue
+import threading
+from collections import OrderedDict
 from typing import Optional, List
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # resolve paths: api.py is at src/api/api.py
@@ -37,7 +69,7 @@ mod_root = os.path.abspath(os.path.join(module_root, '..', '..', '..'))  # mod f
 sys.path.insert(0, module_root)
 sys.path.insert(0, mod_root)
 
-app = FastAPI(title="Agent API", version="3.2.0", description="Autonomous coding agent API")
+app = FastAPI(title="Agent API", version="3.5.0", description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -54,12 +86,16 @@ class RunRequest(BaseModel):
     provider: Optional[str] = None
     steps: int = 10
     skills: Optional[List[str]] = None
+    toolbox: Optional[str] = None           # toolbox name to snap on for this run
+    toolboxes: Optional[List[str]] = None   # or several — skills = union of boxes
     temperature: float = 0.0
     safety: bool = False
     free: bool = False
     agent: Optional[str] = None
     agent_type: Optional[str] = None
     chain: Optional[List[dict]] = None
+    prompt: Optional[str] = None          # system prompt override (library prompt or free text)
+    memory_ids: Optional[List[str]] = None  # library memory note ids injected as context
     key: Optional[str] = None
 
 class SkillRunRequest(BaseModel):
@@ -74,6 +110,16 @@ class AgentCreateRequest(BaseModel):
     icon: str = ">_"
     skills: Optional[List[str]] = None
     model: Optional[str] = None
+    key: Optional[str] = None
+
+class AgentUpdateRequest(BaseModel):
+    description: Optional[str] = None
+    goal: Optional[str] = None
+    icon: Optional[str] = None
+    skills: Optional[List[str]] = None
+    model: Optional[str] = None
+    clear_skills: bool = False   # explicit: reset to all skills
+    clear_model: bool = False    # explicit: reset to default model
     key: Optional[str] = None
 
 class GrantRequest(BaseModel):
@@ -98,11 +144,76 @@ class PromptRequest(BaseModel):
     id: Optional[str] = None
     key: Optional[str] = None
 
+class PromptImportRequest(BaseModel):
+    cid: str
+    key: Optional[str] = None
+
+class ApiKeyRequest(BaseModel):
+    api_key: str
+    provider: str = "openrouter"
+    passphrase: Optional[str] = None  # set -> key saved as an encrypted vault file
+    key: Optional[str] = None
+
+class VaultRequest(BaseModel):
+    provider: str = "openrouter"
+    passphrase: Optional[str] = None
+    key: Optional[str] = None
+
 class MemoryNoteRequest(BaseModel):
     name: str
     content: str
     tags: Optional[List[str]] = None
     id: Optional[str] = None
+    key: Optional[str] = None
+
+class MemoryImportRequest(BaseModel):
+    cid: str
+    key: Optional[str] = None
+
+class ConversationRequest(BaseModel):
+    id: Optional[str] = None
+    query: str = ""
+    agent_type: str = "default"
+    status: str = "done"
+    messages: List[dict] = []
+    started: Optional[float] = None
+    key: Optional[str] = None
+
+class ConversationImportRequest(BaseModel):
+    cid: str
+    key: Optional[str] = None
+
+class ToolboxRequest(BaseModel):
+    name: str
+    tools: List[str] = []
+    description: str = ""
+    key: Optional[str] = None
+
+class FactRequest(BaseModel):
+    name: str
+    content: str
+    tags: Optional[List[str]] = None
+    key: Optional[str] = None
+
+class DepositRequest(BaseModel):
+    tx_hash: str
+    network: str = "base"
+    key: Optional[str] = None
+
+class CreditGrantRequest(BaseModel):
+    address: str
+    amount: float
+    note: str = ""
+    key: Optional[str] = None
+
+class VaultCreateRequest(BaseModel):
+    name: str
+    key: Optional[str] = None
+
+class VaultEntryRequest(BaseModel):
+    entry: str
+    value: str
+    private: bool = True
     key: Optional[str] = None
 
 
@@ -118,11 +229,131 @@ def get_mod():
     return _mod
 
 
+# ── server-side task registry ────────────────────────────────────────
+# Every run (blocking or streamed) is registered here so any client can
+# see what the agent is doing in the background — runs keep going server
+# side even after the page that started them disconnects.
+
+TASKS: "OrderedDict[str, dict]" = OrderedDict()
+TASKS_LOCK = threading.Lock()
+MAX_TASKS = 100        # registry entries kept
+MAX_TRACE = 60         # trimmed steps kept per task
+
+
+def _caller_address(key: Optional[str]) -> Optional[str]:
+    """Best-effort verified address for a caller token/key ('' -> None)."""
+    if not key:
+        return None
+    try:
+        addr = get_mod()._resolve_address(key)
+    except Exception:
+        return None
+    if isinstance(addr, str) and addr.startswith('0x') and len(addr) == 42:
+        return addr.lower()
+    return None
+
+
+def _task_create(req: "RunRequest", chain: bool = False) -> dict:
+    t = {
+        "id": uuid.uuid4().hex[:12],
+        "query": (req.query or "")[:400],
+        "agent_type": (req.agent_type or req.agent or "default"),
+        "provider": req.provider or "openrouter",
+        "model": req.model,
+        "chain": chain,
+        "user": _caller_address(req.key),
+        "status": "running",
+        "steps": 0,
+        "tool": None,          # tool currently/last executing
+        "started_at": time.time(),
+        "finished_at": None,
+        "summary": None,
+        "trace": [],           # [{tool, path}] — trimmed, no results
+    }
+    with TASKS_LOCK:
+        TASKS[t["id"]] = t
+        while len(TASKS) > MAX_TASKS:
+            TASKS.popitem(last=False)
+    return t
+
+
+def _task_step(t: dict, step) -> None:
+    if not isinstance(step, dict):
+        return
+    with TASKS_LOCK:
+        t["steps"] += 1
+        t["tool"] = step.get("tool")
+        params = step.get("params") or {}
+        entry = {"tool": step.get("tool")}
+        path = params.get("path") or params.get("file_path") or params.get("pattern")
+        if path:
+            entry["path"] = str(path)[:200]
+        t["trace"].append(entry)
+        if len(t["trace"]) > MAX_TRACE:
+            t["trace"] = t["trace"][-MAX_TRACE:]
+
+
+def _summary_of(result) -> str:
+    """Pull the finish summary (or last response / error) out of a run's step list."""
+    if not isinstance(result, list):
+        return ""
+    summary = ""
+    error = ""
+    for s in result:
+        if isinstance(s, dict):
+            if s.get("tool") == "finish":
+                summary = s.get("params", {}).get("summary", "") or summary
+            elif s.get("tool") == "response" and s.get("result") and not summary:
+                summary = str(s.get("result"))
+            elif s.get("tool") == "error" and s.get("error") and not error:
+                error = str(s.get("error"))
+    return (summary or error)[:400]
+
+
+def _status_of(result) -> str:
+    """A run that produced only error steps failed, even if forward() returned."""
+    if isinstance(result, list):
+        has_err = any(isinstance(s, dict) and s.get("tool") == "error" for s in result)
+        has_ok = any(isinstance(s, dict) and s.get("tool") in ("finish", "response") for s in result)
+        if has_err and not has_ok:
+            return "error"
+    return "done"
+
+
+def _task_finish(t: dict, status: str, summary: str = "") -> None:
+    with TASKS_LOCK:
+        t["status"] = status
+        t["finished_at"] = time.time()
+        if summary:
+            t["summary"] = summary[:400]
+
+
+def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
+    """Bill a finished non-owner run against the caller's credit ledger.
+
+    Owners run free on their own key; `free` runs (free models) cost
+    nothing. Everyone else pays steps × price, clamped to their balance.
+    """
+    if req.free or not t.get("user"):
+        return None
+    mod = get_mod()
+    try:
+        if mod.is_owner(req.key):
+            return None
+        charge = mod.credits.charge_steps(t["user"], t["steps"], note=t["query"][:80])
+        if charge.get("charged"):
+            with TASKS_LOCK:
+                t["charged"] = charge["charged"]
+        return charge
+    except Exception:
+        return None
+
+
 # ── routes (thin wrappers over mod.forward) ──────────────────────────
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "module": "agent", "version": "3.2.0"}
+    return {"status": "ok", "module": "agent", "version": "3.5.0"}
 
 @app.get("/config")
 def get_config():
@@ -166,10 +397,14 @@ def list_providers():
     providers = []
     for key in mod.PROVIDERS:
         default_model = mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), '')
+        info = mod.key_info(key)
         providers.append({
             "key": key,
             "models": mod.MODELS.get(key, []),
             "default_model": default_model,
+            "configured": info.get("configured", False),
+            "encrypted": info.get("encrypted", False),
+            "unlocked": info.get("unlocked", False),
         })
     return {"providers": providers, "default": "openrouter"}
 
@@ -192,10 +427,143 @@ def run_skill(req: SkillRunRequest):
     except Exception as e:
         return {"skill": req.name, "error": str(e)}
 
+@app.get("/key")
+def key_info(provider: str = "openrouter"):
+    """Masked view of the active provider API key + encrypted-vault state."""
+    return get_mod().key_info(provider)
+
+@app.post("/key")
+def set_key(req: ApiKeyRequest):
+    """Set your own provider API key.
+
+    With `passphrase` set, the key is sealed into an encrypted vault file
+    (AES-256-GCM) that only the passphrase can open — the server never
+    stores the plaintext. Without it, the key goes to the provider's
+    plaintext store (legacy behavior).
+    """
+    try:
+        return get_mod().forward('set_key', key=req.key, api_key=req.api_key,
+                                 provider=req.provider, passphrase=req.passphrase)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/key/unlock")
+def unlock_key(req: VaultRequest):
+    """Decrypt the vaulted key into server memory for this session."""
+    try:
+        return get_mod().forward('unlock', key=req.key,
+                                 provider=req.provider, passphrase=req.passphrase or '')
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/key/lock")
+def lock_key(req: VaultRequest):
+    """Forget the decrypted key. The encrypted file stays on disk."""
+    try:
+        return get_mod().forward('lock', key=req.key, provider=req.provider)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.delete("/key")
+def remove_vault(provider: str = "openrouter", key: Optional[str] = None):
+    """Delete the encrypted vault file for a provider."""
+    try:
+        return get_mod().forward('vault_rm', key=key, provider=provider)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.get("/balance")
+def get_balance(provider: str = "openrouter"):
+    """Remaining credit on the active API key."""
+    return get_mod().balance(provider)
+
 @app.get("/owner")
 def get_owner():
     mod = get_mod()
     return {"owner": mod._owner, "has_owner": bool(mod._owner)}
+
+@app.get("/whoami")
+def whoami(key: Optional[str] = None):
+    """Resolve a signed protocol-auth token to a verified address + role.
+
+    The token is the fleet-standard base64url of {data, time, key, signature}
+    where signature = personal_sign of the compact JSON {"data":…,"time":…}.
+    """
+    mod = get_mod()
+    out = {"signed_in": False, "address": None, "is_owner": False,
+           "owner": mod._owner}
+    if not key:
+        return out
+    addr = None
+    if mod.auth:
+        try:
+            addr = mod.auth.verify(key)['key']
+        except Exception:
+            return {**out, "error": "invalid or expired token"}
+    else:
+        addr = _caller_address(key)
+    if not addr:
+        return {**out, "error": "could not resolve address"}
+    out.update(signed_in=True, address=addr.lower(),
+               is_owner=mod.is_owner(key))
+    return out
+
+# ── credits (prepaid USDT/USDC top-ups for the public key) ───────────
+
+@app.get("/credits")
+def get_credits(key: Optional[str] = None):
+    """Deposit address, pricing, and the caller's credit account/history.
+
+    Owner also gets the full per-address account list.
+    """
+    return get_mod().credits_info(key)
+
+@app.post("/credits/deposit")
+def credit_deposit(req: DepositRequest):
+    """Verify a USDT/USDC transfer to the deposit address by tx hash.
+
+    Credits go to the ON-CHAIN SENDER of the transfer (so a hash can't
+    be claimed by someone else), and each hash is credited only once.
+    """
+    try:
+        return get_mod().credit_deposit(req.tx_hash, req.network)
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"verification failed: {e}"}
+
+@app.post("/credits/grant")
+def credit_grant(req: CreditGrantRequest):
+    """Manually adjust an account's credits (± amount). Owner only."""
+    try:
+        return get_mod().credit_grant(req.address, req.amount, req.note, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+# ── server-side tasks (background runs) ──────────────────────────────
+
+@app.get("/tasks")
+def list_tasks(limit: int = 25):
+    """Running + recent runs across all clients (running first, newest first)."""
+    with TASKS_LOCK:
+        items = [{k: v for k, v in t.items() if k != "trace"} for t in TASKS.values()]
+    items.sort(key=lambda t: (t["status"] != "running", -t["started_at"]))
+    running = sum(1 for t in items if t["status"] == "running")
+    return {"tasks": items[:max(1, min(limit, MAX_TASKS))], "running": running}
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: str):
+    with TASKS_LOCK:
+        t = TASKS.get(task_id)
+        if not t:
+            return {"error": f"unknown task: {task_id}"}
+        return dict(t)
 
 # ── access control (gate) ────────────────────────────────────────────
 
@@ -244,11 +612,29 @@ def create_agent(req: AgentCreateRequest):
     """Create a new agent locally"""
     mod = get_mod()
     try:
-        result = mod.forward('agents', action='create',
+        # note: mod.forward('agents', action=...) collides with forward's own
+        # `action` arg — the agents action is public, so dispatch directly
+        result = mod.agents.forward(action='create',
             name=req.name, description=req.description, goal=req.goal,
             icon=req.icon, skills=req.skills, model=req.model, key=req.key)
+        if isinstance(result, dict):
+            result = {k: v for k, v in result.items() if k != 'cls'}
         return result
-    except (FileExistsError, PermissionError) as e:
+    except (FileExistsError, PermissionError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.put("/agents/{name}")
+def update_agent(name: str, req: AgentUpdateRequest):
+    """Update a custom agent (built-ins are read-only — clone them instead)."""
+    mod = get_mod()
+    try:
+        skills = None if req.clear_skills else (req.skills if req.skills is not None else ...)
+        model = None if req.clear_model else (req.model if req.model is not None else ...)
+        result = mod.agents.update(
+            name=name, description=req.description, goal=req.goal,
+            icon=req.icon, skills=skills, model=model, key=req.key)
+        return {k: v for k, v in result.items() if k != 'cls'}
+    except (KeyError, PermissionError, ValueError) as e:
         return {"error": str(e)}
 
 @app.delete("/agents/{name}")
@@ -256,7 +642,7 @@ def remove_agent(name: str, key: Optional[str] = None):
     """Remove a local agent"""
     mod = get_mod()
     try:
-        return mod.forward('agents', action='remove', name=name, key=key)
+        return mod.agents.forward(action='remove', name=name, key=key)
     except (KeyError, PermissionError) as e:
         return {"error": str(e)}
 
@@ -265,7 +651,7 @@ def register_agent(name: str, req: AgentRegisterRequest):
     """Register an agent on the registry (offchain or on-chain)"""
     mod = get_mod()
     try:
-        return mod.forward('agents', action='register',
+        return mod.agents.forward(action='register',
             name=name, backend=req.backend, key=req.key)
     except Exception as e:
         return {"error": str(e)}
@@ -296,6 +682,14 @@ def save_prompt(req: PromptRequest):
     except ValueError as e:
         return {"error": str(e)}
 
+@app.post("/prompts/import")
+def import_prompt(req: PromptImportRequest):
+    """Install a shared prompt from its localfs CID (QR / share path)."""
+    try:
+        return get_mod().library.prompt_import(req.cid.strip())
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
+
 @app.delete("/prompts/{prompt_id}")
 def delete_prompt(prompt_id: str):
     try:
@@ -315,6 +709,14 @@ def save_memory(req: MemoryNoteRequest):
     except ValueError as e:
         return {"error": str(e)}
 
+@app.post("/memory/import")
+def import_memory(req: MemoryImportRequest):
+    """Install a shared memory note from its localfs CID."""
+    try:
+        return get_mod().library.note_import(req.cid.strip())
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
+
 @app.delete("/memory/{note_id}")
 def delete_memory(note_id: str):
     try:
@@ -322,52 +724,289 @@ def delete_memory(note_id: str):
     except KeyError as e:
         return {"error": str(e)}
 
+# ── conversations (per-user console history, pinned to localfs) ──────
+
+@app.get("/conversations")
+def list_conversations(key: Optional[str] = None):
+    """The caller's saved conversations (newest first). Requires sign-in."""
+    addr = _caller_address(key)
+    if not addr:
+        return {"conversations": [], "signed_in": False}
+    return {"conversations": get_mod().library.convs(addr), "signed_in": True}
+
+@app.post("/conversations")
+def save_conversation(req: ConversationRequest):
+    """Upsert a conversation for the signed-in caller. Pins it to localfs."""
+    addr = _caller_address(req.key)
+    if not addr:
+        return {"error": "sign in to save conversations", "code": 403}
+    try:
+        return get_mod().library.conv_save(
+            addr, req.id, req.query, req.agent_type, req.status,
+            req.messages, req.started)
+    except (ValueError, PermissionError) as e:
+        return {"error": str(e)}
+
+@app.post("/conversations/import")
+def import_conversation(req: ConversationImportRequest):
+    """Restore a shared conversation from its localfs CID."""
+    addr = _caller_address(req.key)
+    if not addr:
+        return {"error": "sign in to import conversations", "code": 403}
+    try:
+        return get_mod().library.conv_import(addr, req.cid.strip())
+    except (ValueError, RuntimeError, PermissionError) as e:
+        return {"error": str(e)}
+
+@app.delete("/conversations/{conv_id}")
+def delete_conversation(conv_id: str, key: Optional[str] = None):
+    addr = _caller_address(key)
+    if not addr:
+        return {"error": "sign in to manage conversations", "code": 403}
+    try:
+        return get_mod().library.conv_rm(addr, conv_id)
+    except KeyError as e:
+        return {"error": str(e)}
+
+# ── vaults (per-address KV stores via the mod store module) ──────────
+# Entries are public (plaintext, anyone can read via /vaults/public) or
+# private (AES-GCM-sealed at rest, masked in listings, revealed only to
+# the signed-in owner with ?reveal=true).
+
+@app.get("/vaults")
+def list_vaults(key: Optional[str] = None):
+    """The caller's vaults (summaries, newest first). Requires sign-in."""
+    addr = _caller_address(key)
+    if not addr:
+        return {"vaults": [], "signed_in": False}
+    try:
+        return {"vaults": get_mod().vaults.ls(addr), "signed_in": True}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/vaults")
+def create_vault(req: VaultCreateRequest):
+    """Create an empty vault for the signed-in caller."""
+    addr = _caller_address(req.key)
+    if not addr:
+        return {"error": "sign in to use vaults", "code": 403}
+    try:
+        return get_mod().vaults.create(addr, req.name)
+    except (ValueError, PermissionError) as e:
+        return {"error": str(e)}
+
+@app.get("/vaults/public")
+def public_vault(address: str, name: str):
+    """The PUBLIC entries of any address's vault. No auth."""
+    try:
+        return get_mod().vaults.public(address, name)
+    except (KeyError, ValueError, PermissionError) as e:
+        return {"error": str(e)}
+
+@app.get("/vaults/{name}")
+def get_vault(name: str, key: Optional[str] = None, reveal: bool = False):
+    """A vault's entries. Private values stay masked unless reveal=true."""
+    addr = _caller_address(key)
+    if not addr:
+        return {"error": "sign in to use vaults", "code": 403}
+    try:
+        return get_mod().vaults.get(addr, name, reveal=reveal)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.post("/vaults/{name}/entries")
+def set_vault_entry(name: str, req: VaultEntryRequest):
+    """Upsert an entry (private by default). Creates the vault on first write."""
+    addr = _caller_address(req.key)
+    if not addr:
+        return {"error": "sign in to use vaults", "code": 403}
+    try:
+        return get_mod().vaults.set(addr, name, req.entry, req.value,
+                                    private=req.private)
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+
+@app.delete("/vaults/{name}/entries/{entry}")
+def delete_vault_entry(name: str, entry: str, key: Optional[str] = None):
+    addr = _caller_address(key)
+    if not addr:
+        return {"error": "sign in to use vaults", "code": 403}
+    try:
+        return get_mod().vaults.entry_rm(addr, name, entry)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.delete("/vaults/{name}")
+def delete_vault(name: str, key: Optional[str] = None):
+    addr = _caller_address(key)
+    if not addr:
+        return {"error": "sign in to use vaults", "code": 403}
+    try:
+        return get_mod().vaults.rm(addr, name)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
+# ── toolboxes (snap-on skill bundles) ────────────────────────────────
+
+@app.get("/toolboxes")
+def list_toolboxes():
+    """All toolboxes (built-in presets + custom) and what's snapped on."""
+    mod = get_mod()
+    return {"toolboxes": mod.toolboxes.items(), "snapped": mod.snapped()}
+
+@app.get("/toolboxes/{name}")
+def get_toolbox(name: str):
+    mod = get_mod()
+    try:
+        box = mod.toolboxes.get(name).to_dict()
+        box["resolved"] = mod.toolboxes.get(name).resolve(mod.skills)
+        return box
+    except KeyError:
+        return {"error": f"toolbox not found: {name}", "available": mod.toolboxes.ls()}
+
+@app.post("/toolboxes")
+def create_toolbox(req: ToolboxRequest):
+    """Create or update a custom toolbox. Admin."""
+    try:
+        return get_mod().forward('toolbox_add', key=req.key, name=req.name,
+                                 tools=req.tools, description=req.description)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+
+@app.delete("/toolboxes/{name}")
+def delete_toolbox(name: str, key: Optional[str] = None):
+    try:
+        return get_mod().forward('toolbox_rm', key=key, name=name)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.post("/toolboxes/{name}/snap")
+def snap_toolbox(name: str, key: Optional[str] = None):
+    """Snap a toolbox onto the live agent. Admin."""
+    try:
+        return get_mod().forward('snap', key=key, name=name)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e)}
+
+@app.post("/toolboxes/{name}/unsnap")
+def unsnap_toolbox(name: str, key: Optional[str] = None):
+    try:
+        return get_mod().forward('unsnap', key=key, name=name)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+# ── memory subsystem (working/episodic/semantic layers, own process) ─
+
+@app.get("/memory/state")
+def memory_state():
+    """Layer counts + session for the agent's memory subsystem."""
+    return get_mod().forward('memory_state')
+
+@app.get("/memory/recall")
+def memory_recall(q: str, k: int = 5):
+    """Durable facts scored against a query."""
+    return {"query": q, "facts": get_mod().forward('recall', query=q, k=k)}
+
+@app.get("/memory/facts")
+def memory_facts():
+    return {"facts": get_mod().forward('facts')}
+
+@app.get("/memory/episodes")
+def memory_episodes(n: int = 50, session: Optional[str] = None):
+    """Recent episode trail (every step the agent executed)."""
+    return {"episodes": get_mod().forward('episodes', n=n, session=session)}
+
+@app.post("/memory/remember")
+def memory_remember(req: FactRequest):
+    """Store a durable fact future runs can recall. Admin."""
+    try:
+        return {"fact": get_mod().forward('remember', key=req.key, name=req.name,
+                                          content=req.content, tags=req.tags)}
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.delete("/memory/facts/{fid}")
+def memory_forget(fid: str, key: Optional[str] = None):
+    try:
+        return get_mod().forward('forget', key=key, id=fid)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.post("/memory/serve")
+def memory_serve(key: Optional[str] = None, port: Optional[int] = None):
+    """Start the memory service as its own process (:50119). Admin."""
+    try:
+        return get_mod().forward('memory_serve', key=key, port=port)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
 # ── run (delegates to mod.forward('run')) ────────────────────────────
+
+def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None):
+    """Execute a multi-agent chain, feeding each step's summary into the next."""
+    chain_results = []
+    context = req.query
+    for i, step in enumerate(req.chain):
+        step_agent = step.get("agent", "default")
+        step_prompt = step.get("prompt", "")
+        if on_chain_step:
+            on_chain_step(i, step_agent)
+        if i == 0:
+            step_query = f"{step_prompt}\n\nUser request: {context}" if step_prompt else context
+        else:
+            prev_summary = chain_results[-1].get("summary", "")
+            step_query = f"{step_prompt}\n\nUser request: {context}\n\nPrevious step output: {prev_summary}" if step_prompt else context
+        try:
+            result = mod.forward('run',
+                key=req.key,
+                query=step_query,
+                model=req.model,
+                provider=req.provider,
+                steps=req.steps,
+                agent_type=step_agent,
+                temperature=req.temperature,
+                safety=req.safety,
+                free=req.free,
+                memory_ids=req.memory_ids,
+                on_step=on_step,
+            )
+            summary = ""
+            if isinstance(result, list):
+                for s in result:
+                    if isinstance(s, dict) and s.get("tool") == "finish":
+                        summary = s.get("params", {}).get("summary", "")
+            chain_results.append({"step": i, "agent": step_agent, "result": result, "summary": summary})
+        except Exception as e:
+            chain_results.append({"step": i, "agent": step_agent, "error": str(e), "summary": f"Error: {e}"})
+    return chain_results
+
 
 @app.post("/run")
 def run_agent(req: RunRequest):
     """Run the agent loop. Agent resolution happens in Mod._run()."""
     mod = get_mod()
     if mod.model is None:
-        return {"error": "No LLM model configured."}
+        return {"error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."}
 
     resolved_agent = req.agent_type or req.agent
 
     # chain execution
     if req.chain and len(req.chain) > 0:
-        chain_results = []
-        context = req.query
-        for i, step in enumerate(req.chain):
-            step_agent = step.get("agent", "default")
-            step_prompt = step.get("prompt", "")
-            if i == 0:
-                step_query = f"{step_prompt}\n\nUser request: {context}" if step_prompt else context
-            else:
-                prev_summary = chain_results[-1].get("summary", "")
-                step_query = f"{step_prompt}\n\nUser request: {context}\n\nPrevious step output: {prev_summary}" if step_prompt else context
-            try:
-                result = mod.forward('run',
-                    key=req.key,
-                    query=step_query,
-                    model=req.model,
-                    provider=req.provider,
-                    steps=req.steps,
-                    agent_type=step_agent,
-                    temperature=req.temperature,
-                    safety=req.safety,
-                    free=req.free,
-                )
-                summary = ""
-                if isinstance(result, list):
-                    for s in result:
-                        if isinstance(s, dict) and s.get("tool") == "finish":
-                            summary = s.get("params", {}).get("summary", "")
-                chain_results.append({"step": i, "agent": step_agent, "result": result, "summary": summary})
-            except Exception as e:
-                chain_results.append({"step": i, "agent": step_agent, "error": str(e), "summary": f"Error: {e}"})
-        return {"query": req.query, "chain": True, "results": chain_results}
+        task = _task_create(req, chain=True)
+        results = _run_chain(mod, req, on_step=lambda s: _task_step(task, s))
+        errs = [r.get("error") for r in results if r.get("error")]
+        _task_finish(task, 'error' if errs else 'done',
+                     errs[0] if errs else (results[-1].get("summary", "") if results else ""))
+        charge = _charge_run(req, task)
+        return {"query": req.query, "chain": True, "task_id": task["id"],
+                "results": results, "charged": charge}
 
     # single agent run
+    task = _task_create(req)
     try:
         result = mod.forward('run',
             key=req.key,
@@ -376,16 +1015,113 @@ def run_agent(req: RunRequest):
             provider=req.provider,
             steps=req.steps,
             skills=req.skills,
+            toolbox=req.toolbox or req.toolboxes,
             agent_type=resolved_agent,
             temperature=req.temperature,
             safety=req.safety,
             free=req.free,
+            prompt=req.prompt,
+            memory_ids=req.memory_ids,
+            on_step=lambda s: _task_step(task, s),
         )
-        return {"query": req.query, "agent_type": resolved_agent, "result": result}
+        _task_finish(task, _status_of(result), _summary_of(result))
+        charge = _charge_run(req, task)
+        return {"query": req.query, "agent_type": resolved_agent, "task_id": task["id"],
+                "result": result, "charged": charge}
     except PermissionError as e:
+        _task_finish(task, 'error', str(e))
         return {"query": req.query, "error": str(e), "code": 403}
     except Exception as e:
+        _task_finish(task, 'error', str(e))
         return {"query": req.query, "error": str(e)}
+
+
+@app.post("/run/stream")
+def run_agent_stream(req: RunRequest):
+    """Run the agent loop, streaming each executed step live as SSE events.
+
+    Events (one JSON object per `data:` line):
+        {"type": "step",       "step": {...}}                 — a tool step just executed
+        {"type": "chain_step", "index": i, "agent": "name"}  — a chain stage is starting
+        {"type": "done",       "result": [...]}               — single-agent run finished
+        {"type": "done",       "chain": true, "results": []}  — chain finished
+        {"type": "error",      "error": "..."}                — run failed
+    """
+    mod = get_mod()
+    events: "queue.Queue" = queue.Queue()
+
+    def emit(ev):
+        events.put(ev)
+
+    task = _task_create(req, chain=bool(req.chain))
+
+    def on_step(s):
+        _task_step(task, s)
+        emit({"type": "step", "step": s})
+
+    def worker():
+        try:
+            if mod.model is None:
+                _task_finish(task, 'error', 'No API key configured')
+                emit({"type": "error", "error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."})
+                return
+            if req.chain and len(req.chain) > 0:
+                results = _run_chain(
+                    mod, req,
+                    on_step=on_step,
+                    on_chain_step=lambda i, a: emit({"type": "chain_step", "index": i, "agent": a}),
+                )
+                errs = [r.get("error") for r in results if r.get("error")]
+                _task_finish(task, 'error' if errs else 'done',
+                             errs[0] if errs else (results[-1].get("summary", "") if results else ""))
+                charge = _charge_run(req, task)
+                emit({"type": "done", "chain": True, "task_id": task["id"],
+                      "results": results, "charged": charge})
+            else:
+                result = mod.forward('run',
+                    key=req.key,
+                    query=req.query,
+                    model=req.model,
+                    provider=req.provider,
+                    steps=req.steps,
+                    skills=req.skills,
+                    toolbox=req.toolbox or req.toolboxes,
+                    agent_type=req.agent_type or req.agent,
+                    temperature=req.temperature,
+                    safety=req.safety,
+                    free=req.free,
+                    prompt=req.prompt,
+                    memory_ids=req.memory_ids,
+                    on_step=on_step,
+                )
+                _task_finish(task, _status_of(result), _summary_of(result))
+                charge = _charge_run(req, task)
+                emit({"type": "done", "task_id": task["id"], "result": result,
+                      "charged": charge})
+        except PermissionError as e:
+            _task_finish(task, 'error', str(e))
+            emit({"type": "error", "error": str(e), "code": 403})
+        except Exception as e:
+            _task_finish(task, 'error', str(e))
+            emit({"type": "error", "error": str(e)})
+        finally:
+            events.put(None)  # sentinel: stream over
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            try:
+                ev = events.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"  # keepalive comment so proxies don't cut the stream
+                continue
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev, default=str)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 if __name__ == "__main__":

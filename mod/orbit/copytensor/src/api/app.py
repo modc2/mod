@@ -2,21 +2,27 @@
 FastAPI application — all REST endpoints for copytensor.
 """
 
+import asyncio
 import json
 import logging
 import os
+import threading
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional
 
 import bittensor as bt
+import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from ..chain.client import SubtensorClient
+from ..chain.bt_source import BtSource, BtUnavailable, make_client
+from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
 from ..chain.snapshot import SnapshotManager
 from ..db import Database
 from ..engine.copier import CopyConfig, CopyEngine
+from ..engine.curve import FLOW_MIN_FRACTION, FLOW_MIN_TAO, build_curve
 from ..engine.leaderboard import build_leaderboard
 from ..engine.pnl import calculate_pnl
 from ..engine.safety import SafetyManager
@@ -27,9 +33,13 @@ from .models import (
     CopyRequest,
     CopyResponse,
     LeaderboardEntryResponse,
+    MarketStatsResponse,
     PnlResponse,
+    PricePoint,
+    SubnetDetailResponse,
     SubnetPnlResponse,
     SubnetResponse,
+    SubnetValidator,
     TargetTraderInfo,
     TradeResponse,
     WalletSetRequest,
@@ -49,7 +59,9 @@ _db: Optional[Database] = None
 _snapshot_mgr: Optional[SnapshotManager] = None
 _copy_engine: Optional[CopyEngine] = None
 _safety: Optional[SafetyManager] = None
-_wallet: Optional[bt.wallet] = None
+_wallet: Optional[bt.Wallet] = None
+# The bt module's index — the source behind every read when it's up.
+_bt: Optional[BtSource] = None
 
 
 def _load_config() -> Dict:
@@ -65,21 +77,140 @@ def _save_config():
         json.dump(save, f, indent=2)
 
 
+def _mirror_watchlist():
+    """Register watched coldkeys with bt's trader index.
+
+    bt re-reads every tracked account from chain on its own cadence, so the
+    whole (now hundreds strong) pool must not be pushed at it — mirror the
+    accounts the user actually acts on: copy targets first, then the rest up
+    to `bt_mirror_max`. Everything else still resolves through bt on demand.
+    """
+    if not _bt or not _bt.available() or not _db:
+        return
+    limit = int(_config.get("bt_mirror_max", 25))
+    targets = {c["target_ss58"] for c in _db.list_copies()}
+    accounts = _db.list_accounts()
+    ordered = ([a for a in accounts if a["ss58"] in targets] +
+               [a for a in accounts if a["ss58"] not in targets])[:limit]
+    for acct in ordered:
+        try:
+            _bt.track(acct["ss58"], acct.get("label"))
+        except BtUnavailable as e:
+            log.warning("bt track failed for %s: %s", acct["ss58"][:8], e)
+            return
+    log.info("watchlist mirrored into bt (%d of %d accounts)",
+             len(ordered), len(accounts))
+
+
+# ── trader pool ──────────────────────────────────────────────────
+#
+# The leaderboard ranks the accounts we watch, so "how many traders can I
+# see" is exactly "how big is the watchlist". The pool is grown from the
+# on-chain delegate set (owners + their nominators) — real coldkeys only.
+
+DEFAULT_POOL_SIZE = 250
+
+_pool_state: Dict[str, Any] = {
+    "status": "idle",        # idle | discovering | error
+    "target": 0,
+    "added": 0,
+    "known": None,           # size of the on-chain universe, once walked
+    "known_validators": None,
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+}
+_pool_lock = threading.Lock()
+
+
+def _pool_size() -> int:
+    return int(_config.get("leaderboard_pool_size", DEFAULT_POOL_SIZE))
+
+
+def _grow_pool(size: Optional[int] = None, force: bool = False) -> Dict[str, Any]:
+    """Fill the watchlist up to `size` real coldkeys ranked by stake.
+
+    Runs on a worker thread: the delegate walk is ~30s and the first
+    leaderboard pass over a fresh pool is minutes, so nothing here may sit
+    on a request. Safe to call repeatedly — only missing accounts are added.
+    """
+    target = int(size or _pool_size())
+    with _pool_lock:
+        if _pool_state["status"] == "discovering":
+            return dict(_pool_state)
+        _pool_state.update(status="discovering", target=target, added=0,
+                           started_at=time.time(), finished_at=None, error=None)
+    try:
+        kinds = tuple(_config.get("pool_kinds", ["validator", "nominator"]))
+        candidates = _client.discover_traders(
+            n=target, kinds=kinds,
+            min_stake_weight=float(_config.get("pool_min_stake_weight", 0.0)),
+            force=force)
+        sizes = _client.universe_size()
+        added = 0
+        validators = 0
+        for c in candidates:
+            if c.kind == "validator":
+                validators += 1
+            if not is_valid_ss58(c.ss58) or _db.has_account(c.ss58):
+                continue
+            _db.add_account(c.ss58, label=_pool_label(c, validators))
+            added += 1
+        with _pool_lock:
+            _pool_state.update(status="idle", added=added,
+                               known=sizes["total"],
+                               known_validators=sizes["validators"],
+                               finished_at=time.time())
+        log.info("trader pool: +%d accounts (watching %d of %d on-chain)",
+                 added, len(_db.list_accounts()), sizes["total"])
+    except Exception as e:
+        log.error("pool growth failed: %s", e)
+        with _pool_lock:
+            _pool_state.update(status="error", error=str(e),
+                               finished_at=time.time())
+    return dict(_pool_state)
+
+
+def _boot_pool(size: Optional[int] = None, force: bool = False,
+               grow: bool = True):
+    """Top the pool up, then warm every horizon — in that order, on one
+    worker: warming a board that is about to triple wastes the work."""
+    if grow:
+        try:
+            _grow_pool(size, force=force)
+        except Exception as e:
+            log.warning("pool growth failed: %s", e)
+    _warm_lb()
+
+
+def _pool_label(c: TraderCandidate, validator_rank: int) -> Optional[str]:
+    """Validators carry their stake rank among validators; nominators stay
+    unlabeled so the UI shows the address rather than inventing a name."""
+    if c.kind == "validator":
+        return f"Validator #{validator_rank}"
+    return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _config, _client, _db, _snapshot_mgr, _copy_engine, _safety
+    global _config, _client, _db, _snapshot_mgr, _copy_engine, _safety, _bt
 
     _config = _load_config()
     network = _config.get("network", "finney")
-    endpoint = _config.get("subtensor_endpoint")
 
-    _client = SubtensorClient(network=network, endpoint=endpoint)
+    # Reads (subnets, positions, history) are served by the bt module's
+    # local index; it falls back to our own RPC pool whenever bt is down.
+    # Writes always go out over our wallet + RPC pool.
+    _client = make_client(_config)
+    _bt = getattr(_client, "bt", None)
     _db = Database()
     _safety = SafetyManager(_config)
     _copy_engine = CopyEngine(_client, _db, _safety)
 
     snapshot_interval = _config.get("snapshot_interval_sec", 1800)
-    _snapshot_mgr = SnapshotManager(_client, _db, interval_sec=snapshot_interval)
+    _snapshot_mgr = SnapshotManager(
+        _client, _db, interval_sec=snapshot_interval,
+        workers=int(_config.get("snapshot_workers", 8)))
 
     # Seed watchlist: user-watched + seeded validators (well-known coldkeys).
     # The seed pool lets the leaderboard render on first boot without anyone
@@ -87,13 +218,40 @@ async def lifespan(app: FastAPI):
     seeded = list(_config.get("watched_accounts", [])) + \
              list(_config.get("seed_validators", []))
     for entry in seeded:
-        if isinstance(entry, dict):
-            _db.add_account(entry.get("ss58"), label=entry.get("label"))
-        elif isinstance(entry, str):
-            _db.add_account(entry)
+        ss58 = entry.get("ss58") if isinstance(entry, dict) else entry
+        label = entry.get("label") if isinstance(entry, dict) else None
+        if not ss58 or not is_valid_ss58(ss58):
+            log.warning("seed skipped, invalid ss58: %s", ss58)
+            continue
+        _db.add_account(ss58, label=label)
 
-    log.info("copytensor API started (network=%s, watched=%d)",
-             network, len(seeded))
+    # Purge any previously-stored accounts that fail checksum validation —
+    # they poison the leaderboard with permanent errors.
+    for acct in _db.list_accounts():
+        if not is_valid_ss58(acct["ss58"]):
+            log.warning("purging invalid watched account %s", acct["ss58"])
+            _db.remove_account(acct["ss58"])
+
+    # PnL needs history: start the periodic snapshot loop (first pass runs
+    # immediately, off the event loop).
+    _snapshot_mgr.start()
+
+    # Grow the watchlist to the configured pool size from the on-chain
+    # delegate set, then warm every leaderboard horizon the UI offers so no
+    # first click eats the cold multi-account chain walk. Sequential on one
+    # worker: warming a pool that is about to triple wastes the work.
+    threading.Thread(
+        target=_boot_pool,
+        kwargs={"grow": bool(_config.get("auto_discover", True))},
+        daemon=True).start()
+
+    # Mirror the watchlist into bt so its indexer keeps their history —
+    # each track reads the chain once, so do it off the event loop.
+    threading.Thread(target=_mirror_watchlist, daemon=True).start()
+
+    log.info("copytensor API started (network=%s, watched=%d, reads=%s)",
+             network, len(_db.list_accounts()),
+             "bt" if (_bt and _bt.available()) else "rpc")
     yield
     if _snapshot_mgr:
         _snapshot_mgr.stop()
@@ -117,12 +275,38 @@ def health():
     return _client.health()
 
 
+TAO_PRICE_TTL_SEC = 300
+_tao_price: Dict[str, Any] = {"ts": 0.0, "usd": None}
+
+
+@app.get("/tao_price")
+def tao_price():
+    """Live TAO/USD price for the UI's currency toggle, server-side cached."""
+    age = time.time() - _tao_price["ts"]
+    if _tao_price["usd"] is not None and age < TAO_PRICE_TTL_SEC:
+        return {"usd": _tao_price["usd"], "age_sec": int(age), "stale": False}
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price"
+            "?ids=bittensor&vs_currencies=usd",
+            timeout=8,
+        )
+        usd = float(r.json()["bittensor"]["usd"])
+        _tao_price.update(ts=time.time(), usd=usd)
+        return {"usd": usd, "age_sec": 0, "stale": False}
+    except Exception as e:
+        if _tao_price["usd"] is not None:
+            return {"usd": _tao_price["usd"], "age_sec": int(age), "stale": True}
+        return {"error": f"price unavailable: {e}"}
+
+
 @app.get("/status")
 def status():
     copies = _db.list_copies() if _db else []
     active = [c for c in copies if c["status"] == "active"]
     accounts = _db.list_accounts() if _db else []
     h = _client.health() if _client else {}
+    bt_info = _bt.info() if _bt else None
     return {
         "running": h.get("connected", False),
         "network": _config.get("network", "finney"),
@@ -130,22 +314,203 @@ def status():
         "tracked_accounts": len(accounts),
         "active_copies": len(active),
         "wallet_set": _wallet is not None,
+        "reads": "bt" if bt_info else "rpc",
+        "bt": {"url": _bt.url, "available": bt_info is not None,
+               "traders": (bt_info or {}).get("traders")} if _bt else None,
     }
 
 
 # ── subnets ──────────────────────────────────────────────────────
 
+# The screener is a single indexed read on bt's side, but the UI polls it
+# from the ticker, the grid and the market strip at once. One short-TTL
+# cache in front keeps that to one call per window.
+_SUBNETS_TTL = 12
+_subnets_cache: Dict[str, Any] = {"ts": 0.0, "rows": []}
+
+
+def _spark(values: Optional[List], keep: int = 48) -> Optional[List[float]]:
+    """Trim + round a price history down to something cheap to ship."""
+    if not values:
+        return None
+    pts = [float(v) for v in values if v is not None]
+    if len(pts) > keep:
+        step = len(pts) / keep
+        pts = [pts[min(len(pts) - 1, int(i * step))] for i in range(keep)]
+    return [float(f"{p:.8g}") for p in pts]
+
+
+def _screener_row(r: Dict) -> SubnetResponse:
+    """One bt screener row → the enriched shape the UI renders."""
+    return SubnetResponse(
+        netuid=r["netuid"],
+        name=r.get("name") or f"SN{r['netuid']}",
+        alpha_price_tao=r.get("price") or 0.0,
+        total_stake_tao=r.get("tao_in") or 0.0,
+        tempo=r.get("tempo") or 0,
+        emission=r.get("emission") or 0.0,
+        symbol=r.get("symbol"),
+        market_cap_tao=r.get("market_cap"),
+        volume_tao=r.get("volume"),
+        vol_24h_tao=r.get("vol_24h"),
+        change_1h=r.get("change_1h"),
+        change_24h=r.get("change_24h"),
+        change_7d=r.get("change_7d"),
+        spark=_spark(r.get("spark")),
+        alpha_in=r.get("alpha_in"),
+        alpha_out=r.get("alpha_out"),
+        owner=r.get("owner"),
+        registered_at=r.get("registered_at"),
+        logo=r.get("logo"),
+        description=r.get("description"),
+        github=r.get("github"),
+        url=r.get("url"),
+        discord=r.get("discord"),
+    )
+
+
+def _subnet_rows(force: bool = False) -> List[SubnetResponse]:
+    """Every subnet, enriched from bt's index when it's up.
+
+    Falls back to the plain RPC walk (price / stake / tempo only) so the
+    grid still renders — the enriched fields simply stay null and the UI
+    hides those cells instead of showing invented zeros.
+    """
+    now = time.time()
+    cached = _subnets_cache.get("rows") or []
+    if cached and not force and now - _subnets_cache["ts"] < _SUBNETS_TTL:
+        return cached
+
+    rows: List[SubnetResponse] = []
+    if _bt:
+        try:
+            rows = [_screener_row(r) for r in _bt.screener(sparks=True)]
+        except BtUnavailable as e:
+            log.warning("bt screener unavailable (%s) — falling back to RPC", e)
+    if not rows:
+        rows = [
+            SubnetResponse(
+                netuid=s.netuid, name=s.name,
+                alpha_price_tao=s.alpha_price_tao,
+                total_stake_tao=s.total_stake_tao,
+                tempo=s.tempo, emission=s.emission,
+            )
+            for s in _client.get_all_subnet_info()
+        ]
+    _subnets_cache.update(ts=now, rows=rows)
+    return rows
+
+
 @app.get("/subnets", response_model=List[SubnetResponse])
 def list_subnets():
-    infos = _client.get_all_subnet_info()
+    return _subnet_rows()
+
+
+@app.get("/market", response_model=MarketStatsResponse)
+def market_stats(movers: int = Query(5, ge=0, le=20)):
+    """Network-wide totals + the day's biggest movers — the header strip."""
+    rows = _subnet_rows()
+    stats: Dict = {}
+    source = "rpc"
+    if _bt:
+        try:
+            stats = _bt.stats() or {}
+            source = "bt"
+        except BtUnavailable as e:
+            log.warning("bt stats unavailable (%s)", e)
+    if not stats:
+        # Derive what we can from whatever the screener/RPC gave us.
+        stats = {
+            "subnets": len(rows),
+            "total_market_cap_tao": sum(r.market_cap_tao or 0 for r in rows),
+            "total_tao_in_pools": sum(r.total_stake_tao for r in rows),
+            "volume_24h_tao": sum(r.vol_24h_tao or 0 for r in rows),
+        }
+
+    # Root (netuid 0) is pegged at 1 τ and never moves — leaving it in the
+    # movers list would just waste a slot.
+    ranked = sorted(
+        (r for r in rows if r.netuid != 0 and r.change_24h is not None),
+        key=lambda r: r.change_24h or 0,
+    )
+    price = tao_price()
+
+    return MarketStatsResponse(
+        subnets=int(stats.get("subnets") or len(rows)),
+        total_market_cap_tao=float(stats.get("total_market_cap_tao") or 0),
+        total_tao_in_pools=float(stats.get("total_tao_in_pools") or 0),
+        volume_24h_tao=float(stats.get("volume_24h_tao") or 0),
+        block=(_client.get_block() if _client else 0),
+        tao_usd=price.get("usd") if isinstance(price, dict) else None,
+        updated_at=stats.get("updated_at"),
+        source=source,
+        gainers=list(reversed(ranked[-movers:])) if movers else [],
+        losers=ranked[:movers] if movers else [],
+    )
+
+
+@app.get("/subnets/{netuid}", response_model=SubnetDetailResponse)
+def subnet_detail(netuid: int, validators: int = Query(15, ge=0, le=64)):
+    """One subnet: pool state, on-chain identity, validator rankings."""
+    row = next((r for r in _subnet_rows() if r.netuid == netuid), None)
+    if row is None:
+        raise HTTPException(404, f"subnet {netuid} not found")
+
+    detail = SubnetDetailResponse(subnet=row)
+    if not _bt:
+        return detail
+
+    try:
+        s = _bt.subnet(netuid) or {}
+        ident = s.get("subnet_identity") or {}
+        detail.owner_hotkey = s.get("owner_hotkey")
+        detail.owner_coldkey = s.get("owner_coldkey")
+        detail.contact = ident.get("subnet_contact")
+        detail.blocks_since_last_step = s.get("blocks_since_last_step")
+        detail.pending_alpha_emission = s.get("pending_alpha_emission")
+        detail.alpha_out_emission = s.get("alpha_out_emission")
+        detail.moving_price = s.get("moving_price")
+    except BtUnavailable as e:
+        log.warning("bt subnet %d unavailable (%s)", netuid, e)
+
+    if validators:
+        try:
+            v = _bt.validators(netuid) or {}
+            detail.neurons = int(v.get("neurons") or 0)
+            detail.validators = [
+                SubnetValidator(
+                    uid=x["uid"], hotkey=x.get("hotkey", ""),
+                    coldkey=x.get("coldkey", ""),
+                    stake=x.get("stake") or 0,
+                    validator_trust=x.get("validator_trust") or 0,
+                    dividends=x.get("dividends") or 0,
+                    incentive=x.get("incentive") or 0,
+                    emission=x.get("emission") or 0,
+                    active=bool(x.get("active", True)),
+                    validator_permit=bool(x.get("validator_permit", False)),
+                )
+                for x in (v.get("top") or [])[:validators]
+            ]
+        except BtUnavailable as e:
+            log.warning("bt validators %d unavailable (%s)", netuid, e)
+
+    return detail
+
+
+@app.get("/subnets/{netuid}/history", response_model=List[PricePoint])
+def subnet_history(netuid: int, hours: int = Query(168, ge=1, le=8760)):
+    """Indexed price / mcap / volume series — the detail-page chart."""
+    if not _bt:
+        return []
+    try:
+        out = _bt.history(netuid, hours=hours) or {}
+    except BtUnavailable as e:
+        log.warning("bt history %d unavailable (%s)", netuid, e)
+        return []
     return [
-        SubnetResponse(
-            netuid=s.netuid, name=s.name,
-            alpha_price_tao=s.alpha_price_tao,
-            total_stake_tao=s.total_stake_tao,
-            tempo=s.tempo, emission=s.emission,
-        )
-        for s in infos
+        PricePoint(t=int(p["t"]), price=float(p.get("price") or 0),
+                   mcap=p.get("mcap"), volume=p.get("volume"))
+        for p in (out.get("series") or []) if p.get("t")
     ]
 
 
@@ -180,10 +545,12 @@ def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
     # Calculate PnL
     pnl_tao = 0.0
     pnl_pct = 0.0
+    baseline = False
     try:
         pnl = calculate_pnl(_client, _db, ss58, days)
         pnl_tao = pnl.pnl_tao
         pnl_pct = pnl.pnl_pct
+        baseline = pnl.baseline
     except Exception as e:
         log.warning("pnl calc failed for %s: %s", ss58[:8], e)
 
@@ -194,6 +561,7 @@ def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
         pnl_tao=pnl_tao,
         pnl_pct=pnl_pct,
         days=days,
+        baseline=baseline,
     )
 
 
@@ -209,6 +577,7 @@ def get_account_pnl(ss58: str, days: int = Query(7, ge=1, le=365)):
         end_value_tao=pnl.end_value_tao,
         pnl_tao=pnl.pnl_tao,
         pnl_pct=pnl.pnl_pct,
+        baseline=pnl.baseline,
         by_subnet=[
             SubnetPnlResponse(
                 netuid=s.netuid, subnet_name=s.subnet_name,
@@ -226,6 +595,37 @@ def get_account_pnl(ss58: str, days: int = Query(7, ge=1, le=365)):
 def get_account_history(ss58: str, limit: int = Query(50, ge=1, le=500)):
     snapshots = _db.get_snapshots(ss58, limit=limit)
     return {"snapshots": snapshots}
+
+
+@app.get("/account/{ss58}/curve")
+def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
+                      min_tao: float = Query(FLOW_MIN_TAO, ge=0.0),
+                      min_frac: float = Query(FLOW_MIN_FRACTION, ge=0.0, le=1.0),
+                      points: int = Query(400, ge=20, le=2000)):
+    """Portfolio value / cumulative PnL over time, with trades on the curve.
+
+    Built entirely from the local snapshot record — every point is a real
+    block, and each trade carries the curve value at its timestamp so the
+    chart can pin the marker exactly on the line.
+    """
+    if not is_valid_ss58(ss58):
+        raise HTTPException(400, f"invalid ss58 address: {ss58}")
+
+    subnet_names: Dict[int, str] = {}
+    try:
+        for s in _client.get_all_subnet_info():
+            subnet_names[s.netuid] = s.name
+    except Exception as e:
+        log.warning("subnet names unavailable for curve: %s", e)
+
+    try:
+        current_block = _client.get_block()
+    except Exception:
+        current_block = 0
+
+    return build_curve(_db, ss58, days, current_block,
+                       subnet_names=subnet_names, min_tao=min_tao,
+                       min_frac=min_frac, max_points=points)
 
 
 # ── trader details ───────────────────────────────────────────────
@@ -267,6 +667,7 @@ def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
         pnl_data = {
             "pnl_tao": round(pnl.pnl_tao, 4),
             "pnl_pct": round(pnl.pnl_pct, 2),
+            "baseline": pnl.baseline,
             "start_value_tao": round(pnl.start_value_tao, 4),
             "end_value_tao": round(pnl.end_value_tao, 4),
             "block_start": pnl.block_start,
@@ -306,12 +707,59 @@ def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
 
 # ── leaderboard ──────────────────────────────────────────────────
 
+# A full leaderboard build walks every watched account against the chain
+# (historical + live queries) — tens of seconds cold. Cache the FULL board
+# per horizon (`days`) and slice/filter per request, so top=50 and top=100
+# hit the same entry; serve stale + refresh in the background so the UI
+# never waits once a horizon is warm.
+LEADERBOARD_TTL_SEC = 120
+LEADERBOARD_HORIZONS = [1, 3, 7, 14, 30]     # pre-warmed at startup
+_lb_cache: Dict[int, tuple] = {}             # days -> (ts, entries)
+_lb_refreshing: set = set()
+_lb_lock = threading.Lock()
+
+
+def _build_lb(days: int):
+    entries = build_leaderboard(_client, _db, days=days, top=2000,
+                                workers=int(_config.get("leaderboard_workers", 8)))
+    with _lb_lock:
+        _lb_cache[days] = (time.time(), entries)
+        _lb_refreshing.discard(days)
+    return entries
+
+
+def _warm_lb():
+    for d in LEADERBOARD_HORIZONS:
+        try:
+            _build_lb(d)
+        except Exception as e:
+            log.warning("leaderboard warm failed for %dd: %s", d, e)
+
+
+def _leaderboard_cached(days: int):
+    with _lb_lock:
+        cached = _lb_cache.get(days)
+    if cached:
+        ts, entries = cached
+        if time.time() - ts >= LEADERBOARD_TTL_SEC:
+            # stale: hand back what we have, rebuild off-request
+            with _lb_lock:
+                kick = days not in _lb_refreshing
+                if kick:
+                    _lb_refreshing.add(days)
+            if kick:
+                threading.Thread(target=_build_lb, args=(days,),
+                                 daemon=True).start()
+        return entries
+    return _build_lb(days)
+
+
 @app.get("/leaderboard", response_model=List[LeaderboardEntryResponse])
 def leaderboard(days: int = Query(7, ge=1, le=365),
-                top: int = Query(50, ge=1, le=500),
+                top: int = Query(50, ge=1, le=2000),
                 min_subnets: int = Query(0, ge=0)):
-    entries = build_leaderboard(_client, _db, days=days, top=top,
-                                min_subnets=min_subnets)
+    entries = [e for e in _leaderboard_cached(days)
+               if e.num_subnets >= min_subnets][:top]
     return [
         LeaderboardEntryResponse(
             ss58=e.ss58, label=e.label,
@@ -320,31 +768,113 @@ def leaderboard(days: int = Query(7, ge=1, le=365),
             num_subnets=e.num_subnets,
             top_subnet=e.top_subnet,
             top_subnet_pnl=e.top_subnet_pnl,
+            baseline=e.baseline,
         )
         for e in entries
     ]
+
+
+@app.post("/discover")
+def discover(top: int = Query(8, ge=1, le=200),
+             kind: str = Query("validator", pattern="^(validator|nominator|all)$")):
+    """Watch the top-N coldkeys of the on-chain universe by stake.
+
+    Heavy (~30s cold): walks the full delegate set. Every account it adds is
+    real and checksum-valid — no invented seed lists. Synchronous, and it
+    snapshots what it adds; for a large pool use POST /pool instead.
+    """
+    kinds = ("validator", "nominator") if kind == "all" else (kind,)
+    found = _client.discover_traders(n=top, kinds=kinds)
+    added = []
+    validators = 0
+    for c in found:
+        if c.kind == "validator":
+            validators += 1
+        if not _db.has_account(c.ss58):
+            label = _pool_label(c, validators)
+            _db.add_account(c.ss58, label=label)
+            added.append({**c.as_dict(), "label": label})
+        if _snapshot_mgr:
+            _snapshot_mgr.take_snapshot(c.ss58)
+    return {"discovered": [c.as_dict() for c in found], "added": added,
+            "total_watched": len(_db.list_accounts())}
+
+
+@app.get("/universe")
+def universe():
+    """How many traders we rank, and how many exist on-chain to rank."""
+    watched = len(_db.list_accounts()) if _db else 0
+    with _pool_lock:
+        state = dict(_pool_state)
+    return {
+        "watched": watched,
+        "pool_size": _pool_size(),
+        "auto_discover": bool(_config.get("auto_discover", True)),
+        "known": state.get("known"),
+        "known_validators": state.get("known_validators"),
+        "status": state.get("status"),
+        "target": state.get("target"),
+        "added": state.get("added"),
+        "error": state.get("error"),
+        "started_at": state.get("started_at"),
+        "finished_at": state.get("finished_at"),
+    }
+
+
+@app.post("/pool")
+def set_pool(size: int = Query(..., ge=1, le=2000),
+             refresh: bool = Query(False)):
+    """Resize the trader pool: watch the top `size` coldkeys by stake.
+
+    Returns immediately — discovery and the leaderboard rebuild run in the
+    background; poll GET /universe for progress. Shrinking is not automatic:
+    accounts already watched stay watched (unwatch removes them).
+    """
+    _config["leaderboard_pool_size"] = int(size)
+    _save_config()
+    with _pool_lock:
+        busy = _pool_state["status"] == "discovering"
+    if not busy:
+        threading.Thread(target=_boot_pool, args=(int(size), refresh),
+                         daemon=True).start()
+    return {**universe(), "queued": not busy}
 
 
 # ── watchlist ────────────────────────────────────────────────────
 
 @app.post("/watch")
 def watch(req: WatchRequest):
+    if not is_valid_ss58(req.ss58):
+        raise HTTPException(400, f"invalid ss58 address: {req.ss58}")
     _db.add_account(req.ss58, req.label)
     # Also persist to config
     watched = _config.setdefault("watched_accounts", [])
     if req.ss58 not in watched:
         watched.append(req.ss58)
         _save_config()
-    # Take initial snapshot
+    # Hand it to bt's indexer (which snapshots it now), then keep our own
+    # copy of the snapshot for the local PnL baseline.
+    indexed = None
+    if _bt:
+        try:
+            indexed = _bt.track(req.ss58, req.label)
+        except BtUnavailable as e:
+            log.warning("bt track failed for %s: %s", req.ss58[:8], e)
     if _snapshot_mgr:
         _snapshot_mgr.take_snapshot(req.ss58)
     total = len(_db.list_accounts())
-    return {"watched": req.ss58, "total": total}
+    return {"watched": req.ss58, "total": total,
+            "bt_indexed": bool(indexed and indexed.get("tracked"))}
 
 
 @app.delete("/watch/{ss58}")
 def unwatch(ss58: str):
     _db.remove_account(ss58)
+    if _bt:
+        try:
+            _bt.untrack(ss58)   # bt keeps the recorded history
+        except BtUnavailable as e:
+            log.warning("bt untrack failed for %s: %s", ss58[:8], e)
     watched = _config.get("watched_accounts", [])
     if ss58 in watched:
         watched.remove(ss58)
@@ -356,6 +886,67 @@ def unwatch(ss58: str):
 @app.get("/watches")
 def list_watches():
     return {"accounts": _db.list_accounts()}
+
+
+# ── tracked traders (served by bt's index) ───────────────────────
+
+def _require_bt() -> BtSource:
+    if not _bt or not _bt.available():
+        raise HTTPException(
+            503, "trader tracking needs the bt module — start it "
+                 f"({_bt.url if _bt else 'http://localhost:50280'}) or set "
+                 "COPYTENSOR_BT_URL")
+    return _bt
+
+
+@app.get("/traders")
+def list_traders(sort_by: str = Query("total_tao")):
+    """Every tracked trader with live value, allocation and windowed PnL.
+
+    Instant: bt answers from its local index, no chain walk.
+    """
+    try:
+        return _require_bt().traders(sort_by=sort_by)
+    except BtUnavailable as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/traders/{ss58}")
+def trader_profile(ss58: str, hours: int = Query(168, ge=1, le=24 * 365)):
+    """Full indexed profile — positions, equity curve, inferred trades."""
+    try:
+        return _require_bt().trader(ss58, hours=hours)
+    except BtUnavailable as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/traders/{ss58}/history")
+def trader_history(ss58: str, hours: int = Query(168, ge=1, le=24 * 365)):
+    """Portfolio value over time (free / staked / total)."""
+    try:
+        return _require_bt().trader_history(ss58, hours=hours)
+    except BtUnavailable as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/traders/{ss58}/flows")
+def trader_flows(ss58: str, hours: int = Query(168, ge=1, le=24 * 365),
+                 limit: int = Query(100, ge=1, le=1000)):
+    """Buys/sells inferred from how this trader's book changed."""
+    try:
+        return _require_bt().trader_flows(ss58, hours=hours, limit=limit)
+    except BtUnavailable as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/flows")
+def all_flows(hours: int = Query(168, ge=1, le=24 * 365),
+              limit: int = Query(100, ge=1, le=1000)):
+    """The tape across every tracked trader."""
+    try:
+        return _require_bt().trader_flows(None, hours=hours, limit=limit)
+    except BtUnavailable as e:
+        raise HTTPException(502, str(e))
 
 
 # ── helpers ──────────────────────────────────────────────────────
@@ -555,14 +1146,14 @@ def set_wallet(req: WalletSetRequest):
     global _wallet
     try:
         if req.mnemonic:
-            w = bt.wallet(name=req.name, hotkey=req.hotkey)
+            w = bt.Wallet(name=req.name, hotkey=req.hotkey)
             w.regenerate_coldkey(mnemonic=req.mnemonic, use_password=False,
                                 overwrite=False, suppress=True)
             _wallet = w
         elif req.path:
-            _wallet = bt.wallet(name=req.name, hotkey=req.hotkey, path=req.path)
+            _wallet = bt.Wallet(name=req.name, hotkey=req.hotkey, path=req.path)
         else:
-            _wallet = bt.wallet(name=req.name, hotkey=req.hotkey)
+            _wallet = bt.Wallet(name=req.name, hotkey=req.hotkey)
 
         _copy_engine.set_wallet(_wallet)
         ss58 = _wallet.coldkey.ss58_address

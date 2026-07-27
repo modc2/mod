@@ -4,6 +4,10 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/polymarket";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // Prevent double-mount in dev that causes API race conditions
+  // build.sh builds into a staging dir and atomically swaps it in, so the
+  // live `next start` never serves from a half-written .next (in-place
+  // rebuilds used to 400 every _next/static chunk for the whole build).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   ...(basePath ? { basePath } : {}),
   env: {
     NEXT_PUBLIC_API_URL: "/api/polymarket",

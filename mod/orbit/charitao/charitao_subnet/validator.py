@@ -19,6 +19,7 @@ import time
 from typing import Dict, List, Optional
 
 from .chain import MockChain
+from .governance import Governance
 from .incentive import DonationIncentive
 from .registry import CharityRegistry
 
@@ -33,7 +34,8 @@ class CharitaoValidator:
                  coverage_ratio: float = 0.8, burn_uid: int = 0,
                  min_donation: float = 0.001, epoch_emission: float = 1.0,
                  storage_path: str = STORAGE_PATH,
-                 chain=None, registry: CharityRegistry = None, **kwargs):
+                 chain=None, registry: CharityRegistry = None,
+                 governance: Governance = None, **kwargs):
         self.netuid = netuid
         self.network = network
         self.wallet_name = wallet_name
@@ -45,6 +47,8 @@ class CharitaoValidator:
 
         self.chain = chain if chain is not None else (MockChain() if local else None)
         self.registry = registry or CharityRegistry()
+        self.governance = governance or Governance(
+            path=os.path.join(self.storage_path, 'governance.json'))
 
         self._incentive_path = os.path.join(self.storage_path, 'incentive_state.json')
         self.incentive = DonationIncentive.load(
@@ -88,6 +92,7 @@ class CharitaoValidator:
 
         donations, skipped = [], []
         max_block = self.last_block
+        whitelist = list(addresses.values())
         for tx in transfers:
             max_block = max(max_block, tx.block)
             charity_id = addresses.get(tx.recipient)
@@ -98,8 +103,11 @@ class CharitaoValidator:
             if uid is None:
                 skipped.append({'txid': tx.txid, 'reason': 'sender not a registered miner'})
                 continue
+            # DAO weighting prices the donation: rate = 1 + apr(charity, amount)
+            rate = self.governance.rate(charity_id, tx.amount,
+                                        self.incentive.base_rate, whitelist)
             donations.append({'uid': uid, 'amount': tx.amount, 'txid': tx.txid,
-                              'charity_id': charity_id})
+                              'charity_id': charity_id, 'rate': round(rate, 8)})
 
         result = self.incentive.settle(donations, self.emission_estimate())
         result['donations_seen'] = len(donations)

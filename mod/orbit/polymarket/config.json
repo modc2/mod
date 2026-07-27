@@ -25,7 +25,23 @@
     "endpoints": {
         "/health": {
             "method": "GET",
-            "docs": "Health check"
+            "docs": "Health check (public)"
+        },
+        "/access/info": {
+            "method": "GET",
+            "docs": "Access gate info: owner-only mode + Terms of Use text/version/hash (public)"
+        },
+        "/access/challenge": {
+            "method": "GET",
+            "docs": "Owner sign-in challenge for ?address= — message embeds the terms hash, signing = accepting (public)"
+        },
+        "/access/verify": {
+            "method": "POST",
+            "docs": "Exchange {address, timestamp, signature} for a Bearer token; only the sudo/owner address is accepted; acceptance recorded to terms_accepted.json (public)"
+        },
+        "/access/check": {
+            "method": "GET",
+            "docs": "Probe whether the Bearer token is still valid"
         },
         "/active-traders": {
             "method": "GET",

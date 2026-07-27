@@ -483,7 +483,16 @@ class Polymarket(m.Mod):
     # ── data passthroughs ────────────────────────────────────────
 
     def _get(self, path: str, **params) -> Any:
-        r = requests.get(f"{self.api_url}{path}", params=params, timeout=30)
+        # The API is owner-gated (access.rs): data routes 401 without a
+        # Bearer token minted via /access/verify. CLI callers export
+        # POLYMARKET_ACCESS_TOKEN (copy it from the signed-in browser's
+        # poly_access_token localStorage entry, or mint one by signing the
+        # challenge with the owner key).
+        headers = {}
+        tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=30)
         r.raise_for_status()
         return r.json()
 

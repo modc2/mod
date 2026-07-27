@@ -17,6 +17,9 @@
 //   slippageBps      limit-price widening toward the fillable side
 //   flow { … }       opt-in flow-momentum ORIGINATION: buy watchlist
 //                    consensus from history, exit when flow flips
+//   momentum { … }   opt-in PRICE-momentum ORIGINATION: buy the outcome
+//                    whose own odds are rising (50¢ → 60¢), exit when the
+//                    move reverses — needs no watchlist at all
 //
 // The five hooks (all have working defaults driven by those params):
 //
@@ -36,7 +39,7 @@
 // → execute) for users who author strats in Python.
 
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
-import type { TradeFilters } from "../types";
+import type { TradeFilters, MomentumParams } from "../types";
 import { marketMatchesQuery } from "../marketQuery";
 import { tradeMatchesFilters } from "../tradeFilters";
 
@@ -84,6 +87,28 @@ export interface StratHistory {
   cycle: number;
   /** Clock at history assembly (ms epoch). */
   now: number;
+  /** CLOB price history for candidate markets — fetched by the engine only
+      when the strat asks for it (`wantsMarketPrices()`, i.e. momentum
+      strats). Absent everywhere else. */
+  marketPrices?: MarketPriceSeries[];
+}
+
+/** One market's observed price series, as fed to momentum strats. Prices
+    are the FIRST outcome's (index 0); the second outcome's price is its
+    complement (binary markets), so one series covers both sides. */
+export interface MarketPriceSeries {
+  conditionId: string;
+  /** Market title — for logs/reasons. */
+  market: string;
+  /** Outcome names, index-aligned with `tokenIds` (["Yes","No"] or
+      ["Up","Down"]). */
+  outcomes: [string, string];
+  /** CLOB token ids, index-aligned with `outcomes`. */
+  tokenIds: [string, string];
+  /** Market end date (ms epoch); undefined when unknown. */
+  endDateMs?: number;
+  /** Price points for outcomes[0], ms timestamps, ascending. */
+  points: { t: number; p: number }[];
 }
 
 /** An empty history for contexts that have nothing better (helper probes,
@@ -136,6 +161,10 @@ export interface ProposedTrade {
   conditionId: string;
   /** "Yes" | "No". Defaults to "Yes". */
   outcome?: string;
+  /** Exact CLOB token id when the strat already knows it (momentum strats
+      carry it in the price series). Skips the engine's name-based lookup,
+      which assumes Yes/No naming and would mis-resolve "Up"/"Down". */
+  tokenId?: string;
   /** Market title — for the execution log only. */
   market: string;
   side: "BUY" | "SELL";
@@ -189,6 +218,11 @@ export interface StratParams {
   /** Opt-in flow-momentum origination — see FlowParams. Absent = pure
       mirror strat, `propose` returns []. */
   flow?: FlowParams;
+  /** Opt-in PRICE-momentum origination — see MomentumParams (types.ts).
+      Buys the outcome whose own market price is rising, exits when the
+      move reverses. Needs `history.marketPrices`, which the engine feeds
+      only when this is set. */
+  momentum?: MomentumParams;
 }
 
 // ── Flow aggregation internals ───────────────────────────────────
@@ -247,17 +281,20 @@ export class Strat {
   }
 
   // ── Hook 3: ranking ──
-  // Returns dollars of expected edge. The engine sorts BUY candidates by
-  // this and copies the top `maxPerCycle`; the same number drives EP-based
-  // capital rotation. Default: trader's window ROI × the dollars we'd
-  // deploy (`roi × mirror$` = a real dollar expectation). No stats → 0
-  // (can't estimate edge, never wins the budget). Negative ROI sorts to
-  // the bottom (engine skips EP ≤ 0). Return 0 to drop a candidate
-  // without an explicit shouldMirror=false.
+  // Returns probability-weighted dollars of expected edge. The engine sorts
+  // BUY candidates by this and copies the top `maxPerCycle`; the same number
+  // drives EP-based capital rotation. Default:
+  //   P(success) × trader ROI × mirror$
+  // where P(success) is the trader's Laplace-smoothed 30d win rate — so a
+  // 70%-win trader's trades rank above a 52%-win trader's at equal dollar
+  // edge. P is always > 0, so the sign (and the EP ≤ 0 skip) still comes
+  // from ROI. No stats → 0 (can't estimate edge, never wins the budget).
+  // Return 0 to drop a candidate without an explicit shouldMirror=false.
+  // Mirrors live_engine.rs `candidate_score` — parity-fixture-tested.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   scoreCandidate(trade: TraderTrade, stats: TraderRoiStats | null, history: StratHistory): number {
     if (!stats) return 0;
-    return stats.roi * trade.notional * trade.copyRatio;
+    return successProbability(stats) * stats.roi * trade.notional * trade.copyRatio;
   }
 
   // ── Hook 4: sizing + limit price ──
@@ -315,13 +352,32 @@ export class Strat {
   // Runs once per cycle AFTER the mirror pass, with the COMPLETE cycle
   // history. The engine tick-rounds prices, clamps to the CLOB floor,
   // caps to `maxPerCycle` proposals, and logs each with the `reason`.
-  // Default: flow-momentum origination when `params.flow` is set —
-  // ENTRIES on watchlist consensus (≥ minTraders distinct buyers,
-  // aggregate ≥ minFlowUsd, net flow positive) in markets not already
-  // held, ranked by net flow, sized by conviction and clamped into the
-  // user's trade band; EXITS on held positions whose window flow flipped
-  // net-SELL. Without `params.flow`: originate nothing (pure mirror).
+  // Two param-driven signal sources, composable on one strat:
+  //   `params.flow`     — watchlist consensus (see proposeFlow)
+  //   `params.momentum` — the market's own price rising (see proposeMomentum)
+  // Without either: originate nothing (pure mirror).
   propose(history: StratHistory, c: SizeConstraints): ProposedTrade[] {
+    const proposals = [
+      ...this.proposeFlow(history, c),
+      ...this.proposeMomentum(history, c),
+    ];
+    // Both signal engines can fire on the same market in the same cycle —
+    // keep the first (flow outranks momentum by list order).
+    const seen = new Set<string>();
+    return proposals.filter((p) => {
+      const k = `${p.conditionId.toLowerCase()}:${(p.outcome || "Yes").toLowerCase()}:${p.side}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  // Flow-momentum origination when `params.flow` is set — ENTRIES on
+  // watchlist consensus (≥ minTraders distinct buyers, aggregate ≥
+  // minFlowUsd, net flow positive) in markets not already held, ranked by
+  // net flow, sized by conviction and clamped into the user's trade band;
+  // EXITS on held positions whose window flow flipped net-SELL.
+  protected proposeFlow(history: StratHistory, c: SizeConstraints): ProposedTrade[] {
     const flow = this.params.flow;
     if (!flow) return [];
 
@@ -389,12 +445,121 @@ export class Strat {
     return proposals;
   }
 
-  // ── Capability probe ──
+  // Price-momentum origination when `params.momentum` is set — THE
+  // "odds are rising, ride them" strat: for every candidate market series
+  // (engine-fed via `history.marketPrices`), measure each outcome's price
+  // move over the lookback. ENTRIES buy the outcome that rose ≥
+  // minRiseCents (e.g. BTC-up going 50¢ → 60¢) inside the price band, in
+  // markets not already held and not about to resolve — sub-hour markets
+  // are HFT-bot turf a polling strat structurally loses to. EXITS sell a
+  // held outcome once its own price fell ≥ exitDropCents over the window.
+  // Binary markets: outcomes[1]'s price is the complement of the series,
+  // so a falling series IS a rising second outcome — both sides are
+  // candidates and only one can qualify at a time.
+  protected proposeMomentum(history: StratHistory, c: SizeConstraints): ProposedTrade[] {
+    const mo = this.params.momentum;
+    const series = history.marketPrices ?? [];
+    if (!mo || series.length === 0) return [];
+
+    const lookbackMin = mo.lookbackMinutes ?? 60;
+    const minRise = (mo.minRiseCents ?? 5) / 100;
+    const exitDrop = (mo.exitDropCents ?? mo.minRiseCents ?? 5) / 100;
+    // Entry floor defaults to the favorite side (≥50¢): momentum rides a
+    // leader crossing toward resolution, not sub-50¢ longshots — same
+    // likely-to-win bias as the copy path's DEFAULT_MIN_ENTRY_PRICE. An
+    // explicit `mo.minPrice` (e.g. 0.15) opts back into cheaper entries.
+    const minPrice = mo.minPrice ?? 0.5;
+    const maxPrice = mo.maxPrice ?? 0.85;
+    const maxPositions = mo.maxPositions ?? 5;
+    const minCloseMs = (mo.minMinutesToClose ?? 90) * 60_000;
+    const cents = (p: number) => (p * 100).toFixed(0);
+
+    const held = new Map(
+      history.positions
+        .filter((p) => p.size > 0)
+        .map((p) => [`${p.conditionId.toLowerCase()}:${(p.outcome || "Yes").toLowerCase()}`, p]),
+    );
+    const proposals: ProposedTrade[] = [];
+    type Entry = { s: MarketPriceSeries; idx: 0 | 1; rise: number; pNow: number; pThen: number };
+    const entries: Entry[] = [];
+
+    for (const s of series) {
+      const m = seriesMomentum(s.points, history.now, lookbackMin * 60_000);
+      if (!m) continue;
+      // Holding EITHER side blocks new entries in this market — when a held
+      // Yes decays, the No side reads as "rising" the same cycle, and buying
+      // it before the exit fills would just lock in a hedged loss.
+      const heldInMarket =
+        held.has(`${s.conditionId.toLowerCase()}:${s.outcomes[0].toLowerCase()}`) ||
+        held.has(`${s.conditionId.toLowerCase()}:${s.outcomes[1].toLowerCase()}`);
+      for (const idx of [0, 1] as const) {
+        // outcomes[1] moves by the complement of the tracked series.
+        const rise = idx === 0 ? m.rise : -m.rise;
+        const pNow = idx === 0 ? m.pNow : 1 - m.pNow;
+        const pThen = idx === 0 ? m.pThen : 1 - m.pThen;
+        const pos = held.get(`${s.conditionId.toLowerCase()}:${s.outcomes[idx].toLowerCase()}`);
+
+        // EXIT — we hold this outcome and its price is now falling.
+        if (pos && rise <= -exitDrop) {
+          proposals.push({
+            conditionId: s.conditionId,
+            outcome: pos.outcome,
+            tokenId: s.tokenIds[idx],
+            market: s.market,
+            side: "SELL",
+            notional: pos.value,
+            limitPrice: tickRoundPrice(pNow * 0.97),
+            reason: `MOMENTUM FLIPPED · ${s.outcomes[idx]} ${cents(pThen)}¢→${cents(pNow)}¢ (−${cents(-rise)}¢) in ${lookbackMin}m`,
+          });
+          continue;
+        }
+
+        // ENTRY candidate — rising, in band, market not held, not near
+        // resolution.
+        if (heldInMarket || rise < minRise) continue;
+        if (pNow < minPrice || pNow > maxPrice) continue;
+        if (s.endDateMs !== undefined && s.endDateMs - history.now < minCloseMs) continue;
+        entries.push({ s, idx, rise, pNow, pThen });
+      }
+    }
+
+    // Strongest rise first, capped to the free position slots.
+    const openSlots = Math.max(0, maxPositions - held.size);
+    entries.sort((a, b) => b.rise - a.rise);
+    for (const e of entries.slice(0, openSlots)) {
+      // Equal-slice sizing (capital / maxPositions) clamped into the
+      // user's trade band — momentum has no leader notional to scale by.
+      const raw = c.capital / Math.max(maxPositions, 1);
+      const notional = Math.min(Math.max(raw, c.userFloor, c.clobFloor), c.userCeiling);
+      proposals.push({
+        conditionId: e.s.conditionId,
+        outcome: e.s.outcomes[e.idx],
+        tokenId: e.s.tokenIds[e.idx],
+        market: e.s.market,
+        side: "BUY",
+        notional,
+        // Chase up to 2¢ past the last observed price so the entry fills.
+        limitPrice: tickRoundPrice(e.pNow + 0.02),
+        reason: `MOMENTUM · ${e.s.outcomes[e.idx]} ${cents(e.pThen)}¢→${cents(e.pNow)}¢ (+${cents(e.rise)}¢) in ${lookbackMin}m`,
+      });
+    }
+    return proposals;
+  }
+
+  // ── Capability probes ──
   // True when this strat originates trades — gates the engine's per-cycle
-  // positions fetch and Phase 4. Param-driven (`params.flow`), with a
-  // prototype check so a subclass that overrides `propose` still counts.
+  // positions fetch and Phase 4. Param-driven (`params.flow` /
+  // `params.momentum`), with a prototype check so a subclass that
+  // overrides `propose` still counts.
   proposes(): boolean {
-    return !!this.params.flow || this.propose !== Strat.prototype.propose;
+    return !!this.params.flow || !!this.params.momentum
+      || this.propose !== Strat.prototype.propose;
+  }
+
+  /** True when the strat needs `history.marketPrices` — gates the engine's
+      per-cycle market search + price-history fetch (extra API calls). */
+  wantsMarketPrices(): boolean {
+    return !!this.params.momentum;
   }
 
   // ── Overridable price shaping used by the default sizeAndPrice ──
@@ -462,6 +627,39 @@ export function tickRoundPrice(p: number): number {
   return Math.round(clamped * 100) / 100;
 }
 
+/** Price move over a lookback window from an ascending series: latest
+    point vs the latest point AT/BEFORE the window start. Requires real
+    coverage — a brand-new market whose series starts inside the window
+    returns null rather than faking a full-window rise from partial data.
+    Terminal prices (0/1 — resolved) also return null: nothing to ride. */
+export function seriesMomentum(
+  points: { t: number; p: number }[],
+  now: number,
+  lookbackMs: number,
+): { pThen: number; pNow: number; rise: number } | null {
+  if (points.length < 2) return null;
+  const cutoff = now - lookbackMs;
+  let then: { t: number; p: number } | null = null;
+  for (const pt of points) {
+    if (pt.t <= cutoff) then = pt;
+    else break;
+  }
+  if (!then) return null;
+  const last = points[points.length - 1];
+  if (!(last.p > 0 && last.p < 1) || !(then.p > 0 && then.p < 1)) return null;
+  return { pThen: then.p, pNow: last.p, rise: last.p - then.p };
+}
+
+/** Deterministic slug of the candle LIVE at `nowMs` for a recurring
+    short-candle series. Polymarket's sub-hour Up/Down markets use
+    `<prefix>-<candle start unix seconds>` (e.g. "btc-updown-5m-1784659200"
+    for the 5-minute candle starting at that epoch), so the current market
+    is addressable without any search. */
+export function candleSlug(prefix: string, periodMinutes: number, nowMs: number): string {
+  const period = Math.max(1, Math.round(periodMinutes)) * 60;
+  return `${prefix}-${Math.floor(nowMs / 1000 / period) * period}`;
+}
+
 /** CLOB hard floors. The matcher rejects any order below either:
     - $1 notional ("Invalid order payload" generic), or
     - 5 shares ("Size (N) lower than the minimum: 5").
@@ -472,8 +670,90 @@ export function clobMinNotional(price: number): number {
   return Math.max(POLYMARKET_MIN_USD, POLYMARKET_MIN_SHARES * Math.max(price, 1e-9));
 }
 
+// ── THE playbook math — one copy per language ────────────────────
+// These three functions are the decision math shared by the backtest sim
+// (CopyIndex.tsx), the JS engine (copyEngine.ts), and — ported line-for-line —
+// the Rust live engine (live_engine.rs `stats_from_returns` /
+// `candidate_score` / `stop_loss_hit`). parity.fixture.json is asserted by
+// BOTH `npx tsx app/lib/strats/__test__.ts` and `cargo test` so the two
+// languages cannot drift without a red test.
+
+/** Core ROI/Sharpe/win-rate stats from a trader's per-trade fractional
+    returns (closed SELLs in the window). Single source of truth for the
+    formulas — every TraderRoiStats in the app is built through this. */
+export function statsFromReturns(returns: number[]): {
+  roi: number; stdev: number; sharpe: number; sampleSize: number;
+  wins: number; successProb: number;
+} {
+  const n = returns.length;
+  let roi = 0, stdev = 0, wins = 0;
+  if (n > 0) {
+    roi = returns.reduce((s, r) => s + r, 0) / n;
+    if (n >= 2) {
+      const variance = returns.reduce((s, r) => s + (r - roi) ** 2, 0) / (n - 1);
+      stdev = Math.sqrt(variance);
+    }
+    for (const r of returns) if (r > 0) wins++;
+  }
+  // Epsilon guard, not `> 0`: near-identical returns leave a quantization-
+  // noise stdev (float noise ~1e-17, tick-scalper noise ~1e-7) that explodes
+  // Sharpe to 1e5–1e15. Genuine dispersion is ≥1e-3; under 1e-6 → 0. Mirrors
+  // live_engine.rs stats_from_returns; parity fixture pins the case.
+  const sharpe = n >= 3 && stdev > 1e-6 ? roi / stdev : 0;
+  // Laplace-smoothed win rate: shrinks toward 50% on thin samples so a
+  // 2-for-2 trader doesn't read as "100% success"; no samples ⇒ exactly 0.5.
+  const successProb = (wins + 2) / (n + 4);
+  return { roi, stdev, sharpe, sampleSize: n, wins, successProb };
+}
+
+/** Probability-of-success for a candidate copied from this trader. Missing
+    or pre-upgrade cached stats (no `successProb` field) read as the neutral
+    0.5 prior rather than 0 — a trade must never be zeroed out by a stale
+    localStorage cache. */
+export function successProbability(stats: TraderRoiStats | null | undefined): number {
+  const p = stats?.successProb;
+  return typeof p === "number" && Number.isFinite(p) && p > 0 ? p : 0.5;
+}
+
+/** Stop-loss trigger — mirror of live_engine.rs `stop_loss_hit`. `stopLoss`
+    is the fraction of avg entry price to defend (0.5 = sell once the exit
+    mark decays to half the entry). Fractions outside (0, 1) are OFF: ≥1
+    would trigger on the spread alone, 0 can never fire. */
+export function stopLossTriggered(entryPrice: number, mark: number, stopLoss: number | undefined): boolean {
+  if (!stopLoss || stopLoss <= 0 || stopLoss >= 1) return false;
+  if (!(entryPrice > 0) || !(mark > 0)) return false;
+  return mark <= entryPrice * stopLoss;
+}
+
+/** Take-profit trigger — mirror of live_engine.rs `take_profit_hit`.
+    `takeProfit` is the ABSOLUTE exit-price level (0–1) at which a held
+    position is fully liquidated: the market ran to ~100%, it's decided,
+    free the capital instead of holding until resolution. Levels above 0.99
+    clamp to 0.99 (the book's top tick — a 1.00 bid never prints, so an
+    unclamped 1.0 could never fire). 0/undefined ⇒ off. */
+export function takeProfitTriggered(mark: number, takeProfit: number | undefined): boolean {
+  if (!takeProfit || takeProfit <= 0) return false;
+  if (!(mark > 0)) return false;
+  return mark >= Math.min(takeProfit, 0.99);
+}
+
+/** Default per-position stop-loss (live_engine.rs `default_stop_loss`):
+    defend 0.75 of entry — sell once the exit mark decays to 75% of the
+    entry price. Console, backtest sim, and a bare API start all share it. */
+export const DEFAULT_STOP_LOSS = 0.75;
+
+/** Default per-position take-profit (live_engine.rs `default_take_profit`):
+    liquidate once the exit mark reaches 99¢ — the top tick, i.e. the market
+    ran to 100%. */
+export const DEFAULT_TAKE_PROFIT = 0.99;
+
+/** Anti-churn rebalance margin (live_engine.rs `default_rebalance_margin_pct`):
+    a candidate must out-score a held position by this fraction before the
+    hold is sold to fund it. Backtest sim reads the same constant. */
+export const REBALANCE_MARGIN_PCT = 0.2;
+
 // Re-exports so a strat consumer only has to `import from "./strat"`.
 export type { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader };
-export type { TradeFilters } from "../types";
+export type { TradeFilters, MomentumParams } from "../types";
 export { marketMatchesQuery } from "../marketQuery";
 export { tradeMatchesFilters, tradeFiltersActive, describeTradeFilters } from "../tradeFilters";

@@ -8,6 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from charitao_subnet.chain import MockChain
+from charitao_subnet.governance import Governance
 from charitao_subnet.incentive import DonationIncentive
 from charitao_subnet.miner import CharitaoMiner
 from charitao_subnet.registry import CharityRegistry

@@ -35,12 +35,35 @@ impl PipelineState {
             }
             *running = true;
         }
+        // Reset the flag on every exit path, including a panic mid-cycle —
+        // otherwise one bad cycle leaves it stuck true and every future
+        // cycle returns immediately (historical syncs silently stop).
+        struct RunningGuard<'a>(&'a parking_lot::RwLock<bool>);
+        impl Drop for RunningGuard<'_> {
+            fn drop(&mut self) {
+                *self.0.write() = false;
+            }
+        }
+        let _guard = RunningGuard(&self.warmup_running);
         tracing::info!("warmup cycle starting");
+
+        // Skip a combo only if it was ACTUALLY synced within the hour.
+        // Memory freshness (`cache.get`) is the wrong signal here:
+        // `get_or_disk` re-stamps disk payloads up to 24h old as fresh-in-
+        // memory, which used to make the hourly warmup skip genuinely stale
+        // data after a restart. 55min margin so an on-schedule tick never
+        // skips a combo that is about to fall due.
+        const RESYNC_AFTER_SECS: i64 = 3300;
+        let now = chrono::Utc::now().timestamp();
 
         let combos = [(1u32, 0.0, 2000u32), (7, 0.0, 2000), (14, 0.0, 2000), (30, 0.0, 2000)];
         for (days, min_per_day, pool) in combos {
             let key = format!("{}:{}:{}", days, min_per_day, pool);
-            if self.cache.get(&key).is_some() {
+            if self
+                .cache
+                .get(&key)
+                .is_some_and(|p| now - p.synced_at < RESYNC_AFTER_SECS)
+            {
                 continue;
             }
             match self.run_pipeline(days, min_per_day, pool, None).await {
@@ -58,7 +81,6 @@ impl PipelineState {
             }
         }
 
-        *self.warmup_running.write() = false;
         tracing::info!("warmup cycle done");
     }
 
@@ -155,6 +177,7 @@ impl PipelineState {
                     sell_volume: 0.0,
                     pnl: 0.0,
                     win_rate: 0.0,
+                    sharpe: 0.0,
                     positions: 0,
                     market_titles: vec![],
                     recent_trades: 0,
@@ -287,12 +310,16 @@ async fn enrich_trader_with_url(
     base_url: &str,
 ) -> (Option<Trader>, u64) {
     // Fetch trades — paginate until we've passed the cutoff or hit the cap.
-    const MAX_PAGES: u32 = 20; // 20k trades max
+    // data-api enforces `max activity limit of 500` (400s above it) — a
+    // larger page size turns EVERY fetch into an error and the whole
+    // leaderboard into zero-stat husks.
+    const PAGE: u32 = 500;
+    const MAX_PAGES: u32 = 40; // 20k trades max
     let mut all_trades: Vec<Value> = Vec::new();
     for page in 0..MAX_PAGES {
         let url = format!(
-            "{}/activity?user={}&limit=1000&offset={}",
-            base_url, trader.address, page * 1000
+            "{}/activity?user={}&limit={}&offset={}",
+            base_url, trader.address, PAGE, page * PAGE
         );
         match http.get(&url).send().await {
             Ok(resp) => {
@@ -304,7 +331,7 @@ async fn enrich_trader_with_url(
                         .min()
                         .unwrap_or(u64::MAX);
                     all_trades.extend(trades);
-                    if len < 1000 || oldest_ts < cutoff_sec {
+                    if len < PAGE as usize || oldest_ts < cutoff_sec {
                         break;
                     }
                 } else {
@@ -314,6 +341,12 @@ async fn enrich_trader_with_url(
             Err(_) => break,
         }
     }
+    // No activity at all — either a dormant address or every fetch errored
+    // (rate limit, schema change). Keeping the row would put a zero-stat
+    // husk on the leaderboard and, worse, cache it; drop it instead.
+    if all_trades.is_empty() {
+        return (None, chrono::Utc::now().timestamp() as u64);
+    }
 
     // Track the oldest timestamp for depth reporting
     let oldest_ts = all_trades.iter()
@@ -322,9 +355,11 @@ async fn enrich_trader_with_url(
         .min()
         .unwrap_or(chrono::Utc::now().timestamp() as u64);
 
-    // Compute window metrics with cost-basis
+    // Compute window metrics with cost-basis. Zero in-window trades is an
+    // unconditional drop (even at min_trades=0): a dormant ALL-time name has
+    // no window stats and would render as a blank leaderboard row.
     let metrics = compute_window_metrics(&all_trades, cutoff_sec);
-    if metrics.count < min_trades {
+    if metrics.count < min_trades || metrics.count == 0 {
         return (None, oldest_ts);
     }
 
@@ -352,42 +387,45 @@ async fn enrich_trader_with_url(
     trader.buy_volume = metrics.buy_volume;
     trader.sell_volume = metrics.sell_volume;
     trader.pnl = metrics.pnl;
+    // Sharpe over the same window the rest of the row's stats use — the
+    // leaderboard's default SCORE. Reuses the live engine's ONE stats formula
+    // so ranking here matches copy-candidate scoring.
+    trader.sharpe = crate::live_engine::stats_from_returns(&metrics.returns).sharpe;
     trader.pnl_curve = Some(compute_pnl_curve(&all_trades, cutoff_sec));
-    trader.market_metrics = if metrics.per_market.is_empty() { None } else { Some(metrics.per_market) };
 
-    // Extract unique market titles from trade data
-    let mut seen_titles = std::collections::HashSet::new();
-    for t in &all_trades {
-        if let Some(title) = t.get("title").and_then(|v| v.as_str()) {
-            if !title.is_empty() && seen_titles.len() < 20 {
-                seen_titles.insert(title.to_string());
+    // Market titles come from the SAME in-window per-market set the stats
+    // are computed from — the leaderboard's keyword filter must see exactly
+    // the markets whose trades feed the numbers, or a trader can be dropped
+    // while holding matching trades (or matched on out-of-window titles).
+    // Volume-ranked cap bounds pathological HFT rosters.
+    let mut ranked: Vec<&MarketMetric> = metrics.per_market.iter().collect();
+    ranked.sort_by(|a, b| b.volume.partial_cmp(&a.volume).unwrap_or(std::cmp::Ordering::Equal));
+    trader.market_titles = ranked.iter().take(500).map(|m| m.title.clone()).collect();
+    if trader.market_titles.is_empty() {
+        // No titled in-window trades — fall back to a raw scan so the row
+        // isn't completely unmatchable.
+        let mut seen_titles = std::collections::HashSet::new();
+        for t in &all_trades {
+            if let Some(title) = t.get("title").and_then(|v| v.as_str()) {
+                if !title.is_empty() && seen_titles.len() < 20 {
+                    seen_titles.insert(title.to_string());
+                }
             }
         }
+        trader.market_titles = seen_titles.into_iter().collect();
     }
-    trader.market_titles = seen_titles.into_iter().collect();
     trader.positions = metrics.count; // use trade count as "positions" field
 
-    // Win rate from trade data: ratio of profitable sells
-    let window_trades: Vec<&Value> = all_trades.iter()
-        .filter(|t| {
-            let ts = normalize_ts(t);
-            ts >= cutoff_sec && t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE") == "TRADE"
-        })
-        .collect();
-    let sells: Vec<&&Value> = window_trades.iter()
-        .filter(|t| t.get("side").and_then(|v| v.as_str()).unwrap_or("") == "SELL")
-        .collect();
-    if !sells.is_empty() {
-        // A sell is "winning" if price > avg cost (approximated by checking if pnl contribution > 0)
-        // Simple proxy: count sells at price > 0.5 as wins (sold outcome tokens at profit)
-        let profitable = sells.iter().filter(|t| {
-            let price = t.get("price").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
-            price > 0.5
-        }).count();
-        trader.win_rate = ((profitable as f64 / sells.len() as f64) * 100.0).round();
+    // Accuracy: of the positions this trader BOUGHT in the window, the share
+    // whose outcome ended up winning — price saturated to $1 (redeemed for a
+    // payout, or exited at ≥95¢). Only decided positions count; capped at 100.
+    trader.win_rate = if metrics.decided > 0 {
+        ((metrics.wins as f64 / metrics.decided as f64) * 100.0).round().min(100.0)
     } else {
-        trader.win_rate = -1.0;
-    }
+        -1.0
+    };
+
+    trader.market_metrics = if metrics.per_market.is_empty() { None } else { Some(metrics.per_market) };
 
     (Some(trader), oldest_ts)
 }
@@ -398,13 +436,29 @@ struct WindowMetrics {
     sell_volume: f64,
     pnl: f64,
     count: u32,
+    /// Bought positions (opened in-window) whose outcome saturated to $1.
+    wins: u32,
+    /// Bought positions (opened in-window) with a known outcome.
+    decided: u32,
+    /// Per-closed-SELL fractional returns `(price − avgCost) / avgCost`
+    /// realized in-window — the series Sharpe is computed from.
+    returns: Vec<f64>,
     per_market: Vec<MarketMetric>,
 }
+
+/// Exit price at/above which a bought outcome is considered to have
+/// saturated to $1 — i.e. the market resolved (or is resolving) the
+/// trader's way. CLOB caps sells at 99¢, so winners exit in the 95¢–99¢
+/// band or via CTF redeem.
+const WIN_SATURATION_PRICE: f64 = 0.95;
 
 fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     let mut sorted: Vec<&Value> = trades.iter()
         .filter(|t| {
-            t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE") == "TRADE"
+            let ty = t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE");
+            // REDEEMs carry no volume but are the ground-truth "this buy won"
+            // signal for the accuracy metric.
+            ty == "TRADE" || ty == "REDEEM"
         })
         .collect();
     sorted.sort_by_key(|t| normalize_ts(t));
@@ -412,13 +466,21 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     // Cost-basis book
     let mut book: HashMap<String, (f64, f64)> = HashMap::new(); // key -> (size, cost)
     let mut pnl = 0.0f64;
+    let mut returns: Vec<f64> = Vec::new();
     let mut buy_volume = 0.0f64;
     let mut sell_volume = 0.0f64;
     let mut count = 0u32;
 
     // Per-market accumulator
-    struct MktAccum { volume: f64, buy_volume: f64, sell_volume: f64, pnl: f64, trades: u32, wins: u32, sells: u32 }
+    struct MktAccum { volume: f64, buy_volume: f64, sell_volume: f64, pnl: f64, trades: u32, wins: u32, decided: u32, returns: Vec<f64> }
     let mut per_market: HashMap<String, MktAccum> = HashMap::new();
+
+    // Per-position outcome tracker for buy-accuracy: a bought position "ends
+    // up winning" when its price saturates to $1 — a REDEEM with a payout or
+    // an exit at ≥ WIN_SATURATION_PRICE. A position is "decided" once it won,
+    // was redeemed (payout or not), or was fully exited.
+    struct PosOutcome { title: String, bought: f64, sold: f64, in_window_buy: bool, won: bool, redeemed: bool }
+    let mut outcomes: HashMap<String, PosOutcome> = HashMap::new();
 
     for t in sorted {
         let ts = normalize_ts(t);
@@ -429,11 +491,45 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         let price = t.get("price").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
         let size = t.get("size").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
         let usdc_size = t.get("usdcSize").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(price * size);
+        let ty = t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE");
         let side = t.get("side").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
+
+        if ty == "REDEEM" {
+            if !key.is_empty() {
+                let o = outcomes.entry(key).or_insert(PosOutcome {
+                    title: title.to_string(), bought: 0.0, sold: 0.0,
+                    in_window_buy: false, won: false, redeemed: false,
+                });
+                o.redeemed = true;
+                // Redeeming losing tokens pays $0 — only a payout marks a win.
+                if usdc_size > 0.0 { o.won = true; }
+                if o.title.is_empty() && !title.is_empty() { o.title = title.to_string(); }
+            }
+            continue;
+        }
+
+        if !key.is_empty() && (side == "BUY" || side == "SELL") {
+            let o = outcomes.entry(key.clone()).or_insert(PosOutcome {
+                title: title.to_string(), bought: 0.0, sold: 0.0,
+                in_window_buy: false, won: false, redeemed: false,
+            });
+            if side == "BUY" {
+                o.bought += size;
+                if in_window { o.in_window_buy = true; }
+            } else {
+                o.sold += size;
+                if price >= WIN_SATURATION_PRICE { o.won = true; }
+            }
+            if o.title.is_empty() && !title.is_empty() { o.title = title.to_string(); }
+        }
 
         let pos = book.entry(key).or_insert((0.0, 0.0));
 
         let mut realized = 0.0f64;
+        // Fractional return of an in-window closed SELL — SELLs without an
+        // in-hand basis are dropped (a placeholder 0 would deflate stdev),
+        // mirroring the live engine's `compute_trader_roi_stats`.
+        let mut sell_return: Option<f64> = None;
         if side == "BUY" {
             pos.1 += price * size; // cost
             pos.0 += size;         // size
@@ -445,6 +541,11 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             pos.0 -= sold;
             if in_window {
                 pnl += realized;
+                if avg > 0.0 {
+                    let r = (price - avg) / avg;
+                    returns.push(r);
+                    sell_return = Some(r);
+                }
             }
         }
 
@@ -460,19 +561,40 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             if !title.is_empty() {
                 let mkt = per_market.entry(title.to_string()).or_insert(MktAccum {
                     volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-                    pnl: 0.0, trades: 0, wins: 0, sells: 0,
+                    pnl: 0.0, trades: 0, wins: 0, decided: 0, returns: Vec::new(),
                 });
                 mkt.volume += usdc_size;
                 mkt.trades += 1;
                 mkt.pnl += realized;
+                if let Some(r) = sell_return {
+                    mkt.returns.push(r);
+                }
                 if side == "BUY" {
                     mkt.buy_volume += usdc_size;
                 } else if side == "SELL" {
                     mkt.sell_volume += usdc_size;
-                    mkt.sells += 1;
-                    if price > 0.5 { mkt.wins += 1; }
                 }
             }
+        }
+    }
+
+    // Fold decided positions into the accuracy counters — only positions the
+    // trader actually BOUGHT inside the window count.
+    let mut wins_total = 0u32;
+    let mut decided_total = 0u32;
+    for o in outcomes.values() {
+        if !o.in_window_buy { continue; }
+        let fully_exited = o.bought > 0.0 && o.sold >= o.bought * 0.99;
+        if !(o.won || o.redeemed || fully_exited) { continue; }
+        decided_total += 1;
+        if o.won { wins_total += 1; }
+        if !o.title.is_empty() {
+            let mkt = per_market.entry(o.title.clone()).or_insert(MktAccum {
+                volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
+                pnl: 0.0, trades: 0, wins: 0, decided: 0, returns: Vec::new(),
+            });
+            mkt.decided += 1;
+            if o.won { mkt.wins += 1; }
         }
     }
 
@@ -480,7 +602,7 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         MarketMetric {
             title, volume: m.volume, buy_volume: m.buy_volume,
             sell_volume: m.sell_volume, pnl: m.pnl, trades: m.trades,
-            wins: m.wins, sells: m.sells,
+            wins: m.wins, decided: m.decided, returns: m.returns,
         }
     }).collect();
 
@@ -490,6 +612,9 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         sell_volume,
         pnl,
         count,
+        wins: wins_total,
+        decided: decided_total,
+        returns,
         per_market: market_metrics,
     }
 }
@@ -794,6 +919,131 @@ mod tests {
         assert_eq!(m.count, 1);
     }
 
+    // ── buy-accuracy (wins / decided) ────────────────────────────
+
+    fn redeem(ts: u64, usdc: f64, cid: &str) -> Value {
+        json!({
+            "type": "REDEEM",
+            "timestamp": ts,
+            "usdcSize": usdc,
+            "size": 100.0,
+            "conditionId": cid,
+            "title": "Redeemed market",
+        })
+    }
+
+    #[test]
+    fn accuracy_buy_then_winning_redeem() {
+        let trades = vec![
+            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
+            redeem(3000, 100.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 1);
+        assert_eq!(m.decided, 1);
+    }
+
+    #[test]
+    fn accuracy_buy_then_zero_payout_redeem_is_loss() {
+        // Redeeming losing tokens pays $0 → decided but not won.
+        let trades = vec![
+            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
+            redeem(3000, 0.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 0);
+        assert_eq!(m.decided, 1);
+    }
+
+    #[test]
+    fn accuracy_buy_then_saturated_sell_wins() {
+        // Exit at ≥95¢ = price saturated to $1 → win.
+        let trades = vec![
+            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
+            trade(3000, "SELL", 0.97, 100.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 1);
+        assert_eq!(m.decided, 1);
+    }
+
+    #[test]
+    fn accuracy_full_exit_below_saturation_is_loss() {
+        // Sold everything at 40¢ — decided, but the buy didn't end up winning.
+        let trades = vec![
+            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
+            trade(3000, "SELL", 0.40, 100.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 0);
+        assert_eq!(m.decided, 1);
+    }
+
+    #[test]
+    fn accuracy_open_position_is_undecided() {
+        let trades = vec![trade(2000, "BUY", 0.60, 100.0, "mkt1")];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 0);
+        assert_eq!(m.decided, 0);
+    }
+
+    #[test]
+    fn accuracy_pre_window_buy_excluded() {
+        // Position opened before the window never enters the accuracy counters,
+        // even if it wins inside the window.
+        let trades = vec![
+            trade(500, "BUY", 0.60, 100.0, "mkt1"),
+            redeem(2000, 100.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 0);
+        assert_eq!(m.decided, 0);
+    }
+
+    #[test]
+    fn accuracy_never_exceeds_decided() {
+        // Multiple win signals on one position (saturated sell + redeem)
+        // still count it once — the rate can saturate at 100, never above.
+        let trades = vec![
+            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
+            trade(2500, "SELL", 0.98, 50.0, "mkt1"),
+            redeem(3000, 50.0, "mkt1"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 1);
+        assert_eq!(m.decided, 1);
+        assert!(m.wins <= m.decided);
+    }
+
+    fn trade_titled(ts: u64, side: &str, price: f64, size: f64, cid: &str, title: &str) -> Value {
+        json!({
+            "type": "TRADE",
+            "timestamp": ts,
+            "side": side,
+            "price": price,
+            "size": size,
+            "conditionId": cid,
+            "title": title,
+        })
+    }
+
+    #[test]
+    fn accuracy_per_market_counters_match() {
+        let trades = vec![
+            trade_titled(2000, "BUY", 0.60, 100.0, "c1", "Will BTC win?"),
+            trade_titled(3000, "SELL", 0.99, 100.0, "c1", "Will BTC win?"),
+            trade_titled(2000, "BUY", 0.60, 100.0, "c2", "Will ETH win?"),
+            trade_titled(3000, "SELL", 0.10, 100.0, "c2", "Will ETH win?"),
+        ];
+        let m = compute_window_metrics(&trades, 1000);
+        assert_eq!(m.wins, 1);
+        assert_eq!(m.decided, 2);
+        let win_mkt = m.per_market.iter().find(|x| x.title == "Will BTC win?").unwrap();
+        assert_eq!((win_mkt.wins, win_mkt.decided), (1, 1));
+        let loss_mkt = m.per_market.iter().find(|x| x.title == "Will ETH win?").unwrap();
+        assert_eq!((loss_mkt.wins, loss_mkt.decided), (0, 1));
+    }
+
     #[test]
     fn metrics_volume_is_buy_plus_sell() {
         let trades = vec![
@@ -1016,7 +1266,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1047,7 +1297,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1085,7 +1335,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1110,14 +1360,14 @@ mod tests {
                 Trader {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
-                    pnl: 150.0, win_rate: 65.0, positions: 10,
+                    pnl: 150.0, win_rate: 65.0, sharpe: 0.0, positions: 10,
                     market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
                 },
                 Trader {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
-                    pnl: -50.0, win_rate: 40.0, positions: 5,
+                    pnl: -50.0, win_rate: 40.0, sharpe: 0.0, positions: 5,
                     market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
                 },
@@ -1156,7 +1406,7 @@ mod tests {
             traders: vec![Trader {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
-                pnl: 5.0, win_rate: 50.0, positions: 2,
+                pnl: 5.0, win_rate: 50.0, sharpe: 0.0, positions: 2,
                 market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
             }],
@@ -1195,6 +1445,7 @@ mod tests {
             sell_volume: 5345.67,
             pnl: -420.69,
             win_rate: 55.0,
+            sharpe: 1.25,
             positions: 42,
             market_titles: vec!["Will BTC hit 100k?".into(), "US Election".into()],
             recent_trades: 42,
@@ -1223,7 +1474,7 @@ mod tests {
         let trader = Trader {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };

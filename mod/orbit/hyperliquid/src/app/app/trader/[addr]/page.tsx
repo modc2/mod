@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../../lib/api";
+import { buildRoundTrips, fmtDuration } from "../../lib/trips";
+import PnlChart from "../../components/PnlChart";
 
 export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
@@ -30,6 +32,12 @@ export default function TraderPage() {
   const s = data.summary;
   const fills = Array.isArray(data.fills) ? data.fills : [];
   const positions = (data.state?.assetPositions ?? []) as any[];
+  const trips = buildRoundTrips(fills);
+  const closedTripPnl = trips
+    .filter((t) => t.closeTime != null)
+    .reduce((a, t) => a + t.closedPnl, 0);
+  const fillsDesc = [...fills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
+  const fillsClosedPnl = fills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
 
   return (
     <div className="space-y-5">
@@ -53,6 +61,11 @@ export default function TraderPage() {
         <Tile label="trades" value={`${s.trades}`} />
         <Tile label="sharpe" value={s.sharpe.toFixed(2)} />
       </div>
+
+      {/* PnL over time */}
+      <Panel title={`pnl over time (${days}d)`}>
+        <PnlChart portfolio={data.pnl_history} days={days} />
+      </Panel>
 
       {/* Open positions */}
       <Panel title="open positions">
@@ -83,8 +96,66 @@ export default function TraderPage() {
         })}
       </Panel>
 
+      {/* Round trips: entry → exit */}
+      <Panel
+        title={`trades · entry → exit (${days}d)`}
+        right={trips.length > 0 ? (
+          <span className={`num ${closedTripPnl >= 0 ? "text-win" : "text-loss"}`}>
+            closed pnl {fmtPnl(closedTripPnl)}
+          </span>
+        ) : undefined}
+      >
+        {trips.length === 0 ? (
+          <Empty>no trades in window</Empty>
+        ) : (
+          <div className="grid grid-cols-[1fr_0.6fr_0.9fr_1fr_1fr_1fr_0.9fr_1.1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+            <div>coin</div><div>side</div><div className="text-right">size</div>
+            <div className="text-right">entry px</div><div className="text-right">exit px</div>
+            <div className="text-right">closed pnl</div><div className="text-right">held</div>
+            <div className="text-right">closed</div>
+          </div>
+        )}
+        {trips.slice(0, 60).map((t, i) => {
+          const open = t.closeTime == null;
+          return (
+            <div key={i} className="grid grid-cols-[1fr_0.6fr_0.9fr_1fr_1fr_1fr_0.9fr_1.1fr] gap-2 px-4 py-1.5 table-row">
+              <div className="text-ink">{t.coin}</div>
+              <div className={t.long ? "text-win" : "text-loss"}>{t.long ? "long" : "short"}</div>
+              <div className="num text-right">{t.peakSize}</div>
+              <div className="num text-right">
+                {t.entrySz > 0 ? `${t.partialEntry ? "~" : ""}${t.entryPx.toFixed(4)}` : "—"}
+              </div>
+              <div className="num text-right">{t.exitSz > 0 ? t.exitPx.toFixed(4) : "—"}</div>
+              <div className={`num text-right ${t.closedPnl >= 0 ? "text-win" : "text-loss"}`}>
+                {open && t.closedPnl === 0 ? "—" : fmtPnl(t.closedPnl)}
+              </div>
+              <div className="num text-right text-[11px] text-muted">
+                {fmtDuration((t.closeTime ?? Date.now()) - t.openTime)}
+              </div>
+              <div className="text-right text-[11px]">
+                {open
+                  ? <span className="text-accent2">open</span>
+                  : <span className="text-muted">{ago(t.closeTime!)}</span>}
+              </div>
+            </div>
+          );
+        })}
+        {trips.some((t) => t.partialEntry) && (
+          <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
+            ~ entry opened before the {days}d window — avg price covers in-window fills only
+          </div>
+        )}
+      </Panel>
+
       {/* Recent fills */}
-      <Panel title={`recent fills (${days}d)`}>
+      <Panel
+        title={`recent fills (${days}d)`}
+        right={fills.length > 0 ? (
+          <span className={`num ${fillsClosedPnl >= 0 ? "text-win" : "text-loss"}`}>
+            Σ closed pnl {fmtPnl(fillsClosedPnl)}
+          </span>
+        ) : undefined}
+      >
         {fills.length === 0 ? (
           <Empty>no fills in window</Empty>
         ) : (
@@ -94,7 +165,7 @@ export default function TraderPage() {
             <div className="text-right">closedPnl</div>
           </div>
         )}
-        {fills.slice(0, 100).map((f: any, i: number) => (
+        {fillsDesc.slice(0, 100).map((f: any, i: number) => (
           <div key={i} className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1.4fr] gap-2 px-4 py-1.5 table-row">
             <div className="text-[11px] text-muted">{ago(Number(f.time))}</div>
             <div>{f.coin}</div>
@@ -122,10 +193,13 @@ function Tile({ label, value, tone }: { label: string; value: string; tone?: "wi
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="panel">
-      <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-wider text-muted">{title}</div>
+      <div className="px-4 py-2 border-b border-border text-[11px] uppercase tracking-wider text-muted flex items-center justify-between">
+        <span>{title}</span>
+        {right}
+      </div>
       {children}
     </div>
   );

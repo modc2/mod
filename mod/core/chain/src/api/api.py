@@ -651,6 +651,182 @@ async def bloctime_owner(address: Optional[str] = None, network: str = "testnet"
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Per-mod BlocTime staking ─────────────────────────────────────────────────
+#
+# Holders allocate their on-chain BlocTime weight to individual modules — a
+# curation signal ("skin in the game" per mod) surfaced in the web catalog.
+# The allocation ledger lives off-chain (~/.mod/chain/mod_stakes.json), but
+# every stake is backed 1:1 by the address's live BlocTime balance: you can
+# never have more allocated across mods than you hold on-chain.
+
+MOD_STAKES_PATH = Path(os.path.expanduser("~/.mod/chain/mod_stakes.json"))
+
+
+def _load_mod_stakes() -> dict:
+    """{network: {mod_name: {address: amount_wei}}} — empty dict when absent."""
+    try:
+        with open(MOD_STAKES_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_mod_stakes(data: dict):
+    MOD_STAKES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MOD_STAKES_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(MOD_STAKES_PATH)
+
+
+def _allocated(book: dict, addr: str) -> int:
+    """Total wei `addr` has staked across every mod on one network."""
+    return sum(int(stakers.get(addr, 0)) for stakers in book.values())
+
+
+@app.get("/mods/stakes")
+async def mod_stakes_all(network: str = "testnet"):
+    """Total BlocTime staked per module — the catalog's ranking signal."""
+    book = _load_mod_stakes().get(network, {})
+    mods = {}
+    for name, stakers in book.items():
+        amounts = [int(v) for v in stakers.values() if int(v) > 0]
+        if amounts:
+            mods[name] = {"total": sum(amounts), "stakers": len(amounts)}
+    return {
+        "network": network,
+        "mods": mods,
+        "total": sum(m["total"] for m in mods.values()),
+    }
+
+
+@app.get("/mods/stakes/{name}")
+async def mod_stakes_one(name: str, address: Optional[str] = None,
+                         key: Optional[str] = None, network: str = "testnet"):
+    """One module's stake book; with ?address= (or ?key=) also the caller's
+    position and how much BlocTime they still have free to stake."""
+    name = name.strip().lower()
+    book = _load_mod_stakes().get(network, {})
+    stakers = {a: int(v) for a, v in book.get(name, {}).items() if int(v) > 0}
+    out = {
+        "name": name,
+        "network": network,
+        "total": sum(stakers.values()),
+        "stakers": [
+            {"address": a, "amount": v}
+            for a, v in sorted(stakers.items(), key=lambda kv: -kv[1])
+        ],
+    }
+    if address or key:
+        chain = get_chain(network, key)
+        addr = address or chain.account.address
+        try:
+            balance = chain.bloctime_balance(addr)
+        except Exception:
+            balance = 0
+        allocated = _allocated(book, addr)
+        out.update({
+            "address": addr,
+            "my_stake": stakers.get(addr, 0),
+            "bloctime": balance,
+            "available": max(0, balance - allocated),
+        })
+    return out
+
+
+class ModStakeReq(BaseModel):
+    name: str
+    amount: float                 # BLOC (18-decimals token, ether units)
+    key: Optional[str] = None
+    network: str = "testnet"
+
+
+@app.post("/mods/stake")
+async def mod_stake(req: ModStakeReq):
+    """Stake BlocTime to a module. Fails if the signing key's free BlocTime
+    (on-chain balance minus what it already staked to mods) can't cover it."""
+    name = req.name.strip().lower()
+    if not name:
+        raise HTTPException(status_code=400, detail="module name required")
+    amount_wei = int(req.amount * 10**18)
+    if amount_wei <= 0:
+        raise HTTPException(status_code=400, detail="amount must be > 0")
+    chain = get_chain(req.network, req.key)
+    try:
+        addr = chain.account.address
+        balance = chain.bloctime_balance(addr)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    data = _load_mod_stakes()
+    book = data.setdefault(req.network, {})
+    allocated = _allocated(book, addr)
+    if allocated + amount_wei > balance:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"insufficient BlocTime: balance {balance / 1e18:.4f} BLOC, "
+                f"already staked {allocated / 1e18:.4f} — stake MOD (POST /stake) "
+                f"to earn more BlocTime first"
+            ),
+        )
+    entry = book.setdefault(name, {})
+    entry[addr] = int(entry.get(addr, 0)) + amount_wei
+    _save_mod_stakes(data)
+    return {
+        "name": name,
+        "address": addr,
+        "my_stake": entry[addr],
+        "total": sum(int(v) for v in entry.values()),
+        "bloctime": balance,
+        "available": max(0, balance - allocated - amount_wei),
+    }
+
+
+class ModUnstakeReq(BaseModel):
+    name: str
+    amount: Optional[float] = None  # BLOC; omit to withdraw the whole stake
+    key: Optional[str] = None
+    network: str = "testnet"
+
+
+@app.post("/mods/unstake")
+async def mod_unstake(req: ModUnstakeReq):
+    """Withdraw some or all of the signing key's stake from a module."""
+    name = req.name.strip().lower()
+    chain = get_chain(req.network, req.key)
+    addr = chain.account.address
+    data = _load_mod_stakes()
+    book = data.setdefault(req.network, {})
+    entry = book.get(name, {})
+    current = int(entry.get(addr, 0))
+    if current <= 0:
+        raise HTTPException(status_code=400, detail=f"no stake on '{name}' from {addr}")
+    amount_wei = current if req.amount is None else int(req.amount * 10**18)
+    if amount_wei <= 0:
+        raise HTTPException(status_code=400, detail="amount must be > 0")
+    amount_wei = min(amount_wei, current)
+    remaining = current - amount_wei
+    if remaining > 0:
+        entry[addr] = remaining
+    else:
+        entry.pop(addr, None)
+        if not entry:
+            book.pop(name, None)
+    _save_mod_stakes(data)
+    try:
+        balance = chain.bloctime_balance(addr)
+    except Exception:
+        balance = 0
+    return {
+        "name": name,
+        "address": addr,
+        "my_stake": remaining,
+        "total": sum(int(v) for v in entry.values()) if entry else 0,
+        "bloctime": balance,
+        "available": max(0, balance - _allocated(book, addr)),
+    }
+
+
 # ── Protocol: Registry ──────────────────────────────────────────────────────
 
 @app.get("/registry/mods")
@@ -1102,6 +1278,7 @@ async def info():
             "credit", "transfer", "tokens",
             "contracts/source", "contracts/mods", "contracts/abis", "cid/{cid}",
             "registry/mods", "registry/all", "registry/register", "bloctime/owner",
+            "mods/stakes", "mods/stakes/{name}", "mods/stake", "mods/unstake",
             "register", "mint", "pool", "pool/claimable", "pool/claim",
             "pool/epochs", "pool/snapshot",
             "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",

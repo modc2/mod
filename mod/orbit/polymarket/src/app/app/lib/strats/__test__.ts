@@ -2,14 +2,26 @@
 //   cd src/app && npx tsx app/lib/strats/__test__.ts
 // Verifies behavior, not types — proves the runtime contract holds.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   Strat,
   TraderTrade,
   StratHistory,
   SizeConstraints,
+  MarketPriceSeries,
+  seriesMomentum,
+  candleSlug,
   emptyHistory,
   clobMinNotional,
   POLYMARKET_MIN_SHARES,
+  statsFromReturns,
+  successProbability,
+  stopLossTriggered,
+  takeProfitTriggered,
+  DEFAULT_STOP_LOSS,
+  DEFAULT_TAKE_PROFIT,
+  REBALANCE_MARGIN_PCT,
 } from "./strat";
 import type { TraderRoiStats, PolymarketPosition } from "../types";
 
@@ -32,6 +44,8 @@ function buildStats(over: Partial<TraderRoiStats> = {}): TraderRoiStats {
   return {
     address: "0xaaa", windowDays: 30, roi: 0.20, stdev: 0.10,
     sampleSize: 10, sharpe: 2.0, cashDeployed: 1000, syncedAt: Date.now(),
+    // 6 wins of 10 closed → Laplace-smoothed P = (6+2)/(10+4) = 4/7.
+    wins: 6, successProb: 8 / 14,
     ...over,
   };
 }
@@ -40,17 +54,24 @@ function buildHistory(over: Partial<StratHistory> = {}): StratHistory {
 }
 const H = buildHistory();
 
-console.log("\n── scoreCandidate (expected profit) ──");
+console.log("\n── scoreCandidate (probability-weighted expected profit) ──");
 {
   const s = new Strat();
-  // EP = roi × rawMirror, rawMirror = notional × copyRatio = 250 × 0.05 = 12.5.
-  // roi 0.20 → EP = 0.20 × 12.5 = $2.50.
+  // score = P(success) × roi × rawMirror; rawMirror = notional × copyRatio =
+  // 250 × 0.05 = 12.5. Fixture P = 4/7 (6 wins / 10 closed), roi 0.20 →
+  // score = 4/7 × $2.50 ≈ $1.43. Mirrors live_engine.rs `candidate_score`.
   const trade = buildTrade({ notional: 250 });
   const stats = buildStats({ roi: 0.20 });
-  check("EP = roi × mirror$", s.scoreCandidate(trade, stats, H) === 2.5, `got ${s.scoreCandidate(trade, stats, H)}`);
+  const P = 8 / 14;
+  check("score = P × roi × mirror$", Math.abs(s.scoreCandidate(trade, stats, H) - P * 2.5) < 1e-9, `got ${s.scoreCandidate(trade, stats, H)}`);
   check("no stats → 0", s.scoreCandidate(trade, null, H) === 0);
-  check("negative roi → negative EP", s.scoreCandidate(trade, buildStats({ roi: -0.1 }), H) < 0);
-  check("sampleSize does not gate EP", s.scoreCandidate(trade, buildStats({ sampleSize: 2 }), H) === 2.5);
+  check("negative roi → negative score (P never flips sign)", s.scoreCandidate(trade, buildStats({ roi: -0.1 }), H) < 0);
+  check("sampleSize does not gate score", Math.abs(s.scoreCandidate(trade, buildStats({ sampleSize: 2 }), H) - P * 2.5) < 1e-9);
+  // Stale cached stats without a successProb read as the neutral 0.5 prior —
+  // a candidate must never be zeroed out by a pre-upgrade localStorage cache.
+  const stale = buildStats({ roi: 0.20 });
+  delete (stale as Partial<TraderRoiStats>).successProb;
+  check("stale cache → 0.5 prior", Math.abs(s.scoreCandidate(trade, stale, H) - 0.5 * 2.5) < 1e-9, `got ${s.scoreCandidate(trade, stale, H)}`);
 }
 
 console.log("\n── sizeAndPrice — sub-$1 mirror clamps UP (no skip) ──");
@@ -124,14 +145,22 @@ console.log("\n── sizeAndPrice — happy path + slippage widening ──");
 console.log("\n── shouldMirror + propose defaults ──");
 {
   const s = new Strat();
-  check("default passes everything", s.shouldMirror(buildTrade(), H) === true);
+  // No explicit price band ⇒ BUYs face the likely-to-win default floor
+  // (DEFAULT_MIN_ENTRY_PRICE, 60¢); SELLs (exits) always pass.
+  check("default passes ≥60¢ BUY", s.shouldMirror(buildTrade({ price: 0.65 }), H) === true);
+  check("default blocks sub-60¢ BUY", s.shouldMirror(buildTrade(), H) === false); // 50¢
+  check("default never floors SELL", s.shouldMirror(buildTrade({ side: "SELL", price: 0.05 }), H) === true);
+  const optOut = new Strat({ tradeFilters: { minPrice: 0 } });
+  check("explicit minPrice:0 opts out of floor", optOut.shouldMirror(buildTrade(), H) === true);
+  const longshots = new Strat({ tradeFilters: { maxPrice: 0.2 } });
+  check("explicit maxPrice band skips floor", longshots.shouldMirror(buildTrade({ price: 0.1 }), H) === true);
   check("pure mirror strat proposes nothing", s.propose(H, {} as SizeConstraints).length === 0);
   check("pure mirror strat: proposes() false", s.proposes() === false);
   const noMirror = new Strat({ mirror: false });
-  check("mirror:false gates every trade", noMirror.shouldMirror(buildTrade(), H) === false);
+  check("mirror:false gates every trade", noMirror.shouldMirror(buildTrade({ price: 0.65 }), H) === false);
   const filtered = new Strat({ tradeFilters: { sides: "buy" } });
-  check("tradeFilters gate SELL", filtered.shouldMirror(buildTrade({ side: "SELL" }), H) === false);
-  check("tradeFilters pass BUY", filtered.shouldMirror(buildTrade({ side: "BUY" }), H) === true);
+  check("tradeFilters gate SELL", filtered.shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === false);
+  check("tradeFilters pass BUY", filtered.shouldMirror(buildTrade({ side: "BUY", price: 0.65 }), H) === true);
 }
 
 console.log("\n── flow origination — history in, trades out ──");
@@ -182,6 +211,150 @@ console.log("\n── flow origination — history in, trades out ──");
   check("flow:{} → proposes() true", bare.proposes() === true);
 }
 
+console.log("\n── price-momentum origination — rising odds in, BUY out ──");
+{
+  const s = new Strat({ momentum: { lookbackMinutes: 60, minRiseCents: 5 } });
+  check("momentum strat: proposes() true", s.proposes() === true);
+  check("momentum strat: wantsMarketPrices() true", s.wantsMarketPrices() === true);
+  check("plain strat: wantsMarketPrices() false", new Strat().wantsMarketPrices() === false);
+
+  const now = Date.now();
+  const c: SizeConstraints = { userFloor: 1, userCeiling: 100, clobFloor: 1, capital: 1000 };
+  const mk = (over: Partial<MarketPriceSeries> = {}): MarketPriceSeries => ({
+    conditionId: "0xbtc",
+    market: "Bitcoin above $130k this week?",
+    outcomes: ["Yes", "No"],
+    tokenIds: ["111", "222"],
+    endDateMs: now + 3 * 24 * 60 * 60_000,
+    // 50¢ ninety minutes ago → 60¢ now: the user's canonical example.
+    points: [
+      { t: now - 90 * 60_000, p: 0.50 },
+      { t: now - 60 * 60_000, p: 0.50 },
+      { t: now - 30 * 60_000, p: 0.55 },
+      { t: now, p: 0.60 },
+    ],
+    ...over,
+  });
+
+  // 50¢ → 60¢ over the lookback ⇒ BUY the rising Yes with its exact token id.
+  const props = s.propose(buildHistory({ now, marketPrices: [mk()] }), c);
+  check("50¢→60¢ → 1 BUY proposal", props.length === 1 && props[0].side === "BUY", `got ${props.length}`);
+  check("buys the RISING outcome (Yes)", props[0]?.outcome === "Yes");
+  check("carries the series token id", props[0]?.tokenId === "111");
+  check("chases 2¢ past the last print", props[0]?.limitPrice === 0.62, `got ${props[0]?.limitPrice}`);
+  check("reason shows the move", !!props[0]?.reason?.includes("50¢→60¢"), `got: ${props[0]?.reason}`);
+  check("sized into the trade band", props[0]?.notional >= 1 && props[0]?.notional <= 100);
+
+  // A FALLING series is a rising No — buy the other side.
+  const falling = mk({ points: mk().points.map(({ t, p }) => ({ t, p: 1 - p })) });
+  const noProps = s.propose(buildHistory({ now, marketPrices: [falling] }), c);
+  check("falling Yes → BUY No instead", noProps.length === 1 && noProps[0].outcome === "No" && noProps[0].tokenId === "222", `got ${JSON.stringify(noProps[0])}`);
+
+  // Below the rise threshold → nothing.
+  const flat = mk({ points: [{ t: now - 90 * 60_000, p: 0.50 }, { t: now, p: 0.52 }] });
+  check("+2¢ < minRiseCents → no proposal", s.propose(buildHistory({ now, marketPrices: [flat] }), c).length === 0);
+
+  // Outside the price band (rose into near-certainty) → no chase.
+  const rich = mk({ points: [{ t: now - 90 * 60_000, p: 0.82 }, { t: now, p: 0.92 }] });
+  check("rise into >85¢ band → no proposal", s.propose(buildHistory({ now, marketPrices: [rich] }), c).length === 0);
+
+  // Series that starts inside the window (new market) can't fake a rise.
+  const young = mk({ points: [{ t: now - 20 * 60_000, p: 0.50 }, { t: now, p: 0.60 }] });
+  check("partial-window series → no proposal", s.propose(buildHistory({ now, marketPrices: [young] }), c).length === 0);
+
+  // Market resolving within minMinutesToClose (default 90) → skipped.
+  const closing = mk({ endDateMs: now + 30 * 60_000 });
+  check("sub-90-min-to-close market → no proposal", s.propose(buildHistory({ now, marketPrices: [closing] }), c).length === 0);
+
+  // Held rising outcome whose price now FELL over the window → SELL exit.
+  const pos: PolymarketPosition = {
+    conditionId: "0xbtc", tokenId: "111", market: "Bitcoin above $130k this week?", outcome: "Yes",
+    size: 10, avgPrice: 0.60, currentPrice: 0.52, value: 5.2, pnlUsd: -0.8,
+    negRisk: false, redeemable: false,
+  };
+  const dropped = mk({ points: [{ t: now - 90 * 60_000, p: 0.60 }, { t: now - 60 * 60_000, p: 0.60 }, { t: now, p: 0.52 }] });
+  const exits = s.propose(buildHistory({ now, marketPrices: [dropped], positions: [pos] }), c);
+  check("momentum flipped → SELL exit", exits.length === 1 && exits[0].side === "SELL", `got ${exits.length}`);
+  check("exit reason says flipped", !!exits[0]?.reason?.includes("MOMENTUM FLIPPED"), `got: ${exits[0]?.reason}`);
+
+  // seriesMomentum guards: terminal prices and empty series.
+  check("seriesMomentum: resolved (p=1) → null",
+    seriesMomentum([{ t: now - 90 * 60_000, p: 0.9 }, { t: now, p: 1 }], now, 60 * 60_000) === null);
+  check("seriesMomentum: single point → null", seriesMomentum([{ t: now, p: 0.5 }], now, 60 * 60_000) === null);
+
+  // momentum: {} alone turns origination on with defaults.
+  check("momentum:{} → proposes() true", new Strat({ momentum: {} }).proposes() === true);
+}
+
+console.log("\n── candle-mode momentum — the BTC 5-MIN DELTA rules ──");
+{
+  // The template's exact params: ≥60¢ side, ±5¢ delta over 2 minutes,
+  // one position, entries need ≥1 minute of candle left.
+  const s = new Strat({ momentum: {
+    candles: { slugPrefix: "btc-updown-5m", periodMinutes: 5 },
+    lookbackMinutes: 2, minRiseCents: 5, exitDropCents: 5,
+    minPrice: 0.6, maxPrice: 0.9, maxPositions: 1, minMinutesToClose: 1,
+  } });
+  check("candle strat: proposes() true", s.proposes() === true);
+  check("candle strat: wantsMarketPrices() true", s.wantsMarketPrices() === true);
+
+  const now = 1_784_659_200_000; // a real 5-min boundary (2:40PM ET candle)
+  const c: SizeConstraints = { userFloor: 1, userCeiling: 10, clobFloor: 1, capital: 100 };
+  const mk = (pts: [number, number][], endInSec = 180): MarketPriceSeries => ({
+    conditionId: "0xcandle",
+    market: "Bitcoin Up or Down - July 21, 2:40PM-2:45PM ET",
+    outcomes: ["Up", "Down"],
+    tokenIds: ["tokUp", "tokDown"],
+    endDateMs: now + endInSec * 1000,
+    points: pts.map(([dtSec, p]) => ({ t: now + dtSec * 1000, p })),
+  });
+
+  // Up 57¢ → 64¢ over the 2-minute lookback: +7¢ ≥ +5¢ at ≥60¢ → BUY Up.
+  const rising = mk([[-180, 0.55], [-120, 0.57], [-60, 0.60], [0, 0.64]]);
+  let props = s.propose(buildHistory({ now, marketPrices: [rising] }), c);
+  check("≥60¢ + positive ≥5¢ delta → BUY Up",
+    props.length === 1 && props[0].side === "BUY" && props[0].outcome === "Up" && props[0].tokenId === "tokUp",
+    JSON.stringify(props.map((p) => `${p.side} ${p.outcome}`)));
+
+  // 64¢ but only +3¢ over the window — inside the 5% band, no trade.
+  const slow = mk([[-180, 0.61], [-120, 0.61], [-60, 0.62], [0, 0.64]]);
+  check("≥60¢ but delta under 5¢ → no entry",
+    s.propose(buildHistory({ now, marketPrices: [slow] }), c).length === 0);
+
+  // Up decaying 40¢→33¢ IS Down climbing 60¢→67¢ — negative delta on one
+  // side means buy the other (the sellable expression of "delta negative").
+  const downRising = mk([[-180, 0.42], [-120, 0.40], [-60, 0.36], [0, 0.33]]);
+  props = s.propose(buildHistory({ now, marketPrices: [downRising] }), c);
+  check("negative Up delta → BUY Down (complement)",
+    props.length === 1 && props[0].outcome === "Down" && props[0].tokenId === "tokDown",
+    JSON.stringify(props.map((p) => `${p.side} ${p.outcome}`)));
+
+  // Holding Up when its delta flips −5¢ → SELL exit.
+  const pos: PolymarketPosition = {
+    conditionId: "0xcandle", tokenId: "tokUp",
+    market: "Bitcoin Up or Down - July 21, 2:40PM-2:45PM ET", outcome: "Up",
+    size: 15, avgPrice: 0.64, currentPrice: 0.60, value: 9, pnlUsd: -0.6,
+    negRisk: false, redeemable: false,
+  };
+  const falling = mk([[-180, 0.70], [-120, 0.68], [-60, 0.64], [0, 0.60]]);
+  const exits = s.propose(buildHistory({ now, marketPrices: [falling], positions: [pos] }), c);
+  check("held side's delta flips −5¢ → SELL exit",
+    exits.length === 1 && exits[0].side === "SELL" && exits[0].outcome === "Up",
+    JSON.stringify(exits.map((p) => `${p.side} ${p.outcome}`)));
+
+  // Inside the final minute there's no time to act — entry vetoed.
+  const late = mk([[-180, 0.55], [-120, 0.57], [-60, 0.60], [0, 0.64]], 30);
+  check("under 1 minute to candle close → no entry",
+    s.propose(buildHistory({ now, marketPrices: [late] }), c).length === 0);
+
+  // Deterministic candle addressing: slug floors to the live candle's start.
+  check("candleSlug floors mid-candle to the start boundary",
+    candleSlug("btc-updown-5m", 5, 1_784_659_300_000) === "btc-updown-5m-1784659200",
+    candleSlug("btc-updown-5m", 5, 1_784_659_300_000));
+  check("candleSlug rolls over exactly at the boundary",
+    candleSlug("btc-updown-5m", 5, 1_784_659_500_000) === "btc-updown-5m-1784659500");
+}
+
 console.log("\n── params are the whole configuration ──");
 {
   const s = new Strat({ name: "MY STRAT", maxPerCycle: 7 });
@@ -214,6 +387,86 @@ console.log("\n── Modularity probe: subclass override still works ──");
   }
   check("propose override → proposes() true", new Originator().proposes() === true);
   check("plain subclass → proposes() false", new FixedSizeStrat().proposes() === false);
+}
+
+console.log("\n── Cross-language playbook parity (parity.fixture.json) ──");
+{
+  // The same fixture is asserted by `cargo test` in live_engine.rs — if the
+  // TS and Rust playbook math ever drift, one of the two suites goes red.
+  const fixturePath = fileURLToPath(new URL("./parity.fixture.json", import.meta.url));
+  const fx = JSON.parse(readFileSync(fixturePath, "utf8"));
+  const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+
+  for (const c of fx.statsCases) {
+    const got = statsFromReturns(c.returns);
+    const exp = c.expected;
+    check(
+      `stats[${c.name}] roi/stdev/sharpe/wins/P match fixture`,
+      close(got.roi, exp.roi) && close(got.stdev, exp.stdev) && close(got.sharpe, exp.sharpe) &&
+        got.sampleSize === exp.sampleSize && got.wins === exp.wins && close(got.successProb, exp.successProb),
+      `got P=${got.successProb} roi=${got.roi}, want P=${exp.successProb} roi=${exp.roi}`,
+    );
+  }
+
+  const strat = new Strat();
+  for (const c of fx.scoreCases) {
+    const s = statsFromReturns(c.returns);
+    const stats = buildStats({ ...s });
+    const trade = buildTrade({ notional: c.notional, copyRatio: c.copyRatio });
+    const got = strat.scoreCandidate(trade, stats, buildHistory());
+    check(
+      `score[${c.name}] = P × roi × mirror$ matches fixture`,
+      close(got, c.expectedScore),
+      `got ${got}, want ${c.expectedScore}`,
+    );
+  }
+
+  for (const c of fx.stopLossCases) {
+    check(
+      `stopLoss(entry=${c.entry}, mark=${c.mark}, sl=${c.stopLoss}) → ${c.hit}`,
+      stopLossTriggered(c.entry, c.mark, c.stopLoss) === c.hit,
+    );
+  }
+
+  for (const c of fx.takeProfitCases) {
+    check(
+      `takeProfit(mark=${c.mark}, tp=${c.takeProfit}) → ${c.hit}`,
+      takeProfitTriggered(c.mark, c.takeProfit) === c.hit,
+    );
+  }
+
+  // Sizing pipeline — sizeAndPrice must reproduce the fixture the Rust
+  // engine's plan_mirror also asserts: same clamps, same skip classes,
+  // same slippage-widened tick-rounded limit price. This is what makes
+  // "what you backtest is what live places" true beyond the score math.
+  for (const c of fx.sizingCases) {
+    const s = new Strat({ slippageBps: c.slippageBps });
+    const trade = buildTrade({
+      side: c.side, price: c.price, size: c.leaderNotional / c.price,
+      notional: c.leaderNotional, copyRatio: c.copyRatio,
+    });
+    const d = s.sizeAndPrice(trade, {
+      userFloor: c.userFloor, userCeiling: c.ceiling,
+      clobFloor: clobMinNotional(c.price), capital: 1000,
+    }, buildHistory());
+    const skip = d.mirrorNotional <= 0
+      ? (d.reason?.startsWith("CEILING") ? "CEILING" : d.reason?.startsWith("LEADER_DUST") ? "DUST" : "OTHER")
+      : null;
+    const exp = c.expected;
+    check(
+      `sizing[${c.name}] matches fixture`,
+      skip === exp.skip &&
+        (exp.skip !== null || (close(d.mirrorNotional, exp.notional) && close(d.limitPrice, exp.limitPrice))),
+      `got skip=${skip} notional=${d.mirrorNotional} limit=${d.limitPrice}, want ${JSON.stringify(exp)}`,
+    );
+  }
+
+  check("REBALANCE_MARGIN_PCT matches fixture", REBALANCE_MARGIN_PCT === fx.rebalanceMarginPct);
+  check("DEFAULT_STOP_LOSS matches fixture", DEFAULT_STOP_LOSS === fx.defaults.stopLoss);
+  check("DEFAULT_TAKE_PROFIT matches fixture", DEFAULT_TAKE_PROFIT === fx.defaults.takeProfit);
+  check("successProbability falls back to 0.5 on stale cached stats",
+    successProbability({ ...buildStats(), successProb: undefined as unknown as number }) === 0.5 &&
+    successProbability(null) === 0.5);
 }
 
 console.log(`\n${failed === 0 ? "✓ all checks passed" : `✗ ${failed} failed`}\n`);

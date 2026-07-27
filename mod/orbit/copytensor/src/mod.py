@@ -13,6 +13,7 @@ Layout:
 import json
 import logging
 import os
+import shutil
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
@@ -43,8 +44,11 @@ class Copytensor(m.Mod):
     """Bittensor dTAO copy trading — mirror subnet allocations of top performers.
 
     All read paths (leaderboard, subnets, account, trader, PnL) work without
-    any wallet against a rotating pool of public Bittensor RPC endpoints.
-    Only stake/unstake operations require a wallet (set via `set_wallet`).
+    any wallet. They are served by the `bt` module's local index — the same
+    indexer behind the bt explorer — which also keeps the history of every
+    tracked trader. When bt is down, reads fall back to a rotating pool of
+    public Bittensor RPC endpoints. Only stake/unstake operations require a
+    wallet (set via `set_wallet`).
     """
 
     name = "copytensor"
@@ -57,9 +61,11 @@ class Copytensor(m.Mod):
         "serve", "kill", "status", "logs", "test", "gateway",
         # public-read passthroughs (no wallet needed)
         "subnets", "leaderboard", "account", "account_pnl",
-        "trader", "trades", "rpc_pool",
-        # watchlist
-        "watch", "unwatch", "watches",
+        "trader", "trades", "rpc_pool", "source",
+        # tracked traders (indexed by the bt module)
+        "traders", "trader_history", "flows",
+        # watchlist + the trader pool the leaderboard ranks
+        "watch", "unwatch", "watches", "discover", "universe", "set_pool",
         # copy management (needs wallet)
         "create_copy", "list_copies", "pause_copy", "resume_copy",
         "delete_copy", "sync_copy",
@@ -79,6 +85,30 @@ class Copytensor(m.Mod):
         self._mode: Optional[str] = None
 
     # ── docker lifecycle ──────────────────────────────────────────
+
+    def _default_mode(self) -> str:
+        """Whichever mode is actually deployed.
+
+        Docker being *installed* is not the same as copytensor *running* in
+        docker — defaulting to docker on a local deployment made `serve`
+        attempt an image build and `status`/`logs` report an empty container
+        while the real services were up. Pick docker only when this module
+        actually has a compose container.
+        """
+        if self._mode:
+            return self._mode
+        if not _has_docker():
+            return "local"
+        try:
+            proc = subprocess.run(
+                ["docker", "compose", "ps", "-q"],
+                cwd=ROOT_DIR, capture_output=True, text=True, timeout=20,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return "docker"
+        except Exception:
+            pass
+        return "local"
 
     def _docker_serve(self, build: bool = True) -> Dict[str, Any]:
         cmd = ["docker", "compose", "up", "-d"]
@@ -134,12 +164,53 @@ class Copytensor(m.Mod):
         return proc.stdout or proc.stderr or "<no output>"
 
     # ── local lifecycle ───────────────────────────────────────────
-    # We avoid pm2 here: pm2.start() auto-generates a python serve script
+    # We avoid m.pm2.start() here: it auto-generates a python serve script
     # that imports `mod`, which collides with copytensor/src/mod.py when the
-    # cwd is inside the package. Plain Popen + a PID file is simpler and
-    # actually runs the uvicorn / npm commands we want.
+    # cwd is inside the package. We drive the pm2 CLI directly instead, so
+    # both services get restarted on crash / reboot like the rest of the
+    # fleet, and fall back to plain Popen + a PID file when pm2 is absent.
 
     LOG_DIR = "/tmp/copytensor"
+
+    def _pm2_bin(self) -> Optional[str]:
+        return shutil.which("pm2")
+
+    def _pm2_name(self, role: str) -> str:
+        return f"{self.name}-{role}"
+
+    def _pm2_running(self, role: str) -> bool:
+        pm2 = self._pm2_bin()
+        if not pm2:
+            return False
+        try:
+            proc = subprocess.run(
+                [pm2, "jlist"], capture_output=True, text=True, timeout=15,
+            )
+            for p in json.loads(proc.stdout or "[]"):
+                if p.get("name") == self._pm2_name(role):
+                    return p.get("pm2_env", {}).get("status") == "online"
+        except Exception:
+            pass
+        return False
+
+    def _pm2_spawn(self, role: str, cmd: List[str], cwd: str,
+                   env: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """Start `cmd` under pm2. Returns None if pm2 isn't usable."""
+        pm2 = self._pm2_bin()
+        if not pm2:
+            return None
+        name = self._pm2_name(role)
+        subprocess.run([pm2, "delete", name], capture_output=True, timeout=30)
+        proc = subprocess.run(
+            [pm2, "start", cmd[0], "--name", name, "--cwd", cwd, "--"] + cmd[1:],
+            cwd=cwd, env={**os.environ, **env},
+            capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            log.warning("pm2 start %s failed: %s", name, proc.stderr.strip())
+            return None
+        subprocess.run([pm2, "save"], capture_output=True, timeout=30)
+        return {"ok": True, "supervisor": "pm2", "pm2_name": name}
 
     def _pid_file(self, role: str) -> str:
         os.makedirs(self.LOG_DIR, exist_ok=True)
@@ -168,6 +239,10 @@ class Copytensor(m.Mod):
             return None
 
     def _kill_role(self, role: str, port: Optional[int] = None):
+        pm2 = self._pm2_bin()
+        if pm2:
+            subprocess.run([pm2, "delete", self._pm2_name(role)],
+                           capture_output=True, timeout=30)
         pid = self._read_pid(role)
         if pid:
             try:
@@ -216,7 +291,8 @@ class Copytensor(m.Mod):
         if os.path.exists(rust_bin) and os.access(rust_bin, os.X_OK):
             cmd = [rust_bin]
             env = {"PORT": str(port), "RUST_LOG": "info"}
-            out = self._spawn("api", cmd, cwd=ROOT_DIR, env=env)
+            out = (self._pm2_spawn("api", cmd, cwd=ROOT_DIR, env=env)
+                   or self._spawn("api", cmd, cwd=ROOT_DIR, env=env))
             out["backend"] = "rust"
             out["port"] = port
             return out
@@ -229,7 +305,8 @@ class Copytensor(m.Mod):
             "--host", "0.0.0.0", "--port", str(port),
         ]
         env = {"PORT": str(port), "PYTHONPATH": ROOT_DIR}
-        out = self._spawn("api", cmd, cwd=ROOT_DIR, env=env)
+        out = (self._pm2_spawn("api", cmd, cwd=ROOT_DIR, env=env)
+               or self._spawn("api", cmd, cwd=ROOT_DIR, env=env))
         out["backend"] = "python"
         out["port"] = port
         return out
@@ -248,11 +325,24 @@ class Copytensor(m.Mod):
             "PORT": str(port),
             "NEXT_PUBLIC_API_URL": f"http://localhost:{api_port}",
         }
-        out = self._spawn(
-            "app",
-            ["npm", "run", "dev", "--", "-p", str(port)],
-            cwd=APP_DIR, env=env,
-        )
+        # Serve a production build: `next dev` recompiles every route on each
+        # request and dies under load, which is how the app used to disappear
+        # behind a gateway 500. Build once if .next is missing or is a dev
+        # build (dev builds have no BUILD_ID).
+        built = os.path.exists(os.path.join(APP_DIR, ".next", "BUILD_ID"))
+        if not built:
+            b = subprocess.run(
+                ["npm", "run", "build"],
+                cwd=APP_DIR, env={**os.environ, **env},
+                capture_output=True, text=True, timeout=900,
+            )
+            if b.returncode != 0:
+                return {"ok": False, "port": port, "stage": "build",
+                        "error": (b.stderr or b.stdout)[-2000:]}
+
+        cmd = ["npm", "run", "start", "--", "-p", str(port)]
+        out = (self._pm2_spawn("app", cmd, cwd=APP_DIR, env=env)
+               or self._spawn("app", cmd, cwd=APP_DIR, env=env))
         out["port"] = port
         return out
 
@@ -262,7 +352,7 @@ class Copytensor(m.Mod):
               app_port: Optional[int] = None, build: bool = True, **kw) -> Dict[str, Any]:
         """Start copytensor. mode='docker' (default if available) or 'local'."""
         if mode is None:
-            mode = "docker" if _has_docker() else "local"
+            mode = self._default_mode()
 
         if mode == "docker":
             result = self._docker_serve(build=build)
@@ -366,7 +456,7 @@ class Copytensor(m.Mod):
     def kill(self, target: str = "all", mode: Optional[str] = None) -> Dict[str, Any]:
         """Stop services. mode='docker' (default) or 'local'."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._default_mode()
 
         if mode == "docker":
             return self._docker_kill()
@@ -383,16 +473,17 @@ class Copytensor(m.Mod):
     def status(self, mode: Optional[str] = None) -> Dict[str, Any]:
         """Service status. mode='docker' (default) or 'local'."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._default_mode()
 
         if mode == "docker":
             return self._docker_status()
 
         out = {"module": self.name, "mode": "local", "api_url": self.api_url}
-        out["api"] = "running" if self._read_pid("api") else "stopped"
-        out["app"] = "running" if self._read_pid("app") else "stopped"
+        for role in ("api", "app"):
+            out[role] = ("running" if (self._pm2_running(role)
+                                       or self._read_pid(role)) else "stopped")
         try:
-            r = requests.get(f"{self.api_url}/health", timeout=2)
+            r = requests.get(f"{self.api_url}/health", timeout=15)
             out["health"] = r.json() if r.ok else {"http": r.status_code}
         except Exception as e:
             out["health"] = {"error": str(e)}
@@ -402,10 +493,19 @@ class Copytensor(m.Mod):
              mode: Optional[str] = None) -> str:
         """Fetch logs. mode='docker' (default) or 'local'."""
         if mode is None:
-            mode = self._mode or ("docker" if _has_docker() else "local")
+            mode = self._default_mode()
 
         if mode == "docker":
             return self._docker_logs(lines=lines)
+
+        if self._pm2_running(target):
+            proc = subprocess.run(
+                [self._pm2_bin(), "logs", self._pm2_name(target),
+                 "--lines", str(lines), "--nostream"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.stdout.strip():
+                return proc.stdout
 
         path = self._log_file(target)
         if not os.path.exists(path):
@@ -426,6 +526,12 @@ class Copytensor(m.Mod):
 
     def _post(self, path: str, body: Optional[Dict] = None) -> Any:
         r = requests.post(f"{self.api_url}{path}", json=body or {}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
+    def _post_q(self, path: str, **params) -> Any:
+        """POST with query params (the discovery endpoints take no body)."""
+        r = requests.post(f"{self.api_url}{path}", params=params, timeout=120)
         r.raise_for_status()
         return r.json()
 
@@ -450,6 +556,27 @@ class Copytensor(m.Mod):
     def trader(self, ss58: str) -> Any:
         return self._get(f"/trader/{ss58}")
 
+    # tracked traders — bt's index answers these, not the RPC pool
+    def traders(self, sort_by: str = "total_tao") -> Any:
+        """Tracked traders with value, allocation and windowed PnL."""
+        return self._get("/traders", sort_by=sort_by)
+
+    def trader_history(self, ss58: str, hours: int = 168) -> Any:
+        """A tracked trader's portfolio value over time."""
+        return self._get(f"/traders/{ss58}/history", hours=str(hours))
+
+    def flows(self, ss58: Optional[str] = None, hours: int = 168,
+              limit: int = 100) -> Any:
+        """Inferred buys/sells — one trader's, or the whole tape."""
+        path = f"/traders/{ss58}/flows" if ss58 else "/flows"
+        return self._get(path, hours=str(hours), limit=str(limit))
+
+    def source(self) -> Any:
+        """Which backend serves reads right now: bt's index or public RPCs."""
+        st = self._get("/status")
+        return {"reads": st.get("reads"), "bt": st.get("bt"),
+                "block_height": st.get("block_height")}
+
     def trades(self, limit: int = 50, copy_id: Optional[str] = None) -> Any:
         params: Dict[str, str] = {"limit": str(limit)}
         if copy_id:
@@ -469,6 +596,20 @@ class Copytensor(m.Mod):
 
     def watches(self) -> Any:
         return self._get("/watches")
+
+    # the trader pool the leaderboard ranks
+    def universe(self) -> Any:
+        """How many traders we rank vs how many exist on-chain."""
+        return self._get("/universe")
+
+    def set_pool(self, size: int = 250, refresh: bool = False) -> Any:
+        """Watch the top `size` coldkeys by stake. Grows in the background."""
+        return self._post_q("/pool", size=str(size),
+                            refresh="true" if refresh else "false")
+
+    def discover(self, top: int = 8, kind: str = "validator") -> Any:
+        """Add the top-N of the on-chain universe now (blocking, snapshots)."""
+        return self._post_q("/discover", top=str(top), kind=kind)
 
     # copies
     def create_copy(self, target_ss58: str, our_hotkey: str,

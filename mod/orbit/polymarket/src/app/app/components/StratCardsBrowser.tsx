@@ -11,11 +11,16 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
+import { fmtUsd, type StratMoney } from "../lib/stratStats";
 import type { SavedIndex } from "../lib/types";
 
 interface Props {
   open: boolean;
   indexes: SavedIndex[];
+  /** Per-strat live money-in/PnL (from useStratStats); keys are strat ids. */
+  stats?: Record<string, StratMoney>;
+  /** Deposit wallet's USDC cash (from useStratStats); null until known. */
+  cash?: number | null;
   activeId: string | null;
   onClose: () => void;
   onSelect: (id: string) => void;
@@ -64,6 +69,8 @@ function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters">): str
 export default function StratCardsBrowser({
   open,
   indexes,
+  stats,
+  cash = null,
   activeId,
   onClose,
   onSelect,
@@ -131,6 +138,12 @@ export default function StratCardsBrowser({
             const enabledTraders = idx.traders.filter((t) => t.enabled !== false).length;
             const pnl = idx.lastPnlAfterCosts ?? idx.lastPnl;
             const chips = filterChips(idx);
+            // Always render the viewer's live money row — an untraded strat
+            // reads $0 rather than hiding it, so cards compare at a glance.
+            const money = stats?.[idx.id];
+            const totalPnl = money?.totalPnl ?? 0;
+            const pnl24h = money?.pnl24h ?? 0;
+            const roi24h = money?.roi24h ?? null;
             return (
               <div
                 key={idx.id}
@@ -183,6 +196,38 @@ export default function StratCardsBrowser({
                       <div className="text-[12.5px] text-pixel-white font-mono truncate">{p.value}</div>
                     </div>
                   ))}
+                </div>
+
+                {/* Live money — wallet cash available to trade, cumulative
+                    PnL and last-24h return (engine ledger, not backtest). */}
+                <div className="grid grid-cols-3 gap-1.5 mb-2.5">
+                  <div className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">
+                    <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">CASH</div>
+                    <div
+                      className={`text-[12.5px] font-mono truncate ${cash === null ? "text-pixel-gray" : "text-pixel-white"}`}
+                      title="Deposit wallet's USDC cash"
+                    >
+                      {cash !== null ? fmtUsd(cash) : "—"}
+                    </div>
+                  </div>
+                  <div className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">
+                    <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">LIVE PNL</div>
+                    <div
+                      className={`text-[12.5px] font-mono truncate ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-white"}`}
+                      title={money ? `$${money.moneyIn.toFixed(2)} deployed · realized ${fmtUsd(money.realized)} · unrealized ${fmtUsd(money.unrealized)}` : "No fills from your wallet in this strat yet"}
+                    >
+                      {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
+                    </div>
+                  </div>
+                  <div className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">
+                    <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">24H ROI</div>
+                    <div
+                      className={`text-[12.5px] font-mono truncate ${roi24h === null ? "text-pixel-gray" : roi24h > 0 ? "text-green-400" : roi24h < 0 ? "text-red-400" : "text-pixel-white"}`}
+                      title={`24h PnL ${pnl24h >= 0 ? "+" : ""}${fmtUsd(pnl24h)}`}
+                    >
+                      {roi24h !== null ? `${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Filter chips — what slice of the watched flow this strat copies */}

@@ -1,6 +1,14 @@
 {
-    "name": "bitchain",
-    "description": "bitchain",
-    "version": "0.1.0",
-    "schema": "QmcqEEdk4EwKsUthRT3BvogYr2FrbYQeV373NwbhDpTw7F"
+  "name": "bitchain",
+  "description": "bitchain",
+  "version": "0.1.0",
+  "schema": "QmcqEEdk4EwKsUthRT3BvogYr2FrbYQeV373NwbhDpTw7F",
+  "urls": {
+    "api": "http://localhost:50260",
+    "app": "http://localhost:50261/bitchain"
+  },
+  "port": 50260,
+  "app_port": 50261,
+  "base_path": "/bitchain",
+  "route": true
 }

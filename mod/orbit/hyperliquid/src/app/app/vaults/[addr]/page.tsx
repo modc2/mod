@@ -3,8 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { vaultDetails, vaultTransfer, fmtUsd, fmtPnl, fmtPct, shortAddr } from "../../lib/api";
+import { vaultDetails, analyzeTrader, fmtUsd, fmtPnl, fmtPct, shortAddr } from "../../lib/api";
 import { useWallet } from "../../lib/wallet";
+import PnlChart from "../../components/PnlChart";
+import VaultTransferPanel from "../../components/VaultTransferPanel";
+
+const CHART_WINDOWS = [
+  { label: "1D", days: 1 },
+  { label: "7D", days: 7 },
+  { label: "30D", days: 30 },
+  { label: "ALL", days: 365 },
+] as const;
 
 export default function VaultDetailPage() {
   const params = useParams();
@@ -15,10 +24,11 @@ export default function VaultDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<"deposit" | "withdraw">("deposit");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  // Chart window + the vault's own trading account (a vault IS an HL account,
+  // so the trader-analyze endpoint yields its open positions).
+  const [chartDays, setChartDays] = useState<number>(30);
+  const [an, setAn] = useState<any>(null);
+  const [anErr, setAnErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -30,34 +40,14 @@ export default function VaultDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const fs = d?.followerState;
-  const myEquity = fs ? Number(fs.vaultEquity) : 0;
-  const myPnl = fs ? Number(fs.pnl) : 0;
-  const maxWithdraw = Number(d?.maxWithdrawable ?? 0);
-  const lockupUntil = fs ? Number(fs.lockupUntil) : 0;
-  const locked = lockupUntil > Date.now();
-
-  const submit = async () => {
-    setMsg(null); setErr(null);
-    if (!eoa) { setErr("Connect your wallet first."); return; }
-    const amt = Number(amount);
-    if (!(amt > 0)) { setErr("Enter an amount in USD."); return; }
-    if (mode === "withdraw" && amt > maxWithdraw + 1e-9) {
-      setErr(`Max withdrawable right now is ${fmtUsd(maxWithdraw)}.`); return;
-    }
-    setBusy(true);
-    try {
-      const res = await vaultTransfer({ eoa, vault: addr, is_deposit: mode === "deposit", amount_usd: amt });
-      if (res?.status === "err" || res?.error) {
-        setErr(typeof res.error === "string" ? res.error : JSON.stringify(res));
-      } else {
-        setMsg(`${mode === "deposit" ? "Deposited" : "Withdrew"} ${fmtUsd(amt)} — ${mode === "deposit" ? "into" : "from"} ${d?.name || shortAddr(addr)}.`);
-        setAmount("");
-      }
-      await load();
-    } catch (e: any) { setErr(e.message ?? String(e)); }
-    finally { setBusy(false); }
-  };
+  useEffect(() => {
+    let alive = true;
+    setAnErr(null);
+    analyzeTrader(addr, 7)
+      .then((a) => { if (alive) setAn(a); })
+      .catch((e) => { if (alive) setAnErr(e.message ?? String(e)); });
+    return () => { alive = false; };
+  }, [addr]);
 
   if (loading && !d) return <div className="text-xs text-muted">loading vault…</div>;
 
@@ -86,70 +76,76 @@ export default function VaultDetailPage() {
         <Stat label="deposits" value={depositsOpen ? "open" : "closed"} cls={depositsOpen ? "text-win" : "text-loss"} />
       </div>
 
-      {/* Your position */}
-      {eoa && (
-        <div className="panel p-4">
-          <div className="label">your position</div>
-          {myEquity > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
-              <Stat label="equity" value={fmtUsd(myEquity)} />
-              <Stat label="pnl" value={fmtPnl(myPnl)} cls={myPnl >= 0 ? "text-win" : "text-loss"} />
-              <Stat label="withdrawable" value={fmtUsd(maxWithdraw)} />
-              <Stat label="lockup"
-                value={locked ? `until ${new Date(lockupUntil).toLocaleDateString()}` : "none"}
-                cls={locked ? "text-warn" : "text-muted"} />
-            </div>
-          ) : (
-            <p className="text-xs text-muted mt-1">You have no deposit in this vault yet.</p>
-          )}
+      {/* Portfolio history — the vault's equity / PnL curve from HL's
+          vaultDetails portfolio payload (same shape as a trader's). */}
+      <div className="panel">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wider text-muted">portfolio history</span>
+          <div className="flex gap-1">
+            {CHART_WINDOWS.map((wnd) => (
+              <button key={wnd.label} onClick={() => setChartDays(wnd.days)}
+                className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider transition-colors ${
+                  chartDays === wnd.days
+                    ? "border-accent/50 bg-accent/10 text-ink"
+                    : "border-white/[0.08] bg-white/[0.03] text-muted hover:text-ink"
+                }`}>
+                {wnd.label}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
-
-      {/* Invest / withdraw */}
-      <div className="panel p-5 space-y-4">
-        <div className="flex gap-1">
-          <button onClick={() => setMode("deposit")}
-            className={`btn ${mode === "deposit" ? "border-accent text-accent" : ""}`}>invest</button>
-          <button onClick={() => setMode("withdraw")}
-            className={`btn ${mode === "withdraw" ? "border-accent text-accent" : ""}`}>withdraw</button>
-        </div>
-
-        {!eoa ? (
-          <p className="text-xs text-muted">Connect your wallet (top right) to invest.</p>
-        ) : (
-          <>
-            <div>
-              <div className="label">amount (USDC)</div>
-              <div className="flex gap-2 items-center">
-                <input className="input w-48 num" type="number" min={0} step={10} placeholder="0.00"
-                  value={amount} onChange={(e) => setAmount(e.target.value)} />
-                {mode === "withdraw" && maxWithdraw > 0 && (
-                  <button className="btn" onClick={() => setAmount(String(maxWithdraw))}>max</button>
-                )}
-              </div>
-            </div>
-
-            {mode === "deposit" && !depositsOpen &&
-              <div className="text-xs text-loss">This vault is not accepting deposits.</div>}
-            {mode === "withdraw" && locked &&
-              <div className="text-xs text-warn">Funds are locked until {new Date(lockupUntil).toLocaleString()}.</div>}
-
-            <button className="btn-primary" onClick={submit}
-              disabled={busy || (mode === "deposit" && !depositsOpen)}>
-              {busy ? "submitting…" : mode === "deposit" ? "invest" : "withdraw"}
-            </button>
-
-            <p className="text-[10px] text-muted">
-              Signed by your backend agent wallet. If this fails with an auth error, approve the agent
-              once under <Link href="/live" className="text-accent2 hover:text-accent">Live</Link>.
-            </p>
-          </>
-        )}
-
-        {msg && <div className="text-xs text-win">{msg}</div>}
-        {err && <div className="text-xs text-loss break-words">{err}</div>}
+        <PnlChart portfolio={d?.portfolio} days={chartDays} />
       </div>
+
+      {/* Inside the vault — its live open positions */}
+      <div className="panel">
+        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wider text-muted">inside the vault · open positions</span>
+          <Link href={`/trader/${addr}`} className="text-[11px] text-accent2 hover:text-accent">
+            full analytics →
+          </Link>
+        </div>
+        <VaultPositions an={an} err={anErr} />
+      </div>
+
+      {/* Your position + invest / withdraw (agent-signed, MetaMask-authorized) */}
+      <VaultTransferPanel vault={addr} vaultName={d?.name} />
+
+      {err && <div className="text-xs text-loss break-words">{err}</div>}
     </div>
+  );
+}
+
+function VaultPositions({ an, err }: { an: any; err: string | null }) {
+  if (err) return <div className="px-4 py-6 text-xs text-loss break-words">{err}</div>;
+  if (!an) return <div className="px-4 py-6 text-xs text-muted">loading positions…</div>;
+  const positions = ((an.state?.assetPositions ?? []) as any[])
+    .map((p) => p.position ?? p)
+    .filter((pos) => Number(pos.szi || 0) !== 0);
+  if (positions.length === 0)
+    return <div className="px-4 py-6 text-xs text-muted">no open positions — the vault is fully in USDC right now.</div>;
+  return (
+    <>
+      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+        <div>coin</div><div className="text-right">size</div>
+        <div className="text-right">value</div><div className="text-right">entry</div>
+        <div className="text-right">unrealized</div><div className="text-right">leverage</div>
+      </div>
+      {positions.map((pos, i) => {
+        const sz = Number(pos.szi || 0);
+        const upnl = Number(pos.unrealizedPnl || 0);
+        return (
+          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 table-row">
+            <div className="text-ink">{pos.coin}</div>
+            <div className={`num text-right ${sz >= 0 ? "text-win" : "text-loss"}`}>{sz}</div>
+            <div className="num text-right">{fmtUsd(Number(pos.positionValue || 0))}</div>
+            <div className="num text-right">{Number(pos.entryPx || 0).toFixed(4)}</div>
+            <div className={`num text-right ${upnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(upnl)}</div>
+            <div className="num text-right">{pos.leverage?.value ?? "—"}x</div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 

@@ -17,16 +17,29 @@ interface FetchProgress {
   done: boolean;
 }
 
+// Per-trader lookback overrides: { [address]: days } with 0 = all history.
+// Shared-origin localStorage — keep the map pruned and every write try/caught.
+const TRADER_DAYS_KEY = "poly8bit_trader_days";
+
+function loadTraderDaysMap(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TRADER_DAYS_KEY) || "{}");
+    return raw && typeof raw === "object" ? (raw as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function TraderPageInner() {
   useUrlSync();
   const params = useParams();
   const router = useRouter();
-  const { daysAgo, search, setSearch, category, reloadKey } = useFilters();
-  const days = Number(daysAgo) > 0 ? Number(daysAgo) : 7;
+  const { daysAgo, setSearch, category, reloadKey } = useFilters();
+  const globalDays = Number(daysAgo) > 0 ? Number(daysAgo) : 7;
 
-  // Clear search on mount — on the traders list, search finds traders by
-  // address/market. Here it filters trades by market name, so carrying
-  // over a previous query (like an address) would match zero trades.
+  // Clear the global search on mount — this page has no search box (trade
+  // filtering is click-a-market instead), so a query carried over from the
+  // traders list would otherwise linger invisibly in the shared context.
   const cleared = useRef(false);
   useEffect(() => {
     if (!cleared.current) {
@@ -39,9 +52,39 @@ function TraderPageInner() {
     Array.isArray(params.address) ? params.address[0] : params.address || "",
   ).toLowerCase();
 
+  // Per-trader lookback override — null = follow the global window. Hydrated
+  // post-mount (localStorage) to avoid SSR hydration mismatch; 0 = ALL history.
+  const [daysOverride, setDaysOverride] = useState<number | null>(null);
+  useEffect(() => {
+    const v = loadTraderDaysMap()[address];
+    setDaysOverride(typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+  }, [address]);
+
+  const days = daysOverride ?? globalDays;
+
+  const changeDays = (d: number | null) => {
+    setDaysOverride(d);
+    try {
+      const m = loadTraderDaysMap();
+      if (d === null) delete m[address];
+      else m[address] = d;
+      // Prune oldest-inserted entries so the shared-origin quota stays safe.
+      const keys = Object.keys(m);
+      if (keys.length > 200) {
+        for (const k of keys.slice(0, keys.length - 200)) delete m[k];
+      }
+      localStorage.setItem(TRADER_DAYS_KEY, JSON.stringify(m));
+    } catch {}
+  };
+
   const [trades, setTrades] = useState<PolymarketTrade[]>([]);
   const [positions, setPositions] = useState<PolymarketPosition[]>([]);
   const [loading, setLoading] = useState(true);
+  // Non-null when the /activity sync ultimately failed (e.g. upstream
+  // rate-limit) — the UI must say so instead of rendering $0 stats that
+  // look like a real "no trades" answer.
+  const [tradesError, setTradesError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [progress, setProgress] = useState<FetchProgress>({
     pages: 0, totalTrades: 0, oldestMs: 0, done: false,
   });
@@ -74,6 +117,7 @@ function TraderPageInner() {
       setProgress({ pages: 0, totalTrades: 0, oldestMs: 0, done: false });
     }
     setLoading(true);
+    setTradesError(null);
 
     // cutoffSec=0 → fetch ALL available history (not just the window).
     // The display window (days) only controls which trades are shown.
@@ -91,9 +135,18 @@ function TraderPageInner() {
       .then((t) => {
         if (!cancelled) setTrades(t);
       })
-      .catch(() => {
-        // Keep whatever partial trades were already streamed in —
-        // don't wipe them on a late-page failure.
+      .catch((e: unknown) => {
+        // Keep whatever partial trades were already streamed in — don't
+        // wipe them on a late-page failure. But DO record the failure so
+        // the page can say "sync failed" instead of a misleading 0-trades.
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setTradesError(
+            msg === "API 429"
+              ? "RATE-LIMITED BY POLYMARKET DATA API"
+              : `TRADE SYNC FAILED (${msg})`,
+          );
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -112,10 +165,10 @@ function TraderPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [address, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [address, reloadKey, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const trader: TopTrader = useMemo(() => {
-    const cutoffMs = Date.now() - days * 86400_000;
+    const cutoffMs = days > 0 ? Date.now() - days * 86400_000 : 0;
     const recent = trades.filter((t) => t.timestamp >= cutoffMs);
     const volume = recent.reduce((s, t) => s + t.size * t.price, 0);
     const buyVolume = recent.filter((t) => t.side === "BUY").reduce((s, t) => s + t.size * t.price, 0);
@@ -127,6 +180,7 @@ function TraderPageInner() {
       sellVolume,
       pnl: 0,
       winRate: -1,
+      sharpe: 0,
       positions: positions.length,
       marketTitles: positions.map((p) => p.market).slice(0, 20),
       recentTrades: recent.length,
@@ -155,7 +209,9 @@ function TraderPageInner() {
 
   return (
     <div className="max-w-[1920px] mx-auto">
-      <TopBar searchPlaceholder="FILTER TRADES BY MARKET..." />
+      {/* No search box here — trade filtering happens by clicking a market
+          in the tables below (TraderProfile shows a clearable chip). */}
+      <TopBar showSearch={false} />
 
       {/* Sticky load-progress strip — sits right below the nav tabs so
           it's always visible while we're paginating /activity. Shows
@@ -187,11 +243,15 @@ function TraderPageInner() {
           trades={trades}
           positions={positions}
           loading={loading && trades.length === 0}
+          tradesError={tradesError}
+          onRetrySync={() => setRetryKey((k) => k + 1)}
           watching={watching}
           onToggleWatch={toggleWatch}
           onBack={() => router.back()}
           days={days}
-          searchFilter={search}
+          daysOverride={daysOverride}
+          globalDays={globalDays}
+          onDaysChange={changeDays}
           categoryFilter={category}
         />
       </div>

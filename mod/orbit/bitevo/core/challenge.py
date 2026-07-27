@@ -1,8 +1,8 @@
 import hashlib
 import time
 import random
-import mod as m
 from core.schemas import Challenge, ChallengeType
+from core.llm import get_llm
 
 VERTICALS = [
     "AI + healthcare", "developer tools", "fintech for emerging markets",
@@ -45,13 +45,13 @@ def _hash(text: str) -> str:
 
 class ChallengeGenerator:
 
-    def __init__(self, llm=None, llm_backend='openrouter'):
+    def __init__(self, llm=None, llm_backend='claude'):
         self.llm = llm
         self.llm_backend = llm_backend
 
     def _get_llm(self):
         if self.llm is None:
-            self.llm = m.mod(self.llm_backend)()
+            self.llm = get_llm(self.llm_backend)
         return self.llm
 
     def generate(self, epoch: int = 0, challenge_type=None) -> Challenge:

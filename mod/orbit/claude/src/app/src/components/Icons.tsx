@@ -6,7 +6,7 @@
 // existing hover/active color logic keeps working untouched), and sits on
 // the same 24×24 grid.
 
-import type { SVGProps } from "react";
+import type { CSSProperties, SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
@@ -89,6 +89,19 @@ export function VersionsIcon(props: IconProps) {
   );
 }
 
+/** GRAPH — a node-link tree: root node fanning out to two leaves. */
+export function GraphIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="5.5" cy="12" r="2.4" />
+      <circle cx="18.5" cy="5.5" r="2.4" />
+      <circle cx="18.5" cy="18.5" r="2.4" />
+      <path d="M7.9 12c4 0 4-6.5 8.2-6.5" />
+      <path d="M7.9 12c4 0 4 6.5 8.2 6.5" />
+    </svg>
+  );
+}
+
 /** HUB — four rounded tiles. */
 export function HubIcon(props: IconProps) {
   return (
@@ -122,6 +135,46 @@ export function TasksIcon(props: IconProps) {
       <path d="M4 13.5l1.6 1.6 2.9-3.1" />
       <path d="M12 14h8.5" />
       <path d="M12 19.5h6" />
+    </svg>
+  );
+}
+
+/** SPINNER — a ring with a leading arc, spun by `animate-spin`. Drawn as an
+ *  SVG (not the border-trick span) because at 8–16px a 1.5px CSS border
+ *  rounds to different device pixels per edge, so the ring isn't concentric
+ *  with the box and visibly wobbles off its rotation axis. */
+export function SpinnerIcon({
+  size = 12,
+  thickness = 1.5,
+  color = "currentColor",
+  className,
+  style,
+}: {
+  size?: number;
+  thickness?: number;
+  color?: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const sw = thickness * (24 / size); // px → viewBox units
+  const r = 12 - sw / 2;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      className={`animate-spin shrink-0${className ? ` ${className}` : ""}`}
+      style={{ display: "block", ...style }}
+    >
+      <circle cx="12" cy="12" r={r} stroke={color} strokeOpacity="0.25" strokeWidth={sw} />
+      <path
+        d={`M12 ${12 - r} A ${r} ${r} 0 0 1 ${12 + r} 12`}
+        stroke={color}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

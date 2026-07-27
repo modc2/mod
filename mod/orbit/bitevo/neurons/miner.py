@@ -1,11 +1,12 @@
 import json
 import time
 import re
-import mod as m
 from core.schemas import Challenge, StartupPitch, MinerResponse
 from core.prompts import MINER_SYSTEM_PROMPT, MINER_USER_PROMPT
+from core.llm import get_llm
 
 DEFAULT_MODELS = {
+    'claude': 'haiku',
     'openrouter': 'anthropic/claude-sonnet-4',
     'venice': 'llama-3.3-70b',
     'chutes': 'unsloth/Llama-3.3-70B-Instruct',
@@ -16,7 +17,7 @@ class BitevoMiner:
 
     def __init__(
         self,
-        backend: str = 'openrouter',
+        backend: str = 'claude',
         model: str = None,
         uid: int = 0,
         hotkey: str = 'default',
@@ -28,7 +29,7 @@ class BitevoMiner:
         **kwargs,
     ):
         self.backend = backend
-        self.model = model or DEFAULT_MODELS.get(backend, 'anthropic/claude-sonnet-4')
+        self.model = model or DEFAULT_MODELS.get(backend, DEFAULT_MODELS['claude'])
         self.uid = uid
         self.hotkey = hotkey
         self.wallet_name = wallet_name
@@ -41,7 +42,7 @@ class BitevoMiner:
     @property
     def llm(self):
         if self._llm is None:
-            self._llm = m.mod(self.backend)()
+            self._llm = get_llm(self.backend, model=self.model)
         return self._llm
 
     def forward(self, challenge: Challenge, **kwargs) -> MinerResponse:

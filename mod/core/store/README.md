@@ -50,7 +50,7 @@ mod/core/store/
 
 ```bash
 cd ~/mod/mod/core/store
-docker compose up --build         # API: 50150, App: 50151
+docker compose up --build         # API: 50152, App: 50151
 # open http://localhost:50151
 ```
 
@@ -128,10 +128,34 @@ m store/stop                      # pm2 stop
 | DELETE | `/pools/{id}/objects` | owner/editor | unpool an object `?cid=…` |
 | POST   | `/handoff`   | ✓    | mint a one-time code carrying my session token `{ttl_seconds?}` |
 | GET    | `/handoff/{code}` | — | claim → token (single use, short TTL) |
+| GET    | `/market`    | opt  | browse the storefront `?q=&tag=&seller=&sort=hot|new|top&free=1` |
+| POST   | `/market/list` | ✓ wl+tos | list an object you own `{cid, title, description?, tags?, price_bloc?}` |
+| DELETE | `/market/list` | ✓  | delist `?cid=…`; admin delisting others' = logged takedown |
+| POST   | `/market/acquire` | ✓ | get a listed item — free, or **hold** ≥ `price_bloc` BlocTime |
+| POST   | `/market/like` | ✓  | toggle a like (one per wallet) |
+| GET    | `/market/mine` | ✓  | my listings + my acquisitions |
 
 `✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership;
 `+tos` = also requires a signed acceptance of the current terms of service;
 `opt` = optional token (anonymous allowed for public objects).
+
+## Marketplace (listings · likes · BlocTime-priced access)
+
+The store ships a storefront over objects that already live in it: sellers
+list a CID with a title/description/tags and a price, browsable by anyone at
+`GET /market` (hot/new/top ranking, tag + seller filters, full-text search).
+Pricing reuses the on-chain BlocTime gate instead of inventing a payment rail:
+
+- `price_bloc = 0` — a **free drop**: any signed-in caller can grab it.
+- `price_bloc > 0` — the buyer must **hold** ≥ that much BlocTime on-chain.
+  Holdings are the ticket; nothing is transferred or held in custody.
+
+"Buying" mints a **permanent read grant** (seller → buyer) through the normal
+Access layer, so acquired items appear under `/shared` and every read path
+(get / preview / QR tickets) works unchanged. Listing a *private* object sells
+access; listing a *public* one makes a discoverable free drop. Listings are
+metadata only (`~/.mod/store/market.json`) — delisting never deletes bytes.
+The admin may delist any listing; such moderation lands in the takedown audit.
 
 ## Terms of service & moderation (liability)
 
@@ -275,7 +299,7 @@ can also do this live via `POST /whitelist`).
 | `HIPPIUS_S3_ENDPOINT` | `https://s3.hippius.com` | S3 gateway |
 | `HIPPIUS_S3_KEY` / `_SECRET` / `_BUCKET` | — | S3 credentials |
 | `HIPPIUS_IPFS_GATEWAY` | `https://get.hippius.network` | retrieval gateway |
-| `STORE_API_PORT` / `STORE_APP_PORT` | `50150` / `50151` | port overrides |
+| `STORE_API_PORT` / `STORE_APP_PORT` | `50152` / `50151` | port overrides |
 
 ## Architecture
 
@@ -285,7 +309,7 @@ can also do this live via `POST /whitelist`).
    └──────┬──────────────┘
           │ Bearer <protocol token>
    ┌──────▼──────────────┐
-   │ FastAPI (50150)     │  AUTH.verify → whitelist + quota → /put /get …
+   │ FastAPI (50152)     │  AUTH.verify → whitelist + quota → /put /get …
    └──────┬──────────────┘
           │
    ┌──────▼──────────────┐

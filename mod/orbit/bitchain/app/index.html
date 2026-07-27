@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bitchain</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --panel: #101624;
+    --line: #1e2a40;
+    --text: #d7e0ef;
+    --dim: #6b7a94;
+    --accent: #f7931a;
+    --ok: #3ddc84;
+    --err: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: var(--bg); color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 14px; line-height: 1.55;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: .12em; }
+  h1 .bit { color: var(--accent); }
+  .status { display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.err { background: var(--err); }
+  .tagline { color: var(--dim); margin: 0 0 32px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .18em; color: var(--dim); font-weight: 600; }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; word-break: break-all; }
+  .kv .k { color: var(--dim); }
+  .fns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fn {
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px;
+    background: transparent; color: var(--text); font: inherit; cursor: pointer;
+  }
+  .fn:hover { border-color: var(--accent); color: var(--accent); }
+  textarea, input {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 10px; font: inherit;
+  }
+  .row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .row input { flex: 1; }
+  button.go {
+    background: var(--accent); color: #000; border: 0; border-radius: 6px;
+    padding: 8px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  pre {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+    margin: 10px 0 0; max-height: 340px; overflow-y: auto;
+  }
+  .muted { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="bit">BIT</span>CHAIN</h1>
+    <span class="status"><span id="dot" class="dot"></span><span id="statustext">connecting…</span></span>
+  </header>
+  <p class="tagline">mod protocol module &middot; api at <a style="color:var(--accent)" href="#" onclick="return false">/api/bitchain</a></p>
+
+  <div class="card">
+    <h2>MODULE</h2>
+    <div class="kv" id="info"><span class="muted">loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>FUNCTIONS</h2>
+    <div class="fns" id="fns"><span class="muted">loading…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>CALL</h2>
+    <div class="row">
+      <input id="fn" placeholder="fn (e.g. info)" value="info">
+      <button class="go" onclick="call()">POST</button>
+    </div>
+    <textarea id="params" rows="3" spellcheck="false">{}</textarea>
+    <pre id="out" class="muted">// response</pre>
+  </div>
+</div>
+
+<script>
+const API = '/api/bitchain';
+
+async function post(fn, params) {
+  const r = await fetch(`${API}/${fn}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(params || {}),
+  });
+  return r.json();
+}
+
+function setStatus(ok, text) {
+  document.getElementById('dot').className = 'dot ' + (ok ? 'ok' : 'err');
+  document.getElementById('statustext').textContent = text;
+}
+
+async function boot() {
+  try {
+    const res = await post('info');
+    const info = res.result || res;
+    setStatus(true, 'api live');
+    const show = ['name', 'desc', 'port', 'key', 'path'];
+    document.getElementById('info').innerHTML = show
+      .filter(k => info[k] !== undefined)
+      .map(k => `<span class="k">${k}</span><span>${String(info[k])}</span>`)
+      .join('');
+    const fns = info.fns || [];
+    document.getElementById('fns').innerHTML = fns
+      .map(f => `<button class="fn" onclick="preset('${f}')">${f}</button>`)
+      .join('') || '<span class="muted">none</span>';
+  } catch (e) {
+    setStatus(false, 'api unreachable');
+    document.getElementById('info').innerHTML = `<span class="k">error</span><span>${e}</span>`;
+  }
+}
+
+function preset(fn) {
+  document.getElementById('fn').value = fn;
+  call();
+}
+
+async function call() {
+  const out = document.getElementById('out');
+  const fn = document.getElementById('fn').value.trim();
+  let params;
+  try { params = JSON.parse(document.getElementById('params').value || '{}'); }
+  catch { out.textContent = '// params is not valid JSON'; return; }
+  out.textContent = '// …';
+  try {
+    const res = await post(fn, params);
+    out.textContent = JSON.stringify(res, null, 2);
+  } catch (e) {
+    out.textContent = '// ' + e;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

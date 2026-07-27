@@ -5,6 +5,7 @@ import {
   getMarketCache, setMarketCache,
 } from "./cache";
 import { computeFifoTrades } from "./pnlEngine";
+import { statsFromReturns } from "./strats/strat";
 
 // ── Top Trader type ─────────────────────────────────────────────
 export interface TopTrader {
@@ -14,6 +15,10 @@ export interface TopTrader {
   sellVolume: number;    // in-window USDC on SELLs
   pnl: number;
   winRate: number;
+  /** Sharpe ratio over the window (per-closed-trade returns), computed
+      server-side by the same `stats_from_returns` formula the live engine
+      uses. Default SCORE metric in the leaderboard. */
+  sharpe: number;
   positions: number;
   marketTitles: string[];
   recentTrades: number;
@@ -77,22 +82,26 @@ async function polyApi(endpoint: string, params: Record<string, string> = {}): P
   const ATTEMPTS = 3;
   let lastErr: unknown;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      // 300ms, 900ms backoff — long enough to ride out a reload/blip, short
-      // enough to stay well inside the engine's poll interval.
-      await new Promise((r) => setTimeout(r, 300 * 3 ** (attempt - 1)));
-    }
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      // 5xx is the gateway/backend briefly unhappy — worth retrying. 4xx is a
-      // real client error (bad address, bad params) and won't change on retry.
-      if (res.status >= 500) throw new Error(`API ${res.status}`);
+      const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      // 5xx is the gateway/backend briefly unhappy — worth retrying. 429 is
+      // the upstream data-api rate-limiting us — also transient, but needs a
+      // LONGER pause than a blip. Any other 4xx is a real client error (bad
+      // address, bad params) and won't change on retry.
       if (!res.ok) throw new Error(`API ${res.status}`);
       return await res.json();
     } catch (e) {
       lastErr = e;
-      // Don't burn retries on a deterministic 4xx.
-      if (e instanceof Error && /^API 4\d\d$/.test(e.message)) throw e;
+      // Don't burn retries on a deterministic 4xx (429 excepted).
+      const msg = e instanceof Error ? e.message : "";
+      if (/^API 4\d\d$/.test(msg) && msg !== "API 429") throw e;
+      if (attempt < ATTEMPTS - 1) {
+        // Rate-limit: 3s, 8s. Everything else: 300ms, 900ms.
+        const wait = msg === "API 429"
+          ? [3_000, 8_000][attempt]
+          : 300 * 3 ** attempt;
+        await new Promise((r) => setTimeout(r, wait));
+      }
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -334,6 +343,35 @@ export async function fetchPriceHistory(
   const result = arr.map((x) => ({ t: Number(x.t), p: Number(x.p) }));
   if (result.length > 0) setMarketCache(cacheKey, result as unknown as unknown[]);
   return result;
+}
+
+/** Near-live price history for sub-hour candle markets. Bypasses BOTH the
+ *  client market cache and the server's 24h `prices-history` persistence by
+ *  reading through the `live-prices-history` alias (15s server TTL) at
+ *  fidelity 1 — 1-minute bars, the CLOB minimum. A 5-minute market's whole
+ *  life fits inside one regular cache generation, so the normal cached path
+ *  would freeze its series at the first fetch. */
+export async function fetchPriceHistoryLive(tokenId: string): Promise<PricePoint[]> {
+  const raw = await polyApi("live-prices-history", {
+    market: tokenId,
+    interval: "1h",
+    fidelity: "1",
+  }) as { history?: { t: number; p: number }[] };
+  const arr = Array.isArray(raw?.history) ? raw.history : [];
+  return arr.map((x) => ({ t: Number(x.t), p: Number(x.p) }));
+}
+
+/** Near-live CLOB midpoint for one token (0–1), or null when the book is
+ *  empty/unreadable. Used as the synthetic "now" point on candle series —
+ *  fidelity-1 history can lag ~90s, which is a third of a 5-minute candle. */
+export async function fetchMidpointLive(tokenId: string): Promise<number | null> {
+  try {
+    const raw = await polyApi("live-midpoint", { token_id: tokenId }) as { mid?: unknown };
+    const mid = Number(raw?.mid);
+    return Number.isFinite(mid) && mid > 0 && mid < 1 ? mid : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface MarketTrade {
@@ -611,6 +649,7 @@ export async function fetchTopTradersStream(
           sellVolume: Number(t.sellVolume || 0),
           pnl: Number(t.pnl || 0),
           winRate: Number(t.winRate || 0),
+          sharpe: Number(t.sharpe || 0),
           positions: Number(t.positions || 0),
           marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
           recentTrades: Number(t.recentTrades || 0),
@@ -658,6 +697,7 @@ export async function fetchTopTraders(
     sellVolume: Number(t.sellVolume || 0),
     pnl: Number(t.pnl || 0),
     winRate: Number(t.winRate || 0),
+    sharpe: Number(t.sharpe || 0),
     positions: Number(t.positions || 0),
     marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
     recentTrades: Number(t.recentTrades || 0),
@@ -705,7 +745,11 @@ export async function fetchWalletTradesUntil(
   }
 
   // ── Cache miss — paginate from API ──
-  const PAGE = 1000;
+  // data-api enforces a max activity limit of 500 and 400s above it (same
+  // cap the Rust pipeline documents) — limit=1000 made EVERY first-page
+  // fetch fail deterministically, so trader profiles showed 0 trades while
+  // positions (a different endpoint) loaded fine.
+  const PAGE = 500;
   const out: PolymarketTrade[] = [];
   let oldestMs = 0;
 
@@ -944,13 +988,22 @@ export async function fetchPositions(
   }
 
   // Polymarket data API: /positions?user=<address>&sizeThreshold=.1
-  const raw = await polyApi("positions", {
-    user: address,
-    sizeThreshold: ".1",
-    limit: "100",
-  }) as unknown;
-
-  const positions = Array.isArray(raw) ? raw : [];
+  // limit was 100, which silently truncated big traders — the profile
+  // showed exactly "100 positions" for anyone holding more. 500 is the
+  // data-api's max per page (same cap as /activity), so paginate with
+  // offset until a short page. 2000 is a sanity ceiling, not a target.
+  const positions: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < 2000; offset += 500) {
+    const raw = await polyApi("positions", {
+      user: address,
+      sizeThreshold: ".1",
+      limit: "500",
+      offset: String(offset),
+    }) as unknown;
+    if (!Array.isArray(raw) || raw.length === 0) break;
+    positions.push(...(raw as Record<string, unknown>[]));
+    if (raw.length < 500) break;
+  }
 
   const safe = (n: unknown, fallback = 0): number => {
     const v = Number(n);
@@ -1093,27 +1146,10 @@ export async function fetchTraderRoiStats(
     returns.push(t.realized / entryNotional);
   }
 
-  const sampleSize = returns.length;
-  let roi = 0;
-  let stdev = 0;
-  if (sampleSize > 0) {
-    const mean = returns.reduce((s, r) => s + r, 0) / sampleSize;
-    roi = mean;
-    if (sampleSize >= 2) {
-      const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (sampleSize - 1);
-      stdev = Math.sqrt(variance);
-    }
-  }
-  // Treat <3 closed trades as "unknown" — too noisy to score on.
-  const sharpe = sampleSize >= 3 && stdev > 0 ? roi / stdev : 0;
-
   return {
     address: address.toLowerCase(),
     windowDays,
-    roi,
-    stdev,
-    sampleSize,
-    sharpe,
+    ...statsFromReturns(returns),
     cashDeployed,
     syncedAt: Date.now(),
   };

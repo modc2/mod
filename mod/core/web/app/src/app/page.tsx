@@ -9,6 +9,7 @@ import {
   type Registry,
   type SearchResult,
 } from "@/lib/api";
+import { bloc, chain, type ModStakesAll } from "@/lib/chain";
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
 import DepGraph from "./components/DepGraph";
@@ -22,6 +23,7 @@ export default function Home() {
   const [mods, setMods] = useState<Module[] | null>(null);
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
+  const [stakes, setStakes] = useState<ModStakesAll | null>(null);
   const [view, setView] = useState<View>("grid");
   const [q, setQ] = useState("");
   const [onchainOnly, setOnchainOnly] = useState(false);
@@ -42,6 +44,7 @@ export default function Home() {
     api.info().then((i) => alive && setInfo(i)).catch(() => {});
     api.registry().then((r) => alive && setRegistry(r)).catch(() => {});
     api.graph().then((g) => alive && setGraph(g)).catch(() => {});
+    chain.modStakes().then((s) => alive && setStakes(s)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -90,7 +93,12 @@ export default function Home() {
     // how many words hit (name hits first).
     const terms = s.split(/\s+/).filter(Boolean);
     const pool = mods.filter((m) => !onchainOnly || m.registered);
-    if (terms.length === 0) return pool;
+    // No query: BLOC-staked modules float to the top (stable within ties, so
+    // the backend's live-first ordering is preserved among the unstaked).
+    if (terms.length === 0) {
+      const w = (m: Module) => stakes?.mods[m.name]?.total ?? 0;
+      return [...pool].sort((a, b) => w(b) - w(a));
+    }
     const hits = (hay: string, t: string) =>
       hay.includes(t) ||
       (t.length > 3 && t.endsWith("s") && hay.includes(t.slice(0, -1)));
@@ -116,7 +124,7 @@ export default function Home() {
           a.m.name.localeCompare(b.m.name),
       )
       .map((r) => r.m);
-  }, [mods, q, onchainOnly, semantic, sem]);
+  }, [mods, q, onchainOnly, semantic, sem, stakes]);
 
   const onchainCount = useMemo(
     () => (mods ? mods.filter((m) => m.registered).length : 0),
@@ -159,6 +167,17 @@ export default function Home() {
                   <span className="onweb-count" title="Modules the gateway serves live on the web">
                     ● <b>{onWebCount}</b> live
                   </span>
+                  {(stakes?.total ?? 0) > 0 && (
+                    <>
+                      <span className="sep">·</span>
+                      <span
+                        className="bloc-count"
+                        title="BlocTime staked to modules across the catalog"
+                      >
+                        ⧗ <b>{bloc(stakes?.total)}</b> BLOC staked
+                      </span>
+                    </>
+                  )}
                   <span className="sep">·</span>
                   <span
                     className="oc"
@@ -234,7 +253,12 @@ export default function Home() {
         {view === "grid" && mods && filtered.length > 0 && (
           <div className="grid">
             {filtered.map((m, i) => (
-              <ModuleCard m={m} index={i} key={m.name} />
+              <ModuleCard
+                m={m}
+                index={i}
+                staked={stakes?.mods[m.name]?.total ?? 0}
+                key={m.name}
+              />
             ))}
           </div>
         )}

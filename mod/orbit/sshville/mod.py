@@ -32,7 +32,7 @@ import mod as m
 
 class Mod:
     description = "Multi-host SSH manager — MetaMask (ETH) + SubWallet/Polkadot.js (sr25519) auth"
-    path = r"/Users/broski/mod/mod/orbit/sshville"
+    path = os.path.dirname(os.path.abspath(__file__))
 
     CHALLENGE = "sshville-auth-v1"
 
@@ -43,6 +43,7 @@ class Mod:
         )
         self._store_dir.mkdir(parents=True, exist_ok=True)
         self._store_path = self._store_dir / "connections.json"
+        self._keys_path = self._store_dir / "keys.json"
         self._cfg = self._load_config()
         self._api_dir = Path(self.path) / "src" / "api"
 
@@ -85,8 +86,17 @@ class Mod:
     def forward(self, **kwargs):
         return self.info()
 
+    def _load_keys(self) -> dict:
+        if not self._keys_path.exists():
+            return {}
+        try:
+            return json.loads(self._keys_path.read_text() or "{}")
+        except Exception:
+            return {}
+
     def info(self) -> dict:
         store = self._load_store()
+        keyring = self._load_keys()
         return {
             "name": self._cfg.get("name", "sshville"),
             "version": self._cfg.get("version"),
@@ -98,8 +108,11 @@ class Mod:
                 "app": self._cfg.get("app_port"),
             },
             "store_path": str(self._store_path),
+            "keys_path": str(self._keys_path),
             "wallets": len(store),
             "connections": sum(len(v) for v in store.values()),
+            "vaults": sum(1 for b in keyring.values() if b.get("vault")),
+            "keys": sum(len(b.get("keys", {})) for b in keyring.values()),
             "challenge": self.CHALLENGE,
             "auth_schemes": ["eth (MetaMask)", "sub (Polkadot.js / SubWallet, sr25519)"],
         }
@@ -151,6 +164,47 @@ class Mod:
         }
         self._save_store(store)
         return {"ok": True, "wallet": wallet, "id": cid}
+
+    def keys(self, wallet: Optional[str] = None) -> dict:
+        """List vault keys (metadata only — ciphertext stays opaque; only the
+        vault passphrase, which never leaves the browser, can decrypt it)."""
+        keyring = self._load_keys()
+        if wallet is None:
+            return {
+                w: {
+                    "vault": bool(b.get("vault")),
+                    "keys": list(b.get("keys", {}).keys()),
+                }
+                for w, b in keyring.items()
+            }
+        bucket = keyring.get(self._wallet_id(wallet), {})
+        return {
+            "vault": bucket.get("vault"),
+            "keys": {
+                kid: {f: k.get(f) for f in ("id", "name", "kind", "public_key", "fingerprint", "created_at", "updated_at")}
+                for kid, k in bucket.get("keys", {}).items()
+            },
+        }
+
+    def remove_key(self, wallet: str, id: str) -> dict:
+        """Delete one vault key. Refuses if a connection still references it."""
+        wallet = self._wallet_id(wallet)
+        keyring = self._load_keys()
+        bucket = keyring.get(wallet, {})
+        if id not in bucket.get("keys", {}):
+            return {"ok": False, "error": f"key {id!r} not found"}
+        used_by = [
+            cid
+            for cid, c in self._load_store().get(wallet, {}).items()
+            if c.get("key_id") == id
+        ]
+        if used_by:
+            return {"ok": False, "error": f"key {id!r} referenced by connections {used_by}"}
+        del bucket["keys"][id]
+        if not bucket.get("keys") and not bucket.get("vault"):
+            keyring.pop(wallet, None)
+        self._keys_path.write_text(json.dumps(keyring, indent=2))
+        return {"ok": True, "wallet": wallet, "id": id}
 
     def remove(self, wallet: str, id: str) -> dict:
         wallet = self._wallet_id(wallet)
@@ -231,8 +285,8 @@ class Mod:
         return target
 
     def serve(self) -> dict:
-        port = int(self._cfg.get("port", 50180))
-        app_port = int(self._cfg.get("app_port", 50181))
+        port = int(self._cfg.get("port", 50182))
+        app_port = int(self._cfg.get("app_port", 50183))
         log_dir = Path("/tmp/sshville")
         log_dir.mkdir(parents=True, exist_ok=True)
 

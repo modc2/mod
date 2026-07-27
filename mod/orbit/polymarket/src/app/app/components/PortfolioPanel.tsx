@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
 import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
+import { computeFifoTrades } from "../lib/pnlEngine";
+import type { PolymarketPosition, PolymarketTrade } from "../lib/types";
 import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 
 interface DepositWalletInfo {
@@ -230,6 +232,13 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   // My executed fills (deposit-wallet trades) → BUY/SELL dots on the curve.
   const [fills, setFills] = useState<GlobalTrade[]>([]);
   const [redeemMarks, setRedeemMarks] = useState<RedeemMark[]>([]);
+  // Chart ↔ MY TRADES linking — same interaction pair as the BACKTEST tab:
+  // hover a marker to highlight the nearest feed row, hover a row to pin the
+  // chart crosshair, click a row to keep the selection across mouse-leave.
+  const [chartHighlightT, setChartHighlightT] = useState<number | null>(null);
+  const [tradeHighlight, setTradeHighlight] = useState<number | null>(null);
+  const [selectedTradeIdx, setSelectedTradeIdx] = useState<number | null>(null);
+  const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
   // In-flight guard so the auto-redeem effect can't stack requests.
   const redeemBusy = useRef(false);
 
@@ -478,7 +487,9 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         const n = Number(j.conditions ?? 0);
         const skipped = Number(j.skipped ?? 0);
         setRedeemStatus(
-          `${opts.auto ? "auto-" : ""}redeemed ${n} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} skipped` : ""}`,
+          n > 0 && v < 0.005
+            ? `cleared ${n} settled loss${n === 1 ? "" : "es"} · $0 to claim (losing side pays nothing)${skipped ? ` · ${skipped} deferred` : ""}`
+            : `${opts.auto ? "auto-" : ""}redeemed ${n} market(s) · ~${fmtUsd(v)} → cash${skipped ? ` · ${skipped} deferred` : ""}`,
         );
         // Stamp the event on the chart. The curve is NOT reset — a redeem
         // just moves value from Positions to Cash, Total stays continuous,
@@ -491,6 +502,11 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
             return next;
           });
         }
+      } else if (String(j.error ?? "").includes("wallet busy")) {
+        // The relayer allows ONE in-flight action per wallet — "busy" here
+        // almost always means the backend engine's own auto-redeem pass (or
+        // a trade) holds the slot. That's the system working, not an error.
+        setRedeemStatus("redeem in progress elsewhere (engine holds the wallet slot) — retries shortly");
       } else {
         setRedeemStatus(null);
         setLastError(`redeem: ${j.error ?? `HTTP ${r.status}`}`);
@@ -640,8 +656,10 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           <PieChart liq={liq} pos={posValue} />
         ) : (
           // Markers ride the Positions line — that's the line a fill actually
-          // moves (BUY: pos ↑ cash ↓; SELL/REDEEM: pos ↓ cash ↑).
-          <EquityChart history={history} markers={markers} markerLine="pos" />
+          // moves (BUY: pos ↑ cash ↓; SELL/REDEEM: pos ↓ cash ↑). Defaults to
+          // the % (TWR) unit: deposits/withdrawals are stripped so the curve
+          // reads as trading performance, not funding events.
+          <EquityChart history={history} markers={markers} markerLine="pos" defaultUnit="%" />
         )}
       </div>
 
@@ -730,25 +748,23 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       )}
 
       {/* Settled positions — redeemed AUTOMATICALLY (see the auto-redeem
-          effect above); this row just narrates it, with a manual kick as a
-          fallback for when the auto pass is inside its cooldown. */}
+          effect above; the backend engine runs its own 5-min pass too). No
+          manual button: redemption is not a decision the user should have to
+          make, so this row only narrates what's already in flight. */}
       {positions.some((p) => p.redeemable) && (() => {
         const red = positions.filter((p) => p.redeemable);
-        const claimable = red.reduce((s, p) => s + p.value, 0);
+        // A settled LOSING position is redeemable but worth $0 — redeeming
+        // it only clears the dead tokens. Say so, or "~$0.00 auto-redeems
+        // to cash" reads like a bug.
+        const wins = red.filter((p) => p.value > 0.005);
+        const claimable = wins.reduce((s, p) => s + p.value, 0);
+        const losses = red.length - wins.length;
         return (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] text-pixel-muted whitespace-nowrap">
-              {red.length} settled · ~{fmtUsd(claimable)} · auto-redeems to cash
-            </span>
-            <button
-              onClick={() => doRedeem({ auto: false })}
-              disabled={redeeming}
-              className="text-[10px] px-2 py-0.5 bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded"
-              title="Settled winnings redeem themselves automatically (every few minutes). This forces a pass right now."
-            >
-              {redeeming ? "REDEEMING…" : "REDEEM NOW"}
-            </button>
-          </div>
+          <span className="text-[10px] text-pixel-muted whitespace-nowrap">
+            {wins.length > 0
+              ? `${wins.length} settled win${wins.length === 1 ? "" : "s"} · ~${fmtUsd(claimable)} auto-redeems to cash${losses > 0 ? ` · ${losses} loss${losses === 1 ? "" : "es"} ($0) auto-cleared` : ""}`
+              : `${losses} settled loss${losses === 1 ? "" : "es"} · $0 to claim (losing side pays nothing) · auto-clearing`}
+          </span>
         );
       })()}
 

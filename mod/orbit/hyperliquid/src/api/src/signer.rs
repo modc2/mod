@@ -141,7 +141,7 @@ fn parse_master_hex(s: &str) -> Option<[u8; 32]> {
     Some(o)
 }
 
-fn address_from_pubkey(vk: &VerifyingKey) -> String {
+pub fn address_from_pubkey(vk: &VerifyingKey) -> String {
     let pt = vk.to_encoded_point(false);
     let bytes = pt.as_bytes();
     let pubkey = &bytes[1..]; // strip 0x04 prefix

@@ -6,6 +6,7 @@ import { api, gatewayUrl, recents, type Module } from "@/lib/api";
 import { Nav, Footer } from "../../components/Chrome";
 import Explorer from "../../components/Explorer";
 import RegisterPanel from "../../components/RegisterPanel";
+import StakePanel from "../../components/StakePanel";
 import { LivePreview } from "../../components/LivePreview";
 
 function hueFromName(name: string): string {
@@ -190,13 +191,22 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
                   </div>
                 )}
 
-                {!m.registered && (
+                <div className="chain-sec-head">
+                  <h3>⛓ on-chain</h3>
+                  <span className="chain-sec-sub">
+                    register in the Registry · stake BlocTime to back this
+                    module
+                  </span>
+                </div>
+                <div className="chain-grid">
                   <RegisterPanel
                     name={m.name}
                     schema={m.schema}
+                    registered={!!m.registered}
                     onRegistered={reload}
                   />
-                )}
+                  <StakePanel name={m.name} />
+                </div>
 
                 <div className="panel">
                   <h3>config.json</h3>

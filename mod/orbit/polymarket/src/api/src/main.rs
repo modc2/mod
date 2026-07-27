@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
                         ),
                         Err(e) => tracing::warn!(eoa = %eoa, error = %e, "scheduled redemption errored"),
                     }
-                    match liq_engines.liquidate_all(&eoa).await {
+                    match liq_engines.liquidate_all(&eoa, None).await {
                         Ok(r) => tracing::info!(
                             eoa = %eoa, positions = r.positions, placed = r.placed,
                             skipped = r.skipped, failed = r.failed,
@@ -116,12 +116,23 @@ async fn main() -> anyhow::Result<()> {
     // after 60s and triggering on-demand refetches. Each cycle still only
     // re-fetches expired entries, so steady-state load stays proportional to
     // the candidate pool size (default 2000 traders).
+    //
+    // Cadence guarantee: ticks are start-to-start (tokio interval), not
+    // sleep-after-work — the old pattern drifted to 1h + cycle duration.
+    // Each cycle is panic-guarded so one bad upstream payload can't kill
+    // the task and silently stop historical syncs for good.
     let warmup_pipeline = pipeline.clone();
     tokio::spawn(async move {
+        use futures::FutureExt;
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            warmup_pipeline.warmup_cycle().await;
-            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            tick.tick().await;
+            let cycle = warmup_pipeline.warmup_cycle();
+            if std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err() {
+                tracing::error!("warmup cycle panicked; next sync in 1h");
+            }
         }
     });
 

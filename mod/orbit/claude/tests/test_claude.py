@@ -279,6 +279,7 @@ class TestOwnership:
         """Error message is human-readable with truncated addresses."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         try:
             c.require_owner("0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB", "forward(test query...)")
             assert False, "Should have raised"
@@ -294,6 +295,7 @@ class TestOwnership:
         """require_owner handles Key objects with .address attribute."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         key = MagicMock()
         key.address = "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB"
         key.__str__ = lambda self: f"Key({self.address}, type=ecdsa)"

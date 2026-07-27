@@ -76,7 +76,9 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
   }
 
   const finalPnl = points[points.length - 1].pnl;
-  const finalColor = finalPnl > 0 ? "#4ade80" : finalPnl < 0 ? "#f87171" : "#999";
+  // Theme-aware via CSS vars — inline styles bypass the light-mode class
+  // overrides, so hardcoded green-400 hex would wash out on white.
+  const finalColor = finalPnl > 0 ? "var(--up)" : finalPnl < 0 ? "var(--down)" : "var(--flat)";
 
   // Trade span info
   const tsList = tradesInWindow.map((t) => t.timestamp);
@@ -125,11 +127,15 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
           {tradesInWindow.length} TRADES · {fmt(tradeMinTs)} → {fmt(tradeMaxTs)} · SPANS {spanLabel}
         </div>
       )}
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: "auto", maxHeight: 280 }}>
+      {/* All chart chrome rides currentColor (text-pixel-white flips per
+          theme) — hardcoded #fff strokes rendered an invisible white line on
+          the white light-mode panel. Vars go through style={} because SVG
+          presentation ATTRIBUTES don't resolve var(). */}
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full text-pixel-white" style={{ height: "auto", maxHeight: 280 }}>
         <defs>
           <linearGradient id="pnlFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity={0.15} />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
+            <stop offset="0%" stopColor="currentColor" stopOpacity={0.15} />
+            <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
           </linearGradient>
           <filter id="glow">
             <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -141,49 +147,49 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
         </defs>
         {/* Grid lines */}
         {yTicks.map((v, i) => (
-          <line key={i} x1={pad.left} y1={toY(v)} x2={W - pad.right} y2={toY(v)} stroke="#222" strokeWidth={1} />
+          <line key={i} x1={pad.left} y1={toY(v)} x2={W - pad.right} y2={toY(v)} stroke="currentColor" strokeOpacity={0.12} strokeWidth={1} />
         ))}
         {/* Zero line */}
         {minPnl < 0 && maxPnl > 0 && (
-          <line x1={pad.left} y1={toY(0)} x2={W - pad.right} y2={toY(0)} stroke="#444" strokeWidth={1} strokeDasharray="4,4" />
+          <line x1={pad.left} y1={toY(0)} x2={W - pad.right} y2={toY(0)} stroke="currentColor" strokeOpacity={0.28} strokeWidth={1} strokeDasharray="4,4" />
         )}
         {/* Y-axis labels */}
         {yTicks.map((v, i) => (
-          <text key={i} x={pad.left - 6} y={toY(v) + 3} textAnchor="end" fill="#666" fontSize={9} fontFamily="'IBM Plex Mono', monospace">
+          <text key={i} x={pad.left - 6} y={toY(v) + 3} textAnchor="end" fill="currentColor" fillOpacity={0.45} fontSize={9} fontFamily="'IBM Plex Mono', monospace">
             {fmtY(v)}
           </text>
         ))}
         {/* X-axis labels */}
         {xTicks.map((t, i) => (
-          <text key={i} x={toX(t.ts)} y={H - 8} textAnchor="middle" fill="#666" fontSize={9} fontFamily="'IBM Plex Mono', monospace">
+          <text key={i} x={toX(t.ts)} y={H - 8} textAnchor="middle" fill="currentColor" fillOpacity={0.45} fontSize={9} fontFamily="'IBM Plex Mono', monospace">
             {t.label}
           </text>
         ))}
         {/* Axes */}
-        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={H - pad.bottom} stroke="#444" strokeWidth={1} />
-        <line x1={pad.left} y1={H - pad.bottom} x2={W - pad.right} y2={H - pad.bottom} stroke="#444" strokeWidth={1} />
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={H - pad.bottom} stroke="currentColor" strokeOpacity={0.28} strokeWidth={1} />
+        <line x1={pad.left} y1={H - pad.bottom} x2={W - pad.right} y2={H - pad.bottom} stroke="currentColor" strokeOpacity={0.28} strokeWidth={1} />
         {/* Area fill */}
         <path d={areaPath} fill="url(#pnlFill)" />
         {/* Line with glow */}
-        <path d={linePath} fill="none" stroke="#fff" strokeWidth={1} strokeOpacity={0.3} strokeLinejoin="round" strokeLinecap="round" filter="url(#glow)" />
-        <path d={linePath} fill="none" stroke="#fff" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        <path d={linePath} fill="none" stroke="currentColor" strokeWidth={1} strokeOpacity={0.3} strokeLinejoin="round" strokeLinecap="round" filter="url(#glow)" />
+        <path d={linePath} fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
         {/* Dots */}
         {points.map((p, i) => {
           const x = toX(p.ts), y = toY(p.pnl);
           if (p.side === "MARK") {
-            return <circle key={i} cx={x} cy={y} r={4} fill="#1a1a1a" stroke="#fff" strokeWidth={2} />;
+            return <circle key={i} cx={x} cy={y} r={4} style={{ fill: "var(--pixel-panel)" }} stroke="currentColor" strokeWidth={2} />;
           }
           if (p.side === "BUY") {
-            return <circle key={i} cx={x} cy={y} r={3} fill="#444" stroke="#888" strokeWidth={1} />;
+            return <circle key={i} cx={x} cy={y} r={3} style={{ fill: "var(--pixel-gray)", stroke: "var(--pixel-gray-light)" }} strokeWidth={1} />;
           }
-          const dotFill = p.realized > 0 ? "#4ade80" : p.realized < 0 ? "#f87171" : "#999";
-          return <rect key={i} x={x - 3} y={y - 3} width={6} height={6} fill={dotFill} stroke="#000" strokeWidth={1} />;
+          const dotFill = p.realized > 0 ? "var(--up)" : p.realized < 0 ? "var(--down)" : "var(--flat)";
+          return <rect key={i} x={x - 3} y={y - 3} width={6} height={6} style={{ fill: dotFill, stroke: "var(--pixel-black)" }} strokeWidth={1} />;
         })}
         {/* Hover crosshair + highlight */}
         {hp && (
           <>
-            <line x1={toX(hp.ts)} y1={pad.top} x2={toX(hp.ts)} y2={H - pad.bottom} stroke="#555" strokeWidth={1} strokeDasharray="3,3" />
-            <circle cx={toX(hp.ts)} cy={toY(hp.pnl)} r={5} fill="#fff" stroke="#000" strokeWidth={2} />
+            <line x1={toX(hp.ts)} y1={pad.top} x2={toX(hp.ts)} y2={H - pad.bottom} stroke="currentColor" strokeOpacity={0.4} strokeWidth={1} strokeDasharray="3,3" />
+            <circle cx={toX(hp.ts)} cy={toY(hp.pnl)} r={5} fill="currentColor" style={{ stroke: "var(--pixel-black)" }} strokeWidth={2} />
           </>
         )}
       </svg>
@@ -205,11 +211,11 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
             </span>
           )}
           {hp.side === "SELL" && (
-            <span style={{ color: hp.realized > 0 ? "#4ade80" : hp.realized < 0 ? "#f87171" : "#999" }}>
+            <span style={{ color: hp.realized > 0 ? "var(--up)" : hp.realized < 0 ? "var(--down)" : "var(--flat)" }}>
               {hp.realized >= 0 ? "+" : ""}${hp.realized.toFixed(2)}
             </span>
           )}
-          <span style={{ color: hp.pnl > 0 ? "#4ade80" : hp.pnl < 0 ? "#f87171" : "#fff" }}>
+          <span style={{ color: hp.pnl > 0 ? "var(--up)" : hp.pnl < 0 ? "var(--down)" : "var(--fg)" }}>
             MTM {hp.pnl >= 0 ? "+" : ""}${hp.pnl.toFixed(2)}
           </span>
           {/* Sharpe-weighted score from the live-engine sampler. Joined
@@ -227,7 +233,7 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
             if (lt.score === undefined || lt.sharpe === undefined || lt.score <= 0) {
               return <span className="text-pixel-gray/60">score — (no 30d Sharpe)</span>;
             }
-            const color = lt.score > 5 ? "#4ade80" : lt.score > 1 ? "#facc15" : "#a3a3a3";
+            const color = lt.score > 5 ? "var(--up)" : lt.score > 1 ? "rgb(var(--warn))" : "var(--flat)";
             return (
               <span style={{ color }}>
                 score ${lt.score.toFixed(2)} (Sharpe {lt.sharpe.toFixed(2)})

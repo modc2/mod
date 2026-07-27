@@ -23,8 +23,13 @@ const nextConfig = {
       // Client fetches /api/web/* (at the domain root, NOT under basePath) →
       // proxy to the Rust gateway. basePath:false mirrors the Caddy block.
       { source: "/api/web/:path*", destination: `${apiUrl}/:path*`, basePath: false },
-      // Client fetches /api/chain/* → proxy to the chain hub (registration,
-      // MOD mint, reward pool). Kept server-side; the hub isn't public.
+      // Client fetches {basePath}/api/chain/* → proxy to the chain hub
+      // (registration, MOD mint, reward pool, per-mod staking). Lives UNDER the
+      // basePath so the Caddy gateway's existing /web/* route carries it in
+      // prod — a domain-root /api/chain would never reach this app through the
+      // gateway. The hub itself stays private; only this proxy is public.
+      { source: "/api/chain/:path*", destination: `${chainUrl}/:path*` },
+      // Back-compat for direct local use without the basePath.
       { source: "/api/chain/:path*", destination: `${chainUrl}/:path*`, basePath: false },
     ];
   },

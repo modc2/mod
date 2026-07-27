@@ -3,7 +3,7 @@
 # container in the foreground and supervises both processes).
 set -e
 
-API_PORT="${STORE_API_PORT:-50150}"
+API_PORT="${STORE_API_PORT:-50152}"
 APP_PORT="${STORE_APP_PORT:-50151}"
 
 echo "── mod store (pm2) ─────────────────────────────────────────"

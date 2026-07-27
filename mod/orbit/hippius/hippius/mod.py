@@ -33,6 +33,16 @@ from typing import Optional
 
 DIR = Path(__file__).resolve().parent.parent
 STORE = Path(os.path.expanduser('~/.hippius-mod'))
+# Off-chain credential file (never committed): {"s3_key": "...", "s3_secret": "...",
+# "s3_endpoint": "...", "s3_bucket": "..."} — env vars take precedence.
+CREDS_PATH = Path(os.path.expanduser('~/.mod/hippius/credentials.json'))
+
+
+def _file_creds() -> dict:
+    try:
+        return json.loads(CREDS_PATH.read_text())
+    except Exception:
+        return {}
 
 
 class Mod:
@@ -41,7 +51,7 @@ class Mod:
     fns = [
         'forward', 'put', 'get', 'pin', 'list', 'rm',
         'start_node', 'stop_node', 'status', 'node_status',
-        'peers', 'account', 'balance', 'install',
+        'peers', 'account', 'balance', 'install', 'set_key', 'key_status',
     ]
 
     def __init__(
@@ -68,11 +78,15 @@ class Mod:
         # Substrate RPC (local node default port)
         self.rpc_url = rpc_url or os.environ.get('HIPPIUS_RPC') or 'http://127.0.0.1:9933'
 
-        # S3-compatible gateway (Hippius runs an S3 facade in front of their network)
-        self.s3_endpoint = s3_endpoint or os.environ.get('HIPPIUS_S3_ENDPOINT') or 'https://s3.hippius.com'
-        self.s3_key = s3_key or os.environ.get('HIPPIUS_S3_KEY')
-        self.s3_secret = s3_secret or os.environ.get('HIPPIUS_S3_SECRET')
-        self.s3_bucket = s3_bucket or os.environ.get('HIPPIUS_S3_BUCKET') or 'mod'
+        # S3-compatible gateway (Hippius runs an S3 facade in front of their
+        # network). Precedence: explicit args > env > ~/.mod/hippius/credentials.json.
+        creds = _file_creds()
+        self.s3_endpoint = (s3_endpoint or os.environ.get('HIPPIUS_S3_ENDPOINT')
+                            or creds.get('s3_endpoint') or 'https://s3.hippius.com')
+        self.s3_key = s3_key or os.environ.get('HIPPIUS_S3_KEY') or creds.get('s3_key')
+        self.s3_secret = s3_secret or os.environ.get('HIPPIUS_S3_SECRET') or creds.get('s3_secret')
+        self.s3_bucket = (s3_bucket or os.environ.get('HIPPIUS_S3_BUCKET')
+                          or creds.get('s3_bucket') or 'mod')
 
         # IPFS fallback for retrieval (Hippius CIDs are CIDv1)
         self.ipfs_gateway = os.environ.get('HIPPIUS_IPFS_GATEWAY') or 'https://get.hippius.network'
@@ -251,7 +265,48 @@ class Mod:
             'daemon': self.node_status(),
             's3': {'endpoint': self.s3_endpoint, 'bucket': self.s3_bucket, 'configured': bool(self.s3_key)},
             'ipfs_gateway': self.ipfs_gateway,
+            'configured': bool(self.s3_key and self.s3_secret),
+            # Uploads need either S3 credentials or a live local node; reads
+            # always work via public gateways.
+            'needs_key': not (self.s3_key and self.s3_secret) and not self._node_alive(),
         }
+
+    def set_key(self, s3_key: str, s3_secret: str, s3_endpoint: str = None,
+                s3_bucket: str = None, **kw) -> dict:
+        """Persist Hippius S3 credentials off-chain (~/.mod/hippius/)."""
+        s3_key, s3_secret = (s3_key or '').strip(), (s3_secret or '').strip()
+        if not s3_key or not s3_secret:
+            return {'error': 'both s3_key and s3_secret are required'}
+        creds = _file_creds()
+        creds.update({'s3_key': s3_key, 's3_secret': s3_secret})
+        if s3_endpoint:
+            creds['s3_endpoint'] = s3_endpoint
+        if s3_bucket:
+            creds['s3_bucket'] = s3_bucket
+        CREDS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CREDS_PATH.write_text(json.dumps(creds, indent=2))
+        os.chmod(CREDS_PATH, 0o600)
+        self.s3_key, self.s3_secret = s3_key, s3_secret
+        self.s3_endpoint = creds.get('s3_endpoint', self.s3_endpoint)
+        self.s3_bucket = creds.get('s3_bucket', self.s3_bucket)
+        return self.key_status()
+
+    def key_status(self, **kw) -> dict:
+        """Are S3 credentials configured, and do they authenticate?"""
+        configured = bool(self.s3_key and self.s3_secret)
+        out = {'configured': configured,
+               'needs_key': not configured and not self._node_alive(),
+               'endpoint': self.s3_endpoint, 'bucket': self.s3_bucket,
+               'source': ('env' if os.environ.get('HIPPIUS_S3_KEY') else
+                          'file' if CREDS_PATH.exists() else None)}
+        if configured:
+            try:
+                self._s3_client().list_buckets()
+                out['valid'] = True
+            except Exception as e:
+                out['valid'] = False
+                out['error'] = str(e)
+        return out
 
     def peers(self) -> dict:
         if not self._node_alive():

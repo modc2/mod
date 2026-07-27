@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback } from "react";
 import { gatewayUrl, type Module } from "@/lib/api";
+import { bloc } from "@/lib/chain";
 import { LivePreview } from "./LivePreview";
 
 // Deterministic accent for modules that don't declare a color — hash the name
@@ -19,7 +20,16 @@ function shorten(s: string, head = 6, tail = 4): string {
   return s.length > head + tail + 1 ? `${s.slice(0, head)}…${s.slice(-tail)}` : s;
 }
 
-export function ModuleCard({ m, index }: { m: Module; index: number }) {
+export function ModuleCard({
+  m,
+  index,
+  staked = 0,
+}: {
+  m: Module;
+  index: number;
+  /** BlocTime (wei) staked to this module — shown as a badge when > 0. */
+  staked?: number;
+}) {
   const glow = m.color || hueFromName(m.name);
   const label = (m.icon || m.name[0] || "m").slice(0, 1);
   const depCount = m.deps?.length ?? 0;
@@ -88,6 +98,11 @@ export function ModuleCard({ m, index }: { m: Module; index: number }) {
         </div>
       )}
       <div className="card-foot">
+        {staked > 0 && (
+          <span className="tag bloc" title="BlocTime staked to this module">
+            ⧗ {bloc(staked)} BLOC
+          </span>
+        )}
         {m.has_rust && <span className="tag rust">rust</span>}
         {m.has_app && <span className="tag app">app</span>}
         {m.fn_count > 0 && <span className="tag fns">{m.fn_count} fns</span>}

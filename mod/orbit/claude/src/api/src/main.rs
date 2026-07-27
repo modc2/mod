@@ -40,6 +40,10 @@ async fn main() {
     // Mark any previously-running jobs as failed (stale from crash)
     manager.recover_stale_jobs().ok();
 
+    // Give every finished task a localfs CID in the store index — this pass
+    // covers jobs that finished before the store bridge existed.
+    manager.spawn_cid_backfill();
+
     // Background CID minting: once a minute, snapshot+register any module
     // that has no registry CID yet, so hub cards never sit at "no cid".
     autosnap::spawn();

@@ -9,15 +9,17 @@ export default function SignalsPage() {
   const { address } = useWallet();
   const [sigs, setSigs] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(false);
-  const [mine, setMine] = useState(true);
 
+  // Signals are private per follower — the API requires the query to be
+  // scoped to the signed-in address on the auth token.
   const load = useCallback(async () => {
+    if (!address) { setSigs([]); return; }
     setLoading(true);
     try {
-      const r = await listSignals(mine && address ? address : undefined, 200);
+      const r = await listSignals(address, 200);
       setSigs(r.signals);
     } finally { setLoading(false); }
-  }, [mine, address]);
+  }, [address]);
 
   useEffect(() => {
     load();
@@ -35,10 +37,6 @@ export default function SignalsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-[11px] text-muted flex items-center gap-1">
-            <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
-            mine only
-          </label>
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>

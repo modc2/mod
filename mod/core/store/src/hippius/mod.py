@@ -10,7 +10,8 @@ import mod as m
 class Mod:
     description = "Hippius backend adapter (delegates to orbit/hippius)."
 
-    expose = ['put', 'get', 'pin', 'list', 'status', 'peers', 'account', 'start_node', 'stop_node']
+    expose = ['put', 'get', 'pin', 'list', 'status', 'peers', 'account',
+              'start_node', 'stop_node', 'set_key', 'key_status']
 
     def __init__(self, **kw):
         self._impl = m.mod('hippius')(**kw)
@@ -44,3 +45,11 @@ class Mod:
 
     def stop_node(self, **kw):
         return self._impl.stop_node()
+
+    def set_key(self, s3_key: str, s3_secret: str, s3_endpoint: str = None,
+                s3_bucket: str = None, **kw):
+        return self._impl.set_key(s3_key=s3_key, s3_secret=s3_secret,
+                                  s3_endpoint=s3_endpoint, s3_bucket=s3_bucket)
+
+    def key_status(self, **kw):
+        return self._impl.key_status()

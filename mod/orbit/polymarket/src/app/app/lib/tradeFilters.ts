@@ -17,6 +17,14 @@
 import { TradeFilters } from "./types";
 import { matchMarketCategory } from "./polymarket";
 
+/** Default entry-probability floor: a BUY below this price (= implied
+    probability) is skipped when the strat expresses NO explicit price band
+    (neither `minPrice` nor `maxPrice`). Likely-to-win entries by default —
+    longshot flow is only copied when a strat opts in with its own band
+    (an explicit `minPrice: 0` also disables the floor). SELLs (exits) are
+    never floored. Mirror of DEFAULT_MIN_ENTRY_PRICE in live_engine.rs. */
+export const DEFAULT_MIN_ENTRY_PRICE = 0.6;
+
 /** The minimal trade shape the gate needs. `PolymarketTrade` and the strat's
     `TraderTrade` both satisfy it. `notional` is optional — when absent we
     derive it from price × size. */
@@ -43,20 +51,26 @@ export function tradeFiltersActive(filters: TradeFilters | undefined | null): bo
 }
 
 /** Apply the semantic per-trade gate. Returns true ⇒ mirror this trade.
-    Empty/undefined filters ⇒ always true. */
+    Empty/undefined filters ⇒ BUYs still face the `DEFAULT_MIN_ENTRY_PRICE`
+    favorites-only floor; everything else passes. */
 export function tradeMatchesFilters(
   trade: FilterableTrade,
   filters: TradeFilters | undefined | null,
 ): boolean {
-  if (!tradeFiltersActive(filters)) return true;
-  const f = filters!;
+  const f = filters ?? {};
 
   // ── Side ──
   if (f.sides === "buy" && trade.side !== "BUY") return false;
   if (f.sides === "sell" && trade.side !== "SELL") return false;
 
   // ── Entry price band (0–1) ──
-  if (f.minPrice != null && trade.price < f.minPrice) return false;
+  // No explicit band at all ⇒ BUYs default to the likely-to-win floor. Any
+  // explicit minPrice/maxPrice (incl. minPrice: 0) is the strat's own
+  // opinion and wins; SELLs are exits and are never floored.
+  const noPriceBand = f.minPrice == null && f.maxPrice == null;
+  const effectiveMin =
+    f.minPrice ?? (noPriceBand && trade.side === "BUY" ? DEFAULT_MIN_ENTRY_PRICE : undefined);
+  if (effectiveMin != null && trade.price < effectiveMin) return false;
   if (f.maxPrice != null && trade.price > f.maxPrice) return false;
 
   // ── Trade size band (USD notional) ──

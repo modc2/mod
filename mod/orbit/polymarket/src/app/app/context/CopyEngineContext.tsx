@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
 import { CopyEngine, CopyEngineState, CopyEngineConfig } from "../lib/copyEngine";
+import { getOwnerAddress } from "../lib/access";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 
@@ -14,6 +15,12 @@ interface CopyEngineContextValue {
   activeStrategyId: string | null;
   /** Whether the backend long-running engine is active (survives tab close). */
   backendRunning: boolean;
+  /** Whether the backend engine places REAL orders (false = dry-run: mirrors
+      are logged but nothing is sent to the CLOB). */
+  autoExecute: boolean;
+  /** Flip real order placement on/off for the backend session. Resolves true
+      when the backend acknowledged the change. */
+  setAutoExecute: (on: boolean) => Promise<boolean>;
   startLive: (config: CopyEngineConfig) => void;
   stopLive: () => void;
   pauseLive: () => void;
@@ -97,12 +104,26 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
       ...(config.maxPerCycle !== undefined && { maxOrdersPerCycle: config.maxPerCycle }),
       // Concurrent open-positions cap — engine skips new-token BUYs past it.
       ...(config.maxOpenPositions !== undefined && { maxOpenPositions: config.maxOpenPositions }),
+      // Per-position stop-loss (fraction of entry to defend). Send an
+      // explicit 0 too: the engine treats 0 as OFF, while OMITTING the field
+      // now means "server default" (0.75) — dropping the 0 here would
+      // silently re-arm a stop the user turned off.
+      ...(config.stopLoss !== undefined && { stopLoss: config.stopLoss }),
+      // Per-position take-profit (absolute bid level; 0.99 = liquidate once
+      // the market runs to the top tick). Same explicit-0-is-OFF contract.
+      ...(config.takeProfit !== undefined && { takeProfit: config.takeProfit }),
       ...(config.autoExecute !== undefined && { autoExecute: config.autoExecute }),
       // Market-topic filter — backend only mirrors trades in matching markets.
       ...(config.marketQuery && { marketQuery: config.marketQuery }),
       // Semantic per-trade filters (side / price band / size band / category).
       // Omitted when empty so the backend's no-op defaults apply.
       ...(config.tradeFilters && { tradeFilters: config.tradeFilters }),
+      // Price-momentum origination — the general, watchlist-free strategy
+      // path. The backend engine tracks candidate markets' price history and
+      // originates entries/exits from the moves themselves, so a strat with
+      // ZERO traders still runs 24/7 server-side. Omitting this used to
+      // silently strand momentum strats in the browser engine only.
+      ...(config.momentum && { momentum: config.momentum }),
     };
     const res = await fetch(`${API_URL}/live/start`, {
       method: "POST",
@@ -169,6 +190,8 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   isLive: false,
   activeStrategyId: null,
   backendRunning: false,
+  autoExecute: false,
+  setAutoExecute: async () => false,
   startLive: () => {},
   stopLive: () => {},
   pauseLive: () => {},
@@ -187,8 +210,31 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   const [isLive, setIsLive] = useState(false);
   const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
   const [backendRunning, setBackendRunning] = useState(false);
+  const [autoExecute, setAutoExecuteState] = useState(false);
   // EOA used for backend polling — set on start, cleared on stop.
   const backendEoaRef = useRef<string | null>(null);
+
+  // Flip real order placement for the backend session via /live/execution.
+  // The backend persists the flag with the session config, and /live/start
+  // inherits it when a re-post omits autoExecute — so it survives restarts
+  // and poll-interval hot-restarts.
+  const setAutoExecute = useCallback(async (on: boolean) => {
+    const eoa = backendEoaRef.current ?? getOwnerAddress();
+    if (!eoa) return false;
+    try {
+      const res = await fetch(`${API_URL}/live/execution`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eoa, autoExecute: on }),
+      });
+      if (!res.ok) return false;
+      const j = (await res.json()) as { autoExecute?: boolean };
+      setAutoExecuteState(!!j.autoExecute);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const startLive = useCallback((config: CopyEngineConfig) => {
     // Stop existing browser engine if any
@@ -218,6 +264,12 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
 
     // Also start the backend long-running engine so it survives tab close.
     backendEoaRef.current = config.address;
+    // Reflect an explicitly-requested execution mode immediately — the
+    // status poll confirms it within 5s, but the EXECUTING/DRY RUN pill
+    // shouldn't lie in the meantime.
+    if (config.autoExecute !== undefined) {
+      setAutoExecuteState(config.autoExecute);
+    }
     void backendStart(config).then((ok) => {
       setBackendRunning(ok);
     });
@@ -290,6 +342,11 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
       if (!pollEoa) return;
       const status = await backendStatus(pollEoa);
       if (cancelled) return;
+      // Mirror the backend's execution mode (running session or persisted
+      // snapshot) so the DRY RUN / EXECUTING toggle always tells the truth.
+      if (status?.config) {
+        setAutoExecuteState(!!(status.config as { autoExecute?: boolean }).autoExecute);
+      }
       if (status?.running) {
         setBackendRunning(true);
         // Merge backend observed trades into engine state if the browser
@@ -333,15 +390,22 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     void poll();
     const t = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [isLive]);
+  }, [isLive, backendRunning]);
 
   // On mount: check if a backend engine is already running (from a previous
-  // session / tab close). If so, mark as live so the UI reflects it.
+  // session / tab close). If so, mark as live so the UI reflects it. A fresh
+  // browser has no persisted session even when the backend engine has been
+  // running for days — fall back to the signed-in owner's EOA so the console
+  // still finds and reflects it.
   useEffect(() => {
     const persisted = loadPersistedLive();
-    if (!persisted?.address) return;
-    backendEoaRef.current = persisted.address;
-    void backendStatus(persisted.address).then((status) => {
+    const addr = persisted?.address ?? getOwnerAddress();
+    if (!addr) return;
+    backendEoaRef.current = addr;
+    void backendStatus(addr).then((status) => {
+      if (status?.config) {
+        setAutoExecuteState(!!(status.config as { autoExecute?: boolean }).autoExecute);
+      }
       if (status?.running) {
         setBackendRunning(true);
         // The browser engine will be restored separately by the existing
@@ -357,6 +421,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   return (
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
+      autoExecute, setAutoExecute,
       startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>
       {children}

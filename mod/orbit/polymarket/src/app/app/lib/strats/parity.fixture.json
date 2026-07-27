@@ -1,0 +1,328 @@
+{
+  "comment": "Playbook parity fixture \u2014 asserted by BOTH app/lib/strats/__test__.ts (npx tsx) and live_engine.rs (cargo test). statsFromReturns / stats_from_returns, scoreCandidate / candidate_score, stopLossTriggered / stop_loss_hit, takeProfitTriggered / take_profit_hit, sizeAndPrice / plan_mirror, and the shared stopLoss/takeProfit defaults must reproduce these EXACT values in each language. Edit only by regenerating every expected value in both.",
+  "statsCases": [
+    {
+      "name": "empty",
+      "returns": [],
+      "expected": {
+        "roi": 0.0,
+        "stdev": 0.0,
+        "sharpe": 0.0,
+        "sampleSize": 0,
+        "wins": 0,
+        "successProb": 0.5
+      }
+    },
+    {
+      "name": "mixed5",
+      "returns": [
+        0.1,
+        -0.05,
+        0.2,
+        0.15,
+        -0.5
+      ],
+      "expected": {
+        "roi": -0.019999999999999997,
+        "stdev": 0.2841654447676564,
+        "sharpe": -0.07038153430777867,
+        "sampleSize": 5,
+        "wins": 3,
+        "successProb": 0.5555555555555556
+      }
+    },
+    {
+      "name": "twoWins",
+      "returns": [
+        0.5,
+        0.25
+      ],
+      "expected": {
+        "roi": 0.375,
+        "stdev": 0.1767766952966369,
+        "sharpe": 0.0,
+        "sampleSize": 2,
+        "wins": 2,
+        "successProb": 0.6666666666666666
+      }
+    },
+    {
+      "name": "allLosses",
+      "returns": [
+        -0.2,
+        -0.1,
+        -0.3,
+        -0.05
+      ],
+      "expected": {
+        "roi": -0.1625,
+        "stdev": 0.11086778913041725,
+        "sharpe": -1.4657097546055162,
+        "sampleSize": 4,
+        "wins": 0,
+        "successProb": 0.25
+      }
+    },
+    {
+      "name": "flatDegenerate",
+      "returns": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "expected": {
+        "roi": 0.10000000000000002,
+        "stdev": 1.6996749443881478e-17,
+        "sharpe": 0.0,
+        "sampleSize": 3,
+        "wins": 3,
+        "successProb": 0.7142857142857143
+      }
+    },
+    {
+      "name": "steadyWinner",
+      "returns": [
+        0.05,
+        0.04,
+        0.06,
+        0.05,
+        0.07,
+        0.03,
+        0.05,
+        0.04
+      ],
+      "expected": {
+        "roi": 0.04875,
+        "stdev": 0.01246423454758225,
+        "sharpe": 3.9111908407930502,
+        "sampleSize": 8,
+        "wins": 8,
+        "successProb": 0.8333333333333334
+      }
+    }
+  ],
+  "scoreCases": [
+    {
+      "name": "edge",
+      "returns": [
+        0.2,
+        0.1,
+        -0.1,
+        0.3
+      ],
+      "notional": 250.0,
+      "copyRatio": 0.05,
+      "expectedScore": 0.9765625
+    },
+    {
+      "name": "loser",
+      "returns": [
+        -0.2,
+        -0.1,
+        -0.3,
+        -0.05
+      ],
+      "notional": 500.0,
+      "copyRatio": 0.1,
+      "expectedScore": -2.03125
+    },
+    {
+      "name": "noStats",
+      "returns": [],
+      "notional": 100.0,
+      "copyRatio": 0.02,
+      "expectedScore": 0.0
+    }
+  ],
+  "stopLossCases": [
+    {
+      "entry": 0.6,
+      "mark": 0.3,
+      "stopLoss": 0.5,
+      "hit": true
+    },
+    {
+      "entry": 0.6,
+      "mark": 0.31,
+      "stopLoss": 0.5,
+      "hit": false
+    },
+    {
+      "entry": 0.6,
+      "mark": 0.54,
+      "stopLoss": 0.9,
+      "hit": true
+    },
+    {
+      "entry": 0.6,
+      "mark": 0.3,
+      "stopLoss": 0.0,
+      "hit": false
+    },
+    {
+      "entry": 0.6,
+      "mark": 0.55,
+      "stopLoss": 1.0,
+      "hit": false
+    },
+    {
+      "entry": 0.0,
+      "mark": 0.1,
+      "stopLoss": 0.5,
+      "hit": false
+    },
+    {
+      "entry": 0.6,
+      "mark": 0.0,
+      "stopLoss": 0.5,
+      "hit": false
+    }
+  ],
+  "takeProfitCases": [
+    {
+      "mark": 0.99,
+      "takeProfit": 0.99,
+      "hit": true
+    },
+    {
+      "mark": 0.98,
+      "takeProfit": 0.99,
+      "hit": false
+    },
+    {
+      "mark": 0.99,
+      "takeProfit": 1.0,
+      "hit": true
+    },
+    {
+      "mark": 0.95,
+      "takeProfit": 0.9,
+      "hit": true
+    },
+    {
+      "mark": 0.99,
+      "takeProfit": 0.0,
+      "hit": false
+    },
+    {
+      "mark": 0.0,
+      "takeProfit": 0.99,
+      "hit": false
+    }
+  ],
+  "defaults": {
+    "stopLoss": 0.75,
+    "takeProfit": 0.99
+  },
+  "rebalanceMarginPct": 0.2,
+  "sizingCases": [
+    {
+      "name": "happyBuy",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 1000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 10, "limitPrice": 0.52 }
+    },
+    {
+      "name": "clampUpUser",
+      "side": "BUY",
+      "price": 0.1,
+      "leaderNotional": 50,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 1, "limitPrice": 0.1 }
+    },
+    {
+      "name": "clampUpClob",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 200,
+      "copyRatio": 0.005,
+      "userFloor": 0.5,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 2.5, "limitPrice": 0.52 }
+    },
+    {
+      "name": "leaderDust",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 2,
+      "copyRatio": 1,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": "DUST", "notional": null, "limitPrice": null }
+    },
+    {
+      "name": "ceilingBelow",
+      "side": "BUY",
+      "price": 0.8,
+      "leaderNotional": 200,
+      "copyRatio": 0.02,
+      "userFloor": 0.5,
+      "minShares": 5,
+      "ceiling": 2,
+      "slippageBps": 300,
+      "expected": { "skip": "CEILING", "notional": null, "limitPrice": null }
+    },
+    {
+      "name": "clampDown",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 100000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 100, "limitPrice": 0.52 }
+    },
+    {
+      "name": "sellWiden",
+      "side": "SELL",
+      "price": 0.5,
+      "leaderNotional": 1000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 10, "limitPrice": 0.49 }
+    },
+    {
+      "name": "zeroSlippage",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 1000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 0,
+      "expected": { "skip": null, "notional": 10, "limitPrice": 0.5 }
+    },
+    {
+      "name": "nearOneCap",
+      "side": "BUY",
+      "price": 0.98,
+      "leaderNotional": 1000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "expected": { "skip": null, "notional": 10, "limitPrice": 0.99 }
+    }
+  ]
+}

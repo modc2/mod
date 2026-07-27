@@ -1,9 +1,13 @@
 {
     "anchor": "src/mod.py",
     "app_port": 3150,
+    "archive_pool_size": 4,
+    "auto_discover": true,
+    "bt_mirror_max": 25,
+    "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers (round-robin public RPCs, no third-party APIs)",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; reads served by the bt module's local index (public RPCs as fallback)",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -33,6 +37,14 @@
             "docs": "Force sync (apply target's allocations now)",
             "method": "POST"
         },
+        "/discover": {
+            "docs": "Watch top-N of the on-chain universe (?top=8&kind=validator|nominator|all)",
+            "method": "POST"
+        },
+        "/flows": {
+            "docs": "Inferred trade tape across every tracked trader",
+            "method": "GET"
+        },
         "/health": {
             "docs": "Chain health + active RPC + full pool",
             "method": "GET"
@@ -41,20 +53,48 @@
             "docs": "Top performers by N-day alpha PnL (?days=7&top=50)",
             "method": "GET"
         },
+        "/pool": {
+            "docs": "Resize the trader pool (?size=250&refresh=false) \u2014 grows in background",
+            "method": "POST"
+        },
         "/status": {
-            "docs": "Running state, block height, tracked accounts, active copies",
+            "docs": "Running state, block height, tracked accounts, active copies, and which backend serves reads (bt | rpc)",
             "method": "GET"
         },
         "/subnets": {
             "docs": "All Bittensor subnets (netuid, alpha price, total stake, tempo, emission)",
             "method": "GET"
         },
+        "/tao_price": {
+            "docs": "TAO/USD price (coingecko, 5-min server cache)",
+            "method": "GET"
+        },
         "/trader/{ss58}": {
             "docs": "Full trader profile (positions, performance, label)",
             "method": "GET"
         },
+        "/traders": {
+            "docs": "Tracked traders with value, allocation and windowed PnL (from bt's index)",
+            "method": "GET"
+        },
+        "/traders/{ss58}": {
+            "docs": "Indexed profile \u2014 positions, equity curve, inferred trades",
+            "method": "GET"
+        },
+        "/traders/{ss58}/flows": {
+            "docs": "One trader's inferred buys/sells",
+            "method": "GET"
+        },
+        "/traders/{ss58}/history": {
+            "docs": "Portfolio value over time (free/staked/total)",
+            "method": "GET"
+        },
         "/trades": {
             "docs": "Copy-engine trade history (?limit=50&copy_id=...)",
+            "method": "GET"
+        },
+        "/universe": {
+            "docs": "Trader-pool status: watched vs on-chain universe size, discovery progress",
             "method": "GET"
         },
         "/wallet/balance": {
@@ -88,9 +128,16 @@
         "trader",
         "trades",
         "rpc_pool",
+        "source",
+        "flows",
+        "trader_history",
+        "traders",
         "watch",
         "unwatch",
         "watches",
+        "discover",
+        "set_pool",
+        "universe",
         "create_copy",
         "list_copies",
         "pause_copy",
@@ -102,13 +149,19 @@
         "forward"
     ],
     "gateway_port": 3001,
-    "leaderboard_pool_size": 100,
+    "leaderboard_pool_size": 250,
+    "leaderboard_workers": 8,
     "max_subnets": 20,
     "max_tao_per_tx": 10.0,
     "min_balance_tao": 1.0,
     "name": "copytensor",
     "network": "finney",
     "poll_interval_sec": 300,
+    "pool_kinds": [
+        "validator",
+        "nominator"
+    ],
+    "pool_min_stake_weight": 0.0,
     "port": 50150,
     "public_rpc_pool": [
         "wss://entrypoint-finney.opentensor.ai:443",
@@ -117,26 +170,36 @@
         "wss://bittensor-finney.api.onfinality.io/public-ws"
     ],
     "rebalance_threshold_pct": 5.0,
-    "schema": "QmS3ZzNjyKGTRjyN1b6c6mizSyQxUaszVu69yCa1kDdNdF",
+    "route": true,
+    "schema": "QmbQWaGBtFxUpiAi6cTR61yL7J6Ri1h1En97S2khdAgEkP",
     "seed_validators": [
         {
-            "label": "Opentensor Foundation",
-            "ss58": "5GcCYwRyEFpVnTbf3wAtNRD9aDxKkNyc5VxgvbdGsTL7uw6L"
+            "label": "Top delegate #1 owner",
+            "ss58": "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9"
         },
         {
-            "label": "Datura",
-            "ss58": "5DkQ4Yu2VbDFh5VxsvHCcBu7G2HrXfQyNGGNqKsCo3DMxgw3"
+            "label": "Top delegate #2 owner",
+            "ss58": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC"
         },
         {
-            "label": "Yuma",
-            "ss58": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+            "label": "Top delegate #3 owner",
+            "ss58": "5CWzmvA17MAMQ9mnAecLxFXS2N8846rz6T7m4QNHyVtJVq4j"
         },
         {
-            "label": "TaoStation",
-            "ss58": "5HK5tp6t2S59DywmHRWPBVJeJ86T61KjurYqeooqj8sREpeN"
+            "label": "Top delegate #4 owner",
+            "ss58": "5E9fVY1jexCNVMjd2rdBsAxeamFGEMfzHcyTn2fHgdHeYc5p"
+        },
+        {
+            "label": "Top delegate #5 owner",
+            "ss58": "5CMCxTXzJNZqgXsujrmuWypaxoRo9ChMSPbzBEMk6H3m9Uv9"
+        },
+        {
+            "label": "Top delegate #6 owner",
+            "ss58": "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY"
         }
     ],
     "snapshot_interval_sec": 1800,
+    "snapshot_workers": 8,
     "subnet_allowlist": null,
     "subnet_denylist": [],
     "subtensor_endpoint": null,
@@ -146,10 +209,13 @@
         "gateway_api": "http://localhost:3001/api/copytensor",
         "gateway_app": "http://localhost:3001/copytensor"
     },
-    "version": "0.2.0",
+    "version": "0.3.0",
     "watched_accounts": [
-        "5GcCYwRyEFpVnTbf3wAtNRD9aDxKkNyc5VxgvbdGsTL7uw6L",
-        "5DkQ4Yu2VbDFh5VxsvHCcBu7G2HrXfQyNGGNqKsCo3DMxgw3",
-        "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
+        "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
+        "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+        "5CWzmvA17MAMQ9mnAecLxFXS2N8846rz6T7m4QNHyVtJVq4j",
+        "5E9fVY1jexCNVMjd2rdBsAxeamFGEMfzHcyTn2fHgdHeYc5p",
+        "5CMCxTXzJNZqgXsujrmuWypaxoRo9ChMSPbzBEMk6H3m9Uv9",
+        "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY"
     ]
 }

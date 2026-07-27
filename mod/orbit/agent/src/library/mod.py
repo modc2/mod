@@ -7,8 +7,14 @@ One filterable index across four collections:
     memory   - persistent knowledge notes the agent can be pointed at
     agents   - installed agent personas + published agent CIDs (the market)
 
-Prompts and memory notes are private user state and live OFF-tree under
-~/.mod/agent/library/ (never in the committed module dir).
+Plus a per-user conversations store (the console's chat history) so sessions
+survive browsers, devices, and the shared modc2 localStorage origin.
+
+Prompts, memory notes, and conversations are private user state and live
+OFF-tree under ~/.mod/agent/library/ (never in the committed module dir).
+Every prompt, note, and conversation is ALSO pinned to localfs — the mod
+framework's content-addressed blob store — and carries its CID, so any item
+can be shared/restored by CID alone.
 
 Usage:
     lib = Library(skills=skills, agents=agents)
@@ -21,6 +27,11 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+try:
+    import mod as m
+except ImportError:
+    m = None
 
 
 SEED_PROMPTS = [
@@ -92,18 +103,82 @@ class Library:
 
     # ── prompts ──────────────────────────────────────────────────────
 
+    def _localfs(self):
+        """The mod framework's content-addressed blob store, or None."""
+        if not m:
+            return None
+        try:
+            return m.mod('localfs')()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _bundle(kind: str, item: Dict) -> Dict:
+        """Portable share bundle — only content fields, so identical items
+        get identical CIDs regardless of local id/timestamps."""
+        if kind == "prompt":
+            return {"type": "prompt", "name": item.get("name", ""),
+                    "description": item.get("description", ""),
+                    "text": item.get("text", ""), "tags": item.get("tags", [])}
+        if kind == "memory":
+            return {"type": "memory", "name": item.get("name", ""),
+                    "content": item.get("content", ""), "tags": item.get("tags", [])}
+        if kind == "conversation":
+            return {"type": "conversation", "query": item.get("query", ""),
+                    "agent_type": item.get("agent_type", "default"),
+                    "status": item.get("status", "done"),
+                    "messages": item.get("messages", [])}
+        raise ValueError(f"unknown bundle kind: {kind}")
+
+    def _mint_cids(self, data: List[Dict], kind: str = "prompt") -> bool:
+        """Pin every item missing a cid to localfs. Returns True if any minted."""
+        pending = [p for p in data if not p.get("cid")]
+        if not pending:
+            return False
+        localfs = self._localfs()
+        if localfs is None:
+            return False
+        changed = False
+        for p in pending:
+            try:
+                p["cid"] = localfs.put(self._bundle(kind, p))
+                changed = True
+            except Exception:
+                pass
+        return changed
+
+    def _fetch_bundle(self, cid: str, kind: str) -> Dict:
+        """Load and type-check a share bundle from its localfs CID."""
+        if not cid:
+            raise ValueError("cid required")
+        localfs = self._localfs()
+        if localfs is None:
+            raise RuntimeError("localfs unavailable")
+        bundle = localfs.get(cid)
+        if not isinstance(bundle, dict) or bundle.get("type") != kind:
+            raise ValueError(f"CID does not contain a {kind}: {cid}")
+        return bundle
+
     def prompts(self) -> List[Dict]:
-        """List prompts, seeding defaults on first use."""
+        """List prompts, seeding defaults on first use.
+
+        Every prompt is pinned to localfs and carries its CID; missing CIDs
+        (seeds, pre-CID entries, or saves made while localfs was down) are
+        minted here on read.
+        """
         data = self._load('prompts')
         if data is None:
             data = [{**p, "id": f"p-{i}", "updated": time.time(), "builtin": True}
                     for i, p in enumerate(SEED_PROMPTS)]
+            self._mint_cids(data)
+            self._save('prompts', data)
+        elif self._mint_cids(data):
             self._save('prompts', data)
         return data
 
     def prompt_add(self, name: str, text: str, description: str = "",
                    tags: List[str] = None, id: str = None) -> Dict:
-        """Create or update a prompt (upsert by id)."""
+        """Create or update a prompt (upsert by id). Pins content to localfs."""
         if not name or not text:
             raise ValueError("prompt requires name and text")
         data = self.prompts()
@@ -112,9 +187,19 @@ class Library:
             "name": name, "text": text, "description": description,
             "tags": tags or [], "updated": time.time(),
         }
+        self._mint_cids([entry])
         data = [p for p in data if p.get("id") != entry["id"]]
         data.append(entry)
         self._save('prompts', data)
+        return entry
+
+    def prompt_import(self, cid: str) -> Dict:
+        """Install a prompt from its localfs CID (the QR / share path)."""
+        bundle = self._fetch_bundle(cid, "prompt")
+        if not bundle.get("name") or not bundle.get("text"):
+            raise ValueError(f"prompt bundle missing name/text: {cid}")
+        entry = self.prompt_add(bundle["name"], bundle["text"],
+                                bundle.get("description", ""), bundle.get("tags"))
         return entry
 
     def prompt_rm(self, id: str) -> Dict:
@@ -128,11 +213,17 @@ class Library:
     # ── memory notes ─────────────────────────────────────────────────
 
     def notes(self) -> List[Dict]:
-        return self._load('memory') or []
+        """List memory notes. Like prompts, every note is pinned to localfs —
+        missing CIDs (pre-CID entries or saves made while localfs was down)
+        are minted here on read."""
+        data = self._load('memory') or []
+        if self._mint_cids(data, "memory"):
+            self._save('memory', data)
+        return data
 
     def note_add(self, name: str, content: str, tags: List[str] = None,
                  id: str = None) -> Dict:
-        """Create or update a memory note (upsert by id)."""
+        """Create or update a memory note (upsert by id). Pins to localfs."""
         if not name or not content:
             raise ValueError("memory note requires name and content")
         data = self.notes()
@@ -141,10 +232,18 @@ class Library:
             "name": name, "content": content,
             "tags": tags or [], "updated": time.time(),
         }
+        self._mint_cids([entry], "memory")
         data = [n for n in data if n.get("id") != entry["id"]]
         data.append(entry)
         self._save('memory', data)
         return entry
+
+    def note_import(self, cid: str) -> Dict:
+        """Install a memory note from its localfs CID."""
+        bundle = self._fetch_bundle(cid, "memory")
+        if not bundle.get("name") or not bundle.get("content"):
+            raise ValueError(f"memory bundle missing name/content: {cid}")
+        return self.note_add(bundle["name"], bundle["content"], bundle.get("tags"))
 
     def note_rm(self, id: str) -> Dict:
         data = self.notes()
@@ -153,6 +252,93 @@ class Library:
             raise KeyError(f"memory note not found: {id}")
         self._save('memory', kept)
         return {"removed": id}
+
+    # ── conversations (per-user console chat history) ────────────────
+    # Server-side so sessions survive browsers/devices and the shared modc2
+    # localStorage origin. Scoped by the caller's verified address; every
+    # conversation is pinned to localfs and carries its CID.
+
+    MAX_CONVS_PER_USER = 60      # newest kept, oldest dropped
+    MAX_CONV_CHARS = 200_000     # per-conversation JSON budget
+
+    def convs(self, user: str) -> List[Dict]:
+        """List a user's conversations, newest first (messages included)."""
+        if not user:
+            return []
+        data = self._load('conversations') or []
+        mine = [c for c in data if c.get("user") == user.lower()]
+        mine.sort(key=lambda c: -(c.get("updated") or 0))
+        return mine
+
+    @staticmethod
+    def _clip_conv(entry: Dict) -> Dict:
+        """Trim runaway step results so one conversation can't bloat the store."""
+        s = json.dumps(entry, default=str)
+        if len(s) <= Library.MAX_CONV_CHARS:
+            return entry
+        clip = lambda v: v[:2000] + "…[truncated]" if isinstance(v, str) and len(v) > 2000 else v
+        msgs = []
+        for msg in entry.get("messages", []):
+            msg = dict(msg)
+            msg["text"] = clip(msg.get("text"))
+            if isinstance(msg.get("steps"), list):
+                msg["steps"] = [{**st, "result": clip(st.get("result"))}
+                                for st in msg["steps"][:60] if isinstance(st, dict)]
+            msgs.append(msg)
+        return {**entry, "messages": msgs}
+
+    def conv_save(self, user: str, id: str = None, query: str = "",
+                  agent_type: str = "default", status: str = "done",
+                  messages: List[Dict] = None, started: float = None) -> Dict:
+        """Upsert a conversation for a user. Pins the content to localfs."""
+        if not user:
+            raise PermissionError("sign in to save conversations")
+        if not query and not messages:
+            raise ValueError("conversation requires a query or messages")
+        data = self._load('conversations') or []
+        entry = self._clip_conv({
+            "id": id or f"c-{uuid.uuid4().hex[:10]}",
+            "user": user.lower(),
+            "query": (query or "")[:400],
+            "agent_type": agent_type or "default",
+            "status": status or "done",
+            "messages": messages or [],
+            "started": started,
+            "updated": time.time(),
+        })
+        entry.pop("cid", None)
+        self._mint_cids([entry], "conversation")
+        data = [c for c in data if not (c.get("id") == entry["id"]
+                                        and c.get("user") == entry["user"])]
+        data.append(entry)
+        # cap per-user history (newest win)
+        mine = sorted([c for c in data if c.get("user") == entry["user"]],
+                      key=lambda c: -(c.get("updated") or 0))
+        if len(mine) > self.MAX_CONVS_PER_USER:
+            keep = {c.get("id") for c in mine[:self.MAX_CONVS_PER_USER]}
+            data = [c for c in data
+                    if c.get("user") != entry["user"] or c.get("id") in keep]
+        self._save('conversations', data)
+        return entry
+
+    def conv_rm(self, user: str, id: str) -> Dict:
+        if not user:
+            raise PermissionError("sign in to manage conversations")
+        data = self._load('conversations') or []
+        kept = [c for c in data if not (c.get("id") == id
+                                        and c.get("user") == user.lower())]
+        if len(kept) == len(data):
+            raise KeyError(f"conversation not found: {id}")
+        self._save('conversations', kept)
+        return {"removed": id}
+
+    def conv_import(self, user: str, cid: str) -> Dict:
+        """Install a shared conversation from its localfs CID."""
+        bundle = self._fetch_bundle(cid, "conversation")
+        return self.conv_save(user, query=bundle.get("query", ""),
+                              agent_type=bundle.get("agent_type", "default"),
+                              status=bundle.get("status", "done"),
+                              messages=bundle.get("messages", []))
 
     # ── unified index ────────────────────────────────────────────────
 
@@ -170,7 +356,7 @@ class Library:
             items.append({"kind": "prompt", "id": p["id"], "name": p["name"],
                           "description": p.get("description", ""),
                           "tags": p.get("tags", []), "body": p.get("text", ""),
-                          "updated": p.get("updated"),
+                          "updated": p.get("updated"), "cid": p.get("cid"),
                           "builtin": p.get("builtin", False)})
 
         if self._skills:
@@ -189,7 +375,7 @@ class Library:
             items.append({"kind": "memory", "id": n["id"], "name": n["name"],
                           "description": (n.get("content", "")[:120]),
                           "tags": n.get("tags", []), "body": n.get("content", ""),
-                          "updated": n.get("updated")})
+                          "updated": n.get("updated"), "cid": n.get("cid")})
 
         if self._agents:
             try:
@@ -202,9 +388,7 @@ class Library:
                 items.append({"kind": "agent", "id": f"a-{aname}", "name": aname,
                               "label": cfg.get("name", aname),
                               "description": cfg.get("description", ""),
-                              "tags": ["installed"] + (["custom"] if aname not in
-                                      ("default", "architect", "reviewer", "debugger",
-                                       "builder", "refactorer", "safety") else []),
+                              "tags": ["installed"] + ([] if cfg.get("builtin") else ["custom"]),
                               "icon": cfg.get("icon", ">_"),
                               "body": cfg.get("goal", "") or "",
                               "skills": cfg.get("skills"), "model": cfg.get("model")})
@@ -255,13 +439,28 @@ class Library:
                                    kwargs.get("id"))
         if action == "prompt_rm":
             return self.prompt_rm(kwargs.get("id", ""))
+        if action == "prompt_import":
+            return self.prompt_import(kwargs.get("cid", ""))
         if action == "memory":
             return {"memory": self.notes()}
         if action == "memory_add":
             return self.note_add(kwargs.get("name", ""), kwargs.get("content", ""),
                                  kwargs.get("tags"), kwargs.get("id"))
+        if action == "memory_import":
+            return self.note_import(kwargs.get("cid", ""))
         if action == "memory_rm":
             return self.note_rm(kwargs.get("id", ""))
+        if action == "conversations":
+            return {"conversations": self.convs(kwargs.get("user", ""))}
+        if action == "conversation_save":
+            return self.conv_save(kwargs.get("user", ""), kwargs.get("id"),
+                                  kwargs.get("query", ""), kwargs.get("agent_type", "default"),
+                                  kwargs.get("status", "done"), kwargs.get("messages"),
+                                  kwargs.get("started"))
+        if action == "conversation_rm":
+            return self.conv_rm(kwargs.get("user", ""), kwargs.get("id", ""))
+        if action == "conversation_import":
+            return self.conv_import(kwargs.get("user", ""), kwargs.get("cid", ""))
         return self.items(q=kwargs.get("q"), kind=kwargs.get("kind"),
                           tag=kwargs.get("tag"))
 
@@ -270,13 +469,34 @@ class Library:
         with tempfile.TemporaryDirectory() as d:
             lib = Library(dir=d)
             assert len(lib.prompts()) == len(SEED_PROMPTS)
+            if lib._localfs() is not None:
+                assert all(p.get("cid") for p in lib.prompts())
             p = lib.prompt_add("t", "text", tags=["x"])
             assert any(i["id"] == p["id"] for i in lib.prompts())
+            if p.get("cid"):
+                imported = lib.prompt_import(p["cid"])
+                assert imported["name"] == "t" and imported["cid"] == p["cid"]
+                lib.prompt_rm(imported["id"])
             lib.prompt_rm(p["id"])
             n = lib.note_add("k", "v", tags=["y"])
             assert lib.notes()[0]["name"] == "k"
             out = lib.items(q="k", kind="memory")
             assert out["total"] == 1
+            if n.get("cid"):
+                imported = lib.note_import(n["cid"])
+                assert imported["name"] == "k" and imported["cid"] == n["cid"]
+                lib.note_rm(imported["id"])
             lib.note_rm(n["id"])
             assert lib.notes() == []
+            # conversations: per-user scoping + localfs pin + import
+            u = "0xabc0000000000000000000000000000000000001"
+            c = lib.conv_save(u, query="hello", messages=[{"role": "user", "text": "hi"}])
+            assert lib.convs(u)[0]["id"] == c["id"]
+            assert lib.convs("0xother") == []
+            if c.get("cid"):
+                dup = lib.conv_import(u, c["cid"])
+                assert dup["query"] == "hello" and dup["id"] != c["id"]
+                lib.conv_rm(u, dup["id"])
+            lib.conv_rm(u, c["id"])
+            assert lib.convs(u) == []
         return True

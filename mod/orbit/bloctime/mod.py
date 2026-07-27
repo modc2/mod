@@ -13,6 +13,10 @@ Usage:
   m.fn('bloctime/delegate')(to='0x...')
   m.fn('bloctime/distribute')()
   m.fn('bloctime/claim_rewards')()
+  m.fn('bloctime/fork')(name='mybloctime')       # your own copy of the module
+  m.fn('bloctime/market')()                      # browse deployed instances
+  m.fn('bloctime/register_instance')(name='x', rpc='...', bloctime='0x...')
+  m.fn('bloctime/bridge')(fn='in_snapshot', address='...')
 """
 
 import json
@@ -280,6 +284,139 @@ class Mod:
             'contracts': contracts,
             'explorer': f"https://sepolia.basescan.org/address/{contracts.get('bloctime', '')}",
         }
+
+    # ── Fork / Marketplace / Bridge ───────────────────────────────
+
+    def _registry(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('bt_registry', DIR / 'api' / 'bt_registry.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def fork(self, name, port=None, app_port=None):
+        """Copy this module into orbit/<name> so anyone can run their own BlocTime.
+
+        Rewrites the fork's identity (config name, API/app ports, basePath,
+        gateway route) and leaves it pointing at the same contracts until the
+        new owner deploys their own via deploy() or the app's DEPLOY tab.
+        """
+        import shutil
+        import socket
+
+        name = str(name).lower()
+        if not name.replace('-', '').replace('_', '').isalnum():
+            raise ValueError("Fork name must be alphanumeric (dashes/underscores ok)")
+        dest = DIR.parent / name
+        if dest.exists():
+            raise ValueError(f"Module '{name}' already exists at {dest}")
+
+        def _free(start):
+            p = start
+            while p < start + 200:
+                with socket.socket() as s:
+                    if s.connect_ex(('127.0.0.1', p)) != 0:
+                        return p
+                p += 1
+            raise RuntimeError("No free port found")
+
+        port = int(port) if port else _free(50260)
+        app_port = int(app_port) if app_port else _free(port + 1)
+
+        shutil.copytree(DIR, dest, ignore=shutil.ignore_patterns(
+            'node_modules', '.next', '__pycache__', 'cache', 'build-info',
+            '.git', '*.tsbuildinfo', 'deployment.json',
+        ))
+
+        # Rewire identity: config, ports, basePath, gateway route, log dirs.
+        cfg_path = dest / 'config.json'
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        cfg['name'] = name
+        cfg['port'] = port
+        cfg['app_port'] = app_port
+        cfg['forked_from'] = 'bloctime'
+        cfg['urls'] = {'api': f'http://localhost:{port}', 'app': f'http://localhost:{app_port}'}
+        cfg.pop('schema', None)
+        with open(cfg_path, 'w') as f:
+            json.dump(cfg, f, indent=2)
+
+        replacements = {
+            dest / 'mod.py': [
+                ('API_PORT = 8851', f'API_PORT = {port}'),
+                ('APP_PORT = 8852', f'APP_PORT = {app_port}'),
+                ("/tmp/bloctime", f"/tmp/{name}"),
+                ("'bloctime.app'", f"'{name}.app'"),
+            ],
+            dest / 'app' / 'mod.py': [
+                ('APP_PORT = 8852', f'APP_PORT = {app_port}'),
+                ('API_PORT = 8851', f'API_PORT = {port}'),
+                ("'/bloctime'", f"'/{name}'"),
+                ("/tmp/bloctime", f"/tmp/{name}"),
+            ],
+            dest / 'app' / 'next.config.js': [
+                ("'/bloctime'", f"'/{name}'"),
+            ],
+            dest / 'app' / 'src' / 'app' / 'page.tsx': [
+                ('/api/bloctime', f'/api/{name}'),
+                ('http://localhost:8851', f'http://localhost:{port}'),
+            ],
+        }
+        for path, subs in replacements.items():
+            if not path.exists():
+                continue
+            text = path.read_text()
+            for old, new in subs:
+                text = text.replace(old, new)
+            path.write_text(text)
+
+        return {
+            'module': name,
+            'path': str(dest),
+            'api_port': port,
+            'app_port': app_port,
+            'next_steps': [
+                f"m {name}/serve                      # run your fork",
+                f"m {name}/deploy network=base_sepolia # deploy YOUR contracts (needs PRIVATE_KEY)",
+                "  ...or use the app's DEPLOY tab to deploy from your wallet",
+                f"m bloctime/register_instance name={name} rpc=<rpc> bloctime=<0x...>  # list it on the market",
+            ],
+        }
+
+    def market(self, stats=False):
+        """Browse the marketplace: every registered BlocTime instance."""
+        reg = self._registry()
+        instances = reg.list_instances()
+        if stats:
+            for e in instances:
+                e['stats'] = reg.instance_stats(e)
+        return {'count': len(instances), 'instances': instances}
+
+    def register_instance(self, name, rpc, bloctime, native_token=None, description=''):
+        """Verify a deployed BlocTime on-chain and list it on the marketplace."""
+        return self._registry().add_instance(
+            name=name, rpc=rpc, bloctime=bloctime,
+            native_token=native_token, description=description,
+        )
+
+    def unregister_instance(self, id):
+        """Remove a marketplace entry (local trusted path — no signature needed)."""
+        return self._registry().remove_instance(id)
+
+    def bridge(self, fn='health', **kwargs):
+        """Call into the bridge module (Substrate/Solana → EVM snapshot claims)."""
+        import requests as req
+        base = os.environ.get('BRIDGE_API_URL', 'http://localhost:8840')
+        try:
+            if fn in ('in_snapshot', 'has_claimed', 'unclaimed', 'commitment'):
+                resp = req.get(f"{base}/{fn}/{kwargs.get('address', '')}", timeout=15)
+            else:
+                resp = req.post(f"{base}/{fn}", json=kwargs or {}, timeout=15)
+                if resp.status_code in (404, 405):
+                    resp = req.get(f"{base}/{fn}", params=kwargs or {}, timeout=15)
+            return resp.json()
+        except Exception as e:
+            return {'error': f'bridge module unreachable: {e}'}
 
     def app(self, fn='info', **kwargs):
         """The BlocTime app submodule — see app/mod.py (m bloctime.app)."""

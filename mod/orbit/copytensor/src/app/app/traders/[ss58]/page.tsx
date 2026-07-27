@@ -3,14 +3,16 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import type { AccountData, PnlData } from "../../lib/types";
+import type { AccountData, CurveData, PnlData } from "../../lib/types";
 import {
   fetchAccount,
+  fetchCurve,
   fetchPnl,
   shortSs58,
   watchAccount,
 } from "../../lib/api";
 import PnlBadge from "../../components/PnlBadge";
+import PnlCurve from "../../components/PnlCurve";
 import SubnetPositions from "../../components/SubnetPositions";
 import { useCurrency, fmtValue } from "../../context/CurrencyContext";
 
@@ -22,6 +24,7 @@ export default function TraderPage() {
   const [days, setDays] = useState(7);
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
+  const [curve, setCurve] = useState<CurveData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [watched, setWatched] = useState(false);
@@ -37,6 +40,18 @@ export default function TraderPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  }, [ss58, days]);
+
+  // The curve reads only the local snapshot record — it must never block the
+  // page on a slow chain walk, so it loads on its own.
+  useEffect(() => {
+    if (!ss58) return;
+    let cancelled = false;
+    setCurve(null);
+    fetchCurve(ss58, days)
+      .then((c) => !cancelled && setCurve(c))
+      .catch(() => !cancelled && setCurve(null));
+    return () => { cancelled = true; };
   }, [ss58, days]);
 
   if (loading && !account) {
@@ -110,6 +125,14 @@ export default function TraderPage() {
           </button>
         ))}
       </div>
+
+      {curve ? (
+        <PnlCurve curve={curve} days={days} />
+      ) : (
+        <div className="pixel-panel p-6 text-sm text-pixel-gray">
+          building PnL curve from snapshots…
+        </div>
+      )}
 
       <section>
         <h2 className="font-display text-lg font-bold mb-3">Allocations</h2>

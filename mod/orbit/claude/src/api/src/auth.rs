@@ -652,6 +652,10 @@ pub struct Grant {
     /// Optional human label so the owner remembers what a grant was for.
     #[serde(default)]
     pub label: Option<String>,
+    /// Module scope: None = every module (the default); Some(list) confines
+    /// the holder's edit powers to just those modules.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
     pub created: i64,
     #[serde(default)]
     pub revoked: bool,
@@ -663,6 +667,10 @@ pub struct Redemption {
     pub exp: i64,
     pub grant: String,
     pub redeemed: i64,
+    /// Module scope stamped from the grant at redemption (None = every module),
+    /// so access stays correctly scoped even if the grant row is later pruned.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -715,12 +723,30 @@ fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
     file
 }
 
+/// Normalize a requested module scope: trim, drop empties, dedupe (order
+/// preserved). An empty/absent list means "every module" and collapses to None.
+fn normalize_modules(modules: Option<Vec<String>>) -> Option<Vec<String>> {
+    let list: Vec<String> = modules?
+        .into_iter()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .fold(Vec::new(), |mut acc, m| {
+            if !acc.contains(&m) {
+                acc.push(m);
+            }
+            acc
+        });
+    if list.is_empty() { None } else { Some(list) }
+}
+
 /// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
-/// never stored in the clear. Returns the created grant.
+/// never stored in the clear. `modules` (if any) confines the holder's edit
+/// powers to those modules — None means everything. Returns the created grant.
 pub fn create_grant(
     ttl: i64,
     key: Option<&str>,
     label: Option<&str>,
+    modules: Option<Vec<String>>,
 ) -> Result<Grant, String> {
     let now = chrono::Utc::now().timestamp();
     let id = hex::encode(rand::random::<[u8; 12]>());
@@ -732,6 +758,7 @@ pub fn create_grant(
         label: label
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
+        modules: normalize_modules(modules),
         created: now,
         revoked: false,
     };
@@ -794,6 +821,7 @@ pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, S
         exp: grant.exp,
         grant: grant.id.clone(),
         redeemed: now,
+        modules: grant.modules.clone(),
     });
     write_grants(&file)?;
     Ok(grant.exp)
@@ -826,6 +854,68 @@ pub fn grant_active(address: &str) -> bool {
     file.redemptions
         .iter()
         .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+}
+
+/// What a trusted address may edit. Owner and whitelisted editors always get
+/// everything; grant holders get whatever scope their invite carried.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditScope {
+    /// Every module — the owner, whitelisted editors, and unscoped grants.
+    All,
+    /// Only these modules (compartmentalized-risk invites).
+    Modules(Vec<String>),
+}
+
+/// Resolve the edit scope for `address`: None = not trusted at all. A holder
+/// of several active grants gets the union of their scopes; any unscoped
+/// grant (or owner/whitelist status) widens to All.
+pub fn edit_scope(address: &str) -> Option<EditScope> {
+    if address.is_empty() {
+        return None;
+    }
+    let addr = address.to_lowercase();
+    if is_owner(&addr) || read_whitelist().iter().any(|w| w == &addr) {
+        return Some(EditScope::All);
+    }
+    let now = chrono::Utc::now().timestamp();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    let mut modules: Vec<String> = Vec::new();
+    let mut any = false;
+    for r in file
+        .redemptions
+        .iter()
+        .filter(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+    {
+        any = true;
+        match &r.modules {
+            None => return Some(EditScope::All),
+            Some(list) => {
+                for m in list {
+                    if !modules.contains(m) {
+                        modules.push(m.clone());
+                    }
+                }
+            }
+        }
+    }
+    if any { Some(EditScope::Modules(modules)) } else { None }
+}
+
+/// Module-aware trust check: true when `address` is trusted AND `module`
+/// falls inside its edit scope. This is the gate for per-module editor
+/// powers (MR verdicts, MR close); `is_trusted` stays the coarse gate.
+pub fn can_edit_module(address: &str, module: &str) -> bool {
+    match edit_scope(address) {
+        Some(EditScope::All) => true,
+        Some(EditScope::Modules(list)) => list.iter().any(|m| m == module),
+        None => false,
+    }
 }
 
 // ── Session handoff (QR sign-in on another device) ──────────────────
@@ -1151,6 +1241,23 @@ mod tests {
             recovered.to_lowercase(),
             expected_address.to_lowercase(),
             "Recovered address doesn't match expected"
+        );
+    }
+
+    #[test]
+    fn test_normalize_modules_scope() {
+        // Absent / empty / all-blank scopes collapse to None (= everything).
+        assert_eq!(normalize_modules(None), None);
+        assert_eq!(normalize_modules(Some(vec![])), None);
+        assert_eq!(normalize_modules(Some(vec!["  ".into(), "".into()])), None);
+        // Trim + dedupe, order preserved.
+        assert_eq!(
+            normalize_modules(Some(vec![
+                " store ".into(),
+                "claude".into(),
+                "store".into(),
+            ])),
+            Some(vec!["store".to_string(), "claude".to_string()])
         );
     }
 

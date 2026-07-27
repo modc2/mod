@@ -6,14 +6,21 @@
 //          wallet + signed-in EOA), near-live (60s TTL). This is the ground
 //          truth of what the live engine really traded — straight from
 //          Polymarket's data-api, not the engine's in-memory log.
-// Auto-refreshes, and reuses the global search/category filters.
+// Auto-refreshes, and reuses the global search/category filters plus a
+// per-trade FILTERS bar (side / price band / size band / keywords) — the
+// side/price/size gate is the exact same one strats use to slice flow
+// (lib/tradeFilters.ts); keywords are a tape-only OR-match on market title
+// + outcome (UI convenience, deliberately NOT part of the Rust-mirrored
+// TradeFilters gate).
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import TopBar from "../components/TopBar";
 import { useAuth } from "../context/AuthContext";
 import { useFilters, useUrlSync } from "../context/FiltersContext";
-import { API_BASE, fetchGlobalTrades, fetchUserTrades, timeAgo, formatVolume, matchMarketCategory, type GlobalTrade } from "../lib/polymarket";
+import { API_BASE, CATEGORIES, fetchGlobalTrades, fetchUserTrades, timeAgo, formatVolume, matchMarketCategory, type GlobalTrade } from "../lib/polymarket";
+import { tradeMatchesFilters, tradeFiltersActive, describeTradeFilters } from "../lib/tradeFilters";
+import type { TradeFilters } from "../lib/types";
 import { shortAddress } from "../lib/auth";
 
 // The proxy caches `trades` aggressively (it's a persistent endpoint), so the
@@ -29,7 +36,7 @@ function TradesInner() {
   useUrlSync();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { search, category } = useFilters();
+  const { search, category, setCategory } = useFilters();
   const { auth } = useAuth();
   const address = auth.address;
   const [trades, setTrades] = useState<GlobalTrade[]>([]);
@@ -53,6 +60,58 @@ function TradesInner() {
   // How deep into data-api's trade history we've fetched. Offsets drift as
   // new fills push old ones deeper — the de-dupe merge absorbs the overlap.
   const deepestOffset = useRef(0);
+  // ── Per-trade FILTERS bar — side / price band / size band. Number fields
+  // stay as raw strings while editing; the TradeFilters object is derived.
+  const [showFilters, setShowFilters] = useState(false);
+  const [sides, setSides] = useState<"both" | "buy" | "sell">("both");
+  const [minPriceStr, setMinPriceStr] = useState(""); // cents, 0–100
+  const [maxPriceStr, setMaxPriceStr] = useState("");
+  const [minSizeStr, setMinSizeStr] = useState("");   // USD notional
+  const [maxSizeStr, setMaxSizeStr] = useState("");
+  // Keyword chips — a trade shows if its market title OR outcome contains ANY
+  // keyword (case-insensitive). ?kw=bitcoin,eth deep-links (init-only).
+  const [keywords, setKeywords] = useState<string[]>(() =>
+    (searchParams.get("kw") ?? "")
+      .split(",")
+      .map((k) => k.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const [kwInput, setKwInput] = useState("");
+  const addKeyword = (raw: string) => {
+    const k = raw.trim().toLowerCase();
+    if (!k) return;
+    setKeywords((prev) => (prev.includes(k) ? prev : [...prev, k]));
+    setKwInput("");
+  };
+  const removeKeyword = (k: string) => setKeywords((prev) => prev.filter((x) => x !== k));
+
+  const tf = useMemo<TradeFilters>(() => {
+    const num = (s: string) => {
+      const n = Number(s);
+      return s.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : undefined;
+    };
+    return {
+      sides,
+      minPrice: num(minPriceStr) != null ? num(minPriceStr)! / 100 : undefined,
+      maxPrice: num(maxPriceStr) != null ? num(maxPriceStr)! / 100 : undefined,
+      minNotional: num(minSizeStr),
+      maxNotional: num(maxSizeStr),
+    };
+  }, [sides, minPriceStr, maxPriceStr, minSizeStr, maxSizeStr]);
+  const tfActive = tradeFiltersActive(tf);
+  const activeFilterCount =
+    (sides !== "both" ? 1 : 0) +
+    (tf.minPrice != null || tf.maxPrice != null ? 1 : 0) +
+    (tf.minNotional != null || tf.maxNotional != null ? 1 : 0) +
+    (keywords.length > 0 ? 1 : 0) +
+    (category ? 1 : 0);
+  const clearFilters = () => {
+    setSides("both");
+    setMinPriceStr(""); setMaxPriceStr("");
+    setMinSizeStr(""); setMaxSizeStr("");
+    setKeywords([]); setKwInput("");
+    setCategory("");
+  };
 
   // Resolve EOA → deposit wallet once per sign-in. The deposit wallet is the
   // address that actually appears as the trader on engine-executed fills.
@@ -165,8 +224,16 @@ function TradesInner() {
   }, [load, paused]);
 
   const q = search.trim().toLowerCase();
+  // True when ANYTHING is narrowing the tape — search, category, or the
+  // per-trade FILTERS bar. Drives the match counter + empty-state copy.
+  const narrowing = !!q || !!category || tfActive || keywords.length > 0;
   const filtered = trades.filter((t) => {
     if (category && !matchMarketCategory(t.market, category)) return false;
+    if (!tradeMatchesFilters(t, tf)) return false;
+    if (keywords.length > 0) {
+      const hay = `${t.market} ${t.outcome}`.toLowerCase();
+      if (!keywords.some((k) => hay.includes(k))) return false;
+    }
     if (!q) return true;
     return (
       t.market.toLowerCase().includes(q) ||
@@ -176,9 +243,9 @@ function TradesInner() {
     );
   });
 
-  // Jump back to page 1 whenever the query/category changes — the old page
-  // number is meaningless against a different result set.
-  useEffect(() => { setPage(1); }, [q, category]);
+  // Jump back to page 1 whenever the query/category/filters change — the old
+  // page number is meaningless against a different result set.
+  useEffect(() => { setPage(1); }, [q, category, tf, keywords]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const curPage = Math.min(page, totalPages);
@@ -256,8 +323,23 @@ function TradesInner() {
           </div>
           <div className="flex items-center gap-2 text-[12px] font-mono">
             <span className="text-pixel-gray">
-              {q || category ? `${filtered.length} matches · ` : ""}{trades.length} loaded
+              {narrowing ? `${filtered.length} matches · ` : ""}{trades.length} loaded
             </span>
+            <button
+              onClick={() => setShowFilters((s) => !s)}
+              className={`pixel-btn text-[12px] px-2.5 py-1 flex items-center gap-1.5 ${
+                showFilters || activeFilterCount > 0
+                  ? "border-green-400 text-green-400"
+                  : "border-pixel-border text-pixel-gray hover:text-pixel-white"
+              }`}
+            >
+              FILTERS
+              {activeFilterCount > 0 && (
+                <span className="text-[11px] bg-green-400/20 text-green-400 px-1 py-px border border-green-400/40">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setPaused((p) => !p)}
               className={`pixel-btn text-[12px] px-2.5 py-1 ${paused ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
@@ -266,6 +348,150 @@ function TradesInner() {
             </button>
           </div>
         </div>
+
+        {/* ── FILTERS bar — same dimensions strats gate on (side / entry-price
+            band / USD size band) + the global category buckets. Collapsed, an
+            active-filter summary chip keeps what's narrowing the tape visible. */}
+        {!showFilters && (tfActive || keywords.length > 0) && (
+          <div className="flex items-center gap-2 flex-wrap font-mono text-[11px]">
+            {tfActive && (
+              <span className="pixel-badge border-green-400/60 text-green-400">{describeTradeFilters(tf)}</span>
+            )}
+            {keywords.length > 0 && (
+              <span className="pixel-badge border-green-400/60 text-green-400">
+                “{keywords.join("” “")}”
+              </span>
+            )}
+            <button onClick={clearFilters} className="text-pixel-gray hover:text-pixel-white">CLEAR</button>
+          </div>
+        )}
+        {showFilters && (
+          <div className="pixel-panel px-3 py-2.5 space-y-2.5">
+            {/* Side */}
+            <div className="flex items-center gap-1.5 flex-wrap font-mono">
+              <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1 w-14">SIDE</span>
+              {(["both", "buy", "sell"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSides(s)}
+                  className={`pixel-btn text-[12px] px-2 py-0.5 transition-colors ${
+                    sides === s
+                      ? "border-green-400 text-green-400 bg-green-400/10"
+                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                  }`}
+                >
+                  {s === "both" ? "BOTH" : s === "buy" ? "BUY" : "SELL"}
+                </button>
+              ))}
+            </div>
+            {/* Price band (¢) + size band ($) */}
+            <div className="flex items-center gap-4 flex-wrap font-mono">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1 w-14">PRICE ¢</span>
+                <input
+                  type="number" min={0} max={100} placeholder="0"
+                  value={minPriceStr} onChange={(e) => setMinPriceStr(e.target.value)}
+                  className="pixel-input-sm w-16 text-[12px]"
+                />
+                <span className="text-pixel-gray text-[12px]">–</span>
+                <input
+                  type="number" min={0} max={100} placeholder="100"
+                  value={maxPriceStr} onChange={(e) => setMaxPriceStr(e.target.value)}
+                  className="pixel-input-sm w-16 text-[12px]"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1">SIZE $</span>
+                <input
+                  type="number" min={0} placeholder="0"
+                  value={minSizeStr} onChange={(e) => setMinSizeStr(e.target.value)}
+                  className="pixel-input-sm w-20 text-[12px]"
+                />
+                <span className="text-pixel-gray text-[12px]">–</span>
+                <input
+                  type="number" min={0} placeholder="∞"
+                  value={maxSizeStr} onChange={(e) => setMaxSizeStr(e.target.value)}
+                  className="pixel-input-sm w-20 text-[12px]"
+                />
+              </div>
+            </div>
+            {/* Keywords — free-form OR-match on market title + outcome. Finer
+                than the category buckets: "bitcoin" ≠ the whole Crypto bucket. */}
+            <div className="flex items-start gap-1.5 flex-wrap font-mono">
+              <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1 w-14 pt-1">KEYWORD</span>
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                {keywords.map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => removeKeyword(k)}
+                    title="Remove keyword"
+                    className="pixel-btn text-[12px] px-2 py-0.5 border-green-400 text-green-400 bg-green-400/10 hover:border-red-400 hover:text-red-400"
+                  >
+                    {k} ✕
+                  </button>
+                ))}
+                <input
+                  type="text"
+                  placeholder="bitcoin, fed, nba…"
+                  value={kwInput}
+                  onChange={(e) => {
+                    // Comma commits the chip mid-typing, same as Enter.
+                    if (e.target.value.includes(",")) {
+                      e.target.value.split(",").forEach(addKeyword);
+                    } else setKwInput(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addKeyword(kwInput);
+                    else if (e.key === "Backspace" && kwInput === "" && keywords.length > 0)
+                      removeKeyword(keywords[keywords.length - 1]);
+                  }}
+                  onBlur={() => addKeyword(kwInput)}
+                  className="pixel-input-sm w-40 text-[12px]"
+                />
+                {["bitcoin", "ethereum", "solana", "trump", "fed", "nba"]
+                  .filter((p) => !keywords.includes(p))
+                  .map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => addKeyword(p)}
+                      className="pixel-btn text-[12px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                    >
+                      + {p}
+                    </button>
+                  ))}
+              </div>
+            </div>
+            {/* Category buckets — bound to the global category filter the page
+                already honors (also set from TRADERS → FILTERS; shared state). */}
+            <div className="flex items-center gap-1.5 flex-wrap font-mono">
+              <span className="text-[12px] text-pixel-gray tracking-wider shrink-0 mr-1 w-14">MARKET</span>
+              {CATEGORIES.map((c) => {
+                const active = category === c.slug;
+                return (
+                  <button
+                    key={c.slug || "all"}
+                    onClick={() => setCategory(c.slug)}
+                    className={`pixel-btn text-[12px] px-2 py-0.5 transition-colors ${
+                      active
+                        ? "border-green-400 text-green-400 bg-green-400/10"
+                        : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearFilters}
+                  className="pixel-btn text-[12px] px-2 py-0.5 border-red-400/50 text-red-400 hover:bg-red-400/10 ml-auto"
+                >
+                  ✕ CLEAR
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="pixel-panel px-3 py-2 border-red-400/40 text-[12px] text-red-400 font-mono">
@@ -287,11 +513,11 @@ function TradesInner() {
         ) : rows.length === 0 ? (
           <div className="pixel-panel p-8 text-center">
             <div className="text-[14px] text-pixel-gray-light tracking-wider mb-1">
-              {feed === "mine" && !(q || category) ? "NO FILLS YET" : "NO TRADES MATCH"}
+              {feed === "mine" && !narrowing ? "NO FILLS YET" : "NO TRADES MATCH"}
             </div>
             <div className="text-[12px] text-pixel-gray mb-3">
-              {q || category
-                ? "No hits in the loaded tape — scan deeper into history, or clear the filter."
+              {narrowing
+                ? "No hits in the loaded tape — scan deeper into history, or clear the filters."
                 : feed === "mine"
                   ? engine?.running && !engine.auto
                     ? "The engine is in DRY RUN — it computes mirrors but places NO real orders, so no fills exist. Flip EXECUTION to LIVE in STRAT → LIVE to trade for real."
@@ -300,7 +526,7 @@ function TradesInner() {
                       : "No live engine session and no past fills for this wallet. Start the engine in STRAT → LIVE (and turn EXECUTION on) to see trades land here."
                   : "Waiting for fills…"}
             </div>
-            {(q || category) && !exhausted && (
+            {narrowing && !exhausted && (
               <button
                 onClick={loadMore}
                 disabled={loadingMore}

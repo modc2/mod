@@ -81,6 +81,12 @@ const STRAT_MODES = [
     desc: "Set `flow: {…}` (and optionally `mirror: false`) to originate from history instead of per-trade mirroring: aggregates window flow across the watchlist and proposes entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
     params: "flow.lookbackMinutes · flow.minTraders · flow.minFlowUsd · flow.maxPositions · mirror",
   },
+  {
+    name: "price momentum origination",
+    kind: "history-driven",
+    desc: "Set `momentum: {…}` to trade the market's OWN odds — no watchlist needed. The engine feeds CLOB price history for markets matching `momentum.query` (default: marketQuery, else \"bitcoin\"); the strat BUYs the outcome that rose ≥ minRiseCents over the lookback (BTC-up going 50¢→60¢ = ride it) inside the price band, and SELLs a held outcome once it falls exitDropCents. Markets resolving within minMinutesToClose are skipped — sub-hour Up/Down markets are HFT-bot turf.",
+    params: "momentum.query · momentum.lookbackMinutes · momentum.minRiseCents · momentum.exitDropCents · momentum.minPrice/maxPrice · momentum.maxPositions · momentum.maxMarkets · momentum.minMinutesToClose",
+  },
 ];
 
 const CUSTOM_STRAT_EXAMPLE = `// A strategy IS one class: new Strat(params). Configure, don't subclass:
@@ -327,7 +333,9 @@ export default function DocsPage() {
   return (
     <div className="max-w-[1920px] mx-auto">
       {/* Header */}
-      <header className="border-b border-pixel-border bg-pixel-black/90 sticky top-0 z-50">
+      {/* Same frosted-glass recipe as TopBar — without backdrop-blur the
+          90%-alpha bar let scrolled table rows read straight through it. */}
+      <header className="border-b border-pixel-border backdrop-blur-md bg-[rgb(var(--pixel-black-rgb)/0.75)] sticky top-0 z-50">
         <div className="px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -355,7 +363,7 @@ export default function DocsPage() {
         </div>
       </header>
 
-      <div className="p-4 space-y-6">
+      <div className="docs-content p-4 space-y-6">
         {/* ── Overview ── */}
         <div className="pixel-panel p-4 space-y-3">
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>

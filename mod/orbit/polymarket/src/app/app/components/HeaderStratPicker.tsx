@@ -1,15 +1,20 @@
 "use client";
 
 // One-line strat selector for the top header: the active strat's name opens
-// a dropdown of every saved strat (click to switch, ✎ or double-click to
-// rename, × to delete), the [+] beside it creates a new strat, and a
-// DEFAULT STRATS gallery at the bottom forks curated templates
-// (lib/defaultStrats.ts) into user-owned strats. This is THE strat
-// manager — indexStore localStorage store, `strat-updated` window event,
-// best-effort server sync — so CopyIndex, the LIVE checklist and this picker
-// can never disagree about which strat is active.
+// a left-docked sidebar drawer of every saved strat (click to switch, ✎ or
+// double-click to rename, × to delete) — the drawer header shows the deposit
+// wallet's on-chain USDC, and each row shows that strat's OWN cash (its
+// capital allocation minus deployed basis, click the chip to retune the
+// allocation) plus 24h PnL from the signed-in wallet's engine ledger.
+// The [+] beside the name creates a new strat, and a DEFAULT
+// STRATS gallery at the bottom forks curated templates (lib/defaultStrats.ts)
+// into user-owned strats. This is THE strat manager — indexStore localStorage
+// store, `strat-updated` window event, best-effort server sync — so
+// CopyIndex, the LIVE checklist and this picker can never disagree about
+// which strat is active.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
   loadIndexes,
@@ -26,6 +31,7 @@ import { useFilters } from "../context/FiltersContext";
 import { fetchTopTraderAddresses } from "../lib/polymarket";
 import { useEmbedded } from "../lib/embedded";
 import { DEFAULT_STRATS, forkDefaultStrat, type StratTemplate } from "../lib/defaultStrats";
+import { useStratStats, fmtUsd } from "../lib/stratStats";
 import StratCardsBrowser from "./StratCardsBrowser";
 import type { SavedIndex } from "../lib/types";
 
@@ -39,8 +45,18 @@ export default function HeaderStratPicker() {
   const [browserOpen, setBrowserOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Inline per-strat cash-allocation editor (the ".. cash" chip on each row).
+  const [editingCapId, setEditingCapId] = useState<string | null>(null);
+  const [capValue, setCapValue] = useState("");
+  // In-app delete confirmation (replaces the native window.confirm popup so
+  // the "Delete strat?" prompt renders inside the console, styled like the
+  // rest of the UI, instead of an ugly modc2.com-says browser dialog).
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [initialSynced, setInitialSynced] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  // Per-strat live PnL from the backend engine's tagged fills + the deposit
+  // wallet's USDC cash — rendered as a second line on each dropdown row and
+  // on the cards.
+  const { stats: stratStats, cash } = useStratStats();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -76,20 +92,21 @@ export default function HeaderStratPicker() {
     });
   }, [localToken, initialSynced, reload]);
 
-  // Close on outside click / Escape.
+  // Close on Escape and lock page scroll while the drawer is open. Outside
+  // clicks are handled by the drawer's own backdrop — the panel is
+  // portal-rendered to <body>, so a document-level containment check against
+  // this component's root would treat clicks inside the panel as "outside".
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
@@ -116,14 +133,33 @@ export default function HeaderStratPicker() {
     if (!pathname?.startsWith("/strats")) router.push("/strats");
   };
 
-  const remove = (id: string) => {
-    const idx = indexes.find((i) => i.id === id);
-    if (idx && !confirm(`Delete strat "${idx.name}"?`)) return;
+  // Ask first — opens the in-app confirm modal instead of window.confirm.
+  const remove = (id: string) => setPendingDelete(id);
+
+  // Actually delete, once the modal is confirmed.
+  const confirmRemove = () => {
+    const id = pendingDelete;
+    if (!id) return;
+    setPendingDelete(null);
     deleteIndex(id);
     const remaining = loadIndexes();
     if (activeId === id) setActiveIndexId(remaining[0]?.id ?? null);
     broadcast();
     if (localToken) deleteServerStrat(id, localToken.token);
+  };
+
+  // Commit the row's cash-allocation edit. `capital` is the same field the
+  // LIVE panel and backtest sim size against, so tailoring it here retargets
+  // the engine's free-capital budget for that strat.
+  const commitCapital = (id: string) => {
+    if (editingCapId !== id) return;
+    const v = Number(capValue);
+    setEditingCapId(null);
+    if (!Number.isFinite(v) || v <= 0) return;
+    updateIndex(id, { capital: Math.round(v), updatedAt: Date.now() });
+    const updated = loadIndexes().find((i) => i.id === id);
+    if (updated && localToken) pushStrat(updated, localToken.token);
+    broadcast();
   };
 
   const commitRename = () => {
@@ -144,12 +180,11 @@ export default function HeaderStratPicker() {
       name: `Strat ${existing.length + 1}`,
       traders: [],
       backtestDays: 7,
-      rebalanceMinutes: 1,
-      livePollMinutes: 1,
+      rebalanceMinutes: 0.5,
+      livePollMinutes: 0.5,
       capital: 1000,
       minTrade: 1,
       maxTrade: 100,
-      maxTradesPerHour: 10,
       maxPerCycle: 3,
       createdAt: now,
       updatedAt: now,
@@ -190,14 +225,23 @@ export default function HeaderStratPicker() {
   if (embedded) return null;
 
   const active = indexes.find((i) => i.id === activeId) ?? indexes[0] ?? null;
+  // The strat's market keywords (the KEYWORDS filter / MARKET param) are part
+  // of its identity — two strats on the same traders differ only by them — so
+  // the picker surfaces them next to the name instead of hiding them in tabs.
+  const activeKeywords = active?.marketQuery?.trim() ?? "";
+  const keywordGroups = (q: string) => q.split(/[,|]/).map((s) => s.trim()).filter(Boolean);
 
   return (
-    <div ref={rootRef} className="relative flex items-center gap-1">
+    <div className="relative flex items-center gap-1">
       <button
         onClick={() => setOpen((v) => !v)}
-        title={active ? `Strat: ${active.name} — click to switch` : "Select a strat"}
+        title={
+          active
+            ? `Strat: ${active.name}${activeKeywords ? ` — keywords: ${activeKeywords}` : ""} — click to switch`
+            : "Select a strat"
+        }
         aria-expanded={open}
-        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)] transition-colors max-w-[200px] ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)] transition-colors max-w-[min(200px,32vw)] ${
           open ? "bg-pixel-white/[0.06]" : "hover:bg-pixel-white/[0.06]"
         }`}
       >
@@ -209,6 +253,14 @@ export default function HeaderStratPicker() {
         </span>
         {active && (
           <span className="text-[10px] text-pixel-gray shrink-0">{active.traders.length}T</span>
+        )}
+        {activeKeywords && (
+          <span
+            className="text-[10px] font-mono text-amber-300/90 shrink-0"
+            title={`Copying only markets matching: ${activeKeywords}`}
+          >
+            ⌕{keywordGroups(activeKeywords).length}
+          </span>
         )}
         <span className={`text-[10px] text-pixel-gray transition-transform duration-150 ${open ? "rotate-180" : ""}`}>
           ▾
@@ -224,26 +276,70 @@ export default function HeaderStratPicker() {
       <button
         onClick={() => { setOpen(false); setBrowserOpen(true); }}
         title="Browse strats as cards"
-        className="grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[11px] leading-none shrink-0"
+        className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[11px] leading-none shrink-0"
       >
         ▦
       </button>
 
-      {open && (
-        <div
-          className="absolute left-0 top-full mt-1.5 z-50 min-w-[260px] max-w-[320px] rounded-[var(--radius-sm)] backdrop-blur-md p-1.5 flex flex-col gap-0.5 max-h-[70vh] overflow-y-auto"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.96), rgb(var(--pixel-bg-rgb)/0.94))",
-            border: "1px solid var(--border)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-          }}
-        >
+      {open &&
+        createPortal(
+          // Portal to <body>: the TopBar's backdrop-blur makes the header the
+          // containing block for fixed descendants — rendered in place, the
+          // full-height drawer would be clipped to the 48px header strip.
+          <div className="fixed inset-0 z-50" onClick={() => setOpen(false)}>
+            <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.35)" }} />
+            <aside
+              onClick={(e) => e.stopPropagation()}
+              className="absolute inset-y-0 left-0 w-[320px] max-w-[85vw] flex flex-col backdrop-blur-md"
+              style={{
+                background:
+                  "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.97), rgb(var(--pixel-bg-rgb)/0.95))",
+                borderRight: "1px solid var(--border)",
+                boxShadow: "12px 0 32px rgba(0,0,0,0.45)",
+                animation: "drawer-in-left 0.18s ease-out",
+              }}
+            >
+              <div
+                className="flex items-center gap-2 px-3 h-12 shrink-0"
+                style={{ borderBottom: "1px solid var(--border)" }}
+              >
+                <span className="text-[12px] font-mono font-bold tracking-[0.18em] text-pixel-white">STRATS</span>
+                <span
+                  className="flex-1 text-[10.5px] font-mono text-pixel-gray truncate"
+                  title="Wallet = your deposit wallet's on-chain USDC. Each row shows that strat's own cash (its allocation minus what it has deployed)."
+                >
+                  {indexes.length} saved · wallet{" "}
+                  <span className={cash === null ? "" : "text-pixel-white"}>
+                    {cash === null ? "…" : fmtUsd(cash)}
+                  </span>
+                </span>
+                <button
+                  onClick={() => setOpen(false)}
+                  title="Close (Esc)"
+                  className="grid place-items-center w-[24px] h-[24px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors text-[13px] leading-none shrink-0"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-0.5">
           {indexes.length === 0 && (
             <div className="px-3 py-2 text-[11px] text-pixel-gray">No strats yet</div>
           )}
           {indexes.map((idx) => {
             const isActive = idx.id === activeId;
+            // Always show the signed-in user's money in each strat — an
+            // untraded strat reads its full allocation rather than hiding the
+            // line, so the list doubles as a per-strat portfolio breakdown.
+            // Strat cash = the strat's capital allocation minus the cost basis
+            // it currently has deployed — the same free-capital number the
+            // engine budgets mirrors against (NOT the wallet-wide USDC, which
+            // lives in the drawer header).
+            const money = stratStats[idx.id];
+            const pnl24h = money?.pnl24h ?? 0;
+            const roi24h = money?.roi24h ?? null;
+            const cap = idx.capital ?? 1000;
+            const deployed = money?.moneyIn ?? 0;
+            const stratCash = Math.max(0, cap - deployed);
             return (
               <div
                 key={idx.id}
@@ -275,10 +371,60 @@ export default function HeaderStratPicker() {
                 ) : (
                   <span
                     onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
-                    className="flex-1 min-w-0 truncate text-[12px] font-mono font-semibold"
+                    className="flex-1 min-w-0"
                     title="Double-click to rename"
                   >
-                    {idx.name}
+                    <span className="block truncate text-[12px] font-mono font-semibold">{idx.name}</span>
+                    {idx.marketQuery?.trim() && (
+                      <span
+                        className="block truncate text-[10px] font-mono text-amber-300/70"
+                        title={`Copying only markets matching: ${idx.marketQuery.trim()}`}
+                      >
+                        ⌕ {idx.marketQuery.trim()}
+                      </span>
+                    )}
+                    <span
+                      className="block truncate text-[10px] font-mono text-pixel-gray"
+                      title={
+                        money
+                          ? `$${money.moneyIn.toFixed(2)} deployed across ${money.openPositions} open position(s) · total ${money.totalPnl >= 0 ? "+" : ""}${fmtUsd(money.totalPnl)} (realized ${fmtUsd(money.realized)} · unrealized ${fmtUsd(money.unrealized)})`
+                          : "No fills from your wallet in this strat yet"
+                      }
+                    >
+                      {editingCapId === idx.id ? (
+                        <input
+                          type="number"
+                          min={1}
+                          value={capValue}
+                          onChange={(e) => setCapValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitCapital(idx.id);
+                            if (e.key === "Escape") setEditingCapId(null);
+                          }}
+                          onBlur={() => commitCapital(idx.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          className="w-[64px] bg-transparent border-b border-green-400 text-green-400 text-[10px] font-mono outline-none"
+                        />
+                      ) : (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCapId(idx.id);
+                            setCapValue(String(cap));
+                          }}
+                          title={`This strat's cash: $${cap} allocation − ${fmtUsd(deployed)} deployed. Click to change the allocation${cash !== null ? ` (wallet holds ${fmtUsd(cash)} USDC)` : ""}.`}
+                          className="underline decoration-dotted decoration-pixel-gray/50 underline-offset-2 hover:text-green-400 cursor-text"
+                        >
+                          {fmtUsd(stratCash)} cash
+                        </span>
+                      )}
+                      {" "}· 24h{" "}
+                      <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
+                        {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
+                        {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
+                      </span>
+                    </span>
                   </span>
                 )}
                 <span className="text-[10px] text-pixel-gray shrink-0">{idx.traders.length}T</span>
@@ -339,12 +485,17 @@ export default function HeaderStratPicker() {
               </button>
             ))}
           </div>
-        </div>
-      )}
+              </div>
+            </aside>
+          </div>,
+          document.body,
+        )}
 
       <StratCardsBrowser
         open={browserOpen}
         indexes={indexes}
+        stats={stratStats}
+        cash={cash}
         activeId={activeId}
         onClose={() => setBrowserOpen(false)}
         onSelect={selectFromBrowser}
@@ -360,6 +511,68 @@ export default function HeaderStratPicker() {
           if (!pathname?.startsWith("/strats")) router.push("/strats");
         }}
       />
+
+      {/* In-app delete confirmation — portal to <body> so it floats above the
+          drawer and the card browser, both of which route delete through
+          remove(). Replaces the native window.confirm() browser popup. */}
+      {pendingDelete !== null &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[70] grid place-items-center p-4"
+            onClick={() => setPendingDelete(null)}
+          >
+            <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.6)" }} />
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setPendingDelete(null);
+                if (e.key === "Enter") confirmRemove();
+              }}
+              tabIndex={-1}
+              ref={(el) => el?.focus()}
+              className="relative w-full max-w-[360px] rounded-[var(--radius)] backdrop-blur-md p-4 outline-none"
+              style={{
+                background:
+                  "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.98), rgb(var(--pixel-bg-rgb)/0.96))",
+                border: "1px solid var(--border)",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+                animation: "drawer-in-left 0.14s ease-out",
+              }}
+            >
+              <div className="text-[11px] font-mono font-bold tracking-[0.16em] text-red-400/90">
+                DELETE STRAT
+              </div>
+              <div className="mt-2 text-[12.5px] font-mono text-pixel-white leading-relaxed">
+                Delete strat{" "}
+                <span className="text-green-400 font-semibold">
+                  “{indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}”
+                </span>
+                ?
+              </div>
+              <div className="mt-1 text-[10.5px] font-mono text-pixel-gray">
+                This removes the strat and its file from disk. This can’t be undone.
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  onClick={() => setPendingDelete(null)}
+                  className="rounded-[var(--radius-sm)] border border-pixel-border px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors"
+                >
+                  CANCEL
+                </button>
+                <button
+                  onClick={confirmRemove}
+                  autoFocus
+                  className="rounded-[var(--radius-sm)] border border-red-400/50 bg-red-400/10 px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-red-400 hover:bg-red-400/20 hover:border-red-400 transition-colors"
+                >
+                  DELETE
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

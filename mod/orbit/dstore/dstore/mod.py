@@ -1,8 +1,8 @@
 """
-dstore — unified decentralized storage over filecoin + hippius backends.
+dstore — unified decentralized storage over filecoin + hippius + lighthouse backends.
 
-Wraps the filecoin and hippius orbit modules into a single put/get interface,
-keyed by an Ethereum address owner (set via MetaMask SIWE auth on the app).
+Wraps the filecoin, hippius and lighthouse orbit modules into a single put/get
+interface, keyed by an Ethereum address owner (set via MetaMask SIWE auth on the app).
 
 Usage (Python):
     import mod as m
@@ -32,16 +32,19 @@ STORE = Path(os.path.expanduser('~/.store-mod'))
 
 
 class Mod:
-    description = "Unified decentralized storage over filecoin + hippius backends."
+    description = "Unified decentralized storage over filecoin + hippius + lighthouse backends."
 
     fns = [
         'forward', 'put', 'register', 'get', 'pin', 'list', 'rm', 'usage',
-        'status', 'backends', 'start', 'stop',
+        'status', 'backends', 'start', 'stop', 'keys', 'set_key',
     ]
 
     # 'localfs' is the zero-dependency default: content-addressed files on
     # local disk (IPFS-compatible CIDs, no daemon). 'both' = filecoin+hippius.
-    BACKENDS = ['localfs', 'filecoin', 'hippius', 'both']
+    BACKENDS = ['localfs', 'filecoin', 'hippius', 'lighthouse', 'both']
+
+    # Backends that take API credentials, settable at runtime via set_key().
+    KEYED_BACKENDS = ['hippius', 'lighthouse']
 
     def __init__(self, store_path: str = None, **kw):
         self.module_dir = DIR
@@ -53,6 +56,7 @@ class Mod:
         self._localfs = None
         self._filecoin = None
         self._hippius = None
+        self._lighthouse = None
 
     def _load_config(self):
         cfg = self.module_dir / 'config.json'
@@ -96,6 +100,11 @@ class Mod:
             self._hippius = m.mod('hippius')()
         return self._hippius
 
+    def lighthouse(self):
+        if self._lighthouse is None:
+            self._lighthouse = m.mod('lighthouse')()
+        return self._lighthouse
+
     # ── Core API ──────────────────────────────────────────────────
 
     def forward(self, action: str = None, **kw):
@@ -135,6 +144,13 @@ class Mod:
                 self._record(r['cid'], 'hippius', owner, key or os.path.basename(path), r.get('size'))
             except Exception as e:
                 results['hippius'] = {'error': str(e)}
+        if backend == 'lighthouse':
+            try:
+                r = self.lighthouse().put(path=path, owner=owner, key=key)
+                results['lighthouse'] = r
+                self._record(r['cid'], 'lighthouse', owner, key or os.path.basename(path), r.get('size'))
+            except Exception as e:
+                results['lighthouse'] = {'error': str(e)}
 
         return {'owner': owner, 'backend': backend, 'results': results}
 
@@ -187,6 +203,11 @@ class Mod:
                     return {'backend': 'filecoin', 'fallback': True, **self.filecoin().get(cid=cid, out=out)}
                 except Exception as e2:
                     return {'cid': cid, 'error': f'both failed: hippius={e}; filecoin={e2}'}
+        elif backend == 'lighthouse':
+            try:
+                return {'backend': 'lighthouse', **self.lighthouse().get(cid=cid, out=out)}
+            except Exception as e:
+                return {'cid': cid, 'error': f'lighthouse: {e}'}
         return {'cid': cid, 'error': f'unknown backend: {backend}'}
 
     def pin(self, cid: str, backend: str = 'localfs', owner: str = None) -> dict:
@@ -196,6 +217,8 @@ class Mod:
             r = self.filecoin().pin(cid=cid, owner=owner)
         elif backend == 'hippius':
             r = self.hippius().pin(cid=cid, owner=owner)
+        elif backend == 'lighthouse':
+            r = self.lighthouse().pin(cid=cid, owner=owner)
         elif backend == 'both':
             r = {
                 'filecoin': self.filecoin().pin(cid=cid, owner=owner),
@@ -249,7 +272,7 @@ class Mod:
         conn = self._db()
         n = conn.execute('SELECT COUNT(*) FROM objects').fetchone()[0]
         by_backend = {b: conn.execute('SELECT COUNT(*) FROM objects WHERE backend=?', (b,)).fetchone()[0]
-                      for b in ('localfs', 'filecoin', 'hippius')}
+                      for b in ('localfs', 'filecoin', 'hippius', 'lighthouse')}
         conn.close()
         return {
             'name': 'store',
@@ -260,8 +283,23 @@ class Mod:
                 'localfs': self._safe(lambda: self.localfs().stats()),
                 'filecoin': self._safe(lambda: self.filecoin().status()),
                 'hippius': self._safe(lambda: self.hippius().status()),
+                'lighthouse': self._safe(lambda: self.lighthouse().status()),
             },
         }
+
+    def keys(self) -> dict:
+        """Credential status per keyed backend (configured / needs_key / valid)."""
+        out = {}
+        for b in self.KEYED_BACKENDS:
+            out[b] = self._safe(lambda b=b: getattr(self, b)().key_status())
+        return out
+
+    def set_key(self, backend: str, **creds) -> dict:
+        """Persist API credentials for a keyed backend (hippius S3 pair, lighthouse api_key)."""
+        backend = (backend or '').lower()
+        if backend not in self.KEYED_BACKENDS:
+            return {'error': f'backend must be one of {self.KEYED_BACKENDS}, got {backend!r}'}
+        return getattr(self, backend)().set_key(**creds)
 
     def backends(self) -> list:
         return list(self.BACKENDS)

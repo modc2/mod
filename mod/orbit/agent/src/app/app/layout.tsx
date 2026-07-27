@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Agent - Mod Agentic Framework',
-  description: 'The simplest agentic framework. Skills-based autonomous agent.',
+  title: 'Agent — Mod Agent OS',
+  description: 'Autonomous coding agent OS — skills, agents, chains, and a shared library market.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -98,7 +98,7 @@ def test_challenge_gen():
     from core.schemas import ChallengeType
     t0 = time.time()
 
-    gen = ChallengeGenerator(llm_backend='openrouter')
+    gen = ChallengeGenerator(llm_backend='claude')
     types_tested = []
     for ctype in [ChallengeType.OPEN, ChallengeType.VERTICAL, ChallengeType.CONTRARIAN]:
         c = gen.generate(epoch=1, challenge_type=ctype)
@@ -111,11 +111,11 @@ def test_challenge_gen():
 
 def test_backend_load(backend='chutes'):
     """Test that a backend module loads and has a forward() method."""
-    import mod as m
+    from core.llm import get_llm
     t0 = time.time()
 
     try:
-        llm = m.mod(backend)()
+        llm = get_llm(backend)
         assert hasattr(llm, 'forward'), f"{backend} module has no forward()"
         return _result(f'backend_load:{backend}', True,
                        f'{backend} loaded, forward() available', time.time() - t0)
@@ -125,11 +125,11 @@ def test_backend_load(backend='chutes'):
 
 def test_backend_forward(backend='chutes', model=None):
     """Test a live LLM call through a backend."""
-    import mod as m
+    from core.llm import get_llm
     t0 = time.time()
 
     try:
-        llm = m.mod(backend)()
+        llm = get_llm(backend)
         kwargs = {'stream': False}
         if model:
             kwargs['model'] = model
@@ -237,7 +237,7 @@ def test_multi_backend_epoch():
     t0 = time.time()
 
     try:
-        val = BitevoValidator(backend='openrouter', local=True, tempo=0)
+        val = BitevoValidator(backend='claude', local=True, tempo=0)
         backends = ['openrouter', 'venice', 'chutes']
         for i, b in enumerate(backends):
             try:
@@ -262,7 +262,7 @@ def test_multi_backend_epoch():
 
 # ── Runner ────────────────────────────────────────────────────────
 
-ALL_BACKENDS = ['openrouter', 'venice', 'chutes']
+ALL_BACKENDS = ['claude', 'openrouter', 'venice', 'chutes']
 
 QUICK_TESTS = [test_schemas, test_scoring, test_challenge_gen]
 

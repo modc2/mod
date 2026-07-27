@@ -12,8 +12,16 @@ pub struct MarketMetric {
     pub sell_volume: f64,
     pub pnl: f64,
     pub trades: u32,
+    /// Bought positions whose outcome saturated to $1 — redeemed for a
+    /// payout or exited at ≥95¢. Numerator of buy-accuracy.
     pub wins: u32,
-    pub sells: u32,
+    /// Bought positions with a known outcome (won, redeemed, or fully
+    /// exited). Denominator of buy-accuracy.
+    pub decided: u32,
+    /// Per-closed-SELL fractional returns `(price − avgCost) / avgCost` in
+    /// this market — lets `apply_pagination` recompute Sharpe scoped to the
+    /// markets matching a search/category/topic query.
+    pub returns: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +35,13 @@ pub struct Trader {
     pub pnl: f64,
     #[serde(rename = "winRate")]
     pub win_rate: f64,
+    /// Sharpe ratio over the analysis window: mean of per-closed-trade
+    /// fractional returns / their sample stdev (0 below 3 closed trades) —
+    /// same `stats_from_returns` formula the live engine ranks copies with.
+    /// Default score in the leaderboard UI. `#[serde(default)]` keeps older
+    /// cached payloads loadable (they surface as 0 until the next sync).
+    #[serde(default)]
+    pub sharpe: f64,
     pub positions: u32,
     #[serde(rename = "marketTitles")]
     pub market_titles: Vec<String>,

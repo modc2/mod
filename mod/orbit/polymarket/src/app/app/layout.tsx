@@ -4,9 +4,9 @@ import { AuthProvider } from "./context/AuthContext";
 import { CopyEngineProvider } from "./context/CopyEngineContext";
 import { FiltersProvider } from "./context/FiltersContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
-import MarketTicker from "./components/MarketTicker";
 import BuildBadge from "./components/BuildBadge";
 import LiveAutoResume from "./components/LiveAutoResume";
+import AccessGate from "./components/AccessGate";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,17 @@ export default function RootLayout({
         {/* Stamp data-theme="light" before React hydrates so light-mode
             users don't see a dark-mode flash on first paint. */}
         <ThemeBoot />
+        {/* Deploy self-healing: the app is rebuilt+restarted in place, so a
+            page loaded just before (or held open across) a deploy references
+            _next/static chunks that no longer exist — every script 400s, the
+            page never hydrates, and no click works. Inline (not a chunk) so
+            it runs even when zero bundles load: on a failed _next script/css
+            load, reload once, rate-limited so a deploy window can't loop. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var RL="pm.chunkReload";function stale(){try{var t=+sessionStorage.getItem(RL)||0;if(Date.now()-t<20000)return true;sessionStorage.setItem(RL,String(Date.now()))}catch(e){}return false}function reload(){if(!stale())setTimeout(function(){location.reload()},1500)}addEventListener("error",function(e){var el=e.target;if(el&&(el.tagName==="SCRIPT"||el.tagName==="LINK")){var u=el.src||el.href||"";if(u.indexOf("/_next/")!==-1)reload()}},true);addEventListener("unhandledrejection",function(e){var m=e.reason&&(e.reason.name+" "+e.reason.message)||"";if(m.indexOf("ChunkLoadError")!==-1||m.indexOf("dynamically imported module")!==-1)reload()})})()`,
+          }}
+        />
       </head>
       <body className="font-pixel antialiased bg-pixel-bg text-pixel-white min-h-screen">
         <ThemeProvider>
@@ -38,15 +49,20 @@ export default function RootLayout({
                   rehydrated CLOB creds; no-op if either is missing.
                   Explicit STOP clears the record, so accidental reloads
                   auto-resume but deliberate stops stay stopped. */}
-              <LiveAutoResume />
               <div className="crt-overlay" />
               <div className="crt-screen min-h-screen">
-                <MarketTicker />
-                {/* No sidebars: global nav is a dropdown in each page's
-                    TopBar, and wallet chrome is a WALLET tab inside the
-                    STRAT page. Content gets the full viewport. */}
-                <main className="min-w-0">{children}</main>
-                <BuildBadge />
+                {/* Owner-only gate: the API 401s everything until the sudo
+                    address signs the terms-acceptance challenge, so the
+                    whole console (panels, auto-resume) waits behind
+                    AccessGate instead of rendering dead 401'd chrome. */}
+                <AccessGate>
+                  <LiveAutoResume />
+                  {/* No sidebars: global nav is a dropdown in each page's
+                      TopBar, and wallet chrome is a WALLET tab inside the
+                      STRAT page. Content gets the full viewport. */}
+                  <main className="min-w-0">{children}</main>
+                  <BuildBadge />
+                </AccessGate>
               </div>
             </FiltersProvider>
             </CopyEngineProvider>

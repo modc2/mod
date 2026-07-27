@@ -954,6 +954,27 @@ fn redeem_positions_calldata(condition_id: &str) -> Result<String> {
     Ok(data)
 }
 
+/// True iff the oracle has reported this condition's payouts ON-CHAIN
+/// (`ConditionalTokens.payoutDenominator(conditionId) != 0`). The data-api
+/// flags positions `redeemable` as soon as a market resolves off-chain —
+/// for 5-minute markets that can be minutes before the on-chain report
+/// lands, and redeeming inside that window reverts the whole relayer batch
+/// (surfaces as STATE_FAILED). Selector 0xdd34de67 =
+/// keccak("payoutDenominator(bytes32)")[..4], verified against a live
+/// resolved condition.
+async fn payout_reported(http: &reqwest::Client, condition_id: &str) -> Result<bool> {
+    let cid = condition_id.strip_prefix("0x").unwrap_or(condition_id).to_lowercase();
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_call",
+        "params": [{"to": CONDITIONAL_TOKENS, "data": format!("0xdd34de67{}", cid)}, "latest"],
+        "id": 1,
+    });
+    let result = polygon_rpc(http, &body).await.context("payoutDenominator")?;
+    let hex = result.as_str().unwrap_or("0x");
+    Ok(hex.trim_start_matches("0x").chars().any(|c| c != '0'))
+}
+
 /// Redeem every RESOLVED position the deposit wallet holds, converting
 /// winning outcome tokens to USDC.e in a single gasless relayer Batch.
 /// Positions are read from the data-api (`redeemable=true`), grouped by
@@ -1037,31 +1058,97 @@ pub async fn redeem_resolved_positions(
         }
     }
 
-    if by_condition.is_empty() {
-        tracing::info!(eoa = %eoa, wallet = %wallet, "redeem: nothing resolved to redeem");
+    // Gate each condition on the ON-CHAIN payout report. Conditions the
+    // oracle hasn't reported yet are deferred to the next pass ("pending")
+    // instead of poisoning the batch. An RPC read failure includes the
+    // condition optimistically — the per-condition fallback below isolates
+    // it if it does revert.
+    let mut ready: Vec<(String, String, f64)> = Vec::with_capacity(by_condition.len());
+    for (cid, (market, value)) in by_condition {
+        if let Ok(false) = payout_reported(http, &cid).await {
+            result.skipped += 1;
+            result.legs.push(RedeemLeg {
+                condition_id: cid,
+                market,
+                value,
+                status: "pending".into(),
+                detail: Some("resolved off-chain; oracle payout not yet reported — retries next pass".into()),
+            });
+            continue;
+        }
+        ready.push((cid, market, value));
+    }
+
+    if ready.is_empty() {
+        tracing::info!(eoa = %eoa, wallet = %wallet, pending = result.skipped, "redeem: nothing resolved to redeem");
         return Ok(result);
     }
 
-    let mut calls: Vec<(String, String)> = Vec::with_capacity(by_condition.len());
-    for (cid, (market, value)) in &by_condition {
+    let mut calls: Vec<(String, String)> = Vec::with_capacity(ready.len());
+    for (cid, _, _) in &ready {
         calls.push((CONDITIONAL_TOKENS.to_string(), redeem_positions_calldata(cid)?));
-        result.value_redeemed += *value;
-        result.legs.push(RedeemLeg {
-            condition_id: cid.clone(),
-            market: market.clone(),
-            value: *value,
-            status: "redeem".into(),
-            detail: None,
-        });
     }
-    result.conditions = calls.len();
 
     // submit_wallet_multi_batch blocks until the relayer confirms the tx, so
     // the redeemed USDC.e is on-chain before we attempt the wrap below.
-    let tx = submit_wallet_multi_batch(http, signer_store, eoa, &calls).await?;
-    result.tx = Some(tx);
+    // A whole-batch failure with >1 call is retried per-condition: one
+    // reverting condition (e.g. the oracle report landing between the gate
+    // check above and this submit) must not strand every other payout.
+    match submit_wallet_multi_batch(http, signer_store, eoa, &calls).await {
+        Ok(tx) => {
+            result.tx = Some(tx);
+            for (cid, market, value) in ready {
+                result.conditions += 1;
+                result.value_redeemed += value;
+                result.legs.push(RedeemLeg {
+                    condition_id: cid,
+                    market,
+                    value,
+                    status: "redeem".into(),
+                    detail: None,
+                });
+            }
+        }
+        // "wallet busy" is a per-wallet lock on the relayer, not a poison
+        // condition — every per-condition retry would bounce identically,
+        // so surface it to the caller (the engine retries within a minute).
+        Err(e) if calls.len() > 1 && !e.to_string().contains("wallet busy") => {
+            tracing::warn!(eoa = %eoa, error = %e, n = calls.len(), "redeem batch failed — retrying per-condition");
+            let mut txs: Vec<serde_json::Value> = Vec::new();
+            for ((cid, market, value), call) in ready.into_iter().zip(calls.iter()) {
+                match submit_wallet_multi_batch(http, signer_store, eoa, std::slice::from_ref(call)).await {
+                    Ok(t) => {
+                        txs.push(t);
+                        result.conditions += 1;
+                        result.value_redeemed += value;
+                        result.legs.push(RedeemLeg {
+                            condition_id: cid,
+                            market,
+                            value,
+                            status: "redeem".into(),
+                            detail: Some("redeemed individually after batch failure".into()),
+                        });
+                    }
+                    Err(e2) => {
+                        result.skipped += 1;
+                        result.legs.push(RedeemLeg {
+                            condition_id: cid,
+                            market,
+                            value,
+                            status: "failed".into(),
+                            detail: Some(format!("redeem tx failed: {}", e2)),
+                        });
+                    }
+                }
+            }
+            if !txs.is_empty() {
+                result.tx = Some(serde_json::Value::Array(txs));
+            }
+        }
+        Err(e) => return Err(e),
+    }
 
-    if wrap_after {
+    if wrap_after && result.conditions > 0 {
         // amount=None → wrap the wallet's full raw USDC.e balance (now
         // including the freshly-redeemed proceeds). Best-effort: a wrap
         // failure leaves recoverable raw USDC.e in the wallet, not lost.

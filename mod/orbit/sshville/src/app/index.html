@@ -44,6 +44,7 @@
     button.ghost { background: transparent; color: #93a5bd; border: 1px solid #1c2734; }
     button.sub { background: #e6007a; color: #fff; }
     button.danger { background: #ef4444; color: #fff; }
+    button.mini { padding: 3px 8px; font-size: 11px; font-weight: 500; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
     input, select, textarea {
       width: 100%;
@@ -57,7 +58,7 @@
     textarea { min-height: 100px; resize: vertical; }
     label { display: block; font-size: 11px; color: #93a5bd; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
     .row { display: grid; grid-template-columns: 1fr 100px; gap: 10px; }
-    .conn {
+    .conn, .keyitem {
       border: 1px solid #1c2734;
       border-radius: 6px;
       padding: 10px 12px;
@@ -65,10 +66,10 @@
       cursor: pointer;
       background: #0f1620;
     }
-    .conn:hover { border-color: #10b981; }
-    .conn.active { border-color: #10b981; background: #102218; }
-    .conn .name { font-weight: 600; color: #d8e1ec; }
-    .conn .addr { font-size: 12px; color: #93a5bd; margin-top: 2px; }
+    .conn:hover, .keyitem:hover { border-color: #10b981; }
+    .conn.active, .keyitem.active { border-color: #10b981; background: #102218; }
+    .conn .name, .keyitem .name { font-weight: 600; color: #d8e1ec; }
+    .conn .addr, .keyitem .addr { font-size: 12px; color: #93a5bd; margin-top: 2px; }
     .empty { color: #5a6b80; font-style: italic; padding: 20px 0; text-align: center; }
     pre {
       background: #0b1119;
@@ -83,8 +84,18 @@
     .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #1c2734; color: #93a5bd; }
     .tag.eth { background: #1f2837; color: #f6851b; }
     .tag.sub { background: #2a1626; color: #e6007a; }
+    .tag.locked { background: #2a1c16; color: #f59e0b; }
+    .tag.unlocked { background: #102218; color: #10b981; }
     details { margin-top: 12px; }
     summary { cursor: pointer; color: #93a5bd; padding: 6px 0; }
+    .vault-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 0; }
+    .vault-head h2 { margin: 0; flex: 1; }
+    .notice { font-size: 12px; color: #93a5bd; background: #0f1620; border: 1px solid #1c2734; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+    .divider { border-top: 1px solid #1c2734; margin: 20px 0 16px; }
+    .unlock-row { display: flex; gap: 6px; margin-bottom: 8px; }
+    .unlock-row input { flex: 1; }
+    .qrbox { margin-top: 10px; display: inline-block; background: #f5f7fa; padding: 12px; border-radius: 8px; }
+    .qrbox svg { display: block; }
   </style>
 </head>
 <body>
@@ -99,6 +110,11 @@
   </header>
   <main>
     <aside>
+      <div id="vault-box">
+        <div class="vault-head"><h2>Keys</h2></div>
+        <div class="empty">connect a wallet to load</div>
+      </div>
+      <div class="divider"></div>
       <h2>Connections</h2>
       <div id="conn-list"><div class="empty">connect a wallet to load</div></div>
     </aside>
@@ -114,25 +130,34 @@
           <li><b style="color:#e6007a">SubWallet / Polkadot.js</b> (sr25519, SS58 prefix 42 — Bittensor)</li>
         </ul>
         <p style="color:#93a5bd">
-          Passwords and private keys are encrypted in the browser with a key
-          derived from your wallet's signature before they leave the page.
+          Credentials live in a <b>key vault</b>: named passwords / private keys,
+          encrypted in the browser with AES-GCM under a key derived from a
+          <b>vault passphrase that never leaves this page</b>. The server only
+          ever stores ciphertext — not the passphrase, not anything that can
+          derive it.
         </p>
       </div>
     </section>
   </main>
 
   <script type="module">
-  const API = (location.port === "50181" || location.hostname === "localhost")
-    ? "http://localhost:50180"
-    : `${location.protocol}//${location.host}`;
+  const API = (location.port === "50183" || location.hostname === "localhost")
+    ? `${location.protocol}//${location.hostname}:50182`
+    : `${location.protocol}//${location.host}/api/sshville`;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
+  const VAULT_VERIFIER = "sshville-vault-v1";
+  const KDF_ITERS = 310000;
   let WALLET = null;          // { id, scheme: 'eth'|'sub', address }
   let AUTH_HEADER = null;     // string to send as X-Mod-Auth
-  let SIG_BYTES = null;       // raw signature bytes for AES-key derivation
+  let SIG_BYTES = null;       // raw signature bytes (legacy inline-secret decryption)
   let CHALLENGE = "sshville-auth-v1";
   let CONNS = [];
-  let SELECTED = null;
+  let SELECTED = null;        // selected connection id
+  let VAULT = null;           // vault meta {salt, verifier_ct, verifier_iv, kdf_iters} or null
+  let VAULT_KEY = null;       // CryptoKey while unlocked; null = locked
+  let KEYS = [];              // key metadata (no ciphertext)
+  let SELECTED_KEY = null;    // selected key id
 
   async function fetchChallenge() {
     const r = await fetch(`${API}/challenge`);
@@ -212,7 +237,11 @@
     const short = a.length > 16 ? `${a.slice(0,6)}…${a.slice(-4)}` : a;
     document.getElementById("wallet-info").innerHTML = `${tag} <b>${short}</b>`;
     document.getElementById("reload-btn").disabled = false;
-    loadConnections().catch(e => alert(e.message));
+    reloadAll().catch(e => alert(e.message));
+  }
+
+  async function reloadAll() {
+    await Promise.all([loadVault(), loadConnections()]);
   }
 
   // ── helpers ───────────────────────────────────────────────────────────
@@ -227,7 +256,45 @@
   function bytesToB64(b) { return btoa(String.fromCharCode(...new Uint8Array(b))); }
   function b64ToBytes(s) { return new Uint8Array([...atob(s)].map(c => c.charCodeAt(0))); }
 
-  async function deriveKey() {
+  async function copyText(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // clipboard API can be blocked in iframes — textarea fallback
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+    }
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = "copied ✓";
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    }
+  }
+
+  // Server renders the QR as SVG. POSTed (never in a URL) so even a private
+  // key QR leaves no trace in access logs — same trust model as exec, where
+  // the decrypted secret already transits per-request over TLS.
+  async function showQr(boxId, data) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    if (box.style.display !== "none") { box.style.display = "none"; return; }
+    box.style.display = "";
+    if (box.dataset.done) return;
+    box.innerHTML = `<span style="color:#0b0f14">rendering…</span>`;
+    try {
+      const j = await api("/qr", { method: "POST", body: JSON.stringify({ data }) });
+      box.innerHTML = j.svg;
+      box.dataset.done = "1";
+    } catch (e) {
+      box.innerHTML = `<span style="color:#0b0f14">qr failed: ${escape(e.message)}</span>`;
+    }
+  }
+
+  // ── legacy inline-secret crypto (wallet-signature-derived key) ────────
+  // Kept so connections saved before the vault existed still decrypt.
+  async function deriveLegacyKey() {
     const base = await crypto.subtle.importKey(
       "raw", SIG_BYTES, "PBKDF2", false, ["deriveKey"]
     );
@@ -239,14 +306,32 @@
       ["encrypt", "decrypt"]
     );
   }
-  async function encryptSecret(plaintext) {
-    const key = await deriveKey();
+  async function legacyEncrypt(plaintext) {
+    return gcmEncrypt(await deriveLegacyKey(), plaintext);
+  }
+  async function legacyDecrypt(ciphertext, iv) {
+    return gcmDecrypt(await deriveLegacyKey(), ciphertext, iv);
+  }
+
+  // ── vault crypto (passphrase-derived key — never leaves the browser) ──
+  async function deriveVaultKey(passphrase, saltB64, iters) {
+    const base = await crypto.subtle.importKey(
+      "raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]
+    );
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: b64ToBytes(saltB64), iterations: iters, hash: "SHA-256" },
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  }
+  async function gcmEncrypt(key, plaintext) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(plaintext));
     return { ciphertext: bytesToB64(ct), iv: bytesToB64(iv) };
   }
-  async function decryptSecret(ciphertext, iv) {
-    const key = await deriveKey();
+  async function gcmDecrypt(key, ciphertext, iv) {
     const pt = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: b64ToBytes(iv) }, key, b64ToBytes(ciphertext)
     );
@@ -263,6 +348,331 @@
     return j;
   }
 
+  // ── vault: load / create / unlock / lock / rotate ─────────────────────
+  async function loadVault() {
+    const j = await api("/keys");
+    VAULT = j.vault || null;
+    KEYS = j.keys || [];
+    if (!VAULT) { VAULT_KEY = null; }
+    renderVaultBox();
+  }
+
+  function renderVaultBox() {
+    const box = document.getElementById("vault-box");
+    const status = !VAULT
+      ? ""
+      : VAULT_KEY
+        ? `<span class="tag unlocked">unlocked</span>`
+        : `<span class="tag locked">locked</span>`;
+    let body;
+    if (!WALLET) {
+      body = `<div class="empty">connect a wallet to load</div>`;
+    } else if (!VAULT) {
+      body = `
+        <div class="notice">No vault yet. Create one to store named passwords /
+        private keys encrypted under a passphrase only you know.</div>
+        <button id="vault-create-btn" style="width:100%">Create vault</button>`;
+    } else if (!VAULT_KEY) {
+      body = `
+        <div class="unlock-row">
+          <input id="vault-pass" type="password" placeholder="vault passphrase" />
+          <button id="vault-unlock-btn">Unlock</button>
+        </div>
+        <div class="empty">${KEYS.length} key${KEYS.length === 1 ? "" : "s"} — unlock to use</div>`;
+    } else {
+      const items = KEYS.map(k => `
+        <div class="keyitem ${SELECTED_KEY === k.id ? "active" : ""}" data-id="${escape(k.id)}">
+          <div class="name">🔑 ${escape(k.name)}</div>
+          <div class="addr">${escape(k.id)} <span class="tag">${escape(k.kind)}</span>${k.public_key ? ` <span class="tag unlocked">pub</span>` : ""}</div>
+        </div>`).join("");
+      body = `
+        ${items || `<div class="empty">no keys yet</div>`}
+        <button id="key-new-btn" style="width:100%">+ New key</button>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button class="ghost mini" id="vault-lock-btn">lock</button>
+          <button class="ghost mini" id="vault-rotate-btn">change passphrase</button>
+        </div>`;
+    }
+    box.innerHTML = `<div class="vault-head"><h2>Keys</h2>${status}</div>${body}`;
+
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+    on("vault-create-btn", renderVaultCreate);
+    on("vault-unlock-btn", () => unlockVault().catch(e => alert(e.message)));
+    on("key-new-btn", renderKeyForm);
+    on("vault-lock-btn", () => { VAULT_KEY = null; SELECTED_KEY = null; renderVaultBox(); });
+    on("vault-rotate-btn", renderRotateForm);
+    const pass = document.getElementById("vault-pass");
+    if (pass) pass.onkeydown = e => { if (e.key === "Enter") unlockVault().catch(err => alert(err.message)); };
+    box.querySelectorAll(".keyitem").forEach(n => {
+      n.onclick = () => {
+        SELECTED_KEY = n.dataset.id; SELECTED = null;
+        renderVaultBox(); renderList();
+        renderKeyDetail(SELECTED_KEY).catch(e => alert(e.message));
+      };
+    });
+  }
+
+  function renderVaultCreate() {
+    document.getElementById("panel").innerHTML = `
+      <h2>Create key vault</h2>
+      <div class="notice">
+        Pick a passphrase. It is used only in this browser to derive the
+        AES-GCM-256 encryption key (PBKDF2, ${KDF_ITERS.toLocaleString()} iterations,
+        random salt) — it is <b>never sent to the server</b>, and there is no
+        recovery: lose it and the stored keys are unrecoverable.
+      </div>
+      <label>Passphrase</label><input id="v-pass1" type="password" autocomplete="new-password" />
+      <label>Confirm passphrase</label><input id="v-pass2" type="password" autocomplete="new-password" />
+      <div style="margin-top:16px; display:flex; gap:8px;">
+        <button id="v-create">Create vault</button>
+        <button class="ghost" id="v-cancel">Cancel</button>
+      </div>`;
+    document.getElementById("v-cancel").onclick = clearPanel;
+    document.getElementById("v-create").onclick = async () => {
+      const p1 = document.getElementById("v-pass1").value;
+      const p2 = document.getElementById("v-pass2").value;
+      if (p1.length < 8) { alert("passphrase must be at least 8 characters"); return; }
+      if (p1 !== p2) { alert("passphrases do not match"); return; }
+      try {
+        const salt = bytesToB64(crypto.getRandomValues(new Uint8Array(16)));
+        const key = await deriveVaultKey(p1, salt, KDF_ITERS);
+        const v = await gcmEncrypt(key, VAULT_VERIFIER);
+        await api("/vault", {
+          method: "POST",
+          body: JSON.stringify({
+            salt, verifier_ct: v.ciphertext, verifier_iv: v.iv, kdf_iters: KDF_ITERS,
+          }),
+        });
+        VAULT_KEY = key;
+        await loadVault();
+        clearPanel();
+      } catch (e) { alert(e.message); }
+    };
+  }
+
+  async function unlockVault() {
+    const pass = document.getElementById("vault-pass").value;
+    if (!pass) return;
+    const key = await deriveVaultKey(pass, VAULT.salt, VAULT.kdf_iters || KDF_ITERS);
+    try {
+      const check = await gcmDecrypt(key, VAULT.verifier_ct, VAULT.verifier_iv);
+      if (check !== VAULT_VERIFIER) throw new Error("verifier mismatch");
+    } catch {
+      alert("wrong passphrase");
+      return;
+    }
+    VAULT_KEY = key;
+    renderVaultBox();
+  }
+
+  function requireUnlocked() {
+    if (!VAULT_KEY) {
+      alert(VAULT ? "vault is locked — unlock it in the sidebar first" : "no vault yet — create one in the sidebar first");
+      return false;
+    }
+    return true;
+  }
+
+  function renderRotateForm() {
+    document.getElementById("panel").innerHTML = `
+      <h2>Change vault passphrase</h2>
+      <div class="notice">
+        Every stored key is decrypted here in the browser and re-encrypted
+        under the new passphrase, then the whole set is swapped on the server
+        atomically. Nothing decrypted ever leaves the page.
+      </div>
+      <label>New passphrase</label><input id="r-pass1" type="password" autocomplete="new-password" />
+      <label>Confirm new passphrase</label><input id="r-pass2" type="password" autocomplete="new-password" />
+      <div style="margin-top:16px; display:flex; gap:8px;">
+        <button id="r-go">Re-encrypt ${KEYS.length} key${KEYS.length === 1 ? "" : "s"} &amp; rotate</button>
+        <button class="ghost" id="r-cancel">Cancel</button>
+      </div>
+      <pre id="r-out" style="margin-top:16px">—</pre>`;
+    document.getElementById("r-cancel").onclick = clearPanel;
+    document.getElementById("r-go").onclick = async () => {
+      if (!requireUnlocked()) return;
+      const p1 = document.getElementById("r-pass1").value;
+      const p2 = document.getElementById("r-pass2").value;
+      const out = document.getElementById("r-out");
+      if (p1.length < 8) { alert("passphrase must be at least 8 characters"); return; }
+      if (p1 !== p2) { alert("passphrases do not match"); return; }
+      try {
+        out.textContent = "decrypting current keys…";
+        const plain = [];
+        for (const k of KEYS) {
+          const full = await api(`/keys/${encodeURIComponent(k.id)}`);
+          plain.push({ ...k, secret: await gcmDecrypt(VAULT_KEY, full.ciphertext, full.iv) });
+        }
+        out.textContent = "deriving new key + re-encrypting…";
+        const salt = bytesToB64(crypto.getRandomValues(new Uint8Array(16)));
+        const newKey = await deriveVaultKey(p1, salt, KDF_ITERS);
+        const v = await gcmEncrypt(newKey, VAULT_VERIFIER);
+        const reenc = [];
+        for (const k of plain) {
+          const e = await gcmEncrypt(newKey, k.secret);
+          reenc.push({
+            id: k.id, name: k.name, kind: k.kind, ciphertext: e.ciphertext, iv: e.iv,
+            public_key: k.public_key || null, fingerprint: k.fingerprint || null,
+          });
+        }
+        await api("/vault", {
+          method: "POST",
+          body: JSON.stringify({
+            salt, verifier_ct: v.ciphertext, verifier_iv: v.iv,
+            kdf_iters: KDF_ITERS, keys: reenc,
+          }),
+        });
+        VAULT_KEY = newKey;
+        await loadVault();
+        out.textContent = `rotated — ${reenc.length} key(s) re-encrypted under the new passphrase`;
+      } catch (e) { out.textContent = `rotation failed: ${e.message}`; }
+    };
+  }
+
+  // ── key CRUD ──────────────────────────────────────────────────────────
+  function renderKeyForm() {
+    if (!requireUnlocked()) return;
+    SELECTED_KEY = null; renderVaultBox();
+    document.getElementById("panel").innerHTML = `
+      <h2>New key</h2>
+      <label>Name</label><input id="k-name" placeholder="prod deploy key" />
+      <label>Type</label>
+      <select id="k-kind">
+        <option value="password">password</option>
+        <option value="key">private key</option>
+      </select>
+      <label>Secret (encrypted client-side under your vault passphrase)</label>
+      <textarea id="k-secret" placeholder="password or -----BEGIN … ----- key block"></textarea>
+      <div style="margin-top:16px; display:flex; gap:8px;">
+        <button id="k-save">Save (encrypted)</button>
+        <button class="ghost" id="k-cancel">Cancel</button>
+      </div>
+      <div class="divider"></div>
+      <h2>Or generate a keypair in the backend</h2>
+      <div class="notice">
+        The server mints a fresh <b>ed25519</b> keypair in memory and returns
+        it exactly once — nothing is persisted server-side until the private
+        key has been encrypted right here under your vault passphrase. The
+        <b>public key</b> is kept in plaintext (it's public) so you can copy /
+        QR-share it any time without unlocking.
+      </div>
+      <button id="k-gen">⚡ Generate ed25519 keypair</button>`;
+    document.getElementById("k-cancel").onclick = clearPanel;
+    document.getElementById("k-gen").onclick = async () => {
+      if (!requireUnlocked()) return;
+      const name = document.getElementById("k-name").value.trim();
+      if (!name) { alert("name the key first — it becomes the key comment too"); return; }
+      const btn = document.getElementById("k-gen");
+      btn.disabled = true; btn.textContent = "generating…";
+      try {
+        const g = await api("/keys/generate", { method: "POST", body: JSON.stringify({ name }) });
+        const { ciphertext, iv } = await gcmEncrypt(VAULT_KEY, g.private_key);
+        const saved = await api("/keys/add", {
+          method: "POST",
+          body: JSON.stringify({
+            name, kind: "key", ciphertext, iv,
+            public_key: g.public_key, fingerprint: g.fingerprint,
+          }),
+        });
+        await loadVault();
+        SELECTED_KEY = saved.id; SELECTED = null;
+        renderVaultBox(); renderList();
+        await renderKeyDetail(saved.id);
+      } catch (e) {
+        alert(e.message);
+        btn.disabled = false; btn.textContent = "⚡ Generate ed25519 keypair";
+      }
+    };
+    document.getElementById("k-save").onclick = async () => {
+      const name = document.getElementById("k-name").value.trim();
+      const kind = document.getElementById("k-kind").value;
+      const secret = document.getElementById("k-secret").value;
+      if (!name || !secret) { alert("name and secret required"); return; }
+      try {
+        const { ciphertext, iv } = await gcmEncrypt(VAULT_KEY, secret);
+        await api("/keys/add", {
+          method: "POST",
+          body: JSON.stringify({ name, kind, ciphertext, iv }),
+        });
+        await loadVault();
+        clearPanel();
+      } catch (e) { alert(e.message); }
+    };
+  }
+
+  async function decryptKey(k) {
+    if (!requireUnlocked()) return null;
+    try {
+      return await gcmDecrypt(VAULT_KEY, k.ciphertext, k.iv);
+    } catch (e) {
+      alert(`decrypt failed: ${e.message} — was this key saved under a different passphrase?`);
+      return null;
+    }
+  }
+
+  async function renderKeyDetail(kid) {
+    const k = await api(`/keys/${encodeURIComponent(kid)}`);
+    const usedBy = CONNS.filter(c => c.key_id === k.id);
+    const pubBlock = k.public_key ? `
+      <h2 style="margin-top:20px">Public key — safe to share</h2>
+      <pre>${escape(k.public_key)}</pre>
+      <div class="toolbar">
+        <button id="k-pub-copy">Copy public key</button>
+        <button class="ghost" id="k-pub-qr">QR public key</button>
+      </div>
+      <div id="k-pub-qrbox" class="qrbox" style="display:none"></div>` : "";
+    document.getElementById("panel").innerHTML = `
+      <h2>🔑 ${escape(k.name)}</h2>
+      <div class="toolbar">
+        <span class="tag">${escape(k.id)}</span>
+        <span class="tag">${escape(k.kind)}</span>
+        ${k.fingerprint ? `<span class="tag">${escape(k.fingerprint)}</span>` : ""}
+        <span style="flex:1"></span>
+        <button class="danger" id="k-del">Delete</button>
+      </div>
+      <div class="notice">Used by: ${
+        usedBy.length ? usedBy.map(c => escape(c.name)).join(", ") : "no connections"
+      }</div>
+      ${pubBlock}
+      <h2 style="margin-top:20px">Secret — encrypted at rest</h2>
+      <pre id="k-out">ciphertext: ${escape(k.ciphertext.slice(0, 80))}…
+iv:         ${escape(k.iv)}</pre>
+      <div class="toolbar">
+        <button class="ghost" id="k-reveal">Reveal (decrypt locally)</button>
+        <button class="ghost" id="k-priv-copy">Copy secret</button>
+        <button class="ghost" id="k-priv-qr">QR secret</button>
+      </div>
+      <div id="k-priv-qrbox" class="qrbox" style="display:none"></div>`;
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+    on("k-pub-copy", (e) => copyText(k.public_key, e.target));
+    on("k-pub-qr", () => showQr("k-pub-qrbox", k.public_key).catch(e => alert(e.message)));
+    on("k-reveal", async () => {
+      const secret = await decryptKey(k);
+      if (secret != null) document.getElementById("k-out").textContent = secret;
+    });
+    on("k-priv-copy", async (e) => {
+      const secret = await decryptKey(k);
+      if (secret != null) copyText(secret, e.target);
+    });
+    on("k-priv-qr", async () => {
+      const secret = await decryptKey(k);
+      if (secret == null) return;
+      if (document.getElementById("k-priv-qrbox").style.display === "none" &&
+          !confirm("This QR encodes the DECRYPTED secret — anyone who scans it gets full access. Show it?")) return;
+      await showQr("k-priv-qrbox", secret);
+    });
+    document.getElementById("k-del").onclick = async () => {
+      if (!confirm(`Delete key ${k.name}?`)) return;
+      try {
+        await api(`/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
+        SELECTED_KEY = null;
+        await loadVault();
+        clearPanel();
+      } catch (e) { alert(e.message); }
+    };
+  }
+
+  // ── connections ───────────────────────────────────────────────────────
   async function loadConnections() {
     const j = await api("/connections");
     CONNS = j.connections || [];
@@ -278,13 +688,18 @@
       return;
     }
     el.innerHTML = CONNS.map(c => `
-      <div class="conn ${SELECTED === c.id ? 'active' : ''}" data-id="${c.id}">
+      <div class="conn ${SELECTED === c.id ? 'active' : ''}" data-id="${escape(c.id)}">
         <div class="name">${escape(c.name)}</div>
-        <div class="addr">${escape(c.user)}@${escape(c.host)}:${c.port} <span class="tag">${c.auth_type}</span></div>
+        <div class="addr">${escape(c.user)}@${escape(c.host)}:${c.port}
+          <span class="tag">${c.auth_type}</span>${c.key_id ? ` <span class="tag">🔑 ${escape(c.key_id)}</span>` : ""}</div>
       </div>
     `).join("") + `<button id="new-btn" style="margin-top:8px;width:100%">+ New connection</button>`;
     el.querySelectorAll(".conn").forEach(n => {
-      n.onclick = () => { SELECTED = n.dataset.id; renderList(); renderDetail(SELECTED); };
+      n.onclick = () => {
+        SELECTED = n.dataset.id; SELECTED_KEY = null;
+        renderList(); renderVaultBox();
+        renderDetail(SELECTED).catch(e => alert(e.message));
+      };
     });
     document.getElementById("new-btn").onclick = renderNewForm;
   }
@@ -292,6 +707,9 @@
   function renderNewForm() {
     SELECTED = null;
     renderList();
+    const keyOpts = KEYS.map(k =>
+      `<option value="${escape(k.id)}" data-kind="${escape(k.kind)}">🔑 ${escape(k.name)} (${escape(k.kind)})</option>`
+    ).join("");
     document.getElementById("panel").innerHTML = `
       <h2>New connection</h2>
       <label>Name</label><input id="f-name" placeholder="prod web01" />
@@ -300,37 +718,54 @@
         <div><label>Port</label><input id="f-port" type="number" value="22" /></div>
       </div>
       <label>User</label><input id="f-user" placeholder="root" />
-      <label>Auth type</label>
-      <select id="f-authtype">
-        <option value="password">password</option>
-        <option value="key">private key</option>
+      <label>Credential</label>
+      <select id="f-source">
+        ${keyOpts}
+        <option value="__inline__">one-off secret (not saved to the vault)</option>
       </select>
-      <label id="f-secret-label">Password (encrypted client-side before upload)</label>
-      <textarea id="f-secret" placeholder="will be AES-GCM encrypted under a key derived from your wallet signature"></textarea>
+      <div id="f-inline" style="display:none">
+        <label>Auth type</label>
+        <select id="f-authtype">
+          <option value="password">password</option>
+          <option value="key">private key</option>
+        </select>
+        <label id="f-secret-label">Password (encrypted client-side before upload)</label>
+        <textarea id="f-secret" placeholder="AES-GCM encrypted under a wallet-signature-derived key (legacy scheme — a vault key is stronger)"></textarea>
+      </div>
       <div style="margin-top:16px; display:flex; gap:8px;">
-        <button id="save-btn">Save (encrypted)</button>
+        <button id="save-btn">Save</button>
         <button class="ghost" id="cancel-btn">Cancel</button>
       </div>
       <details>
         <summary>How the encryption works</summary>
-        <pre>1. wallet signs "${CHALLENGE}"
-   • MetaMask:  personal_sign (ECDSA secp256k1)
-   • SubWallet: signRaw       (sr25519, wrapped &lt;Bytes&gt;…&lt;/Bytes&gt;)
-2. signature bytes → PBKDF2(salt = wallet id) → AES-GCM-256 key
-3. password / key encrypted in browser, only ciphertext + iv leave
-4. server (Rust + axum) stores ciphertext; re-decrypted in-browser
-   on test/exec calls and POSTed in TLS body, used once, never persisted</pre>
+        <pre>vault keys (recommended):
+  passphrase → PBKDF2(random salt, ${KDF_ITERS.toLocaleString()} iters) → AES-GCM-256
+  the passphrase never leaves the browser; the server stores only
+  ciphertext + iv and cannot derive the key from anything it sees.
+
+one-off inline secret (legacy):
+  wallet signs "${CHALLENGE}" → PBKDF2(sig) → AES-GCM-256
+  weaker: the signature also travels in the X-Mod-Auth header.
+
+either way, on test/exec the secret is decrypted in-browser, POSTed
+once in the TLS body, used for the SSH call, never persisted.</pre>
       </details>
     `;
+    const sourceEl = document.getElementById("f-source");
+    const inlineBox = document.getElementById("f-inline");
+    const syncSource = () => {
+      inlineBox.style.display = sourceEl.value === "__inline__" ? "" : "none";
+    };
+    sourceEl.onchange = syncSource;
+    syncSource();
     document.getElementById("f-authtype").onchange = (e) => {
       document.getElementById("f-secret-label").textContent =
         e.target.value === "key"
           ? "Private key (-----BEGIN ... ----- block, encrypted client-side)"
           : "Password (encrypted client-side before upload)";
     };
-    document.getElementById("cancel-btn").onclick = () =>
-      document.getElementById("panel").innerHTML = `<div class="empty">select or add a connection</div>`;
-    document.getElementById("save-btn").onclick = saveConnection;
+    document.getElementById("cancel-btn").onclick = clearPanel;
+    document.getElementById("save-btn").onclick = () => saveConnection().catch(e => alert(e.message));
   }
 
   async function saveConnection() {
@@ -338,24 +773,35 @@
     const host = document.getElementById("f-host").value.trim();
     const port = parseInt(document.getElementById("f-port").value) || 22;
     const user = document.getElementById("f-user").value.trim();
-    const authType = document.getElementById("f-authtype").value;
-    const secret = document.getElementById("f-secret").value;
-    if (!name || !host || !user || !secret) { alert("name, host, user, secret required"); return; }
-    const { ciphertext, iv } = await encryptSecret(secret);
-    await api("/connections/add", {
-      method: "POST",
-      body: JSON.stringify({ name, host, port, user, auth_type: authType, ciphertext, iv }),
-    });
+    const source = document.getElementById("f-source").value;
+    if (!name || !host || !user) { alert("name, host, user required"); return; }
+    let body;
+    if (source === "__inline__") {
+      const authType = document.getElementById("f-authtype").value;
+      const secret = document.getElementById("f-secret").value;
+      if (!secret) { alert("secret required"); return; }
+      const { ciphertext, iv } = await legacyEncrypt(secret);
+      body = { name, host, port, user, auth_type: authType, ciphertext, iv };
+    } else {
+      const opt = [...document.getElementById("f-source").options].find(o => o.value === source);
+      body = { name, host, port, user, auth_type: opt.dataset.kind, key_id: source };
+    }
+    await api("/connections/add", { method: "POST", body: JSON.stringify(body) });
     await loadConnections();
+    clearPanel();
   }
 
   async function renderDetail(cid) {
     const conn = await api(`/connections/${encodeURIComponent(cid)}`);
+    const cred = conn.key_id
+      ? `<span class="tag">🔑 vault key: ${escape(conn.key_id)}</span>`
+      : `<span class="tag">inline secret</span>`;
     document.getElementById("panel").innerHTML = `
       <h2>${escape(conn.name)}</h2>
       <div class="toolbar">
-        <span class="tag">${conn.user}@${conn.host}:${conn.port}</span>
+        <span class="tag">${escape(conn.user)}@${escape(conn.host)}:${conn.port}</span>
         <span class="tag">${conn.auth_type}</span>
+        ${cred}
         <span style="flex:1"></span>
         <button id="test-btn">Test</button>
         <button class="danger" id="del-btn">Delete</button>
@@ -365,11 +811,11 @@
       <div style="margin-top:8px;"><button id="exec-btn">Run</button></div>
       <h2 style="margin-top:24px">Output</h2>
       <pre id="out">—</pre>
-      <details>
+      ${conn.key_id ? "" : `<details>
         <summary>Stored ciphertext (server-visible, opaque)</summary>
-        <pre>ciphertext: ${conn.ciphertext.slice(0,80)}…
-iv:         ${conn.iv}</pre>
-      </details>
+        <pre>ciphertext: ${escape((conn.ciphertext || "").slice(0,80))}…
+iv:         ${escape(conn.iv || "")}</pre>
+      </details>`}
     `;
     document.getElementById("test-btn").onclick = () => runRemote(conn, "whoami && uname -a");
     document.getElementById("exec-btn").onclick = () =>
@@ -379,7 +825,7 @@ iv:         ${conn.iv}</pre>
       await api(`/connections/${encodeURIComponent(conn.id)}`, { method: "DELETE" });
       SELECTED = null;
       await loadConnections();
-      document.getElementById("panel").innerHTML = `<div class="empty">select or add a connection</div>`;
+      clearPanel();
     };
   }
 
@@ -387,15 +833,26 @@ iv:         ${conn.iv}</pre>
     const out = document.getElementById("out");
     out.textContent = "decrypting secret in browser…";
     let secret;
-    try {
-      secret = await decryptSecret(conn.ciphertext, conn.iv);
-    } catch (e) {
-      out.textContent = `decrypt failed: ${e.message}
+    if (conn.key_id) {
+      if (!requireUnlocked()) { out.textContent = "vault locked — unlock it in the sidebar"; return; }
+      try {
+        const k = await api(`/keys/${encodeURIComponent(conn.key_id)}`);
+        secret = await gcmDecrypt(VAULT_KEY, k.ciphertext, k.iv);
+      } catch (e) {
+        out.textContent = `vault key decrypt failed: ${e.message}`;
+        return;
+      }
+    } else {
+      try {
+        secret = await legacyDecrypt(conn.ciphertext, conn.iv);
+      } catch (e) {
+        out.textContent = `decrypt failed: ${e.message}
 
 You may need to re-sign with the wallet that saved this entry — the AES
 key is deterministic in the signature bytes, so a different signature
 (different wallet, or extension that randomised the sig) cannot decrypt.`;
-      return;
+        return;
+      }
     }
     out.textContent = `running: ${command}
 …`;
@@ -420,6 +877,11 @@ ${r.stdout || ""}
 ${r.stderr || ""}`;
   }
 
+  function clearPanel() {
+    document.getElementById("panel").innerHTML =
+      `<div class="empty">select a connection or key, or add one</div>`;
+  }
+
   function escape(s) {
     return String(s).replace(/[&<>"']/g, c => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -428,7 +890,7 @@ ${r.stderr || ""}`;
 
   document.getElementById("connect-eth").onclick = () => connectMetaMask().catch(e => alert(e.message));
   document.getElementById("connect-sub").onclick = () => connectSubstrate().catch(e => alert(e.message));
-  document.getElementById("reload-btn").onclick = () => loadConnections().catch(e => alert(e.message));
+  document.getElementById("reload-btn").onclick = () => reloadAll().catch(e => alert(e.message));
   fetchChallenge();
   </script>
 </body>

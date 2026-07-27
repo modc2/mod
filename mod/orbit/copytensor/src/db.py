@@ -104,8 +104,20 @@ class Database:
             d["allocations"] = json.loads(d["allocations"])
             return d
 
+    def get_first_snapshot(self, ss58: str) -> Optional[Dict]:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE ss58 = ? ORDER BY block ASC LIMIT 1",
+                (ss58,)
+            ).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["allocations"] = json.loads(d["allocations"])
+            return d
+
     def get_snapshots(self, ss58: str, from_block: int = 0,
-                      to_block: int = 2**63, limit: int = 100) -> List[Dict]:
+                      to_block: int = 2**63 - 1, limit: int = 100) -> List[Dict]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM snapshots WHERE ss58 = ? AND block >= ? AND block <= ? "

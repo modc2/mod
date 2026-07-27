@@ -1,3 +1,5 @@
+mod auth;
+mod deposit;
 mod hl;
 mod traders;
 mod vaults;
@@ -24,9 +26,11 @@ pub struct AppState {
     pub store: Arc<store::Store>,
     pub copy: Arc<copytrade::Engine>,
     pub progress: Arc<traders::ProgressTracker>,
+    pub boards: Arc<traders::BoardCache>,
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
+    pub auth: Arc<auth::AuthCfg>,
 }
 
 #[tokio::main]
@@ -58,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
     let store = Arc::new(store::Store::load(&data_dir)?);
     let copy = Arc::new(copytrade::Engine::new(hl.clone(), store.clone()));
     let progress = Arc::new(traders::ProgressTracker::default());
+    let boards = Arc::new(traders::BoardCache::load(&data_dir));
     let signer = Arc::new(signer::SignerStore::new());
     let meta = Arc::new(actions::MetaCache::new(hl.clone()));
     let live = Arc::new(live_engine::EngineRegistry::new(hl.clone(), signer.clone(), meta.clone()));
@@ -69,29 +74,42 @@ async fn main() -> anyhow::Result<()> {
     let copy_bg = copy.clone();
     tokio::spawn(async move { copy_bg.run().await });
 
+    // Board refresher: computes each standard window and publishes the result
+    // into BoardCache (memory + disk). /traders/top serves from that cache, so
+    // request latency is decoupled from HL's 429-throttled scan entirely.
+    // Pool 600 = the widest UI option; enrichment is capped at ENRICH_CAP
+    // inside top_traders, so a wide pool costs no extra /info calls.
     let prewarm_hl = hl.clone();
     let prewarm_progress = progress.clone();
+    let prewarm_boards = boards.clone();
     tokio::spawn(async move {
+        const PREWARM_POOL: usize = 600;
         loop {
             for days in [1u32, 7, 30] {
                 let started = std::time::Instant::now();
                 let r = traders::top_traders_with_progress(
-                    prewarm_hl.clone(), days, 0.5, 100, vec![],
+                    prewarm_hl.clone(), days, 0.5, PREWARM_POOL, vec![],
                     Some(prewarm_progress.clone()),
                 ).await;
                 match r {
-                    Ok(t) => tracing::info!(
-                        "prewarm days={}: {} traders cached in {:?}",
-                        days, t.len(), started.elapsed()
-                    ),
-                    Err(e) => tracing::warn!("prewarm days={days} failed: {e}"),
+                    Ok(t) => {
+                        tracing::info!(
+                            "board refresh days={}: {} traders in {:?}",
+                            days, t.len(), started.elapsed()
+                        );
+                        prewarm_boards.put(days, PREWARM_POOL, t);
+                    }
+                    Err(e) => tracing::warn!("board refresh days={days} failed: {e}"),
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         }
     });
 
-    let state = AppState { hl, http, store, copy, progress, signer, meta, live };
+    let state = AppState {
+        hl, http, store, copy, progress, boards, signer, meta, live,
+        auth: auth::AuthCfg::from_env(),
+    };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -100,7 +118,10 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(routes::router())
-        .with_state(state)
+        .with_state(state.clone())
+        // Sign-in guard sits inside CORS so preflights are answered openly
+        // while every real request is authenticated.
+        .layer(axum::middleware::from_fn_with_state(state, auth::guard))
         .layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http());
 

@@ -10,7 +10,11 @@ import {
 } from "@/lib/wallet";
 import {
   api,
+  ApiError,
+  BackendStatus,
   Grant,
+  MarketBrowse,
+  MarketListing,
   MeResponse,
   ObjectInfo,
   PinInfo,
@@ -27,7 +31,18 @@ const TOKEN_KEY = "store:token";
 const ADDR_KEY = "store:addr";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
-type View = "files" | "add" | "shared" | "pins" | "pools" | "status";
+type View = "market" | "files" | "add" | "shared" | "pins" | "pools" | "backends" | "status";
+
+/* storage backends surfaced in the UI — 'both' fans out to filecoin+hippius */
+const UPLOAD_BACKENDS = ["localfs", "filecoin", "hippius", "lighthouse", "both"] as const;
+type Backend = (typeof UPLOAD_BACKENDS)[number];
+
+const BACKEND_BLURB: Record<string, string> = {
+  localfs: "Content-addressed files on this server's disk — IPFS-compatible CIDs, zero dependencies.",
+  filecoin: "Filecoin via a Lotus daemon + gateway (orbit/filecoin module).",
+  hippius: "Hippius — Bittensor substrate storage network with an S3-compatible gateway (orbit/hippius module).",
+  lighthouse: "Lighthouse Labs (lighthouse.storage) — perpetual IPFS/Filecoin pinning behind an API key (orbit/lighthouse module).",
+};
 
 const DURATIONS: { label: string; ttl: number | null }[] = [
   { label: "15 minutes", ttl: 15 * 60 },
@@ -39,6 +54,21 @@ const DURATIONS: { label: string; ttl: number | null }[] = [
 ];
 
 const TICKET_TTLS = [10, 30, 60, 300];
+
+/**
+ * One place that turns anything thrown by a fetch/wallet call into a sentence a
+ * user can act on. ApiError already carries a clean message; wallet rejections
+ * and network drops arrive as raw provider noise, so they get translated here.
+ */
+function errorText(e: unknown): string {
+  if (e instanceof ApiError) return e.message;
+  const err = e as { code?: number | string; message?: string };
+  if (err?.code === 4001) return "signature declined in your wallet";
+  const msg = (err?.message || String(e)).trim();
+  if (/user (rejected|denied)/i.test(msg)) return "signature declined in your wallet";
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) return "can't reach the store API — check your connection";
+  return msg || "something went wrong";
+}
 
 function fmtBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return "∞";
@@ -126,7 +156,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const [view, setView] = useState<View>("files");
+  const [view, setView] = useState<View>("market");
   const [objects, setObjects] = useState<StoredObject[]>([]);
   const [sharedObjects, setSharedObjects] = useState<StoredObject[]>([]);
   const [pools, setPools] = useState<PoolSummary[]>([]);
@@ -144,7 +174,8 @@ export default function Page() {
   const [jsonText, setJsonText] = useState("");
   const [jsonName, setJsonName] = useState("");
   const [jsonErr, setJsonErr] = useState<string | null>(null);
-  const [backend, setBackend] = useState<"localfs" | "filecoin" | "hippius" | "both">("localfs");
+  const [backend, setBackend] = useState<Backend>("localfs");
+  const [bkStatus, setBkStatus] = useState<Record<string, BackendStatus> | null>(null);
   const [makePublic, setMakePublic] = useState(false);
   const [uploadPool, setUploadPool] = useState("");
 
@@ -161,8 +192,19 @@ export default function Page() {
   const [openPool, setOpenPool] = useState<PoolDetail | null>(null);
   const [termsDoc, setTermsDoc] = useState<TermsResponse | null>(null);
 
+  // marketplace: "pick" opens the sell modal with an object dropdown;
+  // a StoredObject preselects it. bump forces MarketView to refetch.
+  const [sellFor, setSellFor] = useState<StoredObject | "pick" | null>(null);
+  const [marketBump, setMarketBump] = useState(0);
+
   const quota: Quota | null = me?.quota ?? null;
   const canStore = !!me?.authorized;
+  // Keyed backends the currently selected target depends on that still lack credentials.
+  const needsKey = useMemo(() => {
+    if (!bkStatus) return [];
+    const targets = backend === "both" ? ["filecoin", "hippius"] : [backend];
+    return targets.filter((b) => bkStatus[b]?.needs_key);
+  }, [backend, bkStatus]);
   // Storing requires a wallet-signed acceptance of the current terms of service.
   const termsSigned = me?.terms ? me.terms.accepted : true;
 
@@ -190,7 +232,7 @@ export default function Page() {
           applySession(r.token, me2);
           setSuccess(`linked as ${shortAddress(me2.address)} — no wallet needed`);
         })
-        .catch((e) => setError(`link failed: ${(e as Error).message}`))
+        .catch((e) => setError(`link failed: ${errorText(e)}`))
         .finally(() => {
           url.searchParams.delete("claim");
           window.history.replaceState({}, "", url.toString());
@@ -203,9 +245,16 @@ export default function Page() {
       api
         .me(t)
         .then((r) => applySession(t, r))
-        .catch(() => {
-          storageRemove(TOKEN_KEY);
-          storageRemove(ADDR_KEY);
+        .catch((e) => {
+          // Only forget the session when the API actually rejected it — an
+          // outage (404/5xx) must not silently sign the user out.
+          const st = (e as ApiError).status;
+          if (st === 401 || st === 403) {
+            storageRemove(TOKEN_KEY);
+            storageRemove(ADDR_KEY);
+          } else {
+            setError(errorText(e));
+          }
         });
     }
   }, [applySession]);
@@ -214,7 +263,7 @@ export default function Page() {
     try {
       setObjects((await api.list(t)).objects);
     } catch (e) {
-      setError(`list failed: ${(e as Error).message}`);
+      setError(`list failed: ${errorText(e)}`);
     }
   }, []);
   const refreshShared = useCallback(async (t: string) => {
@@ -245,6 +294,13 @@ export default function Page() {
       /* ignore */
     }
   }, []);
+  const refreshBackends = useCallback(async (t: string) => {
+    try {
+      setBkStatus((await api.backendsStatus(t)).backends);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const refreshAll = useCallback(
     (t: string) => {
@@ -252,8 +308,9 @@ export default function Page() {
       refreshShared(t);
       refreshPools(t);
       refreshPins(t);
+      refreshBackends(t);
     },
-    [refreshFiles, refreshShared, refreshPools, refreshPins]
+    [refreshFiles, refreshShared, refreshPools, refreshPins, refreshBackends]
   );
 
   useEffect(() => {
@@ -272,7 +329,7 @@ export default function Page() {
       applySession(t, r);
       setSuccess(r.authorized ? `signed in${r.admin ? " as admin" : ""}` : "signed in — not whitelisted to store");
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -302,7 +359,7 @@ export default function Page() {
       try {
         JSON.parse(jsonText);
       } catch (e) {
-        setJsonErr((e as Error).message);
+        setJsonErr(errorText(e));
         return;
       }
       setJsonErr(null);
@@ -329,7 +386,7 @@ export default function Page() {
       await refreshMe(token);
       if (uploadPool) await refreshPools(token);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -344,7 +401,7 @@ export default function Page() {
       await refreshFiles(token);
       setSuccess(`${o.cid.slice(0, 12)}… is now ${next ? "public" : "private"}`);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -358,7 +415,7 @@ export default function Page() {
       await refreshPins(token);
       setSuccess(`pinned ${cid.slice(0, 12)}…`);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -368,7 +425,7 @@ export default function Page() {
     try {
       setTermsDoc(await api.terms(token));
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     }
   };
 
@@ -381,7 +438,7 @@ export default function Page() {
       setTermsDoc(null);
       setSuccess("terms accepted — you can now store data");
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -404,7 +461,7 @@ export default function Page() {
       refreshShared(token);
       setSuccess(takedown ? `taken down ${o.cid.slice(0, 12)}… (logged)` : `removed ${o.cid.slice(0, 12)}…`);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -427,7 +484,7 @@ export default function Page() {
       const h = await api.createHandoff(token, 180);
       setLinkPhone({ code: h.code, expires: h.expires });
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -440,7 +497,7 @@ export default function Page() {
       const r = await api.search(token, { semantic_q: searchText.trim(), scope: "all" });
       setSemResults(r.objects);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
@@ -471,7 +528,7 @@ export default function Page() {
             />
           </div>
           <span className="brand-sub">
-            private storage <i>·</i> timed sharing <i>·</i> pools <i>·</i> cid-agnostic
+            marketplace <i>·</i> private storage <i>·</i> timed sharing <i>·</i> pools <i>·</i> cid-agnostic
           </span>
         </div>
         <div className="identity">
@@ -515,7 +572,14 @@ export default function Page() {
       </header>
 
       {busy && <div className="success-box">⟳ {busy}</div>}
-      {error && <div className="error-box">✕ {error}</div>}
+      {error && (
+        <div className="error-box">
+          <span className="box-msg">✕ {error}</span>
+          <button className="box-close" onClick={() => setError(null)} title="Dismiss" aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
       {success && !busy && <div className="success-box">✓ {success}</div>}
 
       {!token && (
@@ -537,59 +601,46 @@ export default function Page() {
         </div>
       )}
 
-      {/* at-a-glance stats */}
-      {token && me && (
-        <div className="statbar">
-          {(
-            [
-              ["files", objects.length, "objects"],
-              ["shared", sharedObjects.length, "shared with you"],
-              ["pins", pins.length, "pins"],
-              ["pools", pools.length, "pools"],
-            ] as [View, number, string][]
-          ).map(([v, n, label]) => (
-            <button key={v} className={`stat ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
-              <span className="stat-n">{n}</span>
-              <span className="stat-l">{label}</span>
-            </button>
-          ))}
-          {quota && (
-            <button
-              className={`stat storage ${view === "status" ? "active" : ""}`}
-              onClick={() => setView("status")}
-              title={quota.unlimited ? "unlimited (admin)" : `${fmtBytes(quota.remaining_bytes)} left`}
-            >
-              <span className="stat-n">{fmtBytes(quota.used_bytes)}</span>
-              <span className="stat-l">
-                {quota.unlimited ? "stored · unlimited" : `of ${fmtBytes(quota.limit_bytes)} used`}
-              </span>
-              {!quota.unlimited && (
-                <span className="stat-bar">
-                  <span className={`stat-fill ${usedPct > 85 ? "hot" : ""}`} style={{ width: `${usedPct}%` }} />
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* top nav */}
+      {/* top nav — tabs carry their own counts; storage lives on the right */}
       {token && (
         <nav className="navbar">
           {(
             [
-              ["files", "Your objects"],
-              ["add", "＋ Add data"],
-              ["shared", "Shared with you"],
-              ["pins", "Pins"],
-              ["pools", "Pools"],
-              ["status", "Status"],
-            ] as [View, string][]
-          ).map(([v, label]) => (
+              ["market", "🛒 Market", null],
+              ["files", "Your objects", objects.length],
+              ["add", "＋ Add data", null],
+              ["shared", "Shared with you", sharedObjects.length],
+              ["pins", "Pins", pins.length],
+              ["pools", "Pools", pools.length],
+              ["backends", "🗄 Backends", bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
+            ] as [View, string, number | null][]
+          ).map(([v, label, n]) => (
             <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
               {label}
+              {n !== null && n > 0 && <span className="navtab-n">{n}</span>}
             </button>
           ))}
+          <span className="nav-gap" />
+          <button
+            className={`navtab storage ${view === "status" ? "active" : ""}`}
+            onClick={() => setView("status")}
+            title={
+              quota
+                ? quota.unlimited
+                  ? `${fmtBytes(quota.used_bytes)} stored · unlimited (admin)`
+                  : `${fmtBytes(quota.used_bytes)} of ${fmtBytes(quota.limit_bytes)} used · ${fmtBytes(quota.remaining_bytes)} left`
+                : "service status"
+            }
+          >
+            <span className={`nav-storage-n ${usedPct > 85 ? "hot" : ""}`}>
+              {quota ? fmtBytes(quota.used_bytes) : "Status"}
+            </span>
+            {quota && !quota.unlimited && (
+              <span className="nav-fuel">
+                <span className={`nav-fuel-fill ${usedPct > 85 ? "hot" : ""}`} style={{ width: `${usedPct}%` }} />
+              </span>
+            )}
+          </button>
         </nav>
       )}
 
@@ -664,11 +715,13 @@ export default function Page() {
             </div>
           )}
           <div className="row" style={{ marginTop: 12 }}>
-            <select value={backend} onChange={(e) => setBackend(e.target.value as never)} disabled={!!busy}>
-              <option value="localfs">localfs</option>
-              <option value="filecoin">filecoin</option>
-              <option value="hippius">hippius</option>
-              <option value="both">both</option>
+            <select value={backend} onChange={(e) => setBackend(e.target.value as Backend)} disabled={!!busy}>
+              {UPLOAD_BACKENDS.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                  {bkStatus?.[b]?.needs_key ? " — needs API key" : ""}
+                </option>
+              ))}
             </select>
             <select value={uploadPool} onChange={(e) => setUploadPool(e.target.value)} disabled={!!busy}>
               <option value="">no pool</option>
@@ -683,11 +736,22 @@ export default function Page() {
             <button
               className="primary"
               onClick={upload}
-              disabled={!!busy || (uploadKind === "text" ? !text.trim() : uploadKind === "json" ? !jsonText.trim() : !file)}
+              disabled={!!busy || needsKey.length > 0 || (uploadKind === "text" ? !text.trim() : uploadKind === "json" ? !jsonText.trim() : !file)}
             >
               Store
             </button>
           </div>
+          {needsKey.map((b) => (
+            <BackendKeyPrompt
+              key={b}
+              backend={b}
+              token={token}
+              admin={!!me?.admin}
+              onSaved={() => refreshBackends(token)}
+              setError={setError}
+              setSuccess={setSuccess}
+            />
+          ))}
           <p className="muted hint">
             {makePublic ? "Public: anyone with the link/CID can read it." : "Private: only you — until you share it or add it to a pool."}
           </p>
@@ -740,6 +804,7 @@ export default function Page() {
                 onInfo={() => setInfoFor(o.cid)}
                 onPublish={() => togglePublish(o)}
                 onPin={() => doPin(o.cid, o.backend)}
+                onSell={() => setSellFor(o)}
                 onRemove={() => doRemove(o)}
               />
             ))}
@@ -815,7 +880,35 @@ export default function Page() {
         <RegisterExternal token={token} onDone={() => token && refreshFiles(token)} setError={setError} setSuccess={setSuccess} />
       )}
 
-      {(!token || view === "status") && (
+      {/* marketplace — the public storefront; browsable even signed out */}
+      {(!token || view === "market") && (
+        <MarketView
+          token={token}
+          admin={!!me?.admin}
+          canSell={!!token && canStore && termsSigned}
+          bump={marketBump}
+          onSell={() => setSellFor("pick")}
+          onView={(cid) => token && setContentFor({ cid, backend: "" } as StoredObject)}
+          onInfo={(cid) => token && setInfoFor(cid)}
+          onAcquired={() => token && refreshShared(token)}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+      )}
+
+      {token && view === "backends" && (
+        <BackendsView
+          token={token}
+          admin={!!me?.admin}
+          bkStatus={bkStatus}
+          serviceStatus={serviceStatus}
+          onRefresh={() => refreshBackends(token)}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+      )}
+
+      {token && view === "status" && (
         <div className="panel">
           <h2 className="panel-title">Service status</h2>
           <pre className="status">{serviceStatus ? JSON.stringify(serviceStatus, null, 2) : "loading…"}</pre>
@@ -823,6 +916,21 @@ export default function Page() {
       )}
 
       {/* modals */}
+      {sellFor && token && (
+        <SellModal
+          token={token}
+          objects={objects}
+          preselect={sellFor === "pick" ? null : sellFor}
+          onClose={() => setSellFor(null)}
+          onListed={(title) => {
+            setSellFor(null);
+            setView("market");
+            setMarketBump((n) => n + 1);
+            setSuccess(`“${title}” is live on the market 🔥`);
+          }}
+          setError={setError}
+        />
+      )}
       {shareFor && token && <ShareModal token={token} object={shareFor} onClose={() => setShareFor(null)} setError={setError} setSuccess={setSuccess} />}
       {ticketFor && token && <TicketModal token={token} object={ticketFor} onClose={() => setTicketFor(null)} setError={setError} />}
       {contentFor && token && <ContentModal token={token} object={contentFor} onClose={() => setContentFor(null)} setError={setError} copyText={copyText} copied={copied} />}
@@ -858,10 +966,213 @@ export default function Page() {
   );
 }
 
+/* ─────────────────────── storage backends ─────────────────────── */
+
+const KEYED_BACKENDS = ["hippius", "lighthouse"];
+
+/** Inline credential prompt for a keyed backend (hippius S3 pair, lighthouse API key). */
+function BackendKeyPrompt({
+  backend, token, admin, onSaved, setError, setSuccess,
+}: {
+  backend: string;
+  token: string;
+  admin: boolean;
+  onSaved: () => void;
+  setError: (s: string | null) => void;
+  setSuccess: (s: string | null) => void;
+}) {
+  const [apiKey, setApiKey] = useState("");
+  const [s3Key, setS3Key] = useState("");
+  const [s3Secret, setS3Secret] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (!KEYED_BACKENDS.includes(backend)) {
+    return (
+      <p className="muted hint">
+        <strong>{backend}</strong> is not reachable — check the service status tab.
+      </p>
+    );
+  }
+  if (!admin) {
+    return (
+      <p className="muted hint">
+        🔑 <strong>{backend}</strong> needs an API key before uploads work — ask the store owner to add one
+        in the Backends tab.
+      </p>
+    );
+  }
+
+  const ready = backend === "lighthouse" ? !!apiKey.trim() : !!s3Key.trim() && !!s3Secret.trim();
+  const save = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      const body =
+        backend === "lighthouse"
+          ? { backend, api_key: apiKey.trim() }
+          : { backend, s3_key: s3Key.trim(), s3_secret: s3Secret.trim() };
+      const r = await api.setBackendKey(token, body);
+      setSuccess(
+        r.valid === false
+          ? `${backend} key saved, but the service rejected it: ${r.error ?? "check the key"}`
+          : `${backend} key saved${r.valid ? " and verified ✓" : ""}`
+      );
+      setApiKey("");
+      setS3Key("");
+      setS3Secret("");
+      onSaved();
+    } catch (e) {
+      setError(`saving ${backend} key failed: ${errorText(e)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="key-prompt">
+      <p className="muted hint" style={{ margin: "0 0 8px" }}>
+        🔑 <strong>{backend}</strong> needs credentials.{" "}
+        {backend === "lighthouse" ? (
+          <>Create an API key at <a href="https://files.lighthouse.storage" target="_blank" rel="noreferrer">files.lighthouse.storage</a> and paste it here — it is stored off-chain on the server (<code>~/.mod/lighthouse/</code>), never in the repo.</>
+        ) : (
+          <>Paste your Hippius S3 key + secret (console.hippius.com) — stored off-chain on the server (<code>~/.mod/hippius/</code>), never in the repo.</>
+        )}
+      </p>
+      <div className="row">
+        {backend === "lighthouse" ? (
+          <input
+            type="password"
+            placeholder="Lighthouse API key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            disabled={saving}
+            style={{ flex: 1 }}
+          />
+        ) : (
+          <>
+            <input
+              type="password"
+              placeholder="S3 access key"
+              value={s3Key}
+              onChange={(e) => setS3Key(e.target.value)}
+              disabled={saving}
+              style={{ flex: 1 }}
+            />
+            <input
+              type="password"
+              placeholder="S3 secret"
+              value={s3Secret}
+              onChange={(e) => setS3Secret(e.target.value)}
+              disabled={saving}
+              style={{ flex: 1 }}
+            />
+          </>
+        )}
+        <button className="primary" onClick={save} disabled={saving || !ready}>
+          {saving ? "saving…" : "Save key"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** BACKENDS tab — one sub-tab per storage backend with status + key management. */
+function BackendsView({
+  token, admin, bkStatus, serviceStatus, onRefresh, setError, setSuccess,
+}: {
+  token: string;
+  admin: boolean;
+  bkStatus: Record<string, BackendStatus> | null;
+  serviceStatus: Record<string, unknown> | null;
+  onRefresh: () => void;
+  setError: (s: string | null) => void;
+  setSuccess: (s: string | null) => void;
+}) {
+  const order = ["localfs", "filecoin", "hippius", "lighthouse"];
+  const names = bkStatus ? order.filter((b) => b in bkStatus) : order;
+  const [tab, setTab] = useState(names[0] ?? "localfs");
+  const [probed, setProbed] = useState<Record<string, BackendStatus> | null>(null);
+  const [probing, setProbing] = useState(false);
+
+  const st = probed?.[tab] ?? bkStatus?.[tab];
+  const detail = (serviceStatus as { backends?: Record<string, unknown> } | null)?.backends?.[tab];
+
+  const probe = async () => {
+    setProbing(true);
+    setError(null);
+    try {
+      setProbed((await api.backendsStatus(token, true)).backends);
+      setSuccess("credentials validated against the remote services");
+    } catch (e) {
+      setError(`probe failed: ${errorText(e)}`);
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+        <h2 className="panel-title" style={{ margin: 0 }}>Storage backends</h2>
+        {admin && (
+          <button className="ghost" onClick={probe} disabled={probing}>
+            {probing ? "validating…" : "⟳ Validate keys"}
+          </button>
+        )}
+      </div>
+      <div className="tabs">
+        {names.map((b) => (
+          <button key={b} className={`tab ${tab === b ? "active" : ""}`} onClick={() => setTab(b)}>
+            {b}
+            {(probed?.[b] ?? bkStatus?.[b])?.needs_key && <span className="tab-warn"> 🔑</span>}
+          </button>
+        ))}
+      </div>
+
+      <p className="muted" style={{ marginTop: 4 }}>{BACKEND_BLURB[tab] ?? tab}</p>
+
+      <div className="row" style={{ margin: "8px 0" }}>
+        <span className={`pill ${tab}`}>{tab}</span>
+        {st?.needs_key ? (
+          <span className="pill error">🔑 needs API key</span>
+        ) : (
+          <span className="pill public">ready</span>
+        )}
+        {st?.valid === true && <span className="pill public">key verified ✓</span>}
+        {st?.valid === false && <span className="pill error">key rejected</span>}
+        {st?.source && <span className="pill">key via {st.source}</span>}
+      </div>
+
+      {KEYED_BACKENDS.includes(tab) && admin && (
+        <BackendKeyPrompt
+          backend={tab}
+          token={token}
+          admin={admin}
+          onSaved={onRefresh}
+          setError={setError}
+          setSuccess={setSuccess}
+        />
+      )}
+      {KEYED_BACKENDS.includes(tab) && !admin && st?.needs_key && (
+        <p className="muted hint">Ask the store owner to configure this backend's API key.</p>
+      )}
+
+      {st?.error && <p className="error-box" style={{ marginTop: 8 }}>{st.error}</p>}
+
+      {detail !== undefined && (
+        <>
+          <h3 className="panel-title" style={{ marginTop: 16 }}>Live status</h3>
+          <pre className="status">{JSON.stringify(detail, null, 2)}</pre>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ──────────────────────────── object row ──────────────────────────── */
 
 function ObjectRow({
-  o, token, busy, copied, shared, onCopy, onView, onTicket, onShare, onInfo, onPublish, onPin, onRemove, removeLabel,
+  o, token, busy, copied, shared, onCopy, onView, onTicket, onShare, onInfo, onPublish, onPin, onSell, onRemove, removeLabel,
 }: {
   o: StoredObject;
   token: string;
@@ -875,6 +1186,7 @@ function ObjectRow({
   onInfo: () => void;
   onPublish?: () => void;
   onPin?: () => void;
+  onSell?: () => void;
   onRemove?: () => void;
   removeLabel?: string;
 }) {
@@ -909,6 +1221,7 @@ function ObjectRow({
           {!shared && onShare && <button onClick={onShare} disabled={busy}>share</button>}
           {!shared && onPublish && <button onClick={onPublish} disabled={busy}>{priv ? "make public" : "make private"}</button>}
           {!shared && onPin && <button onClick={onPin} disabled={busy}>pin</button>}
+          {!shared && onSell && <button onClick={onSell} disabled={busy} title="List it on the market — free or priced in BlocTime">🏷 sell</button>}
           {onRemove && <button className="danger" onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? "🗑 remove"}</button>}
         </div>
       </div>
@@ -957,7 +1270,7 @@ function ContentModal({
     api
       .preview(token, object.cid)
       .then((r) => live && setPv(r))
-      .catch((e) => live && setError((e as Error).message))
+      .catch((e) => live && setError(errorText(e)))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
@@ -973,7 +1286,7 @@ function ContentModal({
         const res = await fetch(imgUrl);
         full = await res.text();
       } catch (e) {
-        setError((e as Error).message);
+        setError(errorText(e));
         return;
       }
     }
@@ -1030,7 +1343,7 @@ function TicketModal({
         const t = await api.createTicket(token, object.cid, seconds, object.backend || undefined);
         setTicket({ code: t.code, expires: t.expires });
       } catch (e) {
-        setError((e as Error).message);
+        setError(errorText(e));
       }
     },
     [token, object.cid, object.backend, setError]
@@ -1102,7 +1415,7 @@ function InfoModal({
   useEffect(() => {
     let live = true;
     setInfo(null);
-    api.objectInfo(token, cid).then((r) => live && setInfo(r)).catch((e) => live && setErr((e as Error).message));
+    api.objectInfo(token, cid).then((r) => live && setInfo(r)).catch((e) => live && setErr(errorText(e)));
     return () => { live = false; };
   }, [token, cid]);
 
@@ -1272,7 +1585,7 @@ function ShareModal({
       setGrantee("");
       await load();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -1284,7 +1597,7 @@ function ShareModal({
       await api.revokeGrant(token, id);
       await load();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -1370,7 +1683,7 @@ function PoolsView({
       setDesc("");
       onChanged();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -1434,7 +1747,7 @@ function PoolModal({
       await fn();
       onChanged();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -1534,7 +1847,7 @@ function RegisterExternal({
       setScheme("");
       onDone();
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -1561,6 +1874,407 @@ function RegisterExternal({
         </div>
       )}
     </div>
+  );
+}
+
+/* ──────────────────────────── marketplace ──────────────────────────── */
+
+function fmtAgo(secs: number): string {
+  const d = Math.floor(Date.now() / 1000) - secs;
+  if (d < 60) return "just now";
+  if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+  if (d < 86400 * 30) return `${Math.floor(d / 86400)}d ago`;
+  return `${Math.floor(d / (86400 * 30))}mo ago`;
+}
+
+const SORTS: { key: "hot" | "new" | "top"; label: string }[] = [
+  { key: "hot", label: "🔥 hot" },
+  { key: "new", label: "✨ new" },
+  { key: "top", label: "👑 top" },
+];
+
+function MarketView({
+  token, admin, canSell, bump, onSell, onView, onInfo, onAcquired, setError, setSuccess,
+}: {
+  token: string | null;
+  admin: boolean;
+  canSell: boolean;
+  bump: number;
+  onSell: () => void;
+  onView: (cid: string) => void;
+  onInfo: (cid: string) => void;
+  onAcquired: () => void;
+  setError: (s: string) => void;
+  setSuccess: (s: string) => void;
+}) {
+  const [data, setData] = useState<MarketBrowse | null>(null);
+  // a scanned drop QR (?drop=<cid>) lands straight on that listing
+  const [q, setQ] = useState(() =>
+    typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("drop") ?? ""
+  );
+  const [tag, setTag] = useState("");
+  const [seller, setSeller] = useState("");
+  const [sort, setSort] = useState<"hot" | "new" | "top">("hot");
+  const [freeOnly, setFreeOnly] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(
+        await api.market(
+          { q: q.trim() || undefined, tag: tag || undefined, seller: seller || undefined, sort, free: freeOnly || undefined },
+          token
+        )
+      );
+    } catch (e) {
+      setError(`market: ${errorText(e)}`);
+    }
+  }, [q, tag, seller, sort, freeOnly, token, setError]);
+
+  // Debounced refetch — search-as-you-type without hammering the API.
+  useEffect(() => {
+    const t = setTimeout(load, 250);
+    return () => clearTimeout(t);
+  }, [load, bump]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("drop")) {
+      url.searchParams.delete("drop");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
+  const acquire = async (l: MarketListing) => {
+    if (!token) return;
+    setBusy(l.cid);
+    try {
+      await api.marketAcquire(token, l.cid);
+      setSuccess(l.price_bloc > 0 ? `unlocked “${l.title}” — your BlocTime is the ticket 🎫` : `“${l.title}” is yours ⚡`);
+      onAcquired();
+      await load();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const like = async (l: MarketListing) => {
+    if (!token) return;
+    setBusy(`like-${l.cid}`);
+    try {
+      const r = await api.marketLike(token, l.cid);
+      setData((d) =>
+        d ? { ...d, listings: d.listings.map((x) => (x.cid === l.cid ? { ...x, liked: r.liked, likes: r.likes } : x)) } : d
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const delist = async (l: MarketListing) => {
+    if (!token) return;
+    let reason: string | undefined;
+    if (!l.owned && admin) {
+      const r = prompt("Takedown reason (recorded in the moderation audit log):", "policy violation");
+      if (r === null) return;
+      reason = r || undefined;
+    } else if (!confirm(`Delist “${l.title}”? The object stays stored — it just leaves the market.`)) {
+      return;
+    }
+    setBusy(l.cid);
+    try {
+      await api.marketDelist(token, l.cid, reason);
+      setSuccess(`delisted “${l.title}”`);
+      await load();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const tags = data ? Object.entries(data.tags) : [];
+
+  return (
+    <>
+      <div className="market-hero">
+        <div className="market-hero-glow" />
+        <div className="market-hero-inner">
+          <h1 className="market-title">THE MARKET</h1>
+          <p className="market-tag">
+            content-addressed drops <i>·</i> own it by CID <i>·</i> free or unlocked by <strong>BlocTime</strong> you hold on-chain
+          </p>
+          <div className="market-hero-stats">
+            <span><strong>{data?.count ?? "…"}</strong> live drops</span>
+            <span><strong>{tags.length}</strong> tags</span>
+            {canSell && (
+              <button className="primary sell-cta" onClick={onSell}>🏷 Drop something</button>
+            )}
+            {!token && <span className="muted">sign in to cop, like &amp; sell</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel market-panel">
+        <div className="market-controls">
+          <input
+            type="text"
+            className="market-search"
+            placeholder="search drops — title, tag, cid…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="sort-seg">
+            {SORTS.map((s) => (
+              <button key={s.key} className={`seg ${sort === s.key ? "active" : ""}`} onClick={() => setSort(s.key)}>
+                {s.label}
+              </button>
+            ))}
+            <button className={`seg ${freeOnly ? "active" : ""}`} onClick={() => setFreeOnly((f) => !f)} title="Free drops only">
+              💸 free
+            </button>
+          </div>
+        </div>
+
+        {(tags.length > 0 || seller) && (
+          <div className="tag-row">
+            {seller && (
+              <button className="tag-chip active" onClick={() => setSeller("")}>
+                seller {shortAddress(seller)} ✕
+              </button>
+            )}
+            {tags.slice(0, 14).map(([t, n]) => (
+              <button key={t} className={`tag-chip ${tag === t ? "active" : ""}`} onClick={() => setTag(tag === t ? "" : t)}>
+                #{t} <span className="tag-n">{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {data && data.listings.length === 0 && (
+          <div className="market-empty">
+            <p className="muted">
+              {q || tag || seller || freeOnly ? "Nothing matches — loosen the filters." : "No drops yet. Be the first — list an object and set the tone."}
+            </p>
+            {canSell && !q && !tag && <button className="primary" onClick={onSell}>🏷 List the first drop</button>}
+          </div>
+        )}
+
+        <div className="market-grid">
+          {data?.listings.map((l) => (
+            <MarketCard
+              key={l.cid}
+              l={l}
+              token={token}
+              admin={admin}
+              busy={busy}
+              onAcquire={() => acquire(l)}
+              onLike={() => like(l)}
+              onDelist={() => delist(l)}
+              onView={() => onView(l.cid)}
+              onInfo={() => onInfo(l.cid)}
+              onSeller={() => setSeller(seller === l.seller ? "" : l.seller)}
+            />
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MarketCard({
+  l, token, admin, busy, onAcquire, onLike, onDelist, onView, onInfo, onSeller,
+}: {
+  l: MarketListing;
+  token: string | null;
+  admin: boolean;
+  busy: string | null;
+  onAcquire: () => void;
+  onLike: () => void;
+  onDelist: () => void;
+  onView: () => void;
+  onInfo: () => void;
+  onSeller: () => void;
+}) {
+  const free = l.price_bloc <= 0;
+  const mine = !!l.owned;
+  const unlocked = !!l.can_read;
+  const working = busy === l.cid;
+  const [qrOpen, setQrOpen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const dropUrl =
+    typeof window === "undefined" ? "" : `${window.location.origin}${window.location.pathname}?drop=${l.cid}`;
+
+  return (
+    <div className={`market-card ${mine ? "mine" : ""}`}>
+      <div className="mk-ribbon" style={identiconStyle(l.seller)} />
+      <div className="mk-body">
+        <div className="mk-top">
+          <span className={`price-badge ${free ? "free" : "bloc"}`}>
+            {free ? "FREE" : `⏱ ${l.price_bloc} BLOC`}
+          </span>
+          {l.visibility === "private" && !unlocked && <span className="pill private">🔒 locked</span>}
+          {l.visibility === "private" && unlocked && !mine && <span className="pill public">✓ unlocked</span>}
+          {mine && <span className="pill admin">your drop</span>}
+          <button
+            className={`like-btn ${l.liked ? "liked" : ""}`}
+            onClick={onLike}
+            disabled={!token || busy === `like-${l.cid}`}
+            title={token ? (l.liked ? "unlike" : "like") : "sign in to like"}
+          >
+            {l.liked ? "♥" : "♡"} {l.likes}
+          </button>
+          <button className="mk-qr" onClick={() => setQrOpen(true)} title="Scan to open this drop on your phone">
+            <QRCodeSVG value={dropUrl} size={30} level="L" />
+          </button>
+        </div>
+        <h3 className="mk-title" title={l.title}>{l.title}</h3>
+        {l.description && <p className="mk-desc">{l.description}</p>}
+        {l.tags.length > 0 && (
+          <div className="mk-tags">
+            {l.tags.map((t) => <span key={t} className="mk-tag">#{t}</span>)}
+          </div>
+        )}
+        <div className="mk-meta">
+          <button className="mk-seller" onClick={onSeller} title={`${l.seller} — click to see their storefront`}>
+            <span className="mk-avatar" style={identiconStyle(l.seller)} />
+            {shortAddress(l.seller)}
+          </button>
+          <span className="muted">{l.size != null ? fmtBytes(l.size) : ""}</span>
+          <span className="muted">⇣ {l.downloads}</span>
+          <span className="muted">{fmtAgo(l.created)}</span>
+        </div>
+        <div className="mk-actions">
+          {!token && free && l.visibility !== "private" ? (
+            <a className="btn-link" href={api.getUrl(l.cid)} target="_blank" rel="noreferrer">open ↗</a>
+          ) : !token ? (
+            <span className="muted hint">sign in to unlock</span>
+          ) : unlocked ? (
+            <>
+              <a className="btn-link" href={api.getUrl(l.cid, undefined, l.visibility === "private" ? token : null)} target="_blank" rel="noreferrer">
+                ⇣ download
+              </a>
+              <button onClick={onView} disabled={working}>view</button>
+            </>
+          ) : (
+            <button className={`primary ${free ? "" : "unlock"}`} onClick={onAcquire} disabled={working}>
+              {working ? "…" : free ? "⚡ Get it" : `🔓 Unlock · ${l.price_bloc} BLOC`}
+            </button>
+          )}
+          {token && <button onClick={onInfo} disabled={working}>info</button>}
+          {token && (mine || admin) && (
+            <button className="danger" onClick={onDelist} disabled={working}>
+              {mine ? "delist" : "⚖️ take down"}
+            </button>
+          )}
+        </div>
+      </div>
+      {qrOpen && (
+        <Modal title={`Scan — ${l.title}`} onClose={() => setQrOpen(false)}>
+          <div className="qr-share">
+            <div className="qr big center">
+              <QRCodeSVG value={dropUrl} size={220} level="M" />
+            </div>
+            <p className="muted">
+              Scanning lands right on this drop — {free ? "free to grab" : `unlocks with ${l.price_bloc} BLOC held on-chain`}.
+            </p>
+            <div className="row" style={{ justifyContent: "center" }}>
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(dropUrl);
+                  setLinkCopied(true);
+                }}
+              >
+                {linkCopied ? "✓ copied" : "copy link"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────── sell modal ──────────────────────────── */
+
+function SellModal({
+  token, objects, preselect, onClose, onListed, setError,
+}: {
+  token: string;
+  objects: StoredObject[];
+  preselect: StoredObject | null;
+  onClose: () => void;
+  onListed: (title: string) => void;
+  setError: (s: string) => void;
+}) {
+  const [cid, setCid] = useState(preselect?.cid ?? objects[0]?.cid ?? "");
+  const [title, setTitle] = useState(preselect?.key?.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ") ?? "");
+  const [desc, setDesc] = useState("");
+  const [tags, setTags] = useState("");
+  const [price, setPrice] = useState("0");
+  const [busy, setBusy] = useState(false);
+
+  const chosen = objects.find((o) => o.cid === cid);
+  const priceN = Number(price) || 0;
+
+  const submit = async () => {
+    if (!cid || !title.trim()) return;
+    setBusy(true);
+    try {
+      await api.marketList(token, {
+        cid,
+        title: title.trim(),
+        description: desc.trim() || undefined,
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        price_bloc: priceN,
+      });
+      onListed(title.trim());
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Drop it on the market" onClose={onClose}>
+      <div className="col">
+        <select value={cid} onChange={(e) => setCid(e.target.value)} disabled={busy || !!preselect}>
+          {objects.length === 0 && <option value="">— no objects yet: add data first —</option>}
+          {objects.map((o) => (
+            <option key={`${o.cid}-${o.backend}`} value={o.cid}>
+              {o.key || shortCid(o.cid)} · {o.visibility} · {fmtBytes(o.size)}
+            </option>
+          ))}
+        </select>
+        <input type="text" placeholder="title — make it slap" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+        <textarea placeholder="description (what is it, why it's dope)" value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} disabled={busy} />
+        <input type="text" placeholder="tags, comma-separated (art, dataset, model…)" value={tags} onChange={(e) => setTags(e.target.value)} disabled={busy} />
+        <div className="row">
+          <label className="muted" htmlFor="mk-price">price</label>
+          <input id="mk-price" type="text" inputMode="decimal" style={{ width: 110 }} value={price} onChange={(e) => setPrice(e.target.value)} disabled={busy} />
+          <span className="muted">BLOC · 0 = free</span>
+        </div>
+        <p className="muted hint" style={{ margin: 0 }}>
+          {priceN > 0
+            ? `Buyers must HOLD ≥ ${priceN} BlocTime on-chain — their stake is the ticket; no payment moves.`
+            : chosen?.visibility === "private"
+              ? "Free drop of a private object: anyone signed in can claim access (a permanent read grant)."
+              : "Free public drop: instantly readable by anyone — the listing makes it discoverable."}
+        </p>
+        <div className="row" style={{ marginTop: 6 }}>
+          <button className="primary" onClick={submit} disabled={busy || !cid || !title.trim()}>
+            🔥 List it
+          </button>
+          <button className="ghost" onClick={onClose} disabled={busy}>cancel</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

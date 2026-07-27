@@ -29,6 +29,9 @@ try:
 except ImportError:
     m = None
 
+# shipped agents — protected from remove/update; clone them into a custom agent instead
+BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer", "safety"}
+
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 
 
@@ -77,6 +80,7 @@ class Agents:
             "icon": getattr(cls, "icon", ">_"),
             "skills": getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
+            "builtin": name in BUILTINS,
             "cls": cls,
         }
         self._cache[name] = config
@@ -116,7 +120,42 @@ class Agents:
 
         # clear cache so new agent is discovered
         self._cache.pop(name, None)
-        return self.get(name)
+        cid = self._autopin(name)
+        return {**self.get(name), **({"cid": cid} if cid else {})}
+
+    def update(self, name: str, description: str = None, goal: str = None,
+               icon: str = None, skills: list = ..., model: str = ...,
+               key: str = None) -> Dict[str, Any]:
+        """Update a custom agent in place. Built-ins are read-only — clone them.
+
+        Only the fields passed are changed; the rest keep their current value.
+        skills/model use `...` as the not-passed sentinel so an explicit None
+        can clear them (None = all skills / default model).
+        """
+        name = name.lower().replace(" ", "-").replace("_", "-")
+        if name in BUILTINS:
+            raise PermissionError(f"cannot edit built-in agent: {name} — clone it instead")
+        agent_dir = self._dir / name
+        if not (agent_dir / "mod.py").exists():
+            raise KeyError(f"agent not found: {name}")
+
+        current = self.get(name)
+        new_skills = current.get("skills") if skills is ... else skills
+        new_model = current.get("model") if model is ... else model
+        label = name.replace("-", " ").title()
+        content = AGENT_TEMPLATE.format(
+            name=name,
+            label=label,
+            description=description if description is not None else current.get("description", ""),
+            icon=icon if icon is not None else current.get("icon", ">_"),
+            skills=repr(new_skills) if new_skills else "None",
+            model=repr(new_model) if new_model else "None",
+            goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
+        )
+        (agent_dir / "mod.py").write_text(content)
+        self._cache.pop(name, None)
+        cid = self._autopin(name)
+        return {**self.get(name), **({"cid": cid} if cid else {})}
 
     def remove(self, name: str, key: str = None) -> Dict[str, Any]:
         """Remove a local agent."""
@@ -124,8 +163,7 @@ class Agents:
         if not agent_dir.exists():
             raise KeyError(f"agent not found: {name}")
         # don't allow removing built-in agents
-        builtins = {"default", "architect", "reviewer", "debugger", "builder", "refactorer"}
-        if name in builtins:
+        if name in BUILTINS:
             raise PermissionError(f"cannot remove built-in agent: {name}")
         import shutil
         shutil.rmtree(agent_dir)
@@ -141,7 +179,7 @@ class Agents:
         config = {}
         if name and name in self.ls():
             existing = self.get(name)
-            config = {k: v for k, v in existing.items() if k != "cls"}
+            config = {k: v for k, v in existing.items() if k not in ("cls", "builtin")}
 
         if description is not None:
             config["description"] = description
@@ -337,15 +375,28 @@ class Agents:
         return []
 
     def _index_cid(self, cid: str, name: str, private: bool = False):
-        """Append a CID to the local agent index."""
+        """Record a CID in the local agent index. Public snapshots replace the
+        previous entry for the same name (one live CID per agent); private
+        envelopes are always appended (each has its own shares)."""
         index_path = self._dir / ".agent_cids.json"
         index = self.ls_cids()
         entry = {"cid": cid, "name": name, "saved": time.time()}
         if private:
             entry["private"] = True
+        else:
+            index = [e for e in index
+                     if e.get("private") or e.get("name") != name]
         index.append(entry)
         with open(index_path, "w") as f:
             json.dump(index, f, indent=2)
+
+    def _autopin(self, name: str) -> Optional[str]:
+        """Best-effort snapshot of an agent to localfs after create/update —
+        every agent definition lives in the content-addressed store too."""
+        try:
+            return self.save(name)["cid"]
+        except Exception:
+            return None
 
     def register(self, name: str, key: str = None,
                  backend: str = "offchain") -> Dict[str, Any]:
@@ -360,7 +411,7 @@ class Agents:
             raise RuntimeError("mod framework required for registry")
 
         config = self.get(name)
-        data = {k: v for k, v in config.items() if k != "cls"}
+        data = {k: v for k, v in config.items() if k not in ("cls", "builtin")}
         data["type"] = "agent"
 
         registry = m.mod("registry")()
@@ -388,6 +439,7 @@ class Agents:
         forward()                           -> list all agents
         forward("architect")                -> get agent config
         forward(action="create", name=...)  -> create new agent
+        forward(action="update", name=...) -> update a custom agent
         forward(action="remove", name=...) -> remove agent
         forward(action="save", name=...)   -> save agent as JSON CID
         forward(action="load", cid=...)    -> load agent from CID
@@ -405,6 +457,16 @@ class Agents:
                 icon=kwargs.get("icon", ">_"),
                 skills=kwargs.get("skills"),
                 model=kwargs.get("model"),
+                key=kwargs.get("key"),
+            )
+        if action == "update":
+            return self.update(
+                name=kwargs.get("name", name or ""),
+                description=kwargs.get("description"),
+                goal=kwargs.get("goal"),
+                icon=kwargs.get("icon"),
+                skills=kwargs.get("skills", ...),
+                model=kwargs.get("model", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":

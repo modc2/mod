@@ -14,26 +14,30 @@ import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 
-type TraderSort = "score" | "volume" | "pnl" | "positions";
-const DEFAULT_FORMULA = "pnl / volume";
+type TraderSort = "score" | "volume" | "pnl" | "positions" | "last";
+const DEFAULT_FORMULA = "sharpe";
+// Pre-Sharpe default — persisted copies of it in sessionStorage are the old
+// implicit default (the save-effect writes on mount), not a user choice, so
+// treat them as unset and adopt the new default.
+const LEGACY_DEFAULT_FORMULA = "pnl / volume";
 
 function compileFormula(expr: string): {
-  fn: (t: { pnl: number; volume: number; positions: number; winRate: number; markets: number }) => number;
+  fn: (t: { sharpe: number; pnl: number; volume: number; positions: number; winRate: number; markets: number }) => number;
   error: null;
 } | { fn: null; error: string } {
   try {
     const raw = new Function(
-      "pnl", "volume", "positions", "winRate", "markets", "Math",
+      "sharpe", "pnl", "volume", "positions", "winRate", "markets", "Math",
       `"use strict"; return (${expr});`,
     ) as (...args: unknown[]) => unknown;
-    const probe = raw(0, 0, 0, 0, 0, Math);
+    const probe = raw(0, 0, 0, 0, 0, 0, Math);
     if (typeof probe !== "number" && !Number.isNaN(probe)) {
       return { fn: null, error: "formula must evaluate to a number" };
     }
     return {
       fn: (t) => {
         try {
-          const v = raw(t.pnl, t.volume, t.positions, t.winRate, t.markets, Math) as number;
+          const v = raw(t.sharpe, t.pnl, t.volume, t.positions, t.winRate, t.markets, Math) as number;
           return Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
         } catch {
           return Number.NEGATIVE_INFINITY;
@@ -46,14 +50,12 @@ function compileFormula(expr: string): {
   }
 }
 
+// Scores are unit-less ratios now (Sharpe by default), so small magnitudes
+// render as plain signed decimals — a Sharpe of 1.52 must read "+1.52",
+// not "+152.00%".
 function formatScore(v: number): string {
   if (!Number.isFinite(v)) return "---";
   const abs = Math.abs(v);
-  if (abs < 10) {
-    const pct = v * 100;
-    const prefix = pct >= 0 ? "+" : "";
-    return `${prefix}${pct.toFixed(2)}%`;
-  }
   const prefix = v >= 0 ? "+" : "-";
   if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(2)}M`;
   if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(2)}k`;
@@ -99,7 +101,7 @@ function Sparkline({ data, width = 120, height = 28 }: { data: number[]; width?:
   if (!data || data.length < 2) {
     return (
       <svg width={width} height={height} className="opacity-20">
-        <line x1={0} y1={height / 2} x2={width} y2={height / 2} stroke="#444" strokeWidth={1} strokeDasharray="3,3" />
+        <line x1={0} y1={height / 2} x2={width} y2={height / 2} stroke="currentColor" strokeWidth={1} strokeDasharray="3,3" />
       </svg>
     );
   }
@@ -113,7 +115,9 @@ function Sparkline({ data, width = 120, height = 28 }: { data: number[]; width?:
     return `${x},${y}`;
   }).join(" ");
   const final = data[data.length - 1];
-  const color = final > 0 ? "#4ade80" : final < 0 ? "#f87171" : "#888";
+  // CSS vars so the light theme gets its darker green/red variants — SVG
+  // attributes don't resolve var(), hence the style={} usage below.
+  const color = final > 0 ? "var(--up)" : final < 0 ? "var(--down)" : "var(--flat)";
   const zeroY = max <= 0 ? pad : min >= 0 ? height - pad : height - pad - ((0 - min) / range) * (height - pad * 2);
 
   const areaPoints = data.map((v, i) => {
@@ -126,11 +130,11 @@ function Sparkline({ data, width = 120, height = 28 }: { data: number[]; width?:
   return (
     <svg width={width} height={height}>
       {min < 0 && max > 0 && (
-        <line x1={0} y1={zeroY} x2={width} y2={zeroY} stroke="#333" strokeWidth={1} strokeDasharray="2,2" />
+        <line x1={0} y1={zeroY} x2={width} y2={zeroY} stroke="currentColor" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="2,2" />
       )}
-      <path d={areaPath} fill={color} opacity={0.08} />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={areaPoints[areaPoints.length - 1][0]} cy={areaPoints[areaPoints.length - 1][1]} r={2} fill={color} />
+      <path d={areaPath} style={{ fill: color }} opacity={0.08} />
+      <polyline points={pts} fill="none" style={{ stroke: color }} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={areaPoints[areaPoints.length - 1][0]} cy={areaPoints[areaPoints.length - 1][1]} r={2} style={{ fill: color }} />
     </svg>
   );
 }
@@ -199,7 +203,7 @@ export default function CopyTrading({
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem("poly8bit_score_formula");
-      if (saved && saved.trim()) setFormula(saved);
+      if (saved && saved.trim() && saved.trim() !== LEGACY_DEFAULT_FORMULA) setFormula(saved);
     } catch {}
   }, []);
   useEffect(() => {
@@ -211,6 +215,7 @@ export default function CopyTrading({
     (t: TopTrader): number => {
       if (!compiled.fn) return Number.NEGATIVE_INFINITY;
       return compiled.fn({
+        sharpe: t.sharpe,
         pnl: t.pnl,
         volume: t.volume,
         positions: t.positions,
@@ -294,7 +299,7 @@ export default function CopyTrading({
       pg?: number; sort?: string; order?: string; silent?: boolean; force?: boolean;
     } = {}) => {
       const pg = opts.pg ?? pageRef.current;
-      const sortKey = opts.sort || (traderSort === "score" ? "pnl" : traderSort);
+      const sortKey = opts.sort || (traderSort === "score" ? "sharpe" : traderSort);
       const orderKey = opts.order || sortDir;
       if (!opts.silent) setRefreshing(true);
       try {
@@ -628,7 +633,7 @@ export default function CopyTrading({
         byAddr.get(addr) ?? {
           address: addr,
           volume: 0, buyVolume: 0, sellVolume: 0,
-          pnl: 0, winRate: 0, positions: 0,
+          pnl: 0, winRate: 0, sharpe: 0, positions: 0,
           marketTitles: [], recentTrades: 0,
         },
       );
@@ -683,6 +688,8 @@ export default function CopyTrading({
       if (traderSort === "score") return dir * (scoreFor(a) - scoreFor(b));
       if (traderSort === "volume") return dir * (a.volume - b.volume);
       if (traderSort === "positions") return dir * (a.recentTrades - b.recentTrades);
+      // Missing lastTradeTs → 0 so unknown-recency traders sink on desc.
+      if (traderSort === "last") return dir * ((a.lastTradeTs ?? 0) - (b.lastTradeTs ?? 0));
       return dir * (a.pnl - b.pnl); // default: pnl
     });
     return list;
@@ -1154,7 +1161,7 @@ export default function CopyTrading({
         <>
           <div className="pixel-panel overflow-hidden">
             <div className="overflow-x-auto">
-            <table className="pixel-table" style={{ minWidth: "700px", tableLayout: "fixed" }}>
+            <table className="pixel-table" style={{ minWidth: "920px", tableLayout: "fixed" }}>
               <colgroup>
                 <col style={{ width: "32px" }} />
                 <col style={{ width: "130px" }} />
@@ -1164,6 +1171,8 @@ export default function CopyTrading({
                 <col style={{ width: "100px" }} />
                 <col style={{ width: "72px" }} />
                 <col style={{ width: "80px" }} />
+                <col style={{ width: "64px" }} />
+                <col style={{ width: "100px" }} />
               </colgroup>
               <thead className="sticky">
                 <tr>
@@ -1179,11 +1188,24 @@ export default function CopyTrading({
                     </th>
                   ))}
                   <th className="num text-right" title="Trades in last 24h — flags dormant traders">24H</th>
-                  <th className="num text-right" title="Time since this trader's most recent trade">LAST</th>
+                  <th
+                    className={`sortable num ${traderSort === "last" ? "sorted" : ""} text-right`}
+                    title="Time since this trader's most recent trade"
+                    onClick={() => handleSort("last")}>
+                    LAST
+                    <SortArrow active={traderSort === "last"} dir={sortDir} />
+                  </th>
                   <th className="text-center"></th>
                 </tr>
               </thead>
               <tbody>
+                {pageTraders.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="text-center py-8 text-[13px] text-pixel-gray">
+                      ALL ROWS HIDDEN BY ACTIVE FILTERS — try switching LIVE off or relaxing FILTERS
+                    </td>
+                  </tr>
+                )}
                 {pageTraders.map((trader, i) => {
                   const rowNum = safePage * PAGE_SIZE + i + 1;
                   const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";

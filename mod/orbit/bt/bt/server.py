@@ -1,0 +1,149 @@
+"""
+bt.server — HTTP surface for the bt module on one port (:50280).
+
+  GET  /            Apple-style console (app/index.html)
+  GET  /api         module info (mod protocol null-call convention)
+  GET  /api/tools   MCP-shaped tool listing
+  GET  /api/docs    grouped tool docs for the Docs section
+  POST /api/call    {"tool": name, "args": {...}} -> {"ok", "result"|"error"}
+  POST /mcp         MCP streamable-HTTP endpoint (same JSON-RPC as stdio)
+
+Run:  python3 -m bt.server   (or pm2: bt-app)
+"""
+from __future__ import annotations
+
+import json
+import os
+import time
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+
+from . import history, tools, traders
+from .mcp_server import PROTOCOL_VERSION, SERVER_INFO
+
+PORT = int(os.environ.get('BT_PORT', '50280'))
+APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app')
+
+app = FastAPI(title='bt', docs_url=None, redoc_url=None,
+              on_startup=[history.start, traders.start])
+app.add_middleware(CORSMiddleware, allow_origins=['*'],
+                   allow_methods=['*'], allow_headers=['*'])
+
+
+@app.middleware('http')
+async def strip_gateway_prefix(request: Request, call_next):
+    # The gateway proxies modc2.com/bt with the /bt prefix kept.
+    path = request.scope['path']
+    if path == '/bt' or path.startswith('/bt/'):
+        request.scope['path'] = path[3:] or '/'
+    return await call_next(request)
+
+
+def _info():
+    return {
+        'name': 'bt',
+        'description': 'Bittensor protocol console + MCP server',
+        'version': SERVER_INFO['version'],
+        'network': tools.DEFAULT_NETWORK,
+        'tools': len(tools.TOOLS),
+        'traders': traders.stats(),
+        'mcp': {'http': '/bt/mcp', 'stdio': 'python3 -m bt.mcp_server'},
+        'time': int(time.time()),
+    }
+
+
+@app.get('/api')
+@app.get('/_api')
+def api_info():
+    return _info()
+
+
+@app.get('/api/tools')
+def api_tools():
+    return {'tools': tools.list_tools()}
+
+
+@app.get('/api/docs')
+def api_docs():
+    return {'groups': tools.docs()}
+
+
+@app.post('/api/call')
+def api_call(body: dict):
+    name = body.get('tool')
+    args = body.get('args') or {}
+    t0 = time.time()
+    try:
+        result = tools.call_tool(name, args)
+        return {'ok': True, 'tool': name, 'ms': int((time.time() - t0) * 1000),
+                'result': result}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={
+            'ok': False, 'tool': name, 'error': f'{type(e).__name__}: {e}'})
+
+
+# ------------------------------------------------------------ MCP over HTTP
+
+def _mcp_handle(msg: dict):
+    method = msg.get('method')
+    id_ = msg.get('id')
+    if id_ is None:  # notification
+        return None
+    if method == 'initialize':
+        client_ver = (msg.get('params') or {}).get('protocolVersion')
+        result = {'protocolVersion': client_ver or PROTOCOL_VERSION,
+                  'capabilities': {'tools': {}}, 'serverInfo': SERVER_INFO}
+    elif method == 'ping':
+        result = {}
+    elif method == 'tools/list':
+        result = {'tools': tools.list_tools()}
+    elif method == 'tools/call':
+        params = msg.get('params') or {}
+        try:
+            out = tools.call_tool(params.get('name'), params.get('arguments') or {})
+            result = {'content': [{'type': 'text',
+                                   'text': json.dumps(out, indent=2, default=str)}],
+                      'isError': False}
+        except Exception as e:
+            result = {'content': [{'type': 'text',
+                                   'text': f'{type(e).__name__}: {e}'}],
+                      'isError': True}
+    else:
+        return {'jsonrpc': '2.0', 'id': id_,
+                'error': {'code': -32601, 'message': f'method not found: {method}'}}
+    return {'jsonrpc': '2.0', 'id': id_, 'result': result}
+
+
+@app.post('/mcp')
+async def mcp_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32700, 'message': 'parse error'}})
+    msgs = body if isinstance(body, list) else [body]
+    replies = [r for r in (_mcp_handle(m) for m in msgs) if r is not None]
+    if not replies:
+        return JSONResponse(status_code=202, content=None)
+    return replies[0] if not isinstance(body, list) else replies
+
+
+@app.get('/mcp')
+def mcp_get():
+    return JSONResponse(status_code=405, content={
+        'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
+
+
+# ------------------------------------------------------------------- app
+
+@app.get('/')
+def index():
+    return FileResponse(os.path.join(APP_DIR, 'index.html'))
+
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=PORT)

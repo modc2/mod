@@ -163,6 +163,13 @@ impl ProxyCache {
             // (Checked before is_persistent: "user-trades" doesn't prefix-match
             // "trades" so it's memory-only, but keep the guard explicit.)
             Duration::from_secs(60)
+        } else if ep.starts_with("live-") {
+            // Near-live CLOB reads for sub-hour candle strats (live-prices-history,
+            // live-midpoint). The markets they track live ~5 minutes end to end,
+            // so a cache generation must be a fraction of one poll cycle. The
+            // "live-" name also keeps them off every PERSIST prefix — a 24h disk
+            // snapshot of a 5-minute market is worse than no data.
+            Duration::from_secs(15)
         } else if Self::is_persistent(&ep) {
             Duration::from_secs(86400) // 24 hours — data is on disk, no need to refetch
         } else if ep.starts_with("markets") || ep.starts_with("events") || ep.contains("search") {
@@ -323,6 +330,16 @@ impl PipelineCache {
             // sees a sensible "last sync" instead of 1970.
             if payload.synced_at == 0 {
                 payload.synced_at = mtime_secs;
+            }
+            // Payloads written before the Sharpe epsilon guard carry
+            // degenerate ~1e15 values (float-noise stdev on identical
+            // returns). Zero them so a stale disk cache can't put junk
+            // traders on top of the sharpe-sorted leaderboard until the
+            // next warmup recompute.
+            for t in &mut payload.traders {
+                if !t.sharpe.is_finite() || t.sharpe.abs() > 1e6 {
+                    t.sharpe = 0.0;
+                }
             }
             Some(payload)
         } else {

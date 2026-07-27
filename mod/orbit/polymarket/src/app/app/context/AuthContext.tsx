@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { AuthState } from "../lib/types";
 import { detectWallet, connectWallet, deriveClobApiKey } from "../lib/auth";
+import { pickMostFunded } from "../lib/funding";
 import type { ClobCredentials } from "../lib/types";
 
 interface LocalToken {
@@ -243,11 +244,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const accts = (await eth.request({ method: "eth_accounts" })) as string[];
-        const addr = accts?.[0];
-        if (!addr) return;
+        if (!accts || accts.length === 0) return;
+        // MetaMask's account order is arbitrary from the console's point of
+        // view — with several authorized wallets (funded owner + empty spare)
+        // accts[0] can be the empty one, and the whole console then boots
+        // showing $0 everywhere. Default to the account holding the most
+        // funded capital. Balance reads can fail (gate locked, API cold);
+        // fall back to MetaMask's pick then.
+        let addr = accts[0];
+        if (accts.length > 1) {
+          const richest = await pickMostFunded(accts);
+          if (richest) addr = richest;
+        }
         const chainIdHex = (await eth.request({ method: "eth_chainId" })) as string;
         const chainId = parseInt(chainIdHex, 16);
         const cached = loadCachedClobCreds(addr);
+        // Remember every authorized account so the switcher lists them all;
+        // the chosen one is recorded last so it sorts to the front.
+        accts
+          .filter((a) => a.toLowerCase() !== addr.toLowerCase())
+          .forEach((a) => recordWallet(a));
         recordWallet(addr);
         setAuth((prev) => ({
           ...prev,

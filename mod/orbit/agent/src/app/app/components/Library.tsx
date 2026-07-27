@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { API_URL } from '../config'
+import { qrSvg } from '../lib/qr'
 
 // ── types ───────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ type Props = {
   onUsePrompt: (text: string) => void
   onSelectAgent: (name: string) => void
   onAgentsChanged?: () => void
+  // select a library prompt as the console's system prompt
+  onSelectPrompt?: (item: LibItem) => void
+  // toggle a memory note into the console's run context
+  onUseMemory?: (id: string) => void
 }
 
 // ── kind styling (full literal classes so tailwind JIT keeps them) ──
@@ -70,7 +75,7 @@ const KIND_ORDER: LibKind[] = ['prompt', 'skill', 'memory', 'agent']
 
 // ── component ───────────────────────────────────────────────────────
 
-export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }: Props) {
+export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, onSelectPrompt, onUseMemory }: Props) {
   const [items, setItems] = useState<LibItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -82,8 +87,9 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
   const [selected, setSelected] = useState<LibItem | null>(null)
   const [creating, setCreating] = useState<LibKind | null>(null)
   const [editing, setEditing] = useState<LibItem | null>(null)
+  const [importing, setImporting] = useState(false)
   const [showNewMenu, setShowNewMenu] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(() => {
@@ -99,7 +105,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
   // "/" focuses search, Escape closes overlays
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setSelected(null); setCreating(null); setEditing(null); setShowNewMenu(false) }
+      if (e.key === 'Escape') { setSelected(null); setCreating(null); setEditing(null); setImporting(false); setShowNewMenu(false) }
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault(); searchRef.current?.focus()
       }
@@ -155,23 +161,32 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
     if (item.kind === 'agent') onAgentsChanged?.()
   }
 
-  const copy = (text: string) => {
+  const copy = (text: string, what: string = 'body') => {
     navigator.clipboard?.writeText(text).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1200)
+    setCopied(what)
+    setTimeout(() => setCopied(null), 1200)
   }
 
   const useItem = (item: LibItem) => {
-    if (item.kind === 'prompt') onUsePrompt(item.body || '')
+    if (item.kind === 'prompt') {
+      // preferred path: make it the console's active system prompt
+      if (onSelectPrompt) onSelectPrompt(item)
+      else onUsePrompt(item.body || '')
+    }
     else if (item.kind === 'skill') onUsePrompt(`Use the ${item.name} skill to `)
-    else if (item.kind === 'memory') onUsePrompt(`Context to remember:\n${item.body}\n\nTask: `)
+    else if (item.kind === 'memory') {
+      if (onUseMemory) onUseMemory(item.id)
+      else onUsePrompt(`Context to remember:\n${item.body}\n\nTask: `)
+    }
     else if (item.kind === 'agent' && item.tags.includes('installed')) onSelectAgent(item.name)
     setSelected(null)
   }
 
   const useLabel = (k: LibKind, installed: boolean) =>
-    k === 'prompt' ? 'Use prompt' : k === 'skill' ? 'Try in console'
-    : k === 'memory' ? 'Use as context' : installed ? 'Chat with agent' : ''
+    k === 'prompt' ? (onSelectPrompt ? 'Use as system prompt' : 'Use prompt')
+    : k === 'skill' ? 'Try in console'
+    : k === 'memory' ? (onUseMemory ? 'Add to context' : 'Use as context')
+    : installed ? 'Chat with agent' : ''
 
   // ── render helpers ───────────────────────────────────────────────
 
@@ -194,7 +209,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
           <div className="relative">
             <button
               onClick={() => setShowNewMenu(v => !v)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-500 text-white transition shadow-[0_0_18px_rgba(59,130,246,0.25)]"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition shadow-[0_0_18px_rgba(52,211,153,0.25)]"
             >
               <span className="text-sm leading-none">+</span> New
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showNewMenu ? 'rotate-180' : ''}`}>
@@ -211,6 +226,13 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
                     <span className="text-gray-300">{k === 'memory' ? 'Memory note' : KINDS[k].label}</span>
                   </button>
                 ))}
+                <div className="my-1 border-t border-white/[0.06]" />
+                <button
+                  onClick={() => { setImporting(true); setShowNewMenu(false) }}
+                  className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-white/[0.06] transition flex items-center gap-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60" />
+                  <span className="text-gray-300">Prompt from CID</span>
+                </button>
               </div>
             )}
           </div>
@@ -226,7 +248,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Search prompts, skills, memory, agents…"
-            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-16 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(59,130,246,0.08)] transition-all"
+            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-16 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(52,211,153,0.08)] transition-all"
           />
           <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-600 border border-white/[0.08] rounded px-1.5 py-0.5 select-none">/</kbd>
         </div>
@@ -270,7 +292,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
                 onClick={() => setTag(tag === t ? null : t)}
                 className={`px-2 py-0.5 rounded-md text-[11px] border transition ${
                   tag === t
-                    ? 'bg-blue-500/15 border-blue-500/30 text-blue-300'
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-200'
                     : 'border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/[0.14]'
                 }`}
               >
@@ -302,7 +324,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
               </div>
               <p className="text-sm text-gray-500">Nothing matches{q ? ` “${q}”` : ''}</p>
               {hasFilters && (
-                <button onClick={clearFilters} className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition">
+                <button onClick={clearFilters} className="mt-3 text-xs text-emerald-300 hover:text-emerald-200 transition">
                   Clear filters
                 </button>
               )}
@@ -345,6 +367,11 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
                           {Object.keys(item.params).length} params
                         </span>
                       )}
+                      {item.kind === 'prompt' && item.cid && (
+                        <span className="text-[10px] text-amber-300/50 font-mono ml-auto" title={item.cid}>
+                          {item.cid.slice(0, 8)}…
+                        </span>
+                      )}
                     </div>
                   </button>
                 )
@@ -354,8 +381,22 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
         </div>
       </div>
 
-      {/* detail overlay */}
-      {selected && (
+      {/* prompt detail — full screen, with localfs CID + QR share panel */}
+      {selected && selected.kind === 'prompt' && (
+        <PromptScreen
+          item={selected}
+          copied={copied}
+          copy={copy}
+          onClose={() => setSelected(null)}
+          onUse={() => useItem(selected)}
+          useLabel={useLabel('prompt', false)}
+          onEdit={() => { setEditing(selected); setSelected(null) }}
+          onDelete={() => del(selected)}
+        />
+      )}
+
+      {/* detail overlay (skills / memory / agents) */}
+      {selected && selected.kind !== 'prompt' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={() => setSelected(null)}>
           <div
             className="w-full max-w-xl max-h-[80vh] flex flex-col bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop"
@@ -420,8 +461,8 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
                   {selected.cid && (
                     <div className="flex items-center gap-2 text-gray-500">
                       cid: <span className="text-gray-400 font-mono truncate">{selected.cid}</span>
-                      <button onClick={() => copy(selected.cid!)} className="text-blue-400 hover:text-blue-300 transition shrink-0">
-                        {copied ? 'copied' : 'copy'}
+                      <button onClick={() => copy(selected.cid!, 'cid')} className="text-emerald-300 hover:text-emerald-200 transition shrink-0">
+                        {copied === 'cid' ? 'copied' : 'copy'}
                       </button>
                     </div>
                   )}
@@ -433,23 +474,23 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
             <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2 shrink-0">
               {useLabel(selected.kind, selected.tags.includes('installed')) && (
                 <button onClick={() => useItem(selected)}
-                  className="px-3.5 py-2 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-500 text-white transition">
+                  className="px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition">
                   {useLabel(selected.kind, selected.tags.includes('installed'))}
                 </button>
               )}
               {selected.body && (
                 <button onClick={() => copy(selected.body!)}
                   className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
-                  {copied ? 'Copied ✓' : 'Copy'}
+                  {copied === 'body' ? 'Copied ✓' : 'Copy'}
                 </button>
               )}
-              {(selected.kind === 'prompt' || selected.kind === 'memory') && (
+              {selected.kind === 'memory' && (
                 <button onClick={() => { setEditing(selected); setSelected(null) }}
                   className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
                   Edit
                 </button>
               )}
-              {(selected.kind === 'prompt' || selected.kind === 'memory' ||
+              {(selected.kind === 'memory' ||
                 (selected.kind === 'agent' && selected.tags.includes('custom'))) && (
                 <button onClick={() => del(selected)}
                   className="ml-auto px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-300 hover:bg-red-500/10 transition">
@@ -473,6 +514,191 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged }:
           }}
         />
       )}
+
+      {/* import prompt from CID */}
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onImported={() => { setImporting(false); refresh() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── full-screen prompt view (localfs CID + QR share) ────────────────
+
+function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, onDelete }: {
+  item: LibItem
+  copied: string | null
+  copy: (text: string, what?: string) => void
+  onClose: () => void
+  onUse: () => void
+  useLabel?: string
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const qr = useMemo(() => {
+    if (!item.cid) return null
+    try { return qrSvg(item.cid, 208, 3, '#0b0b0c', '#ffffff') } catch { return null }
+  }, [item.cid])
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0b0d] lib-pop">
+      {/* header */}
+      <div className="shrink-0 px-6 md:px-10 py-4 border-b border-white/[0.06] flex items-center gap-3">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${KINDS.prompt.badge}`}>prompt</span>
+        <span className="text-sm font-medium text-gray-100 truncate">{item.name}</span>
+        {item.builtin && (
+          <span className="text-[9px] text-gray-600 border border-white/[0.06] rounded px-1 py-0.5">built-in</span>
+        )}
+        <span className="ml-auto text-[10px] text-gray-600 hidden sm:block">esc to close</span>
+        <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition p-1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      {/* body: prompt text left, share panel right */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-6 md:px-10 py-8 flex flex-col lg:flex-row gap-8">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-100">{item.name}</h1>
+            {item.description && (
+              <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{item.description}</p>
+            )}
+            {item.tags.length > 0 && (
+              <div className="flex items-center gap-1 mt-3 flex-wrap">
+                {item.tags.map(t => (
+                  <span key={t} className="text-[10px] text-gray-500 border border-white/[0.07] rounded px-1.5 py-0.5">{t}</span>
+                ))}
+              </div>
+            )}
+            <pre className="mt-6 text-sm text-gray-200 bg-white/[0.03] border border-white/[0.06] rounded-xl p-5 whitespace-pre-wrap leading-relaxed font-sans">
+              {item.body}
+            </pre>
+          </div>
+
+          {/* share panel */}
+          <div className="w-full lg:w-72 shrink-0">
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+              <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-3">share · localfs</div>
+              {item.cid ? (
+                <>
+                  {qr && (
+                    <button
+                      onClick={() => copy(item.cid!, 'cid')}
+                      title="Click to copy CID"
+                      className="block mx-auto rounded-lg overflow-hidden bg-white p-2 hover:opacity-90 transition"
+                      dangerouslySetInnerHTML={{ __html: qr }}
+                    />
+                  )}
+                  <div className="mt-3 text-[10px] text-amber-300/70 font-mono break-all leading-relaxed">
+                    {item.cid}
+                  </div>
+                  <button
+                    onClick={() => copy(item.cid!, 'cid')}
+                    className="mt-3 w-full px-3 py-2 rounded-lg text-xs font-medium border border-amber-400/25 bg-amber-400/10 text-amber-200 hover:bg-amber-400/15 transition"
+                  >
+                    {copied === 'cid' ? 'CID copied ✓' : 'Copy CID'}
+                  </button>
+                  <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
+                    Scan the QR or copy the CID — anyone can install this prompt via “Prompt from CID”.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  No CID yet — localfs was unreachable when this prompt was saved. It will be pinned on the next library load.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* actions */}
+      <div className="shrink-0 px-6 md:px-10 py-4 border-t border-white/[0.06] flex items-center gap-2">
+        <button onClick={onUse}
+          className="px-4 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition">
+          {useLabel || 'Use prompt'}
+        </button>
+        <button onClick={() => copy(item.body || '')}
+          className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
+          {copied === 'body' ? 'Copied ✓' : 'Copy prompt'}
+        </button>
+        <button onClick={onEdit}
+          className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
+          Edit
+        </button>
+        <button onClick={onDelete}
+          className="ml-auto px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-300 hover:bg-red-500/10 transition">
+          Delete
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── import-from-CID modal ───────────────────────────────────────────
+
+function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [cid, setCid] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const doImport = async () => {
+    if (!cid.trim()) { setErr('paste a localfs CID'); return }
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch(`${API_URL}/prompts/import`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cid: cid.trim() }),
+      })
+      const data = await res.json()
+      if (data.error) { setErr(data.error); setBusy(false); return }
+      onImported()
+    } catch (e: any) {
+      setErr(e.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <span className="text-sm font-medium text-gray-100">Import prompt from CID</span>
+          <button onClick={onClose} className="ml-auto text-gray-600 hover:text-gray-300 transition p-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <input
+            value={cid} onChange={e => setCid(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') doImport() }}
+            placeholder="Qm… localfs CID" autoFocus
+            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 font-mono outline-none placeholder:text-gray-600 focus:border-amber-400/40 transition"
+          />
+          <p className="text-[11px] text-gray-600 leading-relaxed">
+            Paste a CID from a shared prompt’s QR code. The prompt is fetched from localfs and added to your library.
+          </p>
+          {err && <p className="text-xs text-red-400">{err}</p>}
+        </div>
+        <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2">
+          <button onClick={doImport} disabled={busy}
+            className="px-4 py-2 rounded-lg text-xs font-medium bg-amber-500/90 hover:bg-amber-400 disabled:bg-white/5 disabled:text-gray-600 text-black transition">
+            {busy ? 'Importing…' : 'Import'}
+          </button>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-xs text-gray-500 hover:text-gray-300 transition">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -547,28 +773,28 @@ function EditorModal({ kind, item, onClose, onSaved }: {
           <div className="flex gap-2">
             <input value={name} onChange={e => setName(e.target.value)} placeholder={kind === 'agent' ? 'name (slug)' : 'Name'}
               disabled={kind === 'agent' && !!item}
-              className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500/40 transition" />
+              className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition" />
             {kind === 'agent' && (
               <input value={icon} onChange={e => setIcon(e.target.value)} maxLength={4} placeholder="icon"
-                className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none text-center focus:border-blue-500/40 transition" />
+                className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none text-center focus:border-emerald-500/40 transition" />
             )}
           </div>
           {kind !== 'memory' && (
             <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Short description"
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500/40 transition" />
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition" />
           )}
           <textarea value={body} onChange={e => setBody(e.target.value)} placeholder={bodyLabel} rows={6}
-            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-blue-500/40 transition resize-none leading-relaxed" />
+            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition resize-none leading-relaxed" />
           {kind !== 'agent' && (
             <input value={tags} onChange={e => setTags(e.target.value)} placeholder="tags, comma, separated"
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-gray-300 outline-none placeholder:text-gray-600 focus:border-blue-500/40 transition" />
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-gray-300 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition" />
           )}
           {err && <p className="text-xs text-red-400">{err}</p>}
         </div>
 
         <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2">
           <button onClick={save} disabled={saving}
-            className="px-4 py-2 rounded-lg text-xs font-medium bg-blue-600/90 hover:bg-blue-500 disabled:bg-white/5 disabled:text-gray-600 text-white transition">
+            className="px-4 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 disabled:bg-white/5 disabled:text-gray-600 text-white transition">
             {saving ? 'Saving…' : item ? 'Save changes' : 'Create'}
           </button>
           <button onClick={onClose} className="px-3 py-2 rounded-lg text-xs text-gray-500 hover:text-gray-300 transition">

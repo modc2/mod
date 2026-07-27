@@ -14,6 +14,6 @@ export NEXT_PUBLIC_BASE_PATH="/polymarket"
 # send unmasked frames → endless pm2 restart loop (saw 33k). Prod has no HMR
 # socket. Build on first run / when .next is missing.
 if [ ! -f "$DIR/.next/BUILD_ID" ]; then
-  npx next build
+  bash "$DIR/build.sh"
 fi
 exec npx next start -p "$PORT"

@@ -1,4 +1,5 @@
 pub mod routes;
+pub mod access;
 pub mod proxy;
 pub mod pipeline;
 pub mod cache;
@@ -25,6 +26,7 @@ pub use signer::SignerStore;
 pub use live_engine::EngineRegistry;
 pub use user_strats::UserStratStore;
 pub use share::ShareStore;
+pub use access::AccessStore;
 
 #[derive(Clone)]
 pub struct AppState {

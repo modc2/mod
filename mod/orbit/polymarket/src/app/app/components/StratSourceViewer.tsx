@@ -206,7 +206,7 @@ export default function StratSourceViewer() {
 
       {userStrats.length === 0 && (
         <div className="text-[10px] text-pixel-muted">
-          No uploaded strats yet — upload a mod.py / mod.rs on the LIVE → PARAMS tab to see it appear here, editable.
+          No uploaded strats yet — upload a mod.py / mod.rs on the STRAT tab to see it appear here, editable.
         </div>
       )}
     </div>

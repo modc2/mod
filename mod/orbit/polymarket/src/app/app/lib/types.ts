@@ -88,6 +88,14 @@ export interface TraderRoiStats {
   sampleSize: number;
   // Sharpe = roi / stdev (0 when stdev is 0 or sampleSize too low).
   sharpe: number;
+  // Closed trades that realized a profit (returns > 0) in the window.
+  wins: number;
+  // Probability-of-success estimate for this trader's next trade:
+  // Laplace-smoothed win rate `(wins + 2) / (sampleSize + 4)` — shrinks
+  // toward 50% on thin samples, 0.5 exactly when no closed trades exist.
+  // Same formula as `stats_from_returns` in live_engine.rs; the parity
+  // fixture test asserts the two never drift.
+  successProb: number;
   // Cash deployed in the window (sum of BUY notional). Surfaces
   // "is this a real trader" to the UI.
   cashDeployed: number;
@@ -110,9 +118,11 @@ export interface TradeFilters {
   /** Which sides to mirror. "buy" = entries only, "sell" = exits only,
       "both"/undefined = no side restriction. */
   sides?: "buy" | "sell" | "both";
-  /** Leader fill-price band (0–1 probability). undefined ⇒ no bound on that
-      end. e.g. {minPrice:0.01,maxPrice:0.2} = longshots only;
-      {minPrice:0.8} = favorites only. */
+  /** Leader fill-price band (0–1 probability). e.g.
+      {minPrice:0.01,maxPrice:0.2} = longshots only; {minPrice:0.8} =
+      favorites only. When BOTH ends are undefined, BUYs default to the
+      likely-to-win floor (`DEFAULT_MIN_ENTRY_PRICE`, 60¢) — set an explicit
+      band (even minPrice:0) to opt out. SELLs are never floored. */
   minPrice?: number;
   maxPrice?: number;
   /** Leader trade USD notional band (price × size). A conviction filter:
@@ -123,6 +133,56 @@ export interface TradeFilters {
       at least ONE of. Empty/undefined ⇒ all categories. Uses the same
       keyword buckets as the leaderboard category filter. */
   categories?: string[];
+}
+
+/** Price-momentum origination params. Setting `momentum` (even `{}`) turns
+    origination ON: each cycle the engine fetches CLOB price history for
+    active markets matching `query` (default: the strat's marketQuery, else
+    "bitcoin") and the strat BUYs the outcome whose price ROSE by at least
+    `minRiseCents` over the lookback — "the odds of BTC-up went 50¢ → 60¢,
+    ride it" — and SELLs a held outcome once its price momentum flips down
+    by `exitDropCents`. Lives in types.ts (not strat.ts) so SavedIndex can
+    reference it without an import cycle. */
+export interface MomentumParams {
+  /** Market search query for candidate markets. Default: the strat's
+      `marketQuery`, else "bitcoin". */
+  query?: string;
+  /** Window (minutes) the rise is measured over. Default 60. */
+  lookbackMinutes?: number;
+  /** Minimum rise in CENTS of probability over the lookback before an
+      entry fires (10 = the 50¢→60¢ example). Default 5. */
+  minRiseCents?: number;
+  /** Exit: sell a held outcome once its price FALLS this many cents over
+      the lookback. Default = minRiseCents. */
+  exitDropCents?: number;
+  /** Entry price band — don't chase near-resolved (or dead) markets.
+      Defaults 0.5 / 0.85: entries stick to the likely-to-win side by
+      default (same bias as DEFAULT_MIN_ENTRY_PRICE on the copy path);
+      set an explicit minPrice (e.g. 0.15) to allow cheaper entries. */
+  minPrice?: number;
+  maxPrice?: number;
+  /** Max simultaneous open positions momentum may hold. Default 5. */
+  maxPositions?: number;
+  /** How many top-volume matching markets to track per cycle. Default 12. */
+  maxMarkets?: number;
+  /** Skip markets resolving sooner than this (minutes). Sub-hour Up/Down
+      markets are HFT-bot turf where a polling strat structurally loses —
+      see the movoaev8 postmortem. Default 90. */
+  minMinutesToClose?: number;
+  /** Opt-in short-CANDLE feed: instead of market search, track the ONE
+      live candle of a recurring sub-hour series (e.g. BTC "Up or Down"
+      5-minute markets) by its deterministic slug
+      (`<slugPrefix>-<candle start unix seconds>`), at 1-minute price
+      fidelity plus a near-live midpoint. Deliberately opt-in: it targets
+      exactly the sub-hour lane `minMinutesToClose` exists to avoid, so a
+      strat using it must also set `minMinutesToClose` low (e.g. 1) or no
+      entry can ever fire. */
+  candles?: {
+    /** Series slug prefix. Default "btc-updown-5m". */
+    slugPrefix?: string;
+    /** Candle length in minutes. Default 5. */
+    periodMinutes?: number;
+  };
 }
 
 export interface SavedIndex {
@@ -138,11 +198,30 @@ export interface SavedIndex {
   fundsMode?: "SIM" | "WALLET";
   minTrade?: number; // minimum trade size in USD (default 5)
   maxTrade?: number; // maximum trade size in USD (default 100)
-  maxTradesPerHour?: number; // maximum trades per hour (default 10)
+  /** @deprecated Never enforced by the live engine or the backtest — kept
+      only so previously saved strats still deserialize. Rate control is
+      `maxPerCycle` × poll cadence. */
+  maxTradesPerHour?: number;
   // Max concurrent open positions (default 10). The live engine skips a
   // mirror BUY that would open a NEW token while this many are already held;
   // topping up an existing hold still goes through.
   maxOpenPositions?: number;
+  // Per-position stop-loss: the fraction of avg entry price to defend (0–1).
+  // e.g. 0.75 ⇒ sell the whole position once its market price decays to ≤ 75%
+  // of entry — caps a market trending toward 0 at a known loss instead of
+  // riding it down. Enforced live by the Rust engine (`EngineConfig.stopLoss`,
+  // checked against the book bid every cycle) and replayed by the BACKTEST
+  // sim so the preview predicts the exits. undefined ⇒ the 0.75 default
+  // applies (protection on unless deliberately disabled); explicit 0 ⇒ off.
+  stopLoss?: number;
+  // Per-position take-profit: the ABSOLUTE price level (0–1) at which a held
+  // position is fully liquidated at the bid. A market that has run to ~100%
+  // is decided — ≤1¢ left to earn, capital dead until resolution — so the
+  // engine sells instead of waiting for auto-redeem. Levels above 0.99 clamp
+  // to 0.99 (the book's top tick; a 1.00 bid never prints). undefined ⇒ the
+  // 0.99 default applies (liquidate everything that runs to the top);
+  // explicit 0 ⇒ off.
+  takeProfit?: number;
   rebalancePeriod?: number; // rebalance period in hours (default 24)
   rebalanceHour?: number; // hour of day to rebalance 0-23 (default 0 = midnight)
   rebalanceMinutes?: number; // BACKTEST-only poll cadence (historical sim aggregation)
@@ -160,6 +239,11 @@ export interface SavedIndex {
   // AND-ed with marketQuery to carve a unique slice of the watched flow.
   // Empty/undefined ⇒ no per-trade gating beyond marketQuery.
   tradeFilters?: TradeFilters;
+  // Opt-in price-momentum ORIGINATION (no watchlist needed): the engine
+  // feeds the strat CLOB price history for markets matching the query and
+  // the strat buys the outcome whose odds are RISING (e.g. 50¢ → 60¢),
+  // exits when the momentum flips. Absent ⇒ pure copy strat.
+  momentum?: MomentumParams;
   createdAt: number;
   updatedAt: number;
   // Cached backtest snapshot (updated each time backtest runs)

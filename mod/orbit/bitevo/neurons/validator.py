@@ -1,7 +1,6 @@
 import json
 import time
 import os
-import mod as m
 from typing import List, Dict, Optional
 from core.schemas import (
     Challenge, MinerResponse, ValidatorScore, ScoreBreakdown, EpochResult
@@ -9,8 +8,10 @@ from core.schemas import (
 from core.prompts import VALIDATOR_SYSTEM_PROMPT, VALIDATOR_USER_PROMPT
 from core.scoring import composite_score, IncentiveMechanism
 from core.challenge import ChallengeGenerator
+from core.llm import get_llm
 
 DEFAULT_MODELS = {
+    'claude': 'haiku',
     'openrouter': 'anthropic/claude-sonnet-4',
     'venice': 'llama-3.3-70b',
     'chutes': 'unsloth/Llama-3.3-70B-Instruct',
@@ -21,7 +22,7 @@ class BitevoValidator:
 
     def __init__(
         self,
-        backend: str = 'openrouter',
+        backend: str = 'claude',
         model: str = None,
         wallet_name: str = 'validator',
         hotkey: str = 'default',
@@ -35,7 +36,7 @@ class BitevoValidator:
         **kwargs,
     ):
         self.backend = backend
-        self.model = model or DEFAULT_MODELS.get(backend, 'anthropic/claude-sonnet-4')
+        self.model = model or DEFAULT_MODELS.get(backend, DEFAULT_MODELS['claude'])
         self.local = local
         self.wallet_name = wallet_name
         self.hotkey = hotkey
@@ -46,7 +47,7 @@ class BitevoValidator:
         self.temperature = temperature
         self.storage_path = os.path.expanduser(storage_path)
 
-        self.epochs = 0
+        self.epochs = self._last_archived_epoch()
         self.epoch_time = 0
 
         self._llm = None
@@ -63,7 +64,7 @@ class BitevoValidator:
     @property
     def llm(self):
         if self._llm is None:
-            self._llm = m.mod(self.backend)()
+            self._llm = get_llm(self.backend, model=self.model)
         return self._llm
 
     # ── Epoch ─────────────────────────────────────────────────────
@@ -217,6 +218,19 @@ class BitevoValidator:
         print(f"  weights set on chain for {len(uids)} miners")
 
     # ── Persistence ───────────────────────────────────────────────
+
+    def _last_archived_epoch(self) -> int:
+        # resume numbering from disk so restarts never overwrite past archives
+        epoch_dir = os.path.join(self.storage_path, 'epochs')
+        try:
+            nums = [
+                int(f[len('epoch_'):-len('.json')])
+                for f in os.listdir(epoch_dir)
+                if f.startswith('epoch_') and f.endswith('.json')
+            ]
+            return max(nums, default=0)
+        except (OSError, ValueError):
+            return 0
 
     def _save_epoch(self, result: EpochResult):
         epoch_dir = os.path.join(self.storage_path, 'epochs')

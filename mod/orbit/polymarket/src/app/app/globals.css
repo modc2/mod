@@ -74,6 +74,14 @@
   --accent-3: 167 139 250;  /* violet   */
   --danger:   248 113 113;  /* red-400, used for NO/sell/error states */
   --warn:     251 191 36;   /* amber-400, used for pending/warning states */
+
+  /* Semantic PnL colors for INLINE-STYLE consumers (SVG charts, tooltips).
+     Class-based text gets the [data-theme="light"] .text-green-400 overrides
+     below, but `style={{ color: "#4ade80" }}` bypasses those — anything
+     colored programmatically must read these vars instead. */
+  --up:   #4ade80;
+  --down: #f87171;
+  --flat: #999999;
 }
 
 [data-theme="light"] {
@@ -115,6 +123,9 @@
   --pixel-gray-light: #9ca3af;
   --danger: 220 38 38;   /* red-600, darker for contrast on white */
   --warn: 180 83 9;      /* amber-700 */
+  --up:   #15803d;
+  --down: #dc2626;
+  --flat: #6b7280;
 }
 
 /* Light mode wants a cooler, fainter atmosphere — the dark-mode accent suns
@@ -302,6 +313,11 @@ input[type="radio"] {
   background: var(--btn-bg);
   color: var(--fg);
 }
+/* This sheet loads after Tailwind's utilities, so the bare `normal-case`
+   utility ties with .pixel-btn and loses; addresses etc. must stay as-is. */
+.pixel-btn.normal-case {
+  text-transform: none;
+}
 .pixel-btn:hover {
   background: var(--btn-bg-hover);
   border-color: var(--border-strong);
@@ -408,7 +424,6 @@ input[type="radio"] {
   table-layout: fixed;
 }
 .pixel-table th {
-  text-align: left;
   padding: 11px 12px;
   color: var(--fg-dim);
   border-bottom: 1px solid var(--border-strong);
@@ -418,6 +433,26 @@ input[type="radio"] {
   text-transform: uppercase;
   white-space: nowrap;
   user-select: none;
+}
+/* Header alignment lives in a zero-specificity :where() so Tailwind
+   text-right/text-center utilities on <th> can win the cascade —
+   this file loads after @tailwind utilities, so a plain
+   `.pixel-table th { text-align: left }` (0,1,1) silently beat
+   `.text-right` (0,1,0) and left every numeric header hanging off
+   its right-aligned column. */
+:where(.pixel-table th) {
+  text-align: left;
+}
+/* Docs page: column headers stick just below the 48px doc bar instead of
+   scrolling out of view. border-collapse drops a sticking th's borders,
+   so the rule under the row is drawn as a shadow instead. */
+.docs-content .pixel-table thead th {
+  position: sticky;
+  top: 48px;
+  z-index: 5;
+  background: var(--panel-from);
+  border-bottom: 0;
+  box-shadow: 0 1px 0 var(--border-strong);
 }
 .pixel-table th.sortable {
   cursor: pointer;
@@ -516,7 +551,9 @@ input[type="radio"] {
   box-shadow: 0 0 24px rgba(var(--accent) / 0.18), inset 0 0 30px rgba(var(--accent) / 0.04);
 }
 
-/* Recharts overrides — vibey numerics */
+/* Recharts overrides — vibey numerics. The !important strokes/fills beat the
+   hardcoded props inside chart JSX, so they must flip per theme or light mode
+   gets invisible white gridlines on a white panel. */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
   stroke: rgba(255, 255, 255, 0.06) !important;
@@ -525,6 +562,16 @@ input[type="radio"] {
   fill: #888 !important;
   font-family: "JetBrains Mono", ui-monospace, monospace !important;
   font-size: 10px !important;
+}
+[data-theme="light"] .recharts-cartesian-grid-horizontal line,
+[data-theme="light"] .recharts-cartesian-grid-vertical line {
+  stroke: rgba(17, 24, 39, 0.08) !important;
+}
+[data-theme="light"] .recharts-text {
+  fill: #6b7280 !important;
+}
+[data-theme="light"] .recharts-cartesian-axis-line {
+  stroke: rgba(17, 24, 39, 0.25) !important;
 }
 
 /* ── Premium utilities ─────────────────────────────────────────────
@@ -551,6 +598,25 @@ input[type="radio"] {
 }
 @media (prefers-reduced-motion: reduce) {
   .text-gradient { animation: none; }
+}
+
+/* Subtab rail swap (CopyIndex header) — re-fires via key={mode}. */
+@keyframes subtab-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.subtab-rail { animation: subtab-in 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .subtab-rail { animation: none; }
+}
+
+/* Left-docked drawer entrance (HeaderStratPicker strat sidebar). */
+@keyframes drawer-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="drawer-in-left"] { animation: none !important; }
 }
 
 /* Soft emerald halo for hero elements. */

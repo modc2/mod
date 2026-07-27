@@ -1959,7 +1959,194 @@ a.fn-chip:hover {
   color: var(--accent);
 }
 
+/* ── On-chain section: register + stake, side by side ───────────────────── */
+
+.chain-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 30px 0 14px;
+}
+.chain-sec-head h3 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-3);
+}
+.chain-sec-sub {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+.chain-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+.chain-grid .panel {
+  margin-bottom: 0;
+  height: 100%;
+}
+.chain-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.chain-card-head h3 {
+  margin: 0;
+}
+.chain-card code {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+/* Stake panel */
+.stake-total {
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--accent-3);
+  border: 1px solid rgba(84, 230, 224, 0.25);
+  background: rgba(84, 230, 224, 0.07);
+  border-radius: 99px;
+  padding: 5px 11px;
+  box-shadow: var(--top-light);
+}
+.stake-total i {
+  font-style: normal;
+  color: var(--ink-faint);
+}
+.stake-who {
+  display: flex;
+  gap: 8px;
+}
+.stake-who input {
+  flex: 1;
+}
+.stake-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 2px 0 14px;
+}
+.stake-stat {
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  box-shadow: var(--top-light);
+}
+.stake-stat .k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.stake-stat .v {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.stake-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.stake-row .btn {
+  padding: 11px 18px;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+.stake-amount {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 14px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+}
+.stake-amount:focus {
+  border-color: var(--accent-3);
+}
+.stake-ok {
+  margin-top: 12px;
+  border: 1px solid rgba(84, 230, 224, 0.3);
+  background: rgba(84, 230, 224, 0.07);
+  color: #9df0ec;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  word-break: break-word;
+}
+.stake-panel .reg-err {
+  margin: 12px 0 0;
+}
+.stake-book {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.stake-book-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+.stake-book-row .mono {
+  font-family: var(--mono);
+}
+.stake-book-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.stake-book-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent-3), var(--accent));
+}
+.stake-book-row b {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Catalog stake accents */
+.tag.bloc {
+  color: var(--accent-3);
+  border-color: rgba(84, 230, 224, 0.3);
+  background: rgba(84, 230, 224, 0.06);
+}
+.nav-sub-meta .bloc-count {
+  color: var(--accent-3);
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
+  .chain-grid { grid-template-columns: 1fr; }
+
   .stats { grid-template-columns: repeat(2, 1fr); }
   .nav-links { gap: 16px; }
   .nav-links .hide-sm { display: none; }

@@ -9,6 +9,10 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for blocks, 
 - **BLOC Token** — ERC20 reward token minted proportional to stake × time × multiplier
 - **Unstaking** — withdraw after lock expires, BLOC balance snapshots on unstake
 - **Deploy** — deploy new BlocTime contracts via MetaMask from the app
+- **Fork** — `m bloctime/fork name=x` copies the whole module into orbit/x with its own ports/route
+- **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`); MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
+- **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+BlocTime from their own wallet, then auto-registers on the market
+- **Bridge** — BRIDGE tab + `/bridge/*` proxy into the bridge module (Substrate/Solana snapshot → Base claims), with activator wake-on-access fallback
 - **Version Check** — API + app detect new commits on the current git branch
 
 ## Usage
@@ -40,7 +44,27 @@ bt.stake(amount=100, lock_blocks=10000)
 bt.unstake(stake_id=0)
 bt.get_multiplier(block_count=10000)
 bt.get_points()
+
+# fork & marketplace
+bt.fork('mybloctime')                       # your own module copy (auto ports, route, basePath)
+bt.market(stats=True)                       # browse every registered instance
+bt.register_instance(name='mybloctime', rpc='https://sepolia.base.org', bloctime='0x...')
+bt.unregister_instance(id='mybloctime')     # local trusted removal (API needs owner signature)
+
+# bridge (Substrate/Solana snapshot -> Base)
+bt.bridge()                                 # health
+bt.bridge(fn='in_snapshot', address='5H...')
+bt.bridge(fn='status')
 ```
+
+### API surface added
+
+- `GET /factory` — ABI + bytecode + default params (browser-wallet deploys)
+- `GET /registry` — all instances w/ live on-chain stats (60s cache)
+- `POST /registry/register` — on-chain verified (probes totalBlocTime/nativeToken, records owner())
+- `POST /registry/unregister` — requires personal_sign of `bloctime:unregister:<id>` by owner()
+- `GET /bridge/info`, `POST /bridge/{fn}` — whitelisted read-only proxy to the bridge module
+  (path-param fns in_snapshot/has_claimed/unclaimed/commitment; falls back to activator :9000 wake)
 
 ### CLI
 

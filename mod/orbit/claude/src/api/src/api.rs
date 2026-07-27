@@ -11,7 +11,7 @@ use crate::snapshots::{
     append_version, default_store, read_versions, restore_into, snapshot_dir, VersionRecord,
 };
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     middleware,
     response::{
@@ -108,10 +108,12 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/jobs", post(submit_job))
             .route("/jobs/:id", delete(delete_job))
             .route("/jobs/:id/cancel", post(cancel_job))
+            .route("/jobs/:id/message", post(message_job))
             .route("/modules/:name", delete(delete_module))
             .route("/modules/:name/rename", put(rename_module))
             .route("/modules/:name/snapshot", post(snapshot_module))
             .route("/modules/:name/fork", post(fork_module))
+            .route("/modules/:name/copy", post(copy_module))
             .route("/modules/:name/restore", post(restore_module))
             .route("/modules/import", post(import_module))
             // Merge requests: fork→propose→review are open to every signed-in
@@ -160,6 +162,7 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/jobs", get(list_jobs))
         .route("/jobs/:id", get(get_job))
         .route("/jobs/:id/stream", get(stream_job))
+        .route("/tasks/:cid", get(get_task_by_cid))
         .route("/config", get(get_config))
         .route("/repos", get(list_repos))
         .route("/modules", get(list_modules))
@@ -206,6 +209,11 @@ pub async fn serve(manager: AppState, port: u16) {
     let app = Router::new()
         .merge(job_routes)
         .merge(public_routes)
+        // Axum defaults to a 2 MB request body cap — a single base64-encoded
+        // image attachment (POST /jobs `images`) blows past that and the client
+        // sees a bare "SUBMIT FAILED (413)". Raise it to 32 MB so attaching a
+        // few screenshots works. Applies to every route on this app.
+        .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .layer(cors);
 
     // Credit system: poll registered deposit wallets, forward funds to the owner
@@ -253,8 +261,10 @@ async fn api_schema() -> impl IntoResponse {
             e("GET", "/jobs", "public", "World-readable task ledger (all jobs)"),
             e("GET", "/jobs/:id", "public", "One job with full output"),
             e("GET", "/jobs/:id/stream", "public", "Server-sent events stream of live job output"),
+            e("GET", "/tasks/:cid", "public", "Task bundle by localfs CID — powers the replay QR (?replay=<cid>); falls back to the shared blob store for tasks minted elsewhere"),
             e("POST", "/jobs", "bearer", "Submit a task: {prompt, model?, work_dir?, module_name?, system_prompt?, agent_type?}"),
             e("POST", "/jobs/:id/cancel", "bearer", "Cancel a running job (yours, or any if owner)"),
+            e("POST", "/jobs/:id/message", "bearer", "Guide a RUNNING job mid-task: {message} is injected into the agent's session at its next tool boundary (yours, or any if owner)"),
             e("DELETE", "/jobs/:id", "bearer", "Delete a job record (yours, or any if owner)"),
             e("GET", "/modules", "public", "All modules in the anchor tree"),
             e("GET", "/modules/:name/config", "public", "A module's config.json"),
@@ -275,6 +285,7 @@ async fn api_schema() -> impl IntoResponse {
             e("POST", "/merge-requests/:id/merge", "owner", "Agentic merge: stages base/head trees and submits a three-way merge job (x-sudo for non-claude modules)"),
             e("POST", "/modules/:name/snapshot", "owner", "Snapshot module to content-addressed storage"),
             e("POST", "/modules/:name/fork", "owner", "Fork a module"),
+            e("POST", "/modules/:name/copy", "owner", "Copy a module's live tree to a new name: {new_name, category?} — instant, no AI job; ports auto-remapped"),
             e("POST", "/modules/:name/restore", "owner", "Restore module from a snapshot CID"),
             e("PUT", "/modules/:name/rename", "owner", "Rename a module"),
             e("DELETE", "/modules/:name", "owner", "Delete a module (x-sudo)"),
@@ -289,7 +300,7 @@ async fn api_schema() -> impl IntoResponse {
             e("POST", "/whitelist", "owner", "Add address to whitelist"),
             e("DELETE", "/whitelist/:address", "owner", "Remove address from whitelist"),
             e("GET", "/grants", "owner", "List timed QR access grants"),
-            e("POST", "/grants", "owner", "Create a timed access grant"),
+            e("POST", "/grants", "owner", "Create a timed access grant: {ttl?, key?, label?, modules?[] — omit modules for all}"),
             e("DELETE", "/grants/:id", "owner", "Revoke a grant"),
             e("POST", "/grants/:id/redeem", "public", "Redeem a QR grant as a walletless guest"),
             e("POST", "/auth/handoff", "bearer", "Mint a one-time phone sign-in code (optional ttl secs, 60–86400)"),
@@ -452,6 +463,12 @@ async fn get_role(Query(params): Query<RoleQuery>) -> impl IntoResponse {
     } else {
         "user"
     };
+    // null = unrestricted (owner / whitelist / unscoped grant); a list means
+    // the editor's grant confined their powers to just those modules.
+    let edit_modules = match auth::edit_scope(&address) {
+        Some(auth::EditScope::Modules(list)) => json!(list),
+        _ => serde_json::Value::Null,
+    };
     Json(json!({
         "address": address,
         "role": role,
@@ -459,6 +476,7 @@ async fn get_role(Query(params): Query<RoleQuery>) -> impl IntoResponse {
         "is_editor": is_editor,
         // Trusted = owner OR whitelisted editor; both may edit the orbit.
         "can_edit": is_owner || is_editor,
+        "edit_modules": edit_modules,
     }))
 }
 
@@ -628,6 +646,9 @@ struct CreateGrantRequest {
     key: Option<String>,
     #[serde(default)]
     label: Option<String>,
+    /// Optional module scope — omit (or send []) for every module.
+    #[serde(default)]
+    modules: Option<Vec<String>>,
 }
 
 /// Strip the secret hash before sending a grant to the client; expose only
@@ -640,6 +661,8 @@ fn grant_json(g: &auth::Grant) -> serde_json::Value {
         "label": g.label,
         "created": g.created,
         "key_required": g.key_hash.is_some(),
+        // null = every module; a list = compartmentalized edit scope.
+        "modules": g.modules,
     })
 }
 
@@ -651,7 +674,7 @@ async fn create_grant(
     let ttl = req.ttl.unwrap_or(GRANT_TTL_DEFAULT).clamp(GRANT_TTL_MIN, GRANT_TTL_MAX);
     let key = req.key.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let label = req.label.as_deref();
-    match auth::create_grant(ttl, key, label) {
+    match auth::create_grant(ttl, key, label, req.modules) {
         Ok(g) => (StatusCode::OK, Json(grant_json(&g))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
     }
@@ -669,6 +692,7 @@ async fn list_grants(headers: axum::http::HeaderMap) -> impl IntoResponse {
             "exp": r.exp,
             "grant": r.grant,
             "redeemed": r.redeemed,
+            "modules": r.modules,
         }))
         .collect();
     (StatusCode::OK, Json(json!({ "grants": grants, "redemptions": redemptions }))).into_response()
@@ -924,6 +948,42 @@ async fn list_jobs(State(mgr): State<AppState>) -> impl IntoResponse {
     Json(json!({ "jobs": jobs, "count": jobs.len() }))
 }
 
+/// Resolve a task bundle by its localfs CID — the replay QR
+/// (`?replay=<cid>`) lands here. The local jobs ledger answers first;
+/// otherwise the bundle is pulled from the shared localfs blob store, so a
+/// QR minted on another console still replays as long as the blob is
+/// reachable. Public for the same reason /jobs/:id is: the ledger is a
+/// world-readable code trail.
+async fn get_task_by_cid(
+    State(mgr): State<AppState>,
+    Path(cid): Path<String>,
+) -> impl IntoResponse {
+    if let Some(job) = mgr.get_job_by_cid(&cid) {
+        let module = crate::snapshots::module_for_work_dir(&job.work_dir).map(|(n, _)| n);
+        let version_cid = module.as_deref().and_then(|name| {
+            read_versions(name)
+                .iter()
+                .rev()
+                .find(|v| v.job_id.as_deref() == Some(job.id.as_str()))
+                .map(|v| v.cid.clone())
+        });
+        let bundle = crate::jobs::task_bundle_json(&job, module, version_cid);
+        return (StatusCode::OK, Json(bundle)).into_response();
+    }
+    let fetched = tokio::task::spawn_blocking(move || crate::jobs::fetch_task_bundle(&cid))
+        .await
+        .ok()
+        .flatten();
+    match fetched {
+        Some(bundle) => (StatusCode::OK, Json(bundle)).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "No task found for that CID" })),
+        )
+            .into_response(),
+    }
+}
+
 async fn get_job(
     State(mgr): State<AppState>,
     Path(id): Path<String>,
@@ -1004,6 +1064,61 @@ async fn cancel_job(
 }
 
 #[derive(Deserialize)]
+struct SteerRequest {
+    message: String,
+}
+
+/// Guide a running job mid-task — the console's "add a comment while the
+/// agent works" feature (Claude Code steering). The message is written into
+/// the CLI's stream-json stdin and picked up by the agent at its next tool
+/// boundary. Same ownership rule as cancel: your own jobs, or any if owner.
+async fn message_job(
+    headers: axum::http::HeaderMap,
+    State(mgr): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<SteerRequest>,
+) -> impl IntoResponse {
+    if let Some(job) = mgr.get_job(&id) {
+        let auth_header = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if let Ok(user_addr) = auth::extract_address_from_header(auth_header) {
+            if !auth::is_owner(&user_addr)
+                && !job.user_address.is_empty()
+                && job.user_address.to_lowercase() != user_addr.to_lowercase()
+            {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({ "error": "You can only guide your own jobs" })),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Job not found" })),
+        )
+            .into_response();
+    }
+
+    let message = req.message.trim().to_string();
+    if message.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "message is required" })),
+        )
+            .into_response();
+    }
+
+    match mgr.steer_job(&id, &message).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::CONFLICT, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
 struct RepoQuery {
     q: Option<String>,
 }
@@ -1012,6 +1127,11 @@ struct RepoQuery {
 struct ModuleQuery {
     q: Option<String>,
     anchor: Option<String>,
+    // Module directory to read config.json from when name resolution fails —
+    // nested mods (bloctime/app, agent skills) live below the orbit/{name}
+    // lookup and their rel elides src/, so the console passes the dir it got
+    // from /modules instead.
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1221,6 +1341,80 @@ fn newest_mtime(dir: &std::path::Path, depth: usize, newest: &mut u64) {
     }
 }
 
+/// Nested mods — subdirectories of a module that are mods in their own right
+/// (they carry their own mod.py or config.json, addressable as
+/// `m {module}/{rel}`). Depth-capped with the same skip list as newest_mtime
+/// so computing this for the whole fleet on each /modules call stays cheap.
+fn find_nested_mods(root: &std::path::Path, dir: &std::path::Path, depth: usize, out: &mut Vec<serde_json::Value>) {
+    if depth == 0 { return; }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if !path.is_dir() { continue; }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.starts_with('_')
+            || matches!(name.as_str(), "node_modules" | "target" | "dist" | "build" | "out" | "__pycache__" | "venv" | "logs" | "cache" | "artifacts")
+        { continue; }
+        // `src` is a module's implementation directory, never a mod of its
+        // own: markers under */src belong to */ (credited to the parent when
+        // it was visited). Walk through it transparently so mods deeper in
+        // (src/app, src/skills/*) still surface — with the segment elided.
+        if name == "src" {
+            find_nested_mods(root, &path, depth - 1, out);
+            continue;
+        }
+        let has_mod_py = path.join("mod.py").is_file() || path.join("src").join("mod.py").is_file();
+        let config_path = {
+            let direct = path.join("config.json");
+            if direct.is_file() { direct } else { path.join("src").join("config.json") }
+        };
+        let has_config = config_path.is_file();
+        if has_mod_py || has_config {
+            let rel = path.strip_prefix(root)
+                .map(|p| p.components()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .filter(|c| c != "src")
+                    .collect::<Vec<_>>()
+                    .join("/"))
+                .unwrap_or_else(|_| name.clone());
+            if out.iter().any(|m| m["rel"].as_str() == Some(rel.as_str())) {
+                find_nested_mods(root, &path, depth - 1, out);
+                continue;
+            }
+            let config: Option<serde_json::Value> = if has_config {
+                std::fs::read_to_string(&config_path).ok().and_then(|c| serde_json::from_str(&c).ok())
+            } else { None };
+            // A config.json makes the row a module in its own right — ship
+            // enough of it (path, urls, fns) for the console to open the mod
+            // in place, not just copy its address.
+            let urls = config.as_ref().and_then(|c| c.get("urls"));
+            let app_url = urls.and_then(|u| u.get("app")).and_then(|v| v.as_str())
+                .or_else(|| config.as_ref().and_then(|c| c.get("app_url")).and_then(|v| v.as_str()));
+            let api_url = urls.and_then(|u| u.get("api")).and_then(|v| v.as_str())
+                .or_else(|| config.as_ref().and_then(|c| c.get("api_url")).and_then(|v| v.as_str()));
+            let fns: Vec<String> = config.as_ref()
+                .and_then(|c| c.get("fns")).and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            out.push(json!({
+                "rel": rel,
+                "name": config.as_ref().and_then(|c| c.get("name")).and_then(|v| v.as_str()).unwrap_or(&name),
+                "description": config.as_ref().and_then(|c| c.get("description")).and_then(|v| v.as_str()),
+                "has_config": has_config,
+                "has_mod_py": has_mod_py,
+                "path": path.to_string_lossy(),
+                "app_url": app_url,
+                "api_url": api_url,
+                "version": config.as_ref().and_then(|c| c.get("version")).and_then(|v| v.as_str()),
+                "fns": fns,
+            }));
+        }
+        // A nested mod can itself contain mods (agent/src → agent/src/skills/*),
+        // so recursion continues past a hit.
+        find_nested_mods(root, &path, depth - 1, out);
+    }
+}
+
 /// List orbit and core modules with config.json data (app_url, api_url, etc.)
 async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
     let query = params.q.unwrap_or_default().to_lowercase();
@@ -1277,6 +1471,10 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
             "has_app_dir": false,
             "has_server_dir": false,
             "has_api_dir": false,
+            // Every module in the tree is nested under the root — the list
+            // is filled from the scan results after the loop below, so the
+            // walk isn't done twice.
+            "mods": Vec::<serde_json::Value>::new(),
             "owner": host_owner.clone(),
             "version": root_config.get("version").and_then(|v| v.as_str()),
             "cid": serde_json::Value::Null,
@@ -1344,6 +1542,9 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "has_app_dir": false,
                     "has_server_dir": false,
                     "has_api_dir": false,
+                    // A tree root's nested mods are its child modules —
+                    // filled from the scan results after the loop below.
+                    "mods": Vec::<serde_json::Value>::new(),
                     "owner": host_owner.clone().or_else(|| config.get("owner").and_then(|v| v.as_str()).map(String::from)),
                     "version": config.get("version").and_then(|v| v.as_str()),
                     "cid": cid,
@@ -1388,6 +1589,9 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                 let config_paths = vec![
                     path.join("config.json"),
                     path.join(&name).join("config.json"),
+                    // */src is the module itself, not a nested dir of note —
+                    // a config living there names this module.
+                    path.join("src").join("config.json"),
                 ];
 
                 for config_path in &config_paths {
@@ -1450,12 +1654,13 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     }
                 }
 
-                // Check for app/ directory as hint for frontend
-                let has_app_dir = path.join("app").is_dir();
+                // Dir hints for the frontend badges. */src is transparent —
+                // src/app and src/api count as the module's own app/api.
+                let has_app_dir = path.join("app").is_dir() || path.join("src").join("app").is_dir();
                 // Check for server/ directory as hint for backend
-                let has_server_dir = path.join("server").is_dir();
+                let has_server_dir = path.join("server").is_dir() || path.join("src").join("server").is_dir();
                 // Check for api/ directory
-                let has_api_dir = path.join("api").is_dir();
+                let has_api_dir = path.join("api").is_dir() || path.join("src").join("api").is_dir();
 
                 // Get directory creation time
                 let created_at: Option<u64> = std::fs::metadata(&path)
@@ -1469,12 +1674,31 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                 newest_mtime(&path, 6, &mut newest);
                 let updated_at: Option<u64> = if newest > 0 { Some(newest) } else { None };
 
+                // Mods nested inside this module (m {name}/{rel}) — depth 4
+                // reaches e.g. agent/src/skills/bash without walking deep trees.
+                let mut nested_mods: Vec<serde_json::Value> = Vec::new();
+                find_nested_mods(&path, &path, 4, &mut nested_mods);
+                nested_mods.sort_by(|a, b| {
+                    a["rel"].as_str().unwrap_or("").cmp(b["rel"].as_str().unwrap_or(""))
+                });
+
+                // A directory is only a mod where a config.json or mod.py
+                // actually is — its own (src/mod.py counts: */src IS */),
+                // or one nested deeper (archive/dev). Marker-less dirs
+                // (empty scaffolds, stray folders) would otherwise surface
+                // as phantom hub modules.
+                let has_mod_py = path.join("mod.py").is_file() || path.join("src").join("mod.py").is_file();
+                if !has_config && !has_mod_py && nested_mods.is_empty() {
+                    continue;
+                }
+
                 modules.push(json!({
                     "name": name,
                     "path": full_path,
                     "display": display_path,
                     "category": category,
                     "has_config": has_config,
+                    "has_mod_py": has_mod_py,
                     "app_url": app_url,
                     "api_url": api_url,
                     "description": description,
@@ -1482,6 +1706,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "has_app_dir": has_app_dir,
                     "has_server_dir": has_server_dir,
                     "has_api_dir": has_api_dir,
+                    "mods": nested_mods,
                     "owner": host_owner.clone().or(owner),
                     "version": version,
                     "cid": cid,
@@ -1490,6 +1715,64 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "updated_at": updated_at,
                 }));
             }
+        }
+    }
+
+    // The tree roots ("mod" and the orbit/core roots) skipped the nested-mods
+    // filesystem walk above — their nested mods ARE the fleet just scanned.
+    // Fill their `mods` from the collected entries instead of re-walking, and
+    // carry each row's canonical address: these are top-level modules, so the
+    // protocol reaches them as `m {name}`, not `m mod/{rel}`.
+    let orbit_root = format!("{}/mod/orbit", anchor);
+    let core_root = format!("{}/mod/core", anchor);
+    let mut root_mods: Vec<serde_json::Value> = Vec::new();
+    let mut tree_mods: std::collections::HashMap<String, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    for m in &modules {
+        let category = m["category"].as_str().unwrap_or("");
+        if category != "orbit" && category != "core" { continue; }
+        let path_str = m["path"].as_str().unwrap_or("");
+        let path = std::path::Path::new(path_str);
+        let has_config = m["has_config"].as_bool().unwrap_or(false);
+        let has_mod_py = path.join("mod.py").is_file() || path.join("src").join("mod.py").is_file();
+        // Bare directories under orbit/ and core/ appear in the hub, but only
+        // ones carrying a config.json or mod.py are mods in their own right.
+        if !has_config && !has_mod_py { continue; }
+        let name = m["name"].as_str().unwrap_or("");
+        let dir = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| name.to_string());
+        let row = |rel: String| json!({
+            "rel": rel,
+            "name": name,
+            "description": m["description"],
+            "has_config": has_config,
+            "has_mod_py": has_mod_py,
+            "addr": format!("m {}", name),
+            "path": path_str,
+            "app_url": m["app_url"],
+            "api_url": m["api_url"],
+        });
+        if path_str == orbit_root || path_str == core_root {
+            // The orbit/core roots are themselves mods nested under `mod`.
+            root_mods.push(row(dir));
+        } else {
+            root_mods.push(row(format!("{}/{}", category, dir)));
+            tree_mods.entry(category.to_string()).or_default().push(row(dir));
+        }
+    }
+    root_mods.sort_by(|a, b| a["rel"].as_str().unwrap_or("").cmp(b["rel"].as_str().unwrap_or("")));
+    for list in tree_mods.values_mut() {
+        list.sort_by(|a, b| a["rel"].as_str().unwrap_or("").cmp(b["rel"].as_str().unwrap_or("")));
+    }
+    for m in modules.iter_mut() {
+        let path_str = m["path"].as_str().unwrap_or("").to_string();
+        if m["category"].as_str() == Some("root") {
+            m["mods"] = json!(root_mods.clone());
+        } else if path_str == orbit_root {
+            m["mods"] = json!(tree_mods.get("orbit").cloned().unwrap_or_default());
+        } else if path_str == core_root {
+            m["mods"] = json!(tree_mods.get("core").cloned().unwrap_or_default());
         }
     }
 
@@ -1718,6 +2001,31 @@ async fn get_module_config(
         }
     }
 
+    // Name resolution only reaches orbit/{name} and core/{name} — nested mods
+    // (bloctime/app, agent skills whose rel elides src/) live deeper, so fall
+    // back to the module dir the console got from /modules. Only a config.json
+    // directly in that dir (or its src/) is read — same exposure class as the
+    // name lookup above.
+    if let Some(dir) = params.path.as_deref() {
+        let dir = dir.replacen("~", &home, 1);
+        let base = std::path::Path::new(&dir);
+        for config_path in [base.join("config.json"), base.join("src").join("config.json")] {
+            if let Ok(content) = std::fs::read_to_string(&config_path) {
+                if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
+                    return (
+                        StatusCode::OK,
+                        Json(json!({
+                            "name": name,
+                            "path": config_path.to_string_lossy(),
+                            "config": config,
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
     (
         StatusCode::NOT_FOUND,
         Json(json!({ "error": format!("No config.json found for module '{}'", name) })),
@@ -1752,11 +2060,15 @@ async fn delete_module(
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
 
-    // Search orbit/ and core/ for the module
-    let search_dirs = vec![
+    // Search orbit/ and core/ for the module. A dir holding module content
+    // sorts ahead of one that merely exists, so a stray `orbit/<name>` can
+    // never shadow the real module in core/ (the sort is stable, so orbit
+    // still wins when both are real modules).
+    let mut search_dirs = vec![
         format!("{}/mod/mod/orbit/{}", home, name),
         format!("{}/mod/mod/core/{}", home, name),
     ];
+    search_dirs.sort_by_key(|d| !crate::snapshots::is_module_dir(std::path::Path::new(d)));
 
     let mut found_path: Option<String> = None;
 
@@ -1848,11 +2160,13 @@ async fn rename_module(
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
 
-    // Search orbit/ and core/ for the module
-    let search_dirs = vec![
+    // Search orbit/ and core/ for the module — real module dirs first, so a
+    // stray `orbit/<name>` cannot shadow the real module in core/.
+    let mut search_dirs = vec![
         ("orbit", format!("{}/mod/mod/orbit/{}", home, name)),
         ("core", format!("{}/mod/mod/core/{}", home, name)),
     ];
+    search_dirs.sort_by_key(|(_, d)| !crate::snapshots::is_module_dir(std::path::Path::new(d)));
 
     let mut found_path: Option<String> = None;
     let mut found_category: Option<String> = None;
@@ -2583,12 +2897,7 @@ async fn module_process(
     }
 
     // Resolve the module directory under orbit/ or core/.
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let candidates = [
-        format!("{}/mod/mod/orbit/{}", home, name),
-        format!("{}/mod/mod/core/{}", home, name),
-    ];
-    let module_path = match candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_dir()) {
+    let module_path = match crate::snapshots::module_root_for(&name) {
         Some(p) => p,
         None => {
             return (
@@ -2762,12 +3071,7 @@ async fn module_logs(
 
     let lines = body.lines.unwrap_or(200).min(2000);
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let candidates = [
-        format!("{}/mod/mod/orbit/{}", home, name),
-        format!("{}/mod/mod/core/{}", home, name),
-    ];
-    let module_path = match candidates.iter().map(std::path::PathBuf::from).find(|p| p.is_dir()) {
+    let module_path = match crate::snapshots::module_root_for(&name) {
         Some(p) => p,
         None => {
             return (
@@ -3092,6 +3396,312 @@ async fn fork_module(
             "target_path": target.display().to_string(),
             "file_count": written,
             "store": store.name(),
+            "registry_cid": registry_cid,
+            "registry_prev": registry_prev,
+            "registry_error": registry_err,
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct CopyBody {
+    new_name: String,
+    #[serde(default)]
+    category: Option<String>,
+}
+
+/// Build artifacts and dependency caches — the copy is still the complete
+/// source without them, and the fork rebuilds its own.
+const COPY_SKIP_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    ".next",
+    "target",
+    "__pycache__",
+    ".pytest_cache",
+    ".venv",
+    "venv",
+    "dist",
+    ".turbo",
+    ".history",
+];
+
+/// Recursively copy a module tree, skipping COPY_SKIP_DIRS. Symlinks are
+/// skipped too: they'd point back into the source module (or out of the tree
+/// entirely) and a fork should be self-contained.
+fn copy_module_tree(src: &std::path::Path, dest: &std::path::Path) -> Result<usize, String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("mkdir {}: {e}", dest.display()))?;
+    let mut copied = 0usize;
+    let entries =
+        std::fs::read_dir(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let ty = entry.file_type().map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        if ty.is_dir() {
+            if COPY_SKIP_DIRS.contains(&name.to_string_lossy().as_ref()) {
+                continue;
+            }
+            copied += copy_module_tree(&entry.path(), &dest.join(&name))?;
+        } else if ty.is_file() {
+            std::fs::copy(entry.path(), dest.join(&name))
+                .map_err(|e| format!("copy {}: {e}", entry.path().display()))?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
+}
+
+/// `port`-shaped config keys. gateway_port names the SHARED front gateway,
+/// not a port the module itself owns, so it never gets remapped.
+fn is_port_key(k: &str) -> bool {
+    k != "gateway_port" && (k == "port" || k.ends_with("_port"))
+}
+
+/// Every port claimed by any config.json in the fleet — a fresh copy must not
+/// collide with a module that isn't even running right now.
+fn fleet_claimed_ports() -> std::collections::HashSet<u16> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let mut ports = std::collections::HashSet::new();
+    for tree in ["orbit", "core"] {
+        let Ok(dirs) = std::fs::read_dir(format!("{home}/mod/mod/{tree}")) else {
+            continue;
+        };
+        for d in dirs.flatten() {
+            let Ok(text) = std::fs::read_to_string(d.path().join("config.json")) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            if let Some(obj) = v.as_object() {
+                for (k, val) in obj {
+                    if is_port_key(k) {
+                        if let Some(p) = val.as_u64() {
+                            if p > 0 && p <= u16::MAX as u64 {
+                                ports.insert(p as u16);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ports
+}
+
+/// First port after `start` that no fleet config claims, this copy hasn't
+/// already taken, and nothing is currently listening on.
+fn pick_free_port(
+    start: u16,
+    claimed: &std::collections::HashSet<u16>,
+    taken: &std::collections::HashSet<u16>,
+) -> Option<u16> {
+    let mut p = start;
+    for _ in 0..2000 {
+        p = p.checked_add(1)?;
+        if claimed.contains(&p) || taken.contains(&p) {
+            continue;
+        }
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Rewrite the copied config.json so the fork can run right next to its
+/// source: new name, fresh ports for every owned `port`/`*_port` key, and
+/// every ":oldport" inside string values (urls.api / urls.app …) updated to
+/// match. Returns (remapped ports, warning) — a missing/unparseable config is
+/// a warning, not a failure: the files still copied fine.
+fn rewrite_copied_config(
+    dest: &std::path::Path,
+    new_name: &str,
+) -> (Vec<(String, u16, u16)>, Option<String>) {
+    let cfg_path = dest.join("config.json");
+    let Ok(text) = std::fs::read_to_string(&cfg_path) else {
+        return (vec![], Some("no config.json in copy".to_string()));
+    };
+    let Ok(mut cfg) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (vec![], Some("config.json is not valid JSON".to_string()));
+    };
+    let mut remapped: Vec<(String, u16, u16)> = vec![];
+    if let Some(obj) = cfg.as_object_mut() {
+        obj.insert("name".into(), json!(new_name));
+        let claimed = fleet_claimed_ports();
+        let mut taken: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let keys: Vec<String> = obj.keys().cloned().collect();
+        for k in keys {
+            if !is_port_key(&k) {
+                continue;
+            }
+            let Some(old) = obj.get(&k).and_then(|v| v.as_u64()) else {
+                continue;
+            };
+            if old == 0 || old > u16::MAX as u64 {
+                continue;
+            }
+            let old = old as u16;
+            if let Some(fresh) = pick_free_port(old, &claimed, &taken) {
+                taken.insert(fresh);
+                obj.insert(k.clone(), json!(fresh));
+                remapped.push((k, old, fresh));
+            }
+        }
+    }
+    fn patch_strings(v: &mut serde_json::Value, maps: &[(String, u16, u16)]) {
+        match v {
+            serde_json::Value::String(s) => {
+                for (_, old, fresh) in maps {
+                    *s = s.replace(&format!(":{old}"), &format!(":{fresh}"));
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|x| patch_strings(x, maps)),
+            serde_json::Value::Object(o) => o.values_mut().for_each(|x| patch_strings(x, maps)),
+            _ => {}
+        }
+    }
+    patch_strings(&mut cfg, &remapped);
+    let out = serde_json::to_string_pretty(&cfg).unwrap_or(text);
+    let warn = std::fs::write(&cfg_path, out)
+        .err()
+        .map(|e| format!("write config.json: {e}"));
+    (remapped, warn)
+}
+
+/// POST /modules/:name/copy — the deterministic fork: copy a module's LIVE
+/// source tree to a new name in the tree, instantly and without an AI job or
+/// a snapshot CID. The copy gets a rewritten config.json (new name + fresh
+/// ports) so it can run beside its source, plus seeded version history, and
+/// is then the caller's to reshape however they want.
+async fn copy_module(
+    headers: axum::http::HeaderMap,
+    Path(name): Path<String>,
+    Json(body): Json<CopyBody>,
+) -> impl IntoResponse {
+    let caller = auth::extract_address_from_headers(&headers).unwrap_or_default();
+    let local_mode = std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1";
+    if caller.is_empty() && !local_mode {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "auth required to copy" })),
+        )
+            .into_response();
+    }
+    // Copying materializes a new module directory — module creation is
+    // owner-only, the same rule as import and fork.
+    if !local_mode && !auth::is_owner(&caller) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Owner-only: copying creates a new module; only the configured owner may do it" })),
+        )
+            .into_response();
+    }
+    let new_name = body.new_name.trim().to_string();
+    if !valid_module_slug(&new_name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "module name must be 1–64 chars of [a-zA-Z0-9_-]" })),
+        )
+            .into_response();
+    }
+    let Some(src) = module_root_for(&name) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("module '{name}' not found") })),
+        )
+            .into_response();
+    };
+    let category = body
+        .category
+        .as_deref()
+        .unwrap_or("orbit")
+        .trim()
+        .to_lowercase();
+    if category != "orbit" && category != "core" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "category must be 'orbit' or 'core'" })),
+        )
+            .into_response();
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let dest = std::path::PathBuf::from(format!("{home}/mod/mod/{category}/{new_name}"));
+    if dest.exists() || module_root_for(&new_name).is_some() {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": format!("module '{new_name}' already exists") })),
+        )
+            .into_response();
+    }
+    // The tree walk + file copies can be big — keep them off the async runtime.
+    let (src_c, dest_c) = (src.clone(), dest.clone());
+    let copied = match tokio::task::spawn_blocking(move || copy_module_tree(&src_c, &dest_c)).await
+    {
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => {
+            let _ = std::fs::remove_dir_all(&dest);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e })))
+                .into_response();
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&dest);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("copy task failed: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let (ports, config_warning) = rewrite_copied_config(&dest, &new_name);
+    // Seed version history + the global registry so the copy shows up like
+    // any other module (best-effort — a registry hiccup must not fail a copy
+    // whose files already landed).
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let store = default_store();
+    let snap_cid = snapshot_dir(&dest, &store).ok().map(|(c, _)| c);
+    let msg = format!("copied from {name}");
+    let (registry_cid, registry_prev, registry_err) =
+        match mod_protocol_register(&new_name, &msg).await {
+            Ok(r) => (r.cid, r.prev, None),
+            Err(e) => (None, None, Some(e)),
+        };
+    if let Some(cid) = snap_cid.clone() {
+        let _ = append_version(
+            &new_name,
+            VersionRecord {
+                cid,
+                message: msg,
+                author: caller.clone(),
+                timestamp: ts,
+                parent: None,
+                registry_cid: registry_cid.clone(),
+                registry_prev: registry_prev.clone(),
+                action: Some("copy".to_string()),
+                job_id: None,
+            },
+        );
+    }
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "ok": true,
+            "module": new_name,
+            "from": name,
+            "path": dest.display().to_string(),
+            "category": category,
+            "files": copied,
+            "ports": ports
+                .iter()
+                .map(|(k, old, fresh)| json!({ "key": k, "from": old, "to": fresh }))
+                .collect::<Vec<_>>(),
+            "config_warning": config_warning,
+            "cid": snap_cid,
             "registry_cid": registry_cid,
             "registry_prev": registry_prev,
             "registry_error": registry_err,
@@ -4001,7 +4611,9 @@ async fn mr_comment(
     };
     let mut mr = reconcile_mr(&mgr, mr);
     let action = body.action.unwrap_or_else(|| "comment".to_string());
-    let trusted = auth::is_trusted(&caller) || (caller.is_empty() && local_mode());
+    // Module-aware: a scoped grant only confers reviewer powers over the
+    // modules it whitelists (unscoped grants / whitelist / owner = all).
+    let trusted = auth::can_edit_module(&caller, &mr.module) || (caller.is_empty() && local_mode());
     let text = body.body.trim().to_string();
     if text.len() > 5000 {
         return (
@@ -4174,7 +4786,9 @@ async fn mr_close(
         return mr_not_found(&id);
     };
     let mut mr = reconcile_mr(&mgr, mr);
-    let trusted = auth::is_trusted(&caller) || (caller.is_empty() && local_mode());
+    // Same module-aware gate as review verdicts: scoped editors only close
+    // MRs targeting modules inside their grant's whitelist.
+    let trusted = auth::can_edit_module(&caller, &mr.module) || (caller.is_empty() && local_mode());
     if mr_identity(&caller) != mr.author && !trusted {
         return (
             StatusCode::FORBIDDEN,
@@ -4346,4 +4960,35 @@ async fn mr_merge(
         Json(json!({ "ok": true, "merge_request": mr, "job_id": job.id })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod nested_mods_tests {
+    use super::find_nested_mods;
+
+    // */src is the module itself, not a mod named "src": no row for src
+    // dirs, markers under src/ credit the enclosing dir, and rel paths
+    // elide the segment (src/app → app).
+    #[test]
+    fn src_is_transparent() {
+        let root = std::env::temp_dir().join(format!("nested-mods-test-{}", std::process::id()));
+        let mk = |rel: &str| std::fs::create_dir_all(root.join(rel)).unwrap();
+        let touch = |rel: &str| std::fs::write(root.join(rel), "").unwrap();
+        mk("src/app");
+        touch("src/mod.py"); // the module's own mod.py — belongs to root, no row
+        touch("src/app/mod.py"); // nested mod, addressed as `app` not `src/app`
+        mk("tests");
+        touch("tests/mod.py");
+        mk("worker"); // marker lives under worker/src → worker is the mod
+        mk("worker/src");
+        touch("worker/src/mod.py");
+
+        let mut out = Vec::new();
+        find_nested_mods(&root, &root, 4, &mut out);
+        std::fs::remove_dir_all(&root).ok();
+
+        let mut rels: Vec<&str> = out.iter().filter_map(|m| m["rel"].as_str()).collect();
+        rels.sort();
+        assert_eq!(rels, vec!["app", "tests", "worker"]);
+    }
 }

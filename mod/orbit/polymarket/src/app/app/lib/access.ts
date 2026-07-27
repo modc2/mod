@@ -89,6 +89,20 @@ export function getOwnerAddress(): string | null {
   return addr && /^0x[0-9a-fA-F]{40}$/.test(addr) ? addr.toLowerCase() : null;
 }
 
+/**
+ * Does a full address match the truncated owner hint the API serves
+ * ("0x89bc…6cfa")? Used at sign-in to pick the owner's account out of the
+ * wallet's authorized list instead of failing ACCESS DENIED on whichever
+ * account MetaMask happens to have selected.
+ */
+export function matchesOwnerHint(address: string, hint: string): boolean {
+  const a = address.toLowerCase();
+  const h = hint.toLowerCase();
+  if (!h.includes("…")) return a === h;
+  const [pre, suf] = h.split("…");
+  return !!pre && !!suf && a.startsWith(pre) && a.endsWith(suf);
+}
+
 function isApiUrl(url: string): boolean {
   if (url.startsWith(API_BASE)) return true;
   // Absolute form of the same base (NEXT_PUBLIC_API_URL or same-origin).

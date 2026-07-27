@@ -99,20 +99,32 @@ impl Store {
     }
 }
 
-/// Resolve a module name to its directory (orbit first, then core).
+/// Does this directory actually hold a module, rather than just share a name
+/// with one? An empty or stray dir under orbit/ must never shadow the real
+/// module in core/ — an empty `orbit/store` did exactly that, and every
+/// process op on `store` landed on the wrong (launcher-less) directory.
+pub fn is_module_dir(p: &Path) -> bool {
+    p.join("config.json").exists()
+        || p.join("mod.py").exists()
+        || p.join("ecosystem.config.js").exists()
+        || p.join("src").is_dir()
+}
+
+/// Resolve a module name to its directory (orbit first, then core). A
+/// candidate that holds module content always wins over one that merely
+/// exists; the bare `is_dir` pass is kept as a fallback so unusual module
+/// layouts still resolve.
 pub fn module_root_for(name: &str) -> Option<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let candidates = [
-        format!("{home}/mod/mod/orbit/{name}"),
-        format!("{home}/mod/mod/core/{name}"),
+        PathBuf::from(format!("{home}/mod/mod/orbit/{name}")),
+        PathBuf::from(format!("{home}/mod/mod/core/{name}")),
     ];
-    for c in &candidates {
-        let p = PathBuf::from(c);
-        if p.is_dir() {
-            return Some(p);
-        }
-    }
-    None
+    candidates
+        .iter()
+        .find(|p| p.is_dir() && is_module_dir(p))
+        .or_else(|| candidates.iter().find(|p| p.is_dir()))
+        .cloned()
 }
 
 /// Map a job's work_dir to the module it edits: the first path component

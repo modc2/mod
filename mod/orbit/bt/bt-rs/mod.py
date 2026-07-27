@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """bt-rs"""
-    path = r'/Users/broski/mod/mod/orbit/bt/bt-rs'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -29,4 +29,4 @@ class Mod:
     def install(self):
         """Install Python project."""
         import subprocess
-        return subprocess.run(['pip', 'install', '-e', '.'], cwd=r'/Users/broski/mod/mod/orbit/bt/bt-rs', capture_output=True, text=True).stdout
+        return subprocess.run(['pip', 'install', '-e', '.'], cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True, text=True).stdout

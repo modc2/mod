@@ -548,6 +548,10 @@ class TestAgent:
         agent.memory.clear()
         agent.model = None
         agent._skill_names = None
+        agent._session_keys = {}
+        agent._snapped = []
+        from src.toolbox.mod import Toolboxes
+        agent.toolboxes = Toolboxes(skills=agent.skills)
         agent.goal = Agent.goal
         agent.output_format = Agent.output_format
         agent.anchors = Agent.anchors
@@ -765,6 +769,9 @@ class TestMod:
         mod = Mod.__new__(Mod)
         mod.skills = Skills()
         mod.agents = Agents()
+        from src.toolbox.mod import Toolboxes
+        mod.toolboxes = Toolboxes(skills=mod.skills)
+        mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -842,6 +849,9 @@ class TestGate:
         mod = Mod.__new__(Mod)
         mod.skills = Skills()
         mod.agents = Agents()
+        from src.toolbox.mod import Toolboxes
+        mod.toolboxes = Toolboxes(skills=mod.skills)
+        mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -965,6 +975,55 @@ class TestGate:
         mod = self._make_mod_with_owner("0xowner")
         r = mod.forward("revoke", key="0xowner", address="0xnobody")
         assert r["was_granted"] is False
+
+    # ── _run: prompt override + memory note injection ────────────────
+
+    def _capture_run(self, mod):
+        """Stub mod.run to record the active goal and forwarded kwargs."""
+        captured = {}
+        def fake_run(**kw):
+            captured['goal'] = mod.goal
+            captured['kwargs'] = kw
+            return []
+        mod.run = fake_run
+        return captured
+
+    def test_run_prompt_overrides_goal(self):
+        from src.mod import Agent
+        mod = TestMod._make_mod(self)
+        captured = self._capture_run(mod)
+        mod._run(query="hi", prompt="You are a haiku bot.")
+        assert captured['goal'] == "You are a haiku bot."
+        # goal restored after the run
+        assert mod.goal == Agent.goal
+
+    def test_run_prompt_beats_agent_goal(self):
+        mod = TestMod._make_mod(self)
+        captured = self._capture_run(mod)
+        mod._run(query="hi", agent_type="reviewer", prompt="CUSTOM")
+        assert captured['goal'] == "CUSTOM"
+
+    def test_run_memory_ids_inject_notes(self):
+        from src.library.mod import Library
+        mod = TestMod._make_mod(self)
+        tmp = tempfile.mkdtemp()
+        try:
+            mod.library = Library(dir=tmp)
+            n1 = mod.library.note_add("style", "prefer tabs")
+            mod.library.note_add("other", "ignored note")
+            captured = self._capture_run(mod)
+            mod._run(query="hi", memory_ids=[n1["id"]])
+            notes = captured['kwargs'].get('notes', '')
+            assert "[style]" in notes and "prefer tabs" in notes
+            assert "ignored note" not in notes
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_run_without_memory_ids_skips_library(self):
+        mod = TestMod._make_mod(self)  # no mod.library set — must not be touched
+        captured = self._capture_run(mod)
+        mod._run(query="hi")
+        assert 'notes' not in captured['kwargs']
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1205,6 +1264,457 @@ class TestLibrary:
     def test_selftest(self):
         from src.library.mod import Library
         assert Library().test() is True
+
+
+class TestVault:
+    """Encrypted per-provider API-key vault (AES-256-GCM under a user passphrase)."""
+
+    KEY = "sk-or-v1-vaulttestkey1234567890"
+    PASS = "correct horse battery"
+
+    def _mod(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod._vault_dir = Path(tmpdir) / "vault"
+        mod._session_keys = {}
+        return mod
+
+    def test_save_encrypted_and_unlocked(self, tmpdir):
+        mod = self._mod(tmpdir)
+        r = mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        assert r["encrypted"] is True
+        assert r["unlocked"] is True
+        assert self.KEY not in r.values()  # only masked forms leave the server
+        # sealed file exists and never contains the plaintext key
+        blob_path = mod._vault_path("openrouter")
+        assert blob_path.exists()
+        raw = blob_path.read_text()
+        assert self.KEY not in raw
+        blob = json.loads(raw)
+        assert blob["cipher"] == "aes-256-gcm"
+        assert blob["kdf"] == "pbkdf2-sha256"
+
+    def test_key_info_states(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        info = mod.key_info("openrouter")
+        assert info["encrypted"] and info["unlocked"] and info["source"] == "session"
+        mod.vault_lock("openrouter")
+        info = mod.key_info("openrouter")
+        assert info["encrypted"] and not info["unlocked"]
+
+    def test_lock_wipes_session_key(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        assert mod._session_keys["openrouter"] == self.KEY
+        r = mod.vault_lock("openrouter")
+        assert r["was_unlocked"] is True
+        assert "openrouter" not in mod._session_keys
+
+    def test_unlock_roundtrip(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        mod.vault_lock("openrouter")
+        r = mod.vault_unlock("openrouter", self.PASS)
+        assert r["unlocked"] is True
+        assert mod._session_keys["openrouter"] == self.KEY
+
+    def test_wrong_passphrase_rejected(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        mod.vault_lock("openrouter")
+        with pytest.raises(PermissionError):
+            mod.vault_unlock("openrouter", "wrong passphrase")
+        assert "openrouter" not in mod._session_keys
+
+    def test_unlock_without_vault(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(ValueError):
+            mod.vault_unlock("openrouter", self.PASS)
+
+    def test_vault_rm(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        r = mod.vault_rm("openrouter")
+        assert r["removed"] is True
+        assert mod._vault_read("openrouter") is None
+        assert "openrouter" not in mod._session_keys
+
+    def test_session_key_wins_priority(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod._session_keys["openrouter"] = "sk-or-v1-sessionwins000000000"
+        assert mod._provider_keys("openrouter") == ["sk-or-v1-sessionwins000000000"]
+
+    def test_short_passphrase_rejected(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(ValueError):
+            mod.set_api_key(self.KEY, "openrouter", passphrase="abc")
+
+    def test_venice_supported(self, tmpdir):
+        mod = self._mod(tmpdir)
+        info = mod.key_info("venice")
+        assert info["supported"] is True
+        # venice keys have no forced prefix but must not be trivially short
+        with pytest.raises(ValueError):
+            mod.set_api_key("short", "venice")
+        r = mod.set_api_key("venice-key-abcdef123456", "venice", passphrase=self.PASS)
+        assert r["encrypted"] and r["provider"] == "venice"
+
+    def test_vaults_are_per_provider(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        mod.set_api_key("venice-key-abcdef123456", "venice", passphrase="other pass 42")
+        mod.vault_lock("openrouter")
+        assert mod.key_info("venice")["unlocked"]
+        assert not mod.key_info("openrouter")["unlocked"]
+        # openrouter passphrase must not open the venice vault
+        mod.vault_lock("venice")
+        with pytest.raises(PermissionError):
+            mod.vault_unlock("venice", self.PASS)
+
+    def test_unknown_provider_rejected(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(ValueError):
+            mod.set_api_key("sk-whatever-123456789", "nope", passphrase=self.PASS)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  TOOLBOXES (snap-on skill bundles)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestToolboxes:
+    @pytest.fixture
+    def boxes(self, skills, tmpdir):
+        from src.toolbox.mod import Toolboxes
+        return Toolboxes(skills=skills, path=os.path.join(tmpdir, "toolboxes.json"))
+
+    def test_builtins_present(self, boxes):
+        for name in ("core", "explore", "code", "verify", "vcs", "web", "meta"):
+            assert name in boxes.ls()
+            assert boxes.get(name).builtin
+
+    def test_builtin_tools_all_exist(self, boxes, skills):
+        available = set(skills.ls())
+        for name in boxes.ls():
+            box = boxes.get(name)
+            assert set(box.tools) <= available, f"{name} references missing skills"
+
+    def test_resolve_union_dedupes(self, boxes):
+        union = boxes.resolve(["core", "code"])
+        assert "bash" in union and "patch" in union
+        assert len(union) == len(set(union))
+        # order preserved: core's tools come first
+        assert union.index("bash") < union.index("patch")
+
+    def test_custom_box_persists(self, boxes, skills, tmpdir):
+        boxes.add("mybox", ["bash", "git"], "my custom loadout")
+        assert "mybox" in boxes.ls()
+        from src.toolbox.mod import Toolboxes
+        reloaded = Toolboxes(skills=skills, path=os.path.join(tmpdir, "toolboxes.json"))
+        assert reloaded.get("mybox").tools == ["bash", "git"]
+        assert reloaded.rm("mybox")["existed"]
+
+    def test_custom_box_validates_tools(self, boxes):
+        with pytest.raises(ValueError):
+            boxes.add("bad", ["not-a-skill"])
+
+    def test_builtins_protected(self, boxes):
+        with pytest.raises(PermissionError):
+            boxes.add("core", ["bash"])
+        with pytest.raises(PermissionError):
+            boxes.rm("core")
+
+    def test_schema_scoped_to_box(self, boxes):
+        schema = boxes.schema(["vcs"])
+        assert set(schema.keys()) == {"git", "diff"}
+
+    def test_forward_protocol(self, boxes):
+        info = boxes.forward()
+        assert info["total"] == len(boxes.ls())
+        assert boxes.forward("core")["name"] == "core"
+
+    def test_builtin_test(self, boxes):
+        assert boxes.test()["passed"]
+
+
+class TestAgentSnap:
+    """Toolboxes snap onto the agent and scope its live skill set."""
+
+    @pytest.fixture
+    def agent(self):
+        from src.mod import Agent
+        return Agent()
+
+    def test_default_unfiltered(self, agent):
+        assert agent.active_skills() is None
+        assert len(agent.skill_schema()) == SKILL_COUNT
+
+    def test_snap_scopes_schema(self, agent):
+        agent.snap("vcs")
+        state = agent.snapped()
+        assert state["snapped"] == ["vcs"]
+        assert state["filtered"]
+        assert set(agent.skill_schema().keys()) == {"git", "diff"}
+
+    def test_snap_union(self, agent):
+        agent.snap("vcs")
+        agent.snap("web")
+        assert set(agent.active_skills()) == {"git", "diff", "fetch", "websurf"}
+
+    def test_unsnap(self, agent):
+        agent.snap("vcs")
+        agent.snap("web")
+        agent.unsnap("vcs")
+        assert agent.snapped()["snapped"] == ["web"]
+        agent.unsnap()
+        assert agent.active_skills() is None
+        assert len(agent.skill_schema()) == SKILL_COUNT
+
+    def test_snap_unknown_raises(self, agent):
+        with pytest.raises(KeyError):
+            agent.snap("no-such-box")
+
+    def test_explicit_skills_beat_snap(self, agent):
+        agent.snap("vcs")
+        agent._skill_names = ["bash"]
+        assert agent.active_skills() == ["bash"]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  MEMORY SUBSYSTEM (working / episodic / semantic layers)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMemorySubsystem:
+    @pytest.fixture
+    def mem(self, tmpdir):
+        return Memory(dir=tmpdir)
+
+    def test_observe_appends_episode(self, mem):
+        mem.observe({"tool": "bash", "params": {"command": "ls"}, "result": "ok"})
+        trail = mem.episodes(5)
+        assert trail[-1]["tool"] == "bash"
+        assert trail[-1]["session"] == mem.session
+
+    def test_episodes_persist_to_disk(self, mem, tmpdir):
+        mem.observe({"tool": "read", "params": {"file_path": "/tmp/a.py"}})
+        fresh = Memory(dir=tmpdir)
+        assert fresh.episodes(5)[-1]["tool"] == "read"
+
+    def test_observe_truncates_result(self, mem):
+        mem.observe({"tool": "bash", "params": {}, "result": "x" * 5000})
+        assert len(mem.episodes(1)[0]["result"]) <= 500
+
+    def test_observe_tracks_files_and_errors(self, mem):
+        mem.observe({"tool": "write", "params": {"file_path": "/tmp/w.py"}})
+        mem.observe({"tool": "read", "params": {"file_path": "/tmp/r.py"}})
+        mem.observe({"tool": "bash", "params": {}, "error": "boom"})
+        assert "/tmp/w.py" in mem.get_files_written()
+        assert "/tmp/r.py" in mem.get_files_read()
+        assert "boom" in mem.get_errors()[0]
+
+    def test_remember_recall(self, mem):
+        mem.remember("db-schema", "users table has an email column", tags=["db"])
+        mem.remember("style", "prefer tabs over spaces")
+        hits = mem.recall("what column is in the users table?")
+        assert hits and hits[0]["id"] == "db-schema"
+        assert hits[0]["score"] > 0
+
+    def test_facts_persist_to_disk(self, mem, tmpdir):
+        mem.remember("port", "the api listens on 50117")
+        fresh = Memory(dir=tmpdir)
+        assert any(f["id"] == "port" for f in fresh.facts())
+        assert fresh.forget("port")["existed"]
+
+    def test_recall_empty_query(self, mem):
+        assert mem.recall("") == []
+
+    def test_compile_includes_recalled_facts(self, mem):
+        mem.remember("style", "prefer tabs over spaces")
+        block = mem.compile("what style tabs spaces?")
+        assert "RECALLED FACTS" in block and "tabs" in block
+
+    def test_compile_episode_trail(self, mem):
+        mem.observe({"tool": "bash", "params": {"command": "ls"}})
+        block = mem.compile(episodes=5)
+        assert "RECENT STEPS" in block
+
+    def test_status(self, mem):
+        mem.add("k", "v")
+        mem.observe({"tool": "think", "params": {}})
+        mem.remember("f", "a fact")
+        s = mem.status()
+        assert s["working_keys"] == ["k"]
+        assert s["episodes"] >= 1
+        assert s["facts"] >= 1
+
+    def test_forward_protocol(self, mem):
+        info = mem.forward()
+        assert info["module"] == "agent.memory"
+        mem.forward("remember", name="x", content="y content")
+        assert mem.forward("recall", query="y content")
+        assert mem.forward("status")["facts"] >= 1
+
+    def test_persist_false_stays_in_ram(self, tmpdir):
+        mem = Memory(dir=tmpdir, persist=False)
+        mem.observe({"tool": "bash", "params": {}})
+        mem.remember("x", "y")
+        assert not os.path.exists(os.path.join(tmpdir, "episodes.jsonl"))
+        assert not os.path.exists(os.path.join(tmpdir, "facts.json"))
+
+    def test_agent_emit_step_observes(self, tmpdir):
+        from src.mod import Agent
+        agent = Agent()
+        agent.memory = Memory(dir=tmpdir)
+        agent._emit_step({"tool": "bash", "params": {"command": "ls"}, "result": "ok"})
+        assert agent.memory.episodes(1)[0]["tool"] == "bash"
+
+
+class TestToolboxMemoryApi:
+    """API surface for toolboxes + the memory subsystem."""
+
+    def _client(self):
+        try:
+            from src.api.api import app
+            from fastapi.testclient import TestClient
+            return TestClient(app)
+        except ImportError:
+            pytest.skip("fastapi not installed")
+
+    def test_list_toolboxes(self):
+        client = self._client()
+        r = client.get("/toolboxes")
+        assert r.status_code == 200
+        data = r.json()
+        names = [b["name"] for b in data["toolboxes"]]
+        assert "core" in names and "vcs" in names
+        assert "snapped" in data
+
+    def test_get_toolbox(self):
+        client = self._client()
+        r = client.get("/toolboxes/vcs")
+        data = r.json()
+        assert data["name"] == "vcs"
+        assert data["resolved"]["missing"] == []
+
+    def test_get_unknown_toolbox(self):
+        client = self._client()
+        assert "error" in client.get("/toolboxes/nope").json()
+
+    def test_memory_state(self):
+        client = self._client()
+        r = client.get("/memory/state")
+        assert r.status_code == 200
+
+    def test_memory_recall_route(self):
+        client = self._client()
+        r = client.get("/memory/recall", params={"q": "anything"})
+        assert r.status_code == 200
+        assert "facts" in r.json()
+
+    def test_memory_episodes_route(self):
+        client = self._client()
+        r = client.get("/memory/episodes")
+        assert r.status_code == 200
+        assert "episodes" in r.json()
+
+    def test_run_request_accepts_toolbox(self):
+        from src.api.api import RunRequest
+        req = RunRequest(query="hi", toolbox="core", toolboxes=["vcs"])
+        assert req.toolbox == "core" and req.toolboxes == ["vcs"]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CREDITS — prepaid USDT/USDC ledger for the public key
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestCredits:
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+
+    @pytest.fixture
+    def credits(self, tmpdir):
+        from src.credits import Credits
+        return Credits(str(tmpdir), deposit_address=self.OWNER)
+
+    def test_info_shape(self, credits):
+        info = credits.info(self.ADDR)
+        assert info["enabled"] is True
+        assert info["deposit"]["address"] == self.OWNER.lower()
+        assert set(info["deposit"]["networks"]) == {"base", "ethereum"}
+        assert info["account"]["balance"] == 0.0
+
+    def test_credit_and_charge(self, credits):
+        credits.credit(self.ADDR, 5, kind="grant")
+        assert credits.balance(self.ADDR) == 5.0
+        out = credits.charge_steps(self.ADDR, 12, note="run")
+        assert out["charged"] == round(12 * credits.price_per_step, 6)
+        assert out["balance"] == round(5 - out["charged"], 6)
+
+    def test_charge_clamps_to_balance(self, credits):
+        credits.credit(self.ADDR, 0.05, kind="grant")
+        out = credits.charge_steps(self.ADDR, 10_000)
+        assert out["charged"] == 0.05 and out["balance"] == 0.0
+        # a drained account is never negative and further charges are free no-ops
+        assert credits.charge_steps(self.ADDR, 10)["charged"] == 0.0
+
+    def test_addresses_case_insensitive(self, credits):
+        credits.credit(self.ADDR.lower(), 1)
+        assert credits.balance(self.ADDR.upper().replace("0X", "0x")) == 1.0
+
+    def test_ledger_persists(self, credits, tmpdir):
+        from src.credits import Credits
+        credits.credit(self.ADDR, 2.5)
+        reloaded = Credits(str(tmpdir), deposit_address=self.OWNER)
+        assert reloaded.balance(self.ADDR) == 2.5
+        assert reloaded.info(self.ADDR)["account"]["history"][0]["type"] == "deposit"
+
+    def test_deposit_rejects_bad_input(self, credits):
+        with pytest.raises(ValueError):
+            credits.verify_deposit("0x123", "base")            # not a tx hash
+        with pytest.raises(ValueError):
+            credits.verify_deposit("0x" + "a" * 64, "polygon")  # unsupported network
+
+    def test_deposit_replay_guard(self, credits):
+        tx = "0x" + "b" * 64
+        credits._state["txs"][tx] = {"amount": 1}
+        with pytest.raises(ValueError, match="already credited"):
+            credits.verify_deposit(tx, "base")
+
+    def test_deposits_disabled_without_address(self, tmpdir):
+        from src.credits import Credits
+        import os
+        env = os.environ.pop("AGENT_DEPOSIT_ADDRESS", None)
+        try:
+            c = Credits(str(tmpdir))
+            assert c.info()["enabled"] is False
+            with pytest.raises(ValueError, match="disabled"):
+                c.verify_deposit("0x" + "c" * 64, "base")
+        finally:
+            if env is not None:
+                os.environ["AGENT_DEPOSIT_ADDRESS"] = env
+
+    def test_balance_unlocks_run_gate(self, tmpdir):
+        """A positive credit balance lets a guest run; a drained one doesn't."""
+        from src.credits import Credits
+
+        class Gate:
+            from src.mod import Mod
+            _acl = {}
+            _owner = TestCredits.OWNER.lower()
+            auth = None
+            key = None
+            _public_actions = set()
+            is_owner = Mod.is_owner
+            _resolve_address = Mod._resolve_address
+            is_allowed = Mod.is_allowed
+
+        gate = Gate()
+        gate.credits = Credits(str(tmpdir), deposit_address=self.OWNER)
+        assert gate.is_allowed(self.ADDR, "run") is False
+        gate.credits.credit(self.ADDR, 1)
+        assert gate.is_allowed(self.ADDR, "run") is True
+        gate.credits.charge_steps(self.ADDR, 10_000)
+        assert gate.is_allowed(self.ADDR, "run") is False
 
 
 if __name__ == "__main__":

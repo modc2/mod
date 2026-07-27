@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { shortAddress } from "../lib/auth";
+import { fundedUsd } from "../lib/funding";
 
 /// Wallet chip for the top bar + a dropdown that lets the user flip between
 /// previously-used wallets ("sign in as another person"). The button itself
@@ -44,28 +45,7 @@ export default function WalletChip() {
     let cancelled = false;
     (async () => {
       const entries = await Promise.all(
-        addrs.map(async (addr) => {
-          try {
-            const r = await fetch(
-              `/api/polymarket/deposit-wallet/info?eoa=${encodeURIComponent(addr)}`,
-              { cache: "no-store" },
-            );
-            if (!r.ok) return [addr.toLowerCase(), null] as const;
-            const j = (await r.json()) as {
-              usdcBalance?: string; nativeUsdcBalance?: string;
-              rawUsdceBalance?: string; balanceUnavailable?: boolean;
-            };
-            if (j.balanceUnavailable) return [addr.toLowerCase(), null] as const;
-            const dollars =
-              (Number(j.usdcBalance ?? 0) +
-                Number(j.nativeUsdcBalance ?? 0) +
-                Number(j.rawUsdceBalance ?? 0)) /
-              1e6;
-            return [addr.toLowerCase(), Number.isFinite(dollars) ? dollars : null] as const;
-          } catch {
-            return [addr.toLowerCase(), null] as const;
-          }
-        }),
+        addrs.map(async (addr) => [addr.toLowerCase(), await fundedUsd(addr)] as const),
       );
       if (!cancelled) setBalances(Object.fromEntries(entries));
     })();
@@ -121,10 +101,10 @@ export default function WalletChip() {
   const label = loading
     ? "..."
     : auth.connected && auth.address
-      ? active?.label || shortAddress(auth.address)
+      ? active?.label || shortAddress(auth.address).toLowerCase()
       : hasWallet
-        ? "CONNECT"
-        : "NO WALLET";
+        ? "connect"
+        : "no wallet";
 
   const color = auth.connected
     ? "border-green-400 text-green-400 hover:bg-green-400/10"
@@ -190,10 +170,23 @@ export default function WalletChip() {
             ? `${auth.address} · ${auth.authenticated ? "trading enabled" : "trading not yet enabled"} · click to switch`
             : hasWallet ? "Connect / switch wallet" : "Install a wallet extension first"
         }
-        className={`pixel-btn text-[13px] px-2 py-1 transition-colors flex items-center gap-1.5 disabled:opacity-60 ${color}`}
+        className={`pixel-btn normal-case text-[13px] px-2 py-1 transition-colors flex items-center gap-1.5 disabled:opacity-60 ${color}`}
       >
         <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-        <span className="font-mono">{label}</span>
+        <span
+          className="font-mono whitespace-nowrap"
+          onClick={(e) => {
+            // Click the address itself to copy it without opening the
+            // switcher; the dot/caret still toggle the dropdown.
+            if (auth.connected && auth.address) {
+              e.stopPropagation();
+              void copyActive();
+            }
+          }}
+          title={auth.connected && auth.address ? "click to copy address" : undefined}
+        >
+          {copied ? "copied ✓" : label}
+        </span>
         {(auth.connected || knownWallets.length > 0) && (
           <span className="text-[10px] opacity-60">{open ? "▲" : "▼"}</span>
         )}
@@ -204,7 +197,7 @@ export default function WalletChip() {
           {/* ── Active wallet ── */}
           {auth.connected && auth.address ? (
             <div className="px-3 py-2 border-b border-pixel-border/60">
-              <div className="text-[10px] text-pixel-gray tracking-[0.18em] mb-1">SIGNED IN AS</div>
+              <div className="text-[10px] text-pixel-gray tracking-[0.18em] mb-1">signed in as</div>
               <div className="flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
                 <div className="min-w-0 flex-1">
@@ -212,7 +205,7 @@ export default function WalletChip() {
                     <div className="text-[12px] text-pixel-white truncate">{active.label}</div>
                   )}
                   <div className="font-mono text-[11px] text-green-400 truncate" title={auth.address}>
-                    {shortAddress(auth.address)}
+                    {shortAddress(auth.address).toLowerCase()}
                   </div>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
@@ -227,19 +220,19 @@ export default function WalletChip() {
                   onClick={copyActive}
                   className="text-[10px] tracking-[0.12em] text-pixel-gray hover:text-green-400 border border-pixel-border/60 hover:border-green-400/60 px-1.5 py-0.5"
                 >
-                  {copied ? "COPIED ✓" : "COPY"}
+                  {copied ? "copied ✓" : "copy"}
                 </button>
                 <button
                   onClick={() => startEdit(auth.address!, active?.label)}
                   className="text-[10px] tracking-[0.12em] text-pixel-gray hover:text-pixel-white border border-pixel-border/60 hover:border-pixel-white/60 px-1.5 py-0.5"
                 >
-                  RENAME
+                  rename
                 </button>
                 <button
                   onClick={() => { disconnect(); }}
                   className="ml-auto text-[10px] tracking-[0.12em] text-red-400/80 hover:text-red-400 border border-red-400/40 hover:border-red-400/80 px-1.5 py-0.5"
                 >
-                  SIGN OUT
+                  sign out
                 </button>
               </div>
               {editing === auth.address && (
@@ -259,7 +252,7 @@ export default function WalletChip() {
                     onClick={() => commitEdit(auth.address!)}
                     className="text-[10px] text-green-400 border border-green-400/60 px-1.5 py-1"
                   >
-                    SAVE
+                    save
                   </button>
                 </div>
               )}
@@ -272,9 +265,9 @@ export default function WalletChip() {
               <button
                 onClick={() => { setOpen(false); if (hasWallet) void connect(); }}
                 disabled={!hasWallet || loading}
-                className="pixel-btn text-[11px] px-2 py-1 border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
+                className="pixel-btn normal-case text-[11px] px-2 py-1 border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
               >
-                {loading ? "..." : "CONNECT"}
+                {loading ? "..." : "connect"}
               </button>
             </div>
           )}
@@ -283,7 +276,7 @@ export default function WalletChip() {
           {others.length > 0 && (
             <div className="py-1 max-h-[260px] overflow-y-auto">
               <div className="px-3 pt-1 pb-1 text-[10px] text-pixel-gray tracking-[0.18em]">
-                SWITCH TO
+                switch to
               </div>
               {others.map((w) => (
                 <div
@@ -307,7 +300,7 @@ export default function WalletChip() {
                         onClick={() => commitEdit(w.address)}
                         className="text-[10px] text-green-400 border border-green-400/60 px-1.5 py-1"
                       >
-                        SAVE
+                        save
                       </button>
                     </>
                   ) : (
@@ -321,7 +314,7 @@ export default function WalletChip() {
                           <div className="text-[12px] text-pixel-white truncate">{w.label}</div>
                         )}
                         <div className="font-mono text-[11px] text-pixel-gray group-hover:text-green-400 truncate">
-                          {shortAddress(w.address)}
+                          {shortAddress(w.address).toLowerCase()}
                         </div>
                       </button>
                       <div className="shrink-0">{fundedChip(w.address)}</div>
@@ -351,10 +344,10 @@ export default function WalletChip() {
             <button
               onClick={() => { void handleAdd(); }}
               disabled={!hasWallet || loading}
-              className="w-full pixel-btn text-[12px] px-2 py-1.5 border-green-400/70 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
+              className="w-full pixel-btn normal-case text-[12px] px-2 py-1.5 border-green-400/70 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
               title="Open MetaMask to sign in as another person"
             >
-              {loading ? "..." : "+ SIGN IN ANOTHER PERSON"}
+              {loading ? "..." : "+ sign in another person"}
             </button>
             {!hasWallet && (
               <div className="text-[10px] text-pixel-gray mt-1.5 text-center">

@@ -1,4 +1,5 @@
 import { SavedIndex, IndexTrader } from "./types";
+import { DEFAULT_STOP_LOSS } from "./strats/strat";
 
 // Equal-weight a list of addresses into IndexTrader rows (remainder cents go
 // to the earliest entries) — shared by every "seed a strat with N traders"
@@ -48,12 +49,26 @@ function setItemSafe(key: string, value: string): void {
   }
 }
 
+// One-time default migration: 0.5 was the blanket stop-loss default every
+// strat save wrote out verbatim, so an explicit 0.5 on a stored strat is
+// (with overwhelming likelihood) the old default, not a choice — bump it to
+// the current default (0.75). Any OTHER explicit value (including 0 = off)
+// was user-set and is left alone. Read-side so imported/shared strats
+// migrate too; the next save persists the bumped value.
+const LEGACY_DEFAULT_STOP_LOSS = 0.5;
+function migrateIndex(idx: SavedIndex): SavedIndex {
+  if (idx && idx.stopLoss === LEGACY_DEFAULT_STOP_LOSS) {
+    return { ...idx, stopLoss: DEFAULT_STOP_LOSS };
+  }
+  return idx;
+}
+
 export function loadIndexes(): SavedIndex[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.map(migrateIndex) : [];
   } catch {
     return [];
   }

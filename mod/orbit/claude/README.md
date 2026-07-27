@@ -93,6 +93,7 @@ c.bg_list()
 job = c.submit("Build React dashboard", model="sonnet", work_dir="/project")
 c.tail(job['id'])          # stream live output (SSE)
 c.jobs()                   # list all jobs
+c.guide(job['id'], "focus on the API first")  # steer a running job mid-task
 c.cancel(job['id'])        # cancel running job
 c.delete_job(job['id'])    # remove job
 ```
@@ -226,6 +227,7 @@ Rust server (Axum + SQLite) on port `8820`.
 | `GET` | `/jobs/{id}` | Job details |
 | `DELETE` | `/jobs/{id}` | Delete job |
 | `POST` | `/jobs/{id}/cancel` | Cancel job |
+| `POST` | `/jobs/{id}/message` | Guide a running job mid-task (steering) |
 | `GET` | `/jobs/{id}/stream` | SSE output stream |
 | `POST` | `/files/write` | Write file |
 | `POST` | `/modules/{name}/process` | Manage a module's pm2 processes (status/stop/start/restart) |

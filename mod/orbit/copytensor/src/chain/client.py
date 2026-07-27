@@ -9,8 +9,9 @@ operations require a wallet.
 
 import logging
 import random
+import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bittensor as bt
@@ -30,6 +31,30 @@ PUBLIC_RPCS_FINNEY: List[str] = [
 PUBLIC_RPCS_TEST: List[str] = [
     "wss://test.finney.opentensor.ai:443",
 ]
+
+# Deep-block state queries only work against archive nodes — lite nodes
+# discard old state ("State discarded ..."), so historical reads must never
+# rotate through the general pool.
+ARCHIVE_RPC_FINNEY = "wss://archive.chain.opentensor.ai:443"
+
+# How many archive websockets we keep open. A leaderboard over hundreds of
+# traders is one deep query per trader; a single connection makes that
+# strictly serial. Small enough to stay a polite public-RPC citizen.
+ARCHIVE_POOL_SIZE = 4
+
+# The delegate walk behind trader discovery costs ~30s, and the delegate set
+# barely moves hour to hour.
+UNIVERSE_TTL_SEC = 6 * 3600
+
+
+def is_valid_ss58(ss58: str) -> bool:
+    """Checksum-validate an ss58 address (seed lists can contain typos)."""
+    try:
+        from scalecodec.utils.ss58 import ss58_decode
+        ss58_decode(ss58)
+        return True
+    except Exception:
+        return False
 
 
 def _endpoints_for(network: str, override: Optional[str] = None) -> List[str]:
@@ -60,6 +85,30 @@ class AlphaPosition:
 
 
 @dataclass
+class TraderCandidate:
+    """A real coldkey found on-chain, ranked for the leaderboard pool.
+
+    `stake_weight` is the sum of that coldkey's stake across every subnet as
+    reported by get_delegates(). In dTAO those are per-subnet alpha units, so
+    the number is a ranking heuristic — NOT a τ valuation. Every τ figure the
+    leaderboard shows comes from priced positions, never from this.
+    """
+    ss58: str
+    kind: str                    # "validator" (delegate owner) | "nominator"
+    stake_weight: float
+    subnets: int
+    rank: int = 0
+    hotkey: Optional[str] = None
+
+    def as_dict(self) -> Dict:
+        return {
+            "ss58": self.ss58, "kind": self.kind,
+            "stake_weight": self.stake_weight, "subnets": self.subnets,
+            "rank": self.rank, "hotkey": self.hotkey,
+        }
+
+
+@dataclass
 class AccountPositions:
     ss58: str
     block: int
@@ -68,7 +117,7 @@ class AccountPositions:
 
 
 class SubtensorClient:
-    """Wraps bt.subtensor() with round-robin failover across public RPCs.
+    """Wraps bt.Subtensor() with round-robin failover across public RPCs.
 
     Every call to `.sub` returns a connected subtensor; if a call fails we
     rotate to the next endpoint automatically via `_with_failover()`. The
@@ -77,29 +126,52 @@ class SubtensorClient:
     """
 
     def __init__(self, network: str = "finney", endpoint: Optional[str] = None,
-                 endpoints: Optional[List[str]] = None):
+                 endpoints: Optional[List[str]] = None,
+                 archive_pool_size: int = ARCHIVE_POOL_SIZE):
         self.network = network
         self.endpoint = endpoint
         pool = endpoints if endpoints else _endpoints_for(network, endpoint)
         random.shuffle(pool)
         self.endpoints: List[str] = pool
         self._idx = 0
-        self._sub: Optional[bt.subtensor] = None
+        self._sub: Optional[bt.Subtensor] = None
         self._current: Optional[str] = None
+        self._subnets_cache: Optional[Tuple[float, List["SubnetInfo"]]] = None
+        self._subnets_hist_cache: Dict[int, List["SubnetInfo"]] = {}
+        # A bt.Subtensor websocket is NOT thread-safe ("cannot call recv
+        # while another thread is already running recv") — snapshot loop,
+        # leaderboard warmers and request threads all share this client, so
+        # every chain call is serialized per connection. RLock because
+        # failover'd calls nest (e.g. stake query → subnet-info query).
+        self._lock = threading.RLock()
+        # Historical reads are the leaderboard's bottleneck (one deep archive
+        # query per account per horizon), so the archive side gets a small
+        # pool of connections instead of a single serialized one. Each is
+        # still used by one thread at a time; nested archive calls reuse the
+        # connection this thread already holds, so the pool can't deadlock.
+        self._archive_pool_size = max(1, int(archive_pool_size))
+        self._archive_sem = threading.BoundedSemaphore(self._archive_pool_size)
+        self._archive_free: List[bt.Subtensor] = []
+        self._archive_free_lock = threading.Lock()
+        self._archive_held = threading.local()
+        # Delegate walk (get_delegates) — the trader-universe source. It is a
+        # ~30s full-set call, so it is cached process-wide.
+        self._universe_cache: Optional[Tuple[float, List["TraderCandidate"]]] = None
+        self._universe_lock = threading.Lock()
 
     @property
-    def sub(self) -> bt.subtensor:
+    def sub(self) -> bt.Subtensor:
         if self._sub is None:
             self._connect()
         return self._sub
 
-    def _connect(self) -> bt.subtensor:
+    def _connect(self) -> bt.Subtensor:
         """Try endpoints in rotation until one connects."""
         last_err: Optional[Exception] = None
         for _ in range(len(self.endpoints)):
             url = self.endpoints[self._idx]
             try:
-                self._sub = bt.subtensor(network=url)
+                self._sub = bt.Subtensor(network=url)
                 _ = self._sub.block  # sanity probe
                 self._current = url
                 log.info("subtensor connected via %s", url)
@@ -120,14 +192,65 @@ class SubtensorClient:
         """Run a callable that uses self.sub; rotate + retry on failure."""
         n = retries if retries is not None else max(1, len(self.endpoints))
         last_err: Optional[Exception] = None
-        for _ in range(n):
-            try:
-                return fn()
-            except Exception as e:
-                last_err = e
-                log.warning("rpc call failed on %s: %s — rotating", self._current, e)
-                self._rotate()
+        with self._lock:
+            for _ in range(n):
+                try:
+                    return fn()
+                except Exception as e:
+                    last_err = e
+                    log.warning("rpc call failed on %s: %s — rotating", self._current, e)
+                    self._rotate()
         raise RuntimeError(f"all RPCs failed; last error: {last_err}")
+
+    @property
+    def archive_url(self) -> str:
+        if self.network == "test":
+            return self.endpoint or PUBLIC_RPCS_TEST[0]
+        return self.endpoint or ARCHIVE_RPC_FINNEY
+
+    def _archive(self) -> bt.Subtensor:
+        """Check a connection out of the archive pool (opening one if empty)."""
+        with self._archive_free_lock:
+            if self._archive_free:
+                return self._archive_free.pop()
+        return bt.Subtensor(network=self.archive_url)
+
+    def _release_archive(self, conn: Optional[bt.Subtensor]):
+        if conn is None:
+            return
+        with self._archive_free_lock:
+            if len(self._archive_free) < self._archive_pool_size:
+                self._archive_free.append(conn)
+
+    def _with_archive(self, fn: Callable[[bt.Subtensor], Any]) -> Any:
+        """Run a historical query on an archive connection, one reconnect retry.
+
+        Concurrency is capped by the pool semaphore. A nested archive call
+        (stake query → historical subnet prices) reuses the connection this
+        thread already holds rather than waiting on the semaphore it is
+        itself holding.
+        """
+        held = getattr(self._archive_held, "conn", None)
+        if held is not None:
+            return fn(held)
+
+        with self._archive_sem:
+            conn = self._archive()
+            self._archive_held.conn = conn
+            try:
+                try:
+                    result = fn(conn)
+                except Exception:
+                    # Drop the suspect socket, retry once on a fresh one.
+                    conn = bt.Subtensor(network=self.archive_url)
+                    self._archive_held.conn = conn
+                    result = fn(conn)
+            except Exception:
+                self._archive_held.conn = None
+                raise          # both attempts failed; the socket is not reused
+            self._archive_held.conn = None
+            self._release_archive(conn)
+            return result
 
     def reconnect(self):
         self._sub = None
@@ -149,42 +272,53 @@ class SubtensorClient:
     # ── subnets ──────────────────────────────────────────────────────
 
     def get_all_netuids(self) -> List[int]:
-        return self._with_failover(lambda: self.sub.get_subnets())
+        return self._with_failover(lambda: self.sub.get_all_subnets_netuid())
 
-    def get_subnet_info(self, netuid: int, block: Optional[int] = None) -> SubnetInfo:
-        block_hash = self.get_block_hash(block) if block else None
-
-        name = self._query("SubnetIdentity", [netuid], block_hash)
-        subnet_name = ""
-        if name and hasattr(name, "value") and name.value:
-            subnet_name = name.value.get("subnet_name", f"SN{netuid}")
-        else:
-            subnet_name = f"SN{netuid}"
-
-        alpha_price = self._get_alpha_price(netuid, block_hash)
-        total_stake = self._get_total_subnet_stake(netuid, block_hash)
-        tempo = self._query_value("Tempo", [netuid], block_hash, default=360)
-        emission = self._query_value("SubnetEmission", [netuid], block_hash, default=0)
-
+    def _dyn_to_info(self, d) -> SubnetInfo:
+        def _tao(x):
+            return float(getattr(x, "tao", x) or 0)
         return SubnetInfo(
-            netuid=netuid,
-            name=subnet_name,
-            alpha_price_tao=alpha_price,
-            total_stake_tao=total_stake,
-            tempo=tempo,
-            emission=emission / 1e9 if emission else 0,
+            netuid=d.netuid,
+            name=d.subnet_name or f"SN{d.netuid}",
+            alpha_price_tao=_tao(d.price),
+            total_stake_tao=_tao(d.tao_in),
+            tempo=d.tempo,
+            emission=_tao(d.emission),
         )
 
+    def get_subnet_info(self, netuid: int, block: Optional[int] = None) -> SubnetInfo:
+        d = self._with_failover(lambda: self.sub.subnet(netuid, block=block))
+        if d is None:
+            raise RuntimeError(f"subnet {netuid} not found")
+        return self._dyn_to_info(d)
+
+    SUBNETS_CACHE_SEC = 60
+    SUBNETS_HIST_CACHE_MAX = 16
+
     def get_all_subnet_info(self, block: Optional[int] = None) -> List[SubnetInfo]:
-        netuids = self.get_all_netuids()
-        results = []
-        for netuid in netuids:
-            try:
-                info = self.get_subnet_info(netuid, block)
-                results.append(info)
-            except Exception:
-                continue
-        return results
+        # all_subnets() is one of the heaviest calls and every PnL pass needs
+        # it — cache current-block results briefly, and historical results by
+        # block (a leaderboard build hits the same target block once per
+        # account). Historical blocks are immutable so that cache never ages.
+        if block is None:
+            if self._subnets_cache:
+                ts, cached = self._subnets_cache
+                if time.time() - ts < self.SUBNETS_CACHE_SEC:
+                    return cached
+            subs = self._with_failover(lambda: self.sub.all_subnets()) or []
+            infos = [self._dyn_to_info(d) for d in subs]
+            self._subnets_cache = (time.time(), infos)
+            return infos
+
+        if block in self._subnets_hist_cache:
+            return self._subnets_hist_cache[block]
+        # deep-block state → archive only, never the general pool
+        subs = self._with_archive(lambda s: s.all_subnets(block=block)) or []
+        infos = [self._dyn_to_info(d) for d in subs]
+        if len(self._subnets_hist_cache) >= self.SUBNETS_HIST_CACHE_MAX:
+            self._subnets_hist_cache.pop(next(iter(self._subnets_hist_cache)))
+        self._subnets_hist_cache[block] = infos
+        return infos
 
     # ── alpha prices ─────────────────────────────────────────────────
 
@@ -207,37 +341,50 @@ class SubtensorClient:
 
     def get_stake_for_coldkey(self, ss58: str,
                               block: Optional[int] = None) -> AccountPositions:
-        """Get all alpha positions for a coldkey across all subnets."""
-        block_hash = self.get_block_hash(block) if block else None
-        current_block = block or self.get_block()
-        netuids = self.get_all_netuids()
-        positions: List[AlphaPosition] = []
-        total_value = 0.0
+        """Get all alpha positions for a coldkey across all subnets.
 
-        # Get hotkeys associated with this coldkey
-        hotkeys = self._get_hotkeys_for_coldkey(ss58, block_hash)
+        One runtime-API call (StakeInfoRuntimeApi.get_stake_info_for_coldkey)
+        + one all_subnets() call for prices — NOT a per-netuid storage scan.
+        Historical blocks route to the archive node (lite nodes discard old
+        state).
+        """
+        if not is_valid_ss58(ss58):
+            raise ValueError(f"invalid ss58 address: {ss58}")
 
-        for netuid in netuids:
-            alpha_price = self._get_alpha_price(netuid, block_hash)
-            for hotkey in hotkeys:
-                alpha = self._get_alpha_stake(netuid, hotkey, ss58, block_hash)
-                if alpha > 0:
-                    value = alpha * alpha_price
-                    total_value += value
-                    positions.append(AlphaPosition(
-                        netuid=netuid,
-                        hotkey=hotkey,
-                        alpha_amount=alpha,
-                        alpha_price_tao=alpha_price,
-                        value_tao=value,
-                    ))
+        def _tao(x):
+            return float(getattr(x, "tao", x) or 0)
 
-        return AccountPositions(
-            ss58=ss58,
-            block=current_block,
-            total_value_tao=total_value,
-            positions=positions,
-        )
+        def _go(sub):
+            current_block = block or sub.block
+            infos = sub.get_stake_info_for_coldkey(ss58, block=block) or []
+            prices = {s.netuid: s.alpha_price_tao
+                      for s in self.get_all_subnet_info(block=block)}
+            positions: List[AlphaPosition] = []
+            total_value = 0.0
+            for i in infos:
+                alpha = _tao(i.stake)
+                if alpha <= 0:
+                    continue
+                price = prices.get(i.netuid, 0.0)
+                value = alpha * price
+                total_value += value
+                positions.append(AlphaPosition(
+                    netuid=i.netuid,
+                    hotkey=i.hotkey_ss58,
+                    alpha_amount=alpha,
+                    alpha_price_tao=price,
+                    value_tao=value,
+                ))
+            return AccountPositions(
+                ss58=ss58,
+                block=current_block,
+                total_value_tao=total_value,
+                positions=positions,
+            )
+
+        if block is not None:
+            return self._with_archive(_go)
+        return self._with_failover(lambda: _go(self.sub))
 
     def _get_hotkeys_for_coldkey(self, coldkey_ss58: str,
                                   block_hash: Optional[str] = None) -> List[str]:
@@ -258,6 +405,113 @@ class SubtensorClient:
             return val / 1e9 if val > 1e9 else val
         return 0.0
 
+    # ── discovery ────────────────────────────────────────────────────
+
+    def discover_top_delegate_owners(self, n: int = 8) -> List[Dict]:
+        """Find the owner coldkeys of the top-N delegates by total stake.
+
+        These are real, checksum-valid accounts that actively hold alpha
+        positions — the honest way to seed a leaderboard without inventing
+        addresses. Kept as the validators-only slice of `discover_traders`.
+        """
+        return [
+            {
+                "ss58": c.ss58,
+                "hotkey": c.hotkey,
+                "delegate_stake_tao": c.stake_weight,
+                "rank": c.rank,
+            }
+            for c in self.discover_traders(n=n, kinds=("validator",))
+        ]
+
+    # The universe: every coldkey the delegate set knows about — the delegate
+    # owners themselves plus every nominator staking to them. On finney that
+    # is ~2.3k owners and ~58k nominators, which is the honest answer to
+    # "all the traders": real accounts holding real alpha, read from chain.
+    def discover_traders(self, n: int = 100,
+                         kinds: Tuple[str, ...] = ("validator", "nominator"),
+                         min_stake_weight: float = 0.0,
+                         force: bool = False) -> List[TraderCandidate]:
+        """Rank the on-chain coldkey universe by stake and return the top n.
+
+        One get_delegates() walk (~30s) yields the whole set; the result is
+        cached for UNIVERSE_TTL_SEC because the delegate set barely moves.
+        """
+        universe = self._trader_universe(force=force)
+        out: List[TraderCandidate] = []
+        for c in universe:
+            if c.kind not in kinds or c.stake_weight < min_stake_weight:
+                continue
+            # Rank is the position in what was actually asked for, so a
+            # validators-only call ranks 1..n by delegate stake. Copied, not
+            # mutated — the universe list is cached and shared.
+            out.append(replace(c, rank=len(out) + 1))
+            if len(out) >= n:
+                break
+        return out
+
+    def universe_size(self, force: bool = False) -> Dict[str, int]:
+        universe = self._trader_universe(force=force)
+        validators = sum(1 for c in universe if c.kind == "validator")
+        return {"total": len(universe), "validators": validators,
+                "nominators": len(universe) - validators}
+
+    def _trader_universe(self, force: bool = False) -> List[TraderCandidate]:
+        with self._universe_lock:
+            cached = self._universe_cache
+            if cached and not force and time.time() - cached[0] < UNIVERSE_TTL_SEC:
+                return cached[1]
+
+            def _tao(x):
+                return float(getattr(x, "tao", x) or 0)
+
+            def _sum_stake(stake) -> Tuple[float, int]:
+                """(Σ stake across subnets, #subnets) for a delegate/nominator."""
+                if isinstance(stake, dict):
+                    vals = list(stake.values())
+                    return sum(_tao(v) for v in vals), len(vals)
+                return _tao(stake), 1
+
+            delegates = self._with_failover(lambda: self.sub.get_delegates()) or []
+
+            owners: Dict[str, TraderCandidate] = {}
+            noms: Dict[str, TraderCandidate] = {}
+            for d in delegates:
+                weight, subnets = _sum_stake(d.total_stake)
+                cur = owners.get(d.owner_ss58)
+                if cur is None:
+                    owners[d.owner_ss58] = TraderCandidate(
+                        ss58=d.owner_ss58, kind="validator",
+                        stake_weight=weight, subnets=subnets,
+                        hotkey=d.hotkey_ss58)
+                else:
+                    cur.stake_weight += weight
+                    cur.subnets = max(cur.subnets, subnets)
+
+                for ck, stake in (d.nominators or {}).items():
+                    w, sn = _sum_stake(stake)
+                    cur = noms.get(ck)
+                    if cur is None:
+                        noms[ck] = TraderCandidate(ss58=ck, kind="nominator",
+                                                   stake_weight=w, subnets=sn)
+                    else:
+                        cur.stake_weight += w
+                        cur.subnets = max(cur.subnets, sn)
+
+            # A delegate owner is also listed as its own nominator; the
+            # validator entry wins so the leaderboard never doubles it up.
+            for ss58 in owners:
+                noms.pop(ss58, None)
+
+            universe = sorted(list(owners.values()) + list(noms.values()),
+                              key=lambda c: c.stake_weight, reverse=True)
+            for i, c in enumerate(universe):
+                c.rank = i + 1
+            self._universe_cache = (time.time(), universe)
+            log.info("trader universe: %d coldkeys (%d validators, %d nominators)",
+                     len(universe), len(owners), len(noms))
+            return universe
+
     # ── balances ─────────────────────────────────────────────────────
 
     def get_balance(self, ss58: str) -> float:
@@ -268,30 +522,32 @@ class SubtensorClient:
 
     # ── staking operations ───────────────────────────────────────────
 
-    def stake(self, wallet: bt.wallet, hotkey_ss58: str,
+    def stake(self, wallet: bt.Wallet, hotkey_ss58: str,
               netuid: int, amount_tao: float) -> Optional[str]:
         """Stake TAO into a subnet. Returns success flag."""
         try:
-            result = self.sub.add_stake(
-                wallet=wallet,
-                hotkey_ss58=hotkey_ss58,
-                amount=bt.Balance.from_tao(amount_tao),
-                netuid=netuid,
-            )
+            with self._lock:
+                result = self.sub.add_stake(
+                    wallet=wallet,
+                    hotkey_ss58=hotkey_ss58,
+                    amount=bt.Balance.from_tao(amount_tao),
+                    netuid=netuid,
+                )
             return "ok" if result else None
         except Exception as e:
             raise RuntimeError(f"stake failed: {e}")
 
-    def unstake(self, wallet: bt.wallet, hotkey_ss58: str,
+    def unstake(self, wallet: bt.Wallet, hotkey_ss58: str,
                 netuid: int, amount_tao: float) -> Optional[str]:
         """Unstake from a subnet. Returns success flag."""
         try:
-            result = self.sub.unstake(
-                wallet=wallet,
-                hotkey_ss58=hotkey_ss58,
-                amount=bt.Balance.from_tao(amount_tao),
-                netuid=netuid,
-            )
+            with self._lock:
+                result = self.sub.unstake(
+                    wallet=wallet,
+                    hotkey_ss58=hotkey_ss58,
+                    amount=bt.Balance.from_tao(amount_tao),
+                    netuid=netuid,
+                )
             return "ok" if result else None
         except Exception as e:
             raise RuntimeError(f"unstake failed: {e}")

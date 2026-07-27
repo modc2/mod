@@ -17,9 +17,9 @@ RUN npm install -g @anthropic-ai/claude-code \
 # Build Rust API (uses vendored deps — no network needed)
 WORKDIR /app
 COPY src/api/ /app/src/api/
-ENV OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
-ENV OPENSSL_INCLUDE_DIR=/usr/include
-RUN cd /app/src/api && cargo build --release \
+RUN cd /app/src/api \
+    && export OPENSSL_LIB_DIR=/usr/lib/$(uname -m)-linux-gnu OPENSSL_INCLUDE_DIR=/usr/include \
+    && cargo build --release \
     && mkdir -p /app/bin \
     && cp target/release/claude-jobs /app/bin/claude-jobs \
     && rm -rf target vendor
