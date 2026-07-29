@@ -806,6 +806,8 @@ export default function Home() {
   const [showRepos, setShowRepos] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [moduleFilter, setModuleFilter] = useState<string | null>(null);
+  const [showModFilterMenu, setShowModFilterMenu] = useState(false);
   const [showModuleOptions, setShowModuleOptions] = useState(false);
   const [moduleName, setModuleName] = useState("");
   const [creationMode, setCreationMode] = useState<"edit" | "fork" | "new">("edit");
@@ -1278,6 +1280,7 @@ export default function Home() {
 
   const moduleDropdownRef = useRef<HTMLDivElement>(null);
   const inlineModuleRef = useRef<HTMLDivElement>(null);
+  const modFilterRef = useRef<HTMLDivElement>(null);
   const headerModuleRef = useRef<HTMLDivElement>(null);
   const [showInlineModuleDropdown, setShowInlineModuleDropdown] = useState(false);
   const [showHeaderModuleDropdown, setShowHeaderModuleDropdown] = useState(false);
@@ -4978,6 +4981,9 @@ export default function Home() {
       if (inlineModuleRef.current && !inlineModuleRef.current.contains(e.target as Node)) {
         setShowInlineModuleDropdown(false);
       }
+      if (modFilterRef.current && !modFilterRef.current.contains(e.target as Node)) {
+        setShowModFilterMenu(false);
+      }
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
         setProfileMenuOpen(false);
       }
@@ -4986,10 +4992,23 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Filter jobs based on search query and status
+  const jobModule = (job: Job) =>
+    (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "claude";
+
+  // Distinct modules across all jobs, busiest first — feeds the mod filter dropdown
+  const taskModules = (() => {
+    const counts = new Map<string, number>();
+    for (const j of jobs) counts.set(jobModule(j), (counts.get(jobModule(j)) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  })();
+
+  // Filter jobs based on search query, status and module
   const filteredJobs = jobs.filter((job) => {
     // Status filter
     if (statusFilter && job.status !== statusFilter) return false;
+
+    // Module filter
+    if (moduleFilter && jobModule(job) !== moduleFilter) return false;
 
     // Search query filter
     if (!searchQuery.trim()) return true;
@@ -7171,7 +7190,8 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesModule = !moduleFilter || jobModule(j) === moduleFilter;
+      return matchesSearch && matchesStatus && matchesModule;
     });
     // Active work floats to the top: running, then queued, then everything
     // else newest-first — opening TASKS answers "what's running right now?".
@@ -7632,6 +7652,55 @@ export default function Home() {
                   className="flex-1 min-w-0 px-1 py-0.5 text-[11.5px] border-none bg-transparent focus:outline-none placeholder:opacity-30"
                   style={{ color: "var(--text-primary)", boxShadow: "none" }}
                 />
+                {/* Module filter — narrow the list to one mod's tasks */}
+                {taskModules.length > 1 && (
+                  <div ref={modFilterRef} className="relative shrink-0">
+                    <button
+                      onClick={() => setShowModFilterMenu((v) => !v)}
+                      className="text-[10px] font-mono px-2 py-[2px] rounded-full cursor-pointer flex items-center gap-1"
+                      style={{
+                        color: "var(--crt-amber)",
+                        opacity: moduleFilter ? 1 : 0.55,
+                        background: moduleFilter ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "transparent",
+                        border: `1px solid ${moduleFilter ? "color-mix(in srgb, var(--crt-amber) 45%, transparent)" : "transparent"}`,
+                        transition: "opacity 150ms ease, background 150ms ease, border-color 150ms ease",
+                      }}
+                      title={moduleFilter ? `Showing ${moduleFilter} tasks — click to change` : "Filter tasks by module"}
+                    >
+                      ◈ {moduleFilter || "all mods"}
+                      <span className="text-[8px] opacity-60">▾</span>
+                    </button>
+                    {showModFilterMenu && (
+                      <div
+                        className="absolute right-0 top-full mt-1 z-30 min-w-[160px] max-h-[280px] overflow-y-auto rounded-lg shadow-xl"
+                        style={{ background: "var(--bg-primary)", border: `1px solid ${subtleBorder}` }}
+                      >
+                        <button
+                          onClick={() => { setModuleFilter(null); setShowModFilterMenu(false); }}
+                          className="w-full px-2.5 py-1.5 text-left text-[10.5px] font-mono flex items-center justify-between gap-3 hover:bg-amber-400/10 transition-colors"
+                          style={{ color: moduleFilter ? "var(--text-secondary)" : "var(--crt-amber)" }}
+                        >
+                          <span>all mods</span>
+                          <span style={{ opacity: 0.5 }}>{jobs.length}</span>
+                        </button>
+                        {taskModules.map(([mod, count]) => (
+                          <button
+                            key={mod}
+                            onClick={() => { setModuleFilter(mod === moduleFilter ? null : mod); setShowModFilterMenu(false); }}
+                            className="w-full px-2.5 py-1.5 text-left text-[10.5px] font-mono flex items-center justify-between gap-3 hover:bg-amber-400/10 transition-colors"
+                            style={{
+                              color: mod === moduleFilter ? "var(--crt-amber)" : "var(--text-secondary)",
+                              background: mod === moduleFilter ? "color-mix(in srgb, var(--crt-amber) 8%, transparent)" : "transparent",
+                            }}
+                          >
+                            <span className="truncate">◈ {mod}</span>
+                            <span className="shrink-0" style={{ opacity: 0.5 }}>{count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-1 shrink-0 items-center">
                   {["running", "pending", "completed", "failed"].map((status) => {
                     const count = filteredJobs.filter(j => j.status === status).length;
@@ -7715,9 +7784,10 @@ export default function Home() {
                               {modelLabel(job.model)}
                             </span>
                             <span
-                              className="task-chip font-mono"
+                              className="task-chip font-mono cursor-pointer hover:underline"
                               style={{ "--chip-accent": "var(--crt-amber)" } as React.CSSProperties}
-                              title={job.work_dir || "claude"}
+                              title={`${job.work_dir || "claude"} — click to filter tasks to this mod`}
+                              onClick={(e) => { e.stopPropagation(); setModuleFilter(moduleName === moduleFilter ? null : moduleName); }}
                             >
                               ◈ {moduleName}
                             </span>
