@@ -132,6 +132,13 @@ const PhoneIcon = () => (
   </svg>
 );
 
+const SearchIcon = () => (
+  <svg className="search-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden>
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M15.5 15.5 21 21" />
+  </svg>
+);
+
 const PowerIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
     <path d="M12 3v8" />
@@ -517,58 +524,125 @@ export default function Page() {
 
   return (
     <div className="wrap">
-      <header className="header">
-        <div className="brand-block">
-          <div className="brand-row">
-            <span className="brand-mark"><LogoMark /></span>
-            <span className="brand">store</span>
-            <span
-              className={`svc-dot ${serviceStatus ? "up" : svcDown ? "down" : ""}`}
-              title={serviceStatus ? "service online" : svcDown ? "service unreachable" : "connecting…"}
-            />
-          </div>
-          <span className="brand-sub">
-            marketplace <i>·</i> private storage <i>·</i> timed sharing <i>·</i> pools <i>·</i> cid-agnostic
-          </span>
-        </div>
-        <div className="identity">
-          {!hasWallet && !token && (
-            <span className="id-chip idle">
-              <span className="dot warn" />
-              <span className="muted" style={{ fontSize: 12.5 }}>MetaMask not detected</span>
-            </span>
-          )}
-          {hasWallet && !token && (
-            <button className="primary" onClick={signIn} disabled={!!busy}>
-              <span className="btn-ico"><WalletIcon /></span> Sign in with wallet
-            </button>
-          )}
-          {token && address && (
-            <div className="id-chip">
-              <span className="id-avatar" style={identiconStyle(address)}>
-                <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
-              </span>
-              {me?.admin && <span className="pill admin">owner</span>}
-              {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
-              {!me?.admin && me?.via !== "bloctime" && me?.authorized && <span className="pill">member</span>}
-              {me && !me.authorized && <span className="pill private">view-only</span>}
-              <button
-                className="id-addr"
-                title={`${address} — click to copy`}
-                onClick={() => copyText(address, "hdr-addr")}
-              >
-                {copied === "hdr-addr" ? "✓ copied" : shortAddress(address)}
-              </button>
-              <span className="id-sep" />
-              <button className="ghost icon" onClick={startLinkPhone} disabled={!!busy} title="Link a phone — QR sign-in, no wallet needed">
-                <PhoneIcon />
-              </button>
-              <button className="ghost icon" onClick={signOut} title="Sign out">
-                <PowerIcon />
-              </button>
+      <header className="topbar">
+        <div className="topbar-row">
+          <div className="brand-block">
+            <div className="brand-row">
+              <span className="brand-mark"><LogoMark /></span>
+              <span className="brand">store</span>
+              <span
+                className={`svc-dot ${serviceStatus ? "up" : svcDown ? "down" : ""}`}
+                title={serviceStatus ? "service online" : svcDown ? "service unreachable" : "connecting…"}
+              />
             </div>
+            {/* the tagline is for visitors; once signed in that space becomes the search */}
+            {!token && (
+              <span className="brand-sub">
+                marketplace <i>·</i> private storage <i>·</i> timed sharing <i>·</i> pools <i>·</i> cid-agnostic
+              </span>
+            )}
+          </div>
+          {token && (
+            <CidSearch
+              token={token}
+              text={searchText}
+              setText={(s) => {
+                setSearchText(s);
+                setSemResults(null);
+              }}
+              objects={objects}
+              shared={sharedObjects}
+              onOpen={(o) => setContentFor(o)}
+              onInfo={setInfoFor}
+              onSemantic={() => {
+                setView("files");
+                runSemanticSearch();
+              }}
+              onSeeAll={() => setView("files")}
+            />
           )}
+          <div className="identity">
+            {!hasWallet && !token && (
+              <span className="id-chip idle">
+                <span className="dot warn" />
+                <span className="muted" style={{ fontSize: 12.5 }}>MetaMask not detected</span>
+              </span>
+            )}
+            {hasWallet && !token && (
+              <button className="primary" onClick={signIn} disabled={!!busy}>
+                <span className="btn-ico"><WalletIcon /></span> Sign in with wallet
+              </button>
+            )}
+            {token && address && (
+              <div className="id-chip">
+                <span className="id-avatar" style={identiconStyle(address)}>
+                  <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
+                </span>
+                {me?.admin && <span className="pill admin">owner</span>}
+                {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
+                {!me?.admin && me?.via !== "bloctime" && me?.authorized && <span className="pill">member</span>}
+                {me && !me.authorized && <span className="pill private">view-only</span>}
+                <button
+                  className="id-addr"
+                  title={`${address} — click to copy`}
+                  onClick={() => copyText(address, "hdr-addr")}
+                >
+                  {copied === "hdr-addr" ? "✓ copied" : shortAddress(address)}
+                </button>
+                <span className="id-sep" />
+                <button className="ghost icon" onClick={startLinkPhone} disabled={!!busy} title="Link a phone — QR sign-in, no wallet needed">
+                  <PhoneIcon />
+                </button>
+                <button className="ghost icon" onClick={signOut} title="Sign out">
+                  <PowerIcon />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* tabs live in the bar — they carry their own counts; storage sits on the right */}
+        {token && (
+          <nav className="navbar">
+            {(
+              [
+                ["market", "🛒 Market", null],
+                ["files", "Your objects", objects.length],
+                ["add", "＋ Add data", null],
+                ["shared", "Shared with you", sharedObjects.length],
+                ["pins", "Pins", pins.length],
+                ["pools", "Pools", pools.length],
+                ["backends", "🗄 Backends", bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
+              ] as [View, string, number | null][]
+            ).map(([v, label, n]) => (
+              <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
+                {label}
+                {n !== null && n > 0 && <span className="navtab-n">{n}</span>}
+              </button>
+            ))}
+            <span className="nav-gap" />
+            <button
+              className={`navtab storage ${view === "status" ? "active" : ""}`}
+              onClick={() => setView("status")}
+              title={
+                quota
+                  ? quota.unlimited
+                    ? `${fmtBytes(quota.used_bytes)} stored · unlimited (admin)`
+                    : `${fmtBytes(quota.used_bytes)} of ${fmtBytes(quota.limit_bytes)} used · ${fmtBytes(quota.remaining_bytes)} left`
+                  : "service status"
+              }
+            >
+              <span className={`nav-storage-n ${usedPct > 85 ? "hot" : ""}`}>
+                {quota ? fmtBytes(quota.used_bytes) : "Status"}
+              </span>
+              {quota && !quota.unlimited && (
+                <span className="nav-fuel">
+                  <span className={`nav-fuel-fill ${usedPct > 85 ? "hot" : ""}`} style={{ width: `${usedPct}%` }} />
+                </span>
+              )}
+            </button>
+          </nav>
+        )}
       </header>
 
       {busy && <div className="success-box">⟳ {busy}</div>}
@@ -599,49 +673,6 @@ export default function Page() {
           Signed in as <code>{address}</code> but not authorized — this store is gated to the mod owner and
           on-chain BlocTime holders. Hold BlocTime to gain access, or ask the owner to whitelist you.
         </div>
-      )}
-
-      {/* top nav — tabs carry their own counts; storage lives on the right */}
-      {token && (
-        <nav className="navbar">
-          {(
-            [
-              ["market", "🛒 Market", null],
-              ["files", "Your objects", objects.length],
-              ["add", "＋ Add data", null],
-              ["shared", "Shared with you", sharedObjects.length],
-              ["pins", "Pins", pins.length],
-              ["pools", "Pools", pools.length],
-              ["backends", "🗄 Backends", bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
-            ] as [View, string, number | null][]
-          ).map(([v, label, n]) => (
-            <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
-              {label}
-              {n !== null && n > 0 && <span className="navtab-n">{n}</span>}
-            </button>
-          ))}
-          <span className="nav-gap" />
-          <button
-            className={`navtab storage ${view === "status" ? "active" : ""}`}
-            onClick={() => setView("status")}
-            title={
-              quota
-                ? quota.unlimited
-                  ? `${fmtBytes(quota.used_bytes)} stored · unlimited (admin)`
-                  : `${fmtBytes(quota.used_bytes)} of ${fmtBytes(quota.limit_bytes)} used · ${fmtBytes(quota.remaining_bytes)} left`
-                : "service status"
-            }
-          >
-            <span className={`nav-storage-n ${usedPct > 85 ? "hot" : ""}`}>
-              {quota ? fmtBytes(quota.used_bytes) : "Status"}
-            </span>
-            {quota && !quota.unlimited && (
-              <span className="nav-fuel">
-                <span className={`nav-fuel-fill ${usedPct > 85 ? "hot" : ""}`} style={{ width: `${usedPct}%` }} />
-              </span>
-            )}
-          </button>
-        </nav>
       )}
 
       {/* terms of service gate */}
@@ -758,34 +789,19 @@ export default function Page() {
         </div>
       )}
 
-      {/* fetch by CID */}
-      {token && view === "files" && (
-        <FetchByCid token={token} onView={(cid) => setContentFor({ cid, backend: "" } as StoredObject)} onInfo={setInfoFor} />
-      )}
-
-      {/* your objects */}
+      {/* your objects — filtered live by the top-bar search */}
       {token && view === "files" && (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
             <h2 className="panel-title" style={{ margin: 0 }}>Your objects</h2>
-            <div className="row search-row">
-              <input
-                type="text"
-                placeholder="search cid / name…"
-                value={searchText}
-                onChange={(e) => {
-                  setSearchText(e.target.value);
-                  setSemResults(null);
-                }}
-                onKeyDown={(e) => e.key === "Enter" && runSemanticSearch()}
-              />
-              <button onClick={runSemanticSearch} disabled={!searchText.trim() || !!busy} title="Rank by semantic similarity (1-bit hash)">
-                🧠 semantic
-              </button>
-              {semResults && (
-                <button className="ghost" onClick={() => setSemResults(null)}>clear</button>
-              )}
-            </div>
+            {(searchText.trim() || semResults) && (
+              <div className="row search-row">
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {semResults ? "ranked by meaning for" : "filtered by"} “<span className="mono">{searchText.trim()}</span>”
+                </span>
+                <button className="ghost" onClick={() => { setSearchText(""); setSemResults(null); }}>clear</button>
+              </div>
+            )}
           </div>
           {semResults && <p className="muted hint" style={{ marginTop: 0 }}>Ranked by semantic similarity to “{searchText}”. Nearest first.</p>}
           {visibleObjects.length === 0 && <p className="muted">No matching objects.</p>}
@@ -1229,22 +1245,125 @@ function ObjectRow({
   );
 }
 
-/* ──────────────────────────── fetch by CID ──────────────────────────── */
+/* ──────────────────────────── top-bar CID search ──────────────────────────── */
 
-function FetchByCid({ token, onView, onInfo }: { token: string; onView: (cid: string) => void; onInfo: (cid: string) => void }) {
-  const [cid, setCid] = useState("");
-  const c = cid.trim();
+/**
+ * One search for everything addressable: it filters your own + shared objects as
+ * you type, and any string long enough to be a CID can be fetched straight from
+ * the network — the store is cid-agnostic, so an unknown CID is still openable.
+ * The text doubles as the "Your objects" filter, so the list follows along.
+ */
+function CidSearch({
+  token, text, setText, objects, shared, onOpen, onInfo, onSemantic, onSeeAll,
+}: {
+  token: string;
+  text: string;
+  setText: (s: string) => void;
+  objects: StoredObject[];
+  shared: StoredObject[];
+  onOpen: (o: StoredObject) => void;
+  onInfo: (cid: string) => void;
+  onSemantic: () => void;
+  onSeeAll: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const raw = text.trim();
+  const q = raw.toLowerCase();
+
+  const hits = useMemo(() => {
+    if (!q) return [];
+    const seen = new Set<string>();
+    return [...objects, ...shared].filter((o) => {
+      if (seen.has(o.cid)) return false;
+      if (!o.cid.toLowerCase().includes(q) && !(o.key || "").toLowerCase().includes(q)) return false;
+      seen.add(o.cid);
+      return true;
+    });
+  }, [objects, shared, q]);
+
+  const top = hits.slice(0, 6);
+  // Anything CID-shaped and not already an exact local hit can still be fetched.
+  const fetchable = raw.length >= 8 && !hits.some((o) => o.cid === raw);
+  const rows = top.length + (fetchable ? 1 : 0);
+
+  const openRow = (i: number) => {
+    if (i < top.length) onOpen(top[i]);
+    else if (fetchable) onOpen({ cid: raw, backend: "" } as StoredObject);
+    setOpen(false);
+  };
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") { setOpen(false); (e.target as HTMLInputElement).blur(); return; }
+    if (!rows) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHi((h) => (h + 1) % rows); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setOpen(true); setHi((h) => (h - 1 + rows) % rows); }
+    else if (e.key === "Enter") { e.preventDefault(); openRow(Math.min(hi, rows - 1)); }
+  };
+
   return (
-    <div className="panel">
-      <h2 className="panel-title">Fetch by CID</h2>
-      <div className="row">
-        <input type="text" placeholder="paste any CID (ipfs / arweave / external)…" value={cid} onChange={(e) => setCid(e.target.value)} style={{ flex: 1 }} />
-        <button onClick={() => c && onView(c)} disabled={!c}>view</button>
-        <button onClick={() => c && onInfo(c)} disabled={!c}>info</button>
-        <a className="btn-link" href={c ? api.getUrl(c, undefined, token) : undefined} target="_blank" rel="noreferrer" aria-disabled={!c}>
-          download
-        </a>
+    <div className="search-wrap">
+      <div className="search-field">
+        <SearchIcon />
+        <input
+          type="text"
+          placeholder="search cid or name…"
+          value={text}
+          onChange={(e) => { setText(e.target.value); setHi(0); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={onKey}
+          spellCheck={false}
+        />
+        {raw && (
+          <button className="search-x" onMouseDown={(e) => e.preventDefault()} onClick={() => setText("")} title="Clear">✕</button>
+        )}
       </div>
+
+      {open && raw && (
+        /* keep focus on the input so blur doesn't close the menu before the click lands */
+        <div className="search-menu" onMouseDown={(e) => e.preventDefault()}>
+          {top.map((o, i) => (
+            <button key={`${o.cid}-${o.backend}`} className={`search-hit ${i === hi ? "on" : ""}`} onClick={() => openRow(i)}>
+              <span className="search-hit-main">
+                <span className="search-hit-name">{o.key || "(unnamed)"}</span>
+                <span className="search-hit-cid mono">{o.cid}</span>
+              </span>
+              <span className="search-hit-meta">
+                {o.shared_via && <span className="pill">shared</span>}
+                {o.backend && <span className="muted">{o.backend}</span>}
+                <span className="muted">{fmtBytes(o.size)}</span>
+              </span>
+            </button>
+          ))}
+          {fetchable && (
+            <button className={`search-hit ${hi === top.length ? "on" : ""}`} onClick={() => openRow(top.length)}>
+              <span className="search-hit-main">
+                <span className="search-hit-name">Fetch this CID from the network</span>
+                <span className="search-hit-cid mono">{raw}</span>
+              </span>
+              <span className="search-hit-meta"><span className="muted">any backend</span></span>
+            </button>
+          )}
+          {!top.length && !fetchable && <div className="search-empty muted">Nothing matches “{raw}”.</div>}
+          <div className="search-foot">
+            {hits.length > 0 && (
+              <button className="ghost" onClick={() => { onSeeAll(); setOpen(false); }}>
+                Show {hits.length} in Your objects
+              </button>
+            )}
+            <button className="ghost" onClick={() => { onSemantic(); setOpen(false); }} title="Rank your objects by semantic similarity (1-bit hash)">
+              🧠 semantic
+            </button>
+            {fetchable && (
+              <>
+                <button className="ghost" onClick={() => { onInfo(raw); setOpen(false); }}>info</button>
+                <a className="btn-link" href={api.getUrl(raw, undefined, token)} target="_blank" rel="noreferrer">download</a>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
