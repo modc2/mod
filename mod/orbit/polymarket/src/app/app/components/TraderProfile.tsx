@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { TopTrader, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug } from "../lib/polymarket";
 import { shortAddress } from "@/lib/auth";
-import { PolymarketTrade, PolymarketPosition } from "../lib/types";
+import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../lib/types";
+import { tradeMatchesFilters, describeTradeFilters } from "../lib/tradeFilters";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
 // No recharts — pure SVG charts for reliability with any version.
@@ -17,21 +18,30 @@ interface Props {
   onToggleWatch: () => void;
   onBack: () => void;
   days?: number;
-  // Per-trader lookback override (null = following the global window; 0 = ALL
-  // history). When onDaysChange is provided the LOOKBACK pill row renders and
+  // Per-trader lookback override (null = following the global window).
+  // When onDaysChange is provided the LOOKBACK pill row renders and
   // clicking the active override pill toggles back to the global window.
   daysOverride?: number | null;
   globalDays?: number;
   onDaysChange?: (d: number | null) => void;
   searchFilter?: string;
   categoryFilter?: CategorySlug;
+  // Strat trade-filter handoff: when set, every trade on this page is gated
+  // through the copy engine's own tradeMatchesFilters — you see only the
+  // trades the originating strat would mirror. Cleared via the chip's ✕.
+  stratFilters?: TradeFilters | null;
+  stratFilterName?: string;
+  onClearStratFilters?: () => void;
   // Non-null when the trade-history sync failed (rate limit / outage). The
   // stats and tabs must not present 0 trades as a real answer in that case.
   tradesError?: string | null;
   onRetrySync?: () => void;
 }
 
-const LOOKBACK_PRESETS = [1, 3, 7, 14, 30, 60, 90, 0]; // 0 = ALL history
+// 30 is the ceiling — trade syncs never reach further back than
+// MAX_LOOKBACK_DAYS (lib/polymarket.ts), so longer windows would render
+// as silently incomplete data.
+const LOOKBACK_PRESETS = [1, 3, 7, 14, 30];
 
 type PosSort = "market" | "size" | "avgPrice" | "currentPrice" | "pnlUsd";
 type TradeSort = "timestamp" | "market" | "price" | "size" | "pnl";
@@ -118,6 +128,9 @@ export default function TraderProfile({
   onDaysChange,
   searchFilter = "",
   categoryFilter = "",
+  stratFilters = null,
+  stratFilterName = "",
+  onClearStratFilters,
   tradesError = null,
   onRetrySync,
 }: Props) {
@@ -227,17 +240,21 @@ export default function TraderProfile({
   const filteredTrades = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const local = tradeQuery.trim().toLowerCase();
-    if (!q && !local && !categoryFilter) return tradesInWindow;
+    if (!q && !local && !categoryFilter && !stratFilters) return tradesInWindow;
     return tradesInWindow.filter((t) => {
       if (q && !t.market.toLowerCase().includes(q)) return false;
       if (local && !t.market.toLowerCase().includes(local)) return false;
       if (categoryFilter && !matchMarketCategory(t.market, categoryFilter)) return false;
+      // Same gate the copy engine applies — incl. the default 60¢ BUY floor
+      // when the strat has no explicit price band.
+      if (stratFilters && !tradeMatchesFilters(t, stratFilters)) return false;
       return true;
     });
-  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter]);
+  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter, stratFilters]);
 
-  // Any trade-level filter active (TopBar search, local keyword, category)?
-  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter);
+  // Any trade-level filter active (TopBar search, local keyword, category,
+  // strat trade-filter handoff)?
+  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter || stratFilters);
 
   // Mark-to-market cumulative P&L, one point per trade, plus a final "NOW"
   // mark that revalues any still-open inventory at current position prices.
@@ -412,13 +429,17 @@ export default function TraderProfile({
   // matching markets.
   const filteredPositions = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
-    if (!q && !categoryFilter) return positions;
+    const stratCats = stratFilters?.categories ?? [];
+    if (!q && !categoryFilter && stratCats.length === 0) return positions;
     return positions.filter((p) => {
       if (q && !p.market.toLowerCase().includes(q)) return false;
       if (categoryFilter && !matchMarketCategory(p.market, categoryFilter)) return false;
+      // Positions have no side/price/size-of-fill, so only the strat filter's
+      // category dimension can gate them.
+      if (stratCats.length > 0 && !stratCats.some((c) => matchMarketCategory(p.market, c))) return false;
       return true;
     });
-  }, [positions, searchFilter, categoryFilter]);
+  }, [positions, searchFilter, categoryFilter, stratFilters]);
 
   const sortedPositions = useMemo(() => {
     return [...filteredPositions].sort((a, b) => {
@@ -531,7 +552,7 @@ export default function TraderProfile({
               <button
                 key={d}
                 onClick={() => onDaysChange(daysOverride === d ? null : d)}
-                title={d === 0 ? "All available history" : `Last ${d} days`}
+                title={`Last ${d} days`}
                 className={`px-2 py-1 border-2 text-[13px] font-mono tracking-wider transition-colors ${
                   active
                     ? daysOverride !== null
@@ -540,7 +561,7 @@ export default function TraderProfile({
                     : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
                 }`}
               >
-                {d === 0 ? "ALL" : `${d}D`}
+                {`${d}D`}
               </button>
             );
           })}
@@ -559,21 +580,21 @@ export default function TraderProfile({
               type="text"
               inputMode="numeric"
               value={customDays}
-              onChange={(e) => setCustomDays(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+              onChange={(e) => setCustomDays(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const n = parseInt(customDays, 10);
-                  if (Number.isFinite(n) && n > 0 && n <= 365) onDaysChange(n);
+                  if (Number.isFinite(n) && n > 0 && n <= 30) onDaysChange(n);
                   setCustomDays("");
                 }
               }}
               onBlur={() => {
                 const n = parseInt(customDays, 10);
-                if (Number.isFinite(n) && n > 0 && n <= 365) onDaysChange(n);
+                if (Number.isFinite(n) && n > 0 && n <= 30) onDaysChange(n);
                 setCustomDays("");
               }}
               placeholder="N"
-              title="Custom lookback in days (1–365) — Enter to apply"
+              title="Custom lookback in days (1–30) — Enter to apply"
               className="w-12 bg-transparent border-2 border-pixel-border px-1 py-1 text-[13px] font-mono text-pixel-white text-center placeholder:text-pixel-gray focus:border-pixel-white outline-none"
             />
             <span className="text-[13px] text-pixel-gray font-mono">D</span>
@@ -583,6 +604,37 @@ export default function TraderProfile({
               ? "SAVED FOR THIS TRADER"
               : `FOLLOWING GLOBAL${globalDays ? ` (${globalDays}D)` : ""}`}
           </span>
+        </div>
+      )}
+
+      {/* ── Strat trade-filter chip ──
+          Shown when the profile was opened from a strat's trader list with
+          active per-trade filters: everything below (stats, curve, tables)
+          is gated exactly like the copy engine gates live flow. ✕ reverts
+          to the trader's full history. */}
+      {stratFilters && (
+        <div className="pixel-panel p-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[13px] text-pixel-gray tracking-wider">
+            STRAT FILTER{stratFilterName ? ` — ${stratFilterName.toUpperCase()}` : ""}
+          </span>
+          <span className="border-2 border-pixel-white px-2 py-1 text-[13px] font-mono text-pixel-white">
+            {describeTradeFilters(stratFilters) || "defaults"}
+            {stratFilters.minPrice == null && stratFilters.maxPrice == null
+              ? " · entries ≥60¢ (default)"
+              : ""}
+          </span>
+          <span className="text-[12px] text-pixel-gray tracking-wider">
+            SHOWING ONLY TRADES THIS STRAT WOULD COPY
+          </span>
+          {onClearStratFilters && (
+            <button
+              onClick={onClearStratFilters}
+              className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
+              title="Clear the strat filter — show all trades"
+            >
+              ✕
+            </button>
+          )}
         </div>
       )}
 

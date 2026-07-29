@@ -323,7 +323,8 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     setFillsError(null);
     try {
       // Resolve the deposit wallet (where V2 trades actually land), then
-      // paginate its full activity history (cutoff 0 = all of it).
+      // paginate its activity history (cutoff 0 = as far back as the
+      // global MAX_LOOKBACK_DAYS ceiling allows).
       const info = await fetch(
         `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },

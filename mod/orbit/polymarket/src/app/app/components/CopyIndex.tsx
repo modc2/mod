@@ -3,8 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, CategorySlug } from "../lib/polymarket";
-import { LeaderboardPreset, loadPresets, savePresets } from "../lib/leaderboardPresets";
+import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
 import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT } from "../lib/strats/strat";
@@ -383,61 +382,60 @@ function AddTraderBar({ watchlist, onAdd }: { watchlist: string[]; onAdd: (addr:
 
   return (
     <div ref={wrapRef} className="relative">
-      <div className="flex items-center gap-2">
-        <span className="text-[12px] text-pixel-gray tracking-wider shrink-0">ADD TRADER</span>
-        <div className="relative flex-1">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
-            placeholder="0x... ADDRESS OR SEARCH NAME"
-            className="pixel-input-sm w-full font-mono text-[14px] pr-16"
-            spellCheck={false}
-          />
-          {searching && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-green-400 animate-pulse">...</span>
-          )}
-          {isAddress(input.trim()) && !alreadyAdded && (
-            <button
-              onClick={handleSubmit}
-              className="absolute right-1 top-1/2 -translate-y-1/2 pixel-btn text-[12px] px-2 py-0 border-green-400 text-green-400 hover:bg-green-400/10"
-            >
-              ADD
-            </button>
-          )}
-          {alreadyAdded && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-pixel-gray">ALREADY ADDED</span>
-          )}
-        </div>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-pixel-gray pointer-events-none select-none">⌕</span>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+          placeholder="Search traders by name — or paste a 0x address to add"
+          className="pixel-input-sm w-full font-mono text-[14px] pl-8 pr-24"
+          spellCheck={false}
+        />
+        {searching && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-green-400 animate-pulse">searching…</span>
+        )}
+        {isAddress(input.trim()) && !alreadyAdded && (
+          <button
+            onClick={handleSubmit}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 pixel-btn text-[12px] px-2.5 py-0.5 border-green-400 text-green-400 hover:bg-green-400/10"
+          >
+            + ADD
+          </button>
+        )}
+        {alreadyAdded && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-pixel-gray">ALREADY IN STRAT</span>
+        )}
       </div>
 
       {focused && results.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-1 pixel-panel border-2 border-pixel-border bg-pixel-black max-h-[200px] overflow-y-auto">
+        <div className="absolute z-50 left-0 right-0 mt-1.5 border border-pixel-border bg-pixel-black rounded-[var(--radius-sm)] shadow-xl shadow-black/50 max-h-[240px] overflow-y-auto">
           {results.map((t) => (
             <button
               key={t.address}
               onClick={() => handlePick(t.address)}
-              className="w-full flex items-center justify-between px-3 py-2 hover:bg-pixel-white/5 transition-colors text-left"
+              className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-green-400/[0.06] transition-colors text-left group/res"
             >
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-mono text-pixel-white">{shortAddress(t.address)}</span>
-                <span className={`text-[13px] font-mono ${t.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[14px] font-mono text-pixel-white truncate">{shortAddress(t.address)}</span>
+                <span className={`text-[13px] font-mono shrink-0 ${t.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
                   {formatPnl(t.pnl)}
                 </span>
               </div>
-              <div className="flex items-center gap-3 text-[12px] text-pixel-gray font-mono">
+              <div className="flex items-center gap-3 text-[12px] text-pixel-gray font-mono shrink-0">
                 <span>VOL {formatVolume(t.volume)}</span>
                 <span>{t.recentTrades || t.positions} trades</span>
+                <span className="text-green-400 opacity-0 group-hover/res:opacity-100 transition-opacity">+ ADD</span>
               </div>
             </button>
           ))}
         </div>
       )}
       {focused && coldCache && input.trim() && !isAddress(input.trim()) && (
-        <div className="absolute z-50 left-0 right-0 mt-1 pixel-panel border-2 border-pixel-border bg-pixel-black px-3 py-2">
-          <span className="text-[13px] text-pixel-gray">TRADER CACHE WARMING — PASTE 0x ADDRESS DIRECTLY</span>
+        <div className="absolute z-50 left-0 right-0 mt-1.5 border border-pixel-border bg-pixel-black rounded-[var(--radius-sm)] px-3 py-2">
+          <span className="text-[13px] text-pixel-gray">Trader cache is still warming — paste a 0x address to add directly.</span>
         </div>
       )}
     </div>
@@ -875,45 +873,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     minPerDay: browseMinPerDayRaw,
     marketQuery: browseMarketQuery,
     reloadKey: browseReloadKey,
-    setCategory: setBrowseCategory,
-    setDaysAgo: setBrowseDaysAgo,
-    setMinPerDay: setBrowseMinPerDay,
-    setMarketQuery: setBrowseMarketQuery,
   } = useFilters();
   const browseDays = Number(browseDaysAgo) > 0 ? Number(browseDaysAgo) : 7;
   const browseMinTradesPerDay = browseMinPerDayRaw !== "" && Number.isFinite(Number(browseMinPerDayRaw))
     ? Math.max(0, Number(browseMinPerDayRaw))
     : 0;
-
-  // ── Pinned leaderboard presets (named filter combos, e.g. "BTC ≥3/day") ──
-  const [presets, setPresets] = useState<LeaderboardPreset[]>([]);
-  useEffect(() => { setPresets(loadPresets()); }, []);
-  const applyPreset = (p: LeaderboardPreset) => {
-    setBrowseCategory(p.category as CategorySlug);
-    setBrowseMarketQuery(p.marketQuery);
-    setBrowseDaysAgo(p.daysAgo);
-    setBrowseMinPerDay(p.minPerDay);
-    setBrowseOpen(true);
-  };
-  const saveCurrentAsPreset = () => {
-    const name = (typeof window !== "undefined" ? window.prompt("Name this leaderboard (e.g. \"BTC ≥3/day\"):") : "")?.trim();
-    if (!name) return;
-    const next = [...presets, {
-      id: Date.now().toString(36),
-      name,
-      category: browseCategory,
-      marketQuery: browseMarketQuery,
-      daysAgo: browseDaysAgo,
-      minPerDay: browseMinPerDayRaw,
-    }];
-    setPresets(next);
-    savePresets(next);
-  };
-  const deletePreset = (id: string) => {
-    const next = presets.filter((p) => p.id !== id);
-    setPresets(next);
-    savePresets(next);
-  };
 
   // UTC clock tick
   useEffect(() => {
@@ -1375,13 +1339,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       setLoadedCount(0);
     }
 
-    const cutoffSec = Math.floor((Date.now() - 90 * 86400_000) / 1000);
+    const cutoffSec = Math.floor((Date.now() - 30 * 86400_000) / 1000);
     let done = 0;
     const promises = addresses.map(async (addr) => {
       try {
         // Silent refreshes ride the incremental path — fetches /activity
         // backwards from "now" until it hits a trade we've already seen,
-        // then merges. Avoids re-pulling the same 90-day history every 60s.
+        // then merges. Avoids re-pulling the same 30-day history every 60s.
         const existing = traderTradesRef.current.get(addr) || [];
         const tradesFetcher = silent && existing.length > 0
           ? fetchWalletTradesIncremental(addr, existing, cutoffSec)
@@ -1585,7 +1549,16 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   };
 
   const goToTrader = (addr: string) => {
-    router.push(`/traders/${addr}${filterQs ? `?${filterQs}` : ""}`);
+    // Hand the strat's semantic per-trade filters to the profile page (?tf=)
+    // so it opens showing exactly the slice of this trader's flow the strat
+    // would copy — not their whole history.
+    const qs = new URLSearchParams(filterQs);
+    if (tradeFiltersActive(tradeFilters)) {
+      qs.set("tf", JSON.stringify(tradeFilters));
+      if (activeIndex?.name) qs.set("tfn", activeIndex.name);
+    }
+    const s = qs.toString();
+    router.push(`/traders/${addr}${s ? `?${s}` : ""}`);
   };
 
 
@@ -2804,13 +2777,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           </div>
           {/* ── TRADERS — browse/add bar + watchlist rows ── */}
           <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
-            {/* Browse Traders + add bar — one collapsible unit: the browse
-                toggle is the bar's header with the ADD TRADER bar directly
-                below it inside the same div, so expanding/contracting the
-                bar shows/hides the whole trader-picking UI (add bar,
-                pinned leaderboards, leaderboard browser) together.
-                Clicking a leaderboard trader toggles them in/out of the
-                active strat. */}
+            {/* Browse Traders — one collapsible unit: the toggle is the
+                header, with the search/add bar and leaderboard browser
+                directly below it inside the same div so the whole
+                trader-picking UI folds away together. Clicking a
+                leaderboard trader toggles them in/out of the active strat. */}
             <div className="border border-pixel-border/60 rounded-[var(--radius-sm)]">
               <button
                 onClick={() => setBrowseOpen((v) => !v)}
@@ -2825,7 +2796,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     Browse Traders
                   </span>
                   <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                    add by address · leaderboard · click a trader to add
+                    search, or click a leaderboard trader to add
                   </span>
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
@@ -2842,42 +2813,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 </span>
               </button>
               {browseOpen && (
-                <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3">
-                  {/* ADD TRADER bar — lives under the browse header inside the
-                      same collapsible so both fold away together. */}
-                  <div className="pb-3">
-                    <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
-                  </div>
-                  {/* Pinned leaderboards — named filter combos (e.g. "BTC ≥3/day")
-                      that auto-refresh hourly (FiltersContext's reloadKey timer).
-                      Click to apply, × to unpin. */}
-                  <div className="flex items-center gap-1.5 flex-wrap pb-3 mb-3 border-b border-pixel-border/40">
-                    <span className="text-[10px] text-pixel-gray tracking-[0.15em] mr-1">PINNED</span>
-                    {presets.map((p) => (
-                      <span
-                        key={p.id}
-                        className="pixel-btn text-[11px] pl-2 pr-1 py-0.5 flex items-center gap-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                      >
-                        <button onClick={() => applyPreset(p)} title="Apply this leaderboard's filters">
-                          {p.name}
-                        </button>
-                        <button
-                          onClick={() => deletePreset(p.id)}
-                          className="text-pixel-gray/60 hover:text-red-400"
-                          title="Unpin"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <button
-                      onClick={saveCurrentAsPreset}
-                      className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                      title="Pin the current filters (category / market / min trades-per-day / window) as a named leaderboard — refreshes hourly"
-                    >
-                      + PIN CURRENT
-                    </button>
-                  </div>
+                <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3 space-y-3">
+                  {/* Search-first add bar — lives under the browse header inside
+                      the same collapsible so both fold away together. */}
+                  <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
                   <CopyTrading
                     days={browseDays}
                     minTradesPerDay={browseMinTradesPerDay}

@@ -38,7 +38,7 @@ export function setCache<T>(address: string, dataType: string, data: T): void {
   } catch {
     // localStorage might be full — try to free space and retry once
     try {
-      pruneOldCache(2 * HOUR_MS); // aggressive prune: 2h
+      pruneOldCache(HOUR_MS); // aggressive prune: anything not current-hour
       const key = hourKey(address, dataType);
       localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
     } catch {
@@ -151,7 +151,10 @@ export function setMarketCache(cacheKey: string, data: unknown[]): void {
 
 // ── Pruning ────────────────────────────────────────────────────
 
-function pruneOldCache(maxAge: number = 24 * HOUR_MS): void {
+// Reads only ever hit the CURRENT hour's key (hourKey embeds the hour), so
+// any entry older than ~1h is unreachable dead weight on a shared-origin
+// quota. 2h default leaves slack around the hour boundary.
+function pruneOldCache(maxAge: number = 2 * HOUR_MS): void {
   if (typeof window === "undefined") return;
   const cutoff = Date.now() - maxAge;
   const keysToRemove: string[] = [];

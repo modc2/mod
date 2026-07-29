@@ -713,6 +713,14 @@ export async function fetchTopTraders(
 //
 // onProgress fires after each page so the UI can stream partial results
 // and show how far back the data has reached.
+
+// Hard ceiling on how far back ANY trade sync reaches. Every caller's
+// untilTs is clamped to this — passing 0 ("all history") now means "the
+// last 30 days", not "back to the trader's first trade" (which was pulling
+// 100+ days of pages for old accounts and blowing the shared-origin
+// localStorage quota, so nothing got cached at all).
+export const MAX_LOOKBACK_DAYS = 30;
+
 export interface FetchTradesProgress {
   pages: number;
   totalTrades: number;
@@ -727,10 +735,19 @@ export async function fetchWalletTradesUntil(
   onProgress?: (info: FetchTradesProgress) => void,
   maxTrades = 10000,
 ): Promise<PolymarketTrade[]> {
+  // Clamp the window to the global ceiling — see MAX_LOOKBACK_DAYS.
+  const minUntilTs =
+    Math.floor(Date.now() / 1000) - MAX_LOOKBACK_DAYS * 86400;
+  if (untilTs < minUntilTs) untilTs = minUntilTs;
+
   // ── Check hourly cache first ──
+  // An empty cached array is a real answer ("no trades in the window",
+  // cached below on a clean fetch) — honoring it avoids refetching
+  // inactive traders on every visit. Errors never land in the cache;
+  // polyApi throws on any non-200.
   const cached = getTradeCache(address);
-  if (cached && cached.length > 0) {
-    let oldest = cached[0].timestamp;
+  if (cached) {
+    let oldest = cached.length > 0 ? cached[0].timestamp : 0;
     for (let i = 1; i < cached.length; i++) {
       if (cached[i].timestamp < oldest) oldest = cached[i].timestamp;
     }
@@ -819,11 +836,13 @@ export async function fetchWalletTradesUntil(
   }
 
   // ── Store in hourly cache + build CID index ──
-  if (out.length > 0) {
-    setTradeCache(address, out);
-  }
+  // Drop the last page's spillover past the 30-day ceiling before caching
+  // so the stored array (and its per-CID index copies) stays bounded.
+  // Empty results are cached too — see the cache-first read above.
+  const trimmed = out.filter((t) => t.timestamp >= minUntilTs * 1000);
+  setTradeCache(address, trimmed);
 
-  return out;
+  return trimmed;
 }
 
 // Parse a single /activity row into a PolymarketTrade or null. Shared by the
@@ -918,8 +937,12 @@ export async function fetchWalletTradesIncremental(
   if (fresh.length === 0) return existing;
 
   // Merge + persist. Newest-first ordering matches what the rest of the app
-  // expects from the bulk fetch path.
-  const merged = [...fresh, ...existing].sort((a, b) => b.timestamp - a.timestamp);
+  // expects from the bulk fetch path. Trades that have aged past the global
+  // 30-day ceiling fall off here so the cache can't grow without bound.
+  const floorMs = Date.now() - MAX_LOOKBACK_DAYS * 86400_000;
+  const merged = [...fresh, ...existing]
+    .filter((t) => t.timestamp >= floorMs)
+    .sort((a, b) => b.timestamp - a.timestamp);
   setTradeCache(address, merged);
   return merged;
 }

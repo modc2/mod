@@ -3,9 +3,9 @@
 import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  fetchWalletTradesUntil, fetchPositions, TopTrader,
+  fetchWalletTradesUntil, fetchPositions, TopTrader, MAX_LOOKBACK_DAYS,
 } from "../../lib/polymarket";
-import { PolymarketTrade, PolymarketPosition } from "../../lib/types";
+import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../../lib/types";
 import TraderProfile from "../../components/TraderProfile";
 import TopBar from "../../components/TopBar";
 import { useFilters, useUrlSync } from "../../context/FiltersContext";
@@ -17,7 +17,7 @@ interface FetchProgress {
   done: boolean;
 }
 
-// Per-trader lookback overrides: { [address]: days } with 0 = all history.
+// Per-trader lookback overrides: { [address]: days }, 1..MAX_LOOKBACK_DAYS.
 // Shared-origin localStorage — keep the map pruned and every write try/caught.
 const TRADER_DAYS_KEY = "poly8bit_trader_days";
 
@@ -35,7 +35,10 @@ function TraderPageInner() {
   const params = useParams();
   const router = useRouter();
   const { daysAgo, setSearch, category, reloadKey } = useFilters();
-  const globalDays = Number(daysAgo) > 0 ? Number(daysAgo) : 7;
+  const globalDays = Math.min(
+    Number(daysAgo) > 0 ? Number(daysAgo) : 7,
+    MAX_LOOKBACK_DAYS,
+  );
 
   // Clear the global search on mount — this page has no search box (trade
   // filtering is click-a-market instead), so a query carried over from the
@@ -52,12 +55,38 @@ function TraderPageInner() {
     Array.isArray(params.address) ? params.address[0] : params.address || "",
   ).toLowerCase();
 
+  // Strat trade-filter handoff (?tf= from the strat editor's trader list):
+  // when present, the profile gates every trade through the SAME per-trade
+  // filter the copy engine applies, so you see only the flow the strat would
+  // mirror. Read ONCE into state — useUrlSync rewrites the URL from filter
+  // state and would silently drop the param on the first filter change.
+  const [stratFilters, setStratFilters] = useState<TradeFilters | null>(null);
+  const [stratFilterName, setStratFilterName] = useState("");
+  useEffect(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const raw = qs.get("tf");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as TradeFilters;
+      if (parsed && typeof parsed === "object") {
+        setStratFilters(parsed);
+        setStratFilterName(qs.get("tfn") || "");
+      }
+    } catch {}
+  }, [address]);
+
   // Per-trader lookback override — null = follow the global window. Hydrated
-  // post-mount (localStorage) to avoid SSR hydration mismatch; 0 = ALL history.
+  // post-mount (localStorage) to avoid SSR hydration mismatch. Overrides
+  // saved before the 30-day cap existed (0 = ALL, or 60/90) fall back to
+  // the global window instead of promising data we no longer sync.
   const [daysOverride, setDaysOverride] = useState<number | null>(null);
   useEffect(() => {
     const v = loadTraderDaysMap()[address];
-    setDaysOverride(typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+    setDaysOverride(
+      typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= MAX_LOOKBACK_DAYS
+        ? v
+        : null,
+    );
   }, [address]);
 
   const days = daysOverride ?? globalDays;
@@ -119,9 +148,12 @@ function TraderPageInner() {
     setLoading(true);
     setTradesError(null);
 
-    // cutoffSec=0 → fetch ALL available history (not just the window).
-    // The display window (days) only controls which trades are shown.
-    const cutoffSec = 0;
+    // Sync back at most MAX_LOOKBACK_DAYS (30) — old accounts have 100+
+    // days of pages and pulling them all blew the localStorage quota, so
+    // the sync was never cached. The display window (days) only controls
+    // which of the synced trades are shown.
+    const cutoffSec =
+      Math.floor(Date.now() / 1000) - MAX_LOOKBACK_DAYS * 86400;
 
     // Fetch trades — streams partial results via callback
     fetchWalletTradesUntil(address, cutoffSec, (info) => {
@@ -253,6 +285,12 @@ function TraderPageInner() {
           globalDays={globalDays}
           onDaysChange={changeDays}
           categoryFilter={category}
+          stratFilters={stratFilters}
+          stratFilterName={stratFilterName}
+          onClearStratFilters={() => {
+            setStratFilters(null);
+            setStratFilterName("");
+          }}
         />
       </div>
     </div>
