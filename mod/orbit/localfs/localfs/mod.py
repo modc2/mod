@@ -2,7 +2,8 @@
 localfs — orbit module wrapping the content-addressable local filesystem.
 
 Delegates to the LocalFS implementation under mod/core/store/src/localfs and
-exposes the usual orbit lifecycle (info, serve, kill, status).
+exposes the usual orbit lifecycle (info, serve, kill, status), plus an
+explorer index (ls/kinds/block/grep) for browsing the block store.
 """
 
 import json
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import mod as m
+
+from .explorer import Explorer
 
 # Reuse the canonical LocalFS implementation that lives under mod/core/store.
 # We load it via importlib under a unique module name to avoid colliding with
@@ -34,10 +37,19 @@ class Mod:
     PIDFILE = "/tmp/localfs/served.json"
     LOG_DIR = "/tmp/localfs"
 
-    def __init__(self, storage_path: Optional[str] = None):
+    def __init__(self, storage_path: Optional[str] = None, index_path: Optional[str] = None):
         self._cfg_path = os.path.join(self.path, "config.json")
         self._cfg = self._load_config()
         self.fs = LocalFS(storage_path=storage_path or self._cfg.get("storage_path"))
+        self._index_path = index_path
+        self._explorer: Optional[Explorer] = None
+
+    @property
+    def explorer(self) -> Explorer:
+        """Lazily built — opening the index costs nothing until you browse."""
+        if self._explorer is None:
+            self._explorer = Explorer(self.fs, db_path=self._index_path)
+        return self._explorer
 
     def _load_config(self) -> dict:
         if not os.path.exists(self._cfg_path):
@@ -93,13 +105,19 @@ class Mod:
         return self.iscid(cid)
 
     def rm(self, cid: str) -> Dict[str, Any]:
-        return self.fs.rm(cid)
+        out = self.fs.rm(cid)
+        self.explorer.forget(cid)
+        return out
 
     def pin(self, cid: str) -> Dict[str, Any]:
-        return self.fs.pin_add(cid)
+        out = self.fs.pin_add(cid)
+        self.explorer.set_pinned(cid, True)
+        return out
 
     def unpin(self, cid: str) -> Dict[str, Any]:
-        return self.fs.pin_rm(cid)
+        out = self.fs.pin_rm(cid)
+        self.explorer.set_pinned(cid, False)
+        return out
 
     def pins(self, cid: Optional[str] = None) -> Dict[str, Any]:
         return self.fs.pins(cid)
@@ -108,10 +126,44 @@ class Mod:
         return self.fs.stats()
 
     def gc(self, aggressive: bool = False) -> Dict[str, Any]:
-        return self.fs.gc(aggressive=aggressive)
+        out = self.fs.gc(aggressive=aggressive)
+        for cid in out.get("Removed", []):
+            self.explorer.forget(cid)
+        return out
 
     def test(self) -> bool:
         return self.fs.test()
+
+    # ── Explorer (indexed browsing) ───────────────────────────────────
+
+    def ls(self, q: Optional[str] = None, kind: Optional[str] = None,
+           pinned: Optional[bool] = None, sort: str = "mtime", order: str = "desc",
+           limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """List indexed blocks — filtered, sorted, paginated."""
+        return self.explorer.ls(q=q, kind=kind, pinned=pinned, sort=sort,
+                                order=order, limit=limit, offset=offset)
+
+    def kinds(self) -> list:
+        """Block counts by detected content kind."""
+        return self.explorer.kinds()
+
+    def block(self, cid: str) -> Dict[str, Any]:
+        """Everything the explorer knows about one CID, content included."""
+        return self.explorer.block(cid)
+
+    def grep(self, q: str, limit: int = 50) -> Dict[str, Any]:
+        """Search inside block contents (slower than `ls(q=...)`)."""
+        return self.explorer.grep(q, limit=limit)
+
+    def index(self) -> Dict[str, Any]:
+        """Index status: how many blocks are known, and when we last looked."""
+        return self.explorer.status()
+
+    def reindex(self, full: bool = False, background: bool = False) -> Dict[str, Any]:
+        """Bring the index up to date with the block store."""
+        if background:
+            return self.explorer.refresh_async(full=full)
+        return self.explorer.refresh(full=full)
 
     # ── Serve / Kill ──────────────────────────────────────────────────
 
