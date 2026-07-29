@@ -134,10 +134,46 @@ m store/stop                      # pm2 stop
 | POST   | `/market/acquire` | ✓ | get a listed item — free, or **hold** ≥ `price_bloc` BlocTime |
 | POST   | `/market/like` | ✓  | toggle a like (one per wallet) |
 | GET    | `/market/mine` | ✓  | my listings + my acquisitions |
+| POST   | `/mcp`       | opt  | Model Context Protocol tool server (JSON-RPC 2.0) — see **MCP** below |
 
 `✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership;
 `+tos` = also requires a signed acceptance of the current terms of service;
 `opt` = optional token (anonymous allowed for public objects).
+
+## MCP
+
+The API doubles as a **Model Context Protocol** server (Streamable HTTP,
+plain-JSON responses — no SSE), so any MCP client (Claude, IDEs, agent
+frameworks) can drive the store as tools:
+
+- `POST /api/store/mcp` via the gateway, or `http://localhost:50152/mcp` direct
+- Auth: the same `Authorization: Bearer <mod protocol token>` header as the
+  REST API. Public tools work anonymously; authed tools return a clean
+  `isError` tool result (not an HTTP 401) when the token is missing/invalid.
+- `GET /mcp` → 405; notifications get an empty `202`.
+
+| Tool | Auth | What |
+|------|------|------|
+| `store_status` | — | service + backend status |
+| `store_market_browse` | — | browse the marketplace (`q`/`tag`/`seller`/`sort`/`free`) |
+| `store_terms` | — | current terms of service text + version |
+| `store_me` | ✓ | caller identity, quota, authorization + terms state |
+| `store_list` | ✓ | the caller's objects (optional `backend` filter) |
+| `store_search` | ✓ | substring (`q`) + semantic (`semantic_q`) search, `scope` mine/shared/all |
+| `store_get` | opt | preview object content by CID (`max_bytes` cap); public objects need no auth |
+| `store_object_info` | opt | full object profile incl. the CID links graph |
+| `store_put_text` | ✓ wl+tos | store a text/JSON payload (`name`, `text`, `backend`, `public`, `pool`) |
+| `store_share` | ✓ | timed read grant (`grantee`, `cid`, `ttl_seconds`) |
+| `store_pin` / `store_pins` | ✓ | pin a CID / list the caller's pins |
+| `store_pools` | ✓ | pools the caller owns or belongs to |
+
+```bash
+# handshake, then call a public tool
+curl -s localhost:50152/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+curl -s localhost:50152/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"store_market_browse","arguments":{"sort":"new"}}}'
+```
 
 ## Marketplace (listings · likes · BlocTime-priced access)
 

@@ -94,6 +94,9 @@ Endpoints
     GET  /onchain/bloctime        caller's BlocTime balance + holder flag
     POST /onchain/register        (owner) register store in the chain Registry
 
+  MCP (Model Context Protocol — api/mcp.py)
+    POST /mcp                     JSON-RPC 2.0 Streamable HTTP: store tools for LLM agents
+
 Access also honors on-chain BlocTime: a staked BlocTime holder is authorized to
 store as if whitelisted (config bloctime_gate, default on).
 
@@ -1456,3 +1459,10 @@ def root():
         'auth': 'mod-protocol',
         'endpoints': sorted(CONFIG.get('endpoints', {}).keys()),
     }
+
+
+# MCP (Model Context Protocol) over Streamable HTTP: POST /mcp exposes the
+# operations above as tools for LLM agents. Imported last so the router can
+# wrap every endpoint function already defined in this module.
+from api.mcp import router as mcp_router  # noqa: E402
+app.include_router(mcp_router)
