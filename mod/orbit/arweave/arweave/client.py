@@ -3,16 +3,16 @@ ArweaveClient — store and retrieve data on Arweave.
 
 Backends (auto-selected based on env / config):
   - Arweave gateway (https://arweave.net) for retrieval and tx info — always works.
-  - Optional `arweave-python-client` + wallet JSON for real uploads.
+  - `arweave-python-client` + wallet JWK for uploads.
   - Local SQLite index that tracks tx ids and metadata for easy listing.
 
-Without a configured wallet, `put` records a deterministic content hash so callers
-get consistent behaviour, but flags the entry as not-on-chain.
+Reads never need credentials. Uploads need a wallet JWK, read from
+$ARWEAVE_WALLET or ~/.mod/arweave/wallet.json (off-tree, never committed);
+without one `put` fails with needs_key rather than inventing a tx id.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -30,6 +30,9 @@ GATEWAY_FALLBACKS = [
     "https://g8way.io",
 ]
 
+# Wallet JWK lives off-tree with the other per-module secrets, never in config.
+WALLET_PATH = Path(os.path.expanduser("~/.mod/arweave/wallet.json"))
+
 
 class ArweaveClient:
     """Pragmatic Arweave client. Works without auth for reads; uploads need a wallet."""
@@ -41,7 +44,10 @@ class ArweaveClient:
         store_path: Optional[str] = None,
     ):
         self.gateway = (gateway or os.environ.get("ARWEAVE_GATEWAY", DEFAULT_GATEWAY)).rstrip("/")
-        self.wallet_path = wallet_path or os.environ.get("ARWEAVE_WALLET")
+        # Precedence: explicit arg > env > ~/.mod/arweave/wallet.json.
+        self.wallet_path = wallet_path or os.environ.get("ARWEAVE_WALLET") or (
+            str(WALLET_PATH) if WALLET_PATH.is_file() else None
+        )
 
         self.store_dir = Path(store_path or os.path.expanduser("~/.arweave-mod"))
         self.store_dir.mkdir(parents=True, exist_ok=True)
