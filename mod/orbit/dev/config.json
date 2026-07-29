@@ -91,7 +91,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmRHNcXJEdgptfvv2JFGMsHkNTPGbH2gfXKLZ7sGwYhsB5",
+    "schema": "QmfY5aXvVs3UKTXC44UQn6hEmGbdtSfb1hZBqL5ZWKfJ2D",
     "endpoints": {
         "/health": {
             "method": "GET",

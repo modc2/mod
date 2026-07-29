@@ -34,6 +34,6 @@
         "test"
     ],
     "backend": "chutes-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
-    "schema": "QmPuSTmu9NEN9We4U56V1q37KU1NZ459L7FnAFTqVcDNcr",
+    "schema": "QmR6Ky5sfthcjJLjR581JyYt2PiDztZAnFcsjpPw2aN8QX",
     "gateway_port": 50300
 }

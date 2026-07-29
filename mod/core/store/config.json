@@ -159,5 +159,5 @@
         "STORE_BLOCTIME_GATE": "Set 0/false to disable BlocTime-holder access (overrides config bloctime_gate)",
         "STORE_CHAIN_NETWORK": "Chain network for BlocTime/Registry (default: config chain_network / testnet)"
     },
-    "schema": "QmTqVFxZuxk7jTdE3uh8w58YNSaeP916rDDAT279HUdpdW"
+    "schema": "QmPJtd3MNvHnpVAaw22TNEA1LFLiFHHKC6R9hkz4Q1fPro"
 }

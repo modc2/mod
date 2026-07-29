@@ -26,5 +26,5 @@
         "LIGHTHOUSE_GATEWAY": "Override retrieval gateway (default https://gateway.lighthouse.storage)"
     },
     "credentials": "~/.mod/lighthouse/credentials.json (off-chain, never committed)",
-    "schema": "QmegLxzr8TPvs5wrC3uis61bxTTRg5EKKxGt2ocx3xK9Sj"
+    "schema": "QmeyNbTReWgML1EmMhBcQZDGZnjGmypdX7Z14R5ZkagG8G"
 }

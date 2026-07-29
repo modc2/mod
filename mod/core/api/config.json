@@ -1,5 +1,9 @@
 {
   "name": "api",
   "description": "mod api",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "urls": {
+    "api": "http://localhost:8000"
+  },
+  "port": 8000
 }
