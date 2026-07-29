@@ -308,6 +308,16 @@ select:focus {
   animation: lib-pop 0.16s ease-out;
 }
 
+/* dropdown menus (components/Select.tsx) — drop in from the trigger edge */
+@keyframes select-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.select-pop {
+  animation: select-pop 0.12s ease-out;
+}
+
 /* ── agent builder canvas ───────────────────────────────────────── */
 
 .builder-grid {

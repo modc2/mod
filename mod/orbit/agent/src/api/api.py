@@ -17,6 +17,15 @@ Endpoints:
     POST /prompts/import - install a shared prompt from its localfs CID
     GET  /memory       - memory notes        POST /memory   DELETE /memory/{id}
     POST /memory/import - install a shared memory note from its localfs CID
+    GET  /discover     - scan GitHub/npm/MCP/Glama/awesome-lists for skills (q/sources/kind)
+    GET  /discover/sources - the source catalog + GitHub token state
+    GET  /discover/item?id= - full record for one result (SKILL.md paths, readme)
+    GET  /discover/doc?id=  - preview the document an install would add
+    POST /discover/install  - install a scanned result into the library
+    POST /discover/token    - owner: store a GitHub token (lifts rate limits)
+    GET  /skills/installed  - external skills installed from the aggregator
+    POST /skills/import     - install an external skill from its CID
+    DELETE /skills/installed/{id} - uninstall one
     GET  /conversations - the caller's saved console conversations (localfs-pinned)
     POST /conversations - upsert a conversation  DELETE /conversations/{id}
     POST /conversations/import - restore a shared conversation from its CID
@@ -69,7 +78,7 @@ mod_root = os.path.abspath(os.path.join(module_root, '..', '..', '..'))  # mod f
 sys.path.insert(0, module_root)
 sys.path.insert(0, mod_root)
 
-app = FastAPI(title="Agent API", version="3.5.0", description="Autonomous coding agent API")
+app = FastAPI(title="Agent API", version="3.7.0", description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -96,6 +105,8 @@ class RunRequest(BaseModel):
     chain: Optional[List[dict]] = None
     prompt: Optional[str] = None          # system prompt override (library prompt or free text)
     memory_ids: Optional[List[str]] = None  # library memory note ids injected as context
+    skill_ids: Optional[List[str]] = None   # installed external skill ids injected as context
+    images: Optional[List[str]] = None      # pasted images (data: URLs) — needs a vision model
     key: Optional[str] = None
 
 class SkillRunRequest(BaseModel):
@@ -170,6 +181,19 @@ class MemoryImportRequest(BaseModel):
     cid: str
     key: Optional[str] = None
 
+class SkillInstallRequest(BaseModel):
+    id: str                               # discover result id, e.g. gh:owner/repo:skills/pdf
+    path: Optional[str] = None            # explicit SKILL.md path within the repo
+    key: Optional[str] = None
+
+class SkillImportRequest(BaseModel):
+    cid: str
+    key: Optional[str] = None
+
+class DiscoverTokenRequest(BaseModel):
+    token: str = ""                       # empty clears the stored token
+    key: Optional[str] = None
+
 class ConversationRequest(BaseModel):
     id: Optional[str] = None
     query: str = ""
@@ -241,11 +265,15 @@ MAX_TRACE = 60         # trimmed steps kept per task
 
 
 def _caller_address(key: Optional[str]) -> Optional[str]:
-    """Best-effort verified address for a caller token/key ('' -> None)."""
+    """Verified address for a caller token/key ('' -> None).
+
+    Verified because this address is what runs get billed to and what
+    conversations are filed under — an unsigned address claim is not enough.
+    """
     if not key:
         return None
     try:
-        addr = get_mod()._resolve_address(key)
+        addr = get_mod()._resolve_address(key, verified=True)
     except Exception:
         return None
     if isinstance(addr, str) and addr.startswith('0x') and len(addr) == 42:
@@ -353,7 +381,7 @@ def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "module": "agent", "version": "3.5.0"}
+    return {"status": "ok", "module": "agent", "version": app.version}
 
 @app.get("/config")
 def get_config():
@@ -609,7 +637,8 @@ def get_agent(name: str):
 
 @app.post("/agents")
 def create_agent(req: AgentCreateRequest):
-    """Create a new agent locally"""
+    """Create a new agent locally. Signed-in callers only — the agent is
+    filed under the address that made it."""
     mod = get_mod()
     try:
         # note: mod.forward('agents', action=...) collides with forward's own
@@ -620,12 +649,14 @@ def create_agent(req: AgentCreateRequest):
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
-    except (FileExistsError, PermissionError, ValueError) as e:
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (FileExistsError, ValueError) as e:
         return {"error": str(e)}
 
 @app.put("/agents/{name}")
 def update_agent(name: str, req: AgentUpdateRequest):
-    """Update a custom agent (built-ins are read-only — clone them instead)."""
+    """Update an agent. Its owner or the host — built-ins are host-only."""
     mod = get_mod()
     try:
         skills = None if req.clear_skills else (req.skills if req.skills is not None else ...)
@@ -634,16 +665,20 @@ def update_agent(name: str, req: AgentUpdateRequest):
             name=name, description=req.description, goal=req.goal,
             icon=req.icon, skills=skills, model=model, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
-    except (KeyError, PermissionError, ValueError) as e:
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (KeyError, ValueError) as e:
         return {"error": str(e)}
 
 @app.delete("/agents/{name}")
 def remove_agent(name: str, key: Optional[str] = None):
-    """Remove a local agent"""
+    """Remove an agent. Its owner or the host — built-ins are host-only."""
     mod = get_mod()
     try:
         return mod.agents.forward(action='remove', name=name, key=key)
-    except (KeyError, PermissionError) as e:
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
         return {"error": str(e)}
 
 @app.post("/agents/{name}/register")
@@ -671,14 +706,19 @@ def get_library(q: Optional[str] = None, kind: Optional[str] = None,
 
 @app.get("/prompts")
 def list_prompts():
-    return {"prompts": get_mod().library.prompts()}
+    """Prompts with their effective owner (unowned = owned by the host)."""
+    lib = get_mod().library
+    return {"prompts": [{**p, **lib.prompt_owner(p)} for p in lib.prompts()],
+            "host": lib.identity.host}
 
 @app.post("/prompts")
 def save_prompt(req: PromptRequest):
-    """Create or update a prompt (upsert by id)."""
+    """Create or update a prompt (upsert by id). Editing needs owner/host."""
     try:
         return get_mod().library.prompt_add(
-            req.name, req.text, req.description, req.tags, req.id)
+            req.name, req.text, req.description, req.tags, req.id, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
     except ValueError as e:
         return {"error": str(e)}
 
@@ -686,26 +726,36 @@ def save_prompt(req: PromptRequest):
 def import_prompt(req: PromptImportRequest):
     """Install a shared prompt from its localfs CID (QR / share path)."""
     try:
-        return get_mod().library.prompt_import(req.cid.strip())
+        return get_mod().library.prompt_import(req.cid.strip(), key=req.key)
     except (ValueError, RuntimeError) as e:
         return {"error": str(e)}
 
 @app.delete("/prompts/{prompt_id}")
-def delete_prompt(prompt_id: str):
+def delete_prompt(prompt_id: str, key: Optional[str] = None):
+    """Remove a prompt. Its owner or the host only."""
     try:
-        return get_mod().library.prompt_rm(prompt_id)
+        return get_mod().library.prompt_rm(prompt_id, key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
     except KeyError as e:
         return {"error": str(e)}
 
 @app.get("/memory")
 def list_memory():
-    return {"memory": get_mod().library.notes()}
+    """Memory notes with their effective owner (unowned = owned by the host)."""
+    lib = get_mod().library
+    return {"memory": [{**n, **lib.note_owner(n)} for n in lib.notes()],
+            "host": lib.identity.host}
 
 @app.post("/memory")
 def save_memory(req: MemoryNoteRequest):
-    """Create or update a memory note (upsert by id)."""
+    """Create or update a memory note (upsert by id). Creating needs a
+    sign-in; editing needs owner/host."""
     try:
-        return get_mod().library.note_add(req.name, req.content, req.tags, req.id)
+        return get_mod().library.note_add(req.name, req.content, req.tags,
+                                          req.id, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
     except ValueError as e:
         return {"error": str(e)}
 
@@ -713,14 +763,116 @@ def save_memory(req: MemoryNoteRequest):
 def import_memory(req: MemoryImportRequest):
     """Install a shared memory note from its localfs CID."""
     try:
-        return get_mod().library.note_import(req.cid.strip())
+        return get_mod().library.note_import(req.cid.strip(), key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
     except (ValueError, RuntimeError) as e:
         return {"error": str(e)}
 
 @app.delete("/memory/{note_id}")
-def delete_memory(note_id: str):
+def delete_memory(note_id: str, key: Optional[str] = None):
+    """Remove a memory note. Its owner or the host only."""
     try:
-        return get_mod().library.note_rm(note_id)
+        return get_mod().library.note_rm(note_id, key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e)}
+
+# ── discover (internet-wide skill aggregator) ───────────────────────
+# Read-only scanning is public; installs land in the shared library as
+# documents. Setting the GitHub token / clearing the cache is owner-only.
+
+@app.get("/discover")
+def discover_scan(q: str = "", sources: Optional[str] = None, limit: int = 30,
+                  kind: Optional[str] = None, fresh: bool = False):
+    """Scan every registry at once. `sources` is a comma-separated subset."""
+    picked = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
+    try:
+        return get_mod().discover.search(q, picked, limit, kind, fresh)
+    except ValueError as e:
+        return {"error": str(e), "items": [], "total": 0}
+
+@app.get("/discover/sources")
+def discover_sources():
+    """The source catalog + whether a GitHub token is configured."""
+    d = get_mod().discover
+    return {"sources": d.sources(), "token": bool(d.token())}
+
+@app.get("/discover/item")
+def discover_detail(id: str):
+    """Full record for one scanned result, including its SKILL.md paths."""
+    try:
+        return get_mod().discover.detail(id)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+@app.get("/discover/doc")
+def discover_doc(id: str, path: Optional[str] = None):
+    """Preview the exact document an install would add to the library."""
+    try:
+        return get_mod().discover.skill_doc(id, path)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+@app.post("/discover/install")
+def discover_install(req: SkillInstallRequest):
+    """Install a scanned result into the library as an external skill.
+
+    Signed-in callers only — the installer owns what they added."""
+    try:
+        return get_mod().skill_install(req.id, req.path, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+@app.post("/discover/token")
+def discover_token(req: DiscoverTokenRequest):
+    """Owner: store a GitHub token off-tree to lift the anonymous rate limit."""
+    mod = get_mod()
+    if not mod.is_owner(req.key):
+        return {"error": "owner only", "code": 403}
+    return mod.discover.set_token(req.token)
+
+@app.post("/discover/cache/clear")
+def discover_clear_cache(req: DiscoverTokenRequest):
+    """Owner: drop every cached scan so the next one hits the network."""
+    mod = get_mod()
+    if not mod.is_owner(req.key):
+        return {"error": "owner only", "code": 403}
+    return mod.discover.clear_cache()
+
+@app.get("/skills/installed")
+def list_installed_skills():
+    """External skills installed from the aggregator, with their owner."""
+    lib = get_mod().library
+    return {"skills": [{**s, **lib.skill_owner(s)} for s in lib.installed_skills()],
+            "host": lib.identity.host}
+
+@app.post("/skills/import")
+def import_installed_skill(req: SkillImportRequest):
+    """Install an external skill from its localfs CID (the share path)."""
+    try:
+        return get_mod().library.skill_import(req.cid.strip(), key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
+
+@app.delete("/skills/installed/{skill_id}")
+def delete_installed_skill(skill_id: str, key: Optional[str] = None):
+    """Uninstall an external skill. Whoever installed it, or the host."""
+    try:
+        return get_mod().library.skill_rm(skill_id, key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
     except KeyError as e:
         return {"error": str(e)}
 
@@ -972,6 +1124,7 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None):
                 safety=req.safety,
                 free=req.free,
                 memory_ids=req.memory_ids,
+                skill_ids=req.skill_ids,
                 on_step=on_step,
             )
             summary = ""
@@ -1022,6 +1175,8 @@ def run_agent(req: RunRequest):
             free=req.free,
             prompt=req.prompt,
             memory_ids=req.memory_ids,
+            skill_ids=req.skill_ids,
+            images=req.images,
             on_step=lambda s: _task_step(task, s),
         )
         _task_finish(task, _status_of(result), _summary_of(result))
@@ -1092,6 +1247,8 @@ def run_agent_stream(req: RunRequest):
                     free=req.free,
                     prompt=req.prompt,
                     memory_ids=req.memory_ids,
+                    skill_ids=req.skill_ids,
+                    images=req.images,
                     on_step=on_step,
                 )
                 _task_finish(task, _status_of(result), _summary_of(result))

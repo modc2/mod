@@ -29,6 +29,8 @@ from src.agents.mod import Agents
 from src.memory.memory import Memory
 
 SKILL_COUNT = 23
+# shipped agents. Custom agents live in the same directory, so counts are
+# lower bounds — a host with their own agents installed still passes.
 AGENT_COUNT = 7
 
 
@@ -394,7 +396,7 @@ class TestTaskSkill:
 class TestAgentsRegistry:
     def test_ls_returns_all_agents(self, agents):
         names = agents.ls()
-        assert len(names) == AGENT_COUNT
+        assert len(names) >= AGENT_COUNT
         for expected in ["default", "architect", "reviewer", "debugger",
                          "builder", "refactorer", "safety"]:
             assert expected in names
@@ -420,7 +422,7 @@ class TestAgentsRegistry:
 
     def test_schema_returns_all(self, agents):
         schema = agents.schema()
-        assert len(schema) == AGENT_COUNT
+        assert len(schema) >= AGENT_COUNT
         for name, info in schema.items():
             assert "description" in info, f"{name} missing description"
 
@@ -428,7 +430,7 @@ class TestAgentsRegistry:
         r = agents.forward()
         assert "agents" in r
         assert "total" in r
-        assert r["total"] == AGENT_COUNT
+        assert r["total"] >= AGENT_COUNT
         assert "schemas" in r
 
     def test_forward_with_name_gets_config(self, agents):
@@ -477,6 +479,86 @@ class TestAgentsRegistry:
     def test_remove_nonexistent_raises(self, agents):
         with pytest.raises(KeyError, match="agent not found"):
             agents.remove("nonexistent_agent_xyz")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  AGENT OWNERSHIP  (owner = creator; unowned = the host owns it)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestAgentOwnership:
+    HOST = "0xaaa0000000000000000000000000000000000001"
+    USER = "0xbbb0000000000000000000000000000000000002"
+    OTHER = "0xccc0000000000000000000000000000000000003"
+
+    @pytest.fixture
+    def owned(self, agents):
+        """Registry with a known host. No verifier is configured here, so a
+        bare address stands in for a signed token."""
+        from src.identity import Identity
+        return agents.bind(Identity(host=self.HOST))
+
+    def test_builtins_belong_to_the_host(self, owned):
+        cfg = owned.get("architect")
+        assert cfg["owner"] == self.HOST and cfg["owner_source"] == "host"
+        assert owned.can_manage("architect", self.HOST)
+        assert not owned.can_manage("architect", self.USER)
+
+    def test_host_can_remove_a_builtin(self, owned, tmp_path):
+        import shutil
+        backup = tmp_path / "safety"
+        shutil.copytree(owned._dir / "safety", backup)
+        try:
+            assert owned.remove("safety", key=self.HOST)["removed"] == "safety"
+            assert "safety" not in owned.ls()
+        finally:
+            shutil.copytree(backup, owned._dir / "safety", dirs_exist_ok=True)
+            owned._cache.pop("safety", None)
+
+    def test_creator_owns_it_and_strangers_cannot_touch_it(self, owned):
+        name = "test-owned-agent"
+        try:
+            cfg = owned.create(name, description="mine", goal="g", key=self.USER)
+            assert cfg["owner"] == self.USER and cfg["owner_source"] == "item"
+            for stranger in (None, self.OTHER):
+                with pytest.raises(PermissionError):
+                    owned.remove(name, key=stranger)
+                with pytest.raises(PermissionError):
+                    owned.update(name, description="hijacked", key=stranger)
+            # the owner may edit, and editing keeps ownership
+            owned.update(name, description="edited", key=self.USER)
+            assert owned.get(name)["owner"] == self.USER
+            # the host may remove anything
+            assert owned.remove(name, key=self.HOST)["removed"] == name
+        finally:
+            agent_dir = owned._dir / name
+            if agent_dir.exists():
+                shutil.rmtree(agent_dir)
+
+    def test_anonymous_create_is_refused(self, owned):
+        """Nobody to own it, so it never gets made."""
+        name = "test-anon-agent"
+        try:
+            with pytest.raises(PermissionError):
+                owned.create(name, goal="g")
+            assert name not in owned.ls()
+        finally:
+            agent_dir = owned._dir / name
+            if agent_dir.exists():
+                shutil.rmtree(agent_dir)
+
+    def test_unbound_registry_leaves_unowned_agents_open(self, agents):
+        """No host known (local/dev) — unowned agents stay manageable, but
+        built-ins still are not."""
+        name = "test-unbound-agent"
+        try:
+            assert agents.create(name, goal="g")["owner_source"] is None
+            assert agents.can_manage(name)
+            assert not agents.can_manage("default")
+            assert agents.remove(name)["removed"] == name
+        finally:
+            agent_dir = agents._dir / name
+            if agent_dir.exists():
+                shutil.rmtree(agent_dir)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -594,7 +676,7 @@ class TestAgent:
     def test_agents_ls(self):
         agent = self._make_agent()
         assert "architect" in agent.agents.ls()
-        assert len(agent.agents.ls()) == AGENT_COUNT
+        assert len(agent.agents.ls()) >= AGENT_COUNT
 
     # ── parse_steps ──
 
@@ -717,6 +799,42 @@ class TestAgent:
         assert len(result) == 1
         assert result[0]["result"]["success"]
 
+    # ── forced final answer ──
+
+    def test_has_answer_variants(self):
+        agent = self._make_agent()
+        assert not agent._has_answer([[{"tool": "bash", "params": {}}]])
+        assert not agent._has_answer([[{"tool": "finish", "params": {"summary": "  "}}]])
+        assert agent._has_answer([[{"tool": "finish", "params": {"summary": "all done"}}]])
+        assert agent._has_answer([[{"tool": "response", "params": {}, "result": "hi"}]])
+
+    def test_force_answer_plain_text(self):
+        agent = self._make_agent()
+        agent._images = []
+        agent.init_memory(query="q", path="/tmp", tools={})
+        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: "the actual answer")})()
+        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        assert step["tool"] == "response"
+        assert step["result"] == "the actual answer"
+
+    def test_force_answer_honors_finish_step(self):
+        agent = self._make_agent()
+        agent._images = []
+        agent.init_memory(query="q", path="/tmp", tools={})
+        out = '<PLAN><STEP>{"tool": "finish", "params": {"summary": "final words"}}</STEP></PLAN>'
+        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: out)})()
+        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        assert step["result"] == "final words"
+
+    def test_force_answer_model_error_returns_none(self):
+        agent = self._make_agent()
+        agent._images = []
+        agent.init_memory(query="q", path="/tmp", tools={})
+        def boom(*a, **k):
+            raise RuntimeError("provider down")
+        agent.model = type("M", (), {"forward": staticmethod(boom)})()
+        assert agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True) is None
+
     def test_plan_with_finish(self):
         agent = self._make_agent()
         fake_output = (
@@ -804,7 +922,7 @@ class TestMod:
         assert "skills" in s
         assert len(s["skills"]) == SKILL_COUNT
         assert "agents" in s
-        assert len(s["agents"]) == AGENT_COUNT
+        assert len(s["agents"]) >= AGENT_COUNT
 
     def test_mod_inherits_agent(self):
         mod = self._make_mod()
@@ -1025,6 +1143,49 @@ class TestGate:
         mod._run(query="hi")
         assert 'notes' not in captured['kwargs']
 
+    def test_run_forwards_images(self):
+        mod = TestMod._make_mod(self)
+        captured = self._capture_run(mod)
+        mod._run(query="what is this", images=["data:image/png;base64,AAA"])
+        assert captured['kwargs']['images'] == ["data:image/png;base64,AAA"]
+
+
+class TestImageAttachments:
+    """Pasted images ride to the model as a leading multimodal turn."""
+
+    def _agent(self):
+        from src.mod import Agent
+        return Agent.__new__(Agent)   # no provider/model construction needed
+
+    def test_image_turn_shape(self):
+        a = self._agent()
+        a._images = ["data:image/png;base64,AAA", "https://x/y.png"]
+        turn = a._image_turn()
+        assert len(turn) == 1 and turn[0]['role'] == 'user'
+        parts = turn[0]['content']
+        assert parts[0]['type'] == 'text'
+        assert [p['image_url']['url'] for p in parts[1:]] == a._images
+
+    def test_run_caps_and_cleans_images(self):
+        from src.mod import Agent
+        a = self._agent()
+        a.model = object()
+        a._provider = 'venice'
+        a._images = ['stale']
+        a.skill_schema = lambda *_a, **_k: {}
+        a.memory = type('M', (), {'compile': lambda self, q: None})()
+        # the loop never starts: init_memory bails, so this exercises exactly
+        # the normalization + the note the model is told about
+        captured = {}
+        def fake_init(**kw):
+            captured['kw'] = kw
+            raise RuntimeError('stop here')
+        a.init_memory = fake_init
+        with pytest.raises(RuntimeError):
+            Agent.run(a, query='hi', images=['a', '', None, 'b'] + [f'x{i}' for i in range(10)])
+        assert a._images == ['a', 'b'] + [f'x{i}' for i in range(6)]
+        assert '8 image(s) attached' in captured['kw']['attachments']
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  API ENDPOINTS
@@ -1097,7 +1258,7 @@ class TestApi:
         assert r.status_code == 200
         data = r.json()
         assert "agents" in data
-        assert len(data["agents"]) == AGENT_COUNT
+        assert len(data["agents"]) >= AGENT_COUNT
 
     def test_agent_get(self):
         client = self._get_app()
@@ -1125,7 +1286,8 @@ class TestApi:
         data = r.json()
         assert "items" in data and "facets" in data
         kinds = data["facets"]["kinds"]
-        assert kinds.get("skill") == SKILL_COUNT
+        # lower bound: skills installed from the aggregator index here too
+        assert kinds.get("skill", 0) >= SKILL_COUNT
         assert kinds.get("agent", 0) >= AGENT_COUNT
         assert kinds.get("prompt", 0) >= 1  # seeded defaults
 
@@ -1133,40 +1295,73 @@ class TestApi:
         client = self._get_app()
         r = client.get("/library", params={"kind": "skill"})
         data = r.json()
-        assert data["total"] == SKILL_COUNT
+        assert data["total"] >= SKILL_COUNT
         assert all(i["kind"] == "skill" for i in data["items"])
+        builtin = [i for i in data["items"] if i.get("builtin")]
+        assert len(builtin) == SKILL_COUNT
+
+    def _as_host(self):
+        """The live library, rebound so this test acts as the host."""
+        from src.api.api import get_mod
+        from src.identity import Identity
+        from src.library.mod import Library
+        lib = get_mod().library
+        return Library(dir=str(lib.dir),
+                       identity=Identity(host=lib.identity.host,
+                                         is_host=lambda k: True))
 
     def test_prompt_roundtrip(self):
+        """Saving takes a sign-in; a host-owned prompt is the host's to delete."""
         client = self._get_app()
-        r = client.post("/prompts", json={
+        assert client.post("/prompts", json={
             "name": "api test prompt", "text": "do the api test thing",
-            "tags": ["apitest"]})
-        entry = r.json()
-        assert entry["id"]
+            "tags": ["apitest"]}).json().get("code") == 403
+        as_host = self._as_host()
+        entry = as_host.prompt_add("api test prompt", "do the api test thing",
+                                   tags=["apitest"])
         try:
             r = client.get("/library", params={"q": "api test prompt", "kind": "prompt"})
-            assert any(i["id"] == entry["id"] for i in r.json()["items"])
+            item = next(i for i in r.json()["items"] if i["id"] == entry["id"])
+            assert item["owner_source"] == "host"
             # tag facet includes the new tag
             assert "apitest" in r.json()["facets"]["tags"]
+            # anonymous delete is refused — the host owns it
+            assert client.delete(f"/prompts/{entry['id']}").json().get("code") == 403
         finally:
-            r = client.delete(f"/prompts/{entry['id']}")
-            assert r.json().get("removed") == entry["id"]
+            # ...but the host can remove anything they own by default
+            assert as_host.prompt_rm(entry["id"])["removed"] == entry["id"]
+            assert all(p["id"] != entry["id"]
+                       for p in client.get("/prompts").json()["prompts"])
 
     def test_memory_roundtrip(self):
+        """Memory notes are owned like prompts — sign in to make one."""
         client = self._get_app()
-        r = client.post("/memory", json={
+        assert client.post("/memory", json={
             "name": "api test note", "content": "remember the api test",
-            "tags": ["apitest"]})
-        entry = r.json()
-        assert entry["id"]
+            "tags": ["apitest"]}).json().get("code") == 403
+        as_host = self._as_host()
+        entry = as_host.note_add("api test note", "remember the api test",
+                                 tags=["apitest"])
         try:
             r = client.get("/memory")
-            assert any(n["id"] == entry["id"] for n in r.json()["memory"])
+            note = next(n for n in r.json()["memory"] if n["id"] == entry["id"])
+            assert note["owner_source"] == "host"
             r = client.get("/library", params={"kind": "memory", "tag": "apitest"})
             assert any(i["id"] == entry["id"] for i in r.json()["items"])
+            # anonymous delete is refused — the note has an owner
+            assert client.delete(f"/memory/{entry['id']}").json().get("code") == 403
         finally:
-            r = client.delete(f"/memory/{entry['id']}")
-            assert r.json().get("removed") == entry["id"]
+            assert as_host.note_rm(entry["id"])["removed"] == entry["id"]
+
+    def test_agent_create_needs_sign_in(self):
+        """No signed-in caller, no agent — there would be nobody to own it."""
+        from src.api.api import get_mod
+        client = self._get_app()
+        name = "api-test-anon-agent"
+        r = client.post("/agents", json={"name": name, "goal": "g"})
+        assert r.json().get("code") == 403
+        assert name not in get_mod().agents.ls()
+        assert not (get_mod().agents._dir / name).exists()
 
     def test_prompt_validation(self):
         client = self._get_app()
@@ -1715,6 +1910,209 @@ class TestCredits:
         assert gate.is_allowed(self.ADDR, "run") is True
         gate.credits.charge_steps(self.ADDR, 10_000)
         assert gate.is_allowed(self.ADDR, "run") is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  DISCOVER — the internet-wide skill aggregator
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDiscover:
+    """Offline-only: every source adapter is stubbed, so the suite never
+    depends on GitHub/npm being reachable or on rate-limit headroom."""
+
+    def _d(self, tmpdir):
+        from src.discover.mod import Discover
+        return Discover(dir=str(tmpdir))
+
+    def test_self_test(self, tmpdir):
+        assert self._d(tmpdir).test() is True
+
+    def test_sources_catalog(self, tmpdir):
+        from src.discover.mod import SOURCE_IDS
+        srcs = self._d(tmpdir).sources()
+        assert [s["id"] for s in srcs] == SOURCE_IDS
+        assert all(s.get("label") and s.get("about") for s in srcs)
+
+    def test_frontmatter_parsing(self, tmpdir):
+        from src.discover.mod import parse_frontmatter
+        fm = parse_frontmatter(
+            "---\nname: pdf-tools\ndescription: Work with PDFs\n"
+            "tags:\n  - docs\n  - files\n---\n\n# Body\n")
+        assert fm["name"] == "pdf-tools"
+        assert fm["tags"] == ["docs", "files"]
+        # no frontmatter, and malformed frontmatter, both degrade quietly
+        assert parse_frontmatter("# Just a readme") == {}
+        assert parse_frontmatter("") == {}
+
+    def test_scan_merges_and_ranks(self, tmpdir):
+        d = self._d(tmpdir)
+        d.src_github = lambda q, l: [
+            {"id": "gh:a/pdf-skill", "source": "github", "kind": "skill",
+             "name": "pdf-skill", "description": "PDF things",
+             "repo": "https://github.com/a/pdf-skill", "stars": 120, "tags": []},
+            {"id": "gh:b/unrelated", "source": "github", "kind": "skill",
+             "name": "unrelated", "description": "nothing to do with it",
+             "repo": "https://github.com/b/unrelated", "stars": 90000, "tags": []},
+        ]
+        d.src_npm = lambda q, l: [
+            {"id": "npm:pdf-skill", "source": "npm", "kind": "package",
+             "name": "pdf-skill", "description": "npm copy",
+             "repo": "https://github.com/A/pdf-skill.git", "tags": []},
+        ]
+        out = d.search("pdf", sources=["github", "npm"], limit=10)
+        # the same repo from two registries collapses into one card
+        assert out["total"] == 2
+        # relevance beats a 90k-star repo that merely matched full text
+        assert out["items"][0]["name"] == "pdf-skill"
+        assert "npm" in (out["items"][0].get("also") or [])
+        # the merged card keeps the winner's kind — the npm duplicate is gone
+        assert out["facets"]["kinds"] == {"skill": 2}
+
+    def test_kind_filter(self, tmpdir):
+        d = self._d(tmpdir)
+        d.src_mcp = lambda q, l: [
+            {"id": "mcp:x", "source": "mcp", "kind": "mcp", "name": "x",
+             "description": "", "repo": "", "tags": []}]
+        assert d.search("", sources=["mcp"], kind="skill")["total"] == 0
+        assert d.search("", sources=["mcp"], kind="mcp")["total"] == 1
+
+    def test_dead_source_degrades_to_partial_results(self, tmpdir):
+        d = self._d(tmpdir)
+        d.src_github = lambda q, l: (_ for _ in ()).throw(RuntimeError("rate limit"))
+        d.src_npm = lambda q, l: [
+            {"id": "npm:ok", "source": "npm", "kind": "package", "name": "ok",
+             "description": "still here", "repo": "", "tags": []}]
+        out = d.search("x", sources=["github", "npm"], limit=5)
+        assert out["total"] == 1                       # npm survived
+        assert "rate limit" in out["errors"]["github"]
+        assert out["sources"]["github"]["error"]
+
+    def test_cache_serves_repeat_scans(self, tmpdir):
+        d = self._d(tmpdir)
+        calls = []
+
+        def once(q, l):
+            calls.append(q)
+            return [{"id": "npm:a", "source": "npm", "kind": "package", "name": "a",
+                     "description": "", "repo": "", "tags": []}]
+
+        d.src_npm = once
+        d.search("q", sources=["npm"])
+        d.search("q", sources=["npm"])
+        assert len(calls) == 1                         # second scan hit the cache
+        assert d.search("q", sources=["npm"])["sources"]["npm"]["cached"] is True
+        d.search("q", sources=["npm"], fresh=True)
+        assert len(calls) == 2                         # fresh bypasses it
+
+    def test_scanned_items_are_recallable(self, tmpdir):
+        """A registry record has no page to re-fetch, so detail/install rely
+        on the scan having remembered it by id."""
+        d = self._d(tmpdir)
+        d.src_mcp = lambda q, l: [
+            {"id": "mcp:io.example/thing", "source": "mcp", "kind": "mcp",
+             "name": "thing", "description": "does things", "repo": "",
+             "tags": ["mcp"], "install": {"remote": "https://example.com/mcp"}}]
+        assert d.recall("mcp:io.example/thing") is None
+        d.search("thing", sources=["mcp"])
+        assert d.recall("mcp:io.example/thing")["name"] == "thing"
+        # install resolves from the index without hitting the registry again
+        d.search = lambda *a, **k: (_ for _ in ()).throw(AssertionError("re-searched"))
+        doc = d.skill_doc("mcp:io.example/thing")
+        assert doc["name"] == "thing"
+        assert "https://example.com/mcp" in doc["body"]
+
+    def test_unknown_source_rejected(self, tmpdir):
+        with pytest.raises(ValueError):
+            self._d(tmpdir).search("x", sources=["not-a-registry"])
+
+    def test_token_is_stored_off_tree(self, tmpdir):
+        d = self._d(tmpdir)
+        env = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            assert d.token() is None
+            d.set_token("ghp_example")
+            assert d.token() == "ghp_example"
+            assert not (Path(__file__).resolve().parents[1] / "github.token").exists()
+            d.set_token("")
+            assert d.token() is None
+        finally:
+            if env is not None:
+                os.environ["GITHUB_TOKEN"] = env
+
+    def test_skill_doc_from_mcp_record(self, tmpdir):
+        """Non-SKILL.md sources still yield an installable reference card."""
+        d = self._d(tmpdir)
+        d.detail = lambda i: {
+            "id": i, "source": "mcp", "kind": "mcp", "name": "postgres",
+            "title": "io.example/postgres", "description": "Query Postgres",
+            "url": "https://example.com", "repo": "", "tags": ["mcp"],
+            "install": {"remote": "https://example.com/mcp", "tools": ["query"]},
+        }
+        doc = d.skill_doc("mcp:io.example/postgres")
+        assert doc["name"] == "postgres" and doc["kind"] == "mcp"
+        assert "https://example.com/mcp" in doc["body"]
+        assert "query" in doc["body"]
+
+
+class TestInstalledSkills:
+    """Installing a scanned result adds a document to the library —
+    never an executable — and it stays addressable by CID."""
+
+    def _lib(self, tmpdir):
+        from src.library.mod import Library
+        return Library(skills=Skills(), dir=str(tmpdir))
+
+    def test_install_upsert_and_index(self, tmpdir):
+        lib = self._lib(tmpdir)
+        assert lib.installed_skills() == []
+        s = lib.skill_add("pdf", "# PDF\nsteps", "Handle PDFs", tags=["docs"],
+                          source="github", url="https://github.com/a/b/SKILL.md",
+                          origin_id="gh:a/b")
+        # re-installing the same origin refreshes in place
+        s2 = lib.skill_add("pdf", "# PDF\nnewer steps", origin_id="gh:a/b")
+        assert s2["id"] == s["id"] and len(lib.installed_skills()) == 1
+        assert s2["url"] == s["url"]                   # provenance survives a refresh
+        item = [i for i in lib.items(kind="skill")["items"] if i["id"] == s["id"]][0]
+        assert item["external"] is True
+        assert item["tags"].count("github") == 1       # source tag isn't duplicated
+        assert "installed" in item["tags"]
+
+    def test_builtin_skills_are_untouched(self, tmpdir):
+        """External installs never shadow or replace the code skill registry."""
+        lib = self._lib(tmpdir)
+        builtin = {i["name"] for i in lib.items(kind="skill")["items"] if i.get("builtin")}
+        lib.skill_add("bash", "# not the real bash skill", origin_id="gh:evil/bash")
+        after = lib.items(kind="skill")["items"]
+        assert {i["name"] for i in after if i.get("builtin")} == builtin
+        assert Skills().get("bash").description                # still the real one
+
+    def test_uninstall(self, tmpdir):
+        lib = self._lib(tmpdir)
+        s = lib.skill_add("x", "body")
+        lib.skill_rm(s["id"])
+        assert lib.installed_skills() == []
+        with pytest.raises(KeyError):
+            lib.skill_rm(s["id"])
+
+    def test_requires_name_and_body(self, tmpdir):
+        lib = self._lib(tmpdir)
+        with pytest.raises(ValueError):
+            lib.skill_add("", "body")
+        with pytest.raises(ValueError):
+            lib.skill_add("name", "")
+
+    def test_skill_docs_selects_for_run_context(self, tmpdir):
+        lib = self._lib(tmpdir)
+        a = lib.skill_add("a", "body a")
+        lib.skill_add("b", "body b")
+        assert [d["name"] for d in lib.skill_docs([a["id"]])] == ["a"]
+        assert lib.skill_docs([]) == []
+        assert lib.skill_docs(["nope"]) == []
+
+    def test_body_is_clipped(self, tmpdir):
+        lib = self._lib(tmpdir)
+        s = lib.skill_add("big", "x" * 400_000)
+        assert len(s["body"]) == lib.MAX_SKILL_CHARS
 
 
 if __name__ == "__main__":

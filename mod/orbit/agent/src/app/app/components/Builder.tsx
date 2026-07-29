@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from '../config'
+import Select from './Select'
 
 type NodeKind = 'agent' | 'prompt' | 'model' | 'skill' | 'memory'
 type BNode = { id: string; kind: NodeKind; x: number; y: number; data: Record<string, any> }
@@ -43,9 +44,20 @@ type Props = {
   onManageKey?: (provider: string) => void
   // bumped by the parent after a key save/unlock so provider key state refreshes
   keyVersion?: number
+  // the caller's signed token — the server records it as the agent's owner and
+  // checks it before letting an edit or delete through
+  token?: string | null
+  // the host owns every agent nobody else does, so they may edit and delete
+  // the shipped ones too
+  isHost?: boolean
+  // wallet sign-in, so the canvas can offer it where saving is blocked
+  onSignIn?: () => void
 }
 
-export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onManageKey, keyVersion }: Props) {
+export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onManageKey, keyVersion, token, isHost, onSignIn }: Props) {
+  // an agent is filed under the address that made it, so saving takes a
+  // sign-in — the server refuses an unsigned create either way
+  const canSave = !!token || !!isHost
   // ── graph state ──
   const [nodes, setNodes] = useState<BNode[]>([])
   const [edges, setEdges] = useState<BEdge[]>([])
@@ -374,11 +386,12 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }
 
   const save = async (): Promise<string | null> => {
+    if (!canSave) { flash(false, 'sign in to save your agent'); return null }
     const c = compile()
     if ('error' in c) { flash(false, c.error!); return null }
     if (!c.slug) { flash(false, 'give the agent a name (on the AGENT node)'); return null }
     const existing = agents.find(a => a.value === c.slug)
-    if (existing?.builtin || (!existing && BUILTINS.has(c.slug))) {
+    if (!isHost && (existing?.builtin || (!existing && BUILTINS.has(c.slug)))) {
       flash(false, `"${c.slug}" is a built-in — pick a new name to save your version`); return null
     }
     if (!c.goal) { flash(false, 'wire in a Prompt node with a system prompt'); return null }
@@ -400,12 +413,12 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         ? await fetch(`${API_URL}/agents/${c.slug}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ ...body, key: token }),
           })
         : await fetch(`${API_URL}/agents`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: c.slug, ...body }),
+            body: JSON.stringify({ name: c.slug, ...body, key: token }),
           })
       const data = await res.json()
       if (data.error) { flash(false, data.error); return null }
@@ -431,9 +444,10 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }
 
   const deleteAgent = async () => {
-    if (!loadedName || BUILTINS.has(loadedName)) return
+    if (!loadedName || (BUILTINS.has(loadedName) && !isHost)) return
     try {
-      const res = await fetch(`${API_URL}/agents/${loadedName}`, { method: 'DELETE' })
+      const q = token ? `?key=${encodeURIComponent(token)}` : ''
+      const res = await fetch(`${API_URL}/agents/${loadedName}${q}`, { method: 'DELETE' })
       const data = await res.json()
       if (data.error) { flash(false, data.error); return }
       try { const g = readGraphs(); delete g[loadedName]; localStorage.setItem(GRAPHS_KEY, JSON.stringify(g)) } catch {}
@@ -504,16 +518,17 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     if (n.kind === 'prompt') {
       return (
         <div className="p-2.5 space-y-1.5" onPointerDown={e => e.stopPropagation()}>
-          <select
+          <Select
+            size="sm" accent="amber" className="w-full"
             value={n.data.promptId || ''}
-            onChange={e => {
-              const p = prompts.find(x => x.id === e.target.value)
-              patchNode(n.id, { promptId: e.target.value, ...(p ? { text: p.body || '' } : {}) })
+            onChange={v => {
+              const p = prompts.find(x => x.id === v)
+              patchNode(n.id, { promptId: v, ...(p ? { text: p.body || '' } : {}) })
             }}
-            className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-1.5 py-1 text-[11px] text-gray-300 outline-none cursor-pointer focus:border-amber-400/40 transition">
-            <option value="" className="bg-[#111]">custom prompt…</option>
-            {prompts.map(p => <option key={p.id} value={p.id} className="bg-[#111]">¶ {p.name}</option>)}
-          </select>
+            options={[
+              { value: '', label: 'custom prompt…', icon: '✎' },
+              ...prompts.map(p => ({ value: p.id, label: p.name, icon: '¶', hint: p.description })),
+            ]} />
           <textarea
             value={n.data.text || ''}
             onChange={e => patchNode(n.id, { text: e.target.value, promptId: '' })}
@@ -531,21 +546,19 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       const keyOk = !!pinfo?.configured
       return (
         <div className="p-2.5 space-y-1.5" onPointerDown={e => e.stopPropagation()}>
-          <select value={n.data.provider || ''}
-            onChange={e => {
-              const p = providers.find(x => x.key === e.target.value)
-              patchNode(n.id, { provider: e.target.value, model: p?.default_model || '' })
+          <Select
+            size="sm" accent="sky" className="w-full" placeholder="provider…"
+            value={n.data.provider || ''}
+            onChange={v => {
+              const p = providers.find(x => x.key === v)
+              patchNode(n.id, { provider: v, model: p?.default_model || '' })
             }}
-            className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-1.5 py-1 text-[11px] text-gray-300 outline-none cursor-pointer focus:border-sky-400/40 transition">
-            {(providers.length ? providers.map(p => p.key) : ['openrouter']).map(k =>
-              <option key={k} value={k} className="bg-[#111]">{k}</option>)}
-          </select>
-          <select value={n.data.model || ''}
-            onChange={e => patchNode(n.id, { model: e.target.value })}
-            className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-1.5 py-1 text-[11px] text-gray-300 outline-none cursor-pointer focus:border-sky-400/40 transition">
-            {(n.data.model && !models.includes(n.data.model) ? [n.data.model, ...models] : models).map(mn =>
-              <option key={mn} value={mn} className="bg-[#111]">{mn}</option>)}
-          </select>
+            options={(providers.length ? providers.map(p => p.key) : ['openrouter']).map(k => ({ value: k, label: k, icon: '⬢' }))} />
+          <Select
+            size="sm" accent="sky" className="w-full" placeholder="model…"
+            value={n.data.model || ''}
+            onChange={v => patchNode(n.id, { model: v })}
+            options={(n.data.model && !models.includes(n.data.model) ? [n.data.model, ...models] : models).map(mn => ({ value: mn, label: mn }))} />
           {/* API key for this provider — entered here in the Builder, not the console */}
           <button
             onClick={() => onManageKey?.(pkey)}
@@ -571,11 +584,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     if (n.kind === 'skill') {
       return (
         <div className="p-2.5 space-y-1" onPointerDown={e => e.stopPropagation()}>
-          <select value={n.data.name || ''}
-            onChange={e => patchNode(n.id, { name: e.target.value })}
-            className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-1.5 py-1 text-[11px] text-gray-300 outline-none cursor-pointer focus:border-emerald-400/40 transition">
-            {Object.keys(skills).map(s => <option key={s} value={s} className="bg-[#111]">{s}</option>)}
-          </select>
+          <Select
+            size="sm" accent="emerald" className="w-full" placeholder="pick a skill…"
+            value={n.data.name || ''}
+            onChange={v => patchNode(n.id, { name: v })}
+            options={Object.keys(skills).map(s => ({ value: s, label: s, icon: '◇', hint: skills[s]?.description }))} />
           <div className="text-[10px] text-gray-600 leading-snug line-clamp-2">
             {skills[n.data.name]?.description || ''}
           </div>
@@ -586,12 +599,12 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const note = notes.find(x => x.id === n.data.noteId)
     return (
       <div className="p-2.5 space-y-1" onPointerDown={e => e.stopPropagation()}>
-        <select value={n.data.noteId || ''}
-          onChange={e => patchNode(n.id, { noteId: e.target.value })}
-          className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-1.5 py-1 text-[11px] text-gray-300 outline-none cursor-pointer focus:border-violet-400/40 transition">
-          {notes.length === 0 && <option value="" className="bg-[#111]">no notes in library</option>}
-          {notes.map(x => <option key={x.id} value={x.id} className="bg-[#111]">◈ {x.name}</option>)}
-        </select>
+        <Select
+          size="sm" accent="violet" className="w-full" placeholder="no notes in library"
+          value={n.data.noteId || ''}
+          onChange={v => patchNode(n.id, { noteId: v })}
+          disabled={notes.length === 0}
+          options={notes.map(x => ({ value: x.id, label: x.name, icon: '◈' }))} />
         <div className="text-[10px] text-gray-600 leading-snug line-clamp-2">
           {note?.content?.slice(0, 110) || 'context injected at run time'}
         </div>
@@ -665,23 +678,31 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* toolbar */}
         <div className="border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 bg-[#0b0b0c]">
-          <select
+          <Select
+            accent="emerald" className="max-w-[190px]"
+            title="Load an existing agent into the builder"
             value={loadedName || ''}
-            onChange={e => { if (e.target.value) loadAgent(e.target.value); else starterGraph() }}
-            className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition max-w-[180px]"
-            title="Load an existing agent into the builder">
-            <option value="" className="bg-[#111]">✦ new agent…</option>
-            {agents.map(a => <option key={a.value} value={a.value} className="bg-[#111]">{a.icon} {a.label}{BUILTINS.has(a.value) ? ' (built-in)' : ''}</option>)}
-          </select>
+            onChange={v => { if (v) loadAgent(v); else starterGraph() }}
+            options={[
+              { value: '', label: 'new agent…', icon: '✦' },
+              ...agents.map(a => ({
+                value: a.value,
+                label: a.label,
+                icon: a.icon,
+                badge: (a.builtin ?? BUILTINS.has(a.value)) ? 'built-in' : undefined,
+              })),
+            ]} />
           <button onClick={starterGraph}
             className="px-2.5 py-1.5 rounded-md text-xs border border-white/[0.08] text-gray-500 hover:text-gray-300 hover:border-white/20 transition"
             title="Start a fresh canvas">
             new
           </button>
-          {loadedName && !BUILTINS.has(loadedName) && (
+          {loadedName && (!BUILTINS.has(loadedName) || isHost) && (
             <button onClick={deleteAgent}
               className="px-2.5 py-1.5 rounded-md text-xs border border-red-500/20 text-red-400/80 hover:text-red-300 hover:bg-red-500/10 transition"
-              title={`Delete agent "${loadedName}"`}>
+              title={BUILTINS.has(loadedName)
+                ? `Delete built-in agent "${loadedName}" — you are the host`
+                : `Delete agent "${loadedName}"`}>
               delete
             </button>
           )}
@@ -692,13 +713,22 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           )}
           <div className="ml-auto flex items-center gap-1.5 shrink-0">
             {dirty && <span className="text-[10px] text-amber-300/70" title="Unsaved changes">● unsaved</span>}
-            <button onClick={save} disabled={saving}
-              className="px-3 py-1.5 rounded-md text-xs font-medium border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 transition">
+            {/* an agent belongs to the address that made it — no sign-in, no save */}
+            {!canSave && (
+              <button onClick={onSignIn}
+                className="px-3 py-1.5 rounded-md text-xs font-medium border border-sky-500/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 transition"
+                title="Agents are saved under the wallet that made them — sign in to keep this one">
+                sign in to save
+              </button>
+            )}
+            <button onClick={save} disabled={saving || !canSave}
+              title={canSave ? undefined : 'Sign in to save your agent'}
+              className="px-3 py-1.5 rounded-md text-xs font-medium border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition">
               {saving ? 'saving…' : 'save'}
             </button>
-            <button onClick={saveAndUse} disabled={saving}
-              className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-50 text-white transition"
-              title="Save and select this agent in the console">
+            <button onClick={saveAndUse} disabled={saving || !canSave}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition"
+              title={canSave ? 'Save and select this agent in the console' : 'Sign in to save your agent'}>
               use in console →
             </button>
           </div>

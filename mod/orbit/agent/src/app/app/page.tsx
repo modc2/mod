@@ -5,18 +5,63 @@ import { API_URL } from './config'
 import Library from './components/Library'
 import Builder from './components/Builder'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
+import Select from './components/Select'
 
 type Skill = { description: string; params: Record<string, any> }
-type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean }
+// images: what the user pasted, as data URLs. thumbs are the tiny copies that
+// survive persistence — localStorage is shared across modc2 modules, so the
+// full-size data never goes in it.
+type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[] }
 // uid/cid/synced tie a conversation to the server-side store: uid is the
 // stable cross-device id, cid the localfs pin, synced whether the server copy
 // is current. Anonymous sessions only ever live in localStorage.
 type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-type Tab = 'tasks' | 'output' | 'deltas'
+type Tab = 'tasks' | 'output' | 'tools' | 'deltas'
 
-type LayoutMode = 'sidebar' | 'fullscreen' | 'minimized'
+// an image staged in the composer, not yet sent
+type Attachment = { id: string; name: string; url: string; thumb: string }
+
+// Shrink a pasted image to something a model call can carry: `url` is the
+// full-ish copy that rides to the API, `thumb` the few-KB copy the transcript
+// keeps forever.
+const MAX_EDGE = 1280
+const THUMB_EDGE = 160
+
+const scaleImage = (file: File, edge: number, quality: number): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read failed'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('decode failed'))
+      img.onload = () => {
+        const scale = Math.min(1, edge / Math.max(img.width, img.height))
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return reject(new Error('no canvas'))
+        ctx.drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+
+const toAttachment = async (file: File): Promise<Attachment> => ({
+  id: `img-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+  name: file.name || 'pasted image',
+  url: await scaleImage(file, MAX_EDGE, 0.82),
+  thumb: await scaleImage(file, THUMB_EDGE, 0.6),
+})
+
+// the console is a bottom dock (like a terminal panel): min = compose only,
+// normal = resizable transcript, max = fills the workspace
+type DockMode = 'min' | 'normal' | 'max'
 type SidebarSide = 'left' | 'right'
 
 type FileEntry = { path: string; content: string; action: 'read' | 'created' | 'modified' | 'searched' }
@@ -45,7 +90,12 @@ const detectKeyError = (text?: string): string | null => {
 
 // ── Agent Types ─────────────────────────────────────────────────────
 
-type AgentOption = { value: string; label: string; icon: string; description?: string; builtin?: boolean }
+// owner_source: 'item' = an address created it, 'host' = nobody did, so the
+// module owner (the host) owns it and can edit/remove it
+type OwnerSource = 'item' | 'host' | null
+type Owned = { owner?: string | null; owner_source?: OwnerSource }
+
+type AgentOption = Owned & { value: string; label: string; icon: string; description?: string; builtin?: boolean }
 
 const DEFAULT_AGENTS: AgentOption[] = [
   { value: "default", label: "Default", icon: ">_", builtin: true },
@@ -96,7 +146,22 @@ type ServerTask = {
 }
 
 // a prompt from the library, selectable as an agent's system prompt
-type LibPrompt = { id: string; name: string; description: string; body?: string; tags: string[] }
+type LibPrompt = Owned & { id: string; name: string; description: string; body?: string; tags: string[] }
+
+// ── Personas: agents and library prompts, one list ──────────────────
+// Both answer the same question — "what prompt does this run use?" — so the
+// console treats them as one selectable thing. An agent is a persona with its
+// own skills/model; a library prompt is a persona that overrides the goal.
+type Persona = Owned & {
+  key: string                 // 'agent:dev' | 'prompt:p-1f2e'
+  kind: 'agent' | 'prompt'
+  id: string                  // agent slug or prompt id
+  label: string
+  icon: string
+  description?: string
+  builtin?: boolean
+  prompt?: LibPrompt          // set for kind 'prompt'
+}
 
 // a memory note from the library, selectable as run context
 type MemNote = { id: string; name: string; content: string; tags: string[] }
@@ -120,6 +185,11 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('output')
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
   const [composeFocused, setComposeFocused] = useState(false)
+  // images staged in the composer + the one open in the lightbox
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [attachErr, setAttachErr] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   let taskId = useRef(0)
@@ -131,9 +201,6 @@ export default function Home() {
   // agent state
   const [agentType, setAgentType] = useState<string>('default')
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
-  const [showChats, setShowChats] = useState(false)
-  // keeps the selected agent chip visible in the scrollable strip
-  const activeChipRef = useRef<HTMLButtonElement>(null)
   // agent to preload on the visual builder canvas (null = fresh canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
 
@@ -142,9 +209,13 @@ export default function Home() {
   const [memNotes, setMemNotes] = useState<MemNote[]>([])
   const [promptSel, setPromptSel] = useState<LibPrompt | null>(null)
   const [memSel, setMemSel] = useState<string[]>([])
+  // external skills installed from Discover, attached to the run as instructions
+  const [skillSel, setSkillSel] = useState<string[]>([])
   const [showPicker, setShowPicker] = useState(false)
-  const [pickerTab, setPickerTab] = useState<'agents' | 'prompts' | 'memory'>('agents')
+  const [pickerTab, setPickerTab] = useState<'prompts' | 'memory'>('prompts')
   const [pickerSearch, setPickerSearch] = useState('')
+  // last refusal from an owner-gated edit/delete, shown in the picker footer
+  const [personaErr, setPersonaErr] = useState<string | null>(null)
 
   // api key + balance — keys are entered from the Builder (model node), not the console
   const [balance, setBalance] = useState<KeyBalance | null>(null)
@@ -158,6 +229,8 @@ export default function Home() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<string>('openrouter')
   const [model, setModel] = useState<string>('')
+  // the host — the module owner. null until the API answers ('' = no owner
+  // configured, which makes every visitor the host)
   const [owner, setOwner] = useState<string | null>(null)
 
   // sign-in (wallet personal_sign → protocol-auth token)
@@ -177,9 +250,6 @@ export default function Home() {
   const [taskSearch, setTaskSearch] = useState('')
   const [expandedServerTasks, setExpandedServerTasks] = useState<Record<string, boolean>>({})
 
-  // agent strip: one scrollable row by default, expandable to a wrapped grid
-  const [agentStripExpanded, setAgentStripExpanded] = useState(false)
-
   const providerModels = providers.find(p => p.key === provider)?.models || []
 
   const onProviderChange = (p: string) => {
@@ -190,35 +260,42 @@ export default function Home() {
     localStorage.setItem('agent_model', def)
   }
 
-  // layout mode: sidebar (split), fullscreen (agent only), minimized (hidden)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('sidebar')
+  // workspace layout: chats live in the side rail, the console is docked at the bottom
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarSide, setSidebarSide] = useState<SidebarSide>('left')
+  const [dock, setDock] = useState<DockMode>('normal')
+  const [dockHeight, setDockHeight] = useState(400)
+  const [chatSearch, setChatSearch] = useState('')
 
   // file viewer state
   const [viewingFile, setViewingFile] = useState<FileEntry | null>(null)
-  const [detailView, setDetailView] = useState<'output' | 'files'>('files')
 
-  // draggable sidebar width
-  const [sidebarWidth, setSidebarWidth] = useState(384)
+  // draggable rail width / dock height
+  const [sidebarWidth, setSidebarWidth] = useState(280)
   const isDragging = useRef(false)
   const dragStartX = useRef(0)
-  const dragStartWidth = useRef(384)
+  const dragStartWidth = useRef(280)
+  const dragStartY = useRef(0)
+  const dragStartHeight = useRef(400)
 
-  // fullscreen agent mode (dedicated, not part of layout cycle)
-  const [agentFullscreen, setAgentFullscreen] = useState(false)
-
-  // drawer state for detail panel
-  const [drawerOpen, setDrawerOpen] = useState(false)
-
-  // expanded sidebar = sidebar content fills full screen
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
-
-  const cycleLayout = () => {
-    setLayoutMode(m => m === 'sidebar' ? 'fullscreen' : m === 'fullscreen' ? 'minimized' : 'sidebar')
+  // restore the workspace geometry the user last dragged into place
+  useEffect(() => {
+    try {
+      const w = Number(localStorage.getItem('agent_rail_w'))
+      if (w >= 200) setSidebarWidth(w)
+      const h = Number(localStorage.getItem('agent_dock_h'))
+      if (h >= 120) setDockHeight(h)
+      const d = localStorage.getItem('agent_dock') as DockMode | null
+      if (d === 'min' || d === 'normal' || d === 'max') setDock(d)
+      setSidebarCollapsed(localStorage.getItem('agent_rail_closed') === '1')
+    } catch {}
+  }, [])
+  const setDockPersist = (d: DockMode) => {
+    setDock(d)
+    try { localStorage.setItem('agent_dock', d) } catch {}
   }
 
-  // sidebar drag resize handlers
+  // rail drag resize (horizontal)
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     isDragging.current = true
@@ -232,14 +309,15 @@ export default function Home() {
       const delta = sidebarSide === 'left'
         ? ev.clientX - dragStartX.current
         : dragStartX.current - ev.clientX
-      const maxWidth = Math.floor(window.innerWidth * 0.85)
-      const newWidth = Math.max(240, Math.min(maxWidth, dragStartWidth.current + delta))
+      const maxWidth = Math.floor(window.innerWidth * 0.5)
+      const newWidth = Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta))
       setSidebarWidth(newWidth)
     }
     const onMouseUp = () => {
       isDragging.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      try { localStorage.setItem('agent_rail_w', String(dragStartWidth.current)) } catch {}
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
@@ -247,23 +325,49 @@ export default function Home() {
     document.addEventListener('mouseup', onMouseUp)
   }, [sidebarWidth, sidebarSide])
 
-  // toggle fullscreen agent mode
-  const toggleAgentFullscreen = useCallback(() => {
-    setAgentFullscreen(f => !f)
-    if (!agentFullscreen) {
-      setSidebarExpanded(false)
-      setSidebarCollapsed(false)
-    }
-  }, [agentFullscreen])
+  // dock drag resize (vertical — drag the console's top edge)
+  const onDockDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    dragStartY.current = e.clientY
+    dragStartHeight.current = dockHeight
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
 
-  // keyboard shortcut: Escape exits fullscreen
+    let last = dockHeight
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return
+      const maxHeight = Math.floor(window.innerHeight * 0.85)
+      last = Math.max(140, Math.min(maxHeight, dragStartHeight.current + (dragStartY.current - ev.clientY)))
+      setDockHeight(last)
+    }
+    const onMouseUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('agent_dock_h', String(last)) } catch {}
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [dockHeight])
+
+  // console maximize toggle (dock fills the workspace)
+  const toggleDockMax = useCallback(() => {
+    setDockPersist(dock === 'max' ? 'normal' : 'max')
+  }, [dock])
+
+  // keyboard shortcut: Escape closes the prompt picker, else leaves a maximized console
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && agentFullscreen) setAgentFullscreen(false)
+      if (e.key !== 'Escape') return
+      if (showPicker) { setShowPicker(false); return }
+      if (dock === 'max') setDockPersist('normal')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [agentFullscreen])
+  }, [dock, showPicker])
 
   const [apiStatus, setApiStatus] = useState<'ok' | 'down' | 'loading'>('loading')
 
@@ -278,8 +382,11 @@ export default function Home() {
             icon: val.icon || '>_',
             description: val.description || '',
             builtin: !!val.builtin,
+            owner: val.owner || null,
+            owner_source: (val.owner_source || null) as OwnerSource,
           }))
           if (fetched.length > 0) setAgentOptions(fetched)
+          if (d.host) setOwner((o: string | null) => o === null ? d.host : o)
         }
       })
       .catch(() => {})
@@ -297,13 +404,29 @@ export default function Home() {
       .catch(() => {})
   }, [])
 
-  const deleteAgent = async (v: string) => {
-    if (!confirm(`Delete agent "${v}"? This can't be undone.`)) return
+  // remove an agent or a library prompt — the server only lets its owner or
+  // the host through, so a refusal comes back as a 403 to surface
+  const deletePersona = async (p: Persona) => {
+    const what = p.kind === 'agent' ? 'agent' : 'prompt'
+    if (!confirm(`Delete ${what} "${p.label}"? This can't be undone.`)) return
+    const q = auth?.token ? `?key=${encodeURIComponent(auth.token)}` : ''
+    const route = p.kind === 'agent'
+      ? `agents/${encodeURIComponent(p.id)}`
+      : `prompts/${encodeURIComponent(p.id)}`
     try {
-      await fetch(`${API_URL}/agents/${encodeURIComponent(v)}`, { method: 'DELETE' })
-      if (agentType === v) selectAgent('default')
-      fetchAgents()
-    } catch {}
+      const r = await fetch(`${API_URL}/${route}${q}`, { method: 'DELETE' }).then(x => x.json())
+      if (r?.error) { setPersonaErr(r.error); return }
+      setPersonaErr(null)
+      if (p.kind === 'agent') {
+        if (agentType === p.id) selectAgent('default')
+        fetchAgents()
+      } else {
+        if (promptSel?.id === p.id) selectPrompt(null)
+        fetchLibrary()
+      }
+    } catch (e: any) {
+      setPersonaErr(e?.message || 'delete failed')
+    }
   }
 
   // jump to the visual builder canvas, optionally preloading an agent to edit
@@ -312,11 +435,6 @@ export default function Home() {
     setShowPicker(false)
     setView('builder')
   }
-
-  // scroll the active chip into view when selection or the agent list changes
-  useEffect(() => {
-    activeChipRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [agentType, agentOptions])
 
   const selectAgent = (v: string) => {
     setAgentType(v)
@@ -332,9 +450,59 @@ export default function Home() {
       if (p) localStorage.setItem('agent_prompt_sel', JSON.stringify({
         id: p.id, name: p.name, description: p.description || '',
         body: (p.body || '').slice(0, 8000), tags: p.tags || [],
+        owner: p.owner || null, owner_source: p.owner_source || null,
       }))
       else localStorage.removeItem('agent_prompt_sel')
     } catch {} // shared-origin quota — selection just isn't persisted
+  }
+
+  // ── one persona list: agents + library prompts ────────────────────
+  // Yours first, then the rest — your own work never hides off-screen.
+  const personas: Persona[] = [
+    ...agentOptions.map(a => ({
+      key: `agent:${a.value}`, kind: 'agent' as const, id: a.value,
+      label: a.label, icon: a.icon, description: a.description,
+      builtin: a.builtin, owner: a.owner, owner_source: a.owner_source,
+    })),
+    ...libPrompts.map(p => ({
+      key: `prompt:${p.id}`, kind: 'prompt' as const, id: p.id,
+      label: p.name, icon: '¶', description: p.description || p.body?.slice(0, 90),
+      builtin: false, owner: p.owner, owner_source: p.owner_source, prompt: p,
+    })),
+  ]
+
+  const activePersonaKey = promptSel ? `prompt:${promptSel.id}` : `agent:${agentType}`
+  const activePersona = personas.find(p => p.key === activePersonaKey)
+
+  const selectPersona = (p: Persona) => {
+    if (p.kind === 'agent') selectAgent(p.id)
+    else selectPrompt(p.prompt || null)
+  }
+
+  // ── who may administer a persona ──────────────────────────────────
+  // The host owns anything nobody else does, so they can edit/remove
+  // everything — including the shipped agents.
+  // no host configured at all -> everyone is the host (the server agrees).
+  // While the host is still unknown, nobody gets admin controls.
+  const isHost = !!auth?.isOwner || owner === ''
+  // creating anything (agent, prompt, note) files it under your address, so
+  // it takes a sign-in — the server refuses an unsigned create either way
+  const canCreate = !!auth || isHost
+  const ownedByMe = (p: Owned) =>
+    !!auth && p.owner_source === 'item' &&
+    (p.owner || '').toLowerCase() === auth.address.toLowerCase()
+  const canManage = (p: Persona) => isHost || ownedByMe(p)
+  // '' while the API hasn't answered yet — no owner claim beats a wrong one
+  const ownerLabel = (p: Owned) =>
+    p.owner_source === 'host' ? 'host' : p.owner ? shortAddr(p.owner) : ''
+  const ownerTitle = (p: Owned) =>
+    p.owner_source === 'host'
+      ? `no owner recorded — the host${p.owner ? ` (${p.owner})` : ''} owns it`
+      : p.owner ? `owned by ${p.owner}` : 'no owner'
+
+  const editPersona = (p: Persona) => {
+    if (p.kind === 'agent') openBuilder(p.id)
+    else { setShowPicker(false); setView('library') }
   }
 
   const toggleNote = (id: string) => {
@@ -487,7 +655,7 @@ export default function Home() {
     // owner / user info
     fetch(`${API_URL}/owner`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
-      .then(d => setOwner(d.owner || null))
+      .then(d => setOwner(d.owner || ''))
       .catch(() => {})
     const saved = localStorage.getItem('agent_type')
     if (saved) setAgentType(saved)
@@ -531,6 +699,9 @@ export default function Home() {
         messages: t.messages.map(msg => ({
           ...msg,
           text: clip(msg.text),
+          // only the thumbnails survive a reload — full-size data URLs would
+          // eat the whole shared quota in a couple of chats
+          images: undefined,
           steps: msg.steps?.slice(0, 60).map((s: any) => ({ ...s, result: clip(s.result) })),
         })),
       }))
@@ -555,7 +726,9 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: uid, query: t.query, agent_type: t.agent_type || 'default',
-          status: t.status, messages: t.messages,
+          // thumbnails only — a pinned conversation shouldn't carry megabytes
+          // of base64 across the wire
+          status: t.status, messages: t.messages.map(msg => ({ ...msg, images: undefined })),
           started: t.startedAt ? t.startedAt / 1000 : undefined,
           key: auth.token,
         }),
@@ -692,20 +865,26 @@ export default function Home() {
   }
 
   const run = async () => {
-    if (!query.trim() || loading) return
-    const q = query.trim()
+    const shots = attachments
+    if ((!query.trim() && shots.length === 0) || loading) return
+    const q = query.trim() || 'look at the attached image(s)'
     setQuery('')
+    setAttachments([])
+    setAttachErr(null)
     setLoading(true)
 
     const id = ++taskId.current
     const agentLabel = promptSel ? `¶ ${promptSel.name}` : (currentAgentDef?.label || agentType)
-    const userMsg: Message = { role: 'user', text: `[${agentLabel}] ${q}` }
+    const userMsg: Message = {
+      role: 'user', text: `[${agentLabel}] ${q}`,
+      ...(shots.length ? { images: shots.map(a => a.url), thumbs: shots.map(a => a.thumb) } : {}),
+    }
     const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: agentType, startedAt: Date.now() }
     setTasks(t => [task, ...t])
     setSelectedTask(id)
     setActiveTab('output')
-    if (layoutMode === 'minimized') setLayoutMode('sidebar')
-    if (sidebarCollapsed) setSidebarCollapsed(false)
+    setViewingFile(null)
+    if (dock === 'min') setDockPersist('normal')
 
     const patchTask = (patch: Partial<TaskEntry> | ((tk: TaskEntry) => TaskEntry)) => {
       setTasks(t => t.map(tk => tk.id === id
@@ -734,6 +913,7 @@ export default function Home() {
       }
 
       const body: any = { query: q }
+      if (shots.length) body.images = shots.map(a => a.url)   // vision-capable models only
       if (auth?.token) body.key = auth.token   // signed identity rides along
       if (agentType && agentType !== 'default') body.agent_type = agentType
       if (provider) body.provider = provider
@@ -744,6 +924,7 @@ export default function Home() {
         if (bodyText) body.prompt = bodyText
       }
       if (memSel.length) body.memory_ids = memSel
+      if (skillSel.length) body.skill_ids = skillSel
       // guests pick how runs are powered: spend credits on the module's
       // public key, or stay on free models (never charged)
       if (auth && !auth.isOwner && !spendCredits) body.free = true
@@ -884,6 +1065,27 @@ export default function Home() {
     setExpandedSteps(s => ({ ...s, [idx]: !s[idx] }))
   }
 
+  // ── composer attachments — paste, drop, or pick an image ───────────
+  const addFiles = async (files: File[]) => {
+    const imgs = files.filter(f => f.type.startsWith('image/'))
+    if (!imgs.length) return
+    setAttachErr(null)
+    try {
+      const next = await Promise.all(imgs.slice(0, 4).map(toAttachment))
+      setAttachments(a => [...a, ...next].slice(0, 4))
+    } catch {
+      setAttachErr("Couldn't read that image")
+    }
+  }
+
+  const onPasteCompose = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.items || [])
+      .filter(it => it.kind === 'file' && it.type.startsWith('image/'))
+      .map(it => it.getAsFile())
+      .filter((f): f is File => !!f)
+    if (files.length) { e.preventDefault(); addFiles(files) }
+  }
+
   const statusIcon = (s: TaskEntry['status']) =>
     s === 'running' ? 'animate-spin text-emerald-300' :
     s === 'done' ? 'text-emerald-400' : 'text-red-400'
@@ -938,6 +1140,10 @@ export default function Home() {
     </div>
   )
 
+  // every tool call the run made, in order — the TOOLS tab reads this
+  const getSteps = (task: TaskEntry | undefined) =>
+    task ? task.messages.flatMap(msg => msg.steps || []) : []
+
   const getDeltas = (task: TaskEntry | undefined) => {
     if (!task) return []
     const deltas: { tool: string; file?: string; action: string }[] = []
@@ -987,28 +1193,20 @@ export default function Home() {
   // provider + model selectors (used in both sidebar and fullscreen bars)
   const modelControls = (
     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-      <select
+      <Select
+        accent="emerald" className="shrink-0" title="LLM provider"
         value={provider}
-        onChange={(e) => onProviderChange(e.target.value)}
-        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors shrink-0"
-        title="LLM provider"
-      >
-        {(providers.length ? providers.map(p => p.key) : ['openrouter', 'venice']).map(k => (
-          <option key={k} value={k} className="bg-[#111]">{k}</option>
-        ))}
-      </select>
-      <select
+        onChange={onProviderChange}
+        options={(providers.length ? providers.map(p => p.key) : ['openrouter', 'venice']).map(k => ({ value: k, label: k, icon: '⬢' }))} />
+      <Select
+        accent="emerald" className="min-w-0 flex-1 max-w-[220px]" title={model || 'Model'}
         value={model}
-        onChange={(e) => { setModel(e.target.value); localStorage.setItem('agent_model', e.target.value) }}
-        className="bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-gray-300 outline-none cursor-pointer hover:border-white/20 transition-colors min-w-0 flex-1"
-        style={{ maxWidth: '220px' }}
-        title={model || 'Model'}
-      >
-        {(model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => (
-          <option key={mn} value={mn} className="bg-[#111]">{mn}</option>
-        ))}
-        {providerModels.length === 0 && !model && <option value="" className="bg-[#111]">default</option>}
-      </select>
+        onChange={(v) => { setModel(v); localStorage.setItem('agent_model', v) }}
+        options={
+          providerModels.length === 0 && !model
+            ? [{ value: '', label: 'default' }]
+            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => ({ value: mn, label: mn }))
+        } />
     </div>
   )
 
@@ -1350,11 +1548,13 @@ export default function Home() {
   const personaPicker = (
     <div className="relative min-w-0">
       <button
-        onClick={() => { setShowPicker(v => !v); if (!showPicker) fetchLibrary() }}
+        onClick={() => { setShowPicker(v => !v); setPersonaErr(null); if (!showPicker) fetchLibrary() }}
         className={`flex items-center gap-1.5 bg-white/5 border rounded-md px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors min-w-0 max-w-[200px] ${
           showPicker ? 'border-emerald-500/40 text-gray-200' : 'border-white/10 text-gray-300 hover:border-white/20'
         }`}
-        title={promptSel ? `Library prompt: ${promptSel.name}` : `Agent: ${currentAgentDef?.label || agentType}`}
+        title={activePersona
+          ? `${activePersona.kind === 'prompt' ? 'Prompt' : 'Agent'}: ${activePersona.label} · ${ownerTitle(activePersona)}`
+          : `Agent: ${currentAgentDef?.label || agentType}`}
       >
         {promptSel ? (
           <span className="text-amber-300/90 shrink-0">¶</span>
@@ -1362,10 +1562,28 @@ export default function Home() {
           <span className="shrink-0">{currentAgentDef?.icon || '>_'}</span>
         )}
         <span className="truncate">{promptSel ? promptSel.name : (currentAgentDef?.label || agentType)}</span>
+        {activePersona?.owner_source && (
+          <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 font-mono ${
+            activePersona.owner_source === 'host'
+              ? 'bg-white/[0.06] text-gray-500'
+              : ownedByMe(activePersona)
+              ? 'bg-emerald-500/15 text-emerald-300/90'
+              : 'bg-violet-400/10 text-violet-300/90'
+          }`} title={ownerTitle(activePersona)}>
+            {ownedByMe(activePersona) ? 'you' : ownerLabel(activePersona)}
+          </span>
+        )}
         {memSel.length > 0 && (
           <span className="text-[9px] px-1 py-0.5 rounded bg-sky-500/15 border border-sky-500/25 text-sky-300 shrink-0 font-mono"
             title={`${memSel.length} memory note${memSel.length !== 1 ? 's' : ''} in context`}>
             +{memSel.length}
+          </span>
+        )}
+        {skillSel.length > 0 && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 shrink-0 font-mono"
+            title={`${skillSel.length} installed skill${skillSel.length !== 1 ? 's' : ''} in context`}
+            onClick={e => { e.stopPropagation(); setSkillSel([]) }}>
+            ⌘{skillSel.length}
           </span>
         )}
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -1381,8 +1599,7 @@ export default function Home() {
             {/* tabs */}
             <div className="flex items-center gap-0.5 px-1.5 pt-1.5 border-b border-white/[0.06] shrink-0">
               {([
-                ['agents', `agents ${agentOptions.length}`],
-                ['prompts', `prompts ${libPrompts.length}`],
+                ['prompts', `prompts ${personas.length}`],
                 ['memory', memSel.length ? `memory ${memSel.length}/${memNotes.length}` : `memory ${memNotes.length}`],
               ] as const).map(([t, label]) => (
                 <button key={t} onClick={() => setPickerTab(t)}
@@ -1405,84 +1622,78 @@ export default function Home() {
             </div>
             {/* list */}
             <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
-              {pickerTab === 'agents' && agentOptions.filter(a => pickerFilter(a.label, a.description)).map(a => (
-                <div key={a.value} role="button" tabIndex={0}
-                  onClick={() => { selectAgent(a.value); setShowPicker(false) }}
-                  onKeyDown={e => { if (e.key === 'Enter') { selectAgent(a.value); setShowPicker(false) } }}
-                  className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition cursor-pointer group ${
-                    !promptSel && agentType === a.value
-                      ? 'bg-emerald-500/10 border border-emerald-500/20 text-gray-200'
-                      : 'border border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-                  }`}>
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 text-center shrink-0">{a.icon}</span>
-                    <span className="truncate">{a.label}</span>
-                    {!a.builtin && (
-                      <span className="text-[9px] px-1 py-0.5 rounded bg-violet-400/10 text-violet-300/90 shrink-0">custom</span>
-                    )}
-                    <span className="ml-auto flex items-center gap-1 shrink-0">
-                      {!a.builtin && (
-                        <>
-                          <button title="Edit this agent"
-                            onClick={e => { e.stopPropagation(); openBuilder(a.value) }}
-                            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
-                            ✎
-                          </button>
-                          <button title="Delete this agent"
-                            onClick={e => { e.stopPropagation(); deleteAgent(a.value) }}
-                            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
-                            ✕
-                          </button>
-                        </>
-                      )}
-                      {!promptSel && agentType === a.value && <span className="text-[10px] text-emerald-300">active</span>}
-                    </span>
-                  </div>
-                  {a.description && (
-                    <div className="text-[10px] text-gray-600 mt-0.5 truncate pl-7">{a.description}</div>
-                  )}
-                </div>
-              ))}
-              {pickerTab === 'agents' && (
-                <button
-                  onClick={() => openBuilder()}
-                  className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-                  <span className="w-5 text-center shrink-0">+</span> build a new agent
-                </button>
-              )}
-
-              {pickerTab === 'prompts' && (
-                <>
-                  <button
-                    onClick={() => { selectPrompt(null); setShowPicker(false) }}
-                    className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition border ${
-                      !promptSel
-                        ? 'bg-emerald-500/10 border-emerald-500/20 text-gray-300'
-                        : 'border-transparent text-gray-500 hover:bg-white/[0.04] hover:text-gray-300'
-                    }`}>
-                    None — use the agent&apos;s own prompt
-                  </button>
-                  {libPrompts.length === 0 ? (
-                    <div className="text-xs text-gray-600 text-center py-6">No prompts in the library yet</div>
-                  ) : libPrompts.filter(p => pickerFilter(p.name, p.description || p.body)).map(p => (
-                    <button key={p.id}
-                      onClick={() => { selectPrompt(p); setShowPicker(false) }}
-                      className={`w-full text-left px-2.5 py-2 rounded-md transition border ${
-                        promptSel?.id === p.id
-                          ? 'bg-amber-400/10 border-amber-400/30'
-                          : 'border-transparent hover:bg-white/[0.04]'
+              {pickerTab === 'prompts' && personas
+                .filter(p => pickerFilter(p.label, p.description))
+                .map(p => {
+                  const active = p.key === activePersonaKey
+                  const mine = ownedByMe(p)
+                  return (
+                    <div key={p.key} role="button" tabIndex={0}
+                      onClick={() => { selectPersona(p); setShowPicker(false) }}
+                      onKeyDown={e => { if (e.key === 'Enter') { selectPersona(p); setShowPicker(false) } }}
+                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition cursor-pointer group ${
+                        active
+                          ? p.kind === 'prompt'
+                            ? 'bg-amber-400/10 border border-amber-400/30 text-gray-200'
+                            : 'bg-emerald-500/10 border border-emerald-500/20 text-gray-200'
+                          : 'border border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
                       }`}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-amber-300/80 text-xs shrink-0">¶</span>
-                        <span className="text-xs font-medium text-gray-200 truncate">{p.name}</span>
-                        {promptSel?.id === p.id && <span className="ml-auto text-[10px] text-amber-300 shrink-0">active</span>}
+                      <div className="flex items-center gap-2">
+                        <span className={`w-5 text-center shrink-0 ${p.kind === 'prompt' ? 'text-amber-300/80' : ''}`}>{p.icon}</span>
+                        <span className="truncate">{p.label}</span>
+                        <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${
+                          p.kind === 'prompt' ? 'bg-amber-400/10 text-amber-300/90' : 'bg-white/[0.06] text-gray-500'
+                        }`}>{p.kind}</span>
+                        <span className="ml-auto flex items-center gap-1 shrink-0">
+                          {canManage(p) && (
+                            <>
+                              <button title={`Edit this ${p.kind}`}
+                                onClick={e => { e.stopPropagation(); editPersona(p) }}
+                                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
+                                ✎
+                              </button>
+                              <button title={p.builtin
+                                ? `Delete built-in agent "${p.label}" — host only`
+                                : `Delete this ${p.kind}`}
+                                onClick={e => { e.stopPropagation(); deletePersona(p) }}
+                                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
+                                ✕
+                              </button>
+                            </>
+                          )}
+                          {active && <span className={`text-[10px] ${p.kind === 'prompt' ? 'text-amber-300' : 'text-emerald-300'}`}>active</span>}
+                        </span>
                       </div>
-                      <div className="text-[10px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">
-                        {p.description || p.body?.slice(0, 100) || '—'}
+                      <div className="flex items-center gap-1.5 mt-0.5 pl-7">
+                        {/* every persona shows who owns it — unowned means the host does */}
+                        <span className={`text-[9px] font-mono shrink-0 ${
+                          mine ? 'text-emerald-300/80' : p.owner_source === 'host' ? 'text-gray-600' : 'text-violet-300/80'
+                        }`} title={ownerTitle(p)}>
+                          {mine ? 'you' : ownerLabel(p)}
+                        </span>
+                        {p.description && (
+                          <span className="text-[10px] text-gray-600 truncate">· {p.description}</span>
+                        )}
                       </div>
-                    </button>
-                  ))}
-                </>
+                    </div>
+                  )
+                })}
+              {pickerTab === 'prompts' && (
+                // an agent is filed under the wallet that made it — sign in first
+                canCreate ? (
+                  <button
+                    onClick={() => openBuilder()}
+                    className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
+                    <span className="w-5 text-center shrink-0">+</span> build a new agent
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setShowPicker(false); signIn() }}
+                    title="Agents and prompts are saved under the wallet that made them"
+                    className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-sky-500/25 text-sky-300/90 hover:bg-sky-500/10 flex items-center gap-2">
+                    <span className="w-5 text-center shrink-0">+</span> sign in to build your own agent
+                  </button>
+                )
               )}
 
               {pickerTab === 'memory' && (
@@ -1514,12 +1725,15 @@ export default function Home() {
             </div>
             {/* footer */}
             <div className="border-t border-white/[0.06] px-2.5 py-2 flex items-center gap-2 shrink-0">
-              <span className="text-[10px] text-gray-600">
-                {pickerTab === 'memory'
+              <span className={`text-[10px] truncate ${personaErr ? 'text-red-400' : 'text-gray-600'}`}
+                title={personaErr || undefined}>
+                {personaErr
+                  ? personaErr
+                  : pickerTab === 'memory'
                   ? 'selected notes ride along as run context'
-                  : pickerTab === 'prompts'
-                  ? 'a prompt overrides the agent’s system prompt'
-                  : 'personas with their own prompt + skills'}
+                  : isHost
+                  ? 'you are the host — you own everything unowned'
+                  : 'agents bring skills + a model, prompts just set the goal'}
               </span>
               <div className="ml-auto flex items-center gap-2">
                 {pickerTab === 'memory' && memSel.length > 0 && (
@@ -1544,19 +1758,52 @@ export default function Home() {
     </div>
   )
 
-  // --- Compose bar (agent prompt) — rendered at the bottom of the sidebar ---
+  // --- Compose row — the agent prompt, docked at the bottom of the console ---
   const composeBar = (
-    <div className="border-t border-white/[0.06] px-3 py-3 shrink-0">
-      <div className={`flex gap-2 items-end rounded-xl border px-3 py-2 transition-all duration-200 ${
+    <div className="border-t border-white/[0.06] px-3 py-2.5 shrink-0">
+      {/* no persona strip here — the picker in the console toolbar owns that
+          choice, and a second overflowing chip row only crowded the composer. */}
+      <div
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer?.files || [])) }}
+        className={`rounded-xl border px-3 py-2 transition-all duration-200 ${
         composeFocused
           ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgba(52,211,153,0.08)]'
           : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
       }`}>
+        {/* staged images — paste, drop, or pick them; they ride with the next run */}
+        {(attachments.length > 0 || attachErr) && (
+          <div className="flex items-center gap-1.5 flex-wrap pb-2">
+            {attachments.map(a => (
+              <div key={a.id} className="relative group">
+                <img src={a.thumb} alt={a.name} title={a.name} onClick={() => setLightbox(a.url)}
+                  className="h-12 w-12 object-cover rounded-md border border-emerald-500/20 cursor-zoom-in" />
+                <button onClick={() => setAttachments(l => l.filter(x => x.id !== a.id))}
+                  title="Remove"
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black/80 border border-white/15 text-[9px] text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">✕</button>
+              </div>
+            ))}
+            {attachErr && <span className="text-[10px] text-red-400">{attachErr}</span>}
+          </div>
+        )}
+        <div className="flex gap-2 items-end">
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={e => { addFiles(Array.from(e.target.files || [])); e.target.value = '' }} />
+        <button onClick={() => fileRef.current?.click()} disabled={loading}
+          title="Attach an image — or just paste one"
+          className="w-8 h-8 shrink-0 mb-0.5 flex items-center justify-center rounded-lg border border-white/[0.08] text-gray-600 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40 transition">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
         <textarea
           ref={inputRef}
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={onPasteCompose}
           onFocus={() => setComposeFocused(true)}
           onBlur={() => setComposeFocused(false)}
           placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}...`}
@@ -1571,432 +1818,389 @@ export default function Home() {
             Stop
           </button>
         ) : (
-          <button onClick={run} disabled={!query.trim() || apiStatus === 'down'}
+          <button onClick={run} disabled={(!query.trim() && attachments.length === 0) || apiStatus === 'down'}
             className="text-sm lit-btn disabled:bg-white/5 disabled:text-gray-600 disabled:shadow-none rounded-lg px-4 py-2 transition font-semibold shrink-0 mb-0.5"
             title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
             Run
           </button>
         )}
+        </div>
       </div>
     </div>
   )
 
-  // --- Sidebar content (conversations + compose + user info) ---
-  const sidebarContent = (
-    <div className="flex flex-col h-full">
-      {/* persona picker (agents / prompts / memory) + balance */}
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0 min-w-0">
-        {personaPicker}
-        <div className="shrink-0 ml-auto flex items-center gap-1.5">
-          {balancePill}
-        </div>
-      </div>
-
-      {/* agent strip — every agent one tap away, + builds your own.
-          your custom agents come first so they never hide off-screen.
-          collapsed: one scrollable row; expanded: wraps to show every agent */}
-      <div className="border-b border-white/[0.06] px-3 py-2 shrink-0">
-        <div className="flex items-start gap-1.5">
-          <div className={`flex items-center gap-1.5 flex-1 min-w-0 ${
-            agentStripExpanded ? 'flex-wrap' : 'overflow-x-auto no-scrollbar'
-          }`}>
-            {[...agentOptions].sort((a, b) => Number(!!a.builtin) - Number(!!b.builtin)).map(a => {
-              const active = !promptSel && agentType === a.value
+  // --- Tool trace — every step the run took, params and result in full ---
+  const toolTrace = (
+    <div className="p-3 max-w-4xl mx-auto w-full">
+      {!currentTask ? (
+        <p className="text-sm text-gray-600 text-center mt-8">Select a chat to see what it ran</p>
+      ) : (() => {
+        const steps = getSteps(currentTask)
+        if (steps.length === 0) return (
+          <p className="text-sm text-gray-600 text-center mt-8">
+            {currentTask.status === 'running' ? 'No tool calls yet…' : 'No tool calls — the agent answered directly'}
+          </p>
+        )
+        return (
+          <div className="space-y-0.5">
+            {steps.map((step: any, j: number) => {
+              const target = step.params?.path || step.params?.file_path || step.params?.pattern || step.params?.command || ''
+              const open = !!expandedSteps[j]
               return (
-                <button key={a.value}
-                  ref={active ? activeChipRef : undefined}
-                  onClick={() => selectAgent(a.value)}
-                  title={a.description || a.label}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap transition border shrink-0 ${
-                    active
-                      ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-200 shadow-[0_0_10px_rgba(52,211,153,0.15)]'
-                      : 'bg-white/[0.03] border-white/[0.07] text-gray-400 hover:text-gray-200 hover:border-white/20'
-                  }`}>
-                  <span className="font-mono">{a.icon}</span>
-                  <span>{a.label}</span>
-                  {!a.builtin && <span className="w-1 h-1 rounded-full bg-violet-400/80" />}
-                </button>
-              )
-            })}
-            <button onClick={() => openBuilder()}
-              title="Build your own agent — pick a prompt, skills, and a model"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs whitespace-nowrap border border-dashed border-emerald-500/30 text-emerald-300/90 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition shrink-0">
-              <span className="leading-none">+</span> new agent
-            </button>
-          </div>
-          <button
-            onClick={() => setAgentStripExpanded(v => !v)}
-            title={agentStripExpanded ? 'Collapse agent list' : `Show all ${agentOptions.length} agents`}
-            className={`shrink-0 w-7 h-7 mt-px rounded-full border flex items-center justify-center transition ${
-              agentStripExpanded
-                ? 'border-emerald-500/35 text-emerald-300 bg-emerald-500/10'
-                : 'border-white/[0.07] text-gray-500 hover:text-gray-300 hover:border-white/20'
-            }`}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              className={`transition-transform ${agentStripExpanded ? 'rotate-180' : ''}`}>
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-        </div>
-        {agentStripExpanded && (
-          <div className="text-[9px] text-gray-600 mt-1.5 px-1">
-            {agentOptions.length} agents · {agentOptions.filter(a => !a.builtin).length} custom
-          </div>
-        )}
-      </div>
-
-      {/* provider + model selection */}
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0 min-w-0 overflow-hidden">
-        <span className="text-[10px] text-gray-600 uppercase tracking-wider font-medium shrink-0">model</span>
-        {modelControls}
-      </div>
-
-      {/* tab bar */}
-      <div className="border-b border-white/[0.06] px-2 flex items-center shrink-0">
-        {/* chats dropdown (moved out of the tabs into the header) */}
-        <div className="relative shrink-0 mr-1">
-          <button
-            onClick={() => setShowChats(v => !v)}
-            className={`tab-btn flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium uppercase tracking-wider transition-colors ${
-              showChats ? 'text-white' : 'text-gray-600 hover:text-gray-400'
-            }`}
-            title="Conversations"
-          >
-            chats
-            <span className="text-[9px] text-gray-600 normal-case">{tasks.length || ''}</span>
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showChats ? 'rotate-180' : ''}`}>
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {showChats && (
-            <div className="absolute left-0 top-full mt-1 w-72 max-h-[60vh] overflow-y-auto bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl p-1.5">
-              {tasks.length === 0 ? (
-                <div className="text-center text-gray-600 py-6 px-3">
-                  <p className="text-sm text-gray-500">No conversations yet</p>
-                  <div className="mt-3 flex gap-1.5 justify-center flex-wrap">
-                    {['map this codebase', 'find and fix a bug', 'write tests'].map(ex => (
-                      <button key={ex} onClick={() => { setQuery(ex); setShowChats(false); inputRef.current?.focus() }}
-                        className="px-2.5 py-1 rounded-full text-[11px] bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                        {ex}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {tasks.map(t => (
-                    <div
-                      key={t.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setShowChats(false) }}
-                      onKeyDown={e => { if (e.key === 'Enter') { setSelectedTask(t.id); setActiveTab('output'); setShowChats(false) } }}
-                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition group cursor-pointer ${
-                        selectedTask === t.id
-                          ? 'bg-emerald-500/10 border border-emerald-500/20'
-                          : 'hover:bg-white/[0.04] border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
-                        {t.agent_type && t.agent_type !== 'default' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
-                            {agentOptions.find(a => a.value === t.agent_type)?.icon}
-                          </span>
-                        )}
-                        <span className="truncate flex-1 text-gray-300 group-hover:text-gray-200">{t.query}</span>
-                        {t.cid && (
-                          <span
-                            onClick={e => { e.stopPropagation(); try { navigator.clipboard?.writeText(t.cid!) } catch {} }}
-                            title={`pinned to localfs — ${t.cid}\nclick to copy CID`}
-                            className="text-[9px] px-1 py-px rounded font-mono bg-emerald-500/[0.08] border border-emerald-500/15 text-emerald-300/80 hover:text-emerald-200 shrink-0"
-                          >⬡ {t.cid.slice(0, 6)}…</span>
-                        )}
-                        <span className="text-[10px] text-gray-600 shrink-0 font-mono">
-                          {t.stepCount !== undefined ? `${t.stepCount}·${taskTime(t)}` : taskTime(t)}
-                        </span>
-                        <button
-                          onClick={e => { e.stopPropagation(); deleteConversation(t) }}
-                          title="Delete conversation (local + server)"
-                          className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-gray-600 hover:text-red-400 shrink-0 text-[10px]"
-                        >✕</button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="px-2.5 pt-1.5 pb-1 border-t border-white/[0.05] mt-1 text-[9px] text-gray-600 flex items-center gap-1">
-                    <span className="text-emerald-400/60">⬡</span>
-                    {auth
-                      ? `${tasks.filter(t => t.synced).length}/${tasks.length} saved to localfs · synced across devices`
-                      : 'sign in to save chats to localfs across devices'}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center">
-          {(['output', 'deltas'] as Tab[]).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`tab-btn px-3 py-2.5 text-xs font-medium uppercase tracking-wider transition-colors relative ${
-                activeTab === tab
-                  ? 'text-white'
-                  : 'text-gray-600 hover:text-gray-400'
-              }`}
-            >
-              {tab}
-              {tab === 'deltas' && currentTask && getDeltas(currentTask).length > 0 && (
-                <span className="ml-1 text-[9px] text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
-              )}
-              {activeTab === tab && (
-                <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto flex items-center gap-1.5 pr-1">
-          {selectedTask && currentTask && currentTask.status !== 'running' && (
-            <button onClick={continueTask}
-              className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-300 hover:bg-emerald-500/10 transition"
-              title="Continue this task">
-              ↳
-            </button>
-          )}
-          {selectedTask && currentTask?.status === 'running' && (
-            <button onClick={completeTask}
-              className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition">
-              ✓
-            </button>
-          )}
-          {selectedTask && (
-            <button onClick={dismissTask}
-              className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-400 hover:bg-white/5 transition text-xs">
-              ✕
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* tab content */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {/* OUTPUT tab */}
-        {activeTab === 'output' && (
-          <div className={`p-3 space-y-2 ${!currentTask ? 'h-full' : ''}`}>
-            {!currentTask ? (
-              <div className="min-h-full flex flex-col items-center justify-center text-center text-gray-600 px-4 py-6">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 hero-logo flex items-center justify-center mb-4">
-                  <span className="text-emerald-300 font-mono text-sm select-none">{'>'}<span className="caret-blink">_</span></span>
-                </div>
-                <p className="text-sm text-gray-400 font-medium">
-                  {tasks.length === 0 ? 'What should we build?' : 'Select a chat or ask below'}
-                </p>
-                <div className="mt-4 flex gap-1.5 justify-center flex-wrap max-w-[300px]">
-                  {tasks.length === 0 ? (
-                    <>
-                      {['map this codebase', 'find and fix a bug', 'write tests for recent changes'].map(ex => (
-                        <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                          className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                          {ex}
-                        </button>
-                      ))}
-                      <button onClick={() => setView('library')}
-                        className="px-3 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/15 transition">
-                        browse library →
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={() => setShowChats(true)}
-                      className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                      open chats ({tasks.length})
-                    </button>
-                  )}
-                </div>
-                <p className="mt-4 text-[10px] text-gray-600 flex items-center gap-1">
-                  <span className="text-emerald-400/50">⬡</span>
-                  {auth ? 'your chats are pinned to localfs and follow your wallet'
-                        : 'sign in to keep chats in localfs across devices'}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 mb-2 px-1">
-                  <span className={`text-xs ${statusIcon(currentTask.status)}`}>{statusDot(currentTask.status)}</span>
-                  {currentTask.agent_type && currentTask.agent_type !== 'default' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500">
-                      {agentOptions.find(a => a.value === currentTask.agent_type)?.icon} {agentOptions.find(a => a.value === currentTask.agent_type)?.label}
-                    </span>
-                  )}
-                  <span className="text-sm text-gray-400 font-medium truncate">{currentTask.query}</span>
-                  <span className="text-[10px] text-gray-600 font-mono ml-auto shrink-0">{taskTime(currentTask)}</span>
-                </div>
-
-                {currentTask.messages.map((msg, i) => (
-                  <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
-                    <div className={`rounded-lg px-3 py-2.5 msg-in ${
-                      msg.role === 'user' ? 'bg-emerald-500/10 border border-emerald-500/20' :
-                      msg.role === 'system' ? 'bg-red-500/10 border border-red-500/15' :
-                      'bg-white/[0.03] border border-white/[0.06]'
-                    }`}>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs text-gray-500">{msg.role}</span>
-                      </div>
-                      <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">{msg.text ? renderText(msg.text) : msg.live ? <span className="text-gray-600 shimmer-text">thinking…</span> : null}</div>
-                      {msg.role === 'system' && detectKeyError(msg.text) && keyErrorBanner(detectKeyError(msg.text)!)}
-                      {msg.steps && (
-                        <div className="mt-1.5 space-y-0.5">
-                          {msg.steps.map((step: any, j: number) => (
-                            <div key={j} className="text-xs bg-white/[0.03] border border-white/[0.04] rounded-md px-2.5 py-1.5">
-                              <button
-                                className="w-full text-left flex items-center gap-2"
-                                onClick={() => toggleStep(i * 1000 + j)}
-                              >
-                                <span className="text-gray-600">{expandedSteps[i * 1000 + j] ? '▼' : '▶'}</span>
-                                <span className="text-emerald-300">{step.tool}</span>
-                                {step.params?.path || step.params?.file_path ? (
-                                  <span className="text-gray-600 truncate">{shortPath(step.params.path || step.params.file_path)}</span>
-                                ) : null}
-                                {step.error && <span className="text-red-400 ml-auto">err</span>}
-                              </button>
-                              {expandedSteps[i * 1000 + j] && (
-                                <>
-                                  {step.result && (
-                                    <pre className="text-gray-500 mt-1 overflow-x-auto max-h-48 text-xs leading-relaxed">
-                                      {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
-                                    </pre>
-                                  )}
-                                  {step.error && <pre className="text-red-400 mt-1 text-xs">{step.error}</pre>}
-                                </>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                <div key={j} className={`text-xs rounded-md border transition ${
+                  step.error ? 'bg-red-500/[0.04] border-red-500/15' : 'bg-white/[0.02] border-white/[0.05] hover:border-white/[0.1]'
+                }`}>
+                  <button className="w-full text-left flex items-center gap-2 px-2.5 py-2" onClick={() => toggleStep(j)}>
+                    <span className="text-gray-700 w-6 shrink-0 font-mono text-[10px]">{String(j + 1).padStart(2, '0')}</span>
+                    <span className="text-gray-600">{open ? '▼' : '▶'}</span>
+                    <span className="text-emerald-300 font-mono shrink-0">{step.tool}</span>
+                    {target && <span className="text-gray-600 truncate font-mono">{shortPath(String(target))}</span>}
+                    {step.error && <span className="text-red-400 ml-auto shrink-0">err</span>}
+                  </button>
+                  {open && (
+                    <div className="px-2.5 pb-2 space-y-1">
+                      {step.params && Object.keys(step.params).length > 0 && (
+                        <pre className="text-gray-500 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2">
+                          {JSON.stringify(step.params, null, 2)}
+                        </pre>
+                      )}
+                      {step.result != null && step.result !== '' && (
+                        <pre className="text-gray-400 overflow-x-auto max-h-72 text-[11px] leading-relaxed border-l border-emerald-500/20 pl-2">
+                          {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
+                        </pre>
+                      )}
+                      {step.error && (
+                        <pre className="text-red-400 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-red-500/30 pl-2">{step.error}</pre>
                       )}
                     </div>
-                  </div>
-                ))}
-                {currentTask.status === 'running' && workingIndicator(currentTask)}
-                <div ref={bottomRef} />
-              </>
-            )}
-          </div>
-        )}
-
-        {/* DELTAS tab */}
-        {activeTab === 'deltas' && (
-          <div className="p-3">
-            {!currentTask ? (
-              <div className="text-center text-gray-600 mt-12">
-                <p className="text-sm">Select a task</p>
-              </div>
-            ) : (
-              <>
-                {(() => {
-                  const deltas = getDeltas(currentTask)
-                  if (deltas.length === 0) return (
-                    <p className="text-sm text-gray-600 text-center mt-8">No file operations</p>
-                  )
-                  return (
-                    <div className="space-y-0.5">
-                      {deltas.map((d, i) => (
-                        <div key={i} className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-white/[0.03] transition text-sm cursor-pointer"
-                          onClick={() => {
-                            const files = getTaskFiles(currentTask)
-                            const file = files.find(f => f.path === d.file)
-                            if (file) { setViewingFile(file); setDetailView('files') }
-                          }}>
-                          <span className={`font-mono text-xs w-16 shrink-0 ${
-                            d.action === 'created' ? 'text-emerald-400' :
-                            d.action === 'modified' ? 'text-amber-400' :
-                            d.action === 'read' ? 'text-sky-400' :
-                            'text-gray-500'
-                          }`}>{d.action}</span>
-                          <span className="text-gray-400 truncate font-mono">{shortPath(d.file || '')}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })()}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* agent prompt — sits at the bottom of the sidebar */}
-      {composeBar}
-
-      {/* user info footer — the signed-in identity, else the module owner */}
-      <div className="border-t border-white/[0.06] px-4 py-2.5 shrink-0 flex items-center gap-2.5">
-        {(() => {
-          const ident = auth?.address || owner
-          return (
-            <>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${
-                auth
-                  ? (auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-200' : 'bg-sky-500/15 border border-sky-500/25 text-sky-200')
-                  : ident ? 'bg-white/5 border border-white/10 text-gray-400' : 'bg-white/5 border border-white/10 text-gray-500'
-              }`}>
-                {ident ? ident.slice(2, 4).toUpperCase() : '··'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs text-gray-300 font-mono truncate flex items-center gap-1.5"
-                  title={auth ? `signed in as ${auth.address}` : (owner ? `module owned by ${owner} — sign in with your wallet` : 'no owner configured')}>
-                  {auth ? shortAddr(auth.address) : 'not signed in'}
-                  {auth ? (
-                    <span className={`text-[8px] px-1 py-px rounded uppercase tracking-wider ${
-                      auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-300' : 'bg-sky-500/15 border border-sky-500/25 text-sky-300'
-                    }`}>{auth.isOwner ? 'owner' : 'guest'}</span>
-                  ) : owner ? (
-                    <span className="text-[8px] px-1 py-px rounded uppercase tracking-wider bg-white/5 border border-white/10 text-gray-500"
-                      title={`module owner: ${owner}`}>owned by {shortAddr(owner)}</span>
-                  ) : null}
-                </div>
-                <div className="text-[10px] text-gray-600 truncate">
-                  {provider} · {model || 'default'} · {Object.keys(skills).length} skills
-                  {auth && tasks.some(t => t.synced) && (
-                    <span className="text-emerald-400/60" title="conversations pinned to localfs">
-                      {' '}· ⬡ {tasks.filter(t => t.synced).length} in localfs
-                    </span>
                   )}
                 </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+    </div>
+  )
+
+  // --- Transcript — the console body: the run's messages, its tool trace, or its file deltas ---
+  const transcript = (
+    <div className="h-full overflow-y-auto min-h-0">
+      {activeTab === 'tools' ? toolTrace : activeTab === 'deltas' ? (
+        <div className="p-3 max-w-4xl mx-auto w-full">
+          {!currentTask ? (
+            <p className="text-sm text-gray-600 text-center mt-8">Select a chat to see what it touched</p>
+          ) : (() => {
+            const deltas = getDeltas(currentTask)
+            if (deltas.length === 0) return (
+              <p className="text-sm text-gray-600 text-center mt-8">No file operations</p>
+            )
+            return (
+              <div className="space-y-0.5">
+                {deltas.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-white/[0.03] transition text-sm cursor-pointer"
+                    onClick={() => {
+                      const files = getTaskFiles(currentTask)
+                      const file = files.find(f => f.path === d.file)
+                      if (file) { setViewingFile(file); if (dock === 'max') setDockPersist('normal') }
+                    }}>
+                    <span className={`font-mono text-xs w-16 shrink-0 ${
+                      d.action === 'created' ? 'text-emerald-400' :
+                      d.action === 'modified' ? 'text-amber-400' :
+                      d.action === 'read' ? 'text-sky-400' :
+                      'text-gray-500'
+                    }`}>{d.action}</span>
+                    <span className="text-gray-400 truncate font-mono">{shortPath(d.file || '')}</span>
+                  </div>
+                ))}
               </div>
-              {!auth && (
-                <button onClick={signIn} disabled={authBusy}
-                  className="text-[10px] px-2 py-1 rounded-md border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60 transition shrink-0">
-                  {authBusy ? '…' : 'Sign in'}
-                </button>
-              )}
-              <div className="flex items-center gap-1 shrink-0">
-                <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'}`} />
-                <span className="text-[10px] text-gray-600">{apiStatus === 'ok' ? 'online' : apiStatus === 'down' ? 'offline' : '…'}</span>
+            )
+          })()}
+        </div>
+      ) : !currentTask ? (
+        <div className="h-full flex flex-col items-center justify-center text-center text-gray-600 px-4 py-6">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 hero-logo flex items-center justify-center mb-4">
+            <span className="text-emerald-300 font-mono text-sm select-none">{'>'}<span className="caret-blink">_</span></span>
+          </div>
+          <p className="text-sm text-gray-400 font-medium">
+            {tasks.length === 0 ? 'What should we build?' : 'New chat — ask below, or pick one from the rail'}
+          </p>
+          <div className="mt-4 flex gap-1.5 justify-center flex-wrap max-w-[520px]">
+            {['map this codebase', 'find and fix a bug', 'write tests for recent changes'].map(ex => (
+              <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
+                className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
+                {ex}
+              </button>
+            ))}
+            <button onClick={() => setView('library')}
+              className="px-3 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/15 transition">
+              browse library →
+            </button>
+          </div>
+          <p className="mt-4 text-[10px] text-gray-600 flex items-center gap-1">
+            <span className="text-emerald-400/50">⬡</span>
+            {auth ? 'your chats are pinned to localfs and follow your wallet'
+                  : 'sign in to keep chats in localfs across devices'}
+          </p>
+        </div>
+      ) : (
+        <div className="p-3 space-y-2 max-w-4xl mx-auto w-full">
+          {currentTask.messages.map((msg, i) => {
+            // the transcript is the conversation, not the trace: tool calls are
+            // one line here and the whole story in the TOOLS tab
+            const shots = msg.images || msg.thumbs || []
+            const lastStep = msg.steps?.[msg.steps.length - 1]
+            return (
+            <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
+              <div className={`rounded-lg px-3 py-2.5 msg-in ${
+                msg.role === 'user' ? 'bg-emerald-500/10 border border-emerald-500/20' :
+                msg.role === 'system' ? 'bg-red-500/10 border border-red-500/15' :
+                'bg-white/[0.03] border border-white/[0.06]'
+              }`}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs text-gray-500">{msg.role}</span>
+                </div>
+                {shots.length > 0 && (
+                  <div className="flex gap-1.5 flex-wrap mb-1.5">
+                    {shots.map((src, k) => (
+                      <img key={k} src={src} alt="attachment" onClick={() => setLightbox(src)}
+                        className="h-20 w-20 object-cover rounded-md border border-white/10 cursor-zoom-in hover:border-emerald-500/40 transition" />
+                    ))}
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">
+                  {msg.text ? renderText(msg.text) : msg.live ? (
+                    <span className="text-gray-600 shimmer-text">
+                      {lastStep ? `${lastStep.tool}${lastStep.params?.path || lastStep.params?.file_path ? ` ${shortPath(lastStep.params.path || lastStep.params.file_path)}` : ''}…` : 'thinking…'}
+                    </span>
+                  ) : null}
+                </div>
+                {msg.role === 'system' && detectKeyError(msg.text) && keyErrorBanner(detectKeyError(msg.text)!)}
+                {msg.steps && msg.steps.length > 0 && (
+                  <button onClick={() => setActiveTab('tools')}
+                    title="Open the tool trace"
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] text-gray-600 hover:text-emerald-300 transition">
+                    <span className="text-emerald-400/60">⚙</span>
+                    {msg.steps.length} tool call{msg.steps.length === 1 ? '' : 's'}
+                    {msg.steps.some((s: any) => s.error) && <span className="text-red-400/80">· errors</span>}
+                    <span className="text-gray-700">→</span>
+                  </button>
+                )}
               </div>
-            </>
-          )
-        })()}
+            </div>
+          )})}
+          {currentTask.status === 'running' && workingIndicator(currentTask)}
+          <div ref={bottomRef} />
+        </div>
+      )}
+    </div>
+  )
+
+  // --- Chats rail — every conversation, always visible on the side ---
+  const newChat = () => {
+    setSelectedTask(null)
+    setViewingFile(null)
+    setActiveTab('output')
+    if (dock === 'min') setDockPersist('normal')
+    setTimeout(() => inputRef.current?.focus(), 40)
+  }
+
+  const setRailClosed = (closed: boolean) => {
+    setSidebarCollapsed(closed)
+    try { localStorage.setItem('agent_rail_closed', closed ? '1' : '0') } catch {}
+  }
+
+  // chats bucketed by day, so a long history stays scannable
+  const chatBucket = (t: TaskEntry) => {
+    if (!t.startedAt) return 'earlier'
+    const d = new Date(t.startedAt)
+    const now = new Date()
+    if (d.toDateString() === now.toDateString()) return 'today'
+    if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return 'yesterday'
+    return 'earlier'
+  }
+  const visibleChats = tasks.filter(t => {
+    const s = chatSearch.trim().toLowerCase()
+    return !s || t.query.toLowerCase().includes(s)
+  })
+
+  const chatRow = (t: TaskEntry) => (
+    <div
+      key={t.id}
+      role="button"
+      tabIndex={0}
+      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setViewingFile(null); if (dock === 'min') setDockPersist('normal') }}
+      onKeyDown={e => { if (e.key === 'Enter') { setSelectedTask(t.id); setActiveTab('output') } }}
+      className={`w-full text-left px-2.5 py-2 rounded-lg text-sm transition group cursor-pointer border ${
+        selectedTask === t.id
+          ? 'bg-emerald-500/10 border-emerald-500/20'
+          : 'hover:bg-white/[0.04] border-transparent'
+      }`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`text-[11px] shrink-0 ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
+        {t.agent_type && t.agent_type !== 'default' && (
+          <span className="text-[10px] text-gray-500 shrink-0 font-mono" title={t.agent_type}>
+            {agentOptions.find(a => a.value === t.agent_type)?.icon}
+          </span>
+        )}
+        <span className="truncate flex-1 text-[13px] text-gray-300 group-hover:text-gray-200">{t.query}</span>
+        <button
+          onClick={e => { e.stopPropagation(); deleteConversation(t) }}
+          title="Delete conversation (local + server)"
+          className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-gray-600 hover:text-red-400 shrink-0 text-[10px]"
+        >✕</button>
+      </div>
+      <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] text-[10px] text-gray-600 font-mono">
+        <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}</span>
+        {t.cid && (
+          <span
+            onClick={e => { e.stopPropagation(); try { navigator.clipboard?.writeText(t.cid!) } catch {} }}
+            title={`pinned to localfs — ${t.cid}\nclick to copy CID`}
+            className="ml-auto px-1 py-px rounded bg-emerald-500/[0.08] border border-emerald-500/15 text-emerald-300/80 hover:text-emerald-200 shrink-0"
+          >⬡ {t.cid.slice(0, 6)}…</span>
+        )}
       </div>
     </div>
   )
 
-  // --- Detail panel (file viewer + output) ---
-  const detailPanel = (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0c0c0c]">
-      {/* detail panel header */}
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
-        <div className="flex items-center">
-          {(['files', 'output'] as const).map(v => (
-            <button key={v} onClick={() => setDetailView(v)}
-              className={`px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider transition-colors relative ${
-                detailView === v ? 'text-white' : 'text-gray-600 hover:text-gray-400'
-              }`}>
-              {v}
-              {detailView === v && <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />}
-            </button>
-          ))}
+  const identityFooter = (
+    <div className="border-t border-white/[0.06] px-3 py-2.5 shrink-0 flex items-center gap-2.5">
+      {(() => {
+        const ident = auth?.address || owner
+        return (
+          <>
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${
+              auth
+                ? (auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-200' : 'bg-sky-500/15 border border-sky-500/25 text-sky-200')
+                : 'bg-white/5 border border-white/10 text-gray-500'
+            }`}>
+              {ident ? ident.slice(2, 4).toUpperCase() : '··'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-gray-300 font-mono truncate flex items-center gap-1.5"
+                title={auth ? `signed in as ${auth.address}` : (owner ? `module owned by ${owner} — sign in with your wallet` : 'no owner configured')}>
+                {auth ? shortAddr(auth.address) : 'not signed in'}
+                {auth ? (
+                  <span className={`text-[8px] px-1 py-px rounded uppercase tracking-wider ${
+                    auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-300' : 'bg-sky-500/15 border border-sky-500/25 text-sky-300'
+                  }`}>{auth.isOwner ? 'owner' : 'guest'}</span>
+                ) : null}
+              </div>
+              <div className="text-[10px] text-gray-600 truncate">
+                {auth && tasks.some(t => t.synced)
+                  ? <span className="text-emerald-400/60" title="conversations pinned to localfs">⬡ {tasks.filter(t => t.synced).length} in localfs</span>
+                  : owner && !auth ? `owned by ${shortAddr(owner)}` : `${Object.keys(skills).length} skills`}
+              </div>
+            </div>
+            {!auth && (
+              <button onClick={signIn} disabled={authBusy}
+                className="text-[10px] px-2 py-1 rounded-md border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60 transition shrink-0">
+                {authBusy ? '…' : 'Sign in'}
+              </button>
+            )}
+            <div className="flex items-center gap-1 shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'}`} />
+              <span className="text-[10px] text-gray-600">{apiStatus === 'ok' ? 'online' : apiStatus === 'down' ? 'offline' : '…'}</span>
+            </div>
+          </>
+        )
+      })()}
+    </div>
+  )
+
+  const chatsRail = (
+    <div className="flex flex-col h-full min-h-0">
+      {/* rail header */}
+      <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2 shrink-0">
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Chats</span>
+        <span className="text-[10px] text-gray-600 font-mono">{tasks.length || ''}</span>
+        <div className="ml-auto flex items-center gap-0.5">
+          <button onClick={newChat}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 hover:bg-emerald-500/10 border border-emerald-500/25 transition text-sm leading-none"
+            title="New chat">+</button>
+          <button onClick={() => setSidebarSide(s => s === 'left' ? 'right' : 'left')}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
+            title={`Move rail to the ${sidebarSide === 'left' ? 'right' : 'left'}`}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1={sidebarSide === 'left' ? '9' : '15'} y1="3" x2={sidebarSide === 'left' ? '9' : '15'} y2="21" />
+            </svg>
+          </button>
+          <button onClick={() => setRailClosed(true)}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
+            title="Collapse rail">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points={sidebarSide === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
+            </svg>
+          </button>
         </div>
-        {viewingFile && detailView === 'files' && (
-          <div className="ml-3 flex items-center gap-2 min-w-0">
-            <span className={`text-[10px] font-mono ${extColor(fileExt(viewingFile.path))}`}>
+      </div>
+
+      {/* search — only worth the space once there's a history */}
+      {tasks.length > 4 && (
+        <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
+          <input
+            value={chatSearch}
+            onChange={e => setChatSearch(e.target.value)}
+            placeholder="Filter chats…"
+            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/40 transition"
+          />
+        </div>
+      )}
+
+      {/* the list */}
+      <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
+        {visibleChats.length === 0 ? (
+          <div className="text-center text-gray-600 py-10 px-3">
+            <p className="text-xs text-gray-500">{tasks.length === 0 ? 'No chats yet' : 'Nothing matches'}</p>
+            {tasks.length === 0 && (
+              <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">
+                Ask something in the console below — every run lands here.
+              </p>
+            )}
+          </div>
+        ) : (['today', 'yesterday', 'earlier'] as const).map(bucket => {
+          const rows = visibleChats.filter(t => chatBucket(t) === bucket)
+          if (rows.length === 0) return null
+          return (
+            <div key={bucket}>
+              <div className="px-2 pt-2 pb-1 text-[9px] text-gray-600 uppercase tracking-wider">{bucket}</div>
+              {rows.map(chatRow)}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* library + builder shortcuts, then who you are */}
+      <div className="px-2 py-1.5 border-t border-white/[0.06] shrink-0 flex items-center gap-1.5">
+        <button onClick={() => setView('library')}
+          className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/[0.07] border border-white/[0.06] transition">
+          library
+        </button>
+        <button onClick={() => openBuilder()}
+          className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider text-gray-500 hover:text-violet-300 hover:bg-violet-500/[0.07] border border-white/[0.06] transition">
+          builder
+        </button>
+      </div>
+      {identityFooter}
+    </div>
+  )
+
+  // --- Workspace — files touched by the selected run, above the console ---
+  const filesPanel = (
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0c0c0c]">
+      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
+        {viewingFile ? (
+          <>
+            <button onClick={() => setViewingFile(null)}
+              className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 transition">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              files
+            </button>
+            <span className={`text-[10px] font-mono ml-2 ${extColor(fileExt(viewingFile.path))}`}>
               .{fileExt(viewingFile.path)}
             </span>
             <span className="text-xs text-gray-400 font-mono truncate">{shortPath(viewingFile.path)}</span>
@@ -2008,261 +2212,215 @@ export default function Home() {
                 </span>
               )
             })()}
-          </div>
+          </>
+        ) : (
+          <>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">files</span>
+            {currentTask && (
+              <span className="text-[10px] text-gray-600 font-mono">
+                {getTaskFiles(currentTask).length} touched
+              </span>
+            )}
+            {currentTask && (
+              <span className="text-xs text-gray-600 truncate ml-2 min-w-0">{currentTask.query}</span>
+            )}
+          </>
         )}
       </div>
 
-      {/* detail content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {detailView === 'files' ? (
-          <>
-            {!currentTask ? (
-              <div className="flex items-center justify-center h-full text-gray-600">
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
-                    <span className="text-emerald-400/70 font-mono select-none">{'>'}<span className="caret-blink">_</span></span>
-                  </div>
-                  <p className="text-xs text-gray-600">Run a task to see file changes</p>
-                </div>
+        {!currentTask ? (
+          <div className="flex items-center justify-center h-full text-gray-600">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
+                <span className="text-emerald-400/70 font-mono select-none">{'>'}<span className="caret-blink">_</span></span>
               </div>
-            ) : viewingFile ? (
-              /* file content viewer */
-              <div className="h-full flex flex-col">
-                <div className="flex-1 overflow-auto">
-                  <pre className="text-[12px] leading-[1.6] font-mono text-gray-300 p-4 whitespace-pre-wrap">
-                    {viewingFile.content ? (
-                      viewingFile.content.split('\n').map((line, i) => (
-                        <div key={i} className="flex hover:bg-white/[0.02] transition-colors">
-                          <span className="text-gray-700 select-none w-12 shrink-0 text-right pr-4 text-[11px]">{i + 1}</span>
-                          <span className="flex-1 min-w-0">{line || ' '}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <span className="text-gray-600">No content available</span>
-                    )}
-                  </pre>
+              <p className="text-xs text-gray-600">Run a task in the console below to see file changes</p>
+            </div>
+          </div>
+        ) : viewingFile ? (
+          <pre className="text-[12px] leading-[1.6] font-mono text-gray-300 p-4 whitespace-pre-wrap">
+            {viewingFile.content ? (
+              viewingFile.content.split('\n').map((line, i) => (
+                <div key={i} className="flex hover:bg-white/[0.02] transition-colors">
+                  <span className="text-gray-700 select-none w-12 shrink-0 text-right pr-4 text-[11px]">{i + 1}</span>
+                  <span className="flex-1 min-w-0">{line || ' '}</span>
                 </div>
-              </div>
+              ))
             ) : (
-              /* file list for current task */
-              <div className="p-4">
-                {(() => {
-                  const files = getTaskFiles(currentTask)
-                  if (files.length === 0) return (
-                    <div className="flex items-center justify-center h-64 text-gray-600">
-                      <div className="text-center">
-                        <p className="text-xs">No files touched yet</p>
-                        {currentTask.status === 'running' && (
-                          <div className="flex items-center gap-2 mt-3 justify-center">
-                            <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                            <span className="text-[10px] text-gray-500">Agent working...</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                  return (
-                    <div className="space-y-1">
-                      <div className="text-[10px] text-gray-600 uppercase tracking-wider font-medium mb-3 px-1">
-                        {files.length} file{files.length !== 1 ? 's' : ''} touched
-                      </div>
-                      {files.map((f, i) => {
-                        const b = actionBadge(f.action)
-                        return (
-                          <button key={i}
-                            onClick={() => setViewingFile(f)}
-                            className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition group border border-transparent hover:border-white/[0.06]">
-                            <span className={`text-sm ${extColor(fileExt(f.path))}`}>
-                              {fileExt(f.path) === 'py' ? '◆' : fileExt(f.path) === 'ts' || fileExt(f.path) === 'tsx' ? '◇' : '○'}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs text-gray-300 group-hover:text-gray-200 font-mono truncate">
-                                {f.path.split('/').pop()}
-                              </div>
-                              <div className="text-[10px] text-gray-600 font-mono truncate mt-0.5">
-                                {shortPath(f.path)}
-                              </div>
-                            </div>
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0`}>
-                              {f.action}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )
-                })()}
-              </div>
+              <span className="text-gray-600">No content available</span>
             )}
-          </>
+          </pre>
         ) : (
-          /* output view - full task detail */
-          <div className="p-6">
-            {!currentTask ? (
-              <div className="flex flex-col items-center text-center text-gray-600 mt-24">
-                <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
-                  <span className="text-emerald-400/70 font-mono select-none">{'>'}<span className="caret-blink">_</span></span>
-                </div>
-                <p className="text-sm text-gray-500">Select a task to view details</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-w-3xl">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className={`text-xs ${statusIcon(currentTask.status)}`}>{statusDot(currentTask.status)}</span>
-                  {currentTask.agent_type && currentTask.agent_type !== 'default' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500">
-                      {agentOptions.find(a => a.value === currentTask.agent_type)?.icon} {agentOptions.find(a => a.value === currentTask.agent_type)?.label}
-                    </span>
-                  )}
-                  <span className="text-sm text-gray-300 font-medium">{currentTask.query}</span>
-                </div>
-
-                {currentTask.messages.map((msg, i) => (
-                  <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[80%]' : 'max-w-full'}`}>
-                    <div className={`rounded-lg px-4 py-3 msg-in ${
-                      msg.role === 'user' ? 'bg-emerald-500/10 border border-emerald-500/20' :
-                      msg.role === 'system' ? 'bg-red-500/10 border border-red-500/15' :
-                      'bg-white/[0.03] border border-white/[0.06]'
-                    }`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs text-gray-500">{msg.role}</span>
+          <div className="p-4">
+            {(() => {
+              const files = getTaskFiles(currentTask)
+              if (files.length === 0) return (
+                <div className="flex items-center justify-center h-64 text-gray-600">
+                  <div className="text-center">
+                    <p className="text-xs">No files touched yet</p>
+                    {currentTask.status === 'running' && (
+                      <div className="flex items-center gap-2 mt-3 justify-center">
+                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                        <span className="text-[10px] text-gray-500">Agent working...</span>
                       </div>
-                      <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">{msg.text ? renderText(msg.text) : msg.live ? <span className="text-gray-600 shimmer-text">thinking…</span> : null}</div>
-                      {msg.role === 'system' && detectKeyError(msg.text) && keyErrorBanner(detectKeyError(msg.text)!)}
-                      {msg.steps && (
-                        <div className="mt-2 space-y-1">
-                          {msg.steps.map((step: any, j: number) => (
-                            <div key={j} className="text-xs bg-white/[0.03] border border-white/[0.04] rounded-md px-2 py-1">
-                              <button
-                                className="w-full text-left flex items-center gap-2"
-                                onClick={() => toggleStep(i * 1000 + j)}
-                              >
-                                <span className="text-gray-600">{expandedSteps[i * 1000 + j] ? '▼' : '▶'}</span>
-                                <span className="text-emerald-300">{step.tool}</span>
-                                {step.error && <span className="text-red-400 ml-auto">err</span>}
-                              </button>
-                              {expandedSteps[i * 1000 + j] && (
-                                <>
-                                  {step.result && (
-                                    <pre className="text-gray-500 mt-1 overflow-x-auto max-h-60 text-[11px]">
-                                      {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
-                                    </pre>
-                                  )}
-                                  {step.error && <pre className="text-red-400 mt-1 text-[11px]">{step.error}</pre>}
-                                </>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
-                ))}
-                {currentTask.status === 'running' && workingIndicator(currentTask)}
-                <div ref={bottomRef} />
-              </div>
-            )}
+                </div>
+              )
+              return (
+                <div className="space-y-1 max-w-3xl">
+                  {files.map((f, i) => {
+                    const b = actionBadge(f.action)
+                    return (
+                      <button key={i}
+                        onClick={() => setViewingFile(f)}
+                        className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition group border border-transparent hover:border-white/[0.06]">
+                        <span className={`text-sm ${extColor(fileExt(f.path))}`}>
+                          {fileExt(f.path) === 'py' ? '◆' : fileExt(f.path) === 'ts' || fileExt(f.path) === 'tsx' ? '◇' : '○'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-gray-300 group-hover:text-gray-200 font-mono truncate">
+                            {f.path.split('/').pop()}
+                          </div>
+                          <div className="text-[10px] text-gray-600 font-mono truncate mt-0.5">
+                            {shortPath(f.path)}
+                          </div>
+                        </div>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0`}>
+                          {f.action}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
     </div>
   )
 
-  // --- Fullscreen main content ---
-  const mainContent = (
-    <div className="flex flex-col h-full">
-      <header className="border-b border-white/[0.06] px-6 py-3 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold title-gradient">Agent</h1>
-          <span className="text-xs text-gray-600">mod agentic framework</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {loading && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-300">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-              working
-            </span>
-          )}
-          <span className="text-xs text-gray-600">{Object.keys(skills).length} skills</span>
-        </div>
-      </header>
-
-      <div className={`border-b border-white/[0.06] px-6 py-4 shrink-0 transition-colors ${composeFocused ? 'bg-white/[0.03]' : ''}`}>
-        <textarea
-          ref={layoutMode === 'fullscreen' ? inputRef : undefined}
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setComposeFocused(true)}
-          onBlur={() => setComposeFocused(false)}
-          placeholder={`Task for ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}...`}
-          rows={3}
-          className="w-full bg-transparent border-none outline-none text-sm resize-none placeholder:text-gray-600"
-          disabled={loading}
-        />
-        <div className="flex items-center justify-between mt-2 gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            {personaPicker}
-            {modelControls}
+  // --- The console dock — bottom of the screen, full width, resizable ---
+  const consoleDock = (
+    <div
+      className={`relative flex flex-col min-h-0 bg-[#0a0a0a] border-t border-white/[0.06] ${dock === 'max' ? 'flex-1' : 'shrink-0'}`}
+      style={dock === 'normal' ? { height: dockHeight } : undefined}
+    >
+      {/* drag the console's top edge to resize; double-click to maximize */}
+      {dock === 'normal' && (
+        <div
+          className="absolute -top-[5px] left-0 right-0 h-[10px] z-20 cursor-row-resize group"
+          onMouseDown={onDockDragStart}
+          onDoubleClick={toggleDockMax}
+        >
+          <div className="w-full h-[1px] mt-[4px] bg-transparent group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
+          <div className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex gap-[3px]">
+            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
           </div>
-          {loading ? (
-            <button onClick={stopRun}
-              className="px-4 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-400 text-xs font-medium transition shrink-0 ml-3">
-              Stop
-            </button>
-          ) : (
-            <button onClick={run} disabled={!query.trim()}
-              className="px-4 py-1.5 rounded-lg lit-btn disabled:bg-gray-800 disabled:text-gray-600 disabled:shadow-none text-xs font-semibold transition shrink-0 ml-3">
-              Run
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto min-h-0 p-6">
-        {tasks.length === 0 ? (
-          <div className="flex flex-col items-center text-center text-gray-600 mt-20">
-            <div className="w-16 h-16 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-5">
-              <span className="text-gray-500 font-mono text-lg select-none">{'>'}_</span>
-            </div>
-            <p className="text-sm text-gray-500">No tasks yet. Select an agent and compose a task to get started.</p>
-            <div className="mt-4 flex gap-2 justify-center flex-wrap">
-              {['read this file', 'search for TODO', 'run ls -la', 'find all .py files'].map(ex => (
-                <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                  className="px-3 py-1 rounded-full text-sm bg-white/5 border border-white/[0.06] hover:bg-white/[0.08] transition">
-                  {ex}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {tasks.map(t => (
-              <div key={t.id} className={`rounded-lg border transition cursor-pointer ${
-                selectedTask === t.id ? 'border-emerald-500/20 bg-emerald-500/[0.06]' : 'border-white/[0.06] hover:border-white/10 hover:bg-white/[0.02]'
+      {/* dock header — tabs, what's running, and the run controls */}
+      <div className="border-b border-white/[0.06] px-2 flex items-center gap-2 shrink-0 min-w-0">
+        <div className="flex items-center shrink-0">
+          {(['output', 'tools', 'deltas'] as Tab[]).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`tab-btn px-3 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors relative ${
+                activeTab === tab ? 'text-white' : 'text-gray-600 hover:text-gray-400'
               }`}
-                onClick={() => { setSelectedTask(t.id); setLayoutMode('sidebar'); setActiveTab('output') }}
-              >
-                <div className="px-4 py-3 flex items-center gap-3">
-                  <span className={`text-xs ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
-                  {t.agent_type && t.agent_type !== 'default' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/5 border border-white/[0.06] text-gray-500 shrink-0">
-                      {agentOptions.find(a => a.value === t.agent_type)?.icon} {agentOptions.find(a => a.value === t.agent_type)?.label}
-                    </span>
-                  )}
-                  <span className="text-sm text-gray-300 truncate flex-1">{t.query}</span>
-                  <span className="text-xs text-gray-600 shrink-0 font-mono">
-                    {t.status === 'running' ? `Running ${taskTime(t)}` :
-                     t.status === 'done' ? `${t.stepCount || 0} steps · ${taskTime(t)}` :
-                     'Failed'}
-                  </span>
-                </div>
-              </div>
-            ))}
-            <div ref={bottomRef} />
-          </div>
-        )}
+            >
+              {tab === 'output' ? 'console' : tab}
+              {tab === 'tools' && currentTask && getSteps(currentTask).length > 0 && (
+                <span className="ml-1 text-[9px] text-emerald-400/80 normal-case">{getSteps(currentTask).length}</span>
+              )}
+              {tab === 'deltas' && currentTask && getDeltas(currentTask).length > 0 && (
+                <span className="ml-1 text-[9px] text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
+              )}
+              {activeTab === tab && (
+                <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* what this console is currently on */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {currentTask ? (
+            <>
+              <span className={`text-[11px] shrink-0 ${statusIcon(currentTask.status)}`}>{statusDot(currentTask.status)}</span>
+              <span className="text-xs text-gray-400 truncate min-w-0">{currentTask.query}</span>
+              <span className="text-[10px] text-gray-600 font-mono shrink-0">{taskTime(currentTask)}</span>
+              {currentTask.status !== 'running' && (
+                <button onClick={continueTask}
+                  className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-300 hover:bg-emerald-500/10 transition shrink-0"
+                  title="Continue this chat">↳</button>
+              )}
+              {currentTask.status === 'running' && (
+                <button onClick={completeTask}
+                  className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition shrink-0"
+                  title="Mark done">✓</button>
+              )}
+              <button onClick={dismissTask}
+                className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-400 hover:bg-white/5 transition text-xs shrink-0"
+                title="Delete this chat">✕</button>
+            </>
+          ) : tasks.length > 0 ? (
+            <span className="text-[11px] text-gray-700">· new chat</span>
+          ) : null}
+        </div>
+
+        {/* run controls — persona, model, credit */}
+        <div className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[440px] py-1.5">
+          {personaPicker}
+          {modelControls}
+          {balancePill}
+        </div>
+
+        {/* dock size controls */}
+        <div className="flex items-center gap-0.5 shrink-0 pl-1">
+          <button
+            onClick={() => setDockPersist(dock === 'min' ? 'normal' : 'min')}
+            className={`w-6 h-6 flex items-center justify-center rounded transition ${
+              dock === 'min' ? 'text-emerald-300 bg-emerald-500/10' : 'text-gray-600 hover:text-gray-300 hover:bg-white/5'
+            }`}
+            title={dock === 'min' ? 'Show the transcript' : 'Collapse the console'}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points={dock === 'min' ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
+            </svg>
+          </button>
+          <button
+            onClick={toggleDockMax}
+            className={`w-6 h-6 flex items-center justify-center rounded transition ${
+              dock === 'max' ? 'text-emerald-300 bg-emerald-500/10' : 'text-gray-600 hover:text-gray-300 hover:bg-white/5'
+            }`}
+            title={dock === 'max' ? 'Restore the split (Esc)' : 'Maximize the console'}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {dock === 'max' ? (
+                <>
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                </>
+              ) : (
+                <>
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
       </div>
+
+      {dock !== 'min' && <div className="flex-1 min-h-0">{transcript}</div>}
+      {composeBar}
     </div>
   )
 
@@ -2286,55 +2444,80 @@ export default function Home() {
         onSpendChange={setSpendCreditsPersist}
         onSignIn={signIn}
       />
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-8 cursor-zoom-out">
+          <img src={lightbox} alt="attachment" className="max-h-full max-w-full rounded-lg border border-white/10" />
+        </div>
+      )}
     </>
   )
 
-  // agent fullscreen mode — render only the sidebar content, no chrome
-  if (agentFullscreen) {
-    return (
-      <main className="h-screen flex flex-col bg-[#0a0a0a] agent-fullscreen">
-        {/* minimal top bar */}
-        <header className="border-b border-white/[0.06] px-4 py-2 flex items-center justify-between shrink-0 bg-[#0a0a0a]">
-          <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold tracking-tight title-gradient">Agent</h1>
-            <span className="text-[10px] text-gray-600 uppercase tracking-wider">fullscreen</span>
-            {loading && (
-              <span className="flex items-center gap-1.5 text-xs text-emerald-300 ml-2">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                working
-              </span>
-            )}
+  // the chats rail — collapses to a strip of status dots
+  const railPanel = (
+    <div
+      className={`flex min-h-0 sidebar-panel relative ${sidebarCollapsed ? 'w-[42px] shrink-0' : 'shrink-0'}`}
+      style={sidebarCollapsed ? undefined : { width: sidebarWidth }}
+    >
+      {!sidebarCollapsed && (
+        <div
+          className={`absolute top-0 bottom-0 z-20 w-[9px] cursor-col-resize group ${sidebarSide === 'left' ? '-right-[4px]' : '-left-[4px]'}`}
+          onMouseDown={onDragStart}
+        >
+          <div className="h-full w-[1px] ml-[4px] bg-white/[0.06] group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
+          <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <div className="flex flex-col gap-[3px]">
+              <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+              <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+              <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-[10px] text-gray-500 font-mono">
-            <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-600'}`} />
-            {Object.keys(skills).length} skills
-          </span>
-            {tasksButton}
-            {creditsChip}
-            {userChip}
-            <button
-              onClick={toggleAgentFullscreen}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30"
-              title="Exit fullscreen (Esc)"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-              <span>Exit</span>
-            </button>
-          </div>
-        </header>
-        <div className="flex-1 min-h-0 flex flex-col">
-          {sidebarContent}
         </div>
-        {overlays}
-      </main>
-    )
-  }
+      )}
+      <div className={`flex-1 ${sidebarSide === 'left' ? 'border-r' : 'border-l'} border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden`}>
+        {sidebarCollapsed ? (
+          <div className="flex flex-col items-center py-3 gap-2 h-full">
+            <button
+              onClick={() => setRailClosed(false)}
+              className="text-gray-600 hover:text-gray-400 transition p-1"
+              title="Show chats"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points={sidebarSide === 'left' ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
+              </svg>
+            </button>
+            <button
+              onClick={() => { setRailClosed(false); newChat() }}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 border border-emerald-500/25 hover:bg-emerald-500/10 transition text-sm leading-none"
+              title="New chat"
+            >+</button>
+            <div className="flex flex-col items-center gap-1.5 mt-2">
+              {tasks.slice(0, 12).map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setRailClosed(false) }}
+                  title={t.query}
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[9px] transition ${
+                    selectedTask === t.id ? 'bg-emerald-500/20 border border-emerald-500/25' : 'hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <span className={statusIcon(t.status)}>{statusDot(t.status)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : chatsRail}
+      </div>
+    </div>
+  )
+
+  // workspace: files on top, console docked along the bottom
+  const workspace = (
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {dock !== 'max' && <div className="flex-1 min-h-0 flex flex-col">{filesPanel}</div>}
+      {consoleDock}
+    </div>
+  )
 
   return (
     <main className="h-screen flex flex-col bg-[#0a0a0a]">
@@ -2382,60 +2565,34 @@ export default function Home() {
           {/* background tasks (server-side registry) */}
           {tasksButton}
 
-          {/* fullscreen agent toggle */}
+          {/* rail + dock toggles */}
           {view === 'console' && (
-          <button
-            onClick={toggleAgentFullscreen}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition border border-white/[0.06] text-gray-500 hover:text-emerald-300 hover:border-emerald-500/25 hover:bg-emerald-500/10"
-            title="Fullscreen agent (double-click divider)"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9" />
-              <polyline points="9 21 3 21 3 15" />
-              <line x1="21" y1="3" x2="14" y2="10" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          </button>
-          )}
-
-          {view === 'console' && (
-          <button
-            onClick={cycleLayout}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition ${
-              layoutMode === 'minimized'
-                ? 'bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300'
-                : layoutMode === 'sidebar'
-                ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-300'
-                : 'bg-emerald-500/25 border border-emerald-500/35 text-emerald-200'
-            }`}
-            title={`Layout: ${layoutMode}`}
-          >
-            {layoutMode === 'minimized' && (
-              <>
+            <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
+              <button
+                onClick={() => setRailClosed(!sidebarCollapsed)}
+                className={`w-7 h-6 flex items-center justify-center rounded-md transition ${
+                  sidebarCollapsed ? 'text-gray-600 hover:text-gray-300' : 'bg-emerald-500/15 text-emerald-300'
+                }`}
+                title={sidebarCollapsed ? 'Show the chats rail' : 'Hide the chats rail'}
+              >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="9" y1="3" x2="9" y2="21" />
+                  <line x1={sidebarSide === 'left' ? '9' : '15'} y1="3" x2={sidebarSide === 'left' ? '9' : '15'} y2="21" />
                 </svg>
-                <span>Open</span>
-              </>
-            )}
-            {layoutMode === 'sidebar' && (
-              <>
+              </button>
+              <button
+                onClick={toggleDockMax}
+                className={`w-7 h-6 flex items-center justify-center rounded-md transition ${
+                  dock === 'max' ? 'bg-emerald-500/15 text-emerald-300' : 'text-gray-600 hover:text-gray-300'
+                }`}
+                title={dock === 'max' ? 'Restore the files panel (Esc)' : 'Maximize the console'}
+              >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="3" y1="14" x2="21" y2="14" />
                 </svg>
-                <span>Full</span>
-              </>
-            )}
-            {layoutMode === 'fullscreen' && (
-              <>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                <span>Hide</span>
-              </>
-            )}
-          </button>
+              </button>
+            </div>
           )}
 
           {/* credits — top up USDT/USDC, spend on the public key */}
@@ -2464,13 +2621,15 @@ export default function Home() {
                   try { localStorage.setItem('agent_mem_sel', JSON.stringify(memoryIds)) } catch {}
                 }
                 setView('console')
-                if (layoutMode === 'minimized') setLayoutMode('sidebar')
-                if (sidebarCollapsed) setSidebarCollapsed(false)
+                if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
               onAgentsChanged={fetchAgents}
               onManageKey={(p) => { setKeyPanelProvider(p); setShowKeyPanel(true) }}
               keyVersion={keyVersion}
+              token={auth?.token}
+              isHost={isHost}
+              onSignIn={signIn}
             />
           </div>
         )}
@@ -2482,232 +2641,48 @@ export default function Home() {
               onUsePrompt={(text) => {
                 setView('console')
                 setQuery(text)
-                if (layoutMode === 'minimized') setLayoutMode('sidebar')
-                if (sidebarCollapsed) setSidebarCollapsed(false)
+                if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
               onSelectAgent={(name) => {
                 selectAgent(name)
                 setView('console')
-                if (layoutMode === 'minimized') setLayoutMode('sidebar')
+                if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
               onSelectPrompt={(item) => {
-                selectPrompt({ id: item.id, name: item.name, description: item.description || '', body: item.body || '', tags: item.tags || [] })
+                selectPrompt({ id: item.id, name: item.name, description: item.description || '',
+                  body: item.body || '', tags: item.tags || [],
+                  owner: item.owner ?? null, owner_source: (item.owner_source ?? null) as OwnerSource })
                 setView('console')
-                if (layoutMode === 'minimized') setLayoutMode('sidebar')
-                if (sidebarCollapsed) setSidebarCollapsed(false)
+                if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
               onUseMemory={(id) => {
                 toggleNote(id)
                 setView('console')
-                if (layoutMode === 'minimized') setLayoutMode('sidebar')
-                if (sidebarCollapsed) setSidebarCollapsed(false)
+                if (dock === 'min') setDockPersist('normal')
+                setTimeout(() => inputRef.current?.focus(), 60)
+              }}
+              onUseSkill={(id) => {
+                setSkillSel(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
+                setView('console')
+                if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
               onAgentsChanged={fetchAgents}
+              onSignIn={signIn}
+              auth={auth}
+              host={owner}
             />
           </div>
         )}
 
-        {/* sidebar mode: split view */}
-        {view === 'console' && layoutMode === 'sidebar' && (
-          <>
-            {(() => {
-              const sidebarPanel = (
-                <div className={`flex min-h-0 sidebar-panel relative ${sidebarExpanded ? 'flex-1' : sidebarCollapsed ? 'w-[42px] shrink-0' : 'shrink-0'}`}
-                  style={sidebarCollapsed || sidebarExpanded ? undefined : { width: sidebarWidth }}>
-                  {/* drag handle */}
-                  {!sidebarCollapsed && !sidebarExpanded && (
-                    <div
-                      className={`absolute top-0 bottom-0 z-20 w-[9px] cursor-col-resize group ${sidebarSide === 'left' ? '-right-[4px]' : '-left-[4px]'}`}
-                      onMouseDown={onDragStart}
-                      onDoubleClick={toggleAgentFullscreen}
-                    >
-                      <div className={`h-full w-[1px] ml-[4px] bg-white/[0.06] group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors`} />
-                      {/* grab indicator — visible on hover */}
-                      <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        <div className="flex flex-col gap-[3px]">
-                          <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-                          <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-                          <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <div className={`flex-1 ${sidebarExpanded ? '' : sidebarSide === 'left' ? 'border-r' : 'border-l'} border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden`}>
-                  {sidebarCollapsed ? (
-                    <div className="flex flex-col items-center py-3 gap-2 h-full">
-                      <button
-                        onClick={() => setSidebarCollapsed(false)}
-                        className="text-gray-600 hover:text-gray-400 transition p-1"
-                        title="Expand sidebar"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points={sidebarSide === 'left' ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
-                        </svg>
-                      </button>
-                      <div className="flex flex-col items-center gap-1.5 mt-2">
-                        {tasks.slice(0, 8).map(t => (
-                          <button
-                            key={t.id}
-                            onClick={() => { setSelectedTask(t.id); setSidebarCollapsed(false); setActiveTab('output') }}
-                            title={t.query}
-                            className={`w-5 h-5 rounded flex items-center justify-center text-[9px] transition ${
-                              selectedTask === t.id ? 'bg-emerald-500/20 border border-emerald-500/25' : 'hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <span className={statusIcon(t.status)}>{statusDot(t.status)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col h-full min-h-0">
-                      <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/[0.06] shrink-0">
-                        <span className="text-xs text-gray-600 uppercase tracking-wider font-medium">Conversations</span>
-                        <div className="flex items-center gap-0.5">
-                          <button
-                            onClick={() => setSidebarExpanded(e => !e)}
-                            className={`text-gray-600 hover:text-gray-400 transition p-1 rounded hover:bg-white/5 ${sidebarExpanded ? 'text-emerald-300' : ''}`}
-                            title={sidebarExpanded ? 'Exit fullscreen' : 'Expand to fullscreen'}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              {sidebarExpanded ? (
-                                <>
-                                  <polyline points="4 14 10 14 10 20" />
-                                  <polyline points="20 10 14 10 14 4" />
-                                  <line x1="14" y1="10" x2="21" y2="3" />
-                                  <line x1="3" y1="21" x2="10" y2="14" />
-                                </>
-                              ) : (
-                                <>
-                                  <polyline points="15 3 21 3 21 9" />
-                                  <polyline points="9 21 3 21 3 15" />
-                                  <line x1="21" y1="3" x2="14" y2="10" />
-                                  <line x1="3" y1="21" x2="10" y2="14" />
-                                </>
-                              )}
-                            </svg>
-                          </button>
-                          {!sidebarExpanded && (
-                            <>
-                              <button
-                                onClick={() => setDrawerOpen(o => !o)}
-                                className={`text-gray-600 hover:text-gray-400 transition p-1 rounded hover:bg-white/5 ${drawerOpen ? 'text-emerald-300' : ''}`}
-                                title={drawerOpen ? 'Close detail drawer' : 'Open detail drawer'}
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                                  <line x1="15" y1="3" x2="15" y2="21" />
-                                  <polyline points="10 8 14 12 10 16" />
-                                </svg>
-                              </button>
-                              <button
-                                onClick={() => setSidebarSide(s => s === 'left' ? 'right' : 'left')}
-                                className="text-gray-600 hover:text-gray-400 transition p-1 rounded hover:bg-white/5"
-                                title={`Move to ${sidebarSide === 'left' ? 'right' : 'left'}`}
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  {sidebarSide === 'left' ? (
-                                    <>
-                                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                                      <line x1="15" y1="3" x2="15" y2="21" />
-                                    </>
-                                  ) : (
-                                    <>
-                                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                                      <line x1="9" y1="3" x2="9" y2="21" />
-                                    </>
-                                  )}
-                                </svg>
-                              </button>
-                              <button
-                                onClick={() => setSidebarCollapsed(true)}
-                                className="text-gray-600 hover:text-gray-400 transition p-1 rounded hover:bg-white/5"
-                                title="Collapse"
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points={sidebarSide === 'left' ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
-                                </svg>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-h-0">{sidebarContent}</div>
-                    </div>
-                  )}
-                  </div>
-                </div>
-              )
-
-              const drawerPanel = (
-                <>
-                  {/* drawer backdrop */}
-                  {drawerOpen && (
-                    <div
-                      className="fixed inset-0 bg-black/40 z-30 transition-opacity"
-                      onClick={() => setDrawerOpen(false)}
-                    />
-                  )}
-                  {/* drawer */}
-                  <div className={`fixed top-0 bottom-0 z-40 transition-transform duration-300 ease-out ${
-                    sidebarSide === 'left' ? 'right-0' : 'left-0'
-                  } ${drawerOpen ? 'translate-x-0' : (sidebarSide === 'left' ? 'translate-x-full' : '-translate-x-full')}`}
-                    style={{ width: 'min(600px, 50vw)' }}>
-                    <div className="h-full flex flex-col bg-[#0c0c0c] border-l border-white/[0.06] shadow-2xl">
-                      {/* drawer header with close */}
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] shrink-0">
-                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Detail</span>
-                        <button onClick={() => setDrawerOpen(false)}
-                          className="text-gray-600 hover:text-gray-300 transition p-1 rounded hover:bg-white/5">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </button>
-                      </div>
-                      {detailPanel}
-                    </div>
-                  </div>
-                </>
-              )
-
-              if (sidebarExpanded) {
-                return <>{sidebarPanel}</>
-              }
-
-              return sidebarSide === 'left' ? (
-                <>{sidebarPanel}<div className="flex-1 min-h-0 relative flex flex-col">{!drawerOpen && detailPanel}{drawerPanel}</div></>
-              ) : (
-                <><div className="flex-1 min-h-0 relative flex flex-col">{!drawerOpen && detailPanel}{drawerPanel}</div>{sidebarPanel}</>
-              )
-            })()}
-          </>
-        )}
-
-        {/* fullscreen mode */}
-        {view === 'console' && layoutMode === 'fullscreen' && (
-          <div className="flex-1 flex flex-col min-h-0">
-            {mainContent}
-          </div>
-        )}
-
-        {/* minimized mode */}
-        {view === 'console' && layoutMode === 'minimized' && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="flex flex-col items-center text-center text-gray-700">
-              <div className="w-16 h-16 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
-                <span className="text-gray-600 font-mono text-lg select-none">{'>'}_</span>
-              </div>
-              <p className="text-sm text-gray-600">Agent minimized</p>
-              <button onClick={() => setView('library')}
-                className="mt-4 px-3.5 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/15 transition">
-                browse library →
-              </button>
-            </div>
-          </div>
+        {/* console: chats rail beside the workspace, console docked at the bottom */}
+        {view === 'console' && (
+          sidebarSide === 'left'
+            ? <>{railPanel}{workspace}</>
+            : <>{workspace}{railPanel}</>
         )}
       </div>
       {overlays}

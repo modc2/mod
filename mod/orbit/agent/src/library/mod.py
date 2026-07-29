@@ -3,7 +3,8 @@ library - unified agent library
 
 One filterable index across four collections:
     prompts  - reusable prompt templates (user-curated, seeded with defaults)
-    skills   - the agent's skill registry (read-only, from skills/)
+    skills   - the agent's skill registry (read-only, from skills/) plus
+               external skills installed from the internet via discover/
     memory   - persistent knowledge notes the agent can be pointed at
     agents   - installed agent personas + published agent CIDs (the market)
 
@@ -15,6 +16,11 @@ OFF-tree under ~/.mod/agent/library/ (never in the committed module dir).
 Every prompt, note, and conversation is ALSO pinned to localfs — the mod
 framework's content-addressed blob store — and carries its CID, so any item
 can be shared/restored by CID alone.
+
+Prompts, memory notes, and installed skills carry an owner — the address that
+saved them — so making one takes a sign-in. Seeded and legacy items have no
+owner, so they belong to the HOST (the module owner), who can edit or remove
+anything. Everyone else manages only their own.
 
 Usage:
     lib = Library(skills=skills, agents=agents)
@@ -32,6 +38,13 @@ try:
     import mod as m
 except ImportError:
     m = None
+
+try:
+    from src.identity import Identity
+except ImportError:  # running the library standalone
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.identity import Identity
 
 
 SEED_PROMPTS = [
@@ -78,11 +91,14 @@ SKILL_TAGS = {
 class Library:
     description = "Unified library: prompts, memory notes, skills, and the agent market"
 
-    def __init__(self, skills=None, agents=None, dir: str = None):
+    def __init__(self, skills=None, agents=None, dir: str = None,
+                 identity: "Identity" = None):
         self.dir = Path(dir) if dir else Path.home() / '.mod' / 'agent' / 'library'
         self.dir.mkdir(parents=True, exist_ok=True)
         self._skills = skills
         self._agents = agents
+        # unbound library: no host known, so unowned items stay open
+        self.identity = identity or Identity()
 
     # ── json store helpers ───────────────────────────────────────────
 
@@ -123,6 +139,11 @@ class Library:
         if kind == "memory":
             return {"type": "memory", "name": item.get("name", ""),
                     "content": item.get("content", ""), "tags": item.get("tags", [])}
+        if kind == "skill":
+            return {"type": "skill", "name": item.get("name", ""),
+                    "description": item.get("description", ""),
+                    "body": item.get("body", ""), "tags": item.get("tags", []),
+                    "source": item.get("source", ""), "url": item.get("url", "")}
         if kind == "conversation":
             return {"type": "conversation", "query": item.get("query", ""),
                     "agent_type": item.get("agent_type", "default"),
@@ -176,38 +197,67 @@ class Library:
             self._save('prompts', data)
         return data
 
+    def prompt_owner(self, prompt: Dict) -> Dict:
+        """Effective owner of a prompt — its own, else the host."""
+        return self.identity.owner_of(prompt.get("owner"))
+
+    def _require_prompt(self, prompt: Dict, key: str = None, operation: str = "modify"):
+        self.identity.require(
+            prompt.get("owner"), key,
+            operation=f"cannot {operation} prompt: {prompt.get('name') or prompt.get('id')}",
+            builtin=False)
+
     def prompt_add(self, name: str, text: str, description: str = "",
-                   tags: List[str] = None, id: str = None) -> Dict:
-        """Create or update a prompt (upsert by id). Pins content to localfs."""
+                   tags: List[str] = None, id: str = None,
+                   key: str = None) -> Dict:
+        """Create or update a prompt (upsert by id). Pins content to localfs.
+
+        A new prompt is owned by the caller, so saving one needs a sign-in;
+        editing an existing one is restricted to its owner or the host, and
+        never transfers ownership.
+        """
         if not name or not text:
             raise ValueError("prompt requires name and text")
         data = self.prompts()
+        existing = next((p for p in data if p.get("id") == id), None) if id else None
+        if existing is not None:
+            self._require_prompt(existing, key, "edit")
+        else:
+            self.identity.require_signed_in(key, f"create prompt: {name}")
+        owner = existing.get("owner") if existing else self.identity.addr(key)
         entry = {
             "id": id or f"p-{uuid.uuid4().hex[:8]}",
             "name": name, "text": text, "description": description,
             "tags": tags or [], "updated": time.time(),
         }
+        if owner:
+            entry["owner"] = owner
         self._mint_cids([entry])
         data = [p for p in data if p.get("id") != entry["id"]]
         data.append(entry)
         self._save('prompts', data)
-        return entry
+        return {**entry, **self.prompt_owner(entry)}
 
-    def prompt_import(self, cid: str) -> Dict:
-        """Install a prompt from its localfs CID (the QR / share path)."""
+    def prompt_import(self, cid: str, key: str = None) -> Dict:
+        """Install a prompt from its localfs CID (the QR / share path).
+
+        The importer owns their copy — sharing hands over content, not control.
+        """
         bundle = self._fetch_bundle(cid, "prompt")
         if not bundle.get("name") or not bundle.get("text"):
             raise ValueError(f"prompt bundle missing name/text: {cid}")
         entry = self.prompt_add(bundle["name"], bundle["text"],
-                                bundle.get("description", ""), bundle.get("tags"))
+                                bundle.get("description", ""), bundle.get("tags"),
+                                key=key)
         return entry
 
-    def prompt_rm(self, id: str) -> Dict:
+    def prompt_rm(self, id: str, key: str = None) -> Dict:
         data = self.prompts()
-        kept = [p for p in data if p.get("id") != id]
-        if len(kept) == len(data):
+        target = next((p for p in data if p.get("id") == id), None)
+        if target is None:
             raise KeyError(f"prompt not found: {id}")
-        self._save('prompts', kept)
+        self._require_prompt(target, key, "remove")
+        self._save('prompts', [p for p in data if p.get("id") != id])
         return {"removed": id}
 
     # ── memory notes ─────────────────────────────────────────────────
@@ -221,37 +271,162 @@ class Library:
             self._save('memory', data)
         return data
 
+    def note_owner(self, note: Dict) -> Dict:
+        """Effective owner of a note — its own, else the host."""
+        return self.identity.owner_of(note.get("owner"))
+
+    def _require_note(self, note: Dict, key: str = None, operation: str = "modify"):
+        self.identity.require(
+            note.get("owner"), key,
+            operation=f"cannot {operation} memory note: {note.get('name') or note.get('id')}",
+            builtin=False)
+
     def note_add(self, name: str, content: str, tags: List[str] = None,
-                 id: str = None) -> Dict:
-        """Create or update a memory note (upsert by id). Pins to localfs."""
+                 id: str = None, key: str = None) -> Dict:
+        """Create or update a memory note (upsert by id). Pins to localfs.
+
+        Same rule as prompts: a new note belongs to the signed-in caller who
+        made it, and only they (or the host) can edit it afterwards.
+        """
         if not name or not content:
             raise ValueError("memory note requires name and content")
         data = self.notes()
+        existing = next((n for n in data if n.get("id") == id), None) if id else None
+        if existing is not None:
+            self._require_note(existing, key, "edit")
+        else:
+            self.identity.require_signed_in(key, f"create memory note: {name}")
+        owner = existing.get("owner") if existing else self.identity.addr(key)
         entry = {
             "id": id or f"m-{uuid.uuid4().hex[:8]}",
             "name": name, "content": content,
             "tags": tags or [], "updated": time.time(),
         }
+        if owner:
+            entry["owner"] = owner
         self._mint_cids([entry], "memory")
         data = [n for n in data if n.get("id") != entry["id"]]
         data.append(entry)
         self._save('memory', data)
-        return entry
+        return {**entry, **self.note_owner(entry)}
 
-    def note_import(self, cid: str) -> Dict:
-        """Install a memory note from its localfs CID."""
+    def note_import(self, cid: str, key: str = None) -> Dict:
+        """Install a memory note from its localfs CID.
+
+        The importer owns their copy — sharing hands over content, not control.
+        """
         bundle = self._fetch_bundle(cid, "memory")
         if not bundle.get("name") or not bundle.get("content"):
             raise ValueError(f"memory bundle missing name/content: {cid}")
-        return self.note_add(bundle["name"], bundle["content"], bundle.get("tags"))
+        return self.note_add(bundle["name"], bundle["content"], bundle.get("tags"),
+                             key=key)
 
-    def note_rm(self, id: str) -> Dict:
+    def note_rm(self, id: str, key: str = None) -> Dict:
         data = self.notes()
-        kept = [n for n in data if n.get("id") != id]
-        if len(kept) == len(data):
+        target = next((n for n in data if n.get("id") == id), None)
+        if target is None:
             raise KeyError(f"memory note not found: {id}")
-        self._save('memory', kept)
+        self._require_note(target, key, "remove")
+        self._save('memory', [n for n in data if n.get("id") != id])
         return {"removed": id}
+
+    # ── installed skills (external, from the discover aggregator) ────
+    # A skill found on the internet is instruction markdown (a SKILL.md), not
+    # code — installing one never adds an executable to the registry. It is
+    # stored as a document the agent can be pointed at, pinned to localfs like
+    # every other library item so it can be re-shared by CID.
+
+    MAX_SKILL_CHARS = 120_000
+
+    def installed_skills(self) -> List[Dict]:
+        """External skills installed from the aggregator."""
+        data = self._load('skills') or []
+        if self._mint_cids(data, "skill"):
+            self._save('skills', data)
+        return data
+
+    def skill_owner(self, skill: Dict) -> Dict:
+        """Effective owner of an installed skill — its own, else the host."""
+        return self.identity.owner_of(skill.get("owner"))
+
+    def _require_skill(self, skill: Dict, key: str = None, operation: str = "modify"):
+        self.identity.require(
+            skill.get("owner"), key,
+            operation=f"cannot {operation} installed skill: {skill.get('name') or skill.get('id')}",
+            builtin=False)
+
+    def skill_add(self, name: str, body: str, description: str = "",
+                  tags: List[str] = None, source: str = "", url: str = "",
+                  origin_id: str = "", license: str = None,
+                  id: str = None, key: str = None) -> Dict:
+        """Install (or refresh) an external skill.
+
+        Upserts on id, else on origin_id/url — re-installing the same skill
+        updates it in place instead of piling up duplicates. Installing is a
+        signed-in action and the installer owns what they added; refreshing
+        someone else's install is theirs (or the host's) to do.
+        """
+        if not name or not body:
+            raise ValueError("skill requires name and body")
+        data = self.installed_skills()
+        prior = None
+        if id:
+            prior = next((s for s in data if s.get("id") == id), None)
+        if prior is None and (origin_id or url):
+            prior = next((s for s in data
+                          if (origin_id and s.get("origin_id") == origin_id)
+                          or (url and s.get("url") == url)), None)
+        if prior is not None:
+            self._require_skill(prior, key, "refresh")
+        else:
+            self.identity.require_signed_in(key, f"install skill: {name}")
+        # a refresh may carry fewer fields than the original install — keep
+        # the provenance (url/source/origin) rather than blanking it
+        was = prior or {}
+        entry = {
+            "id": was.get("id") or id or f"k-{uuid.uuid4().hex[:8]}",
+            "name": name, "description": description or was.get("description", ""),
+            "body": body[:self.MAX_SKILL_CHARS],
+            "tags": tags or was.get("tags") or [],
+            "source": source or was.get("source") or "web",
+            "url": url or was.get("url", ""),
+            "origin_id": origin_id or was.get("origin_id", ""),
+            "license": license or was.get("license"),
+            "installed": was.get("installed") or time.time(),
+            "updated": time.time(),
+        }
+        owner = was.get("owner") or self.identity.addr(key)
+        if owner:
+            entry["owner"] = owner
+        self._mint_cids([entry], "skill")
+        data = [s for s in data if s.get("id") != entry["id"]]
+        data.append(entry)
+        self._save('skills', data)
+        return {**entry, **self.skill_owner(entry)}
+
+    def skill_import(self, cid: str, key: str = None) -> Dict:
+        """Install an external skill from its localfs CID."""
+        bundle = self._fetch_bundle(cid, "skill")
+        if not bundle.get("name") or not bundle.get("body"):
+            raise ValueError(f"skill bundle missing name/body: {cid}")
+        return self.skill_add(bundle["name"], bundle["body"],
+                              bundle.get("description", ""), bundle.get("tags"),
+                              bundle.get("source", ""), bundle.get("url", ""),
+                              key=key)
+
+    def skill_rm(self, id: str, key: str = None) -> Dict:
+        data = self.installed_skills()
+        target = next((s for s in data if s.get("id") == id), None)
+        if target is None:
+            raise KeyError(f"installed skill not found: {id}")
+        self._require_skill(target, key, "uninstall")
+        self._save('skills', [s for s in data if s.get("id") != id])
+        return {"removed": id}
+
+    def skill_docs(self, ids: List[str]) -> List[Dict]:
+        """The installed skills matching these ids (run-context injection)."""
+        want = set(ids or [])
+        return [s for s in self.installed_skills() if s.get("id") in want]
 
     # ── conversations (per-user console chat history) ────────────────
     # Server-side so sessions survive browsers/devices and the shared modc2
@@ -357,7 +532,8 @@ class Library:
                           "description": p.get("description", ""),
                           "tags": p.get("tags", []), "body": p.get("text", ""),
                           "updated": p.get("updated"), "cid": p.get("cid"),
-                          "builtin": p.get("builtin", False)})
+                          "builtin": p.get("builtin", False),
+                          **self.prompt_owner(p)})
 
         if self._skills:
             try:
@@ -371,11 +547,25 @@ class Library:
                               "tags": SKILL_TAGS.get(sname, ["skill"]),
                               "params": sch.get("params", {}), "builtin": True})
 
+        for s in self.installed_skills():
+            items.append({"kind": "skill", "id": s["id"], "name": s["name"],
+                          "description": s.get("description", ""),
+                          "tags": list(dict.fromkeys(
+                              ["installed", s.get("source", "web")]
+                              + [t for t in s.get("tags", []) if t][:6])),
+                          "body": s.get("body", ""), "url": s.get("url", ""),
+                          "source": s.get("source", ""),
+                          "license": s.get("license"),
+                          "updated": s.get("updated"), "cid": s.get("cid"),
+                          "external": True, "builtin": False,
+                          **self.skill_owner(s)})
+
         for n in self.notes():
             items.append({"kind": "memory", "id": n["id"], "name": n["name"],
                           "description": (n.get("content", "")[:120]),
                           "tags": n.get("tags", []), "body": n.get("content", ""),
-                          "updated": n.get("updated"), "cid": n.get("cid")})
+                          "updated": n.get("updated"), "cid": n.get("cid"),
+                          **self.note_owner(n)})
 
         if self._agents:
             try:
@@ -391,6 +581,9 @@ class Library:
                               "tags": ["installed"] + ([] if cfg.get("builtin") else ["custom"]),
                               "icon": cfg.get("icon", ">_"),
                               "body": cfg.get("goal", "") or "",
+                              "builtin": bool(cfg.get("builtin")),
+                              "owner": cfg.get("owner"),
+                              "owner_source": cfg.get("owner_source"),
                               "skills": cfg.get("skills"), "model": cfg.get("model")})
             try:
                 for c in self._agents.ls_cids():
@@ -436,20 +629,33 @@ class Library:
         if action == "prompt_add":
             return self.prompt_add(kwargs.get("name", ""), kwargs.get("text", ""),
                                    kwargs.get("description", ""), kwargs.get("tags"),
-                                   kwargs.get("id"))
+                                   kwargs.get("id"), key=kwargs.get("key"))
         if action == "prompt_rm":
-            return self.prompt_rm(kwargs.get("id", ""))
+            return self.prompt_rm(kwargs.get("id", ""), key=kwargs.get("key"))
         if action == "prompt_import":
-            return self.prompt_import(kwargs.get("cid", ""))
+            return self.prompt_import(kwargs.get("cid", ""), key=kwargs.get("key"))
         if action == "memory":
             return {"memory": self.notes()}
         if action == "memory_add":
             return self.note_add(kwargs.get("name", ""), kwargs.get("content", ""),
-                                 kwargs.get("tags"), kwargs.get("id"))
+                                 kwargs.get("tags"), kwargs.get("id"),
+                                 key=kwargs.get("key"))
         if action == "memory_import":
-            return self.note_import(kwargs.get("cid", ""))
+            return self.note_import(kwargs.get("cid", ""), key=kwargs.get("key"))
         if action == "memory_rm":
-            return self.note_rm(kwargs.get("id", ""))
+            return self.note_rm(kwargs.get("id", ""), key=kwargs.get("key"))
+        if action == "installed_skills":
+            return {"skills": self.installed_skills()}
+        if action == "skill_add":
+            return self.skill_add(kwargs.get("name", ""), kwargs.get("body", ""),
+                                  kwargs.get("description", ""), kwargs.get("tags"),
+                                  kwargs.get("source", ""), kwargs.get("url", ""),
+                                  kwargs.get("origin_id", ""), kwargs.get("license"),
+                                  kwargs.get("id"), key=kwargs.get("key"))
+        if action == "skill_import":
+            return self.skill_import(kwargs.get("cid", ""), key=kwargs.get("key"))
+        if action == "skill_rm":
+            return self.skill_rm(kwargs.get("id", ""), key=kwargs.get("key"))
         if action == "conversations":
             return {"conversations": self.convs(kwargs.get("user", ""))}
         if action == "conversation_save":
@@ -478,6 +684,47 @@ class Library:
                 assert imported["name"] == "t" and imported["cid"] == p["cid"]
                 lib.prompt_rm(imported["id"])
             lib.prompt_rm(p["id"])
+            # ownership: unowned prompts belong to the host, who may remove them
+            host = "0xaaa0000000000000000000000000000000000001"
+            other = "0xbbb0000000000000000000000000000000000002"
+            owned = Library(dir=d, identity=Identity(host=host))
+            seeded = owned.prompts()[0]
+            assert owned.prompt_owner(seeded) == {"owner": host, "owner_source": "host"}
+            mine = owned.prompt_add("mine", "text", key=other)
+            assert mine["owner"] == other and mine["owner_source"] == "item"
+            for stranger in (None, other):
+                try:
+                    owned.prompt_rm(seeded["id"], key=stranger)
+                    raise AssertionError("host-owned prompt removed by a stranger")
+                except PermissionError:
+                    pass
+            owned.prompt_rm(mine["id"], key=other)      # own prompt
+            owned.prompt_rm(seeded["id"], key=host)     # host removes anything
+            # creating anything at all takes a sign-in once a host is known
+            for make in (lambda: owned.prompt_add("anon", "text"),
+                         lambda: owned.note_add("anon", "content"),
+                         lambda: owned.skill_add("anon", "# body")):
+                try:
+                    make()
+                    raise AssertionError("anonymous create allowed")
+                except PermissionError:
+                    pass
+            # notes and installed skills own like prompts do
+            note = owned.note_add("mine", "content", key=other)
+            assert note["owner"] == other and note["owner_source"] == "item"
+            skill = owned.skill_add("mine", "# body", origin_id="x:1", key=other)
+            assert skill["owner"] == other
+            for stranger in (None, "0xccc0000000000000000000000000000000000003"):
+                for rm in (lambda: owned.note_rm(note["id"], key=stranger),
+                           lambda: owned.skill_rm(skill["id"], key=stranger),
+                           lambda: owned.note_add("hijack", "c", id=note["id"], key=stranger)):
+                    try:
+                        rm()
+                        raise AssertionError("stranger managed someone else's item")
+                    except PermissionError:
+                        pass
+            owned.note_rm(note["id"], key=other)        # own note
+            owned.skill_rm(skill["id"], key=host)       # host removes anything
             n = lib.note_add("k", "v", tags=["y"])
             assert lib.notes()[0]["name"] == "k"
             out = lib.items(q="k", kind="memory")
@@ -488,6 +735,22 @@ class Library:
                 lib.note_rm(imported["id"])
             lib.note_rm(n["id"])
             assert lib.notes() == []
+            # installed skills: upsert by origin, indexed as kind=skill
+            s = lib.skill_add("pdf", "# PDF\ndo pdfs", "Handle PDFs",
+                              tags=["docs"], source="github",
+                              url="https://github.com/a/b/blob/HEAD/SKILL.md",
+                              origin_id="gh:a/b")
+            again = lib.skill_add("pdf v2", "# PDF\nv2", origin_id="gh:a/b")
+            assert again["id"] == s["id"] and len(lib.installed_skills()) == 1
+            assert again["installed"] == s["installed"]      # install date survives
+            found = lib.items(q="pdf", kind="skill")["items"]
+            assert any(i["id"] == s["id"] and i.get("external") for i in found)
+            assert lib.skill_docs([s["id"]])[0]["body"] == "# PDF\nv2"
+            if again.get("cid"):
+                dup = lib.skill_import(again["cid"])
+                assert dup["id"] == s["id"]                  # same url ⇒ upsert
+            lib.skill_rm(s["id"])
+            assert lib.installed_skills() == []
             # conversations: per-user scoping + localfs pin + import
             u = "0xabc0000000000000000000000000000000000001"
             c = lib.conv_save(u, query="hello", messages=[{"role": "user", "text": "hi"}])

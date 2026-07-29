@@ -29,6 +29,8 @@ from .library.mod import Library
 from .toolbox.mod import Toolboxes
 from .credits import Credits
 from .vaults.mod import Vaults
+from .discover.mod import Discover
+from .identity import Identity
 
 
 # ── path sandboxing ────────────────────────────────────────────────
@@ -82,6 +84,9 @@ WORKFLOW:
 5. FINISH: Use finish when the task is complete
 
 RULES:
+- The finish summary IS your reply — it is the only text the user reads. Write it
+  to them directly: answer what they asked, say what you changed and why. Never
+  write a third-person status report ("Responded to the user's greeting").
 - One step per iteration. Choose the single best action.
 - Never guess file contents. Always read first.
 - When you encounter an error, use debug to analyze it, then fix the root cause.
@@ -141,8 +146,10 @@ RULES:
         </PLAN>
         When finished:
         <PLAN>
-        <STEP>{"tool": "finish", "params": {"summary": "what you accomplished"}}</STEP>
+        <STEP>{"tool": "finish", "params": {"summary": "your answer, written to the user"}}</STEP>
         </PLAN>
+        The summary is shown to the user as your response — write the actual
+        answer there, not a description of what you did.
     """
 
     def __init__(self,
@@ -154,6 +161,8 @@ RULES:
                  **kwargs):
         self.skills = Skills()
         self.agents = Agents()
+        # images attached to the current run (data URLs or http urls)
+        self._images: List[str] = []
         # toolboxes: named skill bundles that snap onto this agent
         self.toolboxes = Toolboxes(skills=self.skills)
         self._snapped: List[str] = []
@@ -219,6 +228,36 @@ RULES:
         toolboxes > all skills.
         """
         return self.skills.schema(names or self.active_skills())
+
+    # ── skill aggregator (discover → library) ────────────────────────
+
+    def scan_skills(self, q: str = "", sources: List[str] = None,
+                    limit: int = 30, kind: str = None, fresh: bool = False) -> Dict:
+        """Scan every public registry at once for installable skills.
+
+        One query fans out to GitHub, the official skill catalog, npm, the MCP
+        registry, Glama and curated lists; duplicates across platforms merge
+        into one result. A dead registry yields an error, not a failed scan.
+        """
+        return self.discover.search(q, sources, limit, kind, fresh)
+
+    def skill_install(self, id: str, path: str = None, key=None) -> Dict:
+        """Install a scanned result into the library as an external skill.
+
+        The fetched document is instruction markdown, never executable code:
+        it joins the library as a document the agent can be handed, so an
+        install can't run anything on its own. The installer owns it, so this
+        needs a sign-in like every other library create.
+        """
+        if not id:
+            raise ValueError("id required — scan first, then install by result id")
+        # refuse before the network fetch — an anonymous install can't be stored
+        self.identity.require_signed_in(key, f"install skill: {id}")
+        doc = self.discover.skill_doc(id, path)
+        return self.library.skill_add(
+            name=doc["name"], body=doc["body"], description=doc.get("description", ""),
+            tags=doc.get("tags"), source=doc.get("source", ""), url=doc.get("url", ""),
+            origin_id=doc.get("origin_id") or id, license=doc.get("license"), key=key)
 
     # ── toolboxes (snap-on skill bundles) ────────────────────────────
 
@@ -289,6 +328,7 @@ RULES:
             allowed_paths: list = None,
             free: bool = False,
             on_step=None,
+            images: list = None,
             **kwargs) -> List[Dict[str, Any]]:
         """Run the agent loop: query -> LLM -> parse step -> execute skill -> repeat.
 
@@ -303,6 +343,8 @@ RULES:
                            Non-owners are restricted to their portal directory.
             on_step: optional callable invoked with each executed step dict as the
                      loop progresses — used by the API to stream live progress.
+            images: image URLs (http or data:) the user attached to the query —
+                    sent to the model as a leading multimodal turn.
         """
         if provider:
             self.set_provider(provider)
@@ -311,6 +353,7 @@ RULES:
                 f"No API key available for provider '{self._provider_short()}'. "
                 f"Add a key — or unlock your encrypted key — in the Builder (model node).")
         self._on_step = on_step
+        self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
         model = model or self.DEFAULT_MODELS.get(self._provider, 'anthropic/claude-sonnet-4.5')
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
@@ -328,6 +371,8 @@ RULES:
             path=path,
             steps=steps,
             **({'recalled': recalled} if recalled else {}),
+            **({'attachments': f'{len(self._images)} image(s) attached to this task — '
+                               f'they are in the conversation above, look at them'} if self._images else {}),
             **kwargs
         )
         history = []
@@ -346,6 +391,7 @@ RULES:
                     max_tokens=max_tokens,
                     temperature=temperature,
                     free=free,
+                    **({'history': self._image_turn()} if self._images else {}),
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
@@ -370,11 +416,85 @@ RULES:
                 consecutive_errors += 1
             else:
                 consecutive_errors = 0
+        # a run that used tools must still end with words: if the loop stopped
+        # without a finish summary or response text (steps ran out, or finish
+        # came back empty), make one last tools-off call for the actual answer
+        if history and not self._has_answer(history) \
+                and not any(s.get('tool') == 'error' for s in history[-1]):
+            answer = self._force_answer(model=model, max_tokens=max_tokens,
+                                        temperature=temperature, free=free)
+            if answer:
+                history[-1] = history[-1] + [answer]
         if save and m and mod:
             return m.fn('api/reg')(mod=mod, key=key, comment=query)
         return history[-1] if history else []
 
     # ── plan parsing & execution ─────────────────────────────────────
+
+    def _image_turn(self) -> List[Dict[str, Any]]:
+        """The run's images as a leading user turn, OpenAI content-part shaped.
+
+        Both providers hand `history` straight to an OpenAI-compatible client,
+        so this is the only place images enter the conversation — the per-step
+        prompt itself stays plain text. Needs a vision-capable model.
+        """
+        return [{
+            'role': 'user',
+            'content': [{'type': 'text', 'text': 'Images the user attached to this task:'}]
+                       + [{'type': 'image_url', 'image_url': {'url': u}} for u in self._images],
+        }]
+
+    @staticmethod
+    def _has_answer(history: List[list]) -> bool:
+        """True once the run produced text for the user — a non-empty finish
+        summary or a response step. finish with a blank summary doesn't count."""
+        for plan in history:
+            for s in plan:
+                if not isinstance(s, dict):
+                    continue
+                if s.get('tool') == 'finish' and str((s.get('params') or {}).get('summary') or '').strip():
+                    return True
+                if s.get('tool') == 'response' and str(s.get('result') or '').strip():
+                    return True
+        return False
+
+    def _force_answer(self, model, max_tokens, temperature, free) -> Optional[dict]:
+        """One last tools-off model call that turns the run's history into the
+        answer the user reads. Returns a response step, or None if it fails."""
+        import re
+        self.memory.add('hint', 'Tool use is over. Using everything in the history '
+                                'above, write your final answer to the user now as '
+                                'plain text — answer what they asked. No tools, no anchors.')
+        try:
+            out = self.model.forward(
+                str(self.memory.get()),
+                stream=True,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                free=free,
+                **({'history': self._image_turn()} if self._images else {}),
+            )
+            steps, raw = self.parse_steps(out)
+            text = ''
+            for s in steps:  # honor a finish step if the model insisted on one
+                if s.get('tool') == 'finish':
+                    text = str((s.get('params') or {}).get('summary') or '').strip()
+                    if text:
+                        break
+            if not text:
+                text = re.sub(r'<STEP>.*?</STEP>', '', raw, flags=re.S)
+                for tag in (*self.anchors['plan'], *self.anchors['tool']):
+                    text = text.replace(tag, '')
+                text = text.strip()
+            if not text:
+                return None
+            step = {'tool': 'response', 'params': {}, 'result': text}
+            self._emit_step(step)
+            return step
+        except Exception as e:
+            print(f"Final-answer error: {e}")
+            return None
 
     def _emit_step(self, step):
         """Notify the live-progress callback (if any) and record the step as an
@@ -579,18 +699,34 @@ class Mod(Agent):
         # is private, off-tree, next to the ACL.
         self.credits = Credits(self._acl_path.parent, deposit_address=self._owner)
 
+        # ownership — the host (module owner) owns everything unowned, so
+        # shipped agents and seeded prompts answer to them. Agents and the
+        # library share this one resolver.
+        self.identity = Identity(host=self._owner,
+                                 resolve=lambda k: self._resolve_address(k, verified=True),
+                                 is_host=self.is_owner)
+        self.agents.bind(self.identity)
+
         # unified library (prompts / skills / memory / agent market)
         # user collections persist off-tree under ~/.mod/agent/library/
-        self.library = Library(skills=self.skills, agents=self.agents)
+        self.library = Library(skills=self.skills, agents=self.agents,
+                               identity=self.identity)
 
         # per-address key-value vaults (public + private entries), persisted
         # through the mod store module under ~/.mod/agent/vaults/
         self.vaults = Vaults()
 
+        # internet-wide skill aggregator: scans GitHub, npm, the MCP
+        # registry, Glama and curated lists for installable skills
+        self.discover = Discover()
+
         self._public_actions = {'status', 'health', 'skills', 'schema',
                                 'agents', 'agent', 'chains', 'agent_cids',
                                 'agent_load', 'library', 'prompts', 'prompt_add',
                                 'prompt_rm', 'memory', 'memory_add', 'memory_rm',
+                                'discover', 'discover_sources', 'discover_detail',
+                                'discover_doc', 'skill_install', 'installed_skills',
+                                'skill_import', 'skill_uninstall',
                                 'toolboxes', 'toolbox', 'snapped',
                                 'recall', 'episodes', 'facts', 'memory_state',
                                 'key_info', 'balance',
@@ -621,28 +757,34 @@ class Mod(Agent):
             pass
         return None
 
-    def _resolve_address(self, key=None) -> str:
-        """Resolve a key/address/token to a verified address string."""
+    def _resolve_address(self, key=None, verified: bool = False) -> str:
+        """Resolve a key/address/token to an address string.
+
+        With verified=True only identities we can actually check are honored:
+        a local key object, or a signed protocol-auth token. A bare address is
+        a *claim*, not proof — trusting it would let anyone pass the owner's
+        address and hold owner rights — so it counts only when no verifier is
+        configured at all (local/dev runs without the auth mod).
+        """
         if key is None:
             return self.key.address if self.key else ''
         if hasattr(key, 'address'):
             return key.address
         key_str = str(key)
-        if key_str.startswith('0x') and len(key_str) in (42, 66):
-            return key_str
         if self.auth:
             try:
-                verified = self.auth.verify(key_str)
-                return verified['key']
+                return self.auth.verify(key_str)['key']
             except Exception:
                 pass
+            # a plain string is an unverified claim once a verifier exists
+            return '' if verified else key_str
         return key_str
 
     def is_owner(self, key=None) -> bool:
         """Check if key/address/token belongs to the module owner."""
         if not self._owner:
             return True
-        addr = self._resolve_address(key)
+        addr = self._resolve_address(key, verified=True)
         if not addr:
             return False
         return addr.lower() == self._owner.lower()
@@ -694,8 +836,9 @@ class Mod(Agent):
             return True
         if action in self._public_actions:
             return True
-        # check ACL grants
-        addr = self._resolve_address(key).lower()
+        # check ACL grants — a grant is only honored for a verified caller,
+        # otherwise anyone could name a granted address and inherit it
+        addr = self._resolve_address(key, verified=True).lower()
         if addr in self._acl:
             grant = self._acl[addr]
             allowed = grant.get('actions', [])
@@ -1064,11 +1207,23 @@ class Mod(Agent):
             'agent_load': lambda: self.agents.load(kwargs.get('cid', ''), shares=kwargs.get('shares')),
             'library': lambda: self.library.items(q=kwargs.get('q'), kind=kwargs.get('kind'), tag=kwargs.get('tag')),
             'prompts': lambda: {'prompts': self.library.prompts()},
-            'prompt_add': lambda: self.library.prompt_add(kwargs.get('name', ''), kwargs.get('text', ''), kwargs.get('description', ''), kwargs.get('tags'), kwargs.get('id')),
-            'prompt_rm': lambda: self.library.prompt_rm(kwargs.get('id', '')),
+            'prompt_add': lambda: self.library.prompt_add(kwargs.get('name', ''), kwargs.get('text', ''), kwargs.get('description', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
+            'prompt_rm': lambda: self.library.prompt_rm(kwargs.get('id', ''), key=key),
             'memory': lambda: {'memory': self.library.notes()},
-            'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id')),
-            'memory_rm': lambda: self.library.note_rm(kwargs.get('id', '')),
+            'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
+            'memory_rm': lambda: self.library.note_rm(kwargs.get('id', ''), key=key),
+            # skill aggregator: scan the internet, install what you find
+            'discover': lambda: self.discover.search(kwargs.get('q', ''), kwargs.get('sources'),
+                                                     int(kwargs.get('limit', 30)),
+                                                     kwargs.get('kind'), bool(kwargs.get('fresh'))),
+            'discover_sources': lambda: {'sources': self.discover.sources(),
+                                         'token': bool(self.discover.token())},
+            'discover_detail': lambda: self.discover.detail(kwargs.get('id', '')),
+            'discover_doc': lambda: self.discover.skill_doc(kwargs.get('id', ''), kwargs.get('path')),
+            'skill_install': lambda: self.skill_install(kwargs.get('id', ''), kwargs.get('path'), key=key),
+            'installed_skills': lambda: {'skills': self.library.installed_skills()},
+            'skill_import': lambda: self.library.skill_import(kwargs.get('cid', ''), key=key),
+            'skill_uninstall': lambda: self.library.skill_rm(kwargs.get('id', ''), key=key),
             # toolboxes (snap-on skill bundles)
             'toolboxes': lambda: {'toolboxes': self.toolboxes.items(), 'snapped': self._snapped},
             'toolbox': lambda: self.toolboxes.get(kwargs.get('name', '')).to_dict(),
@@ -1191,6 +1346,15 @@ class Mod(Agent):
                 extra['notes'] = '\n\n'.join(
                     f"[{n['name']}]\n{n.get('content', '')}" for n in picked)
 
+        # installed external skills ride along the same way — a SKILL.md is
+        # instructions, so handing it to the model IS the way it's used
+        skill_ids = kwargs.get('skill_ids') or []
+        if skill_ids:
+            docs = self.library.skill_docs(skill_ids)
+            if docs:
+                extra['skills_md'] = '\n\n'.join(
+                    f"[skill: {d['name']}]\n{d.get('body', '')}" for d in docs)
+
         # swap goal temporarily if agent has a custom one
         original_goal = self.goal
         if agent_goal:
@@ -1213,6 +1377,7 @@ class Mod(Agent):
                 allowed_paths=allowed_paths,
                 free=kwargs.get('free', False),
                 on_step=kwargs.get('on_step'),
+                images=kwargs.get('images'),
                 **extra,
             )
         finally:
@@ -1395,6 +1560,16 @@ class Mod(Agent):
             results['passed'] += 1
         except Exception as e:
             results['tests'].append({'name': 'forward_dispatch', 'passed': False, 'error': str(e)})
+            results['failed'] += 1
+
+        # test the skill aggregator (offline — no registry is contacted)
+        try:
+            assert self.discover.test() is True
+            results['tests'].append({'name': 'discover', 'passed': True,
+                                     'sources': len(self.discover.sources())})
+            results['passed'] += 1
+        except Exception as e:
+            results['tests'].append({'name': 'discover', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
         return results

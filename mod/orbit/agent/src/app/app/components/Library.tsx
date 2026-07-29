@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { API_URL } from '../config'
 import { qrSvg } from '../lib/qr'
+import Discover from './Discover'
 
 // ── types ───────────────────────────────────────────────────────────
 
@@ -23,16 +24,35 @@ export type LibItem = {
   cid?: string
   updated?: number
   builtin?: boolean
+  external?: boolean          // installed from the internet via Discover
+  url?: string                // where an external skill came from
+  source?: string
+  license?: string | null
+  // who owns it: 'item' = the address that made it, 'host' = nobody did, so
+  // the module owner does and only they can edit/remove it
+  owner?: string | null
+  owner_source?: 'item' | 'host' | null
 }
+
+// the signed-in identity, so the library can send an owner-gated key and
+// show which items this visitor may administer
+export type LibAuth = { address: string; token: string; isOwner: boolean } | null
 
 type Props = {
   onUsePrompt: (text: string) => void
   onSelectAgent: (name: string) => void
   onAgentsChanged?: () => void
+  auth?: LibAuth
+  // the module owner (host) address, for items nobody else owns
+  host?: string | null
   // select a library prompt as the console's system prompt
   onSelectPrompt?: (item: LibItem) => void
   // toggle a memory note into the console's run context
   onUseMemory?: (id: string) => void
+  // toggle an installed external skill into the console's run context
+  onUseSkill?: (id: string) => void
+  // wallet sign-in, offered wherever creating is blocked
+  onSignIn?: () => void
 }
 
 // ── kind styling (full literal classes so tailwind JIT keeps them) ──
@@ -73,12 +93,43 @@ const KINDS: Record<LibKind, {
 
 const KIND_ORDER: LibKind[] = ['prompt', 'skill', 'memory', 'agent']
 
+// ── local library ⇄ internet aggregator ─────────────────────────────
+
+type LibMode = 'library' | 'discover'
+
+function ModeSwitch({ mode, setMode, onLeaveDiscover }: {
+  mode: LibMode; setMode: (m: LibMode) => void; onLeaveDiscover: () => void
+}) {
+  const pick = (m: LibMode) => {
+    if (mode === 'discover' && m === 'library') onLeaveDiscover()
+    setMode(m)
+  }
+  const tab = (m: LibMode, label: string, hint: string) => (
+    <button key={m} onClick={() => pick(m)} title={hint}
+      className={`px-3 py-1 rounded-md text-[11px] font-medium tracking-wide transition ${
+        mode === m ? 'bg-white/[0.08] text-gray-100' : 'text-gray-500 hover:text-gray-300'
+      }`}>
+      {label}
+    </button>
+  )
+  return (
+    <div className="shrink-0 px-6 pt-4 max-w-6xl w-full mx-auto">
+      <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02]">
+        {tab('library', 'INSTALLED', 'Your prompts, skills, memory and agents')}
+        {tab('discover', 'DISCOVER', 'Scan the internet for skills across platforms')}
+      </div>
+    </div>
+  )
+}
+
 // ── component ───────────────────────────────────────────────────────
 
-export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, onSelectPrompt, onUseMemory }: Props) {
+export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, onSelectPrompt, onUseMemory, onUseSkill, onSignIn, auth, host }: Props) {
   const [items, setItems] = useState<LibItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // an owner-gated refusal from a delete — shown inline, the grid stays up
+  const [actionErr, setActionErr] = useState<string | null>(null)
 
   const [q, setQ] = useState('')
   const [kind, setKind] = useState<LibKind | null>(null)
@@ -89,6 +140,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
   const [editing, setEditing] = useState<LibItem | null>(null)
   const [importing, setImporting] = useState(false)
   const [showNewMenu, setShowNewMenu] = useState(false)
+  const [mode, setMode] = useState<LibMode>('library')
   const [copied, setCopied] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -150,12 +202,39 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
 
   // ── mutations ────────────────────────────────────────────────────
 
+  // ── ownership ────────────────────────────────────────────────────
+  // Whatever nobody else owns belongs to the host, so the host administers
+  // everything; everyone else only what they made.
+  // host === '' means no owner is configured, so everyone is the host;
+  // undefined/null means it hasn't loaded yet — no admin controls until it has
+  const isHost = !!auth?.isOwner || host === ''
+  // everything you make is filed under your address, so making anything at
+  // all takes a sign-in — the server refuses an unsigned create either way
+  const canCreate = !!auth || isHost
+  const ownedByMe = (i: LibItem) =>
+    !!auth && i.owner_source === 'item' &&
+    (i.owner || '').toLowerCase() === auth.address.toLowerCase()
+  const canManage = (i: LibItem) => isHost || ownedByMe(i)
+  const ownerLabel = (i: LibItem) =>
+    ownedByMe(i) ? 'you'
+      : i.owner_source === 'host' ? 'host'
+      : i.owner ? `${i.owner.slice(0, 6)}…${i.owner.slice(-4)}` : ''
+  const ownerTitle = (i: LibItem) =>
+    i.owner_source === 'host'
+      ? `no owner recorded — the host${i.owner ? ` (${i.owner})` : ''} owns it`
+      : i.owner ? `owned by ${i.owner}` : ''
+
   const del = async (item: LibItem) => {
     const route = item.kind === 'prompt' ? `prompts/${item.id}`
       : item.kind === 'memory' ? `memory/${item.id}`
-      : item.kind === 'agent' ? `agents/${item.name}` : null
+      : item.kind === 'agent' ? `agents/${item.name}`
+      : item.kind === 'skill' && item.external ? `skills/installed/${item.id}` : null
     if (!route) return
-    await fetch(`${API_URL}/${route}`, { method: 'DELETE' }).catch(() => {})
+    const q = auth?.token ? `?key=${encodeURIComponent(auth.token)}` : ''
+    const r = await fetch(`${API_URL}/${route}${q}`, { method: 'DELETE' })
+      .then(x => x.json()).catch(() => ({ error: 'delete failed' }))
+    if (r?.error) { setActionErr(r.error); return }   // owner-gated refusal
+    setActionErr(null)
     setSelected(null)
     refresh()
     if (item.kind === 'agent') onAgentsChanged?.()
@@ -173,7 +252,11 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
       if (onSelectPrompt) onSelectPrompt(item)
       else onUsePrompt(item.body || '')
     }
-    else if (item.kind === 'skill') onUsePrompt(`Use the ${item.name} skill to `)
+    else if (item.kind === 'skill') {
+      // an installed SKILL.md is instructions — attach it to the run context
+      if (item.external && onUseSkill) onUseSkill(item.id)
+      else onUsePrompt(`Use the ${item.name} skill to `)
+    }
     else if (item.kind === 'memory') {
       if (onUseMemory) onUseMemory(item.id)
       else onUsePrompt(`Context to remember:\n${item.body}\n\nTask: `)
@@ -182,9 +265,9 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
     setSelected(null)
   }
 
-  const useLabel = (k: LibKind, installed: boolean) =>
+  const useLabel = (k: LibKind, installed: boolean, external = false) =>
     k === 'prompt' ? (onSelectPrompt ? 'Use as system prompt' : 'Use prompt')
-    : k === 'skill' ? 'Try in console'
+    : k === 'skill' ? (external && onUseSkill ? 'Add to run context' : 'Try in console')
     : k === 'memory' ? (onUseMemory ? 'Add to context' : 'Use as context')
     : installed ? 'Chat with agent' : ''
 
@@ -193,8 +276,22 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
   const clearFilters = () => { setQ(''); setKind(null); setTag(null) }
   const hasFilters = q.trim() !== '' || kind !== null || tag !== null
 
+  // the internet-wide aggregator lives behind the same tab — installed skills
+  // land in this library, so refresh on the way back
+  if (mode === 'discover') {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        <ModeSwitch mode={mode} setMode={setMode} onLeaveDiscover={refresh} />
+        <div className="flex-1 min-h-0">
+          <Discover onInstalled={refresh} token={auth?.token} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0 library-bg">
+      <ModeSwitch mode={mode} setMode={setMode} onLeaveDiscover={refresh} />
       {/* toolbar */}
       <div className="shrink-0 px-6 pt-6 pb-4 max-w-6xl w-full mx-auto">
         <div className="flex items-end justify-between gap-4 mb-4">
@@ -205,18 +302,31 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             </p>
           </div>
 
-          {/* + new */}
+          {/* + new — signed-in only: every item is filed under its maker */}
           <div className="relative">
-            <button
-              onClick={() => setShowNewMenu(v => !v)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition shadow-[0_0_18px_rgba(52,211,153,0.25)]"
-            >
-              <span className="text-sm leading-none">+</span> New
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showNewMenu ? 'rotate-180' : ''}`}>
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            {showNewMenu && (
+            {canCreate ? (
+              <button
+                onClick={() => setShowNewMenu(v => !v)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition shadow-[0_0_18px_rgba(52,211,153,0.25)]"
+              >
+                <span className="text-sm leading-none">+</span> New
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showNewMenu ? 'rotate-180' : ''}`}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={onSignIn}
+                title="Prompts, memory notes and agents are saved under the wallet that made them"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border border-sky-500/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20 transition"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                Sign in to create
+              </button>
+            )}
+            {showNewMenu && canCreate && (
               <div className="absolute right-0 top-full mt-1.5 w-44 bg-[#141416] border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl p-1">
                 {(['prompt', 'memory', 'agent'] as LibKind[]).map(k => (
                   <button key={k}
@@ -281,7 +391,21 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
               clear ✕
             </button>
           )}
+          {isHost && (
+            <span className="ml-auto text-[10px] text-emerald-300/70 border border-emerald-500/20 bg-emerald-500/[0.07] rounded-md px-2 py-0.5"
+              title="You are the host — you own every item nobody else does">
+              host
+            </span>
+          )}
         </div>
+
+        {/* an owner-gated refusal (delete on someone else's item) */}
+        {actionErr && (
+          <div className="mt-2.5 flex items-center gap-2 text-[11px] text-red-300/90 bg-red-500/[0.07] border border-red-500/20 rounded-md px-2.5 py-1.5">
+            <span className="truncate">{actionErr}</span>
+            <button onClick={() => setActionErr(null)} className="ml-auto text-red-300/60 hover:text-red-200 transition">✕</button>
+          </div>
+        )}
 
         {/* tag chips */}
         {tagCounts.length > 0 && (
@@ -333,6 +457,8 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-1">
               {filtered.map(item => {
                 const K = KINDS[item.kind]
+                // built-in skills have no owner fields, so this is simply blank
+                const owner = ownerLabel(item)
                 return (
                   <button key={item.id}
                     onClick={() => setSelected(item)}
@@ -348,7 +474,17 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                       {item.builtin && item.kind === 'prompt' && (
                         <span className="text-[9px] text-gray-600 border border-white/[0.06] rounded px-1 py-0.5">built-in</span>
                       )}
-                      <span className={`ml-auto w-1.5 h-1.5 rounded-full ${K.dot} opacity-40`} />
+                      {/* who owns it — 'host' means nobody claimed it */}
+                      {owner && (
+                        <span className={`ml-auto text-[9px] font-mono px-1 py-0.5 rounded ${
+                          ownedByMe(item) ? 'bg-emerald-500/15 text-emerald-300/90'
+                            : item.owner_source === 'host' ? 'bg-white/[0.05] text-gray-500'
+                            : 'bg-violet-400/10 text-violet-300/90'
+                        }`} title={ownerTitle(item)}>
+                          {owner}
+                        </span>
+                      )}
+                      <span className={`${owner ? '' : 'ml-auto'} w-1.5 h-1.5 rounded-full ${K.dot} opacity-40`} />
                     </div>
                     <div className="text-sm font-medium text-gray-200 truncate">
                       {item.label || item.name}
@@ -392,6 +528,8 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
           useLabel={useLabel('prompt', false)}
           onEdit={() => { setEditing(selected); setSelected(null) }}
           onDelete={() => del(selected)}
+          owner={{ label: ownerLabel(selected), title: ownerTitle(selected), mine: ownedByMe(selected) }}
+          canManage={canManage(selected)}
         />
       )}
 
@@ -409,6 +547,13 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
               <span className="text-sm font-medium text-gray-100 truncate">
                 {selected.icon ? `${selected.icon} ` : ''}{selected.label || selected.name}
               </span>
+              {selected.kind === 'agent' && ownerLabel(selected) && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                  ownedByMe(selected) ? 'bg-emerald-500/15 text-emerald-300/90' : 'bg-white/[0.05] text-gray-500'
+                }`} title={ownerTitle(selected)}>
+                  owner {ownerLabel(selected)}
+                </span>
+              )}
               <button onClick={() => setSelected(null)} className="ml-auto text-gray-600 hover:text-gray-300 transition p-1">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -425,6 +570,20 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                   {selected.tags.map(t => (
                     <span key={t} className="text-[10px] text-gray-500 border border-white/[0.07] rounded px-1.5 py-0.5">{t}</span>
                   ))}
+                </div>
+              )}
+
+              {/* where an internet-installed skill came from */}
+              {selected.external && (
+                <div className="mb-4 flex items-center gap-2 flex-wrap text-[11px]">
+                  {selected.source && <span className="text-gray-600">via <span className="text-gray-400">{selected.source}</span></span>}
+                  {selected.license && <span className="text-gray-600">· {selected.license}</span>}
+                  {selected.url && (
+                    <a href={selected.url} target="_blank" rel="noreferrer"
+                      className="text-sky-300/90 hover:text-sky-200 underline underline-offset-2 truncate max-w-full">
+                      {selected.url}
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -472,10 +631,10 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
 
             {/* actions */}
             <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2 shrink-0">
-              {useLabel(selected.kind, selected.tags.includes('installed')) && (
+              {useLabel(selected.kind, selected.tags.includes('installed'), selected.external) && (
                 <button onClick={() => useItem(selected)}
                   className="px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition">
-                  {useLabel(selected.kind, selected.tags.includes('installed'))}
+                  {useLabel(selected.kind, selected.tags.includes('installed'), selected.external)}
                 </button>
               )}
               {selected.body && (
@@ -484,19 +643,26 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                   {copied === 'body' ? 'Copied ✓' : 'Copy'}
                 </button>
               )}
-              {selected.kind === 'memory' && (
+              {selected.kind === 'memory' && canManage(selected) && (
                 <button onClick={() => { setEditing(selected); setSelected(null) }}
                   className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
                   Edit
                 </button>
               )}
-              {(selected.kind === 'memory' ||
-                (selected.kind === 'agent' && selected.tags.includes('custom'))) && (
+              {/* only what you own — the host owns everything nobody claimed */}
+              {(selected.kind === 'memory' || selected.external || selected.kind === 'agent')
+                && (canManage(selected) ? (
                 <button onClick={() => del(selected)}
+                  title={selected.kind === 'agent' && selected.builtin
+                    ? 'Built-in agent — host only' : undefined}
                   className="ml-auto px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-300 hover:bg-red-500/10 transition">
-                  Delete
+                  {selected.external ? 'Uninstall' : 'Delete'}
                 </button>
-              )}
+              ) : (
+                <span className="ml-auto text-[10px] text-gray-600" title={ownerTitle(selected)}>
+                  {auth ? `owned by ${ownerLabel(selected) || 'the host'}` : 'sign in to manage your own'}
+                </span>
+              ))}
             </div>
           </div>
         </div>
@@ -512,6 +678,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             setCreating(null); setEditing(null); refresh()
             if (creating === 'agent') onAgentsChanged?.()
           }}
+          token={auth?.token}
         />
       )}
 
@@ -520,6 +687,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
         <ImportModal
           onClose={() => setImporting(false)}
           onImported={() => { setImporting(false); refresh() }}
+          token={auth?.token}
         />
       )}
     </div>
@@ -528,7 +696,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
 
 // ── full-screen prompt view (localfs CID + QR share) ────────────────
 
-function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, onDelete }: {
+function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, onDelete, owner, canManage }: {
   item: LibItem
   copied: string | null
   copy: (text: string, what?: string) => void
@@ -537,6 +705,8 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
   useLabel?: string
   onEdit: () => void
   onDelete: () => void
+  owner: { label: string; title: string; mine: boolean }
+  canManage: boolean
 }) {
   const qr = useMemo(() => {
     if (!item.cid) return null
@@ -551,6 +721,13 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
         <span className="text-sm font-medium text-gray-100 truncate">{item.name}</span>
         {item.builtin && (
           <span className="text-[9px] text-gray-600 border border-white/[0.06] rounded px-1 py-0.5">built-in</span>
+        )}
+        {owner.label && (
+          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+            owner.mine ? 'bg-emerald-500/15 text-emerald-300/90' : 'bg-white/[0.05] text-gray-500'
+          }`} title={owner.title}>
+            owner {owner.label}
+          </span>
         )}
         <span className="ml-auto text-[10px] text-gray-600 hidden sm:block">esc to close</span>
         <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition p-1">
@@ -627,14 +804,22 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
           className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
           {copied === 'body' ? 'Copied ✓' : 'Copy prompt'}
         </button>
-        <button onClick={onEdit}
-          className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
-          Edit
-        </button>
-        <button onClick={onDelete}
-          className="ml-auto px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-300 hover:bg-red-500/10 transition">
-          Delete
-        </button>
+        {canManage && (
+          <button onClick={onEdit}
+            className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
+            Edit
+          </button>
+        )}
+        {canManage ? (
+          <button onClick={onDelete}
+            className="ml-auto px-3 py-2 rounded-lg text-xs text-red-400/70 hover:text-red-300 hover:bg-red-500/10 transition">
+            Delete
+          </button>
+        ) : (
+          <span className="ml-auto text-[10px] text-gray-600" title={owner.title}>
+            {owner.label === 'host' ? 'the host owns this prompt' : `owned by ${owner.label}`}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -642,7 +827,9 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
 
 // ── import-from-CID modal ───────────────────────────────────────────
 
-function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+function ImportModal({ onClose, onImported, token }: {
+  onClose: () => void; onImported: () => void; token?: string | null
+}) {
   const [cid, setCid] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -654,7 +841,8 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
     try {
       const res = await fetch(`${API_URL}/prompts/import`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cid: cid.trim() }),
+        // the importer owns their copy, so the server needs to know who they are
+        body: JSON.stringify({ cid: cid.trim(), key: token }),
       })
       const data = await res.json()
       if (data.error) { setErr(data.error); setBusy(false); return }
@@ -705,11 +893,13 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
 
 // ── create / edit modal ─────────────────────────────────────────────
 
-function EditorModal({ kind, item, onClose, onSaved }: {
+function EditorModal({ kind, item, onClose, onSaved, token }: {
   kind: LibKind
   item: LibItem | null
   onClose: () => void
   onSaved: () => void
+  // the caller's signed token — what the server records as the owner
+  token?: string | null
 }) {
   const K = KINDS[kind]
   const [name, setName] = useState(item?.name || '')
@@ -732,17 +922,17 @@ function EditorModal({ kind, item, onClose, onSaved }: {
       if (kind === 'prompt') {
         res = await fetch(`${API_URL}/prompts`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: item?.id, name: name.trim(), text: body, description, tags: tagList }),
+          body: JSON.stringify({ id: item?.id, name: name.trim(), text: body, description, tags: tagList, key: token }),
         })
       } else if (kind === 'memory') {
         res = await fetch(`${API_URL}/memory`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: item?.id, name: name.trim(), content: body, tags: tagList }),
+          body: JSON.stringify({ id: item?.id, name: name.trim(), content: body, tags: tagList, key: token }),
         })
       } else {
         res = await fetch(`${API_URL}/agents`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim(), description, goal: body, icon }),
+          body: JSON.stringify({ name: name.trim(), description, goal: body, icon, key: token }),
         })
       }
       const data = await res.json()

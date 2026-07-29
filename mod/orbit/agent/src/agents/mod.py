@@ -6,10 +6,15 @@ Each agent is a folder with mod.py containing an Agent class.
 Create new agents locally or register on-chain via the registry module.
 Save agents as JSON CIDs (localfs content-addressed storage).
 
+Every agent carries an owner — the address that created it, so creating one
+takes a sign-in. Agents with no recorded owner (the shipped ones, or anything
+made before ownership existed) belong to the HOST, the module owner, who can
+edit and remove any of them.
+
 Usage:
     agents = Agents()
     agents.ls()                         # list all agent names
-    agents.get("architect")             # get agent config
+    agents.get("architect")             # get agent config (incl. owner)
     agents.create("myagent", {...})     # create new agent locally
     agents.save("architect")            # save agent as JSON CID -> "localfs/Qm..."
     agents.load("localfs/Qm...")        # load agent from CID
@@ -29,7 +34,14 @@ try:
 except ImportError:
     m = None
 
-# shipped agents — protected from remove/update; clone them into a custom agent instead
+try:
+    from src.identity import Identity
+except ImportError:  # running the registry standalone
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.identity import Identity
+
+# shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer", "safety"}
 
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
@@ -41,6 +53,7 @@ class Agent:
     icon = "{icon}"
     skills = {skills}
     model = {model}
+    owner = {owner}
 
     goal = """{goal}"""
 '''
@@ -49,9 +62,17 @@ class Agent:
 class Agents:
     description = "Agent registry - discover, load, create, and register agent personas"
 
-    def __init__(self, **kwargs):
+    def __init__(self, identity: "Identity" = None, **kwargs):
         self._dir = Path(__file__).parent
         self._cache = {}
+        # unbound registry: no host known, so nobody holds host rights
+        self.identity = identity or Identity()
+
+    def bind(self, identity: "Identity") -> "Agents":
+        """Attach the module's identity (host address + caller verification)."""
+        self.identity = identity
+        self._cache.clear()
+        return self
 
     def ls(self) -> List[str]:
         """List available agent names"""
@@ -81,15 +102,43 @@ class Agents:
             "skills": getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
             "builtin": name in BUILTINS,
+            # unowned -> the host owns it
+            **self.identity.owner_of(getattr(cls, "owner", None)),
             "cls": cls,
         }
         self._cache[name] = config
         return config
 
+    # ── ownership ──────────────────────────────────────────────────
+
+    def _recorded_owner(self, name: str) -> Optional[str]:
+        """The owner written into the agent file, or None (= host-owned)."""
+        try:
+            cfg = self.get(name)
+        except Exception:
+            return None
+        return cfg["owner"] if cfg.get("owner_source") == "item" else None
+
+    def _require_manage(self, name: str, key: str = None, operation: str = "modify"):
+        """Only the agent's owner or the host may change it."""
+        builtin = name in BUILTINS
+        what = f"built-in agent: {name}" if builtin else f"agent: {name}"
+        self.identity.require(self._recorded_owner(name), key,
+                              operation=f"cannot {operation} {what}",
+                              builtin=builtin)
+
+    def can_manage(self, name: str, key: str = None) -> bool:
+        """Whether this caller may edit/remove the agent."""
+        return self.identity.can_manage(self._recorded_owner(name), key,
+                                        builtin=name in BUILTINS)
+
     def create(self, name: str, description: str = "", goal: str = "",
                icon: str = ">_", skills: list = None, model: str = None,
                key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
+
+        Signed-in callers only — the agent is filed under the address that
+        made it, and an anonymous create has no address to file it under.
 
         Args:
             name: agent slug (lowercase, no spaces)
@@ -98,15 +147,17 @@ class Agents:
             icon: display icon
             skills: optional list of skill names to restrict to
             model: optional model override
-            key: caller auth token (for permission check)
+            key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
+        self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
             raise FileExistsError(f"agent already exists: {name}")
 
         agent_dir.mkdir(parents=True)
         label = name.replace("-", " ").title()
+        owner = self.identity.addr(key)
         content = AGENT_TEMPLATE.format(
             name=name,
             label=label,
@@ -114,6 +165,7 @@ class Agents:
             icon=icon,
             skills=repr(skills) if skills else "None",
             model=repr(model) if model else "None",
+            owner=repr(owner) if owner else "None",
             goal=goal or f"You are a {label} agent.",
         )
         (agent_dir / "mod.py").write_text(content)
@@ -126,18 +178,18 @@ class Agents:
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, skills: list = ..., model: str = ...,
                key: str = None) -> Dict[str, Any]:
-        """Update a custom agent in place. Built-ins are read-only — clone them.
+        """Update an agent in place. The owner or the host may edit it —
+        for everyone else built-ins are read-only, so clone them instead.
 
         Only the fields passed are changed; the rest keep their current value.
         skills/model use `...` as the not-passed sentinel so an explicit None
         can clear them (None = all skills / default model).
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
-        if name in BUILTINS:
-            raise PermissionError(f"cannot edit built-in agent: {name} — clone it instead")
         agent_dir = self._dir / name
         if not (agent_dir / "mod.py").exists():
             raise KeyError(f"agent not found: {name}")
+        self._require_manage(name, key, "edit")
 
         current = self.get(name)
         new_skills = current.get("skills") if skills is ... else skills
@@ -150,6 +202,8 @@ class Agents:
             icon=icon if icon is not None else current.get("icon", ">_"),
             skills=repr(new_skills) if new_skills else "None",
             model=repr(new_model) if new_model else "None",
+            # an edit never transfers ownership
+            owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
         )
         (agent_dir / "mod.py").write_text(content)
@@ -158,13 +212,11 @@ class Agents:
         return {**self.get(name), **({"cid": cid} if cid else {})}
 
     def remove(self, name: str, key: str = None) -> Dict[str, Any]:
-        """Remove a local agent."""
+        """Remove a local agent. Owner or host only; built-ins are host-only."""
         agent_dir = self._dir / name
         if not agent_dir.exists():
             raise KeyError(f"agent not found: {name}")
-        # don't allow removing built-in agents
-        if name in BUILTINS:
-            raise PermissionError(f"cannot remove built-in agent: {name}")
+        self._require_manage(name, key, "remove")
         import shutil
         shutil.rmtree(agent_dir)
         self._cache.pop(name, None)
@@ -179,7 +231,8 @@ class Agents:
         config = {}
         if name and name in self.ls():
             existing = self.get(name)
-            config = {k: v for k, v in existing.items() if k not in ("cls", "builtin")}
+            config = {k: v for k, v in existing.items()
+                      if k not in ("cls", "builtin", "owner_source")}
 
         if description is not None:
             config["description"] = description
@@ -506,7 +559,9 @@ class Agents:
             )
 
         if name is None:
-            return {"agents": self.ls(), "total": len(self.ls()), "schemas": self.schema()}
+            names = self.ls()
+            return {"agents": names, "total": len(names),
+                    "host": self.identity.host, "schemas": self.schema()}
         return {k: v for k, v in self.get(name).items() if k != "cls"}
 
     def chains(self) -> Dict[str, Any]:

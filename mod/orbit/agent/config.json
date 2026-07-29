@@ -1,7 +1,7 @@
 {
     "name": "agent",
-    "version": "3.6.0",
-    "description": "Autonomous coding agent. 23 skills for software engineering, bundled into snap-on toolboxes. Layered memory subsystem (working/episodic/semantic) that runs as its own process. Unified library market (prompts, skills, memory, agents) with cross-filtering; prompts, memory notes, toolboxes, agents, and console conversations all pinned to localfs with shareable CIDs. Server-side per-address conversation history. Per-address key-value vaults (public + AES-GCM-sealed private entries, e.g. API keys) persisted via the store module. Claude module interface with owner permissions and portal sandboxing.",
+    "version": "3.7.0",
+    "description": "Autonomous coding agent. 23 skills for software engineering, bundled into snap-on toolboxes. Layered memory subsystem (working/episodic/semantic) that runs as its own process. Unified library market (prompts, skills, memory, agents) with cross-filtering; prompts, memory notes, toolboxes, agents, and console conversations all pinned to localfs with shareable CIDs. Server-side per-address conversation history. Per-address key-value vaults (public + AES-GCM-sealed private entries, e.g. API keys) persisted via the store module. Claude module interface with owner permissions and portal sandboxing. Agents and prompts are one selectable list in the console, each showing its owner \u2014 the address that created it; anything unowned belongs to the host (the module owner), who administers it. Creating an agent or any of the blocks it is built from (prompts, memory notes, installed skills) takes a wallet sign-in, and you can only edit or delete what you made. Skill aggregator: one search scans GitHub (repos + skill topics), the official anthropics/skills catalog, npm, the MCP registry, Glama and curated awesome-lists, merges duplicates across platforms, and installs what you find into the library as documents (never executable code) that attach to a run as context.",
     "owner": "0x89bcdee4a284cb0848eebb975bec78ab5bd06cfa",
     "dependencies": [
         "store"
@@ -18,7 +18,9 @@
         "is_owner",
         "allowed_paths_for",
         "snap",
-        "unsnap"
+        "unsnap",
+        "scan_skills",
+        "skill_install"
     ],
     "toolboxes": [
         "core",
@@ -32,7 +34,7 @@
     "memory": {
         "port": 50119
     },
-    "schema": "QmSvamRxVeCGdLZQqxDjmWYPu7f26VyoEsF2AsgHTrJhGU",
+    "schema": "QmZHQLhrujJzTyZKjpegDpYt3wKZUDsZiWn2XiP5S7LJyn",
     "skills": [
         "bash",
         "read",
