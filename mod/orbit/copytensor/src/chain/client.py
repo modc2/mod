@@ -45,6 +45,9 @@ ARCHIVE_POOL_SIZE = 4
 # The delegate walk behind trader discovery costs ~30s, and the delegate set
 # barely moves hour to hour.
 UNIVERSE_TTL_SEC = 6 * 3600
+# Generous multiple of the ~30s a healthy node takes — anything past this is
+# an endpoint that has gone quiet on us, not a slow answer.
+WALK_TIMEOUT_SEC = 150
 
 
 def is_valid_ss58(ss58: str) -> bool:
@@ -55,6 +58,16 @@ def is_valid_ss58(ss58: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _close(sub: Optional[Any]):
+    """Best-effort socket close — a dropped connection must not leak a fd."""
+    if sub is None:
+        return
+    try:
+        sub.close()
+    except Exception:
+        pass
 
 
 def _endpoints_for(network: str, override: Optional[str] = None) -> List[str]:
@@ -158,6 +171,12 @@ class SubtensorClient:
         # ~30s full-set call, so it is cached process-wide.
         self._universe_cache: Optional[Tuple[float, List["TraderCandidate"]]] = None
         self._universe_lock = threading.Lock()
+        # Live positions, briefly. Every leaderboard horizon asks the same
+        # question ("where does this trader stand right now?"), so without
+        # this a 5-horizon warm over a 250-trader pool is 1250 identical
+        # reads. Well inside the staleness the copy engine already tolerates.
+        self._live_cache: Dict[str, Tuple[float, "AccountPositions"]] = {}
+        self._live_cache_lock = threading.Lock()
 
     @property
     def sub(self) -> bt.Subtensor:
@@ -242,15 +261,32 @@ class SubtensorClient:
                     result = fn(conn)
                 except Exception:
                     # Drop the suspect socket, retry once on a fresh one.
+                    _close(conn)
                     conn = bt.Subtensor(network=self.archive_url)
                     self._archive_held.conn = conn
                     result = fn(conn)
             except Exception:
                 self._archive_held.conn = None
-                raise          # both attempts failed; the socket is not reused
+                _close(conn)   # both attempts failed; never reuse this socket
+                raise
             self._archive_held.conn = None
             self._release_archive(conn)
             return result
+
+    # ── live-position cache ──────────────────────────────────────────
+
+    LIVE_TTL_SEC = 120
+
+    def _live_cached(self, ss58: str) -> Optional["AccountPositions"]:
+        with self._live_cache_lock:
+            hit = self._live_cache.get(ss58)
+        if hit and time.time() - hit[0] < self.LIVE_TTL_SEC:
+            return hit[1]
+        return None
+
+    def _live_store(self, ss58: str, positions: "AccountPositions"):
+        with self._live_cache_lock:
+            self._live_cache[ss58] = (time.time(), positions)
 
     def reconnect(self):
         self._sub = None
@@ -384,7 +420,13 @@ class SubtensorClient:
 
         if block is not None:
             return self._with_archive(_go)
-        return self._with_failover(lambda: _go(self.sub))
+
+        cached = self._live_cached(ss58)
+        if cached is not None:
+            return cached
+        positions = self._with_failover(lambda: _go(self.sub))
+        self._live_store(ss58, positions)
+        return positions
 
     def _get_hotkeys_for_coldkey(self, coldkey_ss58: str,
                                   block_hash: Optional[str] = None) -> List[str]:
@@ -456,6 +498,64 @@ class SubtensorClient:
         return {"total": len(universe), "validators": validators,
                 "nominators": len(universe) - validators}
 
+    def _walk_delegates(self) -> List[Any]:
+        """get_delegates() on a private connection, rotating on failure.
+
+        Endpoint order matters here more than anywhere else: this is the
+        single heaviest runtime call we make, and a rate-limiting third-party
+        node answers it by simply never answering — the socket read blocks
+        forever. So: opentensor's own nodes first, archive after them (slower
+        for runtime calls), third-party last, and a watchdog on each attempt
+        so one silent endpoint can't wedge discovery.
+        """
+        def _rank(url: str) -> int:
+            if "opentensor" not in url:
+                return 2                     # third-party, unknown behaviour
+            return 1 if "archive" in url else 0
+
+        last_err: Optional[Exception] = None
+        for url in sorted(self.endpoints, key=_rank):
+            started = time.time()
+            try:
+                out = self._walk_once(url)
+                log.info("delegate walk: %d delegates from %s in %.1fs",
+                         len(out), url, time.time() - started)
+                return out
+            except Exception as e:
+                last_err = e
+                log.warning("delegate walk failed on %s after %.1fs: %s",
+                            url, time.time() - started, e)
+        raise RuntimeError(f"delegate walk failed on every RPC: {last_err}")
+
+    def _walk_once(self, url: str) -> List[Any]:
+        """One walk attempt, abandoned if the node goes quiet.
+
+        The substrate client reads its websocket with no timeout, so the
+        attempt runs on a daemon thread we can walk away from; a wedged
+        socket leaks one thread until the OS tears the connection down,
+        instead of stalling discovery for the life of the process.
+        """
+        box: Dict[str, Any] = {}
+        done = threading.Event()
+
+        def _run():
+            sub = None
+            try:
+                sub = bt.Subtensor(network=url)
+                box["out"] = sub.get_delegates() or []
+            except Exception as e:                      # noqa: BLE001
+                box["err"] = e
+            finally:
+                _close(sub)
+                done.set()
+
+        threading.Thread(target=_run, name="delegate-walk", daemon=True).start()
+        if not done.wait(WALK_TIMEOUT_SEC):
+            raise TimeoutError(f"no response within {WALK_TIMEOUT_SEC}s")
+        if "err" in box:
+            raise box["err"]
+        return box.get("out") or []
+
     def _trader_universe(self, force: bool = False) -> List[TraderCandidate]:
         with self._universe_lock:
             cached = self._universe_cache
@@ -472,7 +572,11 @@ class SubtensorClient:
                     return sum(_tao(v) for v in vals), len(vals)
                 return _tao(stake), 1
 
-            delegates = self._with_failover(lambda: self.sub.get_delegates()) or []
+            # On its own connection, not the shared one: this is a ~30s
+            # full-set call, and the shared socket is serialized behind every
+            # snapshot and leaderboard read in flight. Those would starve the
+            # walk (and be starved by it) for minutes.
+            delegates = self._walk_delegates()
 
             owners: Dict[str, TraderCandidate] = {}
             noms: Dict[str, TraderCandidate] = {}

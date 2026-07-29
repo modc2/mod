@@ -172,6 +172,12 @@ class LeaderboardEntryResponse(BaseModel):
     top_subnet: Optional[int]
     top_subnet_pnl: float
     baseline: bool = True
+    # Days of history this row's PnL actually covers (≤ the requested horizon).
+    window_days: float = 0.0
+    # PnL split: price move on the book held vs stake deposited/withdrawn.
+    market_pnl_tao: float = 0.0
+    market_pct: float = 0.0
+    flow_tao: float = 0.0
 
 
 class TargetTraderInfo(BaseModel):

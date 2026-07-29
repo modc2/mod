@@ -261,7 +261,7 @@ function SubnetTable({
       <table className="pixel-table" style={{ minWidth: 860 }}>
         <thead className="sticky">
           <tr>
-            <th style={{ width: 40 }}>#</th>
+            <th style={{ width: 56 }}>#</th>
             <th>Subnet</th>
             <th className="num">Price</th>
             <th className="num">1h</th>
@@ -269,7 +269,7 @@ function SubnetTable({
             <th className="num">Market cap</th>
             <th className="num">24h vol</th>
             <th className="num">In pool</th>
-            <th style={{ width: 110 }}>7d trend</th>
+            <th style={{ width: 124 }}>Trend</th>
           </tr>
         </thead>
         <tbody>

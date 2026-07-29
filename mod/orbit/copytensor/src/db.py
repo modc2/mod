@@ -67,11 +67,21 @@ class Database:
 
     def _init_schema(self):
         with self._conn() as conn:
+            # WAL: the snapshot workers and the leaderboard walkers hit this
+            # file from many threads at once, and the default rollback
+            # journal turns every concurrent writer into "database is
+            # locked" (a dropped snapshot, silently). Set once — it is a
+            # persistent property of the file.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(SCHEMA)
+
+    # Long enough to outlast a burst of concurrent snapshot writes.
+    BUSY_TIMEOUT_SEC = 30
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=self.BUSY_TIMEOUT_SEC)
         conn.row_factory = sqlite3.Row
         try:
             yield conn

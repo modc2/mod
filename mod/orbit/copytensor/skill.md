@@ -19,11 +19,14 @@ wallet, and those always go out over our own wallet + RPC pool.
 - **Public reads, no wallet needed**: leaderboard, subnets, account positions, trader profile, PnL.
 - **bt-backed reads**: `src/chain/bt_source.py` wraps bt's `POST /api/call` in a `SubtensorClient` (`BtBackedClient`), so every existing read path — endpoints, snapshot loop, PnL, the copy engine's target lookup — is served from bt's index without changing its call sites. `/subnets` drops from a multi-second `all_subnets()` walk to ~150 ms. Each override falls back to the inherited RPC implementation if bt can't answer.
 - **Trader tracking**: watching a coldkey registers it with bt's trader index (`bt_track`), which then keeps its equity curve, windowed PnL and an inferred trade tape. Read them via `/traders`, `/traders/{ss58}`, `/traders/{ss58}/history`, `/traders/{ss58}/flows`, `/flows`.
+- **PnL curve with trades on it**: `/account/{ss58}/curve` replays the local snapshot record into an equity series (one point per snapshot = a real block) and infers each trade from per-subnet alpha deltas. Every step splits exactly into `Δvalue = market move + stake flow`, so the response carries both `market_pnl_tao` (what the book did) and `flow_tao` (what the trader deposited) next to net PnL — a +282% headline that is 98% deposits reads as such. Trades come back as individual legs *and* grouped events, each carrying the curve value at its timestamp so the chart pins markers onto the line. The trader page (`src/app/app/components/PnlCurve.tsx`) renders it with PNL/VALUE/MARKET modes, ▲/▼ markers sized by TAO moved, and a trade tape cross-highlighted with the chart.
+- **Market surface**: `/subnets` passes bt's screener through whole — symbol, market cap, 24h volume, 1h/24h change, a 48-point price sparkline and the on-chain subnet identity (logo, description, github/site/discord) — behind a 12 s cache, since the ticker, the grid and the header strip all poll it. `/market` adds network totals and the day's movers; `/subnets/{netuid}` adds validator rankings; `/subnets/{netuid}/history` is the detail chart's series. Enriched fields are `null` (never 0) when bt is down and the read falls back to the RPC walk, and the UI renders those as "—". The subnet grid has card and table views (`copytensor:subnets:view`), sorts by mcap / volume / change / price / pool / netuid, and links each row to the detail page.
 - **Round-robin RPC pool**: `entrypoint-finney.opentensor.ai`, `archive.chain.opentensor.ai`, `lite.chain.opentensor.ai`, `bittensor-finney.api.onfinality.io` — shuffles on init, auto-fails over on RPC errors.
 - **Copy engine**: replicate a target validator's subnet allocations onto your own hotkey with safety limits (per-tx cap, daily cap, rebalance threshold).
 - **Index of traders (polymarket-style)**: build a named, weighted basket of validators and "Start Index Live" — the frontend spawns one server-side copy per trader with capital split by weight. Pause / Resume / Sync / Stop act on the whole basket. Stored client-side in localStorage (`copytensor:indexes:v1`).
-- **Seed accounts**: ships with the owner coldkeys of the top delegates by total stake (real, checksum-verified, actively allocating) so the leaderboard renders on first boot; `POST /discover?top=N` re-derives the list live from `get_delegates()` (~1 min) and auto-watches any new ones. Every ss58 entering the watchlist is checksum-validated.
-- **Honest PnL**: baselines come from local snapshots (30-min loop) or bt's trader index (`bt_trader_at`), which only counts a snapshot as a baseline if it actually sits near the block asked for — otherwise today's book would masquerade as last week's and PnL would read 0. The old archive-node query is off by default (`COPYTENSOR_ARCHIVE_FALLBACK=1` re-enables it); if neither exists yet the entry reports `baseline: false` and PnL 0 (UI shows "— warming") — numbers are never invented. Leaderboard horizons (1/3/7/14/30d) are pre-warmed at startup and served stale-while-revalidate (TTL 120 s).
+- **Trader pool (what the leaderboard ranks)**: the board can only rank coldkeys we watch, so the watchlist IS the visible trader set. One `get_delegates()` walk (~35 s, cached 6 h) yields the whole on-chain universe — every delegate owner **and every nominator staking to them**: ~2.3 k + ~57 k real coldkeys on finney — ranked by stake. At boot the pool tops itself up to `leaderboard_pool_size` (250; `auto_discover: false` disables it); `POST /pool?size=N` resizes it live (background, poll `GET /universe`), `POST /discover?top=N&kind=validator|nominator|all` adds the top N synchronously. Ranking stake is `Σ` per-subnet alpha from the delegate set — a ranking heuristic for *which* coldkeys to watch, never shown as a τ value; every τ figure on the board comes from priced positions. Every ss58 entering the watchlist is checksum-validated.
+- **Honest PnL**: baselines come from local snapshots (30-min loop) or bt's trader index (`bt_trader_at`), which only counts a snapshot as a baseline if it actually sits near the block asked for — otherwise today's book would masquerade as last week's and PnL would read 0. The archive-node query is the fallback behind both (`archive_fallback: true`, `COPYTENSOR_ARCHIVE_FALLBACK=0/1` overrides): a pool of hundreds is only comparable if every trader is priced over the *same* window, and for a coldkey nobody has indexed only the archive can answer. Each row reports `window_days` — the history it actually covers — and the UI flags any row short of the horizon; if no baseline exists at all the row reports `baseline: false` and PnL 0 ("— warming"). Numbers are never invented.
+- **Scaling the board**: one build = one live read + one archive read per trader, so the pool is walked concurrently (`leaderboard_workers`, 8) over a pool of archive sockets (`archive_pool_size`, 4), with live positions cached briefly so all five horizons share one read per trader. Horizons build in the background (7d first, the UI default) and are never built on a request thread — a cold horizon returns `[]` with `board.building` set in `/universe`, and rows appear on the next poll. Refresh is rate-limited to one rebuild per three build-times so a big pool can't rebuild forever. SQLite runs in WAL (concurrent snapshot writers).
 
 ## Usage
 
@@ -63,10 +66,14 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 |---|---|---|
 | GET | `/health` | Active RPC + full pool |
 | GET | `/status` | Block height, tracked accounts, active copies, `reads: bt\|rpc` |
-| GET | `/subnets` | All subnets (netuid, alpha price, total stake, tempo, emission) |
+| GET | `/subnets` | All subnets, enriched: price, 1h/24h change, market cap, 24h volume, 48-pt sparkline, symbol, logo, description, links |
+| GET | `/market` | Network totals (alpha mcap, 24h volume, block, TAO/USD) + top gainers/losers |
+| GET | `/subnets/{netuid}` | Pool state + on-chain identity + validator rankings |
+| GET | `/subnets/{netuid}/history?hours=168` | Indexed price / mcap / volume series |
 | GET | `/leaderboard?days=7&top=50` | Top performers by alpha PnL |
 | GET | `/account/{ss58}?days=7` | Allocations + PnL |
 | GET | `/account/{ss58}/pnl?days=7` | Detailed per-subnet PnL |
+| GET | `/account/{ss58}/curve?days=7` | Equity/PnL curve from local snapshots + the trades on it |
 | GET | `/trader/{ss58}` | Full profile |
 | GET | `/trades?limit=50&copy_id=...` | Copy-engine trade history |
 | GET | `/traders?sort_by=total_tao` | Tracked traders: value, allocation, windowed PnL (bt) |
@@ -76,7 +83,9 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 | GET | `/flows?hours=168` | The tape across every tracked trader |
 | POST | `/watch` | Add coldkey to watchlist (checksum-validated) |
 | GET | `/watches` | List watched coldkeys |
-| POST | `/discover?top=8` | Auto-watch owner coldkeys of top-N delegates (~1 min) |
+| POST | `/discover?top=8&kind=validator` | Watch the top-N coldkeys on-chain (blocking, ~35 s cold) |
+| GET | `/universe` | Pool status: traders ranked vs coldkeys on-chain, board build progress |
+| POST | `/pool?size=250` | Resize the trader pool; grows + re-prices in the background |
 | GET | `/tao_price` | TAO/USD (coingecko, 5-min server cache) |
 | POST | `/copy` | Create copy config |
 | GET | `/copies` | List active copies |
@@ -103,6 +112,7 @@ mod/orbit/copytensor/
     ├── engine/
     │   ├── leaderboard.py       # Rank watched accounts by N-day PnL
     │   ├── pnl.py               # Per-subnet PnL calc
+    │   ├── curve.py             # Equity/PnL curve + trades inferred from snapshot deltas
     │   ├── copier.py            # Copy engine
     │   └── safety.py            # Safety limits
     ├── db.py                    # SQLite (snapshots, trades, copies, watches)

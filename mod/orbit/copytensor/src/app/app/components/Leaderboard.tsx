@@ -2,28 +2,36 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LeaderboardEntry, SubnetInfo } from "../lib/types";
-import { fetchLeaderboard, fetchSubnets, fmtCompact, shortSs58 } from "../lib/api";
+import type { LeaderboardEntry, SubnetInfo, Universe } from "../lib/types";
+import { fetchLeaderboard, fetchSubnets, fetchUniverse, fmtCompact,
+         setPool, shortSs58 } from "../lib/api";
 import PnlBadge from "./PnlBadge";
 import SubnetLogo from "./SubnetLogo";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
+// Trader-pool sizes. Every step is real coldkeys ranked by on-chain stake;
+// bigger pools take longer to price (one historical read per trader).
+const POOL_SIZES = [100, 250, 500, 1000];
 
 export default function Leaderboard() {
   const { days, setDays, search, sortKey, sortDir, toggleSort, minSubnets,
-          setMinSubnets, reloadKey } = useFilters();
+          setMinSubnets, reloadKey, reload } = useFilters();
   const { currency, usdPerTao } = useCurrency();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [subnets, setSubnets] = useState<Map<number, SubnetInfo>>(new Map());
+  const [universe, setUniverse] = useState<Universe | null>(null);
+  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     setLoading(true);
     setError("");
-    fetchLeaderboard(days, 100)
+    // Ask for the whole pool, not a slice of it — the board is the ranking
+    // of every trader we watch, and the pool is user-resizable.
+    fetchLeaderboard(days, 2000)
       .then(setEntries)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -36,6 +44,41 @@ export default function Leaderboard() {
       .then((all) => setSubnets(new Map(all.map((s) => [s.netuid, s]))))
       .catch(() => {});
   }, []);
+
+  // Pool + board status. Discovery and the first pass over a horizon both
+  // run server-side in the background, so poll while either is in flight
+  // and pull the rows in the moment this horizon finishes pricing.
+  useEffect(() => {
+    let stop = false;
+    let wasBuilding = false;
+    const tick = () =>
+      fetchUniverse()
+        .then((u) => {
+          if (stop) return;
+          setUniverse(u);
+          const building =
+            u.status === "discovering" || (u.board?.building || []).includes(days);
+          if (wasBuilding && !building) {
+            setBusy(false);
+            reload();               // rows are ready — refetch the board
+            return;
+          }
+          wasBuilding = building;
+          if (building) setTimeout(tick, 4000);
+          else if (busy) { setBusy(false); reload(); }
+        })
+        .catch(() => {});
+    tick();
+    return () => { stop = true; };
+  }, [reloadKey, busy, days, reload]);
+
+  const grow = (size: number) => {
+    setBusy(true);
+    setError("");
+    setPool(size)
+      .then(setUniverse)
+      .catch((e) => { setBusy(false); setError(e.message); });
+  };
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -59,8 +102,10 @@ export default function Leaderboard() {
     const stake = filtered.reduce((a, e) => a + e.total_stake_tao, 0);
     const priced = filtered.filter((e) => e.baseline !== false);
     const pnl = priced.reduce((a, e) => a + e.pnl_tao, 0);
+    // "Best" ranks on market %: the raw leader is whoever deposited most
+    // over the window, which tells you nothing about who to copy.
     const best = priced.reduce<LeaderboardEntry | null>(
-      (b, e) => (!b || e.pnl_pct > b.pnl_pct ? e : b), null);
+      (b, e) => (!b || (e.market_pct ?? 0) > (b.market_pct ?? 0) ? e : b), null);
     return { stake, pnl, best, warming: filtered.length - priced.length };
   }, [filtered]);
 
@@ -79,8 +124,12 @@ export default function Leaderboard() {
     <section className="space-y-4">
       {/* summary tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Tile label="tracked validators" value={String(entries.length)}
-              sub={totals.warming ? `${totals.warming} still warming` : "all with history"} />
+        <Tile label="traders ranked" value={String(entries.length)}
+              sub={totals.warming
+                ? `${totals.warming} still warming`
+                : universe?.known
+                  ? `of ${fmtCompact(universe.known)} coldkeys on-chain`
+                  : "all with history"} />
         <Tile label="combined stake" value={fmtValue(totals.stake, currency, usdPerTao)} />
         <Tile
           label={`${days}d combined pnl`}
@@ -88,10 +137,12 @@ export default function Leaderboard() {
           tone={totals.pnl >= 0 ? "up" : "down"}
         />
         <Tile
-          label={`best ${days}d`}
-          value={totals.best ? `${totals.best.pnl_pct >= 0 ? "+" : ""}${totals.best.pnl_pct.toFixed(1)}%` : "—"}
+          label={`best ${days}d market`}
+          value={totals.best
+            ? `${(totals.best.market_pct ?? 0) >= 0 ? "+" : ""}${(totals.best.market_pct ?? 0).toFixed(1)}%`
+            : "—"}
           sub={totals.best ? (totals.best.label || shortSs58(totals.best.ss58)) : undefined}
-          tone={totals.best && totals.best.pnl_pct >= 0 ? "up" : "down"}
+          tone={totals.best && (totals.best.market_pct ?? 0) >= 0 ? "up" : "down"}
         />
       </div>
 
@@ -99,8 +150,19 @@ export default function Leaderboard() {
         <h2 className="font-display text-lg font-bold">
           Top performers
           <span className="text-pixel-gray text-xs ml-2 font-mono">
-            ({filtered.length}/{entries.length})
+            ({filtered.length}/{entries.length}
+            {universe?.known ? ` of ${fmtCompact(universe.known)} on-chain` : ""})
           </span>
+          {universe?.status === "discovering" && (
+            <span className="text-[10px] ml-2 font-mono text-green-400 animate-pulse">
+              adding traders… {universe.watched}/{universe.target}
+            </span>
+          )}
+          {universe?.status === "error" && (
+            <span className="text-[10px] ml-2 font-mono text-red-400">
+              pool: {universe.error}
+            </span>
+          )}
         </h2>
 
         <div className="flex gap-1">
@@ -117,7 +179,28 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        <label className="text-[11px] text-pixel-gray-light flex items-center gap-2 ml-auto">
+        {/* How many traders we rank. The board can only show accounts we
+            watch, so this is the control that answers "why so few?". */}
+        <div className="flex items-center gap-1 ml-auto">
+          <span className="text-[11px] text-pixel-gray-light">pool</span>
+          {POOL_SIZES.map((n) => (
+            <button
+              key={n}
+              onClick={() => grow(n)}
+              disabled={busy || universe?.status === "discovering"}
+              title={`Watch the top ${n} coldkeys by stake`}
+              className={`pixel-btn text-[11px] px-2 py-1 disabled:opacity-40 ${
+                (universe?.pool_size ?? 0) === n
+                  ? "border-green-400 text-green-400"
+                  : "text-pixel-gray-light"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-[11px] text-pixel-gray-light flex items-center gap-2">
           min subnets
           <input
             type="number"
@@ -140,11 +223,12 @@ export default function Leaderboard() {
         <table className="pixel-table" style={{ minWidth: 900 }}>
           <thead className="sticky">
             <tr>
-              <th style={{ width: 44 }}>#</th>
-              <th style={{ width: "28%" }}>Validator</th>
+              <th style={{ width: 56 }}>#</th>
+              <th style={{ width: "28%" }}>Trader</th>
               <Th k="total_stake_tao" label={`Stake (${currency === "USD" ? "$" : "τ"})`} num />
               <Th k="pnl_tao" label={`${days}d PnL`} num />
               <Th k="pnl_pct" label={`${days}d %`} num />
+              <Th k="market_pct" label="Market %" num />
               <Th k="num_subnets" label="SNs" num />
               <th style={{ width: 150 }}>Top subnet</th>
               <th style={{ width: 84 }}></th>
@@ -153,15 +237,21 @@ export default function Leaderboard() {
           <tbody>
             {loading && entries.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center text-pixel-gray py-6">
+                <td colSpan={9} className="text-center text-pixel-gray py-6">
                   loading leaderboard…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center text-pixel-gray py-6">
-                  No matches. Seed validators are auto-added on first boot —
-                  give the snapshot worker a minute, then refresh.
+                <td colSpan={9} className="text-center text-pixel-gray py-6">
+                  {universe && (universe.board?.building || []).includes(days) ? (
+                    <>pricing {universe.watched} traders over {days}d — first
+                       pass takes a couple of minutes, rows appear here</>
+                  ) : universe?.status === "discovering" ? (
+                    <>adding traders to the pool…</>
+                  ) : (
+                    <>No matches. Widen the filters, or grow the pool above.</>
+                  )}
                 </td>
               </tr>
             ) : (
@@ -200,7 +290,7 @@ export default function Leaderboard() {
                       </span>
                     </td>
                     {e.baseline === false ? (
-                      <td colSpan={2} className="num text-pixel-gray font-mono" title="No history yet — PnL appears once the first snapshot ages">
+                      <td colSpan={3} className="num text-pixel-gray font-mono" title="No history yet — PnL appears once the first snapshot ages">
                         — warming
                       </td>
                     ) : (
@@ -210,6 +300,36 @@ export default function Leaderboard() {
                         </td>
                         <td className={`num font-mono ${e.pnl_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                           {e.pnl_pct >= 0 ? "+" : ""}{e.pnl_pct.toFixed(2)}%
+                          {/* Rows whose history is shorter than the horizon
+                              are not comparable to the rest — say so. */}
+                          {e.window_days > 0 && e.window_days < days * 0.9 && (
+                            <span
+                              className="block text-[9px] text-pixel-gray"
+                              title={`Only ${e.window_days}d of history for this trader — not a full ${days}d window`}
+                            >
+                              {e.window_days}d only
+                            </span>
+                          )}
+                        </td>
+                        {/* What the book actually earned, with deposits and
+                            withdrawals taken out — a coldkey that merely
+                            funded itself shows +0% here and a huge flow. */}
+                        <td className="num font-mono">
+                          {e.market_pct == null ? (
+                            <span className="text-pixel-gray">—</span>
+                          ) : (
+                            <span className={e.market_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                              {e.market_pct >= 0 ? "+" : ""}{e.market_pct.toFixed(2)}%
+                            </span>
+                          )}
+                          {!!e.flow_tao && Math.abs(e.flow_tao) > Math.abs(e.market_pnl_tao ?? 0) && (
+                            <span
+                              className="block text-[9px] text-pixel-gray"
+                              title={`${e.flow_tao > 0 ? "Deposited" : "Withdrew"} ${Math.abs(e.flow_tao).toFixed(2)} τ over this window — the headline % is mostly flow, not trading`}
+                            >
+                              {e.flow_tao > 0 ? "+" : "−"}{fmtCompact(Math.abs(e.flow_tao))} τ flow
+                            </span>
+                          )}
                         </td>
                       </>
                     )}

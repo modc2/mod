@@ -30,6 +30,16 @@ class LeaderboardEntry:
     top_subnet: Optional[int]
     top_subnet_pnl: float
     baseline: bool = True
+    # Days actually covered. Equal to the requested horizon when the baseline
+    # came from the archive; shorter when the oldest local snapshot is all
+    # the history that exists for that account — a 30d column must never
+    # silently show 3 days of PnL for one trader and 30 for the next.
+    window_days: float = 0.0
+    # PnL split into what the book earned and what was deposited/withdrawn.
+    # Ranking on raw % puts every fresh deposit above every real trader.
+    market_pnl_tao: float = 0.0
+    market_pct: float = 0.0
+    flow_tao: float = 0.0
 
 
 def build_leaderboard(client: SubtensorClient, db: Database,
@@ -86,6 +96,11 @@ def build_leaderboard(client: SubtensorClient, db: Database,
             top_subnet=top_sn,
             top_subnet_pnl=top_sn_pnl,
             baseline=pnl.baseline,
+            window_days=round(
+                max(0, pnl.block_end - pnl.block_start) / BLOCKS_PER_DAY, 2),
+            market_pnl_tao=pnl.market_pnl_tao,
+            market_pct=pnl.market_pct,
+            flow_tao=pnl.flow_tao,
         )
 
     n = max(1, min(int(workers) or 1, len(accounts)))

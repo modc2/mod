@@ -10,6 +10,7 @@ import type {
   SubnetDetail,
   SubnetInfo,
   Trade,
+  Universe,
 } from "./types";
 
 // All requests go through the Next.js rewrite at /api/copytensor → backend.
@@ -58,6 +59,17 @@ export const fetchCurve = (ss58: string, days = 7) =>
 // ── leaderboard ──
 export const fetchLeaderboard = (days = 7, top = 50) =>
   j<LeaderboardEntry[]>(`/leaderboard?days=${days}&top=${top}`);
+
+// ── trader pool ──
+// The leaderboard ranks the coldkeys we watch, so the pool size IS how many
+// traders are visible. `known` is how many exist on-chain to choose from.
+export const fetchUniverse = () => j<Universe>("/universe");
+
+export const setPool = (size: number, refresh = false) =>
+  j<Universe & { queued: boolean }>(
+    `/pool?size=${size}&refresh=${refresh}`,
+    { method: "POST" }
+  );
 
 // ── watchlist ──
 export const fetchWatches = () =>

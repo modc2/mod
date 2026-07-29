@@ -8,8 +8,9 @@ export default function LeaderboardPage() {
           Bittensor copy-trading
         </h1>
         <p className="text-pixel-gray-light text-sm">
-          Mirror subnet allocations of top performers based on N-day alpha PnL.
-          All reads from public RPC — no third-party APIs, no wallet required.
+          Mirror subnet allocations of top performers based on N-day alpha PnL,
+          ranked across the on-chain trader pool. All reads from public RPC —
+          no third-party APIs, no wallet required.
         </p>
       </header>
       <Leaderboard />

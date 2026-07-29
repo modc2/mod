@@ -14,7 +14,8 @@ import {
 } from "recharts";
 import type { CurveData, CurveEvent, CurvePoint } from "../lib/types";
 import { useCurrency, fmtValue, fmtPnlValue } from "../context/CurrencyContext";
-import { fmtPct } from "../lib/api";
+import { fmtCompact, fmtPct } from "../lib/api";
+import type { Currency } from "../context/CurrencyContext";
 
 // One series on the plot at a time — never two y-scales. The trade markers
 // are the second layer, and they keep green/red to themselves, so the line
@@ -49,6 +50,12 @@ const fmtDay = (ts: number) =>
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     hour12: false,
   });
+
+// Axis ticks stay short — the tooltip carries the precise number.
+const fmtAxis = (v: number, currency: Currency, usdPerTao: number | null) =>
+  currency === "USD" && usdPerTao && usdPerTao > 0
+    ? `$${fmtCompact(v * usdPerTao)}`
+    : `${fmtCompact(v)} τ`;
 
 export default function PnlCurve({
   curve,
@@ -155,7 +162,9 @@ export default function PnlCurve({
         <g
           onMouseEnter={() => setActiveTs(e.ts)}
           onMouseLeave={() => setActiveTs(null)}
-          onClick={() => {
+          onClick={(clickEv) => {
+            // The chart's own onClick clears the pin — don't let it undo this.
+            clickEv.stopPropagation();
             setPinnedTs(pinnedTs === e.ts ? null : e.ts);
             tapeRef.current
               ?.querySelector<HTMLElement>(`[data-ts="${e.ts}"]`)
@@ -218,7 +227,13 @@ export default function PnlCurve({
 
       {/* What actually drove the number — trading vs topping up the stake */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Metric label="net PnL" tao={t.pnl_tao} pct={t.pnl_pct} />
+        {/* Window-explicit: the header stat uses the {days}d baseline, this
+            one measures across the snapshots actually on record. */}
+        <Metric
+          label={`net PnL · ${curve.coverage.actual_days.toFixed(1)}d`}
+          tao={t.pnl_tao}
+          pct={t.pnl_pct}
+        />
         <Metric label="from price moves" tao={t.market_pnl_tao} />
         <Metric label="from stake flows" tao={t.flow_tao} />
         <div className="pixel-panel p-3">
@@ -259,10 +274,10 @@ export default function PnlCurve({
                 minTickGap={48}
               />
               <YAxis
-                tickFormatter={(v) => fmtValue(v, currency, usdPerTao)}
+                tickFormatter={(v) => fmtAxis(v, currency, usdPerTao)}
                 tickLine={false}
                 axisLine={false}
-                width={78}
+                width={62}
                 domain={["auto", "auto"]}
               />
               {mode !== "value" && (
@@ -274,9 +289,13 @@ export default function PnlCurve({
               <Tooltip
                 cursor={{ stroke: "rgba(255,255,255,0.2)", strokeWidth: 1 }}
                 isAnimationActive={false}
-                content={({ active, label }) => {
+                content={(props) => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const { active, label, payload } = props as any;
                   if (!active) return null;
-                  const ts = Number(label);
+                  // Hovering a trade marker makes recharts report the scatter
+                  // item instead of an axis label — fall back to its point.
+                  const ts = Number(label ?? payload?.[0]?.payload?.ts);
                   const p = pointByTs.get(ts);
                   if (!p) return null;
                   const ev = eventByTs.get(ts);

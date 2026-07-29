@@ -94,6 +94,10 @@ export default function SubnetDetailPage() {
       : `${fmtCompact(tao)} τ`;
   };
 
+  // Share is relative to the validators actually listed, not the whole
+  // metagraph — the table only ever shows the top slice.
+  const shownStake = d.validators.reduce((a, v) => a + v.stake, 0) || 1;
+
   const links = [
     s.url && { label: "website", href: s.url.startsWith("http") ? s.url : `https://${s.url}` },
     s.github && { label: "github", href: s.github },
@@ -211,12 +215,17 @@ export default function SubnetDetailPage() {
                   type="number"
                   domain={["dataMin", "dataMax"]}
                   scale="time"
-                  tickFormatter={(t) =>
-                    hours <= 24
-                      ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                      : new Date(t).toLocaleDateString([], { month: "short", day: "numeric" })
-                  }
-                  minTickGap={40}
+                  tickFormatter={(t) => {
+                    const d = new Date(t);
+                    // Inside a week, bare dates repeat across every tick —
+                    // the hour is the part that actually distinguishes them.
+                    if (hours <= 24)
+                      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                    if (hours <= 168)
+                      return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${String(d.getHours()).padStart(2, "0")}h`;
+                    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+                  }}
+                  minTickGap={72}
                   tickLine={false}
                   axisLine={false}
                 />
@@ -235,10 +244,13 @@ export default function SubnetDetailPage() {
                     fontSize: 12,
                   }}
                   labelFormatter={(t) => new Date(Number(t)).toLocaleString()}
-                  formatter={(v: number) => [
-                    currency === "USD" ? `$${v.toPrecision(5)}` : `${v.toPrecision(6)} τ`,
-                    "α price",
-                  ]}
+                  formatter={(v) => {
+                    const n = Number(v);
+                    return [
+                      currency === "USD" ? `$${n.toPrecision(5)}` : `${n.toPrecision(6)} τ`,
+                      "α price",
+                    ];
+                  }}
                 />
                 <Area
                   type="monotone"
@@ -277,10 +289,12 @@ export default function SubnetDetailPage() {
             <table className="pixel-table" style={{ minWidth: 720 }}>
               <thead className="sticky">
                 <tr>
-                  <th style={{ width: 44 }}>UID</th>
+                  <th style={{ width: 60 }}>UID</th>
                   <th>Coldkey</th>
                   <th className="num">Stake (α)</th>
-                  <th className="num">Share</th>
+                  <th className="num" title="share of the stake held by the validators listed here">
+                    Share
+                  </th>
                   <th className="num">Trust</th>
                   <th className="num">Dividends</th>
                   <th style={{ width: 80 }}></th>
@@ -288,8 +302,7 @@ export default function SubnetDetailPage() {
               </thead>
               <tbody>
                 {d.validators.map((v) => {
-                  const total = d.validators.reduce((a, x) => a + x.stake, 0) || 1;
-                  const share = (v.stake / total) * 100;
+                  const share = (v.stake / shownStake) * 100;
                   return (
                     <tr key={v.uid}>
                       <td className="num text-pixel-gray">{v.uid}</td>

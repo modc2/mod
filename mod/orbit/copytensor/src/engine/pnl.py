@@ -35,6 +35,15 @@ class PnlResult:
     pnl_tao: float
     pnl_pct: float
     by_subnet: List[SubnetPnl] = field(default_factory=list)
+    # Δvalue splits exactly into a price move on the book we already held and
+    # the stake that came in or out over the window:
+    #   market = Σ alpha_start·(price_end − price_start)
+    #   flow   = Σ (alpha_end − alpha_start)·price_end
+    # Without this a coldkey that merely deposited outranks every real trader
+    # on the board — "+1,474,529%" is a wire transfer, not skill.
+    market_pnl_tao: float = 0.0
+    flow_tao: float = 0.0
+    market_pct: float = 0.0
     # False when no historical baseline exists yet (fresh watch, no snapshot,
     # archive query failed) — PnL is reported as 0, never invented.
     baseline: bool = True
@@ -106,6 +115,9 @@ def calculate_pnl(client: SubtensorClient, db: Database,
     total_start = 0.0
     total_end = 0.0
 
+    market_total = 0.0
+    flow_total = 0.0
+
     for netuid in sorted(all_netuids):
         s = start_by_subnet.get(netuid, {"alpha": 0, "price": 0})
         e = end_by_subnet.get(netuid, {"alpha": 0, "price": 0})
@@ -113,6 +125,13 @@ def calculate_pnl(client: SubtensorClient, db: Database,
         value_start = s["alpha"] * s["price"]
         value_end = e["alpha"] * e["price"]
         pnl = value_end - value_start
+
+        # A position that left the book entirely has no end price to mark
+        # against — value it at the price it had, so the exit reads as a
+        # withdrawal (flow) instead of a 100% market loss.
+        price_end = e["price"] or s["price"]
+        market_total += s["alpha"] * (price_end - s["price"])
+        flow_total += (e["alpha"] - s["alpha"]) * price_end
         pnl_pct = (pnl / value_start * 100) if value_start > 0 else (
             100.0 if value_end > 0 else 0.0
         )
@@ -149,6 +168,9 @@ def calculate_pnl(client: SubtensorClient, db: Database,
         pnl_pct=total_pnl_pct,
         by_subnet=by_subnet,
         baseline=baseline,
+        market_pnl_tao=market_total,
+        flow_tao=flow_total,
+        market_pct=(market_total / total_start * 100) if total_start > 0 else 0.0,
     )
 
 

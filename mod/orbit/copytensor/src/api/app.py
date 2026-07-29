@@ -48,6 +48,14 @@ from .models import (
 
 log = logging.getLogger("copytensor.api")
 
+# uvicorn only configures its own loggers, so without this every
+# copytensor.* INFO line (pool growth, board build times, snapshot passes —
+# the things you actually watch during a long warm) is dropped on the floor.
+logging.basicConfig(
+    level=os.environ.get("COPYTENSOR_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 # ── globals (initialized at startup) ────────────────────────────
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -127,7 +135,28 @@ def _pool_size() -> int:
     return int(_config.get("leaderboard_pool_size", DEFAULT_POOL_SIZE))
 
 
-def _grow_pool(size: Optional[int] = None, force: bool = False) -> Dict[str, Any]:
+def _pool_busy() -> bool:
+    with _pool_lock:
+        return _pool_state["status"] == "discovering"
+
+
+def _claim_pool(target: int) -> bool:
+    """Mark discovery as running. False if another pass already holds it.
+
+    Callers claim before returning to the client, so a POST /pool response
+    already reads "discovering" and the UI never sees a false idle in the
+    gap before the worker thread starts.
+    """
+    with _pool_lock:
+        if _pool_state["status"] == "discovering":
+            return False
+        _pool_state.update(status="discovering", target=target, added=0,
+                           started_at=time.time(), finished_at=None, error=None)
+        return True
+
+
+def _grow_pool(size: Optional[int] = None, force: bool = False,
+               claimed: bool = False) -> Dict[str, Any]:
     """Fill the watchlist up to `size` real coldkeys ranked by stake.
 
     Runs on a worker thread: the delegate walk is ~30s and the first
@@ -135,11 +164,8 @@ def _grow_pool(size: Optional[int] = None, force: bool = False) -> Dict[str, Any
     on a request. Safe to call repeatedly — only missing accounts are added.
     """
     target = int(size or _pool_size())
-    with _pool_lock:
-        if _pool_state["status"] == "discovering":
-            return dict(_pool_state)
-        _pool_state.update(status="discovering", target=target, added=0,
-                           started_at=time.time(), finished_at=None, error=None)
+    if not claimed and not _claim_pool(target):
+        return dict(_pool_state)
     try:
         kinds = tuple(_config.get("pool_kinds", ["validator", "nominator"]))
         candidates = _client.discover_traders(
@@ -172,12 +198,12 @@ def _grow_pool(size: Optional[int] = None, force: bool = False) -> Dict[str, Any
 
 
 def _boot_pool(size: Optional[int] = None, force: bool = False,
-               grow: bool = True):
+               grow: bool = True, claimed: bool = False):
     """Top the pool up, then warm every horizon — in that order, on one
     worker: warming a board that is about to triple wastes the work."""
     if grow:
         try:
-            _grow_pool(size, force=force)
+            _grow_pool(size, force=force, claimed=claimed)
         except Exception as e:
             log.warning("pool growth failed: %s", e)
     _warm_lb()
@@ -210,7 +236,8 @@ async def lifespan(app: FastAPI):
     snapshot_interval = _config.get("snapshot_interval_sec", 1800)
     _snapshot_mgr = SnapshotManager(
         _client, _db, interval_sec=snapshot_interval,
-        workers=int(_config.get("snapshot_workers", 8)))
+        workers=int(_config.get("snapshot_workers", 8)),
+        hold=_pool_busy)
 
     # Seed watchlist: user-watched + seeded validators (well-known coldkeys).
     # The seed pool lets the leaderboard render on first boot without anyone
@@ -713,18 +740,55 @@ def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
 # hit the same entry; serve stale + refresh in the background so the UI
 # never waits once a horizon is warm.
 LEADERBOARD_TTL_SEC = 120
-LEADERBOARD_HORIZONS = [1, 3, 7, 14, 30]     # pre-warmed at startup
+# Warm order, not just a set: the UI opens on 7d, so price that first and
+# let the rest fill in behind it.
+LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30]
 _lb_cache: Dict[int, tuple] = {}             # days -> (ts, entries)
 _lb_refreshing: set = set()
-_lb_lock = threading.Lock()
+_lb_build_sec: Dict[int, float] = {}         # days -> last build duration
+# Reentrant: the staleness check reads build timings while already holding it.
+_lb_lock = threading.RLock()
+# Serializes the builds themselves (they all queue on the same archive pool).
+_lb_build_gate = threading.Lock()
+
+
+def _lb_ttl(days: int) -> float:
+    """Never spend more time rebuilding a horizon than living off it.
+
+    A pool of hundreds is a minutes-long walk over public RPCs, so a flat
+    2-minute TTL would mean rebuilding forever. Refresh at most once per
+    three build-times.
+    """
+    with _lb_lock:
+        last = _lb_build_sec.get(days, 0.0)
+    return max(LEADERBOARD_TTL_SEC, 3 * last)
 
 
 def _build_lb(days: int):
-    entries = build_leaderboard(_client, _db, days=days, top=2000,
-                                workers=int(_config.get("leaderboard_workers", 8)))
+    # Mark here, not only at the request that triggered it: the startup warm
+    # calls straight in, and /universe must report those builds too or the
+    # UI shows an empty board with nothing apparently happening.
+    with _lb_lock:
+        _lb_refreshing.add(days)
+    started = time.time()
+    try:
+        # One horizon at a time. Every build is bottlenecked on the same
+        # handful of archive sockets, so running two concurrently doesn't
+        # finish either sooner — it just delays both.
+        with _lb_build_gate:
+            entries = build_leaderboard(
+                _client, _db, days=days, top=2000,
+                workers=int(_config.get("leaderboard_workers", 8)))
+    except Exception:
+        with _lb_lock:
+            _lb_refreshing.discard(days)
+        raise
+    took = time.time() - started
     with _lb_lock:
         _lb_cache[days] = (time.time(), entries)
+        _lb_build_sec[days] = took
         _lb_refreshing.discard(days)
+    log.info("leaderboard %dd: %d traders priced in %.1fs", days, len(entries), took)
     return entries
 
 
@@ -734,24 +798,31 @@ def _warm_lb():
             _build_lb(d)
         except Exception as e:
             log.warning("leaderboard warm failed for %dd: %s", d, e)
+            with _lb_lock:
+                _lb_refreshing.discard(d)
 
 
 def _leaderboard_cached(days: int):
+    """Whatever we have for this horizon, immediately.
+
+    A cold horizon over a pool of hundreds is a minutes-long chain walk, so
+    it is never built on the request thread — the caller gets an empty board
+    plus `building` in /universe, and the rows appear on the next poll.
+    """
     with _lb_lock:
         cached = _lb_cache.get(days)
-    if cached:
-        ts, entries = cached
-        if time.time() - ts >= LEADERBOARD_TTL_SEC:
-            # stale: hand back what we have, rebuild off-request
-            with _lb_lock:
-                kick = days not in _lb_refreshing
-                if kick:
-                    _lb_refreshing.add(days)
-            if kick:
-                threading.Thread(target=_build_lb, args=(days,),
-                                 daemon=True).start()
-        return entries
-    return _build_lb(days)
+        stale = cached and time.time() - cached[0] >= _lb_ttl(days)
+        kick = (cached is None or stale) and days not in _lb_refreshing
+        # Not while the pool is being discovered. The delegate walk decodes
+        # tens of thousands of entries in-process; racing a board build
+        # against it just makes both slow.
+        if _pool_busy():
+            kick = False
+        if kick:
+            _lb_refreshing.add(days)
+    if kick:
+        threading.Thread(target=_build_lb, args=(days,), daemon=True).start()
+    return cached[1] if cached else []
 
 
 @app.get("/leaderboard", response_model=List[LeaderboardEntryResponse])
@@ -769,6 +840,10 @@ def leaderboard(days: int = Query(7, ge=1, le=365),
             top_subnet=e.top_subnet,
             top_subnet_pnl=e.top_subnet_pnl,
             baseline=e.baseline,
+            window_days=e.window_days,
+            market_pnl_tao=e.market_pnl_tao,
+            market_pct=e.market_pct,
+            flow_tao=e.flow_tao,
         )
         for e in entries
     ]
@@ -806,7 +881,14 @@ def universe():
     watched = len(_db.list_accounts()) if _db else 0
     with _pool_lock:
         state = dict(_pool_state)
+    with _lb_lock:
+        board = {
+            "warm": sorted(_lb_cache.keys()),
+            "building": sorted(_lb_refreshing),
+            "rows": {str(d): len(v[1]) for d, v in _lb_cache.items()},
+        }
     return {
+        "board": board,
         "watched": watched,
         "pool_size": _pool_size(),
         "auto_discover": bool(_config.get("auto_discover", True)),
@@ -832,12 +914,14 @@ def set_pool(size: int = Query(..., ge=1, le=2000),
     """
     _config["leaderboard_pool_size"] = int(size)
     _save_config()
-    with _pool_lock:
-        busy = _pool_state["status"] == "discovering"
-    if not busy:
-        threading.Thread(target=_boot_pool, args=(int(size), refresh),
-                         daemon=True).start()
-    return {**universe(), "queued": not busy}
+    # Claim before answering so the response already says "discovering".
+    queued = _claim_pool(int(size))
+    if queued:
+        threading.Thread(
+            target=_boot_pool,
+            kwargs={"size": int(size), "force": refresh, "claimed": True},
+            daemon=True).start()
+    return {**universe(), "queued": queued}
 
 
 # ── watchlist ────────────────────────────────────────────────────

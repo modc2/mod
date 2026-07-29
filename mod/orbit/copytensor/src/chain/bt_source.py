@@ -44,8 +44,12 @@ BLOCK_SEC = 12  # finney block time — maps a block number onto a wall clock
 # Deep-block state lives only on archive nodes, which rate-limit, time out,
 # or have discarded the block — the reason this adapter exists. When bt's
 # index can't answer a historical question we say so and let PnL report a
-# shorter, honest window. Set COPYTENSOR_ARCHIVE_FALLBACK=1 to try anyway.
-ARCHIVE_FALLBACK = os.environ.get("COPYTENSOR_ARCHIVE_FALLBACK") == "1"
+# shorter, honest window. The leaderboard needs the opposite trade-off: a
+# pool of hundreds of traders is only comparable if every one is priced over
+# the SAME window, and only the archive can answer that for an account bt
+# has never indexed — so the fallback defaults ON. COPYTENSOR_ARCHIVE_FALLBACK
+# (0/1) overrides config, which overrides this default.
+ARCHIVE_FALLBACK = os.environ.get("COPYTENSOR_ARCHIVE_FALLBACK")
 
 
 class BtUnavailable(RuntimeError):
@@ -177,9 +181,13 @@ class BtBackedClient(SubtensorClient):
     # it is used as "current" — the copy engine sizes real trades off it.
     STALE_SEC = 300
 
-    def __init__(self, source: BtSource, *args, **kwargs):
+    def __init__(self, source: BtSource, *args, archive_fallback: bool = True,
+                 **kwargs):
         super().__init__(*args, **kwargs)
         self.bt = source
+        self.archive_fallback = (ARCHIVE_FALLBACK == "1"
+                                 if ARCHIVE_FALLBACK is not None
+                                 else bool(archive_fallback))
         self._names: Dict[int, str] = {}
         self._head: Optional[tuple] = None   # (fetched_at, block)
 
@@ -280,10 +288,14 @@ class BtBackedClient(SubtensorClient):
                 raise BtUnavailable(
                     f"no indexed snapshot within {tolerance}s of block {block}")
             except BtUnavailable as e:
-                log.info("bt has no history for %s at %d (%s)", ss58[:8], block, e)
-                if not ARCHIVE_FALLBACK:
+                log.debug("bt has no history for %s at %d (%s)", ss58[:8], block, e)
+                if not self.archive_fallback:
                     raise
                 return super().get_stake_for_coldkey(ss58, block=block)
+
+        cached = self._live_cached(ss58)
+        if cached is not None:
+            return cached
 
         try:
             snap = self.bt.positions_at(ss58)
@@ -292,9 +304,13 @@ class BtBackedClient(SubtensorClient):
                 # Stale or unknown account: have bt read the chain now. That
                 # also files the result in its index for everyone else.
                 fresh = self.bt.snapshot(ss58)
-                return self._positions_from(ss58, self.get_block(),
-                                            fresh.get("positions") or [])
-            return self._positions_from(ss58, self.get_block(), snap["positions"])
+                out = self._positions_from(ss58, self.get_block(),
+                                           fresh.get("positions") or [])
+            else:
+                out = self._positions_from(ss58, self.get_block(),
+                                           snap["positions"])
+            self._live_store(ss58, out)
+            return out
         except BtUnavailable as e:
             log.warning("bt positions unavailable for %s (%s) — falling back to RPC",
                         ss58[:8], e)
@@ -322,7 +338,9 @@ def make_client(config: Dict) -> SubtensorClient:
                                archive_pool_size=archive_pool)
     source = BtSource(config.get("bt_url") or DEFAULT_BT_URL)
     client = BtBackedClient(source, network=network, endpoint=endpoint,
-                            archive_pool_size=archive_pool)
+                            archive_pool_size=archive_pool,
+                            archive_fallback=bool(
+                                config.get("archive_fallback", True)))
     if source.available():
         log.info("reads served by bt at %s", source.url)
     else:

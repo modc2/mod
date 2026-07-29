@@ -60,7 +60,7 @@ class Copytensor(m.Mod):
         # lifecycle
         "serve", "kill", "status", "logs", "test", "gateway",
         # public-read passthroughs (no wallet needed)
-        "subnets", "leaderboard", "account", "account_pnl",
+        "subnets", "leaderboard", "account", "account_pnl", "account_curve",
         "trader", "trades", "rpc_pool", "source",
         # tracked traders (indexed by the bt module)
         "traders", "trader_history", "flows",
@@ -553,6 +553,21 @@ class Copytensor(m.Mod):
     def account_pnl(self, ss58: str, days: int = 7) -> Any:
         return self._get(f"/account/{ss58}/pnl", days=str(days))
 
+    def account_curve(self, ss58: str, days: int = 7) -> Any:
+        """Equity/PnL curve from local snapshots + the trades on it."""
+        return self._get(f"/account/{ss58}/curve", days=str(days))
+
+    def _first_watched(self) -> str:
+        """Any tracked coldkey — enough to smoke-test the account endpoints."""
+        try:
+            with open(os.path.join(ROOT_DIR, "config.json")) as f:
+                accounts = json.load(f).get("watched_accounts") or []
+            if accounts:
+                return accounts[0]
+        except Exception:
+            pass
+        return (self._get("/watches")["accounts"] or [{}])[0].get("ss58", "")
+
     def trader(self, ss58: str) -> Any:
         return self._get(f"/trader/{ss58}")
 
@@ -661,6 +676,7 @@ class Copytensor(m.Mod):
             ("subnets", lambda: self._get("/subnets")),
             ("leaderboard", lambda: self._get("/leaderboard", days="7", top="10")),
             ("status", lambda: self._get("/status")),
+            ("curve", lambda: self.account_curve(self._first_watched(), days=7)),
         ]:
             try:
                 data = fn()

@@ -8,7 +8,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from ..db import Database
 from .client import SubtensorClient
@@ -20,11 +20,16 @@ class SnapshotManager:
     """Takes periodic snapshots of watched accounts' alpha positions."""
 
     def __init__(self, client: SubtensorClient, db: Database,
-                 interval_sec: int = 1800, workers: int = 8):
+                 interval_sec: int = 1800, workers: int = 8,
+                 hold: Optional[Callable[[], bool]] = None):
         self.client = client
         self.db = db
         self.interval_sec = interval_sec
         self.workers = max(1, int(workers))
+        # Returns True while some other heavy chain phase (pool discovery)
+        # is running — everything shares one process, so overlapping the two
+        # only makes both slower.
+        self.hold = hold or (lambda: False)
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -92,6 +97,8 @@ class SnapshotManager:
         log.info("snapshot loop started, interval=%ds", self.interval_sec)
         while self._running:
             try:
+                while self._running and self.hold():
+                    await asyncio.sleep(5)
                 # chain reads are sync/blocking — keep them off the event loop
                 await asyncio.to_thread(self.snapshot_all)
             except Exception as e:

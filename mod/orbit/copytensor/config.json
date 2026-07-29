@@ -1,7 +1,7 @@
 {
     "anchor": "src/mod.py",
     "app_port": 3150,
-    "archive_pool_size": 4,
+    "archive_pool_size": 6,
     "auto_discover": true,
     "bt_mirror_max": 25,
     "bt_url": "http://localhost:50280",
@@ -11,6 +11,10 @@
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
+            "method": "GET"
+        },
+        "/account/{ss58}/curve": {
+            "docs": "Equity/PnL curve from local snapshots, with inferred trades pinned to the curve (?days=7)",
             "method": "GET"
         },
         "/account/{ss58}/pnl": {
@@ -53,6 +57,10 @@
             "docs": "Top performers by N-day alpha PnL (?days=7&top=50)",
             "method": "GET"
         },
+        "/market": {
+            "docs": "Network totals (alpha market cap, 24h volume, block, TAO/USD) + top gainers/losers",
+            "method": "GET"
+        },
         "/pool": {
             "docs": "Resize the trader pool (?size=250&refresh=false) \u2014 grows in background",
             "method": "POST"
@@ -62,7 +70,15 @@
             "method": "GET"
         },
         "/subnets": {
-            "docs": "All Bittensor subnets (netuid, alpha price, total stake, tempo, emission)",
+            "docs": "All subnets, enriched from the bt index (price, 24h/1h change, market cap, volume, sparkline, identity)",
+            "method": "GET"
+        },
+        "/subnets/{netuid}": {
+            "docs": "One subnet: pool state, on-chain identity, validator rankings",
+            "method": "GET"
+        },
+        "/subnets/{netuid}/history": {
+            "docs": "Indexed price/mcap/volume series for a subnet (?hours=168)",
             "method": "GET"
         },
         "/tao_price": {
@@ -125,6 +141,7 @@
         "leaderboard",
         "account",
         "account_pnl",
+        "account_curve",
         "trader",
         "trades",
         "rpc_pool",
@@ -149,7 +166,7 @@
         "forward"
     ],
     "gateway_port": 3001,
-    "leaderboard_pool_size": 250,
+    "leaderboard_pool_size": 100,
     "leaderboard_workers": 8,
     "max_subnets": 20,
     "max_tao_per_tx": 10.0,
@@ -171,7 +188,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmbQWaGBtFxUpiAi6cTR61yL7J6Ri1h1En97S2khdAgEkP",
+    "schema": "QmcSvozrR5oP6RnrupD6ok4ioEh6vrmoDYPouh6hN6R59w",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",

@@ -199,6 +199,11 @@ export type LeaderboardEntry = {
   top_subnet: number | null;
   top_subnet_pnl: number;
   baseline?: boolean;
+  window_days: number;       // days of history this PnL actually covers
+  // PnL split: price move on the book held vs stake deposited/withdrawn.
+  market_pnl_tao?: number;
+  market_pct?: number;
+  flow_tao?: number;
 };
 
 export type CopyConfig = {
@@ -229,6 +234,23 @@ export type AccountWatch = {
   ss58: string;
   label: string | null;
   added_at: string | null;
+};
+
+// How many traders the leaderboard ranks, against how many the chain has.
+export type Universe = {
+  // Which horizons are priced, and which are still being walked.
+  board: { warm: number[]; building: number[]; rows: Record<string, number> };
+  watched: number;
+  pool_size: number;
+  auto_discover: boolean;
+  known: number | null;             // coldkeys in the on-chain universe
+  known_validators: number | null;
+  status: "idle" | "discovering" | "error";
+  target: number;
+  added: number;
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
 };
 
 // ── Index of traders (basket copy, polymarket-style) ─────────────
