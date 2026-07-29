@@ -1,81 +1,86 @@
-# cshare — the Agent Protocol hub
+# cshare — fractional ownership of compute
 
-One protocol over every content-addressed agent artifact.
+A machine is an asset. List it, mint it into shares, sell slices of it on an
+order book, and let anyone rent it by the hour — every rental fee splits
+pro-rata across whoever holds the shares at booking time.
 
-The `agent` module pins five artifact kinds to localfs — prompts, agents,
-toolboxes, memory notes, conversations — each as a JSON bundle whose `type`
-field names its kind, each shareable by CID. Before cshare they had five
-bespoke share/import paths; cshare unifies them under **agent/1.0**:
+**compute/1.0.** Four moving parts, nothing else:
 
-- one **card** describing the hub and every kind it speaks
-  (served at `/.well-known/agent.json`)
-- one **index** across all kinds, every record normalized to
-  `{kind, id, name, description, tags, cid}`
-- one **install** path: give it any CID, the bundle's `type` picks the
-  installer — no kind flag needed
+| | |
+|---|---|
+| **node** | a compute machine (GPU or CPU) listed as an asset, minted into `total_shares` — all to the issuer at listing |
+| **share** | fractional ownership of one node; earns rental income pro-rata, forever |
+| **order** | an ask on the book. Listed shares stay in your holding and keep earning until filled; they're just locked against double-selling. Partial fills allowed |
+| **rental** | an exclusive hourly booking. The fee is charged up front and distributed to the cap table immediately — no accrual, no claim step |
 
-## The protocol
+Credits are a self-contained ledger (`deposit` is the test faucet). State is one
+JSON document under `~/.mod/cshare/` — off-chain, off-repo.
 
-### Artifacts
+## The economics
 
-Every artifact is a portable JSON bundle on localfs (content-only fields, so
-identical content ⇒ identical CID):
+A node renting at `$R`/hour with `S` shares defaults to a share price of
+`R × 24 × 90 / S` — priced to pay back in ~90 days of full utilization. Buyers
+who think the machine will be busier than that bid the floor up; the market cap
+(`floor × total_shares`) is the market's live valuation of the machine.
 
-| kind | bundle | required | installable |
-|---|---|---|---|
-| `prompt` | `{type:"prompt", name, text, description, tags}` | name, text | yes |
-| `memory` | `{type:"memory", name, content, tags}` | name, content | yes |
-| `agent` | `{type:"agent", name, goal, skills, model, icon, …}` | name | yes |
-| `toolbox` | `{type:"toolbox", name, tools, description}` | name, tools | yes |
-| `conversation` | `{type:"conversation", query, agent_type, messages}` | messages | no (per-user; agent console) |
+Rent flows the other way: `rent(node, hours)` charges `R × hours` and pays every
+holder `cost × shares / total_shares` in the same transaction. Own 15% of a
+pod, collect 15% of every hour it sells.
 
-### Card
-
-`GET /card` (also `/.well-known/agent.json` and the null call `GET /`) returns
-the protocol card: protocol id, kinds spec, endpoints, urls. `POST /publish`
-pins the card itself to localfs so the whole descriptor travels as one CID.
-
-### Endpoints (API :50290, gateway `/cshare/api`)
+## Endpoints (API `:50290`, gateway `/cshare/api`)
 
 ```
-GET  /card                     protocol card
-GET  /.well-known/agent.json   same card, standard location
-GET  /kinds                    kind → description
-GET  /index?kind=&q=&tag=      unified artifact index
-GET  /resolve/{cid}            fetch + classify + validate any bundle
-POST /validate {bundle}        shape-check a bundle
-POST /share {kind, id}         local artifact → CID (mints if missing)
-POST /install {cid}            CID → local artifact (dispatch by type)
-POST /publish                  pin the protocol card, get its CID
-POST /forward {action, params} mod protocol dispatch
+GET  /card                        protocol card
+GET  /.well-known/compute.json    same card, standard location
+GET  /stats                       market cap, revenue, hours, open asks
+GET  /nodes?q=&region=&gpu=&status=   the marketplace
+POST /nodes {address, name, gpu, rate_hour, total_shares, offer_shares, …}
+GET  /nodes/{id}                  cap table + order book + rentals + tape
+GET  /market?node_id=             open asks, cheapest first
+POST /orders {address, node_id, shares, price}      place an ask
+POST /orders/{id}/cancel {address}
+POST /buy {address, order_id, shares?}              fill (partial ok)
+POST /rent {address, node_id, hours}                book + pay shareholders
+GET  /rentals?address=&node_id=
+GET  /portfolio/{address}         holdings, marks, income, asks, rentals
+GET  /balance/{address}
+POST /deposit {address, amount}   test faucet
+POST /demo                        seed a lived-in market (never automatic)
+POST /forward {action, params}    mod protocol dispatch
 GET  /health
 ```
 
 ## CLI
 
 ```bash
-m cshare/card
-m cshare/index kind=prompt q=review
-m cshare/share kind=prompt id=p-0
-m cshare/resolve cid=Qm...
-m cshare/install cid=Qm...
-m cshare/serve            # api :50290 + app :50291 under pm2
+m cshare/deposit address=0xme amount=1000
+m cshare/list_node address=0xme name=hopper-01 gpu="H100 SXM" gpu_count=8 \
+    rate_hour=24 total_shares=1000 offer_shares=600
+m cshare/nodes
+m cshare/node node_id=n1
+m cshare/buy address=0xyou order_id=o1 shares=150
+m cshare/rent address=0xyou node_id=n1 hours=4
+m cshare/portfolio address=0xyou
+m cshare/serve             # api :50290 + app :50291 under pm2
 ```
 
 ## App
 
-Zero-dependency viewer at `/cshare` (`:50291`): browse the unified index with
-kind filter and search, copy or mint CIDs, resolve and install any bundle by
-CID. `app/server.js` proxies `/cshare/api/*` to the API so the page works both
-directly and through the gateway.
+Zero-dependency console at `/cshare` (`:50291`): market grid with live specs,
+floor, market cap and distribution bar; a per-node sheet with the order book,
+cap table, rental log and trade tape; a portfolio tab with marks and accrued
+income; and a listing form that fractionalizes a machine in one shot. Wallet is
+just an address in `localStorage` — `app/server.js` proxies `/cshare/api/*` so
+the page works directly and through the gateway alike.
 
 ## Layout
 
-- `mod.py` — protocol core (card / index / resolve / validate / share / install)
+- `mod.py` — marketplace core (ledger, listings, order book, rentals, portfolio)
 - `api/api.py` — FastAPI on `:50290`
-- `app/` — zero-dep viewer on `:50291/cshare`
+- `app/` — zero-dep console on `:50291/cshare`
 
-cshare imports the agent module's `Library`, `Agents`, and `Toolboxes`
-registries directly from `orbit/agent/src` (override with `MOD_AGENT_SRC`) —
-no agent runtime, no model, no vault. Artifacts live where they always did
-(`~/.mod/agent/…`); cshare adds the protocol surface, not a second store.
+## Not yet
+
+Settlement is marketplace credits, not on-chain value, and `access` on a rental
+is a placeholder host/token — cshare models the ownership and income mechanics,
+it does not yet provision the machine.

@@ -1,7 +1,7 @@
 {
     "name": "cshare",
-    "description": "Agent Protocol hub (agent/1.0): unified card, index, and share/install-by-CID surface over every content-addressed agent artifact (prompts, agents, toolboxes, memory)",
-    "version": "1.0.0",
+    "description": "Fractional compute marketplace (compute/1.0): machines listed as share-issuing assets, shares traded on an order book, hourly rental income streamed pro-rata to every shareholder",
+    "version": "2.0.0",
     "urls": {
         "api": "http://localhost:50290",
         "app": "http://localhost:50291/cshare"
@@ -10,17 +10,25 @@
     "app_port": 50291,
     "base_path": "/cshare",
     "route": true,
-    "protocol": "agent/1.0",
+    "protocol": "compute/1.0",
     "fns": [
         "forward",
         "card",
-        "kinds",
-        "index",
-        "resolve",
-        "validate",
-        "share",
-        "install",
-        "publish",
+        "stats",
+        "deposit",
+        "balance",
+        "list_node",
+        "nodes",
+        "node",
+        "market",
+        "sell",
+        "cancel",
+        "buy",
+        "rent",
+        "rentals",
+        "portfolio",
+        "demo",
+        "reset",
         "schema",
         "info",
         "readme",
@@ -29,5 +37,5 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmVxYkM5vHmYSsJhchn1TQAenhtCBAtCTp7zY1Tju5GsZA"
+    "schema": "QmNQYcLU496MrvViLtBmQFLmr3Ea7xqzLjBQZgqorSv3bx"
 }

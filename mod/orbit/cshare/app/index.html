@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>cshare — Agent Protocol</title>
+<title>cshare — fractional compute</title>
 <style>
   :root {
     --bg: #0b0e13; --panel: #11151d; --panel2: #161b25; --line: #232a38;
     --text: #dbe2ee; --dim: #7d8899; --accent: #5eead4; --accent2: #93c5fd;
-    --bad: #f87171; --ok: #4ade80;
+    --bad: #f87171; --ok: #4ade80; --warn: #fbbf24;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.5 var(--mono); }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 60px; }
   header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; letter-spacing: 1px; }
   .proto { color: var(--accent); border: 1px solid var(--line);
@@ -24,82 +24,169 @@
   .pill { border: 1px solid var(--line); background: var(--panel); color: var(--dim);
           border-radius: 999px; padding: 4px 14px; cursor: pointer; font: inherit; }
   .pill.on { color: #041014; background: var(--accent); border-color: var(--accent); }
-  input[type=text] { flex: 1; min-width: 200px; background: var(--panel);
-    border: 1px solid var(--line); color: var(--text); border-radius: 6px;
-    padding: 8px 12px; font: inherit; outline: none; }
-  input[type=text]:focus { border-color: var(--accent2); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  input, select { background: var(--panel); border: 1px solid var(--line);
+    color: var(--text); border-radius: 6px; padding: 8px 12px; font: inherit;
+    outline: none; min-width: 0; }
+  input:focus, select:focus { border-color: var(--accent2); }
+  input.grow { flex: 1; min-width: 180px; }
+  input.num { width: 110px; }
+  button { background: var(--panel2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+    font: inherit; font-size: 12px; }
+  button:hover { border-color: var(--accent); }
+  button.go { background: var(--accent); border-color: var(--accent); color: #041014; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+           gap: 1px; background: var(--line); border: 1px solid var(--line);
+           border-radius: 8px; overflow: hidden; }
+  .stat { background: var(--panel); padding: 10px 14px; }
+  .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+             color: var(--dim); }
+  .stat .v { font-size: 16px; }
+
+  .wallet { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+            background: var(--panel); border: 1px solid var(--line);
+            border-radius: 8px; padding: 10px 14px; margin-top: 14px; }
+  .wallet .bal { color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
           gap: 12px; margin-top: 16px; }
-  .cardi { background: var(--panel); border: 1px solid var(--line);
-           border-radius: 8px; padding: 14px; display: flex;
-           flex-direction: column; gap: 8px; }
-  .cardi .top { display: flex; justify-content: space-between; gap: 8px; }
-  .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
-          color: var(--accent2); }
-  .kind.prompt { color: var(--accent); } .kind.agent { color: #f0abfc; }
-  .kind.toolbox { color: #fbbf24; } .kind.memory { color: #93c5fd; }
-  .name { font-weight: 700; }
-  .desc { color: var(--dim); font-size: 13px; flex: 1; }
-  .tags { display: flex; gap: 6px; flex-wrap: wrap; }
-  .tag { font-size: 11px; color: var(--dim); border: 1px solid var(--line);
-         border-radius: 4px; padding: 0 6px; }
-  .cid { display: flex; gap: 6px; align-items: center; font-size: 11px;
-         color: var(--dim); overflow: hidden; }
-  .cid code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cid button, .imp button { background: var(--panel2); border: 1px solid var(--line);
-    color: var(--text); border-radius: 5px; padding: 3px 10px; cursor: pointer;
-    font: inherit; font-size: 11px; }
-  .cid button:hover, .imp button:hover { border-color: var(--accent); }
-  .builtin { font-size: 10px; color: var(--dim); }
-  .imp { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-         padding: 14px; margin-top: 26px; }
-  .imp h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase;
-            letter-spacing: 1px; color: var(--dim); }
-  .imp .row { margin: 0; }
-  #impOut { margin-top: 10px; font-size: 12px; white-space: pre-wrap;
-            word-break: break-all; }
-  #impOut.ok { color: var(--ok); } #impOut.bad { color: var(--bad); }
+  .node { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: 14px; display: flex;
+          flex-direction: column; gap: 8px; }
+  .node .top { display: flex; justify-content: space-between; gap: 8px;
+               align-items: baseline; }
+  .name { font-weight: 700; font-size: 15px; }
+  .badge { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+           border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .badge.available { color: var(--ok); border-color: #1d4d33; }
+  .badge.rented { color: var(--warn); border-color: #52401a; }
+  .badge.demo { color: var(--dim); }
+  .specs { color: var(--dim); font-size: 12px; }
+  .kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 10px;
+        font-size: 12px; }
+  .kv span { color: var(--dim); }
+  .bar { height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .mine { font-size: 11px; color: var(--accent); }
+  .acts { display: flex; gap: 6px; align-items: center; }
+  button[disabled] { opacity: .4; cursor: default; }
+  button[disabled]:hover { border-color: var(--line); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--dim); font-weight: 400; font-size: 10px;
+       text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px 4px 0; }
+  td { padding: 4px 8px 4px 0; border-top: 1px solid var(--line); }
+  td.r, th.r { text-align: right; padding-left: 14px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: 14px; margin-top: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase;
+             letter-spacing: 1px; color: var(--dim); }
+
+  .overlay { position: fixed; inset: 0; background: rgba(5,7,11,.75);
+             display: none; overflow-y: auto; padding: 40px 16px; }
+  .overlay.on { display: block; }
+  .sheet { max-width: 760px; margin: 0 auto; background: var(--bg);
+           border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  .sheet .head { display: flex; justify-content: space-between; align-items: baseline;
+                 gap: 10px; margin-bottom: 10px; }
+
+  .msg { font-size: 12px; margin-left: auto; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
+  .empty { color: var(--dim); padding: 24px 0; }
   .foot { margin-top: 30px; color: var(--dim); font-size: 12px; }
   .foot a { color: var(--accent2); text-decoration: none; }
-  .empty { color: var(--dim); padding: 30px 0; }
+  code.addr { color: var(--accent2); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>cshare</h1>
-    <span class="proto" id="proto">agent/1.0</span>
+    <span class="proto" id="proto">compute/1.0</span>
   </header>
-  <div class="sub" id="desc">Agent Protocol hub — every agent artifact, one index, shareable by CID.</div>
+  <div class="sub" id="desc">Fractional ownership of compute — buy shares of a
+    machine, earn its rental income.</div>
 
-  <div class="row" id="pills"></div>
-  <div class="row">
-    <input type="text" id="q" placeholder="search name, description, tags…" />
+  <div class="stats" id="stats"></div>
+
+  <div class="wallet">
+    <span>wallet</span>
+    <input class="grow" id="addr" placeholder="0x… your address" />
+    <span class="bal" id="bal">—</span>
+    <button id="faucet">FAUCET +1000</button>
+    <span class="msg" id="walletMsg"></span>
   </div>
-  <div class="grid" id="grid"></div>
 
-  <div class="imp">
-    <h2>Install by CID</h2>
+  <div class="row" id="tabs"></div>
+
+  <!-- MARKET -->
+  <div id="tab-market">
     <div class="row">
-      <input type="text" id="impCid" placeholder="Qm… (prompt, agent, toolbox, or memory bundle)" />
-      <button id="impResolve">RESOLVE</button>
-      <button id="impGo">INSTALL</button>
+      <input class="grow" id="q" placeholder="search name, gpu, description…" />
+      <span id="statusPills" style="display:flex;gap:8px"></span>
     </div>
-    <div id="impOut"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <!-- PORTFOLIO -->
+  <div id="tab-portfolio" style="display:none"></div>
+
+  <!-- LIST -->
+  <div id="tab-list" style="display:none">
+    <div class="card">
+      <h2>List a machine</h2>
+      <div class="row">
+        <input class="grow" id="f_name" placeholder="name (gpu-01)" />
+        <input class="grow" id="f_gpu" placeholder="gpu (H100 SXM)" />
+        <input class="num" id="f_gpu_count" type="number" value="1" title="gpu count" />
+      </div>
+      <div class="row">
+        <input class="num" id="f_vcpus" type="number" value="32" title="vcpus" />
+        <input class="num" id="f_ram" type="number" value="256" title="ram GB" />
+        <input class="num" id="f_disk" type="number" value="2000" title="disk GB" />
+        <input class="grow" id="f_region" placeholder="region (us-east)" />
+      </div>
+      <div class="row">
+        <input class="num" id="f_rate" type="number" step="0.1" value="2.5" title="rate / hour" />
+        <input class="num" id="f_shares" type="number" value="1000" title="total shares" />
+        <input class="num" id="f_offer" type="number" value="600" title="shares to offer" />
+        <input class="num" id="f_price" type="number" step="0.01" placeholder="share $" title="share price (blank = auto)" />
+      </div>
+      <div class="row">
+        <input class="grow" id="f_desc" placeholder="description" />
+        <button class="go" id="f_go">LIST + OFFER SHARES</button>
+        <span class="msg" id="listMsg"></span>
+      </div>
+      <div class="specs">rate / hour is what renters pay; every rental fee is
+        split pro-rata across the cap table at booking time. Leave share $ blank
+        for the 90-day-payback default.</div>
+    </div>
   </div>
 
   <div class="foot">
     protocol card: <a href="/cshare/api/card" target="_blank">/card</a> ·
-    <a href="/cshare/api/.well-known/agent.json" target="_blank">/.well-known/agent.json</a> ·
-    index: <a href="/cshare/api/index" target="_blank">/index</a>
+    <a href="/cshare/api/.well-known/compute.json" target="_blank">/.well-known/compute.json</a> ·
+    market: <a href="/cshare/api/nodes" target="_blank">/nodes</a>
   </div>
 </div>
+
+<div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+
 <script>
 const API = "/cshare/api";
-const KINDS = ["all", "prompt", "agent", "toolbox", "memory"];
-let kind = "all", q = "", items = [];
+const TABS = ["market", "portfolio", "list"];
+const STATUS = ["all", "available", "rented"];
+let tab = "market", status = "all", q = "";
+let nodes = [], addr = localStorage.getItem("cshare.addr") || "";
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "$" + Number(n || 0).toLocaleString(undefined,
+  { maximumFractionDigits: 2 });
+const short = (a) => (a || "").length > 16 ? a.slice(0, 8) + "…" + a.slice(-4) : a;
 
 async function api(path, opts) {
   const r = await fetch(`${API}${path}`, opts);
@@ -107,121 +194,374 @@ async function api(path, opts) {
   if (!r.ok) throw new Error(body.detail || body.error || r.statusText);
   return body;
 }
+const post = (path, body) => api(path, { method: "POST",
+  headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-function pills() {
-  $("pills").innerHTML = "";
-  for (const k of KINDS) {
-    const b = document.createElement("button");
-    b.className = "pill" + (k === kind ? " on" : "");
-    b.textContent = k.toUpperCase();
-    b.onclick = () => { kind = k; pills(); load(); };
-    $("pills").appendChild(b);
-  }
+function msg(id, text, ok) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "bad");
+  if (ok) setTimeout(() => { el.textContent = ""; }, 4000);
 }
 
-function render() {
-  const g = $("grid");
-  g.innerHTML = "";
-  const ql = q.toLowerCase();
-  const shown = items.filter((it) =>
-    !ql || it.name.toLowerCase().includes(ql) ||
-    (it.description || "").toLowerCase().includes(ql) ||
-    (it.tags || []).some((t) => t.toLowerCase().includes(ql)));
-  if (!shown.length) {
-    g.innerHTML = '<div class="empty">no artifacts match</div>';
+function needAddr() {
+  if (addr) return true;
+  msg("walletMsg", "set a wallet address first", false);
+  $("addr").focus();
+  return false;
+}
+
+// ── chrome ──────────────────────────────────────────────────────────
+
+function chrome() {
+  $("tabs").innerHTML = "";
+  for (const t of TABS) {
+    const b = document.createElement("button");
+    b.className = "pill" + (t === tab ? " on" : "");
+    b.textContent = t === "list" ? "LIST A NODE" : t.toUpperCase();
+    b.onclick = () => { tab = t; chrome(); load(); };
+    $("tabs").appendChild(b);
+  }
+  $("statusPills").innerHTML = "";
+  for (const s of STATUS) {
+    const b = document.createElement("button");
+    b.className = "pill" + (s === status ? " on" : "");
+    b.textContent = s.toUpperCase();
+    b.onclick = () => { status = s; chrome(); loadNodes(); };
+    $("statusPills").appendChild(b);
+  }
+  for (const t of TABS) $(`tab-${t}`).style.display = t === tab ? "" : "none";
+}
+
+async function loadStats() {
+  try {
+    const s = await api("/stats");
+    $("stats").innerHTML = [
+      ["nodes", s.nodes], ["market cap", money(s.market_cap)],
+      ["rental revenue", money(s.total_revenue)], ["hours rented", s.hours_rented],
+      ["renting now", s.active_rentals], ["open asks", s.open_orders],
+      ["trades", s.trades], ["owners", s.accounts],
+    ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div>
+        <div class="v">${esc(v)}</div></div>`).join("");
+  } catch (e) { $("stats").innerHTML = `<div class="stat">api unreachable</div>`; }
+}
+
+async function loadBalance() {
+  if (!addr) { $("bal").textContent = "—"; return; }
+  try {
+    const b = await api(`/balance/${encodeURIComponent(addr)}`);
+    $("bal").textContent =
+      `${money(b.balance)} · earned ${money(b.earned)} · spent ${money(b.spent)}`;
+  } catch (e) { $("bal").textContent = "—"; }
+}
+
+// ── market ──────────────────────────────────────────────────────────
+
+async function loadNodes() {
+  const qs = status === "all" ? "" : `?status=${status}`;
+  try {
+    nodes = await api(`/nodes${qs}`);
+  } catch (e) {
+    $("grid").innerHTML = `<div class="empty">api unreachable: ${esc(e.message)}</div>`;
     return;
   }
-  for (const it of shown) {
+  renderNodes();
+}
+
+function specLine(n) {
+  const s = n.specs;
+  const gpu = s.gpu ? `${s.gpu_count}× ${s.gpu}` : "cpu only";
+  return `${gpu} · ${s.vcpus} vCPU · ${s.ram_gb} GB · ${s.disk_gb} GB${s.region ? " · " + s.region : ""}`;
+}
+
+function renderNodes() {
+  const g = $("grid");
+  const ql = q.toLowerCase();
+  const shown = nodes.filter((n) => !ql || n.name.toLowerCase().includes(ql) ||
+    (n.description || "").toLowerCase().includes(ql) ||
+    (n.specs.gpu || "").toLowerCase().includes(ql));
+  if (!shown.length) {
+    g.innerHTML = `<div class="empty">no machines listed yet — open
+      <b>LIST A NODE</b> to fractionalize one.</div>`;
+    return;
+  }
+  g.innerHTML = "";
+  for (const n of shown) {
+    const price = n.floor_price != null ? n.floor_price : n.share_price;
+    const sold = 100 - n.issuer_pct;
     const d = document.createElement("div");
-    d.className = "cardi";
-    const tags = (it.tags || [])
-      .map((t) => `<span class="tag">${esc(t)}</span>`).join("");
-    const tools = (it.tools || []).length
-      ? `<div class="tags">${it.tools.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : "";
-    const cid = it.cid
-      ? `<div class="cid"><code title="${esc(it.cid)}">${esc(it.cid)}</code>
-           <button data-cid="${esc(it.cid)}">COPY</button></div>`
-      : `<div class="cid"><button data-share="${esc(it.kind)}:${esc(it.id)}">MINT CID</button></div>`;
+    d.className = "node";
     d.innerHTML = `
-      <div class="top"><span class="kind ${esc(it.kind)}">${esc(it.kind)}</span>
-        ${it.builtin ? '<span class="builtin">builtin</span>' : ""}</div>
-      <div class="name">${esc(it.name)}</div>
-      <div class="desc">${esc(it.description || "")}</div>
-      ${tags ? `<div class="tags">${tags}</div>` : ""}${tools}${cid}`;
+      <div class="top"><span class="name">${esc(n.name)}</span>
+        <span class="badge ${esc(n.status)}">${esc(n.status)}</span></div>
+      <div class="specs">${esc(specLine(n))}</div>
+      <div class="kv">
+        <div><span>rent</span> ${money(n.rate_hour)}/hr</div>
+        <div><span>share</span> ${money(price)}${n.floor_price == null ? " ask" : ""}</div>
+        <div><span>mkt cap</span> ${money(n.market_cap)}</div>
+        <div><span>holders</span> ${n.holders}</div>
+        <div><span>for sale</span> ${n.for_sale} sh</div>
+        <div><span>revenue</span> ${money(n.revenue)}</div>
+      </div>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(100, sold))}%"></i></div>
+      <div class="specs">${sold.toFixed(1)}% of ${n.total_shares} shares distributed</div>
+      <div class="acts">
+        <button data-open="${esc(n.id)}">ORDER BOOK</button>
+        <button data-rent="${esc(n.id)}" ${n.status === "rented" ? "disabled" : ""}>RENT</button>
+        ${n.demo ? '<span class="badge demo">demo</span>' : ""}
+      </div>`;
     g.appendChild(d);
   }
-  g.querySelectorAll("button[data-cid]").forEach((b) => {
-    b.onclick = () => {
-      navigator.clipboard.writeText(b.dataset.cid);
-      b.textContent = "COPIED"; setTimeout(() => (b.textContent = "COPY"), 1200);
+  g.querySelectorAll("button[data-open]").forEach(
+    (b) => (b.onclick = () => openNode(b.dataset.open)));
+  g.querySelectorAll("button[data-rent]").forEach(
+    (b) => (b.onclick = () => rent(b.dataset.rent)));
+}
+
+async function rent(nodeId) {
+  if (!needAddr()) return;
+  const hours = parseInt(prompt("rent for how many hours?", "1") || "0", 10);
+  if (!hours) return;
+  try {
+    const r = await post("/rent", { address: addr, node_id: nodeId, hours });
+    msg("walletMsg", `rented ${hours}h for ${money(r.rental.cost)} · ` +
+      `${Object.keys(r.payouts).length} shareholders paid`, true);
+    load();
+  } catch (e) { msg("walletMsg", e.message, false); }
+}
+
+// ── node sheet (cap table + order book) ─────────────────────────────
+
+// `note` survives the reload+reopen a trade triggers, so the confirmation
+// isn't wiped by the sheet it caused to re-render.
+async function openNode(nodeId, note) {
+  let n;
+  try { n = await api(`/nodes/${encodeURIComponent(nodeId)}`); }
+  catch (e) { return msg("walletMsg", e.message, false); }
+  const mine = (n.cap_table.find((h) => h.address === addr) || {}).shares || 0;
+  $("sheet").innerHTML = `
+    <div class="head">
+      <div><span class="name">${esc(n.name)}</span>
+        <span class="badge ${esc(n.status)}">${esc(n.status)}</span></div>
+      <button id="close">CLOSE</button>
+    </div>
+    <div class="specs">${esc(specLine(n))} — ${esc(n.description || "")}</div>
+    <div class="specs">${money(n.rate_hour)}/hr · ${n.total_shares} shares ·
+      ${n.hours_rented}h rented · ${money(n.revenue)} distributed
+      ${mine ? `· <b class="mine">you hold ${mine}</b>` : ""}</div>
+
+    <div class="card"><h2>Order book (asks)</h2>
+      ${n.orders.length ? `<table><tr><th>seller</th><th class="r">shares</th>
+        <th class="r">price</th><th class="r">total</th><th></th></tr>
+        ${n.orders.map((o) => `<tr>
+          <td><code class="addr">${esc(short(o.seller))}</code></td>
+          <td class="r">${o.shares}</td>
+          <td class="r">${money(o.price)}</td>
+          <td class="r">${money(o.shares * o.price)}</td>
+          <td class="r">${o.seller === addr
+            ? `<button data-cancel="${esc(o.id)}">CANCEL</button>`
+            : `<button class="go" data-buy="${esc(o.id)}" data-max="${o.shares}">BUY</button>`}</td>
+        </tr>`).join("")}</table>` : '<div class="specs">no open asks</div>'}
+    </div>
+
+    <div class="card"><h2>Sell your shares</h2>
+      <div class="row">
+        <input class="num" id="s_shares" type="number" placeholder="shares" />
+        <input class="num" id="s_price" type="number" step="0.01" placeholder="price / share" />
+        <button class="go" id="s_go">PLACE ASK</button>
+        <span class="msg" id="sheetMsg"></span>
+      </div>
+      <div class="specs">listed shares keep earning rental income until filled.</div>
+    </div>
+
+    <div class="card"><h2>Cap table</h2>
+      <table><tr><th>holder</th><th class="r">shares</th><th class="r">%</th>
+        <th class="r">locked</th></tr>
+      ${n.cap_table.map((h) => `<tr>
+        <td><code class="addr">${esc(short(h.address))}</code>
+          ${h.address === n.issuer ? '<span class="badge">issuer</span>' : ""}</td>
+        <td class="r">${h.shares}</td><td class="r">${h.pct}%</td>
+        <td class="r">${h.locked || ""}</td></tr>`).join("")}</table>
+    </div>
+
+    <div class="card"><h2>Rentals</h2>
+      ${n.rentals.length ? `<table><tr><th>renter</th><th class="r">hours</th>
+        <th class="r">paid</th><th class="r">until</th></tr>
+        ${n.rentals.map((r) => `<tr>
+          <td><code class="addr">${esc(short(r.renter))}</code></td>
+          <td class="r">${r.hours}</td><td class="r">${money(r.cost)}</td>
+          <td class="r">${new Date(r.end * 1000).toLocaleString()}</td>
+        </tr>`).join("")}</table>` : '<div class="specs">never rented</div>'}
+    </div>
+
+    <div class="card"><h2>Trade tape</h2>
+      ${n.trades.length ? `<table><tr><th>when</th><th class="r">shares</th>
+        <th class="r">price</th><th>buyer</th></tr>
+        ${n.trades.slice().reverse().map((t) => `<tr>
+          <td>${new Date(t.ts * 1000).toLocaleString()}</td>
+          <td class="r">${t.shares}</td><td class="r">${money(t.price)}</td>
+          <td><code class="addr">${esc(short(t.buyer))}</code></td>
+        </tr>`).join("")}</table>` : '<div class="specs">no trades yet</div>'}
+    </div>`;
+
+  $("overlay").classList.add("on");
+  if (note) msg("sheetMsg", note, true);
+  $("close").onclick = () => $("overlay").classList.remove("on");
+  $("sheet").querySelectorAll("button[data-buy]").forEach((b) => {
+    b.onclick = async () => {
+      if (!needAddr()) return;
+      const max = parseInt(b.dataset.max, 10);
+      const shares = parseInt(prompt(`buy how many shares? (1..${max})`, max) || "0", 10);
+      if (!shares) return;
+      try {
+        const r = await post("/buy", { address: addr, order_id: b.dataset.buy, shares });
+        await load();
+        openNode(nodeId, `bought ${r.trade.shares} shares for ${money(r.trade.cost)}`);
+      } catch (e) { msg("sheetMsg", e.message, false); }
     };
   });
-  g.querySelectorAll("button[data-share]").forEach((b) => {
+  $("sheet").querySelectorAll("button[data-cancel]").forEach((b) => {
     b.onclick = async () => {
-      const [k, id] = b.dataset.share.split(/:(.*)/s);
-      b.textContent = "…";
       try {
-        await api("/share", { method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ kind: k, id }) });
+        await post(`/orders/${encodeURIComponent(b.dataset.cancel)}/cancel`,
+          { address: addr });
+        await load(); openNode(nodeId);
+      } catch (e) { msg("sheetMsg", e.message, false); }
+    };
+  });
+  $("s_go").onclick = async () => {
+    if (!needAddr()) return;
+    try {
+      await post("/orders", { address: addr, node_id: nodeId,
+        shares: parseInt($("s_shares").value, 10),
+        price: parseFloat($("s_price").value) });
+      await load(); openNode(nodeId, "ask placed");
+    } catch (e) { msg("sheetMsg", e.message, false); }
+  };
+}
+
+// ── portfolio ───────────────────────────────────────────────────────
+
+async function loadPortfolio() {
+  const el = $("tab-portfolio");
+  if (!addr) {
+    el.innerHTML = '<div class="empty">set a wallet address above.</div>';
+    return;
+  }
+  let p;
+  try { p = await api(`/portfolio/${encodeURIComponent(addr)}`); }
+  catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const income = p.holdings.reduce((s, h) => s + h.income_share, 0);
+  el.innerHTML = `
+    <div class="stats">
+      ${[["credits", money(p.balance)], ["shares value", money(p.portfolio_value)],
+         ["rental income", money(income)], ["machines", p.holdings.length],
+         ["open asks", p.orders.length], ["rentals", p.rentals.length]]
+        .map(([k, v]) => `<div class="stat"><div class="k">${k}</div>
+          <div class="v">${esc(v)}</div></div>`).join("")}
+    </div>
+
+    <div class="card"><h2>Holdings</h2>
+      ${p.holdings.length ? `<table><tr><th>machine</th><th class="r">shares</th>
+        <th class="r">stake</th><th class="r">mark</th><th class="r">value</th>
+        <th class="r">income</th><th></th></tr>
+        ${p.holdings.map((h) => `<tr>
+          <td>${esc(h.name)}</td>
+          <td class="r">${h.shares}${h.locked ? ` (${h.locked} listed)` : ""}</td>
+          <td class="r">${h.pct}%</td><td class="r">${money(h.mark)}</td>
+          <td class="r">${money(h.value)}</td><td class="r">${money(h.income_share)}</td>
+          <td class="r"><button data-open="${esc(h.node_id)}">TRADE</button></td>
+        </tr>`).join("")}</table>`
+        : '<div class="specs">no shares yet — buy some on the market tab.</div>'}
+    </div>
+
+    <div class="card"><h2>My asks</h2>
+      ${p.orders.length ? `<table><tr><th>machine</th><th class="r">shares</th>
+        <th class="r">price</th><th></th></tr>
+        ${p.orders.map((o) => `<tr><td>${esc(o.node_name)}</td>
+          <td class="r">${o.shares}</td><td class="r">${money(o.price)}</td>
+          <td class="r"><button data-cancel="${esc(o.id)}">CANCEL</button></td>
+        </tr>`).join("")}</table>` : '<div class="specs">none open</div>'}
+    </div>
+
+    <div class="card"><h2>My rentals</h2>
+      ${p.rentals.length ? `<table><tr><th>machine</th><th class="r">hours</th>
+        <th class="r">cost</th><th>access</th><th class="r">until</th></tr>
+        ${p.rentals.map((r) => `<tr><td>${esc(r.node_name)}</td>
+          <td class="r">${r.hours}</td><td class="r">${money(r.cost)}</td>
+          <td><code class="addr">${esc(r.access.host)}</code>
+            <span class="specs">${esc(r.access.token.slice(0, 8))}…</span></td>
+          <td class="r">${r.active ? new Date(r.end * 1000).toLocaleString()
+            : "expired"}</td></tr>`).join("")}</table>`
+        : '<div class="specs">none</div>'}
+    </div>`;
+  el.querySelectorAll("button[data-open]").forEach(
+    (b) => (b.onclick = () => openNode(b.dataset.open)));
+  el.querySelectorAll("button[data-cancel]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await post(`/orders/${encodeURIComponent(b.dataset.cancel)}/cancel`,
+          { address: addr });
         load();
-      } catch (e) { b.textContent = "FAILED"; }
+      } catch (e) { msg("walletMsg", e.message, false); }
     };
   });
 }
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+// ── wiring ──────────────────────────────────────────────────────────
+
+$("addr").value = addr;
+$("addr").addEventListener("change", () => {
+  addr = $("addr").value.trim();
+  localStorage.setItem("cshare.addr", addr);
+  load();
+});
+$("faucet").onclick = async () => {
+  if (!needAddr()) return;
+  try {
+    const r = await post("/deposit", { address: addr, amount: 1000 });
+    msg("walletMsg", `credited · balance ${money(r.balance)}`, true);
+    load();
+  } catch (e) { msg("walletMsg", e.message, false); }
+};
+$("q").addEventListener("input", (e) => { q = e.target.value; renderNodes(); });
+$("overlay").onclick = (e) => {
+  if (e.target === $("overlay")) $("overlay").classList.remove("on");
+};
+$("f_go").onclick = async () => {
+  if (!needAddr()) return;
+  const price = parseFloat($("f_price").value);
+  try {
+    const r = await post("/nodes", {
+      address: addr, name: $("f_name").value.trim(), gpu: $("f_gpu").value.trim(),
+      gpu_count: parseInt($("f_gpu_count").value, 10) || 0,
+      vcpus: parseInt($("f_vcpus").value, 10), ram_gb: parseInt($("f_ram").value, 10),
+      disk_gb: parseInt($("f_disk").value, 10), region: $("f_region").value.trim(),
+      rate_hour: parseFloat($("f_rate").value),
+      total_shares: parseInt($("f_shares").value, 10),
+      offer_shares: parseInt($("f_offer").value, 10) || 0,
+      share_price: isNaN(price) ? null : price,
+      description: $("f_desc").value.trim(),
+    });
+    msg("listMsg", `listed ${r.node.name} at ${money(r.node.share_price)}/share`, true);
+    tab = "market"; chrome(); load();
+  } catch (e) { msg("listMsg", e.message, false); }
+};
 
 async function load() {
+  await Promise.all([loadStats(), loadBalance(), loadNodes()]);
+  if (tab === "portfolio") loadPortfolio();
+}
+
+(async () => {
   try {
     const card = await api("/card");
     $("proto").textContent = card.protocol;
     $("desc").textContent = card.description;
   } catch (e) { /* card is cosmetic */ }
-  try {
-    items = await api(`/index${kind === "all" ? "" : `?kind=${kind}`}`);
-  } catch (e) {
-    $("grid").innerHTML = `<div class="empty">api unreachable: ${esc(e.message)}</div>`;
-    return;
-  }
-  render();
-}
-
-$("q").addEventListener("input", (e) => { q = e.target.value; render(); });
-
-function impOut(msg, ok) {
-  const el = $("impOut");
-  el.textContent = msg;
-  el.className = ok ? "ok" : "bad";
-}
-$("impResolve").onclick = async () => {
-  const cid = $("impCid").value.trim();
-  if (!cid) return;
-  impOut("resolving…", true);
-  try {
-    const r = await api(`/resolve/${encodeURIComponent(cid)}`);
-    impOut(`${r.valid ? "valid" : "INVALID"} ${r.kind || "?"} bundle\n` +
-      JSON.stringify(r.bundle, null, 2).slice(0, 800), r.valid);
-  } catch (e) { impOut(e.message, false); }
-};
-$("impGo").onclick = async () => {
-  const cid = $("impCid").value.trim();
-  if (!cid) return;
-  impOut("installing…", true);
-  try {
-    const r = await api("/install", { method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cid }) });
-    impOut(`installed ${r.kind}: ${r.installed.name || r.installed.id || ""}`, true);
-    load();
-  } catch (e) { impOut(e.message, false); }
-};
-
-pills();
-load();
+  chrome();
+  load();
+})();
 </script>
 </body>
 </html>

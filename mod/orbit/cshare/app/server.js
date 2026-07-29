@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * cshare app — zero-dependency server for the Agent Protocol hub viewer.
- * Serves the single-page viewer (index.html) at /cshare and proxies
+ * cshare app — zero-dependency server for the compute marketplace console.
+ * Serves the single-page console (index.html) at /cshare and proxies
  * /cshare/api/* to the cshare API so the page is same-origin whether it is
  * reached directly (:50291/cshare) or through the gateway (/cshare).
  */

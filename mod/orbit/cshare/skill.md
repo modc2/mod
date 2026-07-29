@@ -1,18 +1,23 @@
 # cshare
 
-Agent Protocol hub (agent/1.0): one card, one index, one share/install surface
-over every content-addressed agent artifact (prompts, agents, toolboxes,
-memory notes).
+Fractional compute marketplace (compute/1.0): machines listed as share-issuing
+assets, shares traded on an order book, hourly rental income streamed pro-rata
+to every shareholder at booking time.
 
 ## When to use
 
-- Discover what agent artifacts exist locally: `m cshare/index` (filter with
-  `kind=prompt|agent|toolbox|memory`, `q=`, `tag=`)
-- Share any artifact by CID: `m cshare/share kind=prompt id=p-0`
-- Install anything from a CID without knowing its kind:
-  `m cshare/install cid=Qm...` (the bundle's `type` picks the installer)
-- Inspect an unknown CID first: `m cshare/resolve cid=Qm...`
-- Get the protocol descriptor: `m cshare/card` (HTTP: `/.well-known/agent.json`)
+- Browse the market: `m cshare/nodes` (filter `q=`, `gpu=`, `region=`,
+  `status=available|rented`), detail with `m cshare/node node_id=n1`
+- Fractionalize a machine: `m cshare/list_node address=0xme name=gpu-01
+  gpu="H100 SXM" rate_hour=24 total_shares=1000 offer_shares=600`
+- Trade shares: `m cshare/sell address=… node_id=n1 shares=100 price=2.5` /
+  `m cshare/buy address=… order_id=o1 shares=50` (partial fills ok)
+- Rent by the hour (fee splits to the cap table now):
+  `m cshare/rent address=… node_id=n1 hours=4`
+- Positions and income: `m cshare/portfolio address=…`, market totals:
+  `m cshare/stats`
+- Credits: `m cshare/deposit address=… amount=1000` (test faucet)
+- Seed a lived-in market for demos: `m cshare/demo` (never runs automatically)
 
 ## Endpoints
 
@@ -21,6 +26,9 @@ API `:50290` (gateway `/cshare/api`), app `:50291/cshare`.
 
 ## Notes
 
-- Backed by the agent module's registries (`orbit/agent/src`); artifacts stay
-  in `~/.mod/agent/…` — cshare is the protocol surface, not a second store.
-- Conversations resolve/validate but install via the agent console (per-user).
+- State is a single JSON doc at `~/.mod/cshare/state.json` (override
+  `CSHARE_STATE`); `m cshare/reset confirm=true` wipes it.
+- Listed shares stay in the holder's balance and keep earning — they are only
+  locked against double-selling.
+- Credits are an internal ledger, not on-chain value; rental `access` is a
+  placeholder host/token, cshare does not provision the machine.

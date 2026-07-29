@@ -223,13 +223,7 @@ class Mod:
         st = self._load()
         out = [o for o in st["orders"].values()
                if node_id is None or o["node_id"] == node_id]
-        for o in out:
-            o = o.setdefault("node_name",
-                             st["nodes"].get(o["node_id"], {}).get("name", ""))
-        return sorted(st["orders"].values() if node_id is None else
-                      [o for o in st["orders"].values()
-                       if o["node_id"] == node_id],
-                      key=lambda o: (o["node_id"], o["price"]))
+        return sorted(out, key=lambda o: (o["node_id"], o["price"]))
 
     # ── share trading ────────────────────────────────────────────────
 
@@ -425,8 +419,9 @@ class Mod:
         """Populate a demo market: four nodes with initial share offerings
         and a couple of investors/renters. Never runs automatically."""
         issuer, alice, bob = "0xDEMO-issuer", "0xDEMO-alice", "0xDEMO-bob"
-        for a in (issuer, alice, bob):
-            self.deposit(a, 5000)
+        self.deposit(issuer, 5000)
+        for a in (alice, bob):
+            self.deposit(a, 15000)  # enough to clear the initial offerings
         specs = [
             dict(name="hopper-01", gpu="H100 SXM", gpu_count=8, vcpus=192,
                  ram_gb=2048, disk_gb=8000, region="us-east",
@@ -576,7 +571,9 @@ class Mod:
         return {"app": f"http://localhost:{app_port}/cshare", "pm2": "cshare.app"}
 
     def serve(self, port=None, app_port=None):
-        return {**self.serve_api(port), **self.serve_app(app_port)}
+        api, app = self.serve_api(port), self.serve_app(app_port)
+        return {"api": api["api"], "app": app["app"],
+                "pm2": [api["pm2"], app["pm2"]]}
 
     def kill(self):
         import subprocess
