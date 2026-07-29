@@ -46,7 +46,7 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
 
   if (!geom) {
     return (
-      <p className="px-3 py-2 text-[11px] text-[#898781]">
+      <p className="px-3 py-2 text-[11px] text-nes-ink3">
         Not enough {MEASURES[measure].label.toLowerCase()} history to chart.
       </p>
     )
@@ -63,17 +63,15 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-[#898781]">
+        <span className="pixel text-[6.5px] leading-[1.8] text-nes-ink3">
           {title ?? MEASURES[measure].label}
         </span>
-        <div className="flex gap-0.5 rounded-md bg-white/[0.06] p-0.5">
+        <div className="flex gap-1">
           {(Object.keys(MEASURES) as Measure[]).map((k) => (
             <button
               key={k}
               onClick={() => { setMeasure(k); setHover(null) }}
-              className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
-                measure === k ? 'bg-[#3987e5] text-white' : 'text-[#898781] hover:text-[#c3c2b7]'
-              }`}
+              className={`btn px-1.5 py-1 text-[9px] ${measure === k ? 'btn-on' : ''}`}
             >
               {MEASURES[k].short}
             </button>
@@ -91,38 +89,42 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
             </linearGradient>
           </defs>
 
-          <line x1={PL} y1={H - PB} x2={W - PR} y2={H - PB} stroke="#383835" strokeWidth="1" />
+          <line x1={PL} y1={H - PB} x2={W - PR} y2={H - PB} stroke="#000000" strokeWidth="1" />
           <path d={area} fill="url(#trendfill)" />
           <path d={d} fill="none" stroke="#3987e5" strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round" />
 
           {hp && (
             <line x1={sx(hp.year)} y1={PT - 4} x2={sx(hp.year)} y2={H - PB}
-                  stroke="#c3c2b7" strokeWidth="1" strokeDasharray="2 2" />
+                  stroke="#fbd000" strokeWidth="1" strokeDasharray="2 2" />
           )}
 
           {/* endpoint marker, direct-labelled below — no dot on every year */}
           <circle cx={sx(last.year)} cy={sy(last[measure] as number)} r="3.4"
-                  fill="#3987e5" stroke="#121722" strokeWidth="2" />
+                  fill="#3987e5" stroke="#0e1330" strokeWidth="2" />
           {hp && hover !== pts.length - 1 && (
             <circle cx={sx(hp.year)} cy={sy(hp[measure] as number)} r="3.4"
-                    fill="#9ec5f4" stroke="#121722" strokeWidth="2" />
+                    fill="#9ec5f4" stroke="#0e1330" strokeWidth="2" />
           )}
 
-          <text x={PL} y={H - 4} fill="#898781" fontSize="9">{first.year}</text>
-          <text x={W - PR} y={H - 4} fill="#898781" fontSize="9" textAnchor="end">{last.year}</text>
+          <text x={PL} y={H - 4} fill="#8f98c8" fontSize="9">{first.year}</text>
+          <text x={W - PR} y={H - 4} fill="#8f98c8" fontSize="9" textAnchor="end">{last.year}</text>
 
-          {/* invisible hit strips — bigger targets than the marks */}
+          {/* Invisible hit strips — bigger targets than the marks. A finger
+              has no hover, so the same strip reads a tap: on a phone the year
+              readout is the only way to get at the years between the two the
+              axis labels. */}
           {pts.map((p, i) => (
             <rect key={p.year} x={sx(p.year) - (W / pts.length) / 2} y={0}
                   width={W / pts.length} height={H} fill="transparent"
-                  onMouseEnter={() => setHover(i)} />
+                  onMouseEnter={() => setHover(i)}
+                  onTouchStart={() => setHover(i)} />
           ))}
         </svg>
 
         {hp && (
           <div className="pointer-events-none absolute -top-1 left-0 right-0 flex justify-center">
-            <div className="rounded bg-[#0b0e14] px-1.5 py-0.5 text-[10px] tabular-nums text-[#e6e8ee] ring-1 ring-white/10">
+            <div className="border-2 border-black bg-nes-void px-1.5 py-0.5 text-[10px] tabular-nums text-white">
               {hp.year} · {measure === 'median_price'
                 ? usdExact(hp.median_price)
                 : `$${hp.median_ppsf}/ft²`} · {hp.sales.toLocaleString()} sales
@@ -132,12 +134,12 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
       </div>
 
       <div className="mt-0.5 flex items-baseline justify-between">
-        <span className="text-[12px] font-medium tabular-nums text-[#e6e8ee]">
+        <span className="text-[12px] font-medium tabular-nums text-white">
           {measure === 'median_price' ? usd(last.median_price) : `$${last.median_ppsf}/ft²`}
-          <span className="ml-1 text-[10px] font-normal text-[#898781]">in {last.year}</span>
+          <span className="ml-1 text-[10px] font-normal text-nes-ink3">in {last.year}</span>
         </span>
         <span className="text-[10.5px] tabular-nums"
-              style={{ color: change >= 0 ? '#0ca30c' : '#d03b3b' }}>
+              style={{ color: change >= 0 ? '#43b047' : '#e52521' }}>
           {change >= 0 ? '↑' : '↓'} {Math.abs(change).toFixed(0)}% since {first.year}
         </span>
       </div>

@@ -140,6 +140,23 @@ The choropleth ramps were checked with a validator, not chosen by eye:
 - **subway lines** — the one layer that inherits its palette, because riders
   read the network by the MTA's own route colours.
 
+### Chrome vs. data
+
+The interface is dressed as an 8-bit platformer — block panels with a black
+outline and a hard bevel, a coin-counter HUD, brick section headers, a spinning
+coin for "busy", Press Start 2P for labels. That styling stops at the edge of
+the map. **The chrome palette (`tailwind.config.ts`, the `nes-*` tokens) and the
+data palette (`src/lib/palette.ts`) are separate on purpose**: primaries are
+chosen to be loud and mutually maximally distinct, which is the opposite of what
+a sequential ramp needs, so nothing that encodes a value is reachable as a
+Tailwind utility. If you extend the theme, keep the ramps out of it — a
+choropleth in coin yellow and Mario red would look great and read as nothing.
+
+Pixel-font labels are ASCII-only and upper case; Press Start 2P covers basic
+Latin, so `·`, `–`, `²` and `↗` fall through to the fallback stack per glyph.
+Values (`$1.45M`, `198/262 areas`) stay in the body sans — the display face is
+for labels, never for data.
+
 ## Tests
 
 ```sh

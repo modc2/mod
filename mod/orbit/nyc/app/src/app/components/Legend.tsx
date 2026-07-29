@@ -35,32 +35,37 @@ export default function Legend({
 
     rows.push(
       <div key="housing">
-        <div className="mb-1 flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-medium text-[#e6e8ee]">{meta?.label ?? metric}</span>
+        {/* The pixel face is wide enough that a metric name and its coverage
+            count won't share a 236px row — the count goes underneath rather
+            than wrapping the title mid-phrase. */}
+        <div className="mb-1.5">
+          <div className="pixel text-[7.5px] leading-[1.7] text-nes-coin">
+            {meta?.label ?? metric}
+          </div>
           {areasWithData !== undefined && totalAreas !== undefined && (
-            <span className="text-[10px] tabular-nums text-[#898781]">
+            <div className="mt-0.5 text-[10px] tabular-nums text-nes-ink3">
               {areasWithData}/{totalAreas} areas
-            </span>
+            </div>
           )}
         </div>
-        <div className="flex h-2.5 overflow-hidden rounded-[3px]">
+        <div className="flex h-3 overflow-hidden border-2 border-black">
           {colors.map((c, i) => (
             <div key={i} className="flex-1" style={{ background: c }} />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-[#898781]">
+        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
           <span>{labels[0]}</span>
           {labels.length > 2 && <span>{labels[Math.floor(labels.length / 2)]}</span>}
           <span>
             {diverging ? labels[labels.length - 1] : `${byFormat(breaks.max, fmt)}`}
           </span>
         </div>
-        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-[#898781]">
-          <span className="h-2.5 w-2.5 rounded-[2px]" style={{ background: NO_DATA }} />
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
+          <span className="h-3 w-3 border-2 border-black" style={{ background: NO_DATA }} />
           No qualifying sales
         </div>
         {diverging && breaks.true_min !== undefined && (
-          <p className="mt-1 text-[9.5px] leading-snug text-[#898781]">
+          <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
             Scale clipped to the middle 90% ({breaks.true_min?.toFixed(0)}% to
             {' '}+{breaks.true_max?.toFixed(0)}% in full); thin-volume areas sit
             past the ends.
@@ -73,12 +78,12 @@ export default function Legend({
   if (active.includes('sales')) {
     rows.push(
       <Row key="sales" title="Sale price">
-        <div className="flex h-2.5 overflow-hidden rounded-[3px]">
+        <div className="flex h-3 overflow-hidden border-2 border-black">
           {rampOf(SALE_BREAKS.length, SEQUENTIAL).map((c, i) => (
             <div key={i} className="flex-1" style={{ background: c }} />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-[#898781]">
+        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
           <span>$0</span><span>$1M</span><span>$5M+</span>
         </div>
       </Row>,
@@ -91,13 +96,13 @@ export default function Legend({
         <div className="flex items-center gap-1">
           {[1, 2, 3, 4, 5, 6].map((z) => (
             <div key={z} className="flex flex-1 flex-col items-center gap-0.5">
-              <span className="h-2.5 w-full rounded-[2px]"
+              <span className="h-3 w-full border-2 border-black"
                     style={{ background: ZONE_COLOR[z] }} />
-              <span className="text-[9px] tabular-nums text-[#898781]">{z}</span>
+              <span className="text-[9px] tabular-nums text-nes-ink3">{z}</span>
             </div>
           ))}
         </div>
-        <p className="mt-1 text-[9.5px] text-[#898781]">Zone 1 evacuates first</p>
+        <p className="mt-1 text-[9.5px] text-nes-ink3">Zone 1 evacuates first</p>
       </Row>,
     )
   }
@@ -105,9 +110,9 @@ export default function Legend({
   if (active.includes('collisions')) {
     rows.push(
       <Row key="collisions" title="Traffic injuries">
-        <div className="flex h-2.5 overflow-hidden rounded-[3px]"
+        <div className="flex h-3 overflow-hidden border-2 border-black"
              style={{ background: 'linear-gradient(90deg,#3b2a80,#7d2b6b,#b83c3c,#d95926,#eda100)' }} />
-        <div className="mt-1 flex justify-between text-[9.5px] text-[#898781]">
+        <div className="mt-1 flex justify-between text-[9.5px] text-nes-ink3">
           <span>fewer</span><span>more crashes</span>
         </div>
       </Row>,
@@ -130,13 +135,13 @@ export default function Legend({
       <Row key="marks" title="">
         <ul className="space-y-1">
           {dots.map(([id, label, hint]) => (
-            <li key={id} className="flex items-center gap-2 text-[10.5px] text-[#c3c2b7]">
+            <li key={id} className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/40"
+                className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
                 style={{ background: LAYER_COLOR[id] }}
               />
               <span>{label}</span>
-              {hint && <span className="text-[9.5px] text-[#898781]">· {hint}</span>}
+              {hint && <span className="text-[9.5px] text-nes-ink3">· {hint}</span>}
             </li>
           ))}
         </ul>
@@ -147,7 +152,7 @@ export default function Legend({
   if (active.includes('subway_lines')) {
     rows.push(
       <Row key="subway" title="Subway routes">
-        <p className="text-[10px] leading-snug text-[#898781]">
+        <p className="text-[10px] leading-snug text-nes-ink3">
           Drawn in each route’s official MTA colour.
         </p>
       </Row>,
@@ -157,16 +162,32 @@ export default function Legend({
   if (!rows.length) return null
 
   return (
-    <div className="pointer-events-auto w-[228px] space-y-3 rounded-lg border border-white/10 bg-[#121722]/95 p-3 shadow-xl backdrop-blur">
+    <div className="blk pointer-events-auto w-[min(80vw,236px)] space-y-3 p-3 md:w-[236px]">
       {rows}
     </div>
   )
 }
 
+/** Layers that put a row in the key, besides the choropleth. */
+const ENCODED = [
+  'sales', 'evacuation_zones', 'collisions', 'subway_ridership',
+  'affordable_housing', 'subway_stations', 'bike_routes', 'parks', 'subway_lines',
+]
+
+/**
+ * Whether the key would render anything. The phone layout folds the key behind
+ * a button, and a button that opens an empty panel is worse than no button —
+ * this lets the caller leave it out entirely.
+ */
+export function hasLegend(active: string[], breaks: Breaks | null): boolean {
+  if (active.includes('housing_prices') && breaks && breaks.stops.length > 0) return true
+  return ENCODED.some((id) => active.includes(id))
+}
+
 function Row({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      {title && <div className="mb-1 text-[11px] font-medium text-[#e6e8ee]">{title}</div>}
+      {title && <div className="mb-1 pixel text-[7.5px] text-nes-coin">{title}</div>}
       {children}
     </div>
   )

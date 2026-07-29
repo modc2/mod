@@ -15,11 +15,13 @@ type Props = {
  * window against the equally-long window immediately before it, so a preset is
  * a statement about both halves of the comparison.
  */
-const WINDOWS: { label: string; since: string; hint: string }[] = [
-  { label: '2025–now', since: '2025-01-01', hint: 'vs the year before' },
-  { label: '2024–now', since: '2024-01-01', hint: 'vs 2022–23' },
-  { label: '2022–now', since: '2022-01-01', hint: 'vs 2019–21' },
-  { label: 'All (2016–)', since: '2016-01-01', hint: 'whole record' },
+const WINDOWS: { label: string; hud: string; since: string; hint: string }[] = [
+  // `hud` is the button face and is ASCII-only: it renders in Press Start 2P,
+  // which has no en dash. `label` is the prose form used in the note below.
+  { label: '2025–now', hud: '2025-NOW', since: '2025-01-01', hint: 'vs the year before' },
+  { label: '2024–now', hud: '2024-NOW', since: '2024-01-01', hint: 'vs 2022–23' },
+  { label: '2022–now', hud: '2022-NOW', since: '2022-01-01', hint: 'vs 2019–21' },
+  { label: 'All (2016–)', hud: 'ALL 2016+', since: '2016-01-01', hint: 'whole record' },
 ]
 
 export default function HousingControls({ options, query, onChange, busy }: Props) {
@@ -53,25 +55,23 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
       </Field>
 
       <Field label="Sales from">
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid grid-cols-2 gap-1.5 pb-1">
           {WINDOWS.map((w) => (
             <button
               key={w.since}
               onClick={() => onChange({ since: w.since })}
-              className={`rounded-md px-2 py-1.5 text-[11.5px] transition-colors ${
-                query.since === w.since
-                  ? 'bg-[#3987e5] text-white'
-                  : 'bg-white/[0.06] text-[#c3c2b7] hover:bg-white/[0.1]'
+              className={`btn pixel px-1 py-2 text-[7.5px] ${
+                query.since === w.since ? 'btn-on' : ''
               }`}
             >
-              {w.label}
+              {w.hud}
             </button>
           ))}
         </div>
       </Field>
 
       {query.metric === 'price_change' && win && (
-        <p className="rounded-md bg-black/25 px-2.5 py-2 text-[11px] leading-snug text-[#898781]">
+        <p className="border-2 border-black bg-black/40 px-2.5 py-2 text-[11px] leading-snug text-nes-ink3">
           Comparing {win.label} against {win.hint}. Areas with fewer than 5
           sales on either side are left uncoloured.
         </p>
@@ -83,7 +83,7 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] uppercase tracking-wider text-[#898781]">
+      <span className="pixel mb-1.5 block text-[7px] leading-none text-nes-ink3">
         {label}
       </span>
       {children}
@@ -101,17 +101,21 @@ function Select({ value, onChange, items }: {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-md border border-white/10 bg-white/[0.06] px-2.5 py-1.5 pr-7 text-[12.5px] text-[#e6e8ee] outline-none focus:border-[#3987e5]"
+        className="w-full appearance-none border-2 border-black bg-nes-raised px-2.5 py-2 pr-8 text-[12.5px] text-white outline-none focus:bg-[#232d6e]"
+        style={{ boxShadow: 'inset 0 2px 0 rgba(0,0,0,.4), inset 0 -2px 0 rgba(255,255,255,.08)' }}
       >
         {items.map(([k, label]) => (
-          <option key={k} value={k} className="bg-[#121722] text-[#e6e8ee]">
+          <option key={k} value={k} className="bg-[#0e1330] text-white">
             {label}
           </option>
         ))}
       </select>
-      <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
-           width="10" height="6" viewBox="0 0 10 6" fill="none">
-        <path d="M1 1l4 4 4-4" stroke="#898781" strokeWidth="1.4" strokeLinecap="round" />
+      {/* A whole-pixel caret, to match the section arrows. */}
+      <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-nes-coin"
+           width="8" height="8" viewBox="0 0 8 8" shapeRendering="crispEdges" fill="currentColor">
+        <rect x="0" y="2" width="8" height="2" />
+        <rect x="1" y="4" width="6" height="2" />
+        <rect x="3" y="6" width="2" height="2" />
       </svg>
     </div>
   )

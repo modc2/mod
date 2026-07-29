@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
+import { NARROW } from '@/lib/layout'
 import {
   DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR,
   divergingExpression, stepExpression,
@@ -13,8 +14,6 @@ export type Basemap = 'dark' | 'light' | 'streets'
 /** Bounding box of the five boroughs, used to frame the opening view. */
 const NYC_BOUNDS: [[number, number], [number, number]] = [[-74.30, 40.47], [-73.68, 40.93]]
 
-/** The breakpoint the layout switches at, mirrored from Tailwind's `md`. */
-const NARROW = 768
 
 /**
  * Framing padding, in pixels. On a wide screen the left rail sits over the map
@@ -147,19 +146,36 @@ export default function MapView({
     m.on('click', (e) => {
       const ids = clickOrder.current.filter((id) => m.getLayer(id))
       if (!ids.length) return onFeatureClick(null)
-      // A fingertip is nowhere near as precise as a cursor, and a subway
-      // station is a 3px circle — query a small box around the tap instead of
-      // the exact pixel, or half the point layers are simply unhittable.
-      const r = coarsePointer() ? 14 : 4
-      const box: [[number, number], [number, number]] =
-        [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]]
-      const hits = m.queryRenderedFeatures(box as any, { layers: ids })
-      if (!hits.length) return onFeatureClick(null)
-      const hit = hits[0]
-      onFeatureClick({
-        layerId: (hit.layer.id.split('--')[0]) || hit.layer.id,
-        props: hit.properties || {},
-      })
+      // A fingertip is nowhere near as precise as a cursor, so a tap is matched
+      // against a box rather than a single pixel — but the box has to follow
+      // the marks, which grow and thin out with zoom. Zoomed out, a station is
+      // a 2px dot among five hundred others a few pixels apart: a generous box
+      // there would answer every tap in Manhattan with "some station" and the
+      // neighbourhood underneath could never be selected, so the tolerance
+      // goes away and taps fall through to the choropleth. Zoomed in, the dots
+      // are separated and worth aiming at, and the finger gets its allowance.
+      const touch = coarsePointer()
+      const grown = m.getZoom() >= 12
+      const tiers: [string[], number][] = [
+        [ids.filter((id) => id.endsWith('--circle')), touch ? (grown ? 14 : 0) : grown ? 6 : 2],
+        [ids.filter((id) => id.endsWith('--line')), touch ? (grown ? 6 : 0) : 2],
+        [ids.filter((id) => !/--(circle|line)$/.test(id)), 0],
+      ]
+      for (const [layers, r] of tiers) {
+        if (!layers.length) continue
+        const at = r === 0
+          ? e.point
+          : [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]]
+        // Within a tier the layers keep their draw order, topmost first.
+        const hits = m.queryRenderedFeatures(at as any, { layers })
+        if (!hits.length) continue
+        const hit = hits[0]
+        return onFeatureClick({
+          layerId: (hit.layer.id.split('--')[0]) || hit.layer.id,
+          props: hit.properties || {},
+        })
+      }
+      onFeatureClick(null)
     })
     map.current = m
     return () => {
@@ -323,7 +339,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'circle-color': color,
           // A 2px surface ring keeps overlapping stations countable.
           'circle-stroke-width': 1.4,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': '#000000',
           'circle-opacity': alpha,
         },
       })
@@ -340,7 +356,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         },
         paint: {
           'text-color': '#e6e8ee',
-          'text-halo-color': '#0b0e14',
+          'text-halo-color': '#000000',
           'text-halo-width': 1.4,
         },
       })
@@ -358,7 +374,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'circle-color': color,
           'circle-opacity': 0.62 * alpha,
           'circle-stroke-width': 1,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': '#000000',
         },
       })
       return ids
@@ -429,7 +445,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
             '#f2a0a0', color],
           'circle-opacity': 0.85 * alpha,
           'circle-stroke-width': 0.8,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': '#000000',
         },
       })
       return [`${def.id}--circle`]
@@ -444,7 +460,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'circle-color': color,
           'circle-opacity': 0.7 * alpha,
           'circle-stroke-width': 1,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': '#000000',
         },
       })
       return ids

@@ -43,21 +43,32 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
   const p = selection.props
 
   return (
-    <aside className="pointer-events-auto flex max-h-[calc(100vh-88px)] w-[288px] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#121722]/97 shadow-2xl backdrop-blur">
-      <header className="flex items-start gap-2 border-b border-white/10 px-3.5 py-2.5">
+    // On a phone the inspector is a sheet across the foot of the screen: a
+    // 292px card pinned to the right edge would cover the map it is describing
+    // and still be too narrow to read. Height is capped so the tapped feature
+    // stays visible above it.
+    <aside className="blk pointer-events-auto flex max-h-[62dvh] w-full flex-col overflow-hidden
+                      md:max-h-[calc(100dvh-104px)] md:w-[292px]">
+      <header className="relative flex items-start gap-2 border-b-[3px] border-black bg-black/40 py-2.5 pl-4 pr-2.5">
+        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="text-[9.5px] uppercase tracking-[0.14em] text-[#898781]">
+          <div className="pixel truncate text-[7px] leading-none text-nes-coin">
             {def?.title ?? selection.layerId}
           </div>
-          <h2 className="truncate text-[14px] font-medium text-[#e6e8ee]">
+          <h2 className="mt-1.5 truncate text-[14px] font-medium text-white">
             {headline(selection)}
           </h2>
         </div>
         <button onClick={onClose} aria-label="Close"
-                className="shrink-0 rounded p-0.5 text-[#898781] hover:text-[#e6e8ee]">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6"
-                  strokeLinecap="round" />
+                className="tap -m-1.5 grid shrink-0 place-items-center p-1.5 text-nes-ink3 hover:text-nes-red">
+          <svg width="14" height="14" viewBox="0 0 14 14" shapeRendering="crispEdges"
+               fill="currentColor">
+            {/* a whole-pixel X */}
+            <rect x="2" y="2" width="2" height="2" /><rect x="4" y="4" width="2" height="2" />
+            <rect x="6" y="6" width="2" height="2" /><rect x="8" y="4" width="2" height="2" />
+            <rect x="10" y="2" width="2" height="2" /><rect x="8" y="8" width="2" height="2" />
+            <rect x="10" y="10" width="2" height="2" /><rect x="4" y="8" width="2" height="2" />
+            <rect x="2" y="10" width="2" height="2" />
           </svg>
         </button>
       </header>
@@ -80,19 +91,19 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                   />
                 </div>
                 {p.median_ppsf === null && p.sales > 0 && (
-                  <p className="text-[10.5px] leading-snug text-[#898781]">
+                  <p className="text-[10.5px] leading-snug text-nes-ink3">
                     No reliable floor-area figures here — the city’s file often
                     reports a whole building’s square footage for apartment
                     sales, so those rows are excluded.
                   </p>
                 )}
-                <div className="border-t border-white/10 pt-2.5">
+                <div className="border-t-2 border-black pt-2.5">
                   {trendFor === p.area && trend === null && (
-                    <p className="text-[11px] text-[#898781]">Loading history…</p>
+                    <p className="text-[11px] text-nes-ink3">Loading history…</p>
                   )}
                   {trend && trend.length > 0 && <TrendChart series={trend} />}
                   {trend && trend.length === 0 && (
-                    <p className="text-[11px] text-[#898781]">No history available.</p>
+                    <p className="text-[11px] text-nes-ink3">No history available.</p>
                   )}
                 </div>
                 <Meta rows={[
@@ -103,7 +114,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                 ]} />
               </>
             ) : (
-              <p className="text-[12px] leading-relaxed text-[#c3c2b7]">
+              <p className="text-[12px] leading-relaxed text-nes-ink2">
                 No qualifying sales recorded here in this window. That usually
                 means the area is parkland, an airport, an industrial zone, or
                 had only non-market transfers.
@@ -211,7 +222,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
         {selection.layerId === 'evacuation_zones' && (
           <div className="space-y-2">
             <Stat label="Evacuation zone" value={String(p.zone)} big />
-            <p className="text-[12px] leading-relaxed text-[#c3c2b7]">
+            <p className="text-[12px] leading-relaxed text-nes-ink2">
               {p.zone === 1
                 ? 'Zone 1 is the first ordered to evacuate — the lowest-lying, most flood-exposed land in the city.'
                 : `Zone ${p.zone} evacuates after the lower-numbered zones, in the strongest storms.`}
@@ -229,9 +240,10 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
       </div>
 
       {def && (
-        <footer className="border-t border-white/10 px-3.5 py-2">
+        <footer className="border-t-2 border-black px-3.5 py-2
+                           pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-2">
           <a href={def.source.url} target="_blank" rel="noreferrer"
-             className="text-[10.5px] text-[#6da7ec] hover:underline">
+             className="inline-block py-1 text-[10.5px] text-nes-sky hover:underline">
             Source: {def.source.name} ↗
           </a>
         </footer>
@@ -267,10 +279,11 @@ function headline(sel: Selection): string {
 function Stat({ label, value, big, tone }: {
   label: string; value: string; big?: boolean; tone?: 'good' | 'bad'
 }) {
-  const color = tone === 'good' ? '#0ca30c' : tone === 'bad' ? '#d03b3b' : '#e6e8ee'
+  // Luigi green and Mario red — the same up/down pair the rest of the HUD uses.
+  const color = tone === 'good' ? '#43b047' : tone === 'bad' ? '#e52521' : '#ffffff'
   return (
-    <div className="rounded-md bg-white/[0.05] px-2.5 py-2">
-      <div className="text-[9.5px] uppercase tracking-wider text-[#898781]">{label}</div>
+    <div className="border-2 border-black bg-black/40 px-2.5 py-2">
+      <div className="pixel text-[6.5px] leading-[1.8] text-nes-ink3">{label}</div>
       <div className={`${big ? 'text-[16px]' : 'text-[13px]'} font-medium tabular-nums`}
            style={{ color }}>
         {value}
@@ -286,8 +299,8 @@ function Meta({ rows }: { rows: (string | number | null | undefined)[][] }) {
     <dl className="space-y-1">
       {clean.map(([k, v], i) => (
         <div key={i} className="flex items-baseline justify-between gap-3 text-[11.5px]">
-          <dt className="shrink-0 text-[#898781]">{k}</dt>
-          <dd className="truncate text-right text-[#e6e8ee]">{String(v)}</dd>
+          <dt className="shrink-0 text-nes-ink3">{k}</dt>
+          <dd className="truncate text-right text-white">{String(v)}</dd>
         </div>
       ))}
     </dl>
@@ -316,8 +329,8 @@ function RouteBullets({ routes }: { routes: string }) {
         const dark = ['#FCCC0A', '#A7A9AC', '#6CBE45'].includes(bg)
         return (
           <span key={r}
-                className="flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-bold"
-                style={{ background: bg, color: dark ? '#0b0e14' : '#ffffff' }}>
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-bold ring-2 ring-black"
+                style={{ background: bg, color: dark ? '#000000' : '#ffffff' }}>
             {r.toUpperCase()}
           </span>
         )

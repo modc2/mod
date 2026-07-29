@@ -51,7 +51,7 @@ export default function LayerPanel({
               return (
                 <li key={id} className="px-2">
                   <div
-                    className={`group flex items-center gap-2.5 px-2 py-1.5 transition-colors ${
+                    className={`tap group flex items-center gap-2.5 px-2 py-1.5 transition-colors ${
                       on ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]'
                     }`}
                   >
@@ -62,7 +62,10 @@ export default function LayerPanel({
                       onClick={() => onToggle(id)}
                       aria-pressed={on}
                       aria-label={`Toggle ${def.title}`}
-                      className="relative h-[18px] w-[18px] shrink-0 border-2 border-black"
+                      // The pseudo-element extends the tap target past the 18px
+                      // swatch without moving anything on the row.
+                      className="relative h-[18px] w-[18px] shrink-0 border-2 border-black
+                                 after:absolute after:-inset-2.5 after:content-['']"
                       style={{
                         background: on ? swatch(def) : '#1a2258',
                         boxShadow: on
@@ -101,7 +104,9 @@ export default function LayerPanel({
                     <button
                       onClick={() => setExpanded(expanded === id ? null : id)}
                       aria-label={`About ${def.title}`}
-                      className="shrink-0 opacity-70 transition-opacity hover:opacity-100"
+                      aria-expanded={expanded === id}
+                      className="tap -my-2 grid shrink-0 place-items-center px-1.5 opacity-70
+                                 transition-opacity hover:opacity-100"
                     >
                       <QuestionBlock size={14} />
                     </button>
@@ -130,7 +135,7 @@ export default function LayerPanel({
                             type="range" min={0.1} max={1} step={0.05}
                             value={opacity[id] ?? 1}
                             onChange={(e) => onOpacity(id, Number(e.target.value))}
-                            className="h-1.5 flex-1 accent-nes-coin"
+                            className="h-6 flex-1 accent-nes-coin md:h-1.5"
                           />
                         </label>
                       )}

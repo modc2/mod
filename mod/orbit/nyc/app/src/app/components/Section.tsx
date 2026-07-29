@@ -24,11 +24,11 @@ export default function Section({ title, open, onToggle, summary, children }: Pr
       <button
         onClick={onToggle}
         aria-expanded={open}
-        className="relative flex w-full items-center gap-2 py-2.5 pl-4 pr-3 text-left hover:bg-white/[0.06]"
+        className="tap relative flex w-full items-center gap-2 py-2.5 pl-4 pr-3 text-left hover:bg-white/[0.06]"
       >
         {/* A course of brick down the edge of every header — enough texture to
             read as a level, not so much that it fights the type. */}
-        <span className="brick absolute inset-y-0 left-0 w-1.5" aria-hidden />
+        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
         <Arrow open={open} />
         <h3 className="pixel flex-1 truncate text-[8px] leading-none text-nes-ink3">
           {title}

@@ -10,10 +10,11 @@ import { usd } from '@/lib/format'
 import HousingControls from './components/HousingControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
-import Legend from './components/Legend'
+import Legend, { hasLegend } from './components/Legend'
 import SearchBar from './components/SearchBar'
 import Section from './components/Section'
 import { Coin, Mushroom, QuestionBlock } from './components/Sprites'
+import { NARROW } from '@/lib/layout'
 import type { Basemap } from './components/MapView'
 
 // MapLibre touches `window` at import time, so it can't be server-rendered.
@@ -46,7 +47,14 @@ export default function Page() {
   const [housingBusy, setHousingBusy] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<Basemap>('dark')
-  const [panelOpen, setPanelOpen] = useState(true)
+  // The rail is a permanent fixture on a wide screen and a drawer on a phone,
+  // where it starts shut: the first thing a visitor should see is the map, not
+  // a wall of controls over it. Opening it on the desktop happens after mount
+  // rather than as the initial value, so the server render and the first client
+  // render agree — and closed-then-open is the harmless direction to flash.
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [legendOpen, setLegendOpen] = useState(false)
   const collapse = useCollapse()
   const [flyTo, setFlyTo] = useState<{ lng: number; lat: number; zoom?: number; nonce: number } | null>(null)
   const [boot, setBoot] = useState<string | null>(null)
@@ -60,6 +68,10 @@ export default function Page() {
     since: '2024-01-01',
     property_type: 'residential',
   })
+
+  useEffect(() => {
+    if (window.matchMedia(`(min-width: ${NARROW}px)`).matches) setPanelOpen(true)
+  }, [])
 
   // ── boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -128,10 +140,19 @@ export default function Page() {
     return c
   }, [layerData, housing])
 
+  // Picking a result also puts the phone's search bar away: the point of
+  // searching was to look at the map, which the field is sitting on top of.
+  const pick = useCallback((h: { lat: number; lng: number }) => {
+    setFlyTo({ ...h, zoom: 15, nonce: Date.now() })
+    setSearchOpen(false)
+  }, [])
+
+  const legendRows = hasLegend(active, housing?.breaks ?? null)
+
   if (boot) {
     return (
-      <main className="grid h-screen place-items-center bg-nes-void px-6">
-        <div className="blk max-w-md px-7 py-7 text-center">
+      <main className="grid h-[100dvh] place-items-center bg-nes-void px-4">
+        <div className="blk w-full max-w-md px-5 py-7 text-center md:px-7">
           <div className="flex justify-center">
             <Mushroom size={44} />
           </div>
@@ -152,7 +173,10 @@ export default function Page() {
   }
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-nes-void">
+    // `dvh` rather than `vh`: on a phone the browser's own chrome slides in and
+    // out as you scroll, and `100vh` is the *tallest* case — the bottom of the
+    // map, where the sheet and the key live, would sit under the address bar.
+    <main className="relative h-[100dvh] w-full overflow-hidden bg-nes-void">
       <MapView
         catalog={catalog}
         active={active}
@@ -162,88 +186,177 @@ export default function Page() {
         layerData={layerData}
         basemap={basemap}
         flyTo={flyTo}
-        onFeatureClick={setSelection}
+        // Touching the map is the end of whatever the HUD was doing: the
+        // phone's search field is over the map, so it stands down here rather
+        // than staying up in front of the feature just tapped.
+        onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
         onMapReady={() => {}}
       />
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3">
-        <div className="blk pointer-events-auto flex items-center gap-3 px-3 py-2.5">
-          <button
-            onClick={() => { setPanelOpen((v) => !v); setBump((b) => b + 1) }}
-            aria-label={panelOpen ? 'Hide layers' : 'Show layers'}
-            className="shrink-0"
-          >
-            <span key={bump} className="block block-bump">
-              <QuestionBlock size={22} />
-            </span>
-          </button>
-          <div>
-            <h1 className="pixel pixel-shadow text-[13px] leading-none text-white">
-              NYC ATLAS
-            </h1>
-            <p className="pixel mt-2 text-[7.5px] leading-none text-nes-coin">
-              WORLD 1-1
-              <span className="mx-1.5 inline-block h-[3px] w-[3px] -translate-y-[3px] bg-nes-coin align-middle" />
-              {catalog?.count ?? '--'} LAYERS
-            </p>
+      <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
+        {/* A phone gives the search field the whole bar. At 360px there is no
+            room for a usable field beside the title, and a search box you can
+            only half see is worse than one that is a tap away. */}
+        {/* Mounted on demand rather than hidden: `autoFocus` fires once, when
+            the field appears, so a field that was always in the DOM would open
+            without the keyboard and cost a second tap. */}
+        {searchOpen && (
+          <div className="pointer-events-auto flex w-full items-center gap-2 md:hidden">
+            <SearchBar autoFocus onPick={pick} />
+            <button
+              onClick={() => setSearchOpen(false)}
+              aria-label="Close search"
+              className="btn tap grid shrink-0 place-items-center px-3 py-3"
+            >
+              <Cross />
+            </button>
           </div>
-        </div>
+        )}
 
-        <div className="pointer-events-auto flex items-center gap-2">
-          <SearchBar onPick={(h) => setFlyTo({ ...h, zoom: 15, nonce: Date.now() })} />
-          <div className="flex items-center gap-1.5">
-            {BASEMAPS.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => setBasemap(b.id)}
-                className={`btn pixel px-2.5 py-2 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
-              >
-                {b.label}
-              </button>
-            ))}
+        {/* The drawer brings its own title bar, and on a phone it opens right
+            under this one — two stacked headers, the lower one half covered.
+            Only one of them is the current context, so only one is shown. */}
+        <div className={`w-full items-start justify-between gap-2 md:gap-3
+                         ${searchOpen || panelOpen ? 'hidden md:flex' : 'flex'}`}>
+          <div className="blk pointer-events-auto flex items-center gap-2.5 px-2.5 py-2 md:gap-3 md:px-3 md:py-2.5">
+            <button
+              onClick={() => { setPanelOpen((v) => !v); setBump((b) => b + 1) }}
+              aria-label={panelOpen ? 'Hide layers' : 'Show layers'}
+              aria-expanded={panelOpen}
+              className="tap -m-1 grid shrink-0 place-items-center p-1"
+            >
+              <span key={bump} className="block block-bump">
+                <QuestionBlock size={22} />
+              </span>
+            </button>
+            <div className="min-w-0">
+              <h1 className="pixel pixel-shadow whitespace-nowrap text-[11px] leading-none text-white md:text-[13px]">
+                NYC ATLAS
+              </h1>
+              {/* The separator is a drawn pixel rather than a bullet glyph —
+                  Press Start 2P has no ·, and the fallback's version sits at a
+                  different weight and height from everything around it. */}
+              <p className="pixel mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[6.5px] leading-none text-nes-coin md:mt-2 md:gap-2 md:text-[7.5px]">
+                <span>WORLD 1-1</span>
+                <span className="h-[4px] w-[4px] shrink-0 bg-nes-coin" aria-hidden />
+                <span>{catalog?.count ?? '--'} LAYERS</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="pointer-events-auto flex items-center gap-2">
+            <div className="hidden md:block">
+              <SearchBar onPick={pick} />
+            </div>
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search an address or place"
+              className="btn tap grid place-items-center px-3 py-3 md:hidden"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <circle cx="7" cy="7" r="4.6" stroke="#fbd000" strokeWidth="2" />
+                <path d="M10.6 10.6L14 14" stroke="#fbd000" strokeWidth="2" strokeLinecap="square" />
+              </svg>
+            </button>
+            {/* The basemap switch is three buttons wide; on a phone it moves
+                into the drawer rather than crowding the title out of the HUD. */}
+            <div className="hidden items-center gap-1.5 md:flex">
+              {BASEMAPS.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => setBasemap(b.id)}
+                  className={`btn pixel px-2.5 py-2 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </header>
 
       {/* ── left rail ───────────────────────────────────────────────── */}
+      {/* On a wide screen the rail's height follows its open sections, capped
+          at the viewport: fold everything away and it shrinks to a stack of
+          headers. On a phone it becomes a drawer over a scrim — a 300px panel
+          on a 360px screen is the whole screen, so it has to be dismissible,
+          and it stays mounted so it can slide rather than blink. */}
+      {/* The scrim is a shortcut, not the way out — the drawer carries a real
+          close button, so this stays out of the accessibility tree rather than
+          announcing a second control with the same name. */}
       {panelOpen && (
-        <div className="blk absolute bottom-3 left-3 top-[86px] z-10 flex w-[300px] flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
-            {active.includes('housing_prices') && (
-              <Section
-                title="Housing choropleth"
-                open={collapse.isOpen('housing')}
-                onToggle={() => collapse.toggle('housing')}
-                summary={housingBusy ? '…' : options?.metrics?.[query.metric]?.label ?? ''}
-              >
-                <HousingControls
-                  options={options}
-                  query={query}
-                  onChange={(patch) => setQuery((q) => ({ ...q, ...patch }))}
-                  busy={housingBusy}
-                />
-                {housing && <Headline housing={housing} metric={query.metric} />}
-              </Section>
-            )}
-            <LayerPanel
-              catalog={catalog}
-              active={active}
-              loading={loading}
-              errors={errors}
-              opacity={opacity}
-              counts={counts}
-              onToggle={toggle}
-              onOpacity={(id, v) => setOpacity((o) => ({ ...o, [id]: v }))}
-              isOpen={collapse.isOpen}
-              onToggleSection={collapse.toggle}
-            />
-          </div>
-        </div>
+        <div
+          aria-hidden
+          onClick={() => setPanelOpen(false)}
+          className="absolute inset-0 z-20 bg-black/60 md:hidden"
+        />
       )}
+      <div
+        className={`blk sheet-in absolute inset-y-0 left-0 z-20 flex w-[min(88vw,320px)] flex-col
+                    overflow-hidden md:inset-y-auto md:left-3 md:top-[86px] md:z-10
+                    md:max-h-[calc(100%-6.5rem)] md:w-[300px]
+                    ${panelOpen ? 'translate-x-0' : '-translate-x-full md:hidden'}`}
+      >
+        {/* The drawer's own title bar: the HUD behind it is covered by the
+            scrim, so the way out has to be inside. */}
+        <div className="safe-t flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-black bg-black/40 px-3 pb-2.5 md:hidden">
+          <h2 className="pixel text-[9px] leading-none text-white">LAYERS</h2>
+          <button
+            onClick={() => setPanelOpen(false)}
+            aria-label="Close layers"
+            className="btn tap grid place-items-center px-2.5 py-2.5"
+          >
+            <Cross />
+          </button>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5 border-b-[3px] border-black px-3 py-2.5 md:hidden">
+          {BASEMAPS.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setBasemap(b.id)}
+              className={`btn pixel tap flex-1 px-1 py-2.5 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="safe-b flex-1 overflow-y-auto md:pb-0">
+          {active.includes('housing_prices') && (
+            <Section
+              title="Housing choropleth"
+              open={collapse.isOpen('housing')}
+              onToggle={() => collapse.toggle('housing')}
+              summary={housingBusy ? '…' : options?.metrics?.[query.metric]?.label ?? ''}
+            >
+              <HousingControls
+                options={options}
+                query={query}
+                onChange={(patch) => setQuery((q) => ({ ...q, ...patch }))}
+                busy={housingBusy}
+              />
+              {housing && <Headline housing={housing} metric={query.metric} />}
+            </Section>
+          )}
+          <LayerPanel
+            catalog={catalog}
+            active={active}
+            loading={loading}
+            errors={errors}
+            opacity={opacity}
+            counts={counts}
+            onToggle={toggle}
+            onOpacity={(id, v) => setOpacity((o) => ({ ...o, [id]: v }))}
+            isOpen={collapse.isOpen}
+            onToggleSection={collapse.toggle}
+          />
+        </div>
+      </div>
 
       {/* ── legend ──────────────────────────────────────────────────── */}
-      <div className={`pointer-events-none absolute bottom-3 z-10 ${panelOpen ? 'left-[324px]' : 'left-3'}`}>
+      <div className={`pointer-events-none absolute bottom-3 z-10 hidden md:block ${panelOpen ? 'left-[324px]' : 'left-3'}`}>
         <Legend
           breaks={housing?.breaks ?? null}
           metric={query.metric}
@@ -254,8 +367,36 @@ export default function Page() {
         />
       </div>
 
+      {/* A phone can't afford a permanent key over the map, so it folds into a
+          chip in the corner — and gets out of the way entirely while the
+          inspector sheet or the drawer is up. */}
+      {legendRows && !selection && !panelOpen && (
+        <div className="safe-b safe-x absolute inset-x-0 bottom-0 z-10 flex flex-col items-start gap-2 md:hidden">
+          {legendOpen && (
+            <div className="max-h-[46dvh] overflow-y-auto">
+              <Legend
+                breaks={housing?.breaks ?? null}
+                metric={query.metric}
+                options={options}
+                active={active}
+                areasWithData={housing?.meta?.areas_with_data}
+                totalAreas={housing?.meta?.areas}
+              />
+            </div>
+          )}
+          <button
+            onClick={() => setLegendOpen((v) => !v)}
+            aria-expanded={legendOpen}
+            className={`btn pixel tap px-3 py-2.5 text-[8px] ${legendOpen ? 'btn-on' : ''}`}
+          >
+            {legendOpen ? 'HIDE KEY' : 'KEY'}
+          </button>
+        </div>
+      )}
+
       {/* ── inspector ───────────────────────────────────────────────── */}
-      <div className="pointer-events-none absolute right-3 top-[86px] z-20">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40
+                      md:inset-x-auto md:bottom-auto md:right-3 md:top-[86px]">
         <Inspector
           selection={selection}
           catalog={catalog}
@@ -296,6 +437,20 @@ function Headline({ housing, metric }: { housing: Choropleth; metric: string }) 
       </span>
       <span className="pixel text-[8px] text-white">{typical}</span>
     </div>
+  )
+}
+
+/** A whole-pixel X, for the two dismiss buttons the phone layout adds. */
+function Cross() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" shapeRendering="crispEdges"
+         fill="currentColor" className="text-nes-ink2" aria-hidden>
+      <rect x="0" y="0" width="2" height="2" /><rect x="2" y="2" width="2" height="2" />
+      <rect x="4" y="4" width="2" height="2" /><rect x="6" y="2" width="2" height="2" />
+      <rect x="8" y="0" width="2" height="2" /><rect x="6" y="6" width="2" height="2" />
+      <rect x="8" y="8" width="2" height="2" /><rect x="2" y="6" width="2" height="2" />
+      <rect x="0" y="8" width="2" height="2" />
+    </svg>
   )
 }
 

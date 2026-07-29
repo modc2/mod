@@ -7,6 +7,10 @@ import type { Config } from 'tailwindcss'
  */
 const config: Config = {
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  // A touch screen holds :hover on the last thing tapped, so every `hover:`
+  // utility would otherwise leave a highlight stuck behind the finger. This
+  // compiles them all inside `@media (hover: hover)`.
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {
