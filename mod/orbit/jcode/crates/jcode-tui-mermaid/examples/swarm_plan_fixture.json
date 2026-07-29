@@ -1,0 +1,316 @@
+[
+ {
+  "content": "Make swarm plan/member persistence survive reboots. Incident: machine rebooted 2026-07-04 10:28 local; the entire 213-node deep plan + all member records vanished because swarm_persistence.rs state_dir() = storage::runtime_dir().join(\"jcode-swarm-state\") resolves to XDG_RUNTIME_DIR (/run/user/1000, tmpfs, wiped on reboot). Sessions themselves persist fine under ~/.jcode/sessions, so agents resumed but their plan context was gone (workers got 'not in the same swarm as requester'). Fix: move durable swarm state to a persistent location, e.g. jcode_dir()/swarm-state (~/.jcode/swarm-state), keeping JCODE_RUNTIME_DIR override for tests (swarm_persistence_tests.rs pins it via env). Include a one-time migration: on load, if the old runtime-dir path has state files and the new dir does not, copy them over. Consider write frequency (plans update often; ~/.jcode is on real disk; write_json_fast already used, fine). Update swarm_persistence_tests.rs env pinning if the base helper changes. Files: crates/jcode-app-core/src/server/swarm_persistence.rs (state_dir ~line 64), crates/jcode-storage/src/lib.rs (add a state helper if cleaner). cargo check + swarm_persistence tests pass. Commit with focused message and push. Report + complete_node with full artifact.",
+  "status": "completed",
+  "priority": "medium",
+  "id": "swarm-durable-persistence",
+  "assigned_to": "session_hamster_1783186745546_94b9cfdce621bca3"
+ },
+ {
+  "content": "Final plan-wide verify: run the acceptance checks for the whole plan's declared scope (build, tests, lint) across everything the plan changed. If anything fails, inject fix nodes; the plan cannot finish until they drain.",
+  "status": "queued",
+  "priority": "high",
+  "id": "plan::gate",
+  "blocked_by": [
+   "swarm-durable-persistence",
+   "haiku-terminal",
+   "haiku-rust",
+   "haiku-combine",
+   "fix-haiku-terminal",
+   "fix-haiku-rust",
+   "fix-swarm-member-task-label-tests",
+   "wiring-audit",
+   "render-probe",
+   "visual-quality",
+   "fix-implement",
+   "post-fix-verify"
+  ]
+ },
+ {
+  "content": "Write a haiku about terminals to /tmp/swarm-diagram-test/terminal.txt",
+  "status": "completed",
+  "priority": "high",
+  "id": "haiku-terminal",
+  "assigned_to": "session_elephant_1783198435482_f52a719417e35cff"
+ },
+ {
+  "content": "Write a haiku about rust compilers to /tmp/swarm-diagram-test/rust.txt",
+  "status": "completed",
+  "priority": "high",
+  "id": "haiku-rust",
+  "assigned_to": "session_wyvern_1783198435439_db7544484f4121bd"
+ },
+ {
+  "content": "Combine both haikus into /tmp/swarm-diagram-test/combined.txt with a title line",
+  "status": "completed",
+  "priority": "high",
+  "id": "haiku-combine",
+  "blocked_by": [
+   "haiku-terminal",
+   "haiku-rust"
+  ],
+  "assigned_to": "session_fox_1783198457023_0b44812ef4d56089"
+ },
+ {
+  "content": "Fix terminal.txt haiku to follow proper 5-7-5 syllable structure. Current: 5-7-6. Must be exactly 5-7-5.",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-haiku-terminal",
+  "assigned_to": "session_elephant_1783198435482_f52a719417e35cff"
+ },
+ {
+  "content": "Fix rust.txt haiku to follow proper 5-7-5 syllable structure. Current: 6-9-6. Must be exactly 5-7-5.",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-haiku-rust",
+  "assigned_to": "session_hamster_1783186745546_94b9cfdce621bca3"
+ },
+ {
+  "content": "Add missing task_label field to all SwarmMember struct initializers in test code. The new task_label field (Option<String>) was added to SwarmMember in state.rs but test initializers in swarm_persistence_tests.rs (lines 77 and 507) and tests.rs (lines 201 and 230) were not updated. This causes compilation errors: 'missing field `task_label` in initializer of `state::SwarmMember`'. Fix all instances by adding task_label: None or task_label: Some(...) as appropriate for the test context.",
+  "status": "queued",
+  "priority": "high",
+  "id": "fix-swarm-member-task-label-tests",
+  "blocked_by": [
+   "fix-swarm-persistence-tests",
+   "fix-tests-rs",
+   "fix-client-actions-tests",
+   "fix-client-comm-tests",
+   "fix-client-session-tests",
+   "fix-comm-control-tests",
+   "fix-comm-plan-tests",
+   "fix-comm-session-tests",
+   "fix-debug-tests",
+   "fix-reload-tests",
+   "fix-replay-tests",
+   "fix-other-prod-files",
+   "fix-tool-communicate-tests",
+   "fix-swarm-member-task-label-tests::gate",
+   "fix-busy-live-attach-mcp-deadlock"
+  ]
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in swarm_persistence_tests.rs at lines 77 and 507",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-swarm-persistence-tests",
+  "assigned_to": "session_dromedary_1783199147997_d09bd15294f79c41"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in tests.rs at lines 201 and 230",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-tests-rs",
+  "assigned_to": "session_rat_1783199148044_52fc11ff6ff25fc5"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in client_actions_tests.rs at lines 184, 289, 389, 504, 588",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-client-actions-tests",
+  "assigned_to": "session_giraffe_1783199147618_e8f4e6b4748a312c"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in client_comm_tests.rs at lines 69, 92, 229, 252, 378, 401, 482, 505, 613, 636, 659",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-client-comm-tests",
+  "assigned_to": "session_zebra_1783199147645_2457beea97eec936"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in client_session_tests.rs and subdirs (reload.rs:316,339 and resume/live_events_before_history.rs:51 and client_session_tests.rs:28)",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-client-session-tests",
+  "assigned_to": "session_hamster_1783199147688_8fa34a84b95fe291"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in comm_control_tests.rs at line 55",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-comm-control-tests",
+  "assigned_to": "session_llama_1783199147731_220be1acda7bd138"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in comm_plan_tests.rs at line 52",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-comm-plan-tests",
+  "assigned_to": "session_lion_1783199147778_584891cd46cd04f4"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in comm_session_tests.rs at line 52",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-comm-session-tests",
+  "assigned_to": "session_humpback_1783199147805_6db1a8794d4b5c96"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in debug_tests.rs at line 115",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-debug-tests",
+  "assigned_to": "session_blowfish_1783199147842_e0d1211e6fe321a4"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in reload_tests.rs at line 24",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-reload-tests",
+  "assigned_to": "session_parrot_1783199147910_ce89fbfe3c5e0c32"
+ },
+ {
+  "content": "Add task_label: None to SwarmMemberStatus initializers in replay/tests.rs at lines 245, 316, 384",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-replay-tests",
+  "assigned_to": "session_calf_1783199147953_1e4fc5d895d8c7b7"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in client_comm_context.rs:296 and swarm.rs:1619",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-other-prod-files",
+  "assigned_to": "session_giraffe_1783199147877_ff4ce3e4b80a82de"
+ },
+ {
+  "content": "Add task_label: None to SwarmMember initializers in tool/communicate_tests/input_format.rs:227",
+  "status": "completed",
+  "priority": "high",
+  "id": "fix-tool-communicate-tests",
+  "assigned_to": "session_mouse_1783199148082_25488069e1939da1"
+ },
+ {
+  "content": "Verify the work of 'fix-swarm-member-task-label-tests': run the declared acceptance checks (build, tests, lint). If anything fails, emit fix nodes back into the graph; do not pass until they drain.",
+  "status": "queued",
+  "priority": "high",
+  "id": "fix-swarm-member-task-label-tests::gate",
+  "blocked_by": [
+   "fix-swarm-persistence-tests",
+   "fix-tests-rs",
+   "fix-client-actions-tests",
+   "fix-client-comm-tests",
+   "fix-client-session-tests",
+   "fix-comm-control-tests",
+   "fix-comm-plan-tests",
+   "fix-comm-session-tests",
+   "fix-debug-tests",
+   "fix-reload-tests",
+   "fix-replay-tests",
+   "fix-other-prod-files",
+   "fix-tool-communicate-tests",
+   "fix-busy-live-attach-mcp-deadlock"
+  ]
+ },
+ {
+  "content": "Fix a deadlock in handle_resume_session (crates/jcode-app-core/src/server/client_session.rs ~line 1083): commit a0a4b876 (issue #420) added `let agent_guard = live_target_agent.lock().await;` in the live-attach path to resolve mcp_working_dir. When the target agent is busy (lock held, e.g. mid-turn), resume hangs forever. This deterministically hangs test server::client_session::tests::resume_tests::handle_resume_session_allows_live_attach_when_existing_agent_is_busy (crates/jcode-app-core/src/server/client_session_tests/resume/busy_existing_attach.rs), which holds the agent lock via _busy_guard, and it blocks the whole jcode-app-core test suite from finishing. Fix: do not block on the agent lock there. Use try_lock() for the working dir and fall back to crate::session::Session::load_startup_stub(&session_id).ok().and_then(|s| s.working_dir...) or None (matching the is_canary fallback pattern a few lines above at ~line 1049), or resolve the working dir from the earlier try_lock. Verify: `timeout 120 cargo test -p jcode-app-core --lib server::client_session::tests::resume_tests -- ` completes with all tests ok (especially handle_resume_session_allows_live_attach_when_existing_agent_is_busy), and cargo check -p jcode-app-core --all-targets stays clean. Note this is a pre-existing bug unrelated to the task_label work, discovered by the verify gate. Commit the fix.",
+  "status": "running",
+  "priority": "high",
+  "id": "fix-busy-live-attach-mcp-deadlock",
+  "assigned_to": "session_kangaroo_1783208916188_376cae3200e8c350"
+ },
+ {
+  "content": "Audit when the swarm plan mermaid graph renders (repo /home/jeremy/jcode). Trace the full path: plan mutations -> broadcast_swarm_plan (crates/jcode-app-core/src/server/swarm.rs:695-798) -> ServerEvent::SwarmPlan -> TUI handler (crates/jcode-tui/src/tui/app/remote/server_events.rs:2064-2110) -> upsert_trailing_swarm_plan_graph_message (crates/jcode-tui/src/tui/app/state_ui_messages.rs:159-181) -> render_swarm_message (crates/jcode-tui/src/tui/ui_messages.rs:1733) -> markdown/mermaid deferred pipeline. Find every case where a plan update should show/refresh a diagram but does not: (1) JCODE_ENABLE_MERMAID gating and image-protocol-unavailable fallback (what shows in tmux/no-kitty: raw mermaid source wall of text?), (2) session resume/attach/replay: is the plan graph re-emitted from persisted state or catchup, or lost until next version bump?, (3) worker/child sessions vs coordinator: who receives the broadcast, (4) the rposition-based coalescing: during an active run (DMs/reports interleaving), does every version bump append a NEW diagram message causing transcript spam (persisted plan reached v75), and does the coalesced message correctly re-render when content is replaced (replace_display_message_title_and_content cache invalidation)?, (5) does anything set PlanItem.status='blocked' ever (grep the scheduler), or is the blocked classDef dead code because engine statuses are only queued/running/completed/failed (see crates/jcode-plan/src/bridge.rs status_to_plan)? Also confirm whether ServerEvent::SwarmPlan carries node_meta (kind/is_gate) or only items, and the id conventions for engine-generated gate nodes (grep ::gate in crates/jcode-plan/src/dag*). Read-only: do NOT edit files. Report findings with file:line evidence.",
+  "status": "queued",
+  "priority": "high",
+  "id": "wiring-audit",
+  "blocked_by": [
+   "wiring-audit.mermaid-gating",
+   "wiring-audit.resume-replay",
+   "wiring-audit.broadcast-recipients",
+   "wiring-audit.coalescing-spam",
+   "wiring-audit.blocked-status",
+   "wiring-audit.event-payload-gates",
+   "wiring-audit::gate"
+  ]
+ },
+ {
+  "content": "Stress-test the swarm plan mermaid generator + renderer with realistic data (repo /home/jeremy/jcode). The generator is crates/jcode-tui/src/tui/swarm_plan_graph.rs (swarm_plan_mermaid). Real deep-mode plan data: ~/.jcode/state/swarm/_home_jeremy_jcode__git.json (plan.items has 23 items incl. two is_gate verify nodes, one with 15 blocked_by deps, statuses queued/completed). Build the exact mermaid source that swarm_plan_mermaid would emit for that plan (port the logic faithfully or add a #[cfg(test)] test in that file that loads a fixture) and render it through the REAL pipeline: extend crates/jcode-tui-mermaid/examples/plan_graph_probe.rs or write a test using jcode_tui_mermaid::render_mermaid_untracked(src, Some(100)) with --features renderer. Probe matrix: (a) the real 23-node plan, (b) 30-node truncation case with the disconnected 'more' summary node, (c) labels at exactly MAX_LABEL_CHARS with unicode glyphs, (d) hostile label chars surviving sanitize_label: backtick, backslash, #, %, &, <, >, |, semicolon, parens (mermaid quoted-string hazards), (e) duplicate sanitized ids (a-1 vs a_1 both -> t_a_1) and self-dependency, (f) an item whose id is exactly 'more' colliding with the summary node. Report which inputs fail (RenderResult::Error) or produce wrong graphs, with the offending mermaid line. Use scripts/dev_cargo.sh for cargo to respect the compile lock; keep builds targeted (-p jcode-tui-mermaid). You may add test/example code but do NOT change production logic.",
+  "status": "running",
+  "priority": "high",
+  "id": "render-probe",
+  "assigned_to": "session_goat_1783208916224_0f4b6304aed96543"
+ },
+ {
+  "content": "Assess visual quality of the swarm plan-graph diagram in the live TUI (repo /home/jeremy/jcode). Use the debug socket (jcode debug ... or the debug_socket tool): spawn a tester instance (tester:spawn), inject a swarm-role display message whose content is a ```mermaid fence containing the plan-graph source (generate with the exact logic of crates/jcode-tui/src/tui/swarm_plan_graph.rs::swarm_plan_mermaid) via tester:<id>:inject:swarm:<text> or client:inject, then capture tester:<id>:frame and client:mermaid:stats. Test with: the real 23-node deep plan from ~/.jcode/state/swarm/_home_jeremy_jcode__git.json (15-dep fan-in into a gate node), and a small 5-node plan. Evaluate: (1) readability of flowchart TD with a 15-edge fan-in at ~100-col terminal width (would LR read better? is the image so tall/squished it is illegible?), (2) status palette legibility on dark bg (done green/active amber/failed red/blocked orange/pending gray as defined in classDefs), (3) gate/verify nodes look identical to normal tasks (no distinct shape like hexagon or thicker stroke) - is that confusing?, (4) the truncated 'more' node floats disconnected, (5) label glyphs (checkmark/play/x/pause/dot) render ok in the rasterized SVG, (6) assignee suffix '@name' readability. Produce concrete, prioritized recommendations (e.g. switch to LR when max fan-in > N, hexagon shape for gate ids ending in ::gate, cap edges per node with an aggregated edge). Read-only for production code.",
+  "status": "running",
+  "priority": "high",
+  "id": "visual-quality",
+  "assigned_to": "session_penguin_1783208916256_789146d2d4bd759f"
+ },
+ {
+  "content": "Implement the fixes for the swarm plan mermaid graph in repo /home/jeremy/jcode based on the artifacts of wiring-audit, render-probe, and visual-quality (hydrated below). Primary file: crates/jcode-tui/src/tui/swarm_plan_graph.rs (generator) plus, if the audits found wiring gaps, crates/jcode-tui/src/tui/app/remote/server_events.rs and state_ui_messages.rs. Expected fixes (adjust to actual findings): distinct visual treatment for gate nodes (ids ending in ::gate) such as hexagon {{label}} + its own classDef; better layout for wide fan-ins (e.g. direction heuristic TD vs LR based on fan-in/graph shape); derive blocked styling for queued items with unmet deps so pending vs blocked is visible; fix any label chars that break the renderer per render-probe; fix the disconnected truncation node; fix any coalescing/spam or re-render staleness bugs found by wiring-audit (keep the fix minimal and well-commented). Extend the unit tests in swarm_plan_graph.rs to cover each fix. Run: scripts/dev_cargo.sh test -p jcode-tui swarm_plan_graph (plus any touched crate tests) and cargo check for touched crates. Keep edits tightly scoped to the plan-graph feature; other agents have unrelated uncommitted changes in the repo, do NOT touch or revert their files. Commit only your files with a focused message like 'fix(tui): improve swarm plan mermaid graph rendering'.",
+  "status": "queued",
+  "priority": "high",
+  "id": "fix-implement",
+  "blocked_by": [
+   "wiring-audit",
+   "render-probe",
+   "visual-quality"
+  ]
+ },
+ {
+  "content": "Verify the swarm plan mermaid graph fixes in repo /home/jeremy/jcode (see fix-implement artifact for what changed). (1) Run scripts/dev_cargo.sh test -p jcode-tui swarm_plan_graph and the jcode-tui-mermaid probe (cargo run -p jcode-tui-mermaid --features renderer --example plan_graph_probe) and confirm all pass. (2) Re-render the real 23-node deep plan from ~/.jcode/state/swarm/_home_jeremy_jcode__git.json through the updated generator and confirm RenderResult::Image with sane dimensions. (3) Spawn a debug-socket tester, inject the updated plan-graph swarm message, capture the frame, and confirm the diagram placeholder/image lines appear in the transcript with the rail chrome intact and gate nodes visually distinct per the new styling. (4) Confirm the unit tests actually assert the new behaviors (gate shape, blocked derivation, direction heuristic) rather than trivially passing. Report pass/fail per check with command output evidence.",
+  "status": "queued",
+  "priority": "high",
+  "id": "post-fix-verify",
+  "blocked_by": [
+   "fix-implement"
+  ]
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: trace how the swarm plan mermaid diagram is gated and what fallback renders when mermaid/image protocol is unavailable. Start at render_swarm_message (crates/jcode-tui/src/tui/ui_messages.rs:1733) and follow the markdown/mermaid deferred pipeline. Find: (a) every JCODE_ENABLE_MERMAID check (grep JCODE_ENABLE_MERMAID) and default value, (b) image-protocol detection (kitty/iterm/sixel) and what happens in tmux or a terminal without image support: does the user see rendered ASCII, a placeholder, or a raw ```mermaid source wall of text?, (c) whether the swarm plan graph message is special-cased or goes through generic markdown rendering. Report findings with file:line evidence. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.mermaid-gating",
+  "assigned_to": "session_orangutan_1783208946500_8d769813f70911ab"
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: determine whether the swarm plan graph survives session resume/attach/replay. The live path is broadcast_swarm_plan (crates/jcode-app-core/src/server/swarm.rs:695-798) -> ServerEvent::SwarmPlan -> TUI handler (crates/jcode-tui/src/tui/app/remote/server_events.rs:2064-2110) -> upsert_trailing_swarm_plan_graph_message (crates/jcode-tui/src/tui/app/state_ui_messages.rs:159-181). Check: (a) is SwarmPlan persisted or re-emitted during session catchup/replay/attach (search server catchup/replay code for SwarmPlan), (b) on TUI reconnect or jcode resume, does the plan graph message reappear from persisted messages or is it lost until the next plan version bump, (c) is the upsert message persisted to the session transcript at all? Report with file:line evidence. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.resume-replay",
+  "assigned_to": "session_camel_1783208946538_2154fa9c6a4890ac"
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: determine who receives SwarmPlan broadcasts. Read broadcast_swarm_plan in crates/jcode-app-core/src/server/swarm.rs:695-798 and all its call sites (every plan mutation path: run_plan, assign_task, complete_node, expand_node, task reports, etc). Answer: (a) is the ServerEvent::SwarmPlan sent to all connected clients, only the coordinator session, or also worker/child sessions, (b) how is the target session id chosen and can a worker's TUI ever render the plan graph, (c) are any plan mutation paths missing a broadcast_swarm_plan call (list mutation sites that do NOT broadcast)? Report with file:line evidence. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.broadcast-recipients",
+  "assigned_to": "session_rooster_1783208946374_f2ed3217357e9fe1"
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: audit upsert_trailing_swarm_plan_graph_message in crates/jcode-tui/src/tui/app/state_ui_messages.rs:159-181 and its rposition-based coalescing. Answer: (a) exactly when does it coalesce (replace trailing message) vs append a NEW message: if DMs/reports/other messages interleave after the plan graph message during an active run, does every plan version bump append a new diagram message causing transcript spam (persisted plans reach v75+)?, (b) when it replaces content via replace_display_message_title_and_content (or similar), is the render/layout/mermaid cache invalidated so the diagram re-renders with new content (check message cache keying: is it keyed by message id, content hash, index?), (c) any dedup by plan version. Report with file:line evidence. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.coalescing-spam",
+  "assigned_to": "session_rooster_1783208946420_2c00d9a033735ae2"
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: determine whether PlanItem.status='blocked' is ever set anywhere (scheduler, plan engine, swarm server), or whether the 'blocked' classDef in the swarm plan mermaid graph is dead code. Check crates/jcode-plan/src/bridge.rs status_to_plan (engine statuses queued/running/completed/failed?), grep for \"blocked\" across crates/jcode-plan, crates/jcode-app-core/src/server/swarm.rs, and anywhere PlanItem status is assigned. Also check TUI-side classification of statuses when building the mermaid graph. Report with file:line evidence whether blocked is reachable. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.blocked-status",
+  "assigned_to": "session_chicken_1783208946337_db08fe4c515ae64c"
+ },
+ {
+  "content": "Read-only audit in /home/jeremy/jcode: (a) inspect the ServerEvent::SwarmPlan variant definition (grep SwarmPlan in protocol/event definitions) and confirm whether it carries node metadata (kind, is_gate) or only plan items (id/content/status), and what the TUI handler at crates/jcode-tui/src/tui/app/remote/server_events.rs:2064-2110 consumes; (b) document the id conventions for engine-generated gate nodes: grep '::gate' and gate-node creation in crates/jcode-plan/src/dag*.rs (e.g. ids like '<node>::gate'), and how/whether the TUI could distinguish gate nodes from ids alone. Report with file:line evidence. Do NOT edit files.",
+  "status": "running",
+  "priority": "high",
+  "id": "wiring-audit.event-payload-gates",
+  "assigned_to": "session_fish_1783208946456_17da7b672d8f7122"
+ },
+ {
+  "content": "Critique the work of 'wiring-audit' adversarially. Read every child's 'what_i_did_not_check' and find unexplored gaps given this task's stated scope. For each gap, emit a new child node; do not pass until no gaps remain.",
+  "status": "queued",
+  "priority": "high",
+  "id": "wiring-audit::gate",
+  "blocked_by": [
+   "wiring-audit.mermaid-gating",
+   "wiring-audit.resume-replay",
+   "wiring-audit.broadcast-recipients",
+   "wiring-audit.coalescing-spam",
+   "wiring-audit.blocked-status",
+   "wiring-audit.event-payload-gates"
+  ]
+ }
+]
