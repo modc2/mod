@@ -11,6 +11,11 @@ modules to sleep when idle and wakes them on demand.
   port is down the activator `pm2 start`s the matching procs, waits for the port,
   then reverse-proxies (http + websocket upgrades). First hit pays a cold-start.
 - **Pinned modules** (`ACTIVATOR_PIN`, default `web,claude`) never sleep.
+- **OOM guard:** when `MemAvailable` drops below `MIN_FREE_MB` (or a wake would
+  exceed `MAX_RUNNING` concurrent apps), the least-recently-used managed modules
+  are stopped until the box has headroom again — a cold-start on the next hit
+  beats the kernel OOM killer picking a victim. Idle (0-connection) modules go
+  first; busy ones are only evicted for memory pressure, never for the cap.
 
 Only modules whose pm2 procs live under `~/mod/mod/{orbit,core}/<mod>` are
 eligible. Docker-hosted modules (Caddy points them at container names, not
@@ -25,6 +30,8 @@ eligible. Docker-hosted modules (Caddy points them at container names, not
 | `SWEEP_SECONDS` | 60 | how often the idle sweep runs |
 | `WAKE_TIMEOUT_MS` | 30000 | how long to wait for a woken port |
 | `ACTIVATOR_PIN` | web,claude | csv of modules that never sleep |
+| `MIN_FREE_MB` | 1500 | OOM guard: keep MemAvailable above this; below it the LRU managed modules are stopped (0 = off) |
+| `MAX_RUNNING` | 0 | cap on concurrently running unpinned managed modules; waking one more evicts the LRU first (0 = uncapped) |
 
 ## Going live (gateway cutover)
 
