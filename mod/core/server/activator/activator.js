@@ -41,22 +41,32 @@ const PIN = new Set((process.env.ACTIVATOR_PIN || "claude").split(",").map((s) =
 const MANAGED = new Set((process.env.ACTIVATOR_MANAGED || "").split(",").map((s) => s.trim()).filter(Boolean));
 
 // ── host overrides (the host owns this machine; manual control beats automation)
-// ~/.mod/activator/overrides.json = { "disabled": [...], "pinned": [...] }
-//   disabled → kept STOPPED; the activator refuses to wake it (503) until the
-//              host re-enables it. "I want this off" actually stays off.
-//   pinned   → never slept (on top of the env PIN). "I want this always on."
+// ~/.mod/activator/overrides.json = { "disabled": [...], "pinned": [...], "idleSeconds": N }
+//   disabled    → kept STOPPED; the activator refuses to wake it (503) until the
+//                 host re-enables it. "I want this off" actually stays off.
+//   pinned      → never slept (on top of the env PIN). "I want this always on."
+//   idleSeconds → the person's idle timeout; beats the env IDLE_MINUTES default.
 // Hot-reloaded every sweep + on each control call, so host edits take effect live.
 const OVERRIDES_PATH = path.join(HOME, ".mod", "activator", "overrides.json");
-let overrides = { disabled: [], pinned: [] };
+const IDLE_SECONDS_MIN = 10, IDLE_SECONDS_MAX = 86400;
+let overrides = { disabled: [], pinned: [], idleSeconds: null };
 function loadOverrides() {
   try {
     const o = JSON.parse(fs.readFileSync(OVERRIDES_PATH, "utf8"));
     overrides = {
       disabled: Array.isArray(o.disabled) ? o.disabled : [],
       pinned: Array.isArray(o.pinned) ? o.pinned : [],
+      idleSeconds: clampIdle(o.idleSeconds),
     };
-  } catch { overrides = { disabled: [], pinned: [] }; }
+  } catch { overrides = { disabled: [], pinned: [], idleSeconds: null }; }
 }
+function clampIdle(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(IDLE_SECONDS_MIN, Math.min(IDLE_SECONDS_MAX, n));
+}
+// Effective idle threshold right now (overrides beat env, hot-reloaded).
+const idleMsNow = () => (overrides.idleSeconds ? overrides.idleSeconds * 1000 : IDLE_MS);
 function saveOverrides() {
   try {
     fs.mkdirSync(path.dirname(OVERRIDES_PATH), { recursive: true });
@@ -278,17 +288,20 @@ async function sweep() {
       }
       if (isPinned(mod)) continue; // host/env wants it always on
       const idleFor = now() - (lastAccess[mod] || 0);
-      if (idleFor < IDLE_MS) continue;
+      if (idleFor < idleMsNow()) continue;
       const conns = establishedConns(info.apiPort) + establishedConns(info.appPort);
       if (conns > 0) { lastAccess[mod] = now(); continue; } // still in use — keep alive
       const procs = pm2NamesFor(info.dir).filter((p) => p.status === "online");
       if (!procs.length) continue;
-      log(`idle ${mod}: ${Math.round(idleFor / 60000)}m, 0 conns → stopping ${procs.map((p) => p.name).join(", ")}`);
+      log(`idle ${mod}: ${Math.round(idleFor / 1000)}s, 0 conns → stopping ${procs.map((p) => p.name).join(", ")}`);
       for (const p of procs) await pm2("stop", p.name);
     }
   } catch (e) { log("sweep error", e.message); }
 }
-setInterval(sweep, SWEEP_MS);
+// Self-rescheduling so short idle timeouts fire close to on-time: sweep at a
+// quarter of the threshold (min 5s), never slower than the env SWEEP cadence.
+const sweepDelay = () => Math.max(5000, Math.min(SWEEP_MS, idleMsNow() / 4));
+(function sweepLoop() { setTimeout(async () => { await sweep(); sweepLoop(); }, sweepDelay()); })();
 
 // ── host control plane ────────────────────────────────────────────────────────
 // The host owns this machine, so manual control must beat the automation. Bound
@@ -333,7 +346,14 @@ async function handleControl(req, res) {
 
   const urlPath = req.url.split("?")[0];
   if (req.method === "GET" && urlPath === "/_activator/state") {
-    return send(200, { idleMinutes: IDLE_MS / 60000, pinned: [...PIN], overrides, modules: await buildState() });
+    return send(200, {
+      idleSeconds: idleMsNow() / 1000,
+      idleSource: overrides.idleSeconds ? "overrides" : "env",
+      defaultIdleSeconds: IDLE_MS / 1000,
+      sweepSeconds: sweepDelay() / 1000,
+      idleMinutes: idleMsNow() / 60000,
+      pinned: [...PIN], overrides, modules: await buildState(),
+    });
   }
   if (req.method === "POST" && urlPath === "/_activator/control") {
     let body = "";
@@ -342,6 +362,17 @@ async function handleControl(req, res) {
       let p;
       try { p = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad json" }); }
       const mod = p.module, action = p.action;
+      // "set" is fleet-wide (no module): the person picks the idle timeout.
+      if (action === "set") {
+        const secs = clampIdle(p.idleSeconds);
+        if (secs === null && p.idleSeconds !== null) {
+          return send(400, { error: `idleSeconds must be ${IDLE_SECONDS_MIN}-${IDLE_SECONDS_MAX}, or null to reset to the env default` });
+        }
+        overrides.idleSeconds = secs;
+        saveOverrides();
+        log(`control: set idleSeconds=${secs === null ? `null (env default ${IDLE_MS / 1000}s)` : secs}`);
+        return send(200, { ok: true, idleSeconds: idleMsNow() / 1000, idleSource: secs === null ? "env" : "overrides" });
+      }
       if (!mod || !REGISTRY[mod]) return send(404, { error: `unknown module '${mod}'` });
       if (MANAGED.size && !MANAGED.has(mod)) return send(400, { error: `${mod} is not activator-managed` });
       const port = REGISTRY[mod].appPort || REGISTRY[mod].apiPort;
