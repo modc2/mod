@@ -114,7 +114,10 @@ class Mod:
             raise OSError(f"no free port in range {self.port}-{self.port + 25}")
 
         if multiplayer:
-            self._start_relay(self.port + 1)
+            # Relay port is browser-discovered via /ws-discovery, so it needs no
+            # stable number. port+1 used to land on 8800 and squat chain's API
+            # port at boot — scan far above the fleet's declared-port space.
+            self._start_relay(self.port + 50000)
 
         if background:
             self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
