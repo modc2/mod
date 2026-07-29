@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   buildModToken,
   connectMetaMask,
@@ -143,6 +145,13 @@ const PowerIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
     <path d="M12 3v8" />
     <path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0" />
+  </svg>
+);
+
+const BookIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17.5H6.5A2.5 2.5 0 0 0 4 22V4.5Z" />
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
   </svg>
 );
 
@@ -562,6 +571,10 @@ export default function Page() {
             />
           )}
           <div className="identity">
+            <Link href="/docs" className="ghost icon" title="Documentation">
+              <BookIcon />
+            </Link>
+            <ThemeToggle />
             {!hasWallet && !token && (
               <span className="id-chip idle">
                 <span className="dot warn" />
@@ -876,6 +889,7 @@ export default function Page() {
                     <span className="muted"> {copied === `pin-${p.cid}` ? "✓ copied" : "⧉"}</span>
                   </button>
                   <div className="row">
+                    <Link href={`/o/${encodeURIComponent(p.cid)}`} className="btn-link">open</Link>
                     <button onClick={() => setContentFor({ cid: p.cid, backend: p.backend } as StoredObject)} disabled={!!busy}>view</button>
                     <button onClick={() => setInfoFor(p.cid)} disabled={!!busy}>info</button>
                     <button onClick={async () => { await api.unpin(token, p.cid, p.backend); refreshPins(token); }} disabled={!!busy}>unpin</button>
@@ -1230,6 +1244,7 @@ function ObjectRow({
           </button>
         )}
         <div className="row actions">
+          <Link href={`/o/${encodeURIComponent(o.cid)}`} className="btn-link" title="Open this object's page">open</Link>
           <button onClick={onView} disabled={busy}>view</button>
           <button onClick={onTicket} disabled={busy} title="One-time QR / link for your phone">📱 QR</button>
           <a href={api.getUrl(o.cid, o.backend, priv ? token : null)} target="_blank" rel="noreferrer">download</a>
@@ -1542,7 +1557,10 @@ function InfoModal({
 
   return (
     <Modal title="Object info" onClose={onClose}>
-      <p className="muted cid" style={{ marginTop: 0 }}>{cid}</p>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <p className="muted cid" style={{ margin: 0, flex: 1 }}>{cid}</p>
+        <Link href={`/o/${encodeURIComponent(cid)}`} className="btn-link">full page ↗</Link>
+      </div>
       {err && <p className="error-box">{err}</p>}
       {!info && !err && <p className="muted">loading…</p>}
       {info && (
@@ -1631,7 +1649,7 @@ function CidGraph({
     const y = 10 + i * rowH + rowH / 2;
     return (
       <g key={n.cid} transform={`translate(${x},${y})`}>
-        <line x1={col === "out" ? 100 : -100} y1="0" x2={col === "out" ? 0 : 0} y2="0" stroke="#2a2a2a" />
+        <line className="graph-edge" x1={col === "out" ? 100 : -100} y1="0" x2={col === "out" ? 0 : 0} y2="0" />
         <foreignObject x={col === "out" ? -10 : -190} y={-16} width="200" height="32">
           <button
             className="graph-node"
@@ -1651,7 +1669,7 @@ function CidGraph({
       <svg width="100%" viewBox={`0 0 ${colW * 2} ${height}`} height={height}>
         {links.out.map((n, i) => node(n, i, "out"))}
         {links.in.map((n, i) => node(n, i, "in"))}
-        <line x1="100" y1={midY + 10} x2={colW * 2 - 100} y2={midY + 10} stroke="#2a2a2a" strokeDasharray="3,3" />
+        <line className="graph-edge" x1="100" y1={midY + 10} x2={colW * 2 - 100} y2={midY + 10} strokeDasharray="3,3" />
         <foreignObject x={colW - 90} y={midY - 6} width="180" height="32">
           <div className="graph-node self" title={cid}>{shortCid(cid)}</div>
         </foreignObject>
@@ -2252,7 +2270,9 @@ function MarketCard({
             <QRCodeSVG value={dropUrl} size={30} level="L" />
           </button>
         </div>
-        <h3 className="mk-title" title={l.title}>{l.title}</h3>
+        <h3 className="mk-title" title={l.title}>
+          <Link href={`/o/${encodeURIComponent(l.cid)}`} className="mk-title-link">{l.title}</Link>
+        </h3>
         {l.description && <p className="mk-desc">{l.description}</p>}
         {l.tags.length > 0 && (
           <div className="mk-tags">
