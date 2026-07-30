@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import {
-  api, type Catalog, type Choropleth, type HousingQuery, type Options,
+  api, type Catalog, type Choropleth, type CrimeQuery, type Options,
 } from '@/lib/api'
-import { usd } from '@/lib/format'
-import HousingControls from './components/HousingControls'
+import { count, percent, rate } from '@/lib/format'
+import CrimeControls from './components/CrimeControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
 import Legend from './components/Legend'
@@ -37,19 +37,19 @@ export default function Page() {
   const [layerData, setLayerData] = useState<Record<string, GeoJSON.FeatureCollection>>({})
   const [loading, setLoading] = useState<string[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [housing, setHousing] = useState<Choropleth | null>(null)
-  const [housingBusy, setHousingBusy] = useState(false)
+  const [crime, setCrime] = useState<Choropleth | null>(null)
+  const [crimeBusy, setCrimeBusy] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<Basemap>('dark')
   const [panelOpen, setPanelOpen] = useState(true)
   const [flyTo, setFlyTo] = useState<{ lng: number; lat: number; zoom?: number; nonce: number } | null>(null)
   const [boot, setBoot] = useState<string | null>(null)
 
-  const [query, setQuery] = useState<HousingQuery>({
-    metric: 'median_price',
-    geography: 'nta',
-    since: '2024-01-01',
-    property_type: 'residential',
+  const [query, setQuery] = useState<CrimeQuery>({
+    metric: 'incidents',
+    geography: 'neighbourhood',
+    since: '2025-01-01',
+    category: 'all',
   })
 
   // ── boot ────────────────────────────────────────────────────────────────
@@ -63,29 +63,29 @@ export default function Page() {
       .catch((e) => setBoot(String(e.message || e)))
   }, [])
 
-  // ── housing choropleth ──────────────────────────────────────────────────
+  // ── crime choropleth ────────────────────────────────────────────────────
   const queryKey = JSON.stringify(query)
   useEffect(() => {
-    if (!active.includes('housing_prices')) return
+    if (!active.includes('crime')) return
     let alive = true
-    setHousingBusy(true)
-    api.housing(query)
-      .then((fc) => { if (alive) { setHousing(fc); setErrors((e) => omit(e, 'housing_prices')) } })
-      .catch((e) => { if (alive) setErrors((er) => ({ ...er, housing_prices: msg(e) })) })
-      .finally(() => { if (alive) setHousingBusy(false) })
+    setCrimeBusy(true)
+    api.crime(query)
+      .then((fc) => { if (alive) { setCrime(fc); setErrors((e) => omit(e, 'crime')) } })
+      .catch((e) => { if (alive) setErrors((er) => ({ ...er, crime: msg(e) })) })
+      .finally(() => { if (alive) setCrimeBusy(false) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, active.includes('housing_prices')])
+  }, [queryKey, active.includes('crime')])
 
   // ── overlay fetching, one request per layer, cached in state ────────────
   const inflight = useRef<Set<string>>(new Set())
   useEffect(() => {
     for (const id of active) {
-      if (id === 'housing_prices' || layerData[id] || inflight.current.has(id)) continue
+      if (id === 'crime' || layerData[id] || inflight.current.has(id)) continue
       inflight.current.add(id)
       setLoading((l) => [...l, id])
-      const fetcher = id === 'sales'
-        ? api.sales({ since: query.since, property_type: query.property_type, limit: 12000 })
+      const fetcher = id === 'incidents'
+        ? api.incidents({ since: query.since, category: query.category, limit: 15000 })
         : api.layer(id)
       fetcher
         .then((fc) => {
@@ -101,11 +101,11 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
 
-  // The sales layer depends on the housing window, so drop it when that moves.
+  // The incidents layer depends on the crime window, so drop it when that moves.
   useEffect(() => {
-    setLayerData((d) => omit(d, 'sales'))
+    setLayerData((d) => omit(d, 'incidents'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.since, query.property_type])
+  }, [query.since, query.category])
 
   const toggle = useCallback((id: string) => {
     setActive((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
@@ -115,9 +115,9 @@ export default function Page() {
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     for (const [id, fc] of Object.entries(layerData)) c[id] = fc.features?.length ?? 0
-    if (housing) c.housing_prices = housing.meta?.areas_with_data ?? housing.features.length
+    if (crime) c.crime = crime.meta?.areas_with_data ?? crime.features.length
     return c
-  }, [layerData, housing])
+  }, [layerData, crime])
 
   if (boot) {
     return (
@@ -139,8 +139,8 @@ export default function Page() {
         catalog={catalog}
         active={active}
         opacity={opacity}
-        housing={housing}
-        housingMetric={query.metric}
+        crime={crime}
+        crimeMetric={query.metric}
         layerData={layerData}
         basemap={basemap}
         flyTo={flyTo}
@@ -165,7 +165,7 @@ export default function Page() {
           </button>
           <div>
             <h1 className="text-[13.5px] font-semibold leading-tight text-[#e6e8ee]">
-              NYC Atlas
+              Toronto Atlas
             </h1>
             <p className="text-[9.5px] leading-tight text-[#898781]">
               Open-data GIS · {catalog?.count ?? '—'} layers
@@ -195,15 +195,15 @@ export default function Page() {
       {panelOpen && (
         <div className="absolute bottom-3 left-3 top-[68px] z-10 flex w-[268px] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#121722]/95 shadow-2xl backdrop-blur">
           <div className="flex-1 overflow-y-auto">
-            {active.includes('housing_prices') && (
+            {active.includes('crime') && (
               <div className="border-b border-white/10">
-                <HousingControls
+                <CrimeControls
                   options={options}
                   query={query}
                   onChange={(patch) => setQuery((q) => ({ ...q, ...patch }))}
-                  busy={housingBusy}
+                  busy={crimeBusy}
                 />
-                {housing && <Headline housing={housing} metric={query.metric} />}
+                {crime && <Headline crime={crime} metric={query.metric} />}
               </div>
             )}
             <LayerPanel
@@ -223,12 +223,12 @@ export default function Page() {
       {/* ── legend ──────────────────────────────────────────────────── */}
       <div className={`pointer-events-none absolute bottom-3 z-10 ${panelOpen ? 'left-[288px]' : 'left-3'}`}>
         <Legend
-          breaks={housing?.breaks ?? null}
+          breaks={crime?.breaks ?? null}
           metric={query.metric}
           options={options}
           active={active}
-          areasWithData={housing?.meta?.areas_with_data}
-          totalAreas={housing?.meta?.areas}
+          areasWithData={crime?.meta?.areas_with_data}
+          totalAreas={crime?.meta?.areas}
         />
       </div>
 
@@ -237,7 +237,7 @@ export default function Page() {
         <Inspector
           selection={selection}
           catalog={catalog}
-          propertyType={query.property_type}
+          category={query.category}
           onClose={() => setSelection(null)}
         />
       </div>
@@ -246,30 +246,30 @@ export default function Page() {
 }
 
 /** A one-line read of the current choropleth, above the layer list. */
-function Headline({ housing, metric }: { housing: Choropleth; metric: string }) {
-  const vals = housing.features
+function Headline({ crime, metric }: { crime: Choropleth; metric: string }) {
+  const vals = crime.features
     .map((f) => (f.properties as any)?.[metric])
     .filter((v): v is number => typeof v === 'number')
   if (!vals.length) return null
   const sorted = [...vals].sort((a, b) => a - b)
   const median = sorted[Math.floor(sorted.length / 2)]
-  const sales = housing.features.reduce((n, f) => n + (((f.properties as any)?.sales) || 0), 0)
+  const total = crime.features.reduce((n, f) => n + (((f.properties as any)?.incidents) || 0), 0)
 
   return (
     <div className="flex items-baseline justify-between gap-2 px-4 pb-3 text-[11px]">
       <span className="text-[#898781]">
-        {sales.toLocaleString()} sales
+        {total.toLocaleString()} incidents
       </span>
       <span className="tabular-nums text-[#c3c2b7]">
         typical area:{' '}
         <span className="font-medium text-[#e6e8ee]">
-          {metric === 'price_change'
-            ? `${median > 0 ? '+' : ''}${median.toFixed(1)}%`
-            : metric === 'sales'
-            ? median.toLocaleString()
-            : metric === 'median_ppsf'
-            ? `$${Math.round(median)}/ft²`
-            : usd(median)}
+          {metric === 'change'
+            ? percent(median)
+            : metric === 'per_km2'
+            ? `${rate(median)}/km²`
+            : metric === 'per_month'
+            ? `${rate(median)}/mo`
+            : count(median)}
         </span>
       </span>
     </div>

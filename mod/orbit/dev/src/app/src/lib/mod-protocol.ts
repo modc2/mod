@@ -166,7 +166,7 @@ export class ModProtocol {
   private token: string | null = null;
   private config: ModConfig | null = null;
 
-  constructor(baseUrl: string = "http://localhost:8820") {
+  constructor(baseUrl: string = "http://localhost:8870") {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
@@ -498,7 +498,7 @@ export class ModProtocol {
   static generateHtmlPage(
     forms: HtmlFormSchema[],
     config: ModConfig,
-    apiUrl: string = "http://localhost:8820"
+    apiUrl: string = "http://localhost:8870"
   ): string {
     const formBlocks = forms.map((form) => ModProtocol.renderFormHtml(form)).join("\n");
 

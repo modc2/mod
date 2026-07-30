@@ -3,7 +3,7 @@
 // owner before executing anything. Flow:
 //   1. Owner signs `buildAuthMessage(addr, ts)` with the owner wallet.
 //   2. /api/terminal/auth verifies the signature recovers the config owner and
-//      issues an HMAC session token (server secret at ~/.mod/claude/terminal.secret).
+//      issues an HMAC session token (server secret at ~/.mod/dev/terminal.secret).
 //   3. /api/terminal requires a valid session token on every command.
 import fs from "fs";
 import os from "os";
@@ -11,18 +11,18 @@ import path from "path";
 import crypto from "crypto";
 import { verifyMessage } from "ethers";
 
-const SECRET_PATH = path.join(os.homedir(), ".mod", "claude", "terminal.secret");
+const SECRET_PATH = path.join(os.homedir(), ".mod", "build", "terminal.secret");
 const SESSION_TTL_MS = 24 * 3600 * 1000;   // session valid 24h after signing
 const AUTH_MAX_SKEW_MS = 5 * 60 * 1000;    // signed timestamp must be fresh (anti-replay)
 
 // Resolve the configured owner address (lowercase) from config.json. The host
-// next-server cwd is the app root (…/claude/src/app); config.json is two levels up.
+// next-server cwd is the app root (…/build/src/app); config.json is two levels up.
 export function ownerAddress(): string | null {
   const candidates = [
     path.resolve(process.cwd(), "../../config.json"),
     path.resolve(process.cwd(), "../config.json"),
-    path.join(os.homedir(), "mod/mod/orbit/claude/config.json"),
-    "/root/mod/mod/orbit/claude/config.json",
+    path.join(os.homedir(), "mod/mod/orbit/build/config.json"),
+    "/root/mod/mod/orbit/build/config.json",
   ];
   for (const c of candidates) {
     try {

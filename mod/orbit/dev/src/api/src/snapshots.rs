@@ -1,7 +1,7 @@
 //! Content-addressed module snapshots.
 //!
 //! Storage-agnostic via the `Store` enum. The default is `LocalFs` — blobs land
-//! in `~/.mod/claude/blobs/`. Adding ipfs/bitstore/dstore later is a new enum
+//! in `~/.mod/dev/blobs/`. Adding ipfs/bitstore/dstore later is a new enum
 //! variant + match arm; nothing else moves. The CID is the address of the
 //! content; the storage layer is irrelevant to callers.
 //!
@@ -38,7 +38,7 @@ pub struct VersionRecord {
     pub parent: Option<String>,
     /// The mod-protocol api registry CID — `None` if api module unreachable
     /// at the time of the change (we degrade gracefully). When present, every
-    /// change in claude's local log is also a node in the global registry chain.
+    /// change in build's local log is also a node in the global registry chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_cid: Option<String>,
     /// The previous registry CID (for git-like linked-list traversal).
@@ -146,7 +146,7 @@ pub fn module_for_work_dir(work_dir: &str) -> Option<(String, PathBuf)> {
 
 pub fn default_store() -> Store {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let blobs = PathBuf::from(home).join(".mod").join("dev").join("blobs");
+    let blobs = PathBuf::from(home).join(".mod").join("build").join("blobs");
     std::fs::create_dir_all(&blobs).ok();
     Store::LocalFs { blobs_dir: blobs }
 }
@@ -161,7 +161,7 @@ fn is_valid_cid(s: &str) -> bool {
     s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn should_skip_dir(name: &str) -> bool {
+pub(crate) fn should_skip_dir(name: &str) -> bool {
     matches!(
         name,
         "node_modules"
@@ -349,7 +349,7 @@ pub fn restore_into(target: &Path, cid: &str, store: &Store) -> Result<usize, St
 
 pub fn versions_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".mod").join("dev").join("versions")
+    PathBuf::from(home).join(".mod").join("build").join("versions")
 }
 
 fn versions_path(module: &str) -> PathBuf {

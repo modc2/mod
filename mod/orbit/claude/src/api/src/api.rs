@@ -133,6 +133,12 @@ pub async fn serve(manager: AppState, port: u16) {
             .route("/sudo/lock", post(sudo_lock))
             .route("/whitelist", post(add_to_whitelist))
             .route("/whitelist/:address", delete(remove_from_whitelist))
+            // Agent credentials: how the Claude Code CLI signs in. Owner-only
+            // in both directions — status reveals which auth exists.
+            .route(
+                "/agent/auth",
+                get(agent_auth_status).post(agent_auth_set).delete(agent_auth_clear),
+            )
             .route("/grants", post(create_grant))
             .route("/grants", get(list_grants))
             .route("/grants/:id", delete(revoke_grant))
@@ -305,6 +311,9 @@ async fn api_schema() -> impl IntoResponse {
             e("POST", "/grants/:id/redeem", "public", "Redeem a QR grant as a walletless guest"),
             e("POST", "/auth/handoff", "bearer", "Mint a one-time phone sign-in code (optional ttl secs, 60–86400)"),
             e("POST", "/auth/handoff/redeem", "public", "Redeem a handoff code for a token"),
+            e("GET", "/agent/auth", "owner", "How the Claude Code CLI signs in (subscription creds / stored token / API key)"),
+            e("POST", "/agent/auth", "owner", "Store an agent credential: {token} — sk-ant-oat… from `claude setup-token` or an sk-ant-api… key"),
+            e("DELETE", "/agent/auth", "owner", "Forget the stored agent credentials"),
             e("GET", "/sudo/status", "owner", "Sudo session + policy"),
             e("POST", "/sudo/policy", "owner", "Set sudo session policy"),
             e("POST", "/sudo/lock", "owner", "End the sudo session now"),
@@ -545,6 +554,96 @@ async fn remove_from_whitelist(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
     }
     (StatusCode::OK, Json(json!({ "whitelist": after, "removed": target }))).into_response()
+}
+
+// ── Agent (Claude Code CLI) credentials ──────────────────────────────
+// The jobs runner spawns the Claude Code CLI, which needs its own sign-in:
+// a subscription credentials file (~/.claude/.credentials.json, written by
+// `claude login`), a long-lived OAuth token (`claude setup-token`), or an
+// ANTHROPIC_API_KEY. These endpoints let the owner see which one is live and
+// paste a token from the console instead of shelling into the host.
+
+/// One JSON snapshot of every credential source the spawner consults, plus
+/// which one a trusted job would actually use (mirrors the jobs.rs order).
+fn agent_auth_snapshot() -> serde_json::Value {
+    let creds = dirs::home_dir().map(|h| h.join(".claude").join(".credentials.json"));
+    let subscription_expires = creds
+        .as_ref()
+        .filter(|p| p.exists())
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("claudeAiOauth")?.get("expiresAt").cloned());
+    let subscription = creds.map(|p| p.exists()).unwrap_or(false);
+    let (stored_oauth, stored_key) = auth::read_agent_auth();
+    let env_key = std::env::var("ANTHROPIC_API_KEY").map(|k| !k.is_empty()).unwrap_or(false);
+    let active = if subscription {
+        "subscription"
+    } else if stored_oauth.is_some() {
+        "oauth-token"
+    } else if stored_key.is_some() {
+        "api-key"
+    } else if env_key {
+        "env-api-key"
+    } else {
+        "none"
+    };
+    json!({
+        "active": active,
+        "subscription_credentials": subscription,
+        "subscription_expires": subscription_expires,
+        "stored_oauth_token": stored_oauth.is_some(),
+        "stored_api_key": stored_key.is_some(),
+        "env_api_key": env_key,
+    })
+}
+
+async fn agent_auth_status(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if !local_mode() {
+        if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    }
+    Json(agent_auth_snapshot()).into_response()
+}
+
+#[derive(Deserialize)]
+struct AgentAuthRequest {
+    token: String,
+}
+
+async fn agent_auth_set(
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AgentAuthRequest>,
+) -> impl IntoResponse {
+    if !local_mode() {
+        if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    }
+    let token = req.token.trim();
+    // The prefix says what it is: setup-token mints sk-ant-oat…, API keys are
+    // sk-ant-api…. Keep whichever slot the paste doesn't touch.
+    let (oauth, key) = auth::read_agent_auth();
+    let result = if token.starts_with("sk-ant-oat") {
+        auth::write_agent_auth(Some(token), key.as_deref())
+    } else if token.starts_with("sk-ant-") {
+        auth::write_agent_auth(oauth.as_deref(), Some(token))
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Unrecognized token — paste the sk-ant-oat… output of `claude setup-token` or an sk-ant-api… API key" })),
+        ).into_response();
+    };
+    if let Err(e) = result {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+    }
+    Json(agent_auth_snapshot()).into_response()
+}
+
+async fn agent_auth_clear(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    if !local_mode() {
+        if let Err(e) = require_owner(&headers) { return e.into_response(); }
+    }
+    if let Err(e) = auth::write_agent_auth(None, None) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response();
+    }
+    Json(agent_auth_snapshot()).into_response()
 }
 
 // ── Sudo session & policy ────────────────────────────────────────────

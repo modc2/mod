@@ -3,7 +3,7 @@ FROM mod:latest
 
 # Create node user (mod:latest runs as root)
 RUN useradd -u 1000 -m -s /bin/bash node \
-    && mkdir -p /home/node/.claude /home/node/.mod/claude \
+    && mkdir -p /home/node/.claude /home/node/.mod/dev \
     && chown -R node:node /home/node
 
 # Install the Claude Code CLI globally so the Rust API can spawn it.
@@ -17,25 +17,25 @@ RUN npm install -g @anthropic-ai/claude-code \
 # Build Rust API (uses vendored deps — no network needed)
 WORKDIR /app
 COPY src/api/ /app/src/api/
-ENV OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu
-ENV OPENSSL_INCLUDE_DIR=/usr/include
-RUN cd /app/src/api && cargo build --release \
+RUN cd /app/src/api \
+    && export OPENSSL_LIB_DIR=/usr/lib/$(uname -m)-linux-gnu OPENSSL_INCLUDE_DIR=/usr/include \
+    && cargo build --release \
     && mkdir -p /app/bin \
-    && cp target/release/claude-jobs /app/bin/claude-jobs \
+    && cp target/release/dev-jobs /app/bin/dev-jobs \
     && rm -rf target vendor
 
 # Copy Next.js App (with node_modules pre-installed)
 COPY src/app/ /app/src/app/
-ENV NEXT_PUBLIC_BASE_PATH=/claude
+ENV NEXT_PUBLIC_BASE_PATH=/build
 RUN cd /app/src/app && npx next build
 
 # Entrypoint
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh /app/bin/claude-jobs
+RUN chmod +x /app/docker-entrypoint.sh /app/bin/dev-jobs
 
-ARG BUILD_CID=""
-ARG BUILD_TIME=""
-ENV BUILD_CID=${BUILD_CID} BUILD_TIME=${BUILD_TIME}
+ARG DEV_CID=""
+ARG DEV_TIME=""
+ENV DEV_CID=${DEV_CID} DEV_TIME=${DEV_TIME}
 
 WORKDIR /app
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

@@ -12,48 +12,61 @@ it should say so on the map.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
-from . import prices as P
+from . import crime as C
 from . import sources as S
 
 WEEK = 7 * S.DAY
 
 
-def _src(name: str, dataset: str, domain: str = 'data.cityofnewyork.us') -> dict:
-    return {'name': name, 'dataset': dataset,
-            'url': f'https://{domain}/d/{dataset}', 'portal': domain}
+def _src(name: str, package: str) -> dict:
+    return {'name': name, 'dataset': package,
+            'url': f'https://open.toronto.ca/dataset/{package}/',
+            'portal': 'open.toronto.ca'}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# boundary layers (also reused as the canvas for housing choropleths)
+# boundary layers (also reused as the canvas for the crime choropleth)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def boroughs() -> dict:
-    return S.cached('geo-boroughs', 30 * S.DAY, lambda: S.simplify_geojson(
-        S.socrata_geojson('gthc-hcne'), tol=0.00012,
-        keep=['borocode', 'boroname', 'shape_area']))
+def neighbourhoods() -> dict:
+    """The city's 158 social-planning neighbourhoods — the choropleth default."""
+    return S.cached('geo-neighbourhoods', 30 * S.DAY, lambda: S.simplify_geojson(
+        S.ckan_geojson('neighbourhoods', 'Neighbourhoods - 4326.geojson'),
+        tol=0.00008,
+        keep=['AREA_LONG_CODE', 'AREA_NAME', 'CLASSIFICATION']))
 
 
-def neighborhoods() -> dict:
-    """2020 Neighborhood Tabulation Areas — 262 areas, the choropleth default."""
-    return S.cached('geo-nta', 30 * S.DAY, lambda: S.simplify_geojson(
-        S.socrata_geojson('9nt8-h7nd'), tol=0.00008,
-        keep=['nta2020', 'ntaname', 'ntaabbrev', 'boroname', 'borocode',
-              'cdta2020', 'cdtaname', 'ntatype']))
+def neighbourhoods140() -> dict:
+    """The pre-2021 140-neighbourhood model, kept for long history joins."""
+    return S.cached('geo-neighbourhoods140', 30 * S.DAY, lambda: S.simplify_geojson(
+        S.ckan_geojson('neighbourhoods', 'historical 140 - 4326.geojson'),
+        tol=0.00008,
+        keep=['AREA_LONG_CODE', 'AREA_NAME']))
 
 
-def zips() -> dict:
-    """Modified ZIP Code Tabulation Areas (MODZCTA)."""
-    return S.cached('geo-zip', 30 * S.DAY, lambda: S.simplify_geojson(
-        S.socrata_geojson('pri4-ifjk'), tol=0.00010,
-        keep=['modzcta', 'label', 'zcta', 'pop_est']))
+def wards() -> dict:
+    """The 25 city wards."""
+    return S.cached('geo-wards', 30 * S.DAY, lambda: S.simplify_geojson(
+        S.ckan_geojson('city-wards', 'City Wards Data - 4326.geojson'),
+        tol=0.00010,
+        keep=['AREA_LONG_CODE', 'AREA_SHORT_CODE', 'AREA_NAME']))
+
+
+def municipalities() -> dict:
+    """The six pre-amalgamation municipalities (Toronto's "boroughs")."""
+    return S.cached('geo-municipalities', 30 * S.DAY, lambda: S.simplify_geojson(
+        S.ckan_geojson('former-municipality-boundaries', '4326.geojson'),
+        tol=0.00012,
+        keep=['AREA_NAME', 'AREA_DESC']))
 
 
 BOUNDARIES: Dict[str, Callable[[], dict]] = {
-    'borough': boroughs,
-    'nta': neighborhoods,
-    'zip': zips,
+    'neighbourhood': neighbourhoods,
+    'neighbourhood140': neighbourhoods140,
+    'ward': wards,
+    'municipality': municipalities,
 }
 
 
@@ -68,173 +81,178 @@ def boundary(name: str) -> dict:
 # overlay loaders
 # ─────────────────────────────────────────────────────────────────────────────
 
-def subway_lines() -> dict:
-    return S.cached('transit-subway-lines', WEEK, S.subway_lines)
+def ttc_lines() -> dict:
+    """Subway / rapid-transit lines, in each line's official colour."""
+    return S.gtfs_bundle()['rapid']
+
+
+def streetcars() -> dict:
+    """The streetcar network — the largest in North America."""
+    return S.gtfs_bundle()['streetcar']
 
 
 def subway_stations() -> dict:
-    """496 subway stations, with the routes serving each and ADA status."""
-    def fetch():
-        rows = S.soql_all(
-            S.NYS, '39hk-dx4f', max_rows=2000,
-            select=('stop_name,daytime_routes,line,borough,structure,ada,'
-                    'gtfs_latitude,gtfs_longitude,division'))
-        boro = {'M': 'Manhattan', 'Bk': 'Brooklyn', 'Bx': 'Bronx',
-                'Q': 'Queens', 'SI': 'Staten Island'}
-        for r in rows:
-            r['name'] = r.pop('stop_name', '')
-            r['routes'] = (r.pop('daytime_routes', '') or '').strip()
-            r['borough'] = boro.get(r.get('borough', ''), r.get('borough', ''))
-            r['accessible'] = str(r.get('ada', '0')) in ('1', '2')
-        return S.points_from_rows(
-            rows, 'gtfs_latitude', 'gtfs_longitude',
-            props=['name', 'routes', 'line', 'borough', 'structure',
-                   'division', 'accessible'])
-    return S.cached('transit-subway-stations', WEEK, fetch)
+    """Rapid-transit stations, distilled from the feed's platform stops."""
+    return S.gtfs_bundle()['stations']
 
 
-def subway_ridership(since: str = '2025-01-01') -> dict:
-    """Station complexes sized by ridership. The source table is monthly."""
-    def fetch():
-        rows = S.soql(
-            S.NYS, 'ak4z-sape',
-            select=('station_complex,borough,sum(ridership) as riders,'
-                    'sum(transfers) as transfers,latitude,longitude'),
-            where=f'month >= "{since}T00:00:00.000"',
-            group='station_complex,borough,latitude,longitude',
-            order='sum(ridership) DESC', limit=2000)
-        for r in rows:
-            r['riders'] = int(float(r.get('riders') or 0))
-            r['transfers'] = int(float(r.get('transfers') or 0))
-            r['name'] = r.pop('station_complex', '')
-        return S.points_from_rows(rows, 'latitude', 'longitude',
-                                  props=['name', 'borough', 'riders', 'transfers'])
-    return S.cached(f'transit-subway-ridership-{since}', WEEK, fetch)
-
-
-def bike_routes() -> dict:
+def cycling_network() -> dict:
     """
-    The bike network as ~30k street segments. Properties are trimmed hard here:
-    at this feature count the per-feature property bag, not the geometry, is
-    what decides whether the payload is 2 MB or 10 MB.
+    The cycling network as street segments. ``INFRA_HIGHORDER`` is the city's
+    facility type; it is folded into three protection classes so the map can
+    weight what riders actually plan around: physical separation.
     """
     def fetch():
         fc = S.simplify_geojson(
-            S.socrata_geojson('mzxg-pwib'), tol=0.00004,
-            keep=['street', 'ft_facilit', 'tf_facilit', 'facilitycl'])
-        # facilitycl is the protection class: I = protected, II = lane, III = route
-        cls_label = {'I': 'Protected path', 'II': 'Striped lane', 'III': 'Signed route'}
+            S.ckan_geojson('cycling-network', '4326.geojson'), tol=0.00004,
+            keep=['STREET_NAME', 'INFRA_HIGHORDER', 'INSTALLED'])
         for f in fc['features']:
             p = f['properties']
-            facility = p.get('ft_facilit') or p.get('tf_facilit') or ''
-            cls = (p.get('facilitycl') or '').strip().upper()
+            infra = (p.get('INFRA_HIGHORDER') or '').strip()
+            low = infra.lower()
+            if 'cycle track' in low or 'multi-use trail' in low or 'park road' in low:
+                cls, label = 'I', 'Protected / off-street'
+            elif 'bike lane' in low or 'contra-flow' in low:
+                cls, label = 'II', 'Painted lane'
+            else:
+                cls, label = 'III', 'Shared / signed route'
             f['properties'] = {
-                'street': (p.get('street') or '').strip(),
-                'facility': facility.strip(),
-                'protection': cls_label.get(cls, 'Other'),
+                'street': (p.get('STREET_NAME') or '').strip(),
+                'facility': infra,
+                'protection': label,
                 'cls': cls,
+                'installed': p.get('INSTALLED'),
             }
         return fc
-    return S.cached('transit-bike-routes', WEEK, fetch)
+    return S.cached('transit-cycling-network', WEEK, fetch)
 
 
-def parks() -> dict:
+def green_spaces() -> dict:
     def fetch():
-        fc = S.socrata_geojson('enfh-gkve')
-        return S.simplify_geojson(
-            fc, tol=0.00006,
-            keep=['signname', 'name311', 'typecategory', 'acres', 'borough',
-                  'address', 'zipcode', 'waterfront', 'class'])
-    return S.cached('env-parks', 30 * S.DAY, fetch)
-
-
-def evacuation_zones() -> dict:
-    """
-    Hurricane evacuation zones, 1 (evacuates first) through 6.
-
-    The source also carries a zone ``X`` polygon meaning "no evacuation
-    required" — it covers most of the city's land area and would render as a
-    blanket over everything, so it is dropped.
-    """
-    def fetch():
-        fc = S.simplify_geojson(S.socrata_geojson('epne-qv9x'), tol=0.00015,
-                                keep=['hurricane_'])
-        feats = []
+        fc = S.simplify_geojson(
+            S.ckan_geojson('green-spaces', '4326.geojson'), tol=0.00006,
+            keep=['AREA_NAME', 'AREA_CLASS'])
         for f in fc['features']:
-            raw = str(f['properties'].pop('hurricane_', '')).strip()
-            if not raw.isdigit():
-                continue
-            f['properties'] = {'zone': int(raw),
-                               'label': f'Zone {raw}',
-                               'note': 'Zone 1 is evacuated first' if raw == '1' else ''}
-            feats.append(f)
-        feats.sort(key=lambda f: -f['properties']['zone'])   # draw 1 on top
-        return {'type': 'FeatureCollection', 'features': feats}
-    return S.cached('env-evac-zones', 30 * S.DAY, fetch)
+            p = f['properties']
+            f['properties'] = {
+                'name': (p.get('AREA_NAME') or '').strip().title(),
+                'class': (p.get('AREA_CLASS') or '').replace('_', ' ').strip().title(),
+            }
+        return fc
+    return S.cached('env-green-spaces', 30 * S.DAY, fetch)
 
 
 def collisions() -> dict:
     """
-    Recent crashes that injured or killed someone (Vision Zero reporting).
+    Serious traffic collisions (killed or seriously injured, 2006–present).
 
-    Capped at 15k of the most recent qualifying crashes — enough for the
-    heatmap to be representative while keeping the payload a couple of MB.
+    The source table is one row per *person involved*; rows are folded to one
+    point per collision, keeping the counts of people killed and seriously
+    injured and whether pedestrians or cyclists were among them.
     """
     def fetch():
-        rows = S.soql_all(
-            S.NYC, 'h9gi-nx95', max_rows=15000,
-            select=('crash_date,crash_time,borough,on_street_name,'
-                    'number_of_persons_injured,number_of_persons_killed,'
-                    'number_of_pedestrians_injured,number_of_cyclist_injured,'
-                    'contributing_factor_vehicle_1,latitude,longitude'),
-            where=('latitude IS NOT NULL and latitude > 40 and '
-                   'crash_date > "2025-01-01T00:00:00.000" and '
-                   '(number_of_persons_injured > 0 or number_of_persons_killed > 0)'),
-            order='crash_date DESC')
-        for r in rows:
-            r['date'] = str(r.pop('crash_date', ''))[:10]
-            r['time'] = r.pop('crash_time', '')
-            r['injured'] = int(float(r.pop('number_of_persons_injured', 0) or 0))
-            r['killed'] = int(float(r.pop('number_of_persons_killed', 0) or 0))
-            r['peds'] = int(float(r.pop('number_of_pedestrians_injured', 0) or 0))
-            r['cyclists'] = int(float(r.pop('number_of_cyclist_injured', 0) or 0))
-            r['street'] = r.pop('on_street_name', '') or ''
-            r['cause'] = r.pop('contributing_factor_vehicle_1', '') or ''
-            r['borough'] = (r.get('borough') or '').title()
-        return S.points_from_rows(
-            rows, 'latitude', 'longitude',
-            props=['date', 'borough', 'street', 'injured', 'killed',
-                   'peds', 'cyclists', 'cause'])
-    return S.cached('safety-collisions', 2 * S.DAY, fetch)
+        raw = S.ckan_geojson(
+            'motor-vehicle-collisions-involving-killed-or-seriously-injured-persons',
+            '4326.geojson')
+        by_id: Dict[str, dict] = {}
+        for f in raw.get('features', []):
+            p = {str(k).lower(): v for k, v in (f.get('properties') or {}).items()}
+            cid = str(p.get('collision_id') or '')
+            try:
+                # The exported geometry is a MultiPoint per person-row; the
+                # row's own lat/lng columns are the collision location.
+                lng, lat = float(p['longitude']), float(p['latitude'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not cid or (lat == 0 and lng == 0):
+                continue
+            c = by_id.get(cid)
+            if c is None:
+                street = ' & '.join(
+                    x for x in ((p.get('stname1') or '').strip().title(),
+                                (p.get('stname2') or '').strip().title()) if x)
+                c = by_id[cid] = {
+                    'date': str(p.get('accdate') or '')[:10],
+                    'street': street,
+                    'fatal': False, 'killed': 0, 'serious': 0,
+                    'pedestrian': False, 'cyclist': False,
+                    'road_class': (p.get('road_class') or '').strip(),
+                    'light': (p.get('light') or '').strip(),
+                    'neighbourhood': (p.get('neighbourhood') or '').strip(),
+                    '_coords': [round(float(lng), 5), round(float(lat), 5)],
+                }
+            inj = (p.get('injury') or '').strip().lower()
+            if inj == 'fatal':
+                c['killed'] += 1
+            elif inj == 'major':
+                c['serious'] += 1
+            if str(p.get('acclass') or '').strip().lower().startswith('fatal'):
+                c['fatal'] = True
+            for flag in ('pedestrian', 'cyclist'):
+                if str(p.get(flag) or '').strip().lower() == 'true':
+                    c[flag] = True
+            # person rows are sparse; keep the first non-empty value seen
+            for k in ('road_class', 'light', 'neighbourhood'):
+                if not c[k] and p.get(k):
+                    c[k] = str(p[k]).strip()
+
+        feats = []
+        for c in by_id.values():
+            coords = c.pop('_coords')
+            feats.append({'type': 'Feature', 'properties': c,
+                          'geometry': {'type': 'Point', 'coordinates': coords}})
+        feats.sort(key=lambda f: f['properties']['date'], reverse=True)
+        return {'type': 'FeatureCollection', 'features': feats}
+    return S.cached('safety-collisions', WEEK, fetch)
 
 
-def affordable_housing() -> dict:
-    """New affordable units financed by HPD, by building."""
+def apartments() -> dict:
+    """
+    RentSafeTO apartment-building evaluations (2017–2023 program).
+
+    One point per registered rental building of 3+ storeys / 10+ units, with
+    its most recent inspection score out of 100. The city's post-2023
+    evaluation resource currently publishes only a handful of rows, so the
+    completed pre-2023 program is the honest dataset to map.
+    """
     def fetch():
-        rows = S.soql_all(
-            S.NYC, 'hg8x-zxpr', max_rows=20000,
-            select=('project_name,house_number,street_name,borough,postcode,'
-                    'project_start_date,reporting_construction_type,'
-                    'extremely_low_income_units,very_low_income_units,'
-                    'low_income_units,all_counted_units,total_units,'
-                    'latitude,longitude'),
-            where='latitude IS NOT NULL')
+        rid = S.ckan_resource('apartment-building-evaluation',
+                              'Pre-2023 Apartment Building Evaluations')['id']
+        rows = S.ckan_records(rid, max_rows=50000)
+        best: Dict[str, dict] = {}
         for r in rows:
-            r['name'] = (r.pop('project_name', '') or '').title()
-            r['address'] = f"{r.pop('house_number','')} {r.pop('street_name','')}".strip().title()
-            r['started'] = str(r.pop('project_start_date', ''))[:10]
-            r['construction'] = r.pop('reporting_construction_type', '')
-            for k, out in (('all_counted_units', 'units'),
-                           ('total_units', 'total'),
-                           ('extremely_low_income_units', 'extremely_low'),
-                           ('very_low_income_units', 'very_low'),
-                           ('low_income_units', 'low')):
-                r[out] = int(float(r.pop(k, 0) or 0))
+            rsn = str(r.get('RSN') or '')
+            addr = str(r.get('SITE_ADDRESS') or '')
+            if not rsn or 'CREATED IN ERROR' in addr.upper():
+                continue
+            when = str(r.get('EVALUATION_COMPLETED_ON') or '')
+            if rsn not in best or when > best[rsn].get('_when', ''):
+                def num(k):
+                    try:
+                        return int(float(r.get(k)))
+                    except (TypeError, ValueError):
+                        return None
+                best[rsn] = {
+                    '_when': when,
+                    'address': addr.strip().title(),
+                    'ward': (r.get('WARDNAME') or '').strip(),
+                    'score': num('SCORE'),
+                    'year_built': num('YEAR_BUILT'),
+                    'storeys': num('CONFIRMED_STOREYS'),
+                    'units': num('CONFIRMED_UNITS'),
+                    'evaluated': when[:10],
+                    'property_type': (r.get('PROPERTY_TYPE') or '').strip().title(),
+                    'LATITUDE': r.get('LATITUDE'),
+                    'LONGITUDE': r.get('LONGITUDE'),
+                }
+        rows = [v for v in best.values() if v.get('score') is not None]
+        for v in rows:
+            v.pop('_when', None)
         return S.points_from_rows(
-            rows, 'latitude', 'longitude',
-            props=['name', 'address', 'borough', 'started', 'construction',
-                   'units', 'total', 'extremely_low', 'very_low', 'low'])
-    return S.cached('civic-affordable-housing', WEEK, fetch)
+            rows, 'LATITUDE', 'LONGITUDE',
+            props=['address', 'ward', 'score', 'year_built', 'storeys',
+                   'units', 'evaluated', 'property_type'])
+    return S.cached('housing-apartments', 30 * S.DAY, fetch)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -242,67 +260,56 @@ def affordable_housing() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 LAYERS: List[Dict[str, Any]] = [
-    # ── Housing ──────────────────────────────────────────────────────────
+    # ── Crime ────────────────────────────────────────────────────────────
     {
-        'id': 'housing_prices',
-        'title': 'Housing prices',
-        'category': 'Housing',
+        'id': 'crime',
+        'title': 'Major crime',
+        'category': 'Crime',
         'kind': 'choropleth',
         'geometry': 'polygon',
         'default_on': True,
-        'description': ('Recorded sale prices aggregated by area. Choose the metric, '
-                        'geography, property type and time window.'),
+        'description': ('Police-reported major crime aggregated by neighbourhood. '
+                        'Choose the metric, geography, crime type and time window.'),
         'controls': {
-            'metric': list(P.METRICS.keys()),
-            'geography': list(P.GEOGRAPHIES.keys()),
-            'property_type': list(P.PROPERTY_TYPES.keys()),
+            'metric': list(C.METRICS.keys()),
+            'geography': list(C.GEOGRAPHIES.keys()),
+            'category': list(C.CATEGORIES.keys()),
             'window': True,
         },
-        'metrics': P.METRICS,
-        'geographies': P.GEOGRAPHIES,
-        'property_types': P.PROPERTY_TYPES,
-        'endpoint': '/layers/housing_prices',
-        'source': _src('NYC DOF Citywide Rolling Sales', 'w2pb-icbu'),
+        'metrics': C.METRICS,
+        'geographies': C.GEOGRAPHIES,
+        'categories': C.CATEGORIES,
+        'endpoint': '/layers/crime',
+        'source': _src('TPS Major Crime Indicators', 'major-crime-indicators'),
     },
     {
-        'id': 'sales',
-        'title': 'Individual sales',
-        'category': 'Housing',
+        'id': 'incidents',
+        'title': 'Individual incidents',
+        'category': 'Crime',
         'kind': 'point',
         'geometry': 'point',
         'default_on': False,
-        'description': 'Every recorded sale as a point, coloured by price.',
-        'style': {'color_by': 'price', 'radius': 3.5},
-        'controls': {'property_type': list(P.PROPERTY_TYPES.keys()), 'window': True},
-        'endpoint': '/layers/sales',
-        'source': _src('NYC DOF Citywide Rolling Sales', 'w2pb-icbu'),
-    },
-    {
-        'id': 'affordable_housing',
-        'title': 'Affordable housing built',
-        'category': 'Housing',
-        'kind': 'point',
-        'geometry': 'point',
-        'default_on': False,
-        'description': 'HPD-financed affordable units by building, sized by unit count.',
-        'style': {'color': '#4ade80', 'size_by': 'units'},
-        'endpoint': '/layers/affordable_housing',
-        'source': _src('HPD Affordable Housing Production by Building', 'hg8x-zxpr'),
+        'description': ('Recent incidents as points, coloured by crime type. '
+                        'Locations are offset to the nearest intersection by the '
+                        'police service.'),
+        'style': {'color_by': 'cat', 'radius': 3.2},
+        'controls': {'category': list(C.CATEGORIES.keys()), 'window': True},
+        'endpoint': '/layers/incidents',
+        'source': _src('TPS Major Crime Indicators', 'major-crime-indicators'),
     },
 
     # ── Transit ──────────────────────────────────────────────────────────
     {
-        'id': 'subway_lines',
+        'id': 'ttc_lines',
         'title': 'Subway lines',
         'category': 'Transit',
         'kind': 'line',
         'geometry': 'line',
         'default_on': True,
-        'description': 'Every subway route, drawn in its official MTA colour.',
-        'style': {'color_property': 'color', 'width': 2.2},
-        'endpoint': '/layers/subway_lines',
-        'source': {'name': 'MTA GTFS static feed (subway)', 'dataset': 'gtfs_subway',
-                   'url': 'https://www.mta.info/developers', 'portal': 'mta.info'},
+        'description': 'TTC rapid-transit lines, drawn in their official colours.',
+        'style': {'color_property': 'color', 'width': 2.4},
+        'endpoint': '/layers/ttc_lines',
+        'source': _src('TTC Routes and Schedules (GTFS)', 'ttc-routes-and-schedules'),
     },
     {
         'id': 'subway_stations',
@@ -311,117 +318,133 @@ LAYERS: List[Dict[str, Any]] = [
         'kind': 'point',
         'geometry': 'point',
         'default_on': True,
-        'description': '496 stations with the routes that serve them and ADA access.',
+        'description': 'Rapid-transit stations with the lines that serve them.',
         'style': {'color': '#ffffff', 'stroke': '#111827', 'radius': 3.4},
         'endpoint': '/layers/subway_stations',
-        'source': _src('MTA Subway Stations', '39hk-dx4f', 'data.ny.gov'),
+        'source': _src('TTC Routes and Schedules (GTFS)', 'ttc-routes-and-schedules'),
     },
     {
-        'id': 'subway_ridership',
-        'title': 'Station ridership',
-        'category': 'Transit',
-        'kind': 'point',
-        'geometry': 'point',
-        'default_on': False,
-        'description': 'Station complexes scaled by total subway ridership this year.',
-        'style': {'color': '#fbbf24', 'size_by': 'riders'},
-        'endpoint': '/layers/subway_ridership',
-        'source': _src('MTA Subway Hourly Ridership', 'ak4z-sape', 'data.ny.gov'),
-    },
-    {
-        'id': 'bike_routes',
-        'title': 'Bike network',
+        'id': 'streetcars',
+        'title': 'Streetcar network',
         'category': 'Transit',
         'kind': 'line',
         'geometry': 'line',
         'default_on': False,
-        'description': 'Protected paths, striped lanes and signed routes citywide.',
+        'description': 'All streetcar routes — the largest such network in North America.',
+        'style': {'color': '#DA251D', 'width': 1.6},
+        'endpoint': '/layers/streetcars',
+        'source': _src('TTC Routes and Schedules (GTFS)', 'ttc-routes-and-schedules'),
+    },
+    {
+        'id': 'cycling_network',
+        'title': 'Cycling network',
+        'category': 'Transit',
+        'kind': 'line',
+        'geometry': 'line',
+        'default_on': False,
+        'description': 'Cycle tracks, trails, painted lanes and signed routes citywide.',
         'style': {'color': '#22d3ee', 'width': 1.4},
-        'endpoint': '/layers/bike_routes',
-        'source': _src('New York City Bike Routes', 'mzxg-pwib'),
+        'endpoint': '/layers/cycling_network',
+        'source': _src('Cycling Network', 'cycling-network'),
     },
 
     # ── Environment ──────────────────────────────────────────────────────
     {
-        'id': 'parks',
-        'title': 'Parks & open space',
+        'id': 'green_spaces',
+        'title': 'Parks & green space',
         'category': 'Environment',
         'kind': 'polygon',
         'geometry': 'polygon',
         'default_on': False,
-        'description': 'All NYC Parks properties, from pocket parks to Pelham Bay.',
+        'description': 'Every city green space, from parkettes to Rouge Park\'s edge.',
         'style': {'color': '#34d399', 'opacity': 0.45},
-        'endpoint': '/layers/parks',
-        'source': _src('Parks Properties', 'enfh-gkve'),
+        'endpoint': '/layers/green_spaces',
+        'source': _src('Green Spaces', 'green-spaces'),
     },
+
+    # ── Housing ──────────────────────────────────────────────────────────
     {
-        'id': 'evacuation_zones',
-        'title': 'Hurricane evacuation zones',
-        'category': 'Environment',
-        'kind': 'polygon',
-        'geometry': 'polygon',
+        'id': 'apartments',
+        'title': 'Apartment building scores',
+        'category': 'Housing',
+        'kind': 'point',
+        'geometry': 'point',
         'default_on': False,
-        'description': 'Zone 1 evacuates first; higher numbers are at lower risk.',
-        'style': {'color_by': 'zone', 'opacity': 0.4},
-        'endpoint': '/layers/evacuation_zones',
-        'source': _src('Hurricane Evacuation Zones', 'epne-qv9x'),
+        'description': ('RentSafeTO evaluation scores for registered rental '
+                        'buildings (3+ storeys, 10+ units), sized by unit count.'),
+        'style': {'color_by': 'score', 'size_by': 'units'},
+        'endpoint': '/layers/apartments',
+        'source': _src('Apartment Building Evaluation', 'apartment-building-evaluation'),
     },
 
     # ── Safety ───────────────────────────────────────────────────────────
     {
         'id': 'collisions',
-        'title': 'Traffic injuries',
+        'title': 'Serious traffic collisions',
         'category': 'Safety',
         'kind': 'heatmap',
         'geometry': 'point',
         'default_on': False,
-        'description': 'Crashes since Jan 2025 that injured or killed someone.',
-        'style': {'color': '#f87171', 'weight_by': 'injured'},
+        'description': ('Collisions since 2006 in which someone was killed or '
+                        'seriously injured (Vision Zero reporting).'),
+        'style': {'color': '#f87171', 'weight_by': 'serious'},
         'endpoint': '/layers/collisions',
-        'source': _src('Motor Vehicle Collisions – Crashes', 'h9gi-nx95'),
+        'source': _src('Motor Vehicle Collisions (KSI)',
+                       'motor-vehicle-collisions-involving-killed-or-seriously-injured-persons'),
     },
 
     # ── Boundaries ───────────────────────────────────────────────────────
     {
-        'id': 'boroughs',
-        'title': 'Borough boundaries',
+        'id': 'municipalities',
+        'title': 'Former municipalities',
         'category': 'Boundaries',
         'kind': 'outline',
         'geometry': 'polygon',
         'default_on': False,
-        'description': 'The five boroughs.',
+        'description': 'The six pre-1998 municipalities: Toronto, North York, Scarborough, Etobicoke, York and East York.',
         'style': {'color': '#94a3b8', 'width': 1.5},
-        'endpoint': '/layers/boroughs',
-        'source': _src('Borough Boundaries', 'gthc-hcne'),
+        'endpoint': '/layers/municipalities',
+        'source': _src('Former Municipality Boundaries', 'former-municipality-boundaries'),
     },
     {
-        'id': 'neighborhoods',
-        'title': 'Neighborhood boundaries',
+        'id': 'neighbourhoods',
+        'title': 'Neighbourhood boundaries',
         'category': 'Boundaries',
         'kind': 'outline',
         'geometry': 'polygon',
         'default_on': False,
-        'description': '2020 Neighborhood Tabulation Areas (262 neighborhoods).',
+        'description': 'The 158 social-planning neighbourhoods (2021 model).',
         'style': {'color': '#64748b', 'width': 0.8},
-        'endpoint': '/layers/neighborhoods',
-        'source': _src('2020 Neighborhood Tabulation Areas', '9nt8-h7nd'),
+        'endpoint': '/layers/neighbourhoods',
+        'source': _src('Neighbourhoods', 'neighbourhoods'),
+    },
+    {
+        'id': 'wards',
+        'title': 'Ward boundaries',
+        'category': 'Boundaries',
+        'kind': 'outline',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': 'The 25 city wards.',
+        'style': {'color': '#8b7355', 'width': 1.0},
+        'endpoint': '/layers/wards',
+        'source': _src('City Wards', 'city-wards'),
     },
 ]
 
-# id → loader for every layer served straight from a source (housing_prices and
-# sales are parameterised, so they're handled by the API rather than here).
+# id → loader for every layer served straight from a source (crime and
+# incidents are parameterised, so they're handled by the API rather than here).
 LOADERS: Dict[str, Callable[[], dict]] = {
-    'subway_lines': subway_lines,
+    'ttc_lines': ttc_lines,
+    'streetcars': streetcars,
     'subway_stations': subway_stations,
-    'subway_ridership': subway_ridership,
-    'bike_routes': bike_routes,
-    'parks': parks,
-    'evacuation_zones': evacuation_zones,
+    'cycling_network': cycling_network,
+    'green_spaces': green_spaces,
     'collisions': collisions,
-    'affordable_housing': affordable_housing,
-    'boroughs': boroughs,
-    'neighborhoods': neighborhoods,
-    'zips': zips,
+    'apartments': apartments,
+    'municipalities': municipalities,
+    'neighbourhoods': neighbourhoods,
+    'wards': wards,
 }
 
 
@@ -436,8 +459,9 @@ def catalog() -> Dict[str, Any]:
                        for c, ls in cats.items()],
         'count': len(LAYERS),
         'attribution': [
-            {'name': 'NYC Open Data', 'url': 'https://opendata.cityofnewyork.us'},
-            {'name': 'NY State Open Data / MTA', 'url': 'https://data.ny.gov'},
+            {'name': 'Toronto Open Data', 'url': 'https://open.toronto.ca'},
+            {'name': 'Toronto Police Service open data', 'url': 'https://data.torontopolice.on.ca'},
+            {'name': 'TTC', 'url': 'https://www.ttc.ca'},
             {'name': 'OpenStreetMap contributors', 'url': 'https://www.openstreetmap.org/copyright'},
         ],
     }

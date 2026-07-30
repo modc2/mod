@@ -14,11 +14,12 @@ type VersionRecord = {
   action?: "snapshot" | "restore" | "auto-snapshot" | "fork" | string;
 };
 
+// Raw hex (not CSS vars) so we can derive alpha glows per dot/tag.
 const ACTION_GLYPH: Record<string, { color: string; label: string }> = {
-  snapshot:        { color: "var(--accent-color)",  label: "snapshot" },
-  restore:         { color: "var(--crt-amber)",     label: "rollback" },
-  "auto-snapshot": { color: "var(--text-tertiary)", label: "auto"     },
-  fork:            { color: "var(--crt-blue)",      label: "fork"     },
+  snapshot:        { color: "#a78bfa", label: "snapshot" },
+  restore:         { color: "#fbbf24", label: "rollback" },
+  "auto-snapshot": { color: "#8a8aa2", label: "auto"     },
+  fork:            { color: "#818cf8", label: "fork"     },
 };
 
 type Props = {
@@ -44,6 +45,22 @@ function timeAgo(ts: number): string {
   if (d < 3600) return `${Math.floor(d / 60)}m ago`;
   if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
   return `${Math.floor(d / 86400)}d ago`;
+}
+
+function clockTime(ts: number): string {
+  const d = new Date(ts * 1000);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function dayLabel(ts: number): string {
+  const d = new Date(ts * 1000);
+  const now = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+  if (diff <= 0) return "today";
+  if (diff === 1) return "yesterday";
+  const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return now.getFullYear() === d.getFullYear() ? label : `${label} ${d.getFullYear()}`;
 }
 
 export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) {
@@ -131,72 +148,112 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
   };
 
   const snapAction = (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <div className="snap-bar">
       <input
         type="text"
+        className="snap-input"
         value={snapMsg}
         onChange={(e) => setSnapMsg(e.target.value)}
-        placeholder="describe…"
-        style={{
-          width: 180,
-          background: "var(--glass-bg-strong)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: 8,
-          padding: "5px 9px",
-          color: "var(--text-primary)",
-          fontSize: 12.5,
-          outline: "none",
-        }}
+        placeholder="describe this version…"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !snapBusy) snapshot();
         }}
       />
-      <GlassButton variant="primary" onClick={snapshot} disabled={snapBusy}>
-        {snapBusy ? "…" : "snap"}
-      </GlassButton>
+      <button className="snap-btn" onClick={snapshot} disabled={snapBusy}>
+        {snapBusy ? "…" : "✦ snap"}
+      </button>
     </div>
   );
+
+  // Newest first, grouped by calendar day for the timeline headers.
+  const groups: { label: string; items: VersionRecord[] }[] = [];
+  for (const v of [...versions].reverse()) {
+    const label = dayLabel(v.timestamp);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.items.push(v);
+    else groups.push({ label, items: [v] });
+  }
 
   return (
     <BentoGrid>
       <Bento title={`versions · ${versions.length}`} span={3} action={snapAction}>
-        {status && (
-          <div className="bento-sub" style={{ marginBottom: 6, color: "var(--crt-green)" }}>✓ {status}</div>
+        {status && <div className="vtl-note ok">✓ {status}</div>}
+        {error && <div className="vtl-note err">✗ {error}</div>}
+        {loading && (
+          <div className="vtl-skels">
+            <div className="vtl-skel" style={{ width: "62%" }} />
+            <div className="vtl-skel" style={{ width: "78%" }} />
+            <div className="vtl-skel" style={{ width: "54%" }} />
+          </div>
         )}
-        {error && (
-          <div className="bento-sub" style={{ marginBottom: 6, color: "var(--crt-red)" }}>✗ {error}</div>
-        )}
-        {loading && <div className="bento-sub">loading…</div>}
         {!loading && versions.length === 0 && (
-          <div className="bento-sub">no versions yet — snap above to start a history</div>
+          <div className="vtl-empty">
+            <span className="vtl-empty-dot" />
+            no versions yet — describe &amp; snap above to start a history
+          </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          {[...versions].reverse().map((v) => {
-            const glyph = ACTION_GLYPH[v.action || "snapshot"] || ACTION_GLYPH.snapshot;
-            return (
-              <div key={v.cid + v.timestamp} className="version-row">
-                <span
-                  className="dot"
-                  title={glyph.label}
-                  style={{ background: glyph.color, boxShadow: `0 0 0 2px ${glyph.color}1a` }}
-                />
-                <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
-                  <span className="msg" style={{ flex: "0 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {displayMessage(v.message) || "(no message)"}
-                  </span>
-                  <span className="meta" style={{ flex: "0 0 auto" }}>
-                    {glyph.label} · {timeAgo(v.timestamp)}
-                    {v.registry_cid && <> · <span style={{ color: "var(--accent-color)" }}>{v.registry_cid.slice(0, 8)}…</span></>}
-                  </span>
-                </div>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  <CidChip cid={v.cid} />
-                  <GlassButton variant="ghost" onClick={() => fork(v.cid)} title="Fork this version into your portal">fork</GlassButton>
-                  <GlassButton variant="ghost" onClick={() => restore(v.cid)} title="Rollback to this version (auto-snapshots current state first)">↺</GlassButton>
-                </div>
+        <div className="vtl fade-in">
+          {groups.map((g, gi) => (
+            <section key={g.label} className="vtl-group">
+              <div className="vtl-day">
+                <span className="lab">{g.label}</span>
+                <span className="rule" />
               </div>
-            );
-          })}
+              <div className="vtl-items">
+                {g.items.map((v, i) => {
+                  const glyph = ACTION_GLYPH[v.action || "snapshot"] || ACTION_GLYPH.snapshot;
+                  const isHead = gi === 0 && i === 0;
+                  const isAuto = v.action === "auto-snapshot";
+                  return (
+                    <div
+                      key={v.cid + v.timestamp}
+                      className={`vtl-row${isHead ? " head" : ""}${isAuto ? " auto" : ""}`}
+                    >
+                      <span className="vtl-rail">
+                        <span
+                          className="vtl-dot"
+                          title={glyph.label}
+                          style={{ background: glyph.color, boxShadow: `0 0 10px ${glyph.color}59` }}
+                        />
+                      </span>
+                      <div className="vtl-main">
+                        <span className="vtl-msg" title={displayMessage(v.message)}>
+                          {displayMessage(v.message) || "(no message)"}
+                        </span>
+                        {isHead && <span className="vtl-tag head-tag">latest</span>}
+                        {v.action && v.action !== "snapshot" && (
+                          <span
+                            className="vtl-tag"
+                            style={{
+                              color: glyph.color,
+                              borderColor: `${glyph.color}45`,
+                              background: `${glyph.color}14`,
+                            }}
+                          >
+                            {glyph.label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="vtl-side">
+                        <span className="vtl-acts">
+                          <CidChip cid={v.cid} />
+                          <GlassButton variant="ghost" onClick={() => fork(v.cid)} title="Fork this version into your portal">
+                            fork
+                          </GlassButton>
+                          <GlassButton variant="ghost" onClick={() => restore(v.cid)} title="Rollback to this version (auto-snapshots current state first)">
+                            ↺
+                          </GlassButton>
+                        </span>
+                        <span className="vtl-time">
+                          {g.label === "today" ? timeAgo(v.timestamp) : clockTime(v.timestamp)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       </Bento>
     </BentoGrid>

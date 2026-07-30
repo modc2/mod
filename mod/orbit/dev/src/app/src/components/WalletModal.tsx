@@ -28,6 +28,11 @@ interface WalletModalProps {
       internal scroll/`h-full`, so it can flow inside a parent's single scroll
       container (e.g. the merged account sidebar). */
   flow?: boolean;
+  /** When true the component renders as one contracted header-height strip —
+      balance · address · QR · network · refresh · disconnect — sized to sit
+      in the account sidebar's header zone on a phone. The QR / network /
+      secrets panels still expand below the strip on demand. Implies inline. */
+  compact?: boolean;
   onNetworkChange?: () => void;
 }
 
@@ -39,6 +44,7 @@ export default function WalletModal({
   inline = false,
   embedded = false,
   flow = false,
+  compact = false,
   onNetworkChange,
 }: WalletModalProps) {
   const [balance, setBalance] = useState<string>("0.00");
@@ -109,7 +115,7 @@ export default function WalletModal({
 
   const getSeedPhrase = () => {
     if (walletType === "local") {
-      return localStorage.getItem("claude_jobs_seed") || "No seed phrase found";
+      return localStorage.getItem("build_jobs_seed") || "No seed phrase found";
     }
     return "Not available for this wallet type";
   };
@@ -118,7 +124,7 @@ export default function WalletModal({
   // disposable identities, so the raw secret is viewable/copyable anytime.
   const getPassword = () => {
     if (walletType === "password") {
-      return localStorage.getItem("claude_jobs_password") || "";
+      return localStorage.getItem("build_jobs_password") || "";
     }
     return "";
   };
@@ -131,7 +137,7 @@ export default function WalletModal({
         return pw ? ethers.id(pw) : "";
       }
       if (walletType === "local") {
-        const mnemonic = localStorage.getItem("claude_jobs_seed");
+        const mnemonic = localStorage.getItem("build_jobs_seed");
         return mnemonic ? ethers.Wallet.fromPhrase(mnemonic).privateKey : "";
       }
     } catch {
@@ -161,6 +167,50 @@ export default function WalletModal({
   };
 
   const walletIcon = walletType === "metamask" ? "🦊" : walletType === "subwallet" ? "◆" : walletType === "password" ? "🔑" : "💾";
+
+  // Expandable panels — shared between the full body and the contracted
+  // header strip so each renders from exactly one source.
+  const qrPanel = (
+    <div
+      className="p-4 flex flex-col items-center gap-3"
+      style={{
+        border: "1px solid color-mix(in srgb, var(--crt-green) 14%, var(--border-color))",
+        background:
+          "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
+        borderRadius: "14px",
+      }}
+    >
+      <div className="w-full text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
+        <span>ADDRESS QR</span>
+        <button
+          onClick={() => setShowQr(false)}
+          className="text-[9px] px-2 py-0.5 transition-all"
+          style={{ color: "var(--crt-green)", border: "1px solid color-mix(in srgb, var(--crt-green) 15%, transparent)", borderRadius: "8px" }}
+        >
+          CLOSE
+        </button>
+      </div>
+      <div
+        className="p-2"
+        style={{ background: "#ffffff", borderRadius: "12px", boxShadow: "0 2px 16px rgba(0,0,0,0.35)" }}
+        dangerouslySetInnerHTML={{ __html: qrSvg(address, 200) }}
+      />
+      <button
+        onClick={() => handleCopy(address, "address")}
+        title="Click to copy"
+        className="w-full px-3 py-2 font-mono text-[10px] text-center break-all transition-all"
+        style={{
+          background: "var(--bg-secondary)",
+          border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
+          color: copied === "address" ? "var(--crt-green)" : "var(--text-primary)",
+          letterSpacing: "0.3px",
+          borderRadius: "8px",
+        }}
+      >
+        {copied === "address" ? "COPIED" : address}
+      </button>
+    </div>
+  );
 
   const content = (
     <div className={flow ? "flex flex-col" : "h-full flex flex-col overflow-hidden"}>
@@ -314,47 +364,7 @@ export default function WalletModal({
             </div>
 
             {/* Address QR — rendered locally (qrSvg), never sent to a third-party service */}
-            {showQr && (
-              <div
-                className="p-4 flex flex-col items-center gap-3"
-                style={{
-                  border: "1px solid color-mix(in srgb, var(--crt-green) 14%, var(--border-color))",
-                  background:
-                    "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)",
-                  borderRadius: "14px",
-                }}
-              >
-                <div className="w-full text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
-                  <span>ADDRESS QR</span>
-                  <button
-                    onClick={() => setShowQr(false)}
-                    className="text-[9px] px-2 py-0.5 transition-all"
-                    style={{ color: "var(--crt-green)", border: "1px solid color-mix(in srgb, var(--crt-green) 15%, transparent)", borderRadius: "8px" }}
-                  >
-                    CLOSE
-                  </button>
-                </div>
-                <div
-                  className="p-2"
-                  style={{ background: "#ffffff", borderRadius: "12px", boxShadow: "0 2px 16px rgba(0,0,0,0.35)" }}
-                  dangerouslySetInnerHTML={{ __html: qrSvg(address, 200) }}
-                />
-                <button
-                  onClick={() => handleCopy(address, "address")}
-                  title="Click to copy"
-                  className="w-full px-3 py-2 font-mono text-[10px] text-center break-all transition-all"
-                  style={{
-                    background: "var(--bg-secondary)",
-                    border: copied === "address" ? "1px solid var(--crt-green)" : "1px solid var(--border-color)",
-                    color: copied === "address" ? "var(--crt-green)" : "var(--text-primary)",
-                    letterSpacing: "0.3px",
-                    borderRadius: "8px",
-                  }}
-                >
-                  {copied === "address" ? "COPIED" : address}
-                </button>
-              </div>
-            )}
+            {showQr && qrPanel}
 
             {/* Inline Network Selector */}
             {showNetworkSelector && (

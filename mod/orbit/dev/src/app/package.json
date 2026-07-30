@@ -1,11 +1,11 @@
 {
-  "name": "claude-jobs-8bit",
+  "name": "dev-jobs-8bit",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 8821",
+    "dev": "next dev -p 8871",
     "build": "next build",
-    "start": "next start -p 8821"
+    "start": "next start -p 8871"
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",

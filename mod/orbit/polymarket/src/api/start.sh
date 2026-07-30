@@ -13,6 +13,14 @@ fi
 
 export PORT
 
+# ── Allocator ──
+# The hourly warmup parses thousands of trader-activity pages concurrently;
+# with glibc's default one-arena-per-thread the burst spreads across ~150
+# arenas that never shrink, pinning RSS at the high-water mark (~11GB
+# observed while live data was <200MB). Two arenas keep the burst confined
+# and let the post-cycle malloc_trim in main.rs actually return it.
+export MALLOC_ARENA_MAX=2
+
 # ── Persistent data dir ──
 # Signer keystore, live-engine sessions, and user strats all resolve from
 # POLYMARKET_DATA_DIR and fall back to /tmp when unset — which loses wallet

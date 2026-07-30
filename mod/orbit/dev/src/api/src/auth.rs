@@ -20,7 +20,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 use std::sync::OnceLock;
 
-/// Server secret for HMAC token signing. Persisted at ~/.mod/claude/server.secret
+/// Server secret for HMAC token signing. Persisted at ~/.mod/dev/server.secret
 /// so bearer tokens survive API restarts — this server restarts itself after
 /// self-edit jobs, and a fresh random secret would 401 every signed-in browser.
 static SERVER_SECRET: OnceLock<[u8; 32]> = OnceLock::new();
@@ -29,7 +29,7 @@ fn secret_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("server.secret")
 }
 
@@ -75,10 +75,10 @@ pub fn new_challenge_store() -> ChallengeStore {
 // Every non-owner wallet must sign the current terms once before it can
 // sign in. The terms are embedded in the challenge message itself, so the
 // wallet signature covers them; acceptance is recorded per-address in
-// ~/.mod/claude/terms_accepted.json and re-required when the version bumps.
+// ~/.mod/dev/terms_accepted.json and re-required when the version bumps.
 
 pub const TERMS_VERSION: u32 = 1;
-pub const TERMS_MARKER: &str = "Claude Jobs Terms of Use (v1)";
+pub const TERMS_MARKER: &str = "Build Jobs Terms of Use (v1)";
 pub const TERMS_TEXT: &str = "\
 1. This service runs coding tasks on the operator's infrastructure. Your \
 prompts, task output, and files a task touches may be visible to the \
@@ -97,7 +97,7 @@ fn terms_accepted_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("terms_accepted.json")
 }
 
@@ -184,7 +184,7 @@ pub async fn challenge(
     let addr = q.address.to_lowercase();
     let nonce = hex::encode(rand::random::<[u8; 16]>());
     let mut message = format!(
-        "Sign this message to authenticate with Claude Jobs.\n\nAddress: {}\nNonce: {}",
+        "Sign this message to authenticate with Build Jobs.\n\nAddress: {}\nNonce: {}",
         addr, nonce
     );
     // First sign-in from a non-owner wallet also signs the terms: embedding
@@ -315,7 +315,7 @@ pub async fn verify(
             let owner_path = dirs::home_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join(".mod")
-                .join("dev")
+                .join("build")
                 .join("owner.json");
             if let Some(parent) = owner_path.parent() {
                 std::fs::create_dir_all(parent).ok();
@@ -375,7 +375,7 @@ pub fn mint_token(address: &str) -> String {
 // ── Middleware ────────────────────────────────────────────────────────
 
 pub async fn auth_middleware(req: Request, next: Next) -> Response {
-    // Try Bearer token first (Claude API native token)
+    // Try Bearer token first (Build API native token)
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -547,7 +547,7 @@ pub fn extract_address_from_headers(headers: &axum::http::HeaderMap) -> Result<S
     Err("No valid auth token found".to_string())
 }
 
-/// Read the owner address — config.json "owner" field takes priority, then ~/.mod/claude/owner.json
+/// Read the owner address — config.json "owner" field takes priority, then ~/.mod/dev/owner.json
 pub fn get_owner_address() -> Option<String> {
     // Priority 1: config.json "owner" field (live-editable)
     if let Some(owner) = read_config_owner() {
@@ -557,7 +557,7 @@ pub fn get_owner_address() -> Option<String> {
     // Priority 2: owner.json
     let owner_path = dirs::home_dir()?
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("owner.json");
 
     let content = std::fs::read_to_string(&owner_path).ok()?;
@@ -583,7 +583,7 @@ fn read_config_owner() -> Option<String> {
         })
         .unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            std::path::PathBuf::from(format!("{}/mod/mod/orbit/dev/config.json", home))
+            std::path::PathBuf::from(format!("{}/mod/mod/orbit/build/config.json", home))
         });
 
     let content = std::fs::read_to_string(&config_path).ok()?;
@@ -592,12 +592,71 @@ fn read_config_owner() -> Option<String> {
     if owner.is_empty() { None } else { Some(owner) }
 }
 
-/// Check if an address is the system owner
+/// Check if an address is the system owner — the configured primary owner OR
+/// one of the co-owner wallets (~/.mod/dev/owners.json). A co-owner IS the
+/// owner everywhere this is called: full edit surface over every module, and
+/// sudo powers (their signatures verify because sudo checks `is_owner`). The
+/// list is meant for the owner's *own other wallets*, so it lives off-tree
+/// with the rest of the private auth state and adding to it is itself a
+/// sudo-gated owner operation (see api.rs /owners).
 pub fn is_owner(address: &str) -> bool {
-    match get_owner_address() {
-        Some(owner) => address.to_lowercase() == owner,
-        None => false,
+    if address.is_empty() {
+        return false;
     }
+    let addr = address.to_lowercase();
+    owner_addresses().iter().any(|o| o == &addr)
+}
+
+/// Every address that counts as the owner: the configured primary owner
+/// first, then co-owners in file order. Lowercased, deduped.
+pub fn owner_addresses() -> Vec<String> {
+    let mut all: Vec<String> = get_owner_address().into_iter().collect();
+    for a in read_co_owners() {
+        if !all.contains(&a) {
+            all.push(a);
+        }
+    }
+    all
+}
+
+pub fn owners_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("owners.json"))
+}
+
+/// Read the lowercased co-owner list from ~/.mod/dev/owners.json. Accepts
+/// either `["0x..", ..]` or `{"addresses": ["0x..", ..]}` like the whitelist.
+/// Returns [] if the file is absent or malformed — never errors.
+pub fn read_co_owners() -> Vec<String> {
+    let path = match owners_path() {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let arr = parsed
+        .as_array()
+        .cloned()
+        .or_else(|| parsed.get("addresses").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default();
+    arr.into_iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+        .collect()
+}
+
+/// Persist the co-owner list back to ~/.mod/dev/owners.json.
+pub fn write_co_owners(addresses: &[String]) -> Result<(), String> {
+    let path = owners_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let json = serde_json::to_string_pretty(&addresses).map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
 }
 
 /// Check if an address is *trusted* to edit — the configured owner OR a
@@ -634,7 +693,7 @@ pub fn is_trusted(address: &str) -> bool {
 //
 // Redemption is bound to the redeemer's signed-in address (during sign-in),
 // so access cleaves an auditable trail and the grant can serve multiple
-// people. Everything lives off-repo in ~/.mod/claude/grants.json next to the
+// people. Everything lives off-repo in ~/.mod/dev/grants.json next to the
 // whitelist; the grant window is absolute (created → created+ttl), so the QR
 // stops working — and every redeemer's access ends — at the same moment.
 
@@ -652,6 +711,10 @@ pub struct Grant {
     /// Optional human label so the owner remembers what a grant was for.
     #[serde(default)]
     pub label: Option<String>,
+    /// Module scope: None = every module (the default); Some(list) confines
+    /// the holder's edit powers to just those modules.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
     pub created: i64,
     #[serde(default)]
     pub revoked: bool,
@@ -663,6 +726,10 @@ pub struct Redemption {
     pub exp: i64,
     pub grant: String,
     pub redeemed: i64,
+    /// Module scope stamped from the grant at redemption (None = every module),
+    /// so access stays correctly scoped even if the grant row is later pruned.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -715,12 +782,30 @@ fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
     file
 }
 
+/// Normalize a requested module scope: trim, drop empties, dedupe (order
+/// preserved). An empty/absent list means "every module" and collapses to None.
+fn normalize_modules(modules: Option<Vec<String>>) -> Option<Vec<String>> {
+    let list: Vec<String> = modules?
+        .into_iter()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .fold(Vec::new(), |mut acc, m| {
+            if !acc.contains(&m) {
+                acc.push(m);
+            }
+            acc
+        });
+    if list.is_empty() { None } else { Some(list) }
+}
+
 /// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
-/// never stored in the clear. Returns the created grant.
+/// never stored in the clear. `modules` (if any) confines the holder's edit
+/// powers to those modules — None means everything. Returns the created grant.
 pub fn create_grant(
     ttl: i64,
     key: Option<&str>,
     label: Option<&str>,
+    modules: Option<Vec<String>>,
 ) -> Result<Grant, String> {
     let now = chrono::Utc::now().timestamp();
     let id = hex::encode(rand::random::<[u8; 12]>());
@@ -732,6 +817,7 @@ pub fn create_grant(
         label: label
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
+        modules: normalize_modules(modules),
         created: now,
         revoked: false,
     };
@@ -794,6 +880,7 @@ pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, S
         exp: grant.exp,
         grant: grant.id.clone(),
         redeemed: now,
+        modules: grant.modules.clone(),
     });
     write_grants(&file)?;
     Ok(grant.exp)
@@ -826,6 +913,68 @@ pub fn grant_active(address: &str) -> bool {
     file.redemptions
         .iter()
         .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+}
+
+/// What a trusted address may edit. Owner and whitelisted editors always get
+/// everything; grant holders get whatever scope their invite carried.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditScope {
+    /// Every module — the owner, whitelisted editors, and unscoped grants.
+    All,
+    /// Only these modules (compartmentalized-risk invites).
+    Modules(Vec<String>),
+}
+
+/// Resolve the edit scope for `address`: None = not trusted at all. A holder
+/// of several active grants gets the union of their scopes; any unscoped
+/// grant (or owner/whitelist status) widens to All.
+pub fn edit_scope(address: &str) -> Option<EditScope> {
+    if address.is_empty() {
+        return None;
+    }
+    let addr = address.to_lowercase();
+    if is_owner(&addr) || read_whitelist().iter().any(|w| w == &addr) {
+        return Some(EditScope::All);
+    }
+    let now = chrono::Utc::now().timestamp();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    let mut modules: Vec<String> = Vec::new();
+    let mut any = false;
+    for r in file
+        .redemptions
+        .iter()
+        .filter(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+    {
+        any = true;
+        match &r.modules {
+            None => return Some(EditScope::All),
+            Some(list) => {
+                for m in list {
+                    if !modules.contains(m) {
+                        modules.push(m.clone());
+                    }
+                }
+            }
+        }
+    }
+    if any { Some(EditScope::Modules(modules)) } else { None }
+}
+
+/// Module-aware trust check: true when `address` is trusted AND `module`
+/// falls inside its edit scope. This is the gate for per-module editor
+/// powers (MR verdicts, MR close); `is_trusted` stays the coarse gate.
+pub fn can_edit_module(address: &str, module: &str) -> bool {
+    match edit_scope(address) {
+        Some(EditScope::All) => true,
+        Some(EditScope::Modules(list)) => list.iter().any(|m| m == module),
+        None => false,
+    }
 }
 
 // ── Session handoff (QR sign-in on another device) ──────────────────
@@ -888,10 +1037,10 @@ pub fn redeem_handoff(code: &str) -> Result<String, String> {
         .ok_or_else(|| "Invalid, expired, or already-used sign-in code".to_string())
 }
 
-/// Off-chain config dir (~/.mod/claude/) — holds owner.json, whitelist.json, gate.json.
+/// Off-chain config dir (~/.mod/dev/) — holds owner.json, whitelist.json, gate.json.
 /// Kept off-repo because the whitelist is private; mounted into the container as a volume.
 pub fn private_dir() -> Option<std::path::PathBuf> {
-    Some(dirs::home_dir()?.join(".mod").join("dev"))
+    Some(dirs::home_dir()?.join(".mod").join("build"))
 }
 
 pub fn whitelist_path() -> Option<std::path::PathBuf> {
@@ -902,7 +1051,7 @@ fn gate_path() -> Option<std::path::PathBuf> {
     Some(private_dir()?.join("gate.json"))
 }
 
-/// Read the lowercased whitelist from ~/.mod/claude/whitelist.json (a JSON string array).
+/// Read the lowercased whitelist from ~/.mod/dev/whitelist.json (a JSON string array).
 /// Returns [] if the file is absent or malformed — never errors.
 pub fn read_whitelist() -> Vec<String> {
     let path = match whitelist_path() {
@@ -928,7 +1077,7 @@ pub fn read_whitelist() -> Vec<String> {
         .collect()
 }
 
-/// Persist the whitelist back to ~/.mod/claude/whitelist.json (used by the owner-only
+/// Persist the whitelist back to ~/.mod/dev/whitelist.json (used by the owner-only
 /// management endpoints in api.rs). Returns an error string on failure.
 pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
     let path = whitelist_path().ok_or("no home dir")?;
@@ -939,7 +1088,7 @@ pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
     std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
 }
 
-/// Read the optional `gate_command` from ~/.mod/claude/gate.json — a shell command that the
+/// Read the optional `gate_command` from ~/.mod/dev/gate.json — a shell command that the
 /// owner defines to authorize sign-in based on arbitrary logic (token-gated, NFT-gated, etc).
 /// File format: {"command": "..."}.
 fn read_gate_command() -> Option<String> {
@@ -1125,7 +1274,7 @@ mod tests {
         let expected_address = format!("0x{}", hex::encode(&addr_hash[12..]));
 
         // Sign a message using EIP-191 personal_sign
-        let message = "Hello Claude Jobs";
+        let message = "Hello Build Jobs";
         let prefix = format!("\x19Ethereum Signed Message:\n{}", message.len());
         let mut hasher = sha3::Keccak256::new();
         hasher.update(prefix.as_bytes());
@@ -1151,6 +1300,23 @@ mod tests {
             recovered.to_lowercase(),
             expected_address.to_lowercase(),
             "Recovered address doesn't match expected"
+        );
+    }
+
+    #[test]
+    fn test_normalize_modules_scope() {
+        // Absent / empty / all-blank scopes collapse to None (= everything).
+        assert_eq!(normalize_modules(None), None);
+        assert_eq!(normalize_modules(Some(vec![])), None);
+        assert_eq!(normalize_modules(Some(vec!["  ".into(), "".into()])), None);
+        // Trim + dedupe, order preserved.
+        assert_eq!(
+            normalize_modules(Some(vec![
+                " store ".into(),
+                "claude".into(),
+                "store".into(),
+            ])),
+            Some(vec!["store".to_string(), "claude".to_string()])
         );
     }
 

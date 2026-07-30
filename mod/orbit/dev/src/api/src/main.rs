@@ -1,9 +1,10 @@
-//! Claude Jobs Server — background Claude CLI task manager
+//! Build Jobs Server — background Claude CLI task manager
 //!
 //! Manages background Claude CLI processes, persists jobs in SQLite,
 //! and exposes an HTTP API + SSE streaming for live output.
 //! Authentication via MetaMask signature verification.
 
+mod agent_auth;
 mod auth;
 mod autosnap;
 mod credits;
@@ -11,10 +12,13 @@ mod jobs;
 mod api;
 mod snapshots;
 mod merge;
+mod github;
 mod screenshots;
 mod userspace;
 mod sudo;
 mod process;
+mod reaper;
+mod system;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,17 +44,21 @@ async fn main() {
     // Mark any previously-running jobs as failed (stale from crash)
     manager.recover_stale_jobs().ok();
 
+    // Give every finished task a localfs CID in the store index — this pass
+    // covers jobs that finished before the store bridge existed.
+    manager.spawn_cid_backfill();
+
     // Background CID minting: once a minute, snapshot+register any module
     // that has no registry CID yet, so hub cards never sit at "no cid".
     autosnap::spawn();
 
-    println!("Claude Jobs server starting on port {}", port);
+    println!("Build Jobs server starting on port {}", port);
     api::serve(manager, port).await;
 }
 
 fn dirs_db() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".mod").join("dev")
+    PathBuf::from(home).join(".mod").join("build")
 }
 
 /// One process-wide lock for every test that overrides the global $HOME

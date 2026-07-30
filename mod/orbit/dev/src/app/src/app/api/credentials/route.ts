@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-// This route runs server-side as the `node` user inside the claude
+// This route runs server-side as the `node` user inside the build
 // container and manages the Claude Code OAuth credentials the job runner
 // spawns `claude` with. It lets an operator paste working credentials from
 // the UI when the host-mounted ones are missing/expired — no shell needed.

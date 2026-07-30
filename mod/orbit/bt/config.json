@@ -1,7 +1,7 @@
 {
     "name": "bt",
     "description": "Bittensor protocol console + MCP server \u2014 subnets, wallets, TAO, alpha trading, and a local index that tracks any trader over time",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "port": 50280,
     "app_port": 50280,
     "route": true,

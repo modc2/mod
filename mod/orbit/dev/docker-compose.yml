@@ -4,27 +4,27 @@ networks:
     name: modnet
 
 services:
-  claude:
+  build:
     build:
       context: .
       args:
-        BUILD_CID: "${BUILD_CID:-}"
-        BUILD_TIME: "${BUILD_TIME:-}"
-    container_name: claude
-    image: claude:latest
+        DEV_CID: "${DEV_CID:-}"
+        DEV_TIME: "${DEV_TIME:-}"
+    container_name: build
+    image: build:latest
     ports:
-      - "8823:8823"
+      - "8871:8871"
     restart: unless-stopped
     # Linux needs an explicit alias; Mac/Windows resolve host.docker.internal automatically.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - API_PORT=8820
-      - APP_PORT=8823
-      - CLAUDE_JOBS_LOCAL=1
+      - API_PORT=8870
+      - APP_PORT=8871
+      - DEV_JOBS_LOCAL=1
     volumes:
       - "${HOME}/.claude:/host-claude"
-      - "${HOME}/.mod/claude:/home/node/.mod/claude"
+      - "${HOME}/.mod/dev:/home/node/.mod/dev"
       - "${HOME}/.mod/api:/home/node/.mod/api"
       - "${HOME}/mod:/home/node/mod"
       - "./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro"

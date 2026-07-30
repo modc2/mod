@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """tests"""
-    path = r'/Users/broski/mod/mod/orbit/claude/tests'
+    path = r'/Users/broski/mod/mod/orbit/build/tests'
 
     def forward(self, **kwargs):
         """Default entry point."""

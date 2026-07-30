@@ -7,7 +7,7 @@
 //! the balance backs future subscriptions / pay-per-use.
 //!
 //! Module-agnostic by design: the module name comes from CREDITS_MODULE /
-//! MOD_NAME (default "dev"), all state lives under ~/.mod/{module}/credits/,
+//! MOD_NAME (default "build"), all state lives under ~/.mod/{module}/credits/,
 //! and the chain + payout destination are read from that module's config.json
 //! (`credits` section + `owner` field). A fork of this server (codex, …) gets
 //! the whole system by setting the env var — no code changes.
@@ -35,7 +35,7 @@ pub fn module_name() -> String {
         .ok()
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "dev".to_string())
+        .unwrap_or_else(|| "build".to_string())
 }
 
 fn credits_dir() -> Option<std::path::PathBuf> {

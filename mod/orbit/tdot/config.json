@@ -1,7 +1,7 @@
 {
     "name": "tdot",
-    "version": "1.0.0",
-    "description": "An open-source browser GIS for New York City \u2014 housing prices from recorded deeds, subway and bike networks, parks, flood zones, traffic injuries and boundaries, as toggleable MapLibre layers with choropleths, legends and a feature inspector. Every source is public, key-free open data.",
+    "version": "2.0.0",
+    "description": "An open-source browser GIS for Toronto \u2014 police-reported crime by neighbourhood, TTC subway and streetcar networks, cycling, green spaces, serious traffic collisions and boundaries, as toggleable MapLibre layers with choropleths, legends and a feature inspector. Every source is public, key-free open data.",
     "anchor": "mod.py",
     "network": "testnet",
     "port": 50320,
@@ -13,9 +13,9 @@
         "app": "http://localhost:50321"
     },
     "sources": {
-        "nyc_open_data": "https://data.cityofnewyork.us",
-        "ny_state_open_data": "https://data.ny.gov",
-        "mta_gtfs": "https://www.mta.info/developers",
+        "toronto_open_data": "https://open.toronto.ca",
+        "toronto_police_open_data": "https://data.torontopolice.on.ca",
+        "ttc_gtfs": "https://open.toronto.ca/dataset/ttc-routes-and-schedules/",
         "openstreetmap": "https://www.openstreetmap.org"
     },
     "fns": [
@@ -27,16 +27,16 @@
         "boundary",
         "view",
         "options",
-        "housing",
-        "prices",
+        "crime",
+        "incidents",
         "trend",
-        "sales",
+        "summary",
         "where",
         "warm",
         "cache",
         "clear_cache",
-        "boroughs",
-        "borough",
+        "districts",
+        "district",
         "serve",
         "serve_api",
         "serve_app",
@@ -45,5 +45,5 @@
         "deregister"
     ],
     "key": "tdot",
-    "schema": "QmWNdQhu8xccjyAUZTwsPAcjGe2w4z2nBUswKGPRyRaP1n"
+    "schema": "QmVHsugTYhsuzSUNEQCbbxabCQTggVC46cVNPiAXVPCHka"
 }

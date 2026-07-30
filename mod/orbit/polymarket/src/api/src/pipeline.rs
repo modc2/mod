@@ -284,6 +284,27 @@ impl PipelineState {
     }
 }
 
+/// The only fields the window metrics / pnl curve / title filter actually
+/// read from a raw activity object. Everything else (profile images, bios,
+/// slugs, tx hashes — ~30 fields total) is dead weight: keeping it meant up
+/// to 20k full objects per trader × 64 concurrent enrich tasks, multi-GB of
+/// transient heap every warmup cycle that glibc then never returned to the
+/// OS (observed 10.9GB RSS pinned at high-water mark).
+const TRADE_FIELDS: &[&str] = &[
+    "timestamp", "type", "side", "price", "size", "usdcSize",
+    "conditionId", "asset", "title",
+];
+
+fn slim_trade(t: &Value) -> Value {
+    let mut m = serde_json::Map::with_capacity(TRADE_FIELDS.len());
+    for k in TRADE_FIELDS {
+        if let Some(v) = t.get(*k) {
+            m.insert((*k).to_string(), v.clone());
+        }
+    }
+    Value::Object(m)
+}
+
 /// Normalize a timestamp to seconds — handles both seconds and milliseconds formats.
 fn normalize_ts(v: &Value) -> u64 {
     let raw = v.get("timestamp")
@@ -330,7 +351,7 @@ async fn enrich_trader_with_url(
                         .filter(|&ts| ts > 0)
                         .min()
                         .unwrap_or(u64::MAX);
-                    all_trades.extend(trades);
+                    all_trades.extend(trades.iter().map(slim_trade));
                     if len < PAGE as usize || oldest_ts < cutoff_sec {
                         break;
                     }

@@ -3,7 +3,7 @@ import src.mod as m
 
 class Mod:
     description = """app"""
-    path = r'/Users/broski/mod/mod/orbit/claude/app'
+    path = r'/Users/broski/mod/mod/orbit/build/app'
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -29,10 +29,10 @@ class Mod:
     def install(self):
         """Install project dependencies."""
         import subprocess
-        return subprocess.run(['npm', 'install'], cwd=r'/Users/broski/mod/mod/orbit/claude/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'install'], cwd=r'/Users/broski/mod/mod/orbit/build/app', capture_output=True, text=True).stdout
 
     def build(self):
         """Build the project."""
         import subprmocess
-        return subprocess.run(['npm', 'run', 'build'], cwd=r'/Users/broski/mod/mod/orbit/claude/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'run', 'build'], cwd=r'/Users/broski/mod/mod/orbit/build/app', capture_output=True, text=True).stdout
   

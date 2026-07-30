@@ -33,7 +33,10 @@ async fn main() -> anyhow::Result<()> {
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 
-    let proxy_cache = Arc::new(ProxyCache::new(500));
+    // 128 entries: memory is a hot tier only — persistent endpoints (trader
+    // activity/positions/history) reload from disk on eviction, so a small
+    // cap costs no upstream refetches, just keeps big JSON bodies off-heap.
+    let proxy_cache = Arc::new(ProxyCache::new(128));
     let pipeline = Arc::new(PipelineState::new(http.clone()));
 
     let strat_store = Arc::new(StratStore::new());
@@ -133,6 +136,12 @@ async fn main() -> anyhow::Result<()> {
             if std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err() {
                 tracing::error!("warmup cycle panicked; next sync in 1h");
             }
+            // Hand the cycle's burst heap back to the OS. Parsing thousands
+            // of trader activity pages allocates GBs that glibc otherwise
+            // keeps in its arenas forever — RSS sat pinned at the ~11GB
+            // high-water mark while live data (all disk-backed) was <200MB.
+            #[cfg(target_os = "linux")]
+            unsafe { libc::malloc_trim(0); }
         }
     });
 

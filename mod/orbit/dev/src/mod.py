@@ -35,19 +35,19 @@ Ship it clean. Make Steve proud."""
 
 class Mod:
     """
-    Claude module — programmable AI developer interface.
+    Build module — programmable AI developer interface.
 
     Operates in two modes:
-      - Server mode: delegates to Rust job server (port 8820) + Next.js app (8821)
+      - Server mode: delegates to Rust job server (port 8870) + Next.js app (8871)
       - Standalone mode: runs Claude CLI directly, local bg jobs, IPFS versioning
 
     All code-writing operations require owner permission when an owner is set.
     Read-only operations (analyze, debug, modules, health) are always open.
     """
 
-    description = "Claude AI interface — jobs, code ops, IPFS versioning, and module management."
+    description = "Build AI interface — jobs, code ops, IPFS versioning, and module management."
     endpoints = [
-        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'tail',
+        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'guide', 'tail',
         'create_module', 'edit_module', 'import_module', 'delete_module',
         'fork_module', 'analyze_code', 'generate_code',
         'refactor', 'debug', 'edit_file', 'run_task', 'batch_process',
@@ -73,17 +73,17 @@ class Mod:
         self.auth = m.mod('server.auth')()
         cfg = self._load_config()
         servers = cfg.get('servers', {})
-        name = cfg.get('name', 'claude')
-        self.api_url = api_url or servers.get(f'{name}-api', 'http://localhost:8820')
-        self.app_url = app_url or servers.get(f'{name}-app', 'http://localhost:8821')
+        name = cfg.get('name', 'dev')
+        self.api_url = api_url or servers.get(f'{name}-api', 'http://localhost:8870')
+        self.app_url = app_url or servers.get(f'{name}-app', 'http://localhost:8871')
         self.config = cfg
         self.default_path = default_path or cfg.get('default_path', os.path.expanduser('~/mod'))
         self._owner = cfg.get('owner') or self.key.address.lower()
         self._history_dir = Path(self._module_dir()) / '.history'
         # Shareable prompt catalog. Bodies live in localfs (IPFS CID) so any
         # prompt can be shared by CID; the catalog index lives off-tree next to
-        # the other private state (~/.mod/claude/). Overridable in tests.
-        self._prompts_dir = Path(os.path.expanduser('~/.mod/claude'))
+        # the other private state (~/.mod/dev/). Overridable in tests.
+        self._prompts_dir = Path(os.path.expanduser('~/.mod/dev'))
         # dynamic API lifecycle
         self._idle_timeout = idle_timeout or cfg.get('idle_timeout', 300)  # seconds
         self._last_activity = 0.0
@@ -173,7 +173,7 @@ class Mod:
     def is_bloctime_owner(self, address=None) -> bool:
         """Check whether an address holds BlocTime (staked) on-chain.
 
-        BlocTime holders are granted owner-level access to claude. Results are
+        BlocTime holders are granted owner-level access to build. Results are
         cached briefly and every chain failure degrades to False so the auth
         path never blocks on RPC issues.
         """
@@ -196,7 +196,7 @@ class Mod:
 
     def register_onchain(self, network: str = None, data: str = None,
                          force: bool = False) -> dict:
-        """Register this claude module in the on-chain Registry (chain mod).
+        """Register this build module in the on-chain Registry (chain mod).
 
         Permissionless per-creator registration. Skips the transaction when the
         module is already registered with identical data (unless force=True).
@@ -204,15 +204,15 @@ class Mod:
         chain = self._chain() if network is None else m.mod('chain')(network=network)
         data = data or self.api_url
         try:
-            if not force and chain.mod_exists('claude'):
-                existing = chain.get_mod(chain.name2id('claude'))
+            if not force and chain.mod_exists('dev'):
+                existing = chain.get_mod(chain.name2id('dev'))
                 if existing.get('data') == data:
-                    return {'status': 'already_registered', 'name': 'claude', 'data': data}
+                    return {'status': 'already_registered', 'name': 'dev', 'data': data}
         except Exception:
             pass
-        receipt = chain.reg('claude', data)
+        receipt = chain.reg('dev', data)
         tx = receipt.transactionHash.hex() if hasattr(receipt, 'transactionHash') else str(receipt)
-        return {'status': 'registered', 'name': 'claude', 'data': data, 'tx': tx}
+        return {'status': 'registered', 'name': 'dev', 'data': data, 'tx': tx}
 
     def is_owner(self, key=None) -> bool:
         """Check if key/address/token belongs to the owner.
@@ -232,12 +232,12 @@ class Mod:
     # ── whitelist (off-chain trusted editors) ─────────────────────
     # Everything in the orbit belongs to the host owner. The whitelist is the
     # owner's explicit delegation of edit rights to other addresses. It lives
-    # off-tree in ~/.mod/claude/whitelist.json (never committed) — the same file
+    # off-tree in ~/.mod/dev/whitelist.json (never committed) — the same file
     # the Rust API reads — and grants owner-level EDIT access only. Owner-only
     # powers (managing the whitelist, set_owner, kill) stay restricted to owner.
 
     def _whitelist_path(self) -> Path:
-        return Path(os.path.expanduser('~/.mod/claude/whitelist.json'))
+        return Path(os.path.expanduser('~/.mod/dev/whitelist.json'))
 
     def _load_whitelist(self) -> List[str]:
         """Read the lowercased whitelist. Returns [] if absent/malformed."""
@@ -454,7 +454,7 @@ class Mod:
         except urllib.error.URLError as e:
             raise ConnectionError(
                 f"API server not reachable at {self.api_url} — "
-                f"start it with: cd mod/orbit/claude/api && cargo run\n{e}"
+                f"start it with: cd mod/orbit/build/api && cargo run\n{e}"
             )
 
     def _stream(self, path: str) -> None:
@@ -491,12 +491,12 @@ class Mod:
         try:
             return int(self.api_url.rsplit(':', 1)[-1].rstrip('/'))
         except (ValueError, IndexError):
-            return 8820
+            return 8870
 
     def _start_api(self) -> bool:
         """Start the Rust API server. Returns True if started successfully."""
         api_dir = os.path.join(self._module_dir(), 'src', 'api')
-        binary = os.path.join(api_dir, 'target', 'release', 'claude-jobs')
+        binary = os.path.join(api_dir, 'target', 'release', 'dev-jobs')
         if not os.path.exists(binary):
             start_sh = os.path.join(api_dir, 'start.sh')
             if os.path.exists(start_sh):
@@ -510,7 +510,7 @@ class Mod:
         else:
             port = self._api_port()
             env = os.environ.copy()
-            env['CLAUDE_JOBS_LOCAL'] = '1'
+            env['DEV_JOBS_LOCAL'] = '1'
             subprocess.Popen(
                 [binary, str(port)], cwd=api_dir, env=env,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -560,7 +560,7 @@ class Mod:
                 with self._idle_lock:
                     idle = time.time() - self._last_activity
                 if idle >= self._idle_timeout:
-                    print(f"[claude] API idle for {int(idle)}s — shutting down")
+                    print(f"[build] API idle for {int(idle)}s — shutting down")
                     self._stop_api()
                     return
         self._idle_thread = threading.Thread(target=_monitor, daemon=True)
@@ -571,9 +571,9 @@ class Mod:
         self._touch_activity()
         if self._server_available():
             return True
-        print("[claude] API not running — starting automatically...")
+        print("[build] API not running — starting automatically...")
         if self._start_api():
-            print(f"[claude] API started on port {self._api_port()} (idle timeout: {self._idle_timeout}s)")
+            print(f"[build] API started on port {self._api_port()} (idle timeout: {self._idle_timeout}s)")
             return True
         raise ConnectionError(
             f"Failed to auto-start API on port {self._api_port()}. "
@@ -633,7 +633,7 @@ class Mod:
         # fall back to global
         result = subprocess.run(["which", "claude"], capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError("claude CLI not found — install with: m claude/install")
+            raise RuntimeError("claude CLI not found — install with: m build/install")
         return result.stdout.strip()
 
     def _run_cli(self, query: str, path: str = None, model: str = "sonnet",
@@ -783,15 +783,20 @@ class Mod:
         """Cancel a running job."""
         return self._request("POST", f"/jobs/{job_id}/cancel")
 
+    def guide(self, job_id: str, message: str) -> dict:
+        """Guide a RUNNING job mid-task: the message is injected into the
+        agent's session at its next tool boundary (Claude Code steering)."""
+        return self._request("POST", f"/jobs/{job_id}/message", {"message": message})
+
     def kill(self, pid: int = None, port: int = None, sig: str = "SIGKILL") -> dict:
-        """Kill a process by PID, port, or both claude services (API+App) if no args given. Owner-only."""
+        """Kill a process by PID, port, or both build services (API+App) if no args given. Owner-only."""
         self.require_owner(operation="kill")
 
-        # No args → kill both claude services by port
+        # No args → kill both build services by port
         if pid is None and port is None:
             killed = []
-            api_port = self.config.get('port', 8820)
-            app_port = self.config.get('app_port', 8821)
+            api_port = self.config.get('port', 8870)
+            app_port = self.config.get('app_port', 8871)
             for svc_port in [api_port, app_port]:
                 try:
                     result = subprocess.run(
@@ -926,7 +931,7 @@ class Mod:
     # Module creation and deletion are owner-only end to end: the API rejects
     # non-owner tokens, and these helpers sign with the local owner key so the
     # whole lifecycle (import/fork/delete/snapshot/restore) is drivable from
-    # the terminal — `m claude/import_module`, `m claude/delete_module`.
+    # the terminal — `m build/import_module`, `m build/delete_module`.
 
     def _auth_headers(self, key=None) -> dict:
         """Bearer token headers signed by the given key (default: owner)."""
@@ -936,7 +941,7 @@ class Mod:
         """The exact sudo message. MUST stay byte-for-byte in sync with the
         Rust `sudo_message` (sudo.rs) and the frontend `buildSudoMessage`."""
         return "\n".join([
-            "MOD Claude Sudo Authorization",
+            "MOD Build Sudo Authorization",
             f"action: {action}",
             f"target: {target}",
             f"time: {time_s}",
@@ -974,8 +979,8 @@ class Mod:
                       category: str = 'orbit', key=None) -> dict:
         """Import a new module from a GitHub repo or snapshot CID. Owner-only.
 
-        m claude/import_module mymod github=https://github.com/user/repo
-        m claude/import_module mymod cid=Qm...
+        m build/import_module mymod github=https://github.com/user/repo
+        m build/import_module mymod cid=Qm...
         """
         self.require_owner(key, operation="import_module")
         if not github and not cid:
@@ -994,13 +999,13 @@ class Mod:
 
     def delete_module(self, name: str, key=None) -> dict:
         """Delete a module directory. Owner-only; signs the sudo authorization
-        with the local owner key (deleting anything but claude requires it).
+        with the local owner key (deleting anything but build requires it).
 
-        m claude/delete_module mymod
+        m build/delete_module mymod
         """
         self.require_owner(key, operation="delete_module")
         headers = self._auth_headers(key)
-        if name != 'claude':
+        if name != 'dev':
             headers.update(self._sudo_header('delete', name, key))
         return self._request('DELETE', f'/modules/{name}', headers=headers)
 
@@ -1022,7 +1027,7 @@ class Mod:
     def mr_fork(self, module: str, refresh: bool = False, key=None) -> dict:
         """Fork a module into your workspace, pinned to a base CID.
 
-        m claude/mr_fork polymarket
+        m build/mr_fork polymarket
         """
         return self._request('POST', f'/modules/{module}/mr-fork',
                              {'refresh': refresh}, timeout=120,
@@ -1033,8 +1038,8 @@ class Mod:
                 message: str = '', key=None) -> dict:
         """Open a merge request from your fork (or from raw snapshot CIDs).
 
-        m claude/mr_open polymarket title="fix fee calc"
-        m claude/mr_open polymarket title="import" head_cid=<cid>
+        m build/mr_open polymarket title="fix fee calc"
+        m build/mr_open polymarket title="import" head_cid=<cid>
         """
         data = {'title': title, 'description': description, 'message': message}
         if head_cid:
@@ -1061,7 +1066,7 @@ class Mod:
     def mr_comment(self, id: str, body: str = '', action: str = None, key=None) -> dict:
         """Comment on an MR. action=approve|request_changes needs a trusted reviewer.
 
-        m claude/mr_comment mr_ab12 body="nice" action=approve
+        m build/mr_comment mr_ab12 body="nice" action=approve
         """
         data = {'body': body}
         if action:
@@ -1085,14 +1090,14 @@ class Mod:
     def mr_merge(self, id: str, instructions: str = None, model: str = None, key=None) -> dict:
         """Owner-approve an MR and hand the merge to the agent (three-way
         semantic merge of base/head/live; auto-snapshot first). Signs the
-        sudo authorization when the target module isn't claude.
+        sudo authorization when the target module isn't build.
 
-        m claude/mr_merge mr_ab12 instructions="keep the new fee tests"
+        m build/mr_merge mr_ab12 instructions="keep the new fee tests"
         """
         self.require_owner(key, operation="mr_merge")
         headers = self._auth_headers(key)
         target = self.mr(id).get('module')
-        if target and target != 'claude':
+        if target and target != 'dev':
             headers.update(self._sudo_header('merge', target, key))
         data = {}
         if instructions:
@@ -1539,8 +1544,8 @@ class Mod:
         With host: installs on remote host over SSH.
 
         Usage:
-            m claude/install              # local install + auth setup
-            m claude/install user@myserver # remote install
+            m build/install              # local install + auth setup
+            m build/install user@myserver # remote install
         """
         if not host:
             return self._install_local(**kwargs)
@@ -1575,11 +1580,11 @@ class Mod:
             key_path: path to SSH key (optional, uses default if omitted)
 
         Usage:
-            m claude/setup user@myserver
-            m claude/setup user@myserver key_path=~/.ssh/id_ed25519
+            m build/setup user@myserver
+            m build/setup user@myserver key_path=~/.ssh/id_ed25519
         """
         if not host:
-            return {'error': 'host required — e.g. m claude/setup user@myserver'}
+            return {'error': 'host required — e.g. m build/setup user@myserver'}
 
         results = {'host': host, 'steps': []}
 
@@ -1687,7 +1692,7 @@ class Mod:
             print('[install] no credentials found. pick one:')
             print('')
             print('  1) paste auth token  — from a machine already logged in:')
-            print('     run `m claude/_authtoken` on that machine, copy the token')
+            print('     run `m build/_authtoken` on that machine, copy the token')
             print('')
             print('  2) set API key       — paste your ANTHROPIC_API_KEY')
             print('     (get one at https://console.anthropic.com/settings/keys)')
@@ -1732,8 +1737,8 @@ class Mod:
         With token arg: writes the token to keychain.
 
         Usage:
-            m claude/_authtoken               # show current token
-            m claude/_authtoken <token>       # set token from another machine
+            m build/_authtoken               # show current token
+            m build/_authtoken <token>       # set token from another machine
         """
         if token:
             ok = self._write_keychain_token(token)
@@ -1799,19 +1804,19 @@ class Mod:
         cargo_bin = os.path.expanduser('~/.cargo/bin/cargo')
         if os.path.exists(cargo_bin):
             return cargo_bin
-        print('[claude] cargo missing — installing rustup (this may take a minute)')
+        print('[build] cargo missing — installing rustup (this may take a minute)')
         try:
             r = subprocess.run(
                 ['sh', '-c', 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'],
                 capture_output=True, text=True, timeout=600,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            print(f'[claude] rustup install failed: {e}')
+            print(f'[build] rustup install failed: {e}')
             return None
         if r.returncode != 0 or not os.path.exists(cargo_bin):
-            print(f'[claude] rustup install failed: {r.stderr[-200:]}')
+            print(f'[build] rustup install failed: {r.stderr[-200:]}')
             return None
-        print('[claude] rustup installed')
+        print('[build] rustup installed')
         return cargo_bin
 
     def ensure_env(self, app_dir: str = None, api_dir: str = None):
@@ -1828,7 +1833,7 @@ class Mod:
         # ── App: node_modules ──
         if (app_dir / 'package.json').exists():
             if not (app_dir / 'node_modules').is_dir():
-                print('[claude] node_modules missing — running npm install')
+                print('[build] node_modules missing — running npm install')
                 try:
                     r = subprocess.run(
                         ['npm', 'install'], cwd=str(app_dir),
@@ -1836,19 +1841,19 @@ class Mod:
                     )
                 except FileNotFoundError:
                     results['app_install'] = {'ok': False, 'error': 'npm not found in PATH'}
-                    print('[claude] npm install failed: npm not found in PATH')
+                    print('[build] npm install failed: npm not found in PATH')
                 else:
                     if r.returncode != 0:
                         results['app_install'] = {'ok': False, 'error': r.stderr[-500:]}
-                        print(f'[claude] npm install failed: {r.stderr[-200:]}')
+                        print(f'[build] npm install failed: {r.stderr[-200:]}')
                     else:
                         results['app_install'] = {'ok': True}
-                        print('[claude] npm install done')
+                        print('[build] npm install done')
             else:
                 results['app_install'] = {'ok': True, 'cached': True}
 
         # ── API: Rust binary ──
-        binary = api_dir / 'target' / 'release' / 'claude-jobs'
+        binary = api_dir / 'target' / 'release' / 'dev-jobs'
         if (api_dir / 'Cargo.toml').exists() and not binary.exists():
             import shutil
             cargo = shutil.which('cargo') or (
@@ -1860,7 +1865,7 @@ class Mod:
             if not cargo:
                 results['api_build'] = {'ok': False, 'error': 'cargo not found and rustup install failed'}
             else:
-                print('[claude] API binary missing — running cargo build --release')
+                print('[build] API binary missing — running cargo build --release')
                 try:
                     r = subprocess.run(
                         [cargo, 'build', '--release'], cwd=str(api_dir),
@@ -1868,14 +1873,14 @@ class Mod:
                     )
                 except FileNotFoundError:
                     results['api_build'] = {'ok': False, 'error': 'cargo not found in PATH'}
-                    print('[claude] cargo build failed: cargo not found in PATH')
+                    print('[build] cargo build failed: cargo not found in PATH')
                 else:
                     if r.returncode != 0:
                         results['api_build'] = {'ok': False, 'error': r.stderr[-500:]}
-                        print(f'[claude] cargo build failed: {r.stderr[-200:]}')
+                        print(f'[build] cargo build failed: {r.stderr[-200:]}')
                     else:
                         results['api_build'] = {'ok': True}
-                        print('[claude] cargo build done')
+                        print('[build] cargo build done')
         else:
             results['api_build'] = {'ok': True, 'cached': True}
 
@@ -1908,7 +1913,7 @@ class Mod:
     # ── serve ─────────────────────────────────────────────────────
 
     def _serve_pm2(self, api_port, app_port, dev, results) -> bool:
-        """Launch claude-api + claude-app under pm2 (the root deployment path).
+        """Launch dev-api + dev-app under pm2 (the root deployment path).
 
         Returns True if pm2 is available and the start command succeeded, in
         which case serve() skips the Popen fallback. Running under pm2 as root is
@@ -1920,49 +1925,49 @@ class Mod:
             return False
         module_dir = Path(self._module_dir())
         eco = module_dir / 'ecosystem.config.js'
-        api_bin = module_dir / 'src' / 'api' / 'target' / 'release' / 'claude-jobs'
+        api_bin = module_dir / 'src' / 'api' / 'target' / 'release' / 'dev-jobs'
         if not eco.exists():
             return False
         # Ensure the API binary exists (pm2 runs it directly — no build-on-start).
         if not api_bin.exists():
-            print('[claude] building API binary for pm2…')
+            print('[build] building API binary for pm2…')
             build = subprocess.run(
                 ['cargo', 'build', '--release'],
                 cwd=str(module_dir / 'src' / 'api'),
                 capture_output=True, text=True,
             )
             if build.returncode != 0 or not api_bin.exists():
-                print('[claude] API build failed — falling back to start.sh')
+                print('[build] API build failed — falling back to start.sh')
                 return False
         env = os.environ.copy()
-        env['CLAUDE_MODE'] = 'dev' if dev else 'prod'
-        env['CLAUDE_API_PORT'] = str(api_port)
-        env['CLAUDE_APP_PORT'] = str(app_port)
-        # NOTE: deliberately NOT setting CLAUDE_JOBS_LOCAL — as root we must keep
+        env['DEV_MODE'] = 'dev' if dev else 'prod'
+        env['DEV_API_PORT'] = str(api_port)
+        env['DEV_APP_PORT'] = str(app_port)
+        # NOTE: deliberately NOT setting DEV_JOBS_LOCAL — as root we must keep
         # auth + the sudo gate on.
-        subprocess.run(['pm2', 'delete', 'claude-api', 'claude-app'],
+        subprocess.run(['pm2', 'delete', 'dev-api', 'dev-app'],
                        capture_output=True, text=True)
         proc = subprocess.run(['pm2', 'start', str(eco)], cwd=str(module_dir),
                               env=env, capture_output=True, text=True)
         if proc.returncode != 0:
-            print(f'[claude] pm2 start failed: {proc.stderr[-300:]}')
+            print(f'[build] pm2 start failed: {proc.stderr[-300:]}')
             return False
         subprocess.run(['pm2', 'save'], capture_output=True, text=True)
         results['api'] = f'http://localhost:{api_port}'
         results['app'] = f'http://localhost:{app_port}'
         results['pm2'] = True
-        print(f'[claude] pm2: claude-api :{api_port}  claude-app :{app_port}')
+        print(f'[build] pm2: dev-api :{api_port}  dev-app :{app_port}')
         return True
 
     def serve(self, api_port=None, app_port=None, dev=True):
-        """Start the claude API (Rust job server) and Next.js app.
+        """Start the build API (Rust job server) and Next.js app.
 
         Ensures dependencies are installed, starts both services,
         verifies they come up, and registers in the namespace.
         """
-        api_port = int(api_port or self.config.get('port', 8820))
-        app_port = int(app_port or self.config.get('app_port', 8821))
-        log_dir = Path('/tmp/claude')
+        api_port = int(api_port or self.config.get('port', 8870))
+        app_port = int(app_port or self.config.get('app_port', 8871))
+        log_dir = Path('/tmp/build')
         log_dir.mkdir(parents=True, exist_ok=True)
         results = {}
 
@@ -1979,9 +1984,9 @@ class Mod:
 
         # App env reused by the pm2 launch and the Popen fallback/retry below.
         app_env = os.environ.copy()
-        # Frontend talks to the core gateway at /api/claude, not the API directly.
+        # Frontend talks to the core gateway at /api/build, not the API directly.
         # NEXT_PUBLIC_API_PORT is only used for in-app start/stop service mgmt.
-        app_env['NEXT_PUBLIC_BASE_PATH'] = '/claude'
+        app_env['NEXT_PUBLIC_BASE_PATH'] = '/dev'
         app_env['NEXT_PUBLIC_API_PORT'] = str(api_port)
         app_env['PORT'] = str(app_port)
         app_cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
@@ -2020,24 +2025,24 @@ class Mod:
             if not api_live:
                 tail = self._tail_log(str(log_dir / 'api.log'))
                 checks['api']['error'] = tail
-                print(f'[claude] API failed to start on :{api_port}')
+                print(f'[build] API failed to start on :{api_port}')
                 if tail:
                     print(tail[-300:])
             else:
-                print(f'[claude] API live on :{api_port}')
+                print(f'[build] API live on :{api_port}')
 
         if 'app' in results:
-            app_live = self._check_service(f'{app_url}/claude')
+            app_live = self._check_service(f'{app_url}/build')
             checks['app'] = {'live': app_live}
             if not app_live:
                 tail = self._tail_log(str(log_dir / 'app.log'))
                 checks['app']['error'] = tail
-                print(f'[claude] App failed to start on :{app_port}')
+                print(f'[build] App failed to start on :{app_port}')
                 # ── Auto-recover: reinstall deps and retry once ──
                 if not env_result.get('app_install', {}).get('cached'):
                     pass  # already freshly installed, don't retry
                 else:
-                    print('[claude] retrying — reinstalling node_modules')
+                    print('[build] retrying — reinstalling node_modules')
                     import shutil
                     nm = app_dir / 'node_modules'
                     if nm.is_dir():
@@ -2051,37 +2056,37 @@ class Mod:
                         app_cmd, cwd=str(app_dir), env=app_env,
                         stdout=app_log2, stderr=subprocess.STDOUT,
                     )
-                    app_live = self._check_service(f'{app_url}/claude')
+                    app_live = self._check_service(f'{app_url}/build')
                     checks['app']['retry'] = True
                     checks['app']['live'] = app_live
                     if app_live:
-                        print(f'[claude] App recovered on :{app_port}')
+                        print(f'[build] App recovered on :{app_port}')
                     else:
                         tail = self._tail_log(str(log_dir / 'app.log'))
                         checks['app']['error'] = tail
-                        print(f'[claude] App still failing after retry')
+                        print(f'[build] App still failing after retry')
             else:
-                print(f'[claude] App live on :{app_port}')
+                print(f'[build] App live on :{app_port}')
 
         results['checks'] = checks
 
-        # ── Register in app namespace so gateway routes /claude → here ──
+        # ── Register in app namespace so gateway routes /build → here ──
         try:
             registry = m.mod('server.namespace')()
-            registry.reg('claude', api_url)
-            registry.reg_app('claude', app_url,
+            registry.reg('dev', api_url)
+            registry.reg_app('dev', app_url,
                              owner=self.key.address, api_url=api_url)
         except Exception as e:
-            print(f'[claude] namespace registration failed: {e}')
+            print(f'[build] namespace registration failed: {e}')
 
         # ── Register in on-chain Registry (chain mod) ──
         if self.config.get('onchain_registry', False):
             try:
                 res = self.register_onchain(data=api_url)
                 results['onchain'] = res
-                print(f"[claude] on-chain registry: {res.get('status')}")
+                print(f"[build] on-chain registry: {res.get('status')}")
             except Exception as e:
-                print(f'[claude] on-chain registration failed: {e}')
+                print(f'[build] on-chain registration failed: {e}')
 
         # ── Snapshot + update CID in registry ──
         all_live = all(c.get('live') for c in checks.values())
@@ -2091,12 +2096,12 @@ class Mod:
                 cid = snap.get('cid')
                 if cid:
                     reg = m.mod('registry')()
-                    reg.register('claude', {'schema': cid, 'urls': {'api': api_url, 'app': app_url}},
+                    reg.register('dev', {'schema': cid, 'urls': {'api': api_url, 'app': app_url}},
                                  storage='ipfs')
                     results['cid'] = cid
-                    print(f'[claude] CID registered: {cid[:16]}...')
+                    print(f'[build] CID registered: {cid[:16]}...')
             except Exception as e:
-                print(f'[claude] CID registration skipped: {e}')
+                print(f'[build] CID registration skipped: {e}')
 
         # ── Save urls to config ──
         try:
@@ -2116,9 +2121,9 @@ class Mod:
     def logs(self, service='both', lines=100):
         """View logs for API/app servers or background tasks.
 
-        Usage: c claude/logs              — show server logs
-               c claude/logs fix_1234     — show background task log
-               c claude/logs api          — show API server log only
+        Usage: c build/logs              — show server logs
+               c build/logs fix_1234     — show background task log
+               c build/logs api          — show API server log only
 
         Args:
             service: 'api', 'app', 'both', or a task_id (e.g. 'fix_1234567890')
@@ -2149,7 +2154,7 @@ class Mod:
             }
 
         # server logs
-        log_dir = Path('/tmp/claude')
+        log_dir = Path('/tmp/build')
         results = {}
         for svc in (['api', 'app'] if service == 'both' else [service]):
             log_file = log_dir / f'{svc}.log'
@@ -2166,12 +2171,12 @@ class Mod:
     # ── status ─────────────────────────────────────────────────────
 
     def status(self) -> dict:
-        """Check if claude services (API + App) are running.
+        """Check if build services (API + App) are running.
 
         Returns dict with per-service status and overall 'online' bool.
         """
-        api_port = self.config.get('port', 8820)
-        app_port = self.config.get('app_port', 8821)
+        api_port = self.config.get('port', 8870)
+        app_port = self.config.get('app_port', 8871)
         result = {'online': False, 'services': {}}
 
         for svc, port in [('api', api_port), ('app', app_port)]:
@@ -2316,8 +2321,8 @@ You MUST output ONLY a JSON object (no markdown, no explanation) with this exact
         """
         Run a security scan on a module or repo using Claude CLI.
 
-        Usage: m claude/scan bridge
-               m claude/scan path=/some/repo
+        Usage: m build/scan bridge
+               m build/scan path=/some/repo
 
         Args:
             mod: module name to scan (e.g. 'bridge', 'agent')
@@ -2579,13 +2584,13 @@ Apply the fix now. Edit only the affected file(s).
         Fix security findings from a previous scan. Runs scan first if needed.
         Runs in background by default — returns task_id and log path.
 
-        Usage: c claude/fix bridge
-               c claude/fix path=/some/repo
-               c claude/fix bridge severity=high
-               c claude/fix bridge index=0
-               c claude/fix bridge bg=false   # run in foreground
+        Usage: c build/fix bridge
+               c build/fix path=/some/repo
+               c build/fix bridge severity=high
+               c build/fix bridge index=0
+               c build/fix bridge bg=false   # run in foreground
 
-        View logs: c claude/logs <task_id>
+        View logs: c build/logs <task_id>
 
         Args:
             mod: module name to fix (e.g. 'bridge', 'agent')
@@ -2692,7 +2697,7 @@ Apply the fix now. Edit only the affected file(s).
         log_file = os.path.join(log_dir, f"{task_id}.log")
 
         # build CLI args
-        cmd_parts = ['c', 'claude/fix']
+        cmd_parts = ['c', 'build/fix']
         if mod:
             cmd_parts.append(str(mod))
         cmd_parts.append('bg=false')
@@ -2723,7 +2728,7 @@ Apply the fix now. Edit only the affected file(s).
 
         print(f'[fix] background task started: {task_id}')
         print(f'[fix] pid: {proc.pid}')
-        print(f'[fix] view logs:  c claude/logs {task_id}')
+        print(f'[fix] view logs:  c build/logs {task_id}')
         print(f'[fix] tail live:  tail -f {log_file}')
 
         return {"task_id": task_id, "pid": proc.pid, "log_file": log_file}
@@ -2743,7 +2748,7 @@ Apply the fix now. Edit only the affected file(s).
             return None
 
     # ── Mod protocol integration ──────────────────────────────────────────
-    # These methods route through the mod core/api sidecar so claude doesn't
+    # These methods route through the mod core/api sidecar so build doesn't
     # duplicate registry/version/meter logic. URL resolves through caddy
     # (`/api/mod`) when running in-container; falls back to direct port 8000
     # for host/dev. Override via env: MOD_API_URL=http://host:8000.
@@ -2753,7 +2758,7 @@ Apply the fix now. Edit only the affected file(s).
         url = os.environ.get('MOD_API_URL')
         if url:
             return url.rstrip('/')
-        # Inside the claude container, the caddy gateway is on host.docker.internal:3000
+        # Inside the build container, the caddy gateway is on host.docker.internal:3000
         # In host/dev mode, the api binds directly to :8000.
         for candidate in ('http://mod-api:8000', 'http://host.docker.internal:8000', 'http://localhost:8000'):
             try:
@@ -2782,7 +2787,7 @@ Apply the fix now. Edit only the affected file(s).
 
     def mod_register(self, mod: str, comment: str = '') -> dict:
         """Register/update a module through mod core/api. Replaces the inline
-        api/reg POST that claude-jobs makes today — same on-the-wire shape."""
+        api/reg POST that dev-jobs makes today — same on-the-wire shape."""
         return self._mod_api('POST', '/reg', {'mod': mod, 'comment': comment})
 
     def mod_versions(self, mod: str, n: int = 100) -> list:
@@ -2798,7 +2803,7 @@ Apply the fix now. Edit only the affected file(s).
         })
 
     # ── Container orchestration (DooD) ────────────────────────────────────
-    # When the host docker socket is bind-mounted, claude becomes a thin
+    # When the host docker socket is bind-mounted, build becomes a thin
     # orchestrator. These methods shell to the docker CLI for one-off ops
     # and route module-shape ones through m.up/m.down which handle compose
     # files, port allocation, and the registry side-effect.
@@ -2831,4 +2836,4 @@ Apply the fix now. Edit only the affected file(s).
 
     def __repr__(self):
         server = "connected" if self._server_available() else "offline"
-        return f"<Claude api={self.api_url} server={server} owner={self._owner or 'none'}>"
+        return f"<Build api={self.api_url} server={server} owner={self._owner or 'none'}>"

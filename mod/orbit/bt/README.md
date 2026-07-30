@@ -104,8 +104,20 @@ GET  /api          module info
 GET  /api/tools    MCP-shaped tool listing
 GET  /api/docs     grouped docs (drives the Docs section)
 POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}
+GET  /api/agent    ask-the-network agent status (auth, model, tool count)
+POST /api/ask      {"question": ...} -> SSE stream of agent events
 POST /mcp          MCP JSON-RPC (initialize / tools/list / tools/call)
 ```
+
+## Ask the network
+
+The **Ask** tab runs a Claude agent (`bt/agent.py`) whose only toolbox is this
+module's own MCP server — every question becomes a run of tool calls streamed
+back as SSE. All parameters (model, max turns, timeout, allowed tools) sit at
+the top of `bt/agent.py`; on-chain write tools are always denied, so the agent
+can read anything and sign nothing. Auth resolves from `ANTHROPIC_API_KEY`,
+then `~/.mod/bt/anthropic.key` (auto-created 0600 if nothing else exists),
+then the Claude CLI's own login.
 
 ## Run
 

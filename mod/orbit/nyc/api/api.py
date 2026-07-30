@@ -10,7 +10,10 @@ also given a long browser cache lifetime, since the underlying open data
 updates daily at most.
 """
 
+import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -18,12 +21,15 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 import mod as m
+from nycgis import tools
+from nycgis.mcp_server import INSTRUCTIONS, PROTOCOL_VERSION, SERVER_INFO
 
 _nyc = None
 
@@ -162,6 +168,240 @@ def where(q: str = Query(..., min_length=1), limit: int = Query(6, ge=1, le=20))
 @app.get('/cache')
 def cache():
     return nyc().cache()
+
+
+# ─────────────────────────────────────────────────────────────── tools + MCP
+
+@app.get('/tools')
+def tools_list():
+    """Every tool, grouped — the same registry the MCP servers expose."""
+    return {'count': len(tools.TOOLS), 'groups': tools.groups(),
+            'tools': tools.list_tools(),
+            'mcp': {'http': '/nyc/api/mcp',
+                    'stdio': 'python3 -m nycgis.mcp_server'}}
+
+
+@app.post('/tools/{name}')
+async def tools_call(name: str, request: Request):
+    """Call one tool with a JSON object of arguments."""
+    try:
+        args = await request.json()
+    except Exception:
+        args = {}
+    if not isinstance(args, dict):
+        raise HTTPException(status_code=400, detail='arguments must be a JSON object')
+    try:
+        return {'ok': True, 'tool': name, 'result': tools.call_tool(name, args)}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        return JSONResponse(status_code=400, content={
+            'ok': False, 'tool': name, 'error': f'{type(e).__name__}: {e}'})
+
+
+def _mcp_handle(msg: dict):
+    method = msg.get('method')
+    id_ = msg.get('id')
+    if id_ is None:  # notification
+        return None
+    if method == 'initialize':
+        client_ver = (msg.get('params') or {}).get('protocolVersion')
+        result = {'protocolVersion': client_ver or PROTOCOL_VERSION,
+                  'capabilities': {'tools': {}}, 'serverInfo': SERVER_INFO,
+                  'instructions': INSTRUCTIONS}
+    elif method == 'ping':
+        result = {}
+    elif method == 'tools/list':
+        result = {'tools': tools.list_tools()}
+    elif method == 'tools/call':
+        params = msg.get('params') or {}
+        try:
+            out = tools.call_tool(params.get('name'), params.get('arguments') or {})
+            result = {'content': [{'type': 'text',
+                                   'text': json.dumps(out, indent=2, default=str)}],
+                      'isError': False}
+        except Exception as e:
+            result = {'content': [{'type': 'text',
+                                   'text': f'{type(e).__name__}: {e}'}],
+                      'isError': True}
+    else:
+        return {'jsonrpc': '2.0', 'id': id_,
+                'error': {'code': -32601, 'message': f'method not found: {method}'}}
+    return {'jsonrpc': '2.0', 'id': id_, 'result': result}
+
+
+@app.post('/mcp')
+async def mcp_endpoint(request: Request):
+    """MCP streamable-HTTP endpoint — same JSON-RPC surface as the stdio server."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32700, 'message': 'parse error'}})
+    msgs = body if isinstance(body, list) else [body]
+    replies = [r for r in (_mcp_handle(x) for x in msgs) if r is not None]
+    if not replies:
+        return JSONResponse(status_code=202, content=None)
+    return replies[0] if not isinstance(body, list) else replies
+
+
+@app.get('/mcp')
+def mcp_get():
+    return JSONResponse(status_code=405, content={
+        'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
+
+
+# ─────────────────────────────────────────────────────────────────── chat
+
+MODULE_DIR = Path(__file__).parent.parent
+MOD_ROOT = MODULE_DIR.parent.parent.parent
+CHAT_MODEL = os.environ.get('NYC_CHAT_MODEL', 'sonnet')
+CHAT_TIMEOUT = int(os.environ.get('NYC_CHAT_TIMEOUT', '240'))
+
+CHAT_SYSTEM = (
+    'You are the NYC Atlas analyst — a data agent for New York City, built '
+    'on public open data and aimed at city staff and residents alike. Answer '
+    'questions about NYC with the nyc_* tools; never guess a number you '
+    'could look up. Housing questions: nyc_housing / nyc_prices / nyc_trend '
+    '/ nyc_sales. Transit, parks, flood zones, crashes: nyc_layers + '
+    'nyc_layer. Anything else (311, crime, schools, health, budgets, '
+    'permits): nyc_find_datasets → nyc_dataset → nyc_query. Keep answers '
+    'short and concrete: lead with the figure, name the neighborhood, and '
+    'cite the dataset it came from. Plain text only — no markdown tables, '
+    'no headers; short paragraphs and simple "-" lists render best in the '
+    'chat panel.')
+
+# Tools the headless agent may touch: our MCP server, nothing else. The CLI
+# denies everything outside this list, so the chat agent cannot reach the
+# filesystem or shell even though it runs server-side.
+CHAT_ALLOWED = 'mcp__nyc'
+CHAT_DENIED = ('Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,'
+               'WebSearch,Task,TodoWrite')
+
+
+def _chat_mcp_config() -> str:
+    """Write the MCP config the CLI points at; per-user state, so off-tree."""
+    cfg_dir = Path(os.path.expanduser('~/.mod/nyc'))
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg = cfg_dir / 'mcp.json'
+    cfg.write_text(json.dumps({'mcpServers': {'nyc': {
+        'command': sys.executable or 'python3',
+        'args': ['-m', 'nycgis.mcp_server'],
+        'cwd': str(MODULE_DIR),
+        'env': {'PYTHONPATH': str(MOD_ROOT)},
+    }}}, indent=2))
+    return str(cfg)
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+
+@app.get('/chat/health')
+def chat_health():
+    cli = shutil.which('claude')
+    return {'available': bool(cli), 'cli': cli, 'model': CHAT_MODEL,
+            'tools': len(tools.TOOLS)}
+
+
+@app.post('/chat')
+def chat(req: ChatRequest):
+    """
+    Ask the NYC agent a question. Streams SSE events:
+
+        session {id}            the conversation id (pass back as session_id)
+        tool    {name, input}   the agent consulting a data tool
+        text    {text}          a block of the answer
+        done    {ms}            end of turn
+        error   {error}
+
+    The agent is the local Claude CLI in print mode, sandboxed to this
+    module's MCP tools — it can read every open dataset and nothing else.
+    """
+    message = (req.message or '').strip()
+    if not message:
+        raise HTTPException(status_code=400, detail='empty message')
+    if len(message) > 4000:
+        raise HTTPException(status_code=400, detail='message too long (4000 chars)')
+    if not shutil.which('claude'):
+        raise HTTPException(status_code=503,
+                            detail='claude CLI not installed on this host')
+
+    cmd = ['claude', '-p', '--output-format', 'stream-json', '--verbose',
+           '--model', CHAT_MODEL,
+           '--strict-mcp-config', '--mcp-config', _chat_mcp_config(),
+           '--allowedTools', CHAT_ALLOWED,
+           '--disallowedTools', CHAT_DENIED,
+           '--append-system-prompt', CHAT_SYSTEM,
+           '--max-turns', '25']
+    if req.session_id:
+        cmd += ['--resume', req.session_id]
+
+    def sse(event: dict) -> str:
+        return f'data: {json.dumps(event)}\n\n'
+
+    def stream():
+        import threading
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, cwd=str(MODULE_DIR))
+        # A hung agent must not pin the connection open forever.
+        watchdog = threading.Timer(CHAT_TIMEOUT, proc.kill)
+        watchdog.start()
+        try:
+            proc.stdin.write(message)
+            proc.stdin.close()
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                t = ev.get('type')
+                if t == 'system' and ev.get('subtype') == 'init':
+                    yield sse({'type': 'session', 'id': ev.get('session_id')})
+                elif t == 'assistant':
+                    for block in (ev.get('message') or {}).get('content', []):
+                        if block.get('type') == 'text' and block.get('text'):
+                            yield sse({'type': 'text', 'text': block['text']})
+                        elif block.get('type') == 'tool_use':
+                            # Only surface real data tools — the CLI also emits
+                            # harness plumbing (ToolSearch) nobody needs to see.
+                            name = str(block.get('name', ''))
+                            if name.startswith('mcp__nyc__'):
+                                yield sse({'type': 'tool',
+                                           'name': name.replace('mcp__nyc__', ''),
+                                           'input': block.get('input') or {}})
+                elif t == 'result':
+                    err = ev.get('subtype') != 'success'
+                    out = {'type': 'done', 'ms': ev.get('duration_ms'),
+                           'session_id': ev.get('session_id')}
+                    if err:
+                        out = {'type': 'error',
+                               'error': ev.get('result') or ev.get('subtype')}
+                    yield sse(out)
+            rc = proc.wait(timeout=10)
+            if rc != 0:
+                tail = (proc.stderr.read() or '')[-400:]
+                yield sse({'type': 'error', 'error': f'agent exited {rc}: {tail}'})
+        except GeneratorExit:
+            # client went away mid-answer — don't leave the agent running
+            proc.kill()
+            raise
+        except Exception as e:
+            yield sse({'type': 'error', 'error': f'{type(e).__name__}: {e}'})
+        finally:
+            watchdog.cancel()
+            if proc.poll() is None:
+                proc.kill()
+
+    return StreamingResponse(stream(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache',
+                                      'X-Accel-Buffering': 'no'})
 
 
 if __name__ == '__main__':

@@ -2,10 +2,10 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'NYC Atlas — open-data GIS',
+  title: 'Toronto Atlas — open-data GIS',
   description:
-    'A browser GIS for New York City: housing prices, transit, parks and civic '
-    + 'data as map layers. Built entirely on public open data.',
+    'A browser GIS for Toronto: crime by neighbourhood, TTC transit, cycling, '
+    + 'parks and civic data as map layers. Built entirely on public open data.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

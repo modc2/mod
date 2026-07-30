@@ -63,8 +63,8 @@ const MOCK_CONFIG: ModConfig = {
   version: "1.0.0",
   description: "A test module for validation",
   owner: "0x1234567890abcdef",
-  port: 8820,
-  urls: { app: "http://localhost:8821", api: "http://localhost:8820" },
+  port: 8870,
+  urls: { app: "http://localhost:8871", api: "http://localhost:8870" },
   fns: ["forward", "ask", "jobs", "health", "modules", "submit", "snapshot", "test"],
   schema: {
     forward: {
@@ -516,7 +516,7 @@ test("setToken / getToken", () => {
   assertEqual(p.getToken(), "0x123:12345:hmac");
 });
 
-test("default base URL is localhost:8820", () => {
+test("default base URL is localhost:8870", () => {
   const p = new ModProtocol();
   assertEqual(p.getToken(), null); // Just verify it doesn't crash
 });
@@ -604,15 +604,15 @@ test("generateCss returns module-scoped styles", () => {
 
 console.log("\n── Real Config Schema ──");
 
-test("adapt works with claude module config shape", () => {
-  // Simulate the actual claude config.json structure
-  const claudeConfig: ModConfig = {
-    name: "claude",
+test("adapt works with build module config shape", () => {
+  // Simulate the actual build config.json structure
+  const buildConfig: ModConfig = {
+    name: "build",
     version: "2.0.0",
     description: "Programmable AI developer interface",
     owner: "0x2e34c7bbe3491c9ab3ff606951d46cc300bfb7cd",
-    port: 8820,
-    urls: { app: "http://localhost:8821", api: "http://localhost:8820" },
+    port: 8870,
+    urls: { app: "http://localhost:8871", api: "http://localhost:8870" },
     fns: ["forward", "ask", "analyze_code", "jobs", "health", "test"],
     schema: {
       forward: {
@@ -670,8 +670,8 @@ test("adapt works with claude module config shape", () => {
     },
   };
 
-  const adapted = ModHtmlAdapter.adapt(claudeConfig);
-  assertEqual(adapted.config.name, "claude");
+  const adapted = ModHtmlAdapter.adapt(buildConfig);
+  assertEqual(adapted.config.name, "build");
   assertEqual(adapted.forms.length, 6);
   assert("jobs" in adapted.tables, "should have jobs table");
 
@@ -681,7 +681,7 @@ test("adapt works with claude module config shape", () => {
   assertEqual(forwardForm!.fields.length, 7);
 
   // Verify HTML contains all forms
-  for (const fn of claudeConfig.fns) {
+  for (const fn of buildConfig.fns) {
     assertIncludes(adapted.html, `data-fn="${fn}"`);
   }
 });

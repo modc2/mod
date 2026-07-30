@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Bittensor — the open explorer</title>
+<title>bt · WORLD τ-1 — the open Bittensor explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <script>
   /* set theme before first paint to avoid a flash */
   (function () {
@@ -36,23 +39,25 @@
   /* ---------- DARK · warp-zone underground ---------- */
   html[data-theme="dark"] {
     color-scheme: dark;
-    --sky: #000000;
-    --bg: #000000;
-    --card: #1c1c1e;
-    --ink: #f5f5f7;
-    --ink2: #98989d;
-    --ink3: #6e6e73;
-    --line: rgba(255,255,255,.12);
-    --accent: #ffd60a;
+    --sky: linear-gradient(180deg, #05061e, #0a0c30 60%, #05061e);
+    --bg: #0a0c30;
+    --card: #14163e;
+    --ink: #eef1ff;
+    --ink2: #9aa3e8;
+    --ink3: #5d64a8;
+    --line: rgba(150,160,255,.22);
+    --accent: #fbd000;
     --accent-ink: #241c00;
-    --good: #30d158;
-    --bad: #ff453a;
-    --star: #ffd60a;
-    --glass: rgba(22,22,23,.72);
-    --rainbow: linear-gradient(90deg, #ff453a, #ff9f0a, #ffd60a, #30d158, #64d2ff, #bf5af2, #ff453a);
+    --good: #4ade63;
+    --bad: #ff5a4e;
+    --star: #fbd000;
+    --glass: rgba(8,9,38,.78);
+    --rainbow: linear-gradient(90deg, #ff5a4e, #ff9f0a, #fbd000, #4ade63, #64d2ff, #bf5af2, #ff5a4e);
+    --block: #64d2ff;
+    --shadow: #01021a;
   }
+  :root { --pixel: "Press Start 2P", var(--mono); --block: #17215e; --shadow: #17215e; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, sans-serif;
     background: var(--sky); color: var(--ink);
@@ -71,30 +76,70 @@
   a { color: var(--accent); text-decoration: none; }
   html[data-theme="dark"] a { color: #64d2ff; }
 
-  /* Mario chrome (light theme only) */
-  html[data-theme="light"] nav::after {
+  /* Mario chrome — both worlds. Light is the overworld, dark is the
+     underground; same blocky language, different palette. */
+  nav::after {
     content: ""; display: block; height: 4px;
     background: var(--rainbow); background-size: 200% 100%;
     animation: rbslide 6s linear infinite;
   }
   @keyframes rbslide { to { background-position: 200% 0; } }
-  html[data-theme="light"] .nav-logo::before { content: "🍄 "; }
-  html[data-theme="light"] .card {
-    border: 2px solid rgba(23,33,94,.22);
-    box-shadow: 0 5px 0 rgba(23,33,94,.18);
+  .nav-logo::before { content: "🍄 "; }
+  html[data-theme="dark"] .nav-logo::before { content: "⭐ "; }
+  .card {
+    border: 3px solid var(--block) !important;
+    box-shadow: 0 5px 0 color-mix(in srgb, var(--shadow) 55%, transparent) !important;
+    border-radius: 10px !important;
   }
-  html[data-theme="light"] .pill.primary {
-    border: 2px solid #17215e;
-    box-shadow: 0 4px 0 #17215e;
+  .pill {
+    font-family: var(--pixel); font-size: 10px; text-transform: uppercase;
+    border-radius: 8px; letter-spacing: .02em;
   }
-  html[data-theme="light"] .pill.primary:active { transform: translateY(3px); box-shadow: 0 1px 0 #17215e; }
-  html[data-theme="light"] .pill.ghost {
+  .pill.primary { border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow); }
+  .pill.primary:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
+  .pill.ghost {
     background: var(--star); color: #17215e;
-    border: 2px solid #17215e; box-shadow: 0 4px 0 #17215e;
+    border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow);
   }
-  html[data-theme="light"] .pill.ghost:active { transform: translateY(3px); box-shadow: 0 1px 0 #17215e; }
-  html[data-theme="light"] .tag { background: var(--star); color: #5b4200; }
-  html[data-theme="light"] .hero { position: relative; overflow: hidden; }
+  .pill.ghost:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
+  html[data-theme="dark"] .pill.primary { background: var(--accent); color: var(--accent-ink); }
+  .tag { background: var(--star); color: #5b4200; font-family: var(--pixel); font-size: 8px; }
+  .tag.warn { background: var(--bad); color: #fff; }
+  section > h2, .hero h1, .nav-logo, .stat b, .ovl-head h3, .doc-group h3 {
+    font-family: var(--pixel); font-weight: 400 !important; letter-spacing: 0 !important;
+  }
+  .nav-logo { font-size: 12px; }
+  section > h2 { font-size: 20px; line-height: 1.5; display: flex; align-items: center; gap: 12px; }
+  section > h2::before {
+    content: "?"; font-family: var(--pixel); font-size: 14px; flex: none;
+    width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--star); color: #7a5a00; border: 3px solid var(--block);
+    box-shadow: inset -3px -3px 0 rgba(0,0,0,.22), inset 3px 3px 0 rgba(255,255,255,.45), 0 3px 0 var(--shadow);
+    animation: qbob 2.4s ease-in-out infinite;
+  }
+  @keyframes qbob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  .ovl-head h3 { font-size: 15px; line-height: 1.5; }
+  .doc-group h3 { font-size: 13px; }
+  th { font-family: var(--pixel); font-size: 8px !important; font-weight: 400 !important; }
+  .stat b { font-size: 17px; }
+  .stat span { font-family: var(--pixel); font-size: 7px; }
+  input, select { border: 3px solid var(--line); border-radius: 8px; }
+  input:focus, select:focus { border-color: var(--accent); }
+  .ovl-card { border: 3px solid var(--block); border-radius: 12px; box-shadow: 0 6px 0 var(--shadow), 0 20px 70px rgba(0,0,0,.35); }
+  .ranges button.sel { font-family: var(--pixel); font-size: 9px; }
+  footer::before {
+    content: ""; display: block; height: 26px; margin-bottom: 26px;
+    border-top: 3px solid var(--block);
+    background:
+      repeating-linear-gradient(90deg, transparent 0 44px, color-mix(in srgb, var(--shadow) 45%, transparent) 44px 47px),
+      linear-gradient(180deg, #c84c0c, #9c3a08);
+  }
+  html[data-theme="dark"] footer::before {
+    background:
+      repeating-linear-gradient(90deg, transparent 0 44px, rgba(0,0,20,.6) 44px 47px),
+      linear-gradient(180deg, #2a6cd4, #17418e);
+  }
+  .hero { position: relative; overflow: hidden; }
   html[data-theme="light"] .hero::before,
   html[data-theme="light"] .hero::after {
     content: ""; position: absolute; z-index: -1; opacity: .9;
@@ -131,7 +176,7 @@
     max-width: 1120px; margin: 0 auto; padding: 0 22px;
     height: 48px; display: flex; align-items: center; gap: 26px;
   }
-  .nav-logo { font-weight: 600; font-size: 15px; letter-spacing: -.01em; color: var(--ink); }
+  .nav-logo { font-weight: 400; font-size: 12px; color: var(--ink); }
   .nav-logo span { color: var(--ink2); font-weight: 400; }
   .nav-links { display: flex; gap: 20px; margin-left: auto; overflow-x: auto; }
   .nav-links a { font-size: 12.5px; color: var(--ink2); transition: color .2s; white-space: nowrap; }
@@ -146,10 +191,15 @@
 
   /* ---------- hero ---------- */
   .hero { text-align: center; padding: 84px 22px 52px; }
+  .hero .world {
+    font-family: var(--pixel); font-size: 11px; color: var(--ink2);
+    letter-spacing: .12em; margin-bottom: 22px; display: block;
+  }
+  .hero .world .coin { color: var(--star); }
   .hero h1 {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
-    font-size: clamp(44px, 7.5vw, 76px); font-weight: 700;
-    letter-spacing: -.025em; line-height: 1.05;
+    font-family: var(--pixel); font-weight: 400;
+    font-size: clamp(20px, 3.6vw, 38px); line-height: 1.6;
+    text-shadow: 3px 3px 0 color-mix(in srgb, var(--shadow) 40%, transparent);
   }
   .hero h1 .tao {
     background: var(--rainbow); background-size: 300% 100%;
@@ -194,13 +244,15 @@
     100% { box-shadow: 0 0 0 0 rgba(31,155,52,0); }
   }
 
+  /* ---------- pages (one per nav tab) ---------- */
+  .page { display: none; }
+  .page.active { display: block; }
+  section.page { min-height: calc(100vh - 300px); }
+
   /* ---------- sections ---------- */
   section { max-width: 1120px; margin: 0 auto; padding: 52px 22px; }
   section.narrow { max-width: 980px; }
-  section > h2 {
-    font-size: 38px; font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
-  }
+  section > h2 { font-size: 20px; margin-bottom: 10px; font-family: var(--pixel); }
   section > p.lead { color: var(--ink2); font-size: 17px; margin-bottom: 24px; }
   .card {
     background: var(--card); border-radius: 18px; padding: 24px;
@@ -278,7 +330,7 @@
   }
   .ovl-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .ovl-head .sn-logo, .ovl-head .sn-avatar { width: 44px; height: 44px; border-radius: 12px; font-size: 20px; }
-  .ovl-head h3 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .ovl-head h3 { font-size: 16px; line-height: 1.5; }
   .ovl-close {
     margin-left: auto; border: none; cursor: pointer;
     width: 32px; height: 32px; border-radius: 50%; font-size: 15px;
@@ -332,9 +384,50 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .muted { color: var(--ink2); font-size: 13px; }
 
+  /* ---------- ask (agent) ---------- */
+  .ask-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .ask-sugg button {
+    font-family: inherit; font-size: 12.5px; cursor: pointer;
+    padding: 7px 12px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  }
+  .ask-sugg button:hover { color: var(--ink); border-color: var(--accent); }
+  #ask-log { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .ask-turn { border-top: 2px dashed var(--line); padding-top: 14px; }
+  .ask-you {
+    font-family: var(--pixel); font-size: 10px; line-height: 1.8; color: var(--ink);
+  }
+  .ask-you::before { content: "🧑‍🔧 "; }
+  .ask-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .ask-tool {
+    font-family: var(--pixel); font-size: 8px; line-height: 1.6;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 10px; border: 3px solid var(--block); border-radius: 6px;
+    background: var(--star); color: #5b4200;
+    box-shadow: inset -2px -2px 0 rgba(0,0,0,.18), inset 2px 2px 0 rgba(255,255,255,.4);
+    cursor: default;
+  }
+  .ask-tool.pending { animation: qbob 1s ease-in-out infinite; }
+  .ask-tool.done { background: var(--card); color: var(--ink2); box-shadow: none; }
+  .ask-tool.err { background: var(--bad); color: #fff; }
+  .ask-text { font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .ask-text code { font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 5px; border-radius: 5px; }
+  .ask-flag {
+    margin-top: 10px; font-family: var(--pixel); font-size: 8px; color: var(--ink3);
+    line-height: 1.8;
+  }
+  .ask-err { color: var(--bad); font-size: 13.5px; margin-top: 8px; }
+  .coin {
+    display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--star); border: 2px solid #7a5a00;
+    animation: coinspin .7s linear infinite; vertical-align: -2px;
+  }
+  @keyframes coinspin { 50% { transform: scaleX(.15); } }
+
   /* ---------- docs ---------- */
   .doc-group { margin-bottom: 34px; }
-  .doc-group h3 { font-size: 22px; font-weight: 600; letter-spacing: -.015em; margin-bottom: 12px; }
+  .doc-group h3 { font-size: 13px; margin-bottom: 12px; }
   .doc-tool { padding: 16px 0; border-bottom: 1px solid var(--line); }
   .doc-tool:last-child { border-bottom: none; }
   .doc-tool .tname { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); }
@@ -377,6 +470,7 @@
     <a class="nav-logo" href="#top">τ bt <span>· Bittensor</span></a>
     <div class="nav-links">
       <a href="#markets">Markets</a>
+      <a href="#ask">Ask</a>
       <a href="#traders">Traders</a>
       <a href="#account">Account</a>
       <a href="#wallet">Wallet</a>
@@ -390,12 +484,13 @@
   </div>
 </nav>
 
-<div class="hero" id="top">
+<div class="hero page" id="top">
+  <span class="world">WORLD τ-1 &nbsp;·&nbsp; <span class="coin">🪙</span>×<span id="hud-coins">∞</span> &nbsp;·&nbsp; 1UP</span>
   <h1>The <span class="tao">open</span> Bittensor explorer.</h1>
-  <p class="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br>No closed backend. No API key. The whole stack is open source.</p>
+  <p class="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br>No closed backend. No API key. The whole stack is open source. Let's-a go.</p>
   <div class="cta">
     <button class="pill primary" onclick="location.hash='#markets'">Explore markets</button>
-    <button class="pill ghost" onclick="location.hash='#mcp'">Connect via MCP</button>
+    <button class="pill ghost" onclick="location.hash='#ask'">Ask the network</button>
   </div>
   <div class="stats">
     <div class="stat"><b id="stat-subnets">—</b><span>Subnets</span></div>
@@ -407,7 +502,7 @@
 </div>
 
 <!-- ================= MARKETS ================= -->
-<section id="markets" class="reveal">
+<section id="markets" class="page reveal">
   <h2>Markets.</h2>
   <p class="lead">Every alpha market on the chain — live prices, changes, volume and 24-hour trend, straight from the built-in open indexer.</p>
   <div class="card">
@@ -445,8 +540,26 @@
   </div>
 </div>
 
+<!-- ================= ASK ================= -->
+<section id="ask" class="page reveal narrow">
+  <h2>Ask.</h2>
+  <p class="lead">Ask the network anything. A Claude agent answers by playing the same MCP tools this console runs on — every question becomes a run of ?-blocks. Read-only: it sees everything, it signs nothing.</p>
+  <div class="card">
+    <p class="ask-err" id="ask-auth" style="display:none;margin-bottom:12px"></p>
+    <div class="row">
+      <div style="flex:3">
+        <input id="ask-q" placeholder="Which subnet pumped hardest today, and who runs it?" spellcheck="false">
+      </div>
+      <div style="flex:0"><button class="pill primary" id="ask-btn" onclick="askNetwork()">Ask ▶</button></div>
+    </div>
+    <div class="ask-sugg" id="ask-sugg"></div>
+    <div id="ask-log"></div>
+    <p class="muted" id="ask-meta" style="margin-top:14px"></p>
+  </div>
+</section>
+
 <!-- ================= TRADERS ================= -->
-<section id="traders" class="reveal">
+<section id="traders" class="page reveal">
   <h2>Traders.</h2>
   <p class="lead">Track any coldkey and the indexer keeps its history — portfolio value over time, PnL, and a trade tape inferred from what actually moved. The accounts you follow, indexed the same way subnets are.</p>
   <div class="card">
@@ -498,7 +611,7 @@
 </div>
 
 <!-- ================= ACCOUNT ================= -->
-<section id="account" class="reveal">
+<section id="account" class="page reveal">
   <h2>Account.</h2>
   <p class="lead">Explore any address on the chain — free TAO plus every alpha position, valued live. Not just yours: anyone's.</p>
   <div class="card">
@@ -513,7 +626,7 @@
 </section>
 
 <!-- ================= WALLET ================= -->
-<section id="wallet" class="reveal">
+<section id="wallet" class="page reveal">
   <h2>Wallet.</h2>
   <p class="lead">Local wallets, balances, and transfers.</p>
   <div class="grid cols2">
@@ -535,7 +648,7 @@
 </section>
 
 <!-- ================= TRADE ================= -->
-<section id="trade" class="reveal">
+<section id="trade" class="page reveal">
   <h2>Trade.</h2>
   <p class="lead">Stake TAO into subnet alpha. Portfolio, buys, sells, swaps.</p>
   <div class="grid cols2">
@@ -566,7 +679,7 @@
 </section>
 
 <!-- ================= CONSOLE ================= -->
-<section id="console" class="reveal narrow">
+<section id="console" class="page reveal narrow">
   <h2>Console.</h2>
   <p class="lead">Run any protocol tool directly. Forms are generated from the same schemas the MCP server publishes.</p>
   <div class="card">
@@ -588,14 +701,14 @@
 </section>
 
 <!-- ================= DOCS ================= -->
-<section id="docs" class="reveal narrow">
+<section id="docs" class="page reveal narrow">
   <h2>Docs.</h2>
   <p class="lead">The complete protocol surface — every tool, every parameter. This is generated from the live registry, so it can't drift.</p>
   <div class="card" id="docs-body"><span class="muted">Loading…</span></div>
 </section>
 
 <!-- ================= OPEN ================= -->
-<section id="open" class="reveal">
+<section id="open" class="page reveal">
   <h2>Open. As in actually open.</h2>
   <p class="lead">Taostats and tao.app sit on closed indexers you can't run, read, or fork. This explorer's entire stack — the indexer, the API, the MCP server, this page — is one open-source module you can run on a laptop.</p>
   <div class="open-grid">
@@ -623,7 +736,7 @@
 </section>
 
 <!-- ================= MCP ================= -->
-<section id="mcp" class="reveal narrow">
+<section id="mcp" class="page reveal narrow">
   <h2>MCP.</h2>
   <p class="lead">Wire the whole protocol into Claude — or any MCP client — in one line.</p>
   <div class="grid cols2">
@@ -655,8 +768,9 @@
 <script>
 /* ---------- theme ---------- */
 function applyThemeIcon() {
+  /* light = overworld, dark = underground; button shows where the pipe goes */
   document.getElementById('themeBtn').textContent =
-    document.documentElement.dataset.theme === 'dark' ? '⭐' : '🌙';
+    document.documentElement.dataset.theme === 'dark' ? '🍄' : '⭐';
 }
 function toggleTheme() {
   const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -723,6 +837,7 @@ function sparkSVG(pts, dir, w=110, h=30) {
     sel.innerHTML = TOOLS.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
     renderToolForm();
   } catch (e) {}
+  loadAgent();
   loadDocs();
   loadWallets();
   loadScreener();
@@ -768,6 +883,7 @@ async function loadStats() {
     if (s.updated_at) { SYNC_AT = s.updated_at; renderSync(); }
     if (s.warming) return;
     document.getElementById('stat-subnets').textContent = s.subnets || '—';
+    document.getElementById('hud-coins').textContent = s.subnets || '∞';
     document.getElementById('stat-mcap').textContent = compact(s.total_market_cap_tao);
     document.getElementById('stat-vol').textContent = s.volume_24h_tao != null ? compact(s.volume_24h_tao) : 'soon';
     document.getElementById('stat-pools').textContent = compact(s.total_tao_in_pools);
@@ -1400,6 +1516,119 @@ async function placeTrade() {
   } catch (e) { out.textContent = e.message; }
 }
 
+/* ---------- ask (agent) ---------- */
+const SUGGESTIONS = [
+  'Which subnet pumped hardest in the last 24h, and why might that be?',
+  'Summarize the whole alpha market right now in three sentences.',
+  'Who are the top validators on the biggest subnet by market cap?',
+  'Did any tracked trader make a big move this week?',
+];
+let ASKING = false;
+
+async function loadAgent() {
+  const sug = document.getElementById('ask-sugg');
+  sug.innerHTML = SUGGESTIONS.map(s =>
+    `<button onclick="document.getElementById('ask-q').value=this.textContent;askNetwork()">${esc(s)}</button>`).join('');
+  try {
+    const a = await (await fetch(api('agent'))).json();
+    document.getElementById('ask-meta').textContent =
+      a.ready ? `Agent ready — ${a.model} · ${a.tools} tools allowed, ${a.denied} on-chain tools denied · auth: ${a.method}`
+              : '';
+    if (!a.ready) {
+      const el = document.getElementById('ask-auth');
+      el.style.display = 'block';
+      el.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+    }
+  } catch (e) {}
+}
+
+async function askNetwork() {
+  if (ASKING) return;
+  const q = document.getElementById('ask-q').value.trim();
+  if (!q) return;
+  ASKING = true;
+  const btn = document.getElementById('ask-btn');
+  btn.textContent = '…'; btn.disabled = true;
+  const log = document.getElementById('ask-log');
+  const turn = document.createElement('div');
+  turn.className = 'ask-turn';
+  const you = document.createElement('div'); you.className = 'ask-you'; you.textContent = q;
+  const tools = document.createElement('div'); tools.className = 'ask-tools';
+  const coin = document.createElement('span'); coin.className = 'coin';
+  tools.appendChild(coin);
+  turn.append(you, tools);
+  log.prepend(turn);
+  let gotText = false;
+  const addText = t => {
+    const d = document.createElement('div'); d.className = 'ask-text';
+    /* escape first, then allow only **bold** and `code` back through */
+    d.innerHTML = esc(t)
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+    turn.appendChild(d); gotText = true;
+  };
+  const handle = ev => {
+    if (ev.type === 'tool') {
+      const c = document.createElement('span');
+      c.className = 'ask-tool pending';
+      const args = Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
+      c.textContent = `? ${ev.name}${args ? ' · ' + args : ''}`;
+      c.title = JSON.stringify(ev.args || {});
+      tools.insertBefore(c, coin);
+    } else if (ev.type === 'tool_done') {
+      const p = tools.querySelector('.ask-tool.pending');
+      if (p) { p.className = 'ask-tool ' + (ev.error ? 'err' : 'done');
+               p.textContent = (ev.error ? '✗ ' : '🪙 ') + p.textContent.slice(2); }
+    } else if (ev.type === 'text') {
+      addText(ev.text);
+    } else if (ev.type === 'done') {
+      coin.remove();
+      tools.querySelectorAll('.ask-tool.pending').forEach(p => p.classList.replace('pending', 'done'));
+      if (!gotText && ev.answer) addText(ev.answer);
+      const f = document.createElement('div'); f.className = 'ask-flag';
+      const secs = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
+      f.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
+        (ev.cost_usd != null ? ` · $${(+ev.cost_usd).toFixed(4)}` : '');
+      turn.appendChild(f);
+    } else if (ev.type === 'error') {
+      coin.remove();
+      const d = document.createElement('div'); d.className = 'ask-err';
+      d.textContent = '💀 ' + ev.error; turn.appendChild(d);
+    }
+  };
+  try {
+    const r = await fetch(api('ask'), {
+      method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({question: q}),
+    });
+    if (!r.ok || !r.body) {
+      handle({type: 'error', error: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`});
+    } else {
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+          if (chunk.startsWith('data: ')) {
+            try { handle(JSON.parse(chunk.slice(6))); } catch (e) {}
+          }
+        }
+      }
+      coin.remove();
+    }
+  } catch (e) { handle({type: 'error', error: e.message}); }
+  document.getElementById('ask-q').value = '';
+  btn.textContent = 'Ask ▶'; btn.disabled = false;
+  ASKING = false;
+}
+document.getElementById('ask-q').addEventListener('keydown', e => {
+  if (e.key === 'Enter') askNetwork();
+});
+
 /* ---------- console ---------- */
 function renderToolForm() {
   const name = document.getElementById('tool-select').value;
@@ -1463,15 +1692,24 @@ function copyBlock(btn) {
     btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200);
   });
 }
-const obs = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && e.target.classList.add('in')), {threshold: .08});
-document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
-const secs = [...document.querySelectorAll('section, .hero')];
+/* ---------- router: one page per tab ---------- */
 const links = [...document.querySelectorAll('.nav-links a')];
-addEventListener('scroll', () => {
-  let cur = '';
-  secs.forEach(s => { if (scrollY >= s.offsetTop - 120) cur = s.id; });
-  links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
-}, {passive: true});
+function route() {
+  let id = (location.hash || '#top').slice(1);
+  const target = document.getElementById(id);
+  if (!target || !target.classList.contains('page')) id = 'top';
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.toggle('active', p.id === id);
+    p.classList.remove('in');
+  });
+  const cur = document.getElementById(id);
+  /* double rAF so display:block lands before .in, letting the reveal transition play */
+  requestAnimationFrame(() => requestAnimationFrame(() => cur.classList.add('in')));
+  links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+  scrollTo(0, 0);
+}
+addEventListener('hashchange', route);
+route();
 </script>
 </body>
 </html>

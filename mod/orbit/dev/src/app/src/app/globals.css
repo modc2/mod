@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -29,9 +30,10 @@
   animation: profileMenuExpandLeft 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-/* The bare :root MUST match the dark theme exactly — data-theme is set
-   client-side, so any divergence here paints as a wrong-palette flash on
-   first load before hydration. */
+/* The bare :root mirrors the GLASS tokens as an attribute-less fallback.
+   The real default is MARIO — layout.tsx server-renders data-theme="mario"
+   (corrected by its blocking script for any saved theme), so first paint
+   always lands on a themed html element and never on bare :root. */
 :root,
 :root[data-theme="dark"] {
   --pixel-border: 1px;
@@ -66,49 +68,323 @@
 }
 
 :root[data-theme="light"] {
-  /* Bumped: many UI sites render these at 25–35% opacity (e.g.
-     text-crt-green/35) — on white that needs a much darker base to stay
-     readable. WCAG-AA-ish contrast at the common usage opacities. */
-  --crt-green: #047857;
-  --crt-amber: #92400e;
-  --crt-blue: #1d4ed8;
-  --crt-red: #b91c1c;
-  --crt-dark: #ffffff;
-  --text-primary: #020617;
-  --text-secondary: #1e293b;
-  --text-tertiary: #475569;
-  --accent-color: #1d4ed8;
-  --accent-color-2: #0e7490;
-  --bg-primary: #ffffff;
-  --bg-secondary: #f1f5f9;
-  --bg-tint: rgba(29,78,216,0.06);
-  --glass-bg: rgba(248, 250, 252, 0.85);
-  --glass-bg-strong: rgba(241, 245, 249, 0.95);
-  --glass-border: rgba(0, 0, 0, 0.12);
-  --glass-border-strong: rgba(0, 0, 0, 0.22);
-  --glass-highlight: rgba(0, 0, 0, 0.04);
-  --border-color: rgba(0,0,0,0.16);
-  --border-color-strong: rgba(0,0,0,0.28);
+  /* ☮ PSYCHEDELIC BABE-RAINBOW LIGHT ☮ — groovy pastel wash, deep-violet
+     ink for text, saturated jewel accents. Bases stay dark enough that the
+     common `text-crt-green/35`-style opacity utilities remain readable on
+     the pale backdrop (the floor rules below force them opaque anyway). */
+  --crt-green: #059669;
+  --crt-amber: #c2410c;
+  --crt-blue: #4f46e5;
+  --crt-red: #e11d48;
+  --crt-dark: #fffdf7;
+  --text-primary: #2a1245;
+  --text-secondary: #46296b;
+  --text-tertiary: #7a639c;
+  --accent-color: #c026d3;
+  --accent-color-2: #0891b2;
+  --bg-primary: #fffdf7;
+  --bg-secondary: #fdf3fa;
+  --bg-tint: rgba(192,38,211,0.06);
+  --glass-bg: rgba(255, 253, 250, 0.72);
+  --glass-bg-strong: rgba(255, 250, 252, 0.92);
+  --glass-border: rgba(147, 51, 234, 0.16);
+  --glass-border-strong: rgba(147, 51, 234, 0.28);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
+  --border-color: rgba(120, 53, 187, 0.18);
+  --border-color-strong: rgba(120, 53, 187, 0.32);
   --pixel-border: 1px;
-  --shadow-sm: 0 1px 3px rgba(15,23,42,0.10);
-  --shadow-md: 0 4px 14px rgba(15,23,42,0.14);
-  --shadow-lg: 0 12px 36px rgba(15,23,42,0.18);
-  --shadow-glow: 0 0 0 1px rgba(29,78,216,0.30), 0 8px 32px rgba(29,78,216,0.18);
+  --shadow-sm: 0 1px 3px rgba(148,64,190,0.10);
+  --shadow-md: 0 6px 18px rgba(236,72,153,0.12), 0 2px 8px rgba(139,92,246,0.10);
+  --shadow-lg: 0 16px 44px rgba(236,72,153,0.16), 0 6px 18px rgba(139,92,246,0.14);
+  --shadow-glow: 0 0 0 1px rgba(192,38,211,0.28), 0 8px 32px rgba(236,72,153,0.20);
   --radius-sm: 10px;
   --radius-md: 16px;
   --radius-lg: 22px;
 }
 
-/* Floor opacity-styled text in light mode so the common
-   `text-crt-*/30..40` utilities don't render as ghost text on white. */
-:root[data-theme="light"] [class*="text-crt-green/"] { color: #047857 !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-amber/"] { color: #92400e !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-blue/"]  { color: #1d4ed8 !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-red/"]   { color: #b91c1c !important; opacity: 1 !important; }
+/* ── Custom themes ─────────────────────────────────────────────────────
+   Each block redefines the full token set; `data-base` (set by JS next to
+   data-theme) carries the dark/light classification so the generic
+   light-mode legibility rules below apply to ANY light-base theme. */
 
-/* Only `dark` and `light` themes ship now. The legacy
-   matrix/cyberpunk/amber/ocean/ibm/win95 blocks were removed — the JS
-   toggle is dark↔light-only and saved-theme reads ignore anything else. */
+/* MATRIX — green phosphor on near-black. Every accent collapses toward
+   the phosphor so the console reads like a single-gun CRT. */
+:root[data-theme="matrix"] {
+  --pixel-border: 1px;
+  --crt-green: #00ff7f;
+  --crt-amber: #b8ff5c;
+  --crt-blue: #4defc9;
+  --crt-red: #ff6a5c;
+  --crt-dark: #010502;
+  --text-primary: #d7ffe6;
+  --text-secondary: #8effbe;
+  --text-tertiary: #3e9a68;
+  --accent-color: #00ff7f;
+  --accent-color-2: #4defc9;
+  --bg-primary: #010502;
+  --bg-secondary: #04120a;
+  --bg-tint: rgba(0,255,127,0.05);
+  --glass-bg: rgba(4, 22, 12, 0.72);
+  --glass-bg-strong: rgba(6, 32, 18, 0.88);
+  --glass-border: rgba(0, 255, 127, 0.14);
+  --glass-border-strong: rgba(0, 255, 127, 0.28);
+  --glass-highlight: rgba(0, 255, 127, 0.06);
+  --border-color: rgba(0,255,127,0.14);
+  --border-color-strong: rgba(0,255,127,0.30);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.6);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.7);
+  --shadow-glow: 0 0 0 1px rgba(0,255,127,0.25), 0 8px 32px rgba(0,255,127,0.16);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* NEON — cyberpunk night: magenta + cyan on deep violet-navy. */
+:root[data-theme="neon"] {
+  --pixel-border: 1px;
+  --crt-green: #0ff0d4;
+  --crt-amber: #ffd319;
+  --crt-blue: #46a5ff;
+  --crt-red: #ff2d78;
+  --crt-dark: #0a0416;
+  --text-primary: #f4e9ff;
+  --text-secondary: #d4b8f5;
+  --text-tertiary: #8a6bb8;
+  --accent-color: #ff2da0;
+  --accent-color-2: #0ff0d4;
+  --bg-primary: #0a0416;
+  --bg-secondary: #150a28;
+  --bg-tint: rgba(255,45,160,0.06);
+  --glass-bg: rgba(28, 14, 52, 0.68);
+  --glass-bg-strong: rgba(40, 20, 72, 0.85);
+  --glass-border: rgba(255, 45, 160, 0.18);
+  --glass-border-strong: rgba(15, 240, 212, 0.30);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --border-color: rgba(255,45,160,0.18);
+  --border-color-strong: rgba(15,240,212,0.32);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(10,2,30,0.6);
+  --shadow-lg: 0 24px 60px rgba(10,2,30,0.7);
+  --shadow-glow: 0 0 0 1px rgba(255,45,160,0.30), 0 8px 32px rgba(15,240,212,0.18);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* EMBER — amber phosphor terminal: warm oranges on soot. */
+:root[data-theme="ember"] {
+  --pixel-border: 1px;
+  --crt-green: #ffb347;
+  --crt-amber: #ffd75e;
+  --crt-blue: #ff9e64;
+  --crt-red: #ff5c40;
+  --crt-dark: #0c0603;
+  --text-primary: #ffe8cc;
+  --text-secondary: #f5c896;
+  --text-tertiary: #9c6f4a;
+  --accent-color: #ff9e2c;
+  --accent-color-2: #ffd75e;
+  --bg-primary: #0c0603;
+  --bg-secondary: #1a0f06;
+  --bg-tint: rgba(255,158,44,0.05);
+  --glass-bg: rgba(30, 17, 8, 0.72);
+  --glass-bg-strong: rgba(44, 25, 12, 0.88);
+  --glass-border: rgba(255, 158, 44, 0.16);
+  --glass-border-strong: rgba(255, 158, 44, 0.32);
+  --glass-highlight: rgba(255, 179, 71, 0.06);
+  --border-color: rgba(255,158,44,0.16);
+  --border-color-strong: rgba(255,158,44,0.34);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.6);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.7);
+  --shadow-glow: 0 0 0 1px rgba(255,158,44,0.26), 0 8px 32px rgba(255,158,44,0.16);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}
+
+/* ABYSS — deep-ocean blues, bioluminescent teal accents. */
+:root[data-theme="abyss"] {
+  --pixel-border: 1px;
+  --crt-green: #2dd4bf;
+  --crt-amber: #fbbf24;
+  --crt-blue: #60a5fa;
+  --crt-red: #fb7185;
+  --crt-dark: #030b18;
+  --text-primary: #e6f2ff;
+  --text-secondary: #b6d4f0;
+  --text-tertiary: #5d7fa3;
+  --accent-color: #38bdf8;
+  --accent-color-2: #2dd4bf;
+  --bg-primary: #030b18;
+  --bg-secondary: #081526;
+  --bg-tint: rgba(56,189,248,0.05);
+  --glass-bg: rgba(10, 26, 46, 0.70);
+  --glass-bg-strong: rgba(14, 36, 62, 0.86);
+  --glass-border: rgba(56, 189, 248, 0.14);
+  --glass-border-strong: rgba(56, 189, 248, 0.28);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(56,189,248,0.14);
+  --border-color-strong: rgba(56,189,248,0.30);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(1,8,20,0.6);
+  --shadow-lg: 0 24px 60px rgba(1,8,20,0.7);
+  --shadow-glow: 0 0 0 1px rgba(56,189,248,0.24), 0 8px 32px rgba(45,212,191,0.15);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* PAPER — calm warm-sepia light theme. No rainbow: the psychedelic
+   overrides below key on data-theme="light" specifically, so PAPER only
+   inherits the generic data-base="light" legibility rules. */
+:root[data-theme="paper"] {
+  --pixel-border: 1px;
+  --crt-green: #15803d;
+  --crt-amber: #b45309;
+  --crt-blue: #1d4ed8;
+  --crt-red: #be123c;
+  --crt-dark: #f7f2e9;
+  --text-primary: #292018;
+  --text-secondary: #52422f;
+  --text-tertiary: #8c7a63;
+  --accent-color: #9a5b2c;
+  --accent-color-2: #1d4ed8;
+  --bg-primary: #f7f2e9;
+  --bg-secondary: #efe7d8;
+  --bg-tint: rgba(154,91,44,0.05);
+  --glass-bg: rgba(255, 252, 245, 0.78);
+  --glass-bg-strong: rgba(255, 253, 248, 0.94);
+  --glass-border: rgba(120, 90, 50, 0.18);
+  --glass-border-strong: rgba(120, 90, 50, 0.32);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --border-color: rgba(120,90,50,0.18);
+  --border-color-strong: rgba(120,90,50,0.34);
+  --shadow-sm: 0 1px 3px rgba(90,64,30,0.08);
+  --shadow-md: 0 6px 18px rgba(90,64,30,0.10);
+  --shadow-lg: 0 16px 44px rgba(90,64,30,0.14);
+  --shadow-glow: 0 0 0 1px rgba(154,91,44,0.22), 0 8px 32px rgba(154,91,44,0.12);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+/* WIN95 — beveled gray nostalgia. Zero radii; the bevel itself lives in
+   the win95 .pixel-btn rules further down (they predate this block). */
+:root[data-theme="win95"] {
+  --pixel-border: 2px;
+  --crt-green: #008000;
+  --crt-amber: #808000;
+  --crt-blue: #000080;
+  --crt-red: #aa0000;
+  --crt-dark: #c0c0c0;
+  --text-primary: #000000;
+  --text-secondary: #222222;
+  --text-tertiary: #555555;
+  --accent-color: #000080;
+  --accent-color-2: #008080;
+  --bg-primary: #c0c0c0;
+  --bg-secondary: #b0b0b0;
+  --bg-tint: rgba(0,0,128,0.05);
+  --glass-bg: rgba(223, 223, 223, 0.96);
+  --glass-bg-strong: #dfdfdf;
+  --glass-border: #808080;
+  --glass-border-strong: #404040;
+  --glass-highlight: #ffffff;
+  --border-color: #808080;
+  --border-color-strong: #404040;
+  --shadow-sm: inset -1px -1px 0 0 #808080, inset 1px 1px 0 0 #ffffff;
+  --shadow-md: 2px 2px 0 rgba(0,0,0,0.35);
+  --shadow-lg: 4px 4px 0 rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 0 1px #000080;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+}
+
+/* MARIO — SMB overworld: level-sky blue backdrop, cloud-cream panels with
+   hard cartoon outlines, fire-flower red accent, pipe green / coin gold /
+   cap blue signals. Square corners + hard sprite shadows; the full 8-bit
+   skin (ground strip, pixel chrome, beveled block buttons) lives in the
+   WORLD 1-1 section at the end of file. */
+:root[data-theme="mario"] {
+  /* Signal colors are tuned for TYPE on the cloud-cream panels (#f4efdc):
+     every one clears WCAG AA ≥4.4:1 there, so 10px labels stay legible.
+     The bright sprite golds/reds live on in the hardcoded WORLD 1-1
+     chrome (coin blocks, fire-flower buttons) — only the font ink here
+     is darkened. Many labels also render at 0.4–0.7 opacity, which is
+     why the muted text inks err dark. */
+  --pixel-border: 2px;
+  --crt-green: #0d7a14;
+  --crt-amber: #8a6200;
+  --crt-blue: #0a5fb0;
+  --crt-red: #c42400;
+  --crt-dark: #f4efdc;
+  --text-primary: #1c1c28;
+  --text-secondary: #3a3b52;
+  --text-tertiary: #4e4f68;
+  --accent-color: #c42400;
+  --accent-color-2: #0a5fb0;
+  --bg-primary: #5c94fc;
+  --bg-secondary: #f4efdc;
+  --bg-tint: rgba(196,36,0,0.06);
+  --glass-bg: rgba(255, 253, 242, 0.90);
+  --glass-bg-strong: rgba(255, 253, 242, 0.97);
+  --glass-border: rgba(28, 28, 40, 0.45);
+  --glass-border-strong: rgba(22, 22, 31, 0.85);
+  --glass-highlight: rgba(255, 255, 255, 0.75);
+  --border-color: rgba(28,28,40,0.45);
+  --border-color-strong: rgba(22,22,31,0.85);
+  --shadow-sm: 2px 2px 0 rgba(28,28,40,0.28);
+  --shadow-md: 3px 3px 0 rgba(28,28,40,0.32);
+  --shadow-lg: 5px 5px 0 rgba(28,28,40,0.38);
+  --shadow-glow: 0 0 0 2px rgba(196,36,0,0.55);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+}
+
+/* WARP — SMB underground: near-black with blue brick undertones, blue
+   mortar hairlines, cap-blue accent, coin gold glowing in the dark. */
+:root[data-theme="warp"] {
+  --pixel-border: 2px;
+  --crt-green: #43b047;
+  --crt-amber: #fbd000;
+  --crt-blue: #2fb1f0;
+  --crt-red: #e52521;
+  --crt-dark: #050712;
+  --text-primary: #f2f2e6;
+  --text-secondary: #a8b0cc;
+  --text-tertiary: #7681a6;
+  --accent-color: #2fb1f0;
+  --accent-color-2: #fbd000;
+  --bg-primary: #050712;
+  --bg-secondary: #0b1024;
+  --bg-tint: rgba(47,177,240,0.06);
+  --glass-bg: rgba(11, 16, 36, 0.86);
+  --glass-bg-strong: rgba(16, 23, 54, 0.95);
+  --glass-border: rgba(61, 74, 148, 0.45);
+  --glass-border-strong: rgba(85, 100, 180, 0.75);
+  --glass-highlight: rgba(143, 216, 255, 0.07);
+  --border-color: rgba(61,74,148,0.45);
+  --border-color-strong: rgba(85,100,180,0.75);
+  --shadow-sm: 2px 2px 0 rgba(0,0,0,0.45);
+  --shadow-md: 3px 3px 0 rgba(0,0,0,0.55);
+  --shadow-lg: 5px 5px 0 rgba(0,0,0,0.65);
+  --shadow-glow: 0 0 0 2px rgba(251,208,0,0.55);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+}
+
+/* Floor opacity-styled text on ANY light-base theme so the common
+   `text-crt-*/30..40` utilities don't render as ghost text on white.
+   Colors come from the theme's own tokens now (was hardcoded per-theme). */
+:root[data-base="light"] [class*="text-crt-green/"] { color: var(--crt-green) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-amber/"] { color: var(--crt-amber) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-blue/"]  { color: var(--crt-blue) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-red/"]   { color: var(--crt-red) !important; opacity: 1 !important; }
 
 * {
   margin: 0;
@@ -130,6 +406,22 @@ html, body {
   text-rendering: optimizeLegibility;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   letter-spacing: -0.005em;
+}
+
+/* The console shell. `100vh` on a phone is the LARGE viewport — it measures
+ * as if the browser's bottom bar (iOS Safari's address bar, Chrome's bottom
+ * chrome) were hidden, so the last ~50px of the page — the docked ask bar and
+ * its PARAMS/mod/model + HUB/TASKS strip — render underneath it and can't be
+ * tapped. `100dvh` tracks the bar as it shows/hides, keeping the bottom of the
+ * console on screen. `100vh` stays as the fallback for browsers without dvh. */
+/* …and `100dvh` only tracks that bar AFTER its slide animation settles, and
+ * not at all for the software keyboard. `--app-shell-h` is published from the
+ * visual viewport (see the visualViewport effect in page.tsx) and reports the
+ * genuinely visible box live; it falls back to dvh where that API is absent. */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+  height: var(--app-shell-h, 100dvh);
 }
 
 button, select, input, textarea {
@@ -448,27 +740,27 @@ html {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E");
 }
 
-/* Light theme specific */
-:root[data-theme="light"] .pixel-btn {
+/* Light-base themes (light / paper / win95) */
+:root[data-base="light"] .pixel-btn {
   box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
 }
 
-:root[data-theme="light"] .pixel-btn:hover {
+:root[data-base="light"] .pixel-btn:hover {
   box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
 }
 
-:root[data-theme="light"] .pixel-border {
+:root[data-base="light"] .pixel-border {
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
-:root[data-theme="light"] textarea,
-:root[data-theme="light"] input[type="text"],
-:root[data-theme="light"] input[type="password"] {
-  background: #ffffff;
+:root[data-base="light"] textarea,
+:root[data-base="light"] input[type="text"],
+:root[data-base="light"] input[type="password"] {
+  background: rgba(255,255,255,0.85);
 }
 
-:root[data-theme="light"] select {
-  background-color: #ffffff;
+:root[data-base="light"] select {
+  background-color: rgba(255,255,255,0.85);
 }
 
 /* Win95 specific button styling */
@@ -715,6 +1007,236 @@ body {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+ * Versions timeline (VersionsPanel) — day-grouped rows on a hairline
+ * rail; per-row actions reveal on hover. EditsPanel still uses the
+ * plain .version-row above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.vtl { display: flex; flex-direction: column; }
+
+.vtl-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 6px;
+  padding-left: 2px;
+}
+.vtl-group:first-of-type .vtl-day { margin-top: 2px; }
+.vtl-day .lab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.vtl-day .rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-border), transparent);
+}
+
+.vtl-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px 6px 2px;
+  border-radius: 10px;
+  transition: background 130ms ease;
+}
+.vtl-row:hover { background: var(--glass-highlight); }
+.vtl-row.head {
+  background: linear-gradient(90deg, rgba(167,139,250,0.09), transparent 70%);
+}
+.vtl-row.head:hover {
+  background: linear-gradient(90deg, rgba(167,139,250,0.13), var(--glass-highlight) 70%);
+}
+
+/* rail: connecting hairline behind the action dot */
+.vtl-rail {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vtl-rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--glass-border);
+}
+.vtl-items .vtl-row:first-child .vtl-rail::before { top: 50%; }
+.vtl-items .vtl-row:last-child  .vtl-rail::before { bottom: 50%; }
+.vtl-items .vtl-row:only-child  .vtl-rail::before { display: none; }
+.vtl-dot {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.vtl-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.vtl-msg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vtl-row.auto .vtl-msg {
+  color: var(--text-secondary);
+  font-weight: 500;
+  opacity: 0.75;
+}
+.vtl-tag {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.vtl-tag.head-tag {
+  color: var(--accent-color);
+  border-color: rgba(167,139,250,0.4);
+  background: rgba(167,139,250,0.12);
+}
+
+.vtl-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vtl-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.vtl-acts {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.vtl-row:hover .vtl-acts,
+.vtl-row.head .vtl-acts,
+.vtl-acts:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (hover: none) {
+  .vtl-acts { opacity: 1; transform: none; }
+}
+/* compact chips/buttons inside timeline rows (globals bump these with
+   !important, so these must be !important too to win the cascade) */
+.vtl-row .glass-btn { font-size: 12px !important; padding: 4px 10px !important; }
+.vtl-row .cid-chip  { font-size: 11px !important; padding: 3px 9px !important; }
+
+/* status / error notes */
+.vtl-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  margin-bottom: 10px;
+}
+.vtl-note.ok  { color: var(--crt-green); border-color: rgba(52,211,153,0.35);  background: rgba(52,211,153,0.09); }
+.vtl-note.err { color: var(--crt-red);   border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.09); }
+
+/* loading shimmer + empty state */
+.vtl-skels { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.vtl-skel {
+  height: 28px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--glass-highlight), rgba(255,255,255,0.09), var(--glass-highlight));
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+.vtl-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 6px;
+  font-size: 13.5px;
+  color: var(--text-tertiary);
+}
+.vtl-empty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  box-shadow: 0 0 10px rgba(167,139,250,0.5);
+  animation: soft-pulse 2.2s ease-in-out infinite;
+}
+
+/* snap composer — joined pill input + button */
+.snap-bar {
+  display: flex;
+  align-items: center;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 3px 3px 3px 14px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.snap-bar:focus-within {
+  border-color: rgba(167,139,250,0.45);
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.12);
+}
+.snap-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 190px;
+}
+.snap-input::placeholder { color: var(--text-tertiary); }
+.snap-btn {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 7px 16px;
+  margin-left: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(167,139,250,0.95), rgba(124,58,237,0.95));
+  box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+  transition: background 150ms ease, transform 100ms ease;
+}
+.snap-btn:hover { background: linear-gradient(135deg, rgba(180,156,255,1), rgba(140,80,250,1)); }
+.snap-btn:active { transform: scale(0.97); }
+.snap-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* ──────────────────────────────────────────────────────────────────────
  * Refinements — subtle motion, hairlines, focus rings, button polish
  * ──────────────────────────────────────────────────────────────────────*/
 
@@ -741,6 +1263,27 @@ body {
 
 .fade-in {
   animation: fade-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Restart toast — slides in under the tab bar; keyframes carry the -50%
+   centering translate so the entrance doesn't fight the utility class */
+.restart-toast {
+  animation: restart-toast-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes restart-toast-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.restart-toast-spin {
+  display: inline-block;
+  animation: restart-toast-spin 1.1s linear infinite;
+}
+@keyframes restart-toast-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restart-toast { animation: none; }
+  .restart-toast-spin { animation: none; }
 }
 
 .soft-pulse {
@@ -1386,6 +1929,64 @@ pre.font-code,
     0 8px 26px -12px color-mix(in srgb, var(--hub-accent) 45%, transparent);
 }
 
+/* Live page preview at the top of a hub card — the module's own website,
+ * full-bleed. Fixed 16:10 so the wall stays on a grid whatever the page
+ * looks like; the shot pans down a touch on hover to hint it's a real page. */
+.hub-shot {
+  --hub-accent: var(--accent-color);
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--hub-accent) 16%, transparent),
+      color-mix(in srgb, var(--hub-accent) 4%, transparent)),
+    var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--hub-accent) 16%, var(--border-color));
+}
+.hub-shot__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  transition: opacity 260ms ease, transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hub-card:hover .hub-shot__img { transform: scale(1.03); }
+
+/* shimmer while the capture is being taken/fetched */
+@keyframes hub-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+.hub-shot__skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.hub-shot__skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--hub-accent) 18%, rgba(255,255,255,0.06)),
+    transparent);
+  animation: hub-shimmer 1.4s ease-in-out infinite;
+}
+.hub-shot__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  color: color-mix(in srgb, var(--hub-accent) 70%, transparent);
+  letter-spacing: 0.04em;
+}
+
 /* "Add a module" tile — gradient dashed invite that glows on approach */
 .hub-add-card {
   position: relative;
@@ -1457,12 +2058,21 @@ pre.font-code,
 :root[data-theme="light"] .hub-aurora::before,
 :root[data-theme="light"] .hub-aurora::after { opacity: 0.09; }
 
+/* Home-hero badge: a slow breathing glow so the landing view feels alive.
+ * Animates box-shadow only (the badge is a single small element, cheap). */
+@keyframes hero-breathe {
+  0%, 100% { box-shadow: 0 0 44px -6px rgba(167,139,250,0.55), inset 0 1px 0 rgba(255,255,255,0.10); }
+  50%      { box-shadow: 0 0 64px -4px rgba(167,139,250,0.8),  inset 0 1px 0 rgba(255,255,255,0.14); }
+}
+.hero-glow-breathe { animation: hero-breathe 4.5s ease-in-out infinite; }
+
 /* Respect users who asked the OS for less motion. */
 @media (prefers-reduced-motion: reduce) {
   .hub-card, .hub-add-card { animation: none; }
   .hub-card:hover::after { transition: none; opacity: 0; }
   .hub-aurora::before, .hub-aurora::after { animation: none; }
   .hub-add-card:hover .hub-add-card__plus { transform: none; }
+  .hero-glow-breathe { animation: none; }
 }
 
 /* Reusable status pill that picks up an accent via --pill-accent. Used by
@@ -1488,4 +2098,596 @@ pre.font-code,
   border-radius: 999px;
   background: var(--pill-accent);
   box-shadow: 0 0 6px color-mix(in srgb, var(--pill-accent) 70%, transparent);
+}
+
+/* Themed hover tooltip — data-tip replaces native title bubbles (the gray
+   OS chrome clashes hard with the dark console). Drops below-left of the
+   element so it never fights the card header. */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  z-index: 80;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: min(420px, 80vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-primary) 94%, var(--accent-color));
+  border: 1px solid var(--border-color-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Mobile header vibe — two slim strips: a title bar (orbit mark +
+ * address pill + account chips) over the APP/CODE/INFO tab strip. A
+ * soft green wash keeps the instrument-panel feel without the old
+ * three-row bulk. Appended LAST so these win the generic size bumps.
+ * ──────────────────────────────────────────────────────────────────────*/
+@media (max-width: 767px) {
+  .console-header {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 5%, transparent), transparent 70%),
+      var(--bg-secondary) !important;
+    box-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.25),
+      inset 0 -1px 0 color-mix(in srgb, var(--crt-green) 12%, transparent);
+  }
+
+  /* Title bar breathing room. */
+  .hdr-account-row { padding-top: 8px !important; padding-bottom: 8px !important; }
+
+  /* APP / CODE / INFO — confident but compact, thick active bar. */
+  .mod-tab {
+    font-size: 15px !important;
+    padding: 10px 14px !important;
+    gap: 7px !important;
+    letter-spacing: 0.07em !important;
+    border-bottom-width: 3px !important;
+    margin-bottom: -1px !important;
+  }
+  .mod-tab svg { width: 16px !important; height: 16px !important; }
+
+  /* Owner chip pinned right of the tabs — legible, still a pill. */
+  .owner-bubble { font-size: 13px !important; padding: 7px 14px !important; }
+}
+
+/* Single-row desktop header runs out of room before the phone breakpoint —
+ * the owner chip is the most redundant passenger (owner shows in INFO and
+ * the profile panel), so it bails first. */
+@media (max-width: 1023px) {
+  .owner-bubble { display: none !important; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * ☮ BABE RAINBOW — psychedelic light mode ☮
+ *
+ * Dark stays the moody glass console. Flipping to light drops the whole
+ * UI into a groovy pastel-rainbow wash: sunset-blob backdrop, rainbow
+ * hairlines on cards, prismatic buttons and gradient headings. All the
+ * color rides on tokens + these overrides — no markup changes needed.
+ * Appended LAST so it wins the cascade over the base primitives above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Native form controls / scrollbars follow the theme. */
+:root { color-scheme: dark; }
+:root[data-base="light"] { color-scheme: light; }
+
+/* Shared rainbow ramps (cyclical — first == last so pans loop clean). */
+:root {
+  --rainbow: linear-gradient(90deg,
+    #ff2d95, #ff7a18, #ffc700, #2bd97c, #22b8ff, #8a5cff, #ff2d95);
+  --rainbow-soft: linear-gradient(90deg,
+    #ffd1ec, #ffe3c6, #fdf7c0, #cff5dd, #cfe8ff, #e6d9ff, #ffd1ec);
+  --rainbow-ink: linear-gradient(90deg,
+    #d61f76, #dd5a0b, #a16207, #047857, #0369a1, #7c3aed, #d61f76);
+}
+
+@keyframes rainbow-pan {
+  from { background-position: 0% 50%; }
+  to   { background-position: 300% 50%; }
+}
+
+/* Sunset-blob backdrop — four pastel color fields breathing behind the
+ * glass tiles. Fixed attachment, zero layout cost. */
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% -5%,  rgba(255,138,216,0.26), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 95% 5%,   rgba(255,199,113,0.24), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 85% 100%, rgba(124,199,255,0.24), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 5% 105%,  rgba(148,255,196,0.22), transparent 60%),
+    linear-gradient(180deg, #fffdf7 0%, #fff5fb 100%);
+  background-attachment: fixed;
+}
+
+/* Header band → soft rainbow strip (inline style pins var(--bg-secondary),
+ * so this needs !important to win). White veil keeps chips legible. */
+:root[data-theme="light"] .console-header {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.55)),
+    var(--rainbow-soft) !important;
+  background-size: 100% 100%, 300% 100% !important;
+  animation: rainbow-pan 30s linear infinite;
+  box-shadow: 0 1px 0 rgba(147,51,234,0.14), 0 8px 28px -18px rgba(236,72,153,0.35) !important;
+}
+
+/* Cards: candy borders + a rainbow hairline across the top edge. */
+:root[data-theme="light"] .bento,
+:root[data-theme="light"] .section-card,
+:root[data-theme="light"] .task-card,
+:root[data-theme="light"] .hub-card {
+  border-color: rgba(168, 85, 247, 0.22);
+  box-shadow:
+    0 10px 28px -14px rgba(236,72,153,0.22),
+    0 3px 10px rgba(139,92,246,0.10);
+}
+:root[data-theme="light"] .bento::before {
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 12s linear infinite;
+  opacity: 0.55;
+}
+:root[data-theme="light"] .bento:hover::before { opacity: 0.9; }
+
+/* Section / bento titles trip out — animated gradient ink (colors are all
+ * dark enough to read at 800 weight on the pale wash). */
+:root[data-theme="light"] .bento-title,
+:root[data-theme="light"] .section-card__title {
+  background: var(--rainbow-ink);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-pan 9s linear infinite;
+}
+:root[data-theme="light"] .section-card__glyph {
+  background: rgba(192,38,211,0.10);
+  color: #c026d3;
+  border-color: rgba(192,38,211,0.30);
+}
+
+/* Prismatic primary actions — the full spectrum, slowly drifting. */
+:root[data-theme="light"] .glass-btn.primary,
+:root[data-theme="light"] .snap-btn,
+:root[data-theme="light"] .pixel-btn:not(.pixel-btn-red):not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 8s linear infinite;
+  border-color: transparent;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(60,0,60,0.35);
+  box-shadow: 0 6px 20px -6px rgba(236,72,153,0.55);
+}
+:root[data-theme="light"] .glass-btn.primary:hover,
+:root[data-theme="light"] .snap-btn:hover {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  filter: saturate(1.25) brightness(1.05);
+  box-shadow: 0 8px 26px -6px rgba(236,72,153,0.65);
+}
+
+/* CID chips go bubblegum. */
+:root[data-theme="light"] .cid-chip {
+  background: rgba(236,72,153,0.10);
+  border-color: rgba(236,72,153,0.32);
+  color: #c02690;
+}
+:root[data-theme="light"] .cid-chip:hover { background: rgba(236,72,153,0.18); }
+
+/* Rainbow scrollbar + hot-pink selection. */
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff8ac2, #ffc37a, #7ee2a8, #7ec3ff, #b89aff);
+  background-clip: padding-box;
+}
+:root[data-theme="light"] ::selection {
+  background: rgba(255,45,149,0.28);
+  color: #2a1245;
+}
+
+/* HUB aurora blobs: crank the lava lamp. (Overrides the dim 0.09 above.) */
+:root[data-theme="light"] .hub-aurora::before {
+  background: radial-gradient(circle, #ff7ac8, transparent 65%);
+  opacity: 0.30;
+}
+:root[data-theme="light"] .hub-aurora::after {
+  background: radial-gradient(circle, #6cc7ff, transparent 65%);
+  opacity: 0.26;
+}
+
+/* Status pills & LED glows read warmer on any pale wash. */
+:root[data-base="light"] .status-pill {
+  background: color-mix(in srgb, var(--pill-accent) 10%, #ffffff);
+}
+:root[data-base="light"] .vtl-note.ok  { background: rgba(5,150,105,0.08); }
+:root[data-base="light"] .vtl-note.err { background: rgba(225,29,72,0.08); }
+
+/* Skeleton shimmer needs a darker sheen than rgba(255,…) on white. */
+:root[data-base="light"] .vtl-skel {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent-color) 8%, transparent),
+    color-mix(in srgb, var(--accent-color) 16%, transparent),
+    color-mix(in srgb, var(--accent-color) 8%, transparent));
+  background-size: 200% 100%;
+}
+
+/* ── Per-theme backdrop flavor ─────────────────────────────────────────
+ * The token blocks up top carry the palette; these add each theme's
+ * signature wash behind the glass tiles. */
+:root[data-theme="matrix"] body {
+  background:
+    radial-gradient(ellipse 85% 55% at 50% -10%, rgba(0,255,127,0.08), transparent 60%),
+    #010502;
+  background-attachment: fixed;
+}
+/* Phosphor scanlines — fixed overlay, no layout cost, clicks pass through. */
+:root[data-theme="matrix"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg, rgba(0,0,0,0.16) 0px, rgba(0,0,0,0.16) 1px, transparent 1px, transparent 3px);
+  opacity: 0.5;
+}
+:root[data-theme="neon"] body {
+  background:
+    radial-gradient(ellipse 60% 50% at 8% 0%,   rgba(255,45,160,0.16), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 95% 95%, rgba(15,240,212,0.13), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 5%,  rgba(70,60,255,0.12), transparent 60%),
+    #0a0416;
+  background-attachment: fixed;
+}
+:root[data-theme="ember"] body {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(255,120,30,0.14), transparent 65%),
+    radial-gradient(ellipse 60% 40% at 10% -5%,  rgba(255,158,44,0.07), transparent 60%),
+    #0c0603;
+  background-attachment: fixed;
+}
+:root[data-theme="abyss"] body {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% -10%, rgba(56,189,248,0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 105%, rgba(45,212,191,0.08), transparent 60%),
+    #030b18;
+  background-attachment: fixed;
+}
+:root[data-theme="paper"] body {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(154,91,44,0.06), transparent 60%),
+    linear-gradient(180deg, #f7f2e9 0%, #f2ead9 100%);
+  background-attachment: fixed;
+}
+/* Win95 goes all the way: no rounded corners anywhere. Inline styles pin
+ * fixed radii (borderRadius: 999 etc.), so tokens alone can't win — the
+ * blanket !important is the only lever, and it's visual-only. */
+:root[data-theme="win95"] body { background: #c0c0c0; }
+:root[data-theme="win95"] * { border-radius: 0 !important; }
+:root[data-theme="win95"] * { text-shadow: none !important; }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Theme toggle — a little round portal in the header. Dark mode shows a
+ * 🌈 invitation; light mode shows the ☾ way home, wrapped in a live
+ * spinning rainbow ring (conic border via mask-composite).
+ * ──────────────────────────────────────────────────────────────────────*/
+.theme-toggle {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--border-color-strong);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease;
+}
+.theme-toggle:hover { transform: translateY(-1px) rotate(10deg) scale(1.06); }
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(#ff5f6d, #ffc371, #fdff8f, #7bffb0, #6cc7ff, #b18cff, #ff8ce1, #ff5f6d);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  animation: hue-spin 4s linear infinite;
+  pointer-events: none;
+}
+.theme-toggle:hover::before { opacity: 1; }
+:root[data-theme="light"] .theme-toggle {
+  background: rgba(255,255,255,0.8);
+  box-shadow: 0 2px 10px rgba(236,72,153,0.25);
+}
+:root[data-theme="light"] .theme-toggle::before { opacity: 0.9; }
+@keyframes hue-spin {
+  to { filter: hue-rotate(360deg); }
+}
+@media (max-width: 767px) {
+  .theme-toggle { width: 38px; height: 38px; font-size: 18px; }
+}
+
+/* Theme picker — the toggle now opens a dropdown of every theme, each row
+ * showing swatch dots sampled straight from that theme's palette. */
+.theme-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(14px);
+  animation: profileMenuExpandLeft 160ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  transform-origin: top right;
+}
+.theme-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+.theme-menu__item:hover {
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--text-primary);
+}
+.theme-menu__item[aria-checked="true"] {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-color) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+.theme-menu__swatch {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.theme-menu__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+.theme-menu__glyph { width: 18px; text-align: center; flex-shrink: 0; }
+@media (max-width: 767px) {
+  /* Fatter touch rows on phones. */
+  .theme-menu { min-width: 230px; }
+  .theme-menu__item { padding: 12px 12px; font-size: 14px; }
+  .theme-menu__dot { width: 12px; height: 12px; }
+}
+
+/* Chill out for reduced-motion users — rainbow stays, motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] .console-header,
+  :root[data-theme="light"] .bento::before,
+  :root[data-theme="light"] .bento-title,
+  :root[data-theme="light"] .section-card__title,
+  :root[data-theme="light"] .glass-btn.primary,
+  :root[data-theme="light"] .snap-btn,
+  :root[data-theme="light"] .pixel-btn,
+  .theme-toggle::before {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 🍄 WORLD 1-1 — the 8-bit skin shared by MARIO (overworld) and WARP
+ * (underground). Colors ride the token blocks up top; this section does
+ * the structure: a row of ground blocks pinned to the viewport bottom,
+ * faint CRT scanlines, square corners everywhere (inline styles pin
+ * radii, so the win95-style blanket !important is the only lever),
+ * pixel type on interface chrome, and buttons that press down like a
+ * stomped block. Appended LAST so it wins the cascade.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Overworld: flat sky with pixel clouds, scanlines, orange brick ground.
+ * Each cloud is two stacked flat boxes (narrow row over wide row) so it
+ * reads as an 8-bit sprite; they sit behind the 90%-opaque panels and peek
+ * through the gutters. */
+:root[data-theme="mario"] body {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, #0000000d 3px 4px),
+    linear-gradient(#fffdf2, #fffdf2) 12% 74px / 42px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 12% 88px / 78px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 52% 40px / 34px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 52% 52px / 64px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 88% 110px / 46px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 88% 124px / 86px 14px no-repeat,
+    linear-gradient(180deg, #00000073 0 2px, #ffffff26 2px 4px, transparent 4px) left bottom / 100% 28px repeat-x,
+    repeating-linear-gradient(90deg, #ff8a3c 0 2px, #c84c0c 2px 28px, #7a2600 28px 32px) left bottom / 32px 28px repeat-x,
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+
+/* Underground: near-black, scanlines, blue brick ceiling AND ground, a few
+ * gold coin pixels floating in the dark. */
+:root[data-theme="warp"] body {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, #0000001a 3px 4px),
+    linear-gradient(#fbd000, #fbd000) 18% 34% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 63% 22% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 87% 56% / 6px 9px no-repeat,
+    linear-gradient(0deg, #000000a6 0 2px, #ffffff14 2px 4px, transparent 4px) left top / 100% 20px repeat-x,
+    repeating-linear-gradient(90deg, #4a66d8 0 2px, #2f43ac 2px 28px, #1a2570 28px 32px) left top / 32px 20px repeat-x,
+    linear-gradient(180deg, #00000073 0 2px, #ffffff26 2px 4px, transparent 4px) left bottom / 100% 28px repeat-x,
+    repeating-linear-gradient(90deg, #4a66d8 0 2px, #2f43ac 2px 28px, #1a2570 28px 32px) left bottom / 32px 28px repeat-x,
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+
+/* No rounded corners on an 8-bit console; sprites render pixelated. */
+:root[data-theme="mario"] *, :root[data-theme="warp"] * { border-radius: 0 !important; }
+:root[data-theme="mario"] img, :root[data-theme="warp"] img { image-rendering: pixelated; }
+
+/* Coin-flash selection. */
+:root[data-theme="mario"] ::selection,
+:root[data-theme="warp"] ::selection { background: #fbd000; color: #000; }
+
+/* Pixel type on interface chrome — titles, labels, chips and pills. Prose
+ * and code keep their faces so job output and CIDs stay readable. Sizes
+ * need !important to beat the readability-bump overrides above. */
+:root[data-theme="mario"] .bento-title,   :root[data-theme="warp"] .bento-title,
+:root[data-theme="mario"] .section-card__title, :root[data-theme="warp"] .section-card__title,
+:root[data-theme="mario"] .label-muted,   :root[data-theme="warp"] .label-muted {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 10px !important;
+  letter-spacing: 0.06em !important;
+  line-height: 1.7;
+}
+:root[data-theme="mario"] .ui-chip,      :root[data-theme="warp"] .ui-chip,
+:root[data-theme="mario"] .status-pill,  :root[data-theme="warp"] .status-pill,
+:root[data-theme="mario"] .task-chip,    :root[data-theme="warp"] .task-chip,
+:root[data-theme="mario"] .task-action,  :root[data-theme="warp"] .task-action,
+:root[data-theme="mario"] .vtl-tag,      :root[data-theme="warp"] .vtl-tag {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 8px !important;
+  letter-spacing: 0.06em;
+  line-height: 1.9;
+}
+:root[data-theme="mario"] .theme-menu__item, :root[data-theme="warp"] .theme-menu__item {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 9px;
+  line-height: 1.8;
+}
+
+/* Sprite outlines: thicken the big surfaces to 2px cartoon borders. */
+:root[data-theme="mario"] .bento,         :root[data-theme="warp"] .bento,
+:root[data-theme="mario"] .section-card,  :root[data-theme="warp"] .section-card,
+:root[data-theme="mario"] .task-card,     :root[data-theme="warp"] .task-card,
+:root[data-theme="mario"] .hub-card,      :root[data-theme="warp"] .hub-card,
+:root[data-theme="mario"] .theme-menu,    :root[data-theme="warp"] .theme-menu {
+  border-width: 2px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Primary actions become fire-flower blocks: flat red fill, beveled
+ * sprite edges, and a press-down instead of a hover-lift. */
+:root[data-theme="mario"] .glass-btn.primary, :root[data-theme="warp"] .glass-btn.primary,
+:root[data-theme="mario"] .snap-btn,          :root[data-theme="warp"] .snap-btn,
+:root[data-theme="mario"] .pixel-btn:not(.pixel-btn-amber):not(.pixel-btn-blue),
+:root[data-theme="warp"]  .pixel-btn:not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: #e52521;
+  border: 2px solid #16161f;
+  color: #fff;
+  text-shadow: 1px 1px 0 #8c100d;
+  box-shadow: inset 2px 2px 0 #ff7261, inset -2px -2px 0 #8c100d, var(--shadow-sm);
+}
+:root[data-theme="mario"] .glass-btn.primary:hover, :root[data-theme="warp"] .glass-btn.primary:hover,
+:root[data-theme="mario"] .snap-btn:hover,          :root[data-theme="warp"] .snap-btn:hover,
+:root[data-theme="mario"] .pixel-btn:not(:disabled):hover,
+:root[data-theme="warp"]  .pixel-btn:not(:disabled):hover {
+  background: #ff3b30;
+  transform: none;
+  filter: none;
+  box-shadow: inset 2px 2px 0 #ff7261, inset -2px -2px 0 #8c100d, var(--shadow-sm);
+}
+:root[data-theme="mario"] button:active:not(:disabled),
+:root[data-theme="warp"]  button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+/* CID chips are coin blocks — gold with a coin-edge bevel. */
+:root[data-theme="mario"] .cid-chip, :root[data-theme="warp"] .cid-chip {
+  background: #fbd000;
+  border: 2px solid #16161f;
+  color: #3a2200;
+  box-shadow: inset 2px 2px 0 #ffe66d, inset -2px -2px 0 #c77d11;
+}
+:root[data-theme="mario"] .cid-chip:hover, :root[data-theme="warp"] .cid-chip:hover {
+  background: #ffdd2e;
+}
+
+/* Kill the purple-tinted glass washes; blocks are flat paint. */
+:root[data-theme="mario"] .bento.accent, :root[data-theme="warp"] .bento.accent {
+  background: var(--glass-bg);
+  border-color: var(--border-color-strong);
+}
+:root[data-theme="mario"] .bento::before, :root[data-theme="warp"] .bento::before {
+  display: none;
+}
+
+/* Theme toggle: the round portal becomes a ? block. */
+:root[data-theme="mario"] .theme-toggle, :root[data-theme="warp"] .theme-toggle {
+  background: #fbd000;
+  border: 2px solid #16161f;
+  box-shadow: inset 2px 2px 0 #ffe66d, inset -2px -2px 0 #c77d11;
+}
+:root[data-theme="mario"] .theme-toggle:hover, :root[data-theme="warp"] .theme-toggle:hover {
+  transform: none;
+}
+
+/* Blocky scrollbar — a solid brick, no pill. */
+:root[data-theme="mario"] ::-webkit-scrollbar-thumb {
+  background: #c84c0c;
+  border: 2px solid #7a2600;
+}
+:root[data-theme="warp"] ::-webkit-scrollbar-thumb {
+  background: #2f43ac;
+  border: 2px solid #1a2570;
+}
+
+/* Coin-gold focus ring — keyboard nav reads like coin selection. */
+:root[data-theme="mario"] :focus-visible,
+:root[data-theme="warp"] :focus-visible {
+  outline: 3px solid #fbd000;
+  outline-offset: 1px;
+}
+
+/* The ? block theme toggle glints every few seconds, waiting to be bopped.
+ * steps(1) snaps between frames — no tween on an 8-bit console. */
+@keyframes qblock-glint {
+  0%, 88%, 100% { filter: brightness(1); }
+  92% { filter: brightness(1.4); }
+  96% { filter: brightness(0.92); }
+}
+:root[data-theme="mario"] .theme-toggle,
+:root[data-theme="warp"] .theme-toggle {
+  animation: qblock-glint 3.4s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="mario"] .glass-btn.primary,
+  :root[data-theme="warp"] .glass-btn.primary,
+  :root[data-theme="mario"] .theme-toggle,
+  :root[data-theme="warp"] .theme-toggle { animation: none; }
 }

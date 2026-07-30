@@ -1,5 +1,5 @@
 #!/bin/bash
-PORT="${1:-8820}"
+PORT="${1:-8870}"
 
 pids=$(lsof -ti:"$PORT" 2>/dev/null || true)
 if [ -n "$pids" ]; then
@@ -13,5 +13,5 @@ else
     echo "No API running on port $PORT"
 fi
 
-# Also kill any claude-jobs binary
-pkill -f "claude-jobs" 2>/dev/null || true
+# Also kill any dev-jobs binary
+pkill -f "dev-jobs" 2>/dev/null || true

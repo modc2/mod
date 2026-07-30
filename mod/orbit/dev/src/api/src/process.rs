@@ -1,6 +1,6 @@
 //! Pluggable per-module process backends.
 //!
-//! The claude API can drive any OTHER module's lifecycle (status/stop/start/
+//! The build API can drive any OTHER module's lifecycle (status/stop/start/
 //! restart). HOW a module's processes are supervised varies — most run under
 //! pm2, some could be systemd units, some are just bare processes on a port.
 //! This module hides that behind one `Backend` so the HTTP API + SDK behave
@@ -246,7 +246,7 @@ pub fn act(
     module_name: &str,
     config: &Value,
 ) -> (bool, String) {
-    // Smart prod rebuild. Claude restarts a module after editing it so the edit
+    // Smart prod rebuild. Build restarts a module after editing it so the edit
     // goes live. But a module whose app runs a *production* Next build
     // (`next start`) re-serves the stale `.next` bundle on a bare restart — the
     // edit never appears. So when (re)starting such a module, rebuild the app
@@ -689,7 +689,7 @@ fn generic_list(module_name: &str, config: &Value) -> Vec<Proc> {
 // An "orphan" is a process SERVING from a module's directory (its executable or
 // cwd resolves inside the module dir) on a port that is NOT one of the module's
 // canonical api/app ports. These are stale duplicates — e.g. a `dev-jobs`
-// hand-launched on :59999 next to the pm2-managed one on :8820, or a leftover
+// hand-launched on :59999 next to the pm2-managed one on :8870, or a leftover
 // `next dev` from a crashed run. They squat ports and serve OLD code, so an edit
 // to the module's source never shows up where the gateway/app actually points →
 // "works in the CLI but the app never changes". Reaping them guarantees the mod
@@ -701,7 +701,7 @@ fn generic_list(module_name: &str, config: &Value) -> Vec<Proc> {
 //     backend-managed pid is already on) is never touched — that IS the app/api,
 //     including next.js worker children whose pid differs from pm2's.
 //   • The Claude CLI is never reaped: background `claude --print` jobs run with
-//     cwd inside the claude module dir but must keep running.
+//     cwd inside the build module dir but must keep running.
 
 /// A stale process serving from a module dir on a non-canonical port.
 #[derive(Clone)]
@@ -740,7 +740,7 @@ fn proc_cmdline(pid: i64) -> String {
 }
 
 /// All `(pid, port)` pairs currently LISTENING on TCP (via `ss -ltnpH`).
-fn all_listen_pid_ports() -> Vec<(i64, u16)> {
+pub fn all_listen_pid_ports() -> Vec<(i64, u16)> {
     let out = match Command::new("ss").args(["-ltnpH"]).output() {
         Ok(o) => o,
         Err(_) => return Vec::new(),
@@ -763,7 +763,7 @@ fn all_listen_pid_ports() -> Vec<(i64, u16)> {
 }
 
 /// True for the Claude Code CLI — background jobs exec it with cwd inside the
-/// claude module dir, so it must never be mistaken for an orphan server.
+/// build module dir, so it must never be mistaken for an orphan server.
 fn is_claude_cli(exe: &Option<PathBuf>, cmd: &str) -> bool {
     let exe_s = exe.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     exe_s.ends_with("/claude")

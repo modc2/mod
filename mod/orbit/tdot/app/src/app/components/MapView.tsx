@@ -4,14 +4,14 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import {
-  DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR,
+  CATEGORY_COLOR, DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL,
   divergingExpression, stepExpression,
 } from '@/lib/palette'
 
 export type Basemap = 'dark' | 'light' | 'streets'
 
-/** Bounding box of the five boroughs, used to frame the opening view. */
-const NYC_BOUNDS: [[number, number], [number, number]] = [[-74.30, 40.47], [-73.68, 40.93]]
+/** Bounding box of the amalgamated city, used to frame the opening view. */
+const TORONTO_BOUNDS: [[number, number], [number, number]] = [[-79.65, 43.56], [-79.10, 43.87]]
 
 /**
  * Basemap styles. All raster, all key-free: CARTO's free tiles for the muted
@@ -55,8 +55,8 @@ type Props = {
   catalog: Catalog | null
   active: string[]
   opacity: Record<string, number>
-  housing: Choropleth | null
-  housingMetric: string
+  crime: Choropleth | null
+  crimeMetric: string
   layerData: Record<string, GeoJSON.FeatureCollection>
   basemap: Basemap
   flyTo: { lng: number; lat: number; zoom?: number; nonce: number } | null
@@ -65,7 +65,7 @@ type Props = {
 }
 
 export default function MapView({
-  catalog, active, opacity, housing, housingMetric, layerData,
+  catalog, active, opacity, crime, crimeMetric, layerData,
   basemap, flyTo, onFeatureClick, onMapReady,
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
@@ -87,8 +87,8 @@ export default function MapView({
     const m = new maplibregl.Map({
       container: container.current,
       style: styleFor(basemap),
-      center: [-73.9712, 40.7128],
-      zoom: 10.2,
+      center: [-79.3832, 43.7],
+      zoom: 10.6,
       maxZoom: 18,
       minZoom: 8,
       attributionControl: false,
@@ -100,14 +100,14 @@ export default function MapView({
     })
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
     m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
-    m.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left')
+    m.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
 
     m.on('load', () => {
       ready.current = true
       m.resize()
-      // Frame the five boroughs regardless of the window's aspect ratio; a
-      // fixed centre+zoom leaves a wide window showing half of New Jersey.
-      m.fitBounds(NYC_BOUNDS, { padding: { top: 80, bottom: 40, left: 300, right: 60 }, duration: 0 })
+      // Frame the whole city regardless of the window's aspect ratio; a fixed
+      // centre+zoom leaves a wide window showing half of Lake Ontario.
+      m.fitBounds(TORONTO_BOUNDS, { padding: { top: 80, bottom: 40, left: 300, right: 60 }, duration: 0 })
       onMapReady(m)
       redrawRef.current()
     })
@@ -150,7 +150,7 @@ export default function MapView({
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, housing, housingMetric, layerData])
+  }, [catalog, active, opacity, crime, crimeMetric, layerData])
 
   useEffect(() => {
     if (!flyTo || !map.current) return
@@ -180,7 +180,7 @@ export default function MapView({
     const order: string[] = []
 
     const defs = new Map(catalog.layers.map((l) => [l.id, l]))
-    // Draw order: fills at the bottom, then lines, then points on top, so a
+    // Draw order: fills at the bottom, then lines, then points on top, so the
     // choropleth never buries the subway and stations stay clickable.
     const rank = (l: LayerDef) =>
       l.kind === 'choropleth' || l.kind === 'polygon' ? 0
@@ -194,8 +194,8 @@ export default function MapView({
     for (const def of ordered) {
       const alpha = opacity[def.id] ?? 1
       try {
-        if (def.id === 'housing_prices') {
-          if (housing) order.push(...addChoropleth(m, housing, housingMetric, alpha))
+        if (def.id === 'crime') {
+          if (crime) order.push(...addChoropleth(m, crime, crimeMetric, alpha))
         } else {
           const data = layerData[def.id]
           if (data) order.push(...addOverlay(m, def, data, alpha))
@@ -215,28 +215,29 @@ export default function MapView({
 // ── choropleth ────────────────────────────────────────────────────────────
 
 function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number): string[] {
-  const src = 'tdot-housing'
+  const src = 'tdot-crime'
   m.addSource(src, { type: 'geojson', data: fc as any })
   const stops = fc.breaks?.stops ?? []
-  const diverging = metric === 'price_change'
+  const diverging = metric === 'change'
 
   const color = diverging
     ? divergingExpression(metric, Math.max(
         Math.abs(fc.breaks?.min ?? 0), Math.abs(fc.breaks?.max ?? 0)))
     : stepExpression(metric, stops, SEQUENTIAL)
 
-  // Areas with no qualifying sales are drawn as a flat grey rather than the
-  // ramp's lowest class — "no data" and "cheapest" must not look the same.
+  // Areas where the metric is unreportable (a thin prior sample for `change`)
+  // are drawn as a flat grey rather than the ramp's lowest class — "no data"
+  // and "least crime" must not look the same.
   const fill: any = ['case', ['==', ['get', metric], null], NO_DATA, color]
 
   m.addLayer({
-    id: 'housing_prices--fill',
+    id: 'crime--fill',
     type: 'fill',
     source: src,
     paint: { 'fill-color': fill, 'fill-opacity': 0.78 * alpha },
   })
   m.addLayer({
-    id: 'housing_prices--line',
+    id: 'crime--line',
     type: 'line',
     source: src,
     paint: {
@@ -244,7 +245,7 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
       'line-width': 0.6,
     },
   })
-  return ['housing_prices--fill']
+  return ['crime--fill']
 }
 
 // ── overlays ──────────────────────────────────────────────────────────────
@@ -262,16 +263,28 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
   }
 
   switch (def.id) {
-    case 'subway_lines':
-      // Route colour comes from the MTA's own feed — riders read the network
-      // by colour, so this is the one layer where the palette is inherited.
+    case 'ttc_lines':
+      // Line colour comes from the TTC's own identity — riders read the
+      // network by colour, so this is a layer where the palette is inherited.
       add({
         id: `${def.id}--line`, type: 'line', source: src,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': ['coalesce', ['get', 'color'], '#8b93a7'],
-          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.4, 13, 3, 16, 6],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 13, 3.4, 16, 6],
           'line-opacity': 0.95 * alpha,
+        },
+      })
+      return ids
+
+    case 'streetcars':
+      add({
+        id: `${def.id}--line`, type: 'line', source: src,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': color,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1, 13, 2, 16, 4],
+          'line-opacity': 0.85 * alpha,
         },
       })
       return ids
@@ -290,7 +303,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       add({
         id: `${def.id}--label`, type: 'symbol', source: src,
-        minzoom: 13.5,
+        minzoom: 12.5,
         layout: {
           'text-field': ['get', 'name'],
           'text-size': 11,
@@ -307,30 +320,13 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return [`${def.id}--circle`]
 
-    case 'subway_ridership':
-      add({
-        id: `${def.id}--circle`, type: 'circle', source: src,
-        paint: {
-          // Area-proportional: radius scales with √ridership, so a station
-          // twice as busy draws twice the ink, not four times.
-          'circle-radius': ['interpolate', ['linear'], ['zoom'],
-            10, ['*', 0.5, ['sqrt', ['/', ['coalesce', ['get', 'riders'], 0], 40000]]],
-            14, ['*', 2.2, ['sqrt', ['/', ['coalesce', ['get', 'riders'], 0], 40000]]]],
-          'circle-color': color,
-          'circle-opacity': 0.62 * alpha,
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#11151c',
-        },
-      })
-      return ids
-
-    case 'bike_routes':
+    case 'cycling_network':
       add({
         id: `${def.id}--line`, type: 'line', source: src,
         layout: { 'line-cap': 'round' },
         paint: {
           'line-color': color,
-          // Protected paths are the ones riders plan around — give them weight.
+          // Protected routes are the ones riders plan around — give them weight.
           'line-width': ['interpolate', ['linear'], ['zoom'],
             10, ['case', ['==', ['get', 'cls'], 'I'], 1.2, 0.6],
             15, ['case', ['==', ['get', 'cls'], 'I'], 3.4, 1.6]],
@@ -339,7 +335,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
-    case 'parks':
+    case 'green_spaces':
       add({
         id: `${def.id}--fill`, type: 'fill', source: src,
         paint: { 'fill-color': color, 'fill-opacity': 0.42 * alpha },
@@ -350,37 +346,25 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return [`${def.id}--fill`]
 
-    case 'evacuation_zones': {
-      const expr: any[] = ['match', ['get', 'zone']]
-      Object.entries(ZONE_COLOR).forEach(([z, c]) => expr.push(Number(z), c))
-      expr.push('#5f7a52')
-      add({
-        id: `${def.id}--fill`, type: 'fill', source: src,
-        paint: { 'fill-color': expr as any, 'fill-opacity': 0.4 * alpha },
-      })
-      return ids
-    }
-
     case 'collisions':
       add({
         id: `${def.id}--heat`, type: 'heatmap', source: src,
         maxzoom: 15,
         paint: {
           'heatmap-weight': ['interpolate', ['linear'],
-            ['+', ['coalesce', ['get', 'injured'], 0],
+            ['+', ['coalesce', ['get', 'serious'], 0],
                   ['*', 5, ['coalesce', ['get', 'killed'], 0]]],
             0, 0.2, 5, 1],
-          // Tuned down at city zoom: 15k crashes at full intensity paints the
-          // whole city one colour and buries every layer beneath it, which
-          // says nothing beyond "New York is dense".
-          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.35, 15, 2.2],
+          // Tuned down at city zoom: 7.5k collisions at full intensity paints
+          // the whole city one colour and buries every layer beneath it.
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
           'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
             ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
           'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 5, 15, 26],
           'heatmap-opacity': 0.62 * alpha,
         },
       })
-      // Past the heatmap's maxzoom the individual crashes become inspectable.
+      // Past the heatmap's maxzoom the individual collisions become inspectable.
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
         minzoom: 14,
@@ -395,14 +379,35 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return [`${def.id}--circle`]
 
-    case 'affordable_housing':
+    case 'incidents': {
+      const match: any[] = ['match', ['get', 'cat']]
+      Object.entries(CATEGORY_COLOR).forEach(([k, c]) => match.push(k, c))
+      match.push('#9ec5f4')
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
         paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 3.4, 17, 7],
+          'circle-color': match as any,
+          'circle-opacity': 0.8 * alpha,
+          'circle-stroke-width': 0.4,
+          'circle-stroke-color': 'rgba(11,14,20,0.7)',
+        },
+      })
+      return ids
+    }
+
+    case 'apartments':
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          // Area-proportional: radius scales with √units, so a building twice
+          // as big draws twice the ink, not four times.
           'circle-radius': ['interpolate', ['linear'], ['zoom'],
-            10, ['*', 0.9, ['sqrt', ['/', ['coalesce', ['get', 'units'], 1], 20]]],
-            15, ['*', 3.5, ['sqrt', ['/', ['coalesce', ['get', 'units'], 1], 20]]]],
-          'circle-color': color,
+            10, ['*', 0.9, ['sqrt', ['/', ['coalesce', ['get', 'units'], 10], 20]]],
+            15, ['*', 3.5, ['sqrt', ['/', ['coalesce', ['get', 'units'], 10], 20]]]],
+          // Low-scoring buildings surface in the warning hue.
+          'circle-color': ['step', ['coalesce', ['get', 'score'], 100],
+            '#e66767', 65, '#eda100', 80, color],
           'circle-opacity': 0.7 * alpha,
           'circle-stroke-width': 1,
           'circle-stroke-color': '#11151c',
@@ -410,26 +415,14 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
-    case 'sales':
-      add({
-        id: `${def.id}--circle`, type: 'circle', source: src,
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 3.4, 17, 7],
-          'circle-color': stepExpression('price', SALE_BREAKS, SEQUENTIAL) as any,
-          'circle-opacity': 0.8 * alpha,
-          'circle-stroke-width': 0.4,
-          'circle-stroke-color': 'rgba(11,14,20,0.7)',
-        },
-      })
-      return ids
-
-    case 'boroughs':
-    case 'neighborhoods':
+    case 'municipalities':
+    case 'neighbourhoods':
+    case 'wards':
       add({
         id: `${def.id}--line`, type: 'line', source: src,
         paint: {
           'line-color': color,
-          'line-width': def.id === 'boroughs' ? 1.6 : 0.7,
+          'line-width': def.id === 'municipalities' ? 1.6 : def.id === 'wards' ? 1.0 : 0.7,
           'line-opacity': 0.75 * alpha,
         },
       })
@@ -457,7 +450,3 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       return ids
   }
 }
-
-/** Fixed price classes for the sales point layer, in dollars. */
-const SALE_BREAKS = [0, 400_000, 700_000, 1_000_000, 1_500_000, 2_500_000, 5_000_000]
-export { SALE_BREAKS }

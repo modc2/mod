@@ -1,17 +1,23 @@
+@import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── agent design system — terminal-grade, fleet emerald ────────────
+/* ── agent design system — terminal-grade, fleet emerald, 8-bit skin ─
    One accent (emerald/mint), mono type everywhere, deep near-black
-   surfaces with faint ambient light. Matches the modc2 console. */
+   surfaces with faint ambient light. Matches the modc2 console.
+   Retro-console structural overrides (pixel chrome type, squared
+   corners, sprite shadows) live at the end of the file. */
 
 :root {
   --bg: #060909;
   --fg: #e7ecea;
   --accent: #34d399;
   --accent-soft: rgba(52, 211, 153, 0.14);
+  --coin: #fbd000;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --pixel: "Press Start 2P", var(--mono);
 }
 
 html, body {
@@ -157,37 +163,40 @@ select:focus {
   animation: shimmer 1.8s linear infinite;
 }
 
-/* run button glow */
+/* run button — hard sprite shadow, no blur on an 8-bit console */
 .run-glow:not(:disabled) {
-  box-shadow: 0 0 14px rgba(52, 211, 153, 0.22);
-}
-.run-glow:not(:disabled):hover {
-  box-shadow: 0 0 20px rgba(52, 211, 153, 0.38);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55);
 }
 
 /* ── lit ────────────────────────────────────────────────────────────
    the loud pieces: gradient action buttons, gradient title, vault ring */
 
-/* primary action — emerald→teal gradient with a sweeping sheen */
+/* primary action — flat pipe-green block, beveled like a sprite tile */
 .lit-btn:not(:disabled) {
-  background: linear-gradient(115deg, #10b981, #2dd4bf 55%, #22d3ee);
-  background-size: 220% 100%;
-  background-position: 0% 0;
-  color: #041410;
-  box-shadow: 0 0 16px rgba(52, 211, 153, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: background-position 0.5s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  background: #10b981;
+  color: #04140f;
+  border: 2px solid #04140f;
+  box-shadow: inset 2px 2px 0 #6ef0c2, inset -2px -2px 0 #077a54, 3px 3px 0 rgba(0, 0, 0, 0.55);
+  font-family: var(--pixel);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: none;
 }
 .lit-btn:not(:disabled):hover {
-  background-position: 90% 0;
-  box-shadow: 0 0 26px rgba(45, 212, 191, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  background: #2dd4bf;
 }
 .lit-btn:not(:disabled):active {
-  transform: scale(0.97);
+  transform: translate(3px, 3px);
+  box-shadow: inset 2px 2px 0 #6ef0c2, inset -2px -2px 0 #077a54;
 }
 
-/* gradient wordmark */
+/* wordmark — hard banded gradient, arcade-cabinet style */
 .title-gradient {
-  background: linear-gradient(100deg, #a7f3d0, #34d399 45%, #22d3ee);
+  font-family: var(--pixel);
+  font-size: 12px;
+  line-height: 1.5;
+  background: linear-gradient(180deg, #eafff5 0 45%, #34d399 45% 75%, #0e9f6e 75% 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -239,13 +248,21 @@ select:focus {
   animation: locked-pulse 2.4s ease-in-out infinite;
 }
 
-/* hero logo — breathing glow ring on the empty state */
-@keyframes hero-breathe {
-  0%, 100% { box-shadow: 0 0 24px rgba(52, 211, 153, 0.12), inset 0 0 12px rgba(52, 211, 153, 0.05); }
-  50% { box-shadow: 0 0 42px rgba(52, 211, 153, 0.24), inset 0 0 16px rgba(52, 211, 153, 0.1); }
+/* hero logo — beveled coin block on the empty state, hops every few
+   seconds like an idle sprite (steps() keeps the motion frame-snapped) */
+@keyframes hero-hop {
+  0%, 82%, 94%, 100% { transform: translateY(0); }
+  86%, 90% { transform: translateY(-8px); }
 }
 .hero-logo {
-  animation: hero-breathe 4s ease-in-out infinite;
+  background: var(--coin);
+  border: 3px solid #131309;
+  box-shadow: inset 3px 3px 0 #ffe66d, inset -3px -3px 0 #c77d11, 4px 4px 0 rgba(0, 0, 0, 0.45);
+  animation: hero-hop 3.6s steps(2, jump-none) infinite;
+}
+.hero-logo span {
+  color: #fff;
+  text-shadow: 1px 1px 0 #7a4a00;
 }
 
 /* blinking terminal caret */
@@ -334,3 +351,73 @@ g:hover > .builder-wire {
   opacity: 1;
   filter: drop-shadow(0 0 3px currentColor);
 }
+
+/* ============================================================================
+   8-bit skin — retro-console edition (original pixel styling, no borrowed
+   sprites). Squares every corner, puts the pixel face on interface chrome
+   (prose, code and data keep mono), swaps soft glows for hard sprite shadows,
+   and adds a coin-gold secondary accent. WORLD A-1.
+   ============================================================================ */
+
+/* no rounded corners on an 8-bit console — pills, dots and avatars go square */
+*, *::before, *::after { border-radius: 0 !important; }
+
+img { image-rendering: pixelated; }
+
+/* faint CRT scanlines over everything — the console is plugged into a TV */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+  opacity: 0.3;
+}
+
+/* coin-gold selection */
+::selection {
+  background: rgba(251, 208, 0, 0.35);
+  color: #fff;
+}
+
+/* pixel type: chrome only. Every interface label in this app is uppercase
+   (tabs, pills, section headers, the view switcher); prose and data never
+   are — so the `uppercase` utility is exactly the chrome/type boundary. */
+.uppercase {
+  font-family: var(--pixel);
+  letter-spacing: 0.05em;
+  line-height: 1.8;
+}
+
+/* header chrome runs wide in the pixel face — pull it in so the bar still
+   fits a narrow window: smaller view-switcher tabs, one-line subtitle */
+header nav button.uppercase { font-size: 9px; }
+.tracking-widest.uppercase { font-size: 7px; letter-spacing: 0.1em; white-space: nowrap; }
+
+/* the brand mark is a beveled coin block (header, next to the wordmark) */
+.brand-mark {
+  background: var(--coin);
+  border: 2px solid #131309;
+  box-shadow: inset 2px 2px 0 #ffe66d, inset -2px -2px 0 #c77d11, 2px 2px 0 rgba(0, 0, 0, 0.45);
+}
+.brand-mark span {
+  color: #fff;
+  font-family: var(--pixel);
+  font-size: 7px;
+  text-shadow: 1px 1px 0 #7a4a00;
+}
+
+/* buttons press down like a stomped block */
+button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+}
+
+/* square, chunky scrollbar thumbs in pipe green */
+::-webkit-scrollbar-thumb {
+  background: rgba(52, 211, 153, 0.22);
+}
+
+/* frame-snapped motion — smooth easing reads as 16-bit or later */
+.dot { animation-timing-function: steps(3, jump-none); }
+.vault-ring::before { animation-timing-function: steps(8); }

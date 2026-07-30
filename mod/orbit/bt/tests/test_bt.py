@@ -372,3 +372,50 @@ def test_http_mcp(client):
 def test_http_serves_app(client):
     html = client.get('/').text
     assert 'Bittensor' in html and 'id="docs"' in html
+    assert 'id="ask"' in html and 'askNetwork' in html
+
+
+# ---------------------------------------------------------------- agent
+
+def test_agent_tool_split():
+    from bt import agent
+    assert set(agent.ALLOWED_TOOLS) == {
+        f'mcp__bittensor__{t.name}' for t in tools.TOOLS if not t.mutates}
+    assert set(agent.DISALLOWED_TOOLS) == {
+        f'mcp__bittensor__{t.name}' for t in tools.TOOLS if t.mutates}
+    assert not set(agent.ALLOWED_TOOLS) & set(agent.DISALLOWED_TOOLS)
+
+
+def test_agent_cmd_shape():
+    from bt import agent
+    cmd = agent.build_cmd('who pumped?')
+    assert cmd[1:3] == ['-p', 'who pumped?']
+    cfg = json.loads(cmd[cmd.index('--mcp-config') + 1])
+    assert cfg['mcpServers']['bittensor']['args'] == ['-m', 'bt.mcp_server']
+    denied = cmd[cmd.index('--disallowedTools') + 1]
+    assert 'bt_transfer' in denied and 'bt_buy' in denied
+
+
+def test_agent_event_translation():
+    from bt import agent
+    evs = list(agent._events({
+        'type': 'assistant', 'message': {'content': [
+            {'type': 'text', 'text': 'hi'},
+            {'type': 'tool_use', 'name': 'mcp__bittensor__bt_stats', 'input': {}}]}}))
+    assert evs == [{'type': 'text', 'text': 'hi'},
+                   {'type': 'tool', 'name': 'bt_stats', 'args': {}}]
+    done = list(agent._events({'type': 'result', 'result': 'ans',
+                               'num_turns': 3, 'duration_ms': 10,
+                               'total_cost_usd': 0.01}))
+    assert done[0]['type'] == 'done' and done[0]['answer'] == 'ans'
+
+
+def test_agent_status_shape(client):
+    j = client.get('/api/agent').json()
+    assert {'ready', 'method', 'model', 'max_turns', 'tools', 'denied'} <= set(j)
+    assert j['tools'] + j['denied'] == len(tools.TOOLS)
+
+
+def test_ask_requires_question(client):
+    r = client.post('/api/ask', json={})
+    assert r.status_code == 400 and r.json()['ok'] is False

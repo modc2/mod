@@ -6,7 +6,7 @@
 //! A fresh api/reg call takes ~15-20s, so each tick snaps at most a few
 //! modules — a large backlog drains over successive ticks. Failures back
 //! off per module (doubling, capped) so one broken module can't pin the
-//! queue. Disable with CLAUDE_AUTOSNAP=0.
+//! queue. Disable with DEV_AUTOSNAP=0.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -54,12 +54,12 @@ fn now_ts() -> u64 {
 }
 
 fn enabled() -> bool {
-    std::env::var("CLAUDE_AUTOSNAP").unwrap_or_default() != "0"
+    std::env::var("DEV_AUTOSNAP").unwrap_or_default() != "0"
 }
 
 pub fn spawn() {
     if !enabled() {
-        tracing::info!("autosnap disabled (CLAUDE_AUTOSNAP=0)");
+        tracing::info!("autosnap disabled (DEV_AUTOSNAP=0)");
         return;
     }
     tokio::spawn(async move {
@@ -72,10 +72,15 @@ pub fn spawn() {
     });
 }
 
-/// Every module dir under the scan trees: (config.json name, dir path).
-/// Same conventions as /modules — skip dot/underscore dirs, require a
-/// config.json. The tree roots themselves (orbit/, core/, mod) are left to
-/// manual snapshots: they span every module and are too big to auto-churn.
+/// Every module dir under the scan trees: (module name, dir path).
+/// Same conventions as /modules — skip dot/underscore dirs, and count a dir
+/// as a module if it carries a config.json OR a mod.py (src/mod.py counts:
+/// */src IS */) OR only holds nested mods (e.g. archive/). Requiring a
+/// config.json here used to leave those last two kinds permanently CID-less
+/// even though the hub lists them. Name comes from config.json when present,
+/// else the dir name. The tree roots themselves (orbit/, core/, mod) are
+/// left to manual snapshots: they span every module and are too big to
+/// auto-churn.
 fn scan_modules() -> Vec<(String, PathBuf)> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let mut out = Vec::new();
@@ -91,9 +96,29 @@ fn scan_modules() -> Vec<(String, PathBuf)> {
             if dir_name.starts_with('.') || dir_name.starts_with('_') {
                 continue;
             }
-            let Ok(raw) = std::fs::read_to_string(path.join("config.json")) else { continue };
-            let name = serde_json::from_str::<serde_json::Value>(&raw)
+            let has_config = path.join("config.json").is_file();
+            let has_mod_py =
+                path.join("mod.py").is_file() || path.join("src").join("mod.py").is_file();
+            let has_nested_mod = || {
+                std::fs::read_dir(&path)
+                    .map(|rd| {
+                        rd.flatten().any(|e| {
+                            let p = e.path();
+                            let n = e.file_name().to_string_lossy().to_string();
+                            p.is_dir()
+                                && !n.starts_with('.')
+                                && !n.starts_with('_')
+                                && (p.join("config.json").is_file() || p.join("mod.py").is_file())
+                        })
+                    })
+                    .unwrap_or(false)
+            };
+            if !has_config && !has_mod_py && !has_nested_mod() {
+                continue;
+            }
+            let name = std::fs::read_to_string(path.join("config.json"))
                 .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .and_then(|c| c.get("name").and_then(|v| v.as_str()).map(String::from))
                 .unwrap_or_else(|| dir_name.clone());
             out.push((name, path));

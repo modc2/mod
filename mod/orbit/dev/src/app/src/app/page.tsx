@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import dynamic from "next/dynamic";
 import { VersionsPanel } from "../components/VersionsPanel";
-import AuthBadge from "../components/AuthBadge";
+import { PillSelect } from "../components/PillSelect";
 import {
   ApiIcon,
   AppIcon,
@@ -11,8 +11,10 @@ import {
   OverviewIcon,
   FilesIcon,
   VersionsIcon,
+  GraphIcon,
   HubIcon,
   TasksIcon,
+  SpinnerIcon,
   ClaudeMark,
   prettyModName,
 } from "../components/Icons";
@@ -20,6 +22,10 @@ import { qrSvg } from "./lib/qr";
 
 const WalletModal = dynamic(() => import("../components/WalletModal"), { ssr: false });
 const SudoModal = dynamic(() => import("../components/SudoModal"), { ssr: false });
+const Desk = dynamic(() => import("../components/Desk"), { ssr: false });
+const SystemMonitor = dynamic(() => import("../components/SystemMonitor"), { ssr: false });
+const ProvidersPanel = dynamic(() => import("../components/ProvidersPanel"), { ssr: false });
+const FileGraph = dynamic(() => import("../components/FileGraph"), { ssr: false });
 
 import {
   getNetworkName,
@@ -32,7 +38,7 @@ import {
 
 const DEFAULT_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/dev";
 // The browser must reach the API through the relative gateway path
-// (`/api/dev`, served by the host Caddy and the next.config rewrite). A
+// (`/api/build`, served by the host Caddy and the next.config rewrite). A
 // localhost/127.0.0.1 value of NEXT_PUBLIC_API_URL points the fetch at the
 // *visitor's* own machine — so sign-in/job submits fail for everyone except a
 // browser running on the host. Ignore such values and fall back to the
@@ -59,6 +65,10 @@ interface Job {
   updated_at: number;
   user_address?: string;
   asks?: Array<{ question: string; answer?: string; timestamp?: number }>;
+  /** localfs CID of the finished task bundle, registered in the store module */
+  cid?: string | null;
+  /** which backend ran the job: "claude" (CLI) or "agent" (orbit/agent) */
+  agent?: string;
 }
 
 interface TokenStats {
@@ -110,6 +120,21 @@ interface SysPromptBlock {
   on: boolean;
 }
 
+// A named snapshot of the whole agent setup — agent, model, prompt preset and
+// the full system-prompt chain (content included, so a framework survives the
+// chain being edited later). Saved/applied from the FRAMEWORK row in PARAMS
+// and the home gallery; persisted in localStorage.
+interface AgentFramework {
+  id: string;
+  name: string;
+  agent: string;
+  model: string;
+  agentType: string;
+  sysPrompts: SysPromptBlock[];
+  /** backend-specific params (✦ orbit/agent: provider/model/steps/…) */
+  params?: Record<string, any>;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 // While dragging/resizing a floating panel, embedded APP iframes must not
@@ -122,8 +147,8 @@ function setIframesInert(inert: boolean) {
 }
 
 // Safe localStorage write — never throws. When the browser quota is
-// exhausted (claude_personalities, claude_saved_prompts, the auto-saved
-// jobs cache, etc. can balloon), we evict the biggest claude_* keys
+// exhausted (build_personalities, build_saved_prompts, the auto-saved
+// jobs cache, etc. can balloon), we evict the biggest build_* keys
 // except the ones that hold the auth session, then retry the write.
 function safeSetItem(key: string, value: string): boolean {
   if (typeof window === "undefined") return false;
@@ -134,15 +159,15 @@ function safeSetItem(key: string, value: string): boolean {
     const isQuota = e instanceof Error && /quota/i.test(e.name + e.message);
     if (!isQuota) return false;
     const PRESERVE = new Set([
-      "claude_jobs_token", "claude_jobs_address", "claude_jobs_wallet_type",
-      "claude_jobs_seed", "claude_jobs_theme",
+      "build_jobs_token", "build_jobs_address", "build_jobs_wallet_type",
+      "build_jobs_seed", "build_jobs_theme",
     ]);
     try {
       const sizes: Array<[string, number]> = [];
       for (let i = 0; i < window.localStorage.length; i++) {
         const k = window.localStorage.key(i);
         if (!k || PRESERVE.has(k) || k === key) continue;
-        if (!k.startsWith("claude_")) continue;
+        if (!k.startsWith("build_")) continue;
         sizes.push([k, (window.localStorage.getItem(k) || "").length]);
       }
       sizes.sort((a, b) => b[1] - a[1]);
@@ -157,9 +182,39 @@ function safeSetItem(key: string, value: string): boolean {
 
 // Build a submit-failure message that carries the API's reason (401 invalid
 // token, 403 not permitted, …) instead of a bare "SUBMIT FAILED".
+//
+// Some failures never reach the API and so carry no {error} JSON body — they're
+// emitted by the proxy/gateway in front of it. We spell those out by status so
+// the user isn't left staring at a bare number:
+//  • 413 Payload Too Large — the request body (prompt + any base64-encoded
+//    attached images) blew past the gateway's body-size cap. Almost always the
+//    images; drop or shrink them and resubmit.
+//  • 401/403 — auth/permission (usually the API does supply {error}).
+//  • 502/503/504 — the API is down or restarting behind the gateway.
+function statusHint(status: number): string {
+  switch (status) {
+    case 413:
+      return "request too large — attached images exceed the gateway body limit. Remove or shrink them and resubmit.";
+    case 401:
+      return "not signed in or token expired.";
+    case 403:
+      return "not permitted (owner/whitelist gate).";
+    case 502:
+    case 503:
+    case 504:
+      return "API unreachable — it may be starting or down. Wait a moment and retry.";
+    default:
+      return "";
+  }
+}
+
 async function submitFailReason(res: Response): Promise<string> {
   const detail = await res.json().catch(() => null);
-  return detail?.error ? `SUBMIT FAILED — ${detail.error}` : `SUBMIT FAILED (${res.status})`;
+  if (detail?.error) return `SUBMIT FAILED — ${detail.error}`;
+  const hint = statusHint(res.status);
+  return hint
+    ? `SUBMIT FAILED (${res.status}) — ${hint}`
+    : `SUBMIT FAILED (${res.status})`;
 }
 
 // Default gateway origin for this deployment. Two cases:
@@ -167,7 +222,7 @@ async function submitFailReason(res: Response): Promise<string> {
 //    explicit port): use the page origin verbatim — e.g. https://modc2.com.
 //    The :3000 gateway port is internal and NOT publicly exposed, so
 //    appending it would produce a dead "modc2.com:3000" link.
-//  • LAN/dev (served on a non-standard port like :8823): the local gateway
+//  • LAN/dev (served on a non-standard port like :8871): the local gateway
 //    listens on :3000, so point there — e.g. http://192.168.x.y:3000 — so a
 //    phone on the same wifi works.
 // `mounted` guards against SSR hydration mismatch: during the server render and
@@ -365,12 +420,38 @@ const STATUS_COLOR_LIGHT: Record<string, string> = {
   cancelled: "#94a3b8",
 };
 
+// ── Themes ──────────────────────────────────────────────────────────
+// Every entry has a matching `[data-theme="id"]` token block in
+// globals.css. `base` classifies each theme dark/light — it drives the
+// isLight-derived neutrals below AND the `data-base` attribute that the
+// generic light-mode CSS keys on. `swatch` = [bg, accent, signal] dots
+// shown in the picker, sampled from the theme's own palette.
+const THEMES = [
+  // MARIO is the house default (server-rendered in layout.tsx) — overworld
+  // first, its underground twin WARP right behind it.
+  { id: "mario",  label: "MARIO",   glyph: "🍄", base: "light", swatch: ["#5c94fc", "#e52521", "#fbd000"] },
+  { id: "warp",   label: "WARP",    glyph: "▦", base: "dark",  swatch: ["#050712", "#2fb1f0", "#fbd000"] },
+  { id: "dark",   label: "GLASS",   glyph: "◆", base: "dark",  swatch: ["#07070d", "#a78bfa", "#34d399"] },
+  { id: "light",  label: "RAINBOW", glyph: "🌈", base: "light", swatch: ["#fffdf7", "#c026d3", "#059669"] },
+  { id: "matrix", label: "MATRIX",  glyph: "▚", base: "dark",  swatch: ["#010502", "#00ff7f", "#4defc9"] },
+  { id: "neon",   label: "NEON",    glyph: "◢", base: "dark",  swatch: ["#0a0416", "#ff2da0", "#0ff0d4"] },
+  { id: "ember",  label: "EMBER",   glyph: "◉", base: "dark",  swatch: ["#0c0603", "#ff9e2c", "#ffd75e"] },
+  { id: "abyss",  label: "ABYSS",   glyph: "≋", base: "dark",  swatch: ["#030b18", "#38bdf8", "#2dd4bf"] },
+  { id: "paper",  label: "PAPER",   glyph: "▤", base: "light", swatch: ["#f7f2e9", "#9a5b2c", "#15803d"] },
+  { id: "win95",  label: "WIN95",   glyph: "▣", base: "light", swatch: ["#c0c0c0", "#000080", "#008000"] },
+] as const;
+type ThemeId = (typeof THEMES)[number]["id"];
+const THEME_IDS = THEMES.map((t) => t.id) as readonly string[];
+const themeBase = (id: string): "dark" | "light" =>
+  THEMES.find((t) => t.id === id)?.base ?? "dark";
+
 // ── Models ──────────────────────────────────────────────────────────
 // Specific model IDs the user can pick. Value is what we hand to the CLI's
 // --model flag (accepts both family aliases and full names like
 // claude-opus-4-7). Keep first item = current default (Fable 5).
 const MODEL_OPTIONS = [
   { value: "claude-fable-5",    label: "Fable 5",    family: "fable",  color: "#f472b6" },
+  { value: "claude-opus-5",     label: "Opus 5.0",   family: "opus",   color: "#ddd6fe" },
   { value: "claude-opus-4-8",   label: "Opus 4.8",   family: "opus",   color: "#c4b5fd" },
   { value: "claude-opus-4-7",   label: "Opus 4.7",   family: "opus",   color: "#a78bfa" },
   { value: "claude-opus-4-6",   label: "Opus 4.6",   family: "opus",   color: "#9f7aea" },
@@ -383,7 +464,7 @@ const MODEL_OPTIONS = [
 // Family aliases resolve to the newest of that family. `fable` now resolves to
 // the live Claude Fable 5 model (Mythos access is generally available).
 const MODEL_ALIAS_UPGRADE: Record<string, string> = {
-  opus: "claude-opus-4-8",
+  opus: "claude-opus-5",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5",
   fable: "claude-fable-5",
@@ -411,15 +492,18 @@ function modelLabel(m: string): string {
 
 // ── Agents ───────────────────────────────────────────────────────────
 // Which agent runs the task — the selector at the top of PARAMS. Each agent
-// owns its own parameter set (model, system prompts, …). "mod" is this
+// owns its own parameter set (model, system prompts, …). "claude" is this
 // module's claude-code harness and the only one wired today, which is why it
 // is the default; sibling agents (codex, agent) plug in here later with
 // their own params.
 const AGENT_MODS = [
-  { value: "mod",   label: "mod",   icon: "⬡", color: "#a78bfa", available: true,  hint: "this module's claude-code harness" },
+  { value: "claude", label: "claude", icon: "⬡", color: "#a78bfa", available: true,  hint: "this module's claude-code harness" },
   { value: "codex", label: "codex", icon: "◇", color: "#fbbf24", available: false, hint: "orbit/codex — a sibling module, coming soon" },
-  { value: "agent", label: "agent", icon: "✦", color: "#60a5fa", available: false, hint: "orbit/agent — a sibling module, coming soon" },
+  { value: "agent", label: "agent", icon: "✦", color: "#60a5fa", available: true, hint: "orbit/agent — modular skills agent (Venice / OpenRouter models, prepaid credits)" },
 ];
+
+// orbit/agent accent — the ✦ agent's params panel and credits card lean on it.
+const AGENT_MOD_COLOR = "#60a5fa";
 
 // ── Default system prompt ─────────────────────────────────────────────
 // Seeded as the first block in the SYSTEM PROMPTS chain on a fresh install,
@@ -520,6 +604,54 @@ function ModuleAvatar({ apiUrl, name, hasApp }: { apiUrl: string; name: string; 
   );
 }
 
+// ── Module preview ───────────────────────────────────────────────────
+// The full-bleed version of the avatar: a hub card wearing the module's
+// actual web page. Same cached capture endpoint, so turning previews on
+// costs no extra chrome runs beyond what the avatars already trigger.
+// While the shot loads (a first capture can take seconds) the tile shows a
+// shimmer; modules with no app — or whose capture failed — fall back to an
+// accent-washed monogram so the wall never goes ragged.
+function ModulePreview({
+  apiUrl,
+  name,
+  hasApp,
+  bust,
+}: {
+  apiUrl: string;
+  name: string;
+  hasApp: boolean;
+  bust?: number;
+}) {
+  const [state, setState] = useState<"loading" | "ok" | "failed">(hasApp ? "loading" : "failed");
+  // A refresh click re-mounts the <img> with a new query, so reset the state.
+  useEffect(() => {
+    setState(hasApp ? "loading" : "failed");
+  }, [hasApp, bust]);
+  return (
+    <span className="hub-shot" aria-hidden={state !== "ok" ? "true" : undefined}>
+      {hasApp && state !== "failed" && (
+        <img
+          // A ⟳ click asks for ?fresh=1 — that captures inline and answers with
+          // the new shot, so the card actually changes (plain ?refresh=1 would
+          // serve the stale one and only update the cache behind you).
+          src={`${apiUrl}/modules/${encodeURIComponent(name)}/screenshot${bust ? `?fresh=1&b=${bust}` : ""}`}
+          alt={`${name} app`}
+          loading="lazy"
+          decoding="async"
+          className="hub-shot__img"
+          style={{ opacity: state === "ok" ? 1 : 0 }}
+          onLoad={() => setState("ok")}
+          onError={() => setState("failed")}
+        />
+      )}
+      {state === "loading" && <span className="hub-shot__skeleton" />}
+      {state === "failed" && (
+        <span className="hub-shot__fallback font-code font-bold">{name.slice(0, 1).toUpperCase()}</span>
+      )}
+    </span>
+  );
+}
+
 // ── Main Component ───────────────────────────────────────────────────
 
 // A signed-in identity remembered for quick switching from the ACCOUNT
@@ -564,6 +696,10 @@ export default function Home() {
   // chips — the content lives in a separate manager modal.
   const [sysPrompts, setSysPrompts] = useState<SysPromptBlock[]>([]);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  // Expanded PARAMS — the panel normally caps at half the viewport and
+  // scrolls; the ⤢ in its header lifts the cap to everything below the
+  // header so the whole chain is on screen at once.
+  const [paramsExpanded, setParamsExpanded] = useState(false);
   // MOD picker inside PARAMS — a searchable inline list instead of a
   // native <select>, so a 60+ module registry stays findable. Opens in
   // place (the panel scrolls) to avoid overflow clipping on phones.
@@ -577,10 +713,38 @@ export default function Home() {
   // The "sent with every task" preview is collapsed by default — the header
   // line (name + char count) is enough at a glance; click it to expand.
   const [sysPromptPreviewOpen, setSysPromptPreviewOpen] = useState(false);
-  // Which agent runs the task. Defaults to "mod" (this module's claude-code
+  // The selected PROMPT preset in full. Only needed as its own flag while a
+  // chain is active — with no chain, the preset IS the effective prompt and
+  // the preview above already shows it.
+  const [personaPromptOpen, setPersonaPromptOpen] = useState(false);
+  // Which agent runs the task. Defaults to "claude" (this module's claude-code
   // harness — the only one wired today); the selector also surfaces sibling
   // agents (codex, agent) that will bring their own parameter sets.
-  const [agentMod, setAgentMod] = useState("mod");
+  const [agentMod, setAgentMod] = useState("claude");
+  // orbit/agent backend — its params panel is rendered FROM the module's own
+  // GET /params schema (via the API's /agentmod pass-through), so the agent
+  // module owns its params UI and this console stays generic: any field the
+  // module adds shows up here without a console change.
+  const [agentSchema, setAgentSchema] = useState<any | null>(null);
+  const [agentParams, setAgentParams] = useState<Record<string, any>>({});
+  // orbit/agent credits + Venice balance (the module bills $/step; Venice is
+  // one of its model providers with its own account balance).
+  const [agentCredits, setAgentCredits] = useState<any | null>(null);
+  const [veniceBalance, setVeniceBalance] = useState<any | null>(null);
+  // Protocol-auth token for the agent module (signed {data,time,key,signature}
+  // envelope) — minted with the connected wallet, kept for direct credit
+  // reads AND handed to /agent/auth/agent so submitted jobs carry it as `key`.
+  const [agentModToken, setAgentModToken] = useState<string | null>(null);
+  const [agentConnectBusy, setAgentConnectBusy] = useState(false);
+  const [depositTx, setDepositTx] = useState("");
+  const [depositNetwork, setDepositNetwork] = useState("base");
+  const [depositBusy, setDepositBusy] = useState(false);
+  const [depositMsg, setDepositMsg] = useState<string | null>(null);
+  // Saved agent frameworks — named snapshots of the whole setup above.
+  const [frameworks, setFrameworks] = useState<AgentFramework[]>([]);
+  const [fwSaveOpen, setFwSaveOpen] = useState(false);
+  const [fwSaveName, setFwSaveName] = useState("");
+  const fwSaveInputRef = useRef<HTMLInputElement | null>(null);
 
   const [workDir, setWorkDir] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -595,19 +759,38 @@ export default function Home() {
   const [showModuleOptions, setShowModuleOptions] = useState(false);
   const [moduleName, setModuleName] = useState("");
   const [creationMode, setCreationMode] = useState<"edit" | "fork" | "new">("edit");
-  const [selectedModule, setSelectedModule] = useState("dev");
+  const [selectedModule, setSelectedModule] = useState("build");
   // Most-recently-opened modules (names, newest first) — powers the left nav
   // rail's quick-switch list. Persisted so the rail is useful on reload.
   const [recentModules, setRecentModules] = useState<string[]>([]);
   // Recents rail — a slim vertical tab on the far left that expands into a
-  // drag-resizable list of recently-opened modules. Collapsed by default;
-  // both the open flag and the width persist across reloads.
-  const [recentsRailOpen, setRecentsRailOpen] = useState(false);
+  // drag-resizable list of tasks or recently-opened modules. Open by default
+  // so the tasks list is visible on first paint; the open flag and the width
+  // persist across reloads.
+  const [recentsRailOpen, setRecentsRailOpen] = useState(true);
   const [recentsRailWidth, setRecentsRailWidth] = useState(208);
   const [isRecentsRailDragging, setIsRecentsRailDragging] = useState(false);
+  // The rail shows one of two lists: TASKS (every job, running work first)
+  // or MODS (recently-opened modules). Tasks lead — the console is tasks-
+  // first, so the rail opens on the same list the main view lands on.
+  const [railView, setRailView] = useState<"mods" | "tasks">("tasks");
   // Expand the embedded module APP to a full-viewport overlay (hides the
   // console chrome so you get the module's app edge-to-edge).
   const [appExpanded, setAppExpanded] = useState(false);
+  // Desk mode — browser-OS window manager overlay (components/Desk.tsx):
+  // module apps as draggable windows with Windows-style snap zones, a
+  // snap-layout picker and snap-assist split screen. deskLaunch seeds a
+  // window for the active module when SPLIT is clicked (n de-dupes clicks).
+  const [deskOpen, setDeskOpen] = useState(false);
+  const [deskLaunch, setDeskLaunch] = useState<{
+    mod: string;
+    n: number;
+    // Preset split-screen layout: the active mod snaps into cells[0] and the
+    // remaining cells become "pick an app" slots inside the Desk (up to 4).
+    cells?: { x: number; y: number; w: number; h: number }[];
+  } | null>(null);
+  // SPLIT button popup — pick a 1/2/3/4-pane workspace layout.
+  const [splitMenuOpen, setSplitMenuOpen] = useState(false);
   // Phone-view: render the embedded APP iframe inside a 390×844 device
   // frame so mobile layout breakage is visible without leaving the console.
   // Media queries inside the iframe respond to the iframe's own size, so
@@ -626,7 +809,7 @@ export default function Home() {
   // window.location (see defaultGatewayOrigin) hydrate identically to the server.
   const [mounted, setMounted] = useState(false);
   // True when this console is itself inside an iframe (e.g. the APP tab of an
-  // outer console). Embedded copies map /claude → the web front-door so the
+  // outer console). Embedded copies map /build → the web front-door so the
   // console never iframes itself more than one level deep.
   const [isEmbedded, setIsEmbedded] = useState(false);
   useEffect(() => {
@@ -648,6 +831,17 @@ export default function Home() {
     owner: string | null; version: string | null; cid: string | null; created_at: number | null;
     updated_at?: number | null;
     deps?: string[] | null;
+    // Mods nested inside this module — subdirs with their own mod.py /
+    // config.json, addressable as `m {module}/{rel}` (INFO's nested-mods
+    // card). Tree roots
+    // (mod / orbit / core) list their child modules here with `addr` set to
+    // the canonical top-level address (`m chain`, not `m mod/core/chain`).
+    mods?: Array<{
+      rel: string; name: string; description: string | null; has_config: boolean; has_mod_py: boolean; addr?: string | null;
+      // Rows with a config.json are modules in their own right: the API ships
+      // their dir + urls/fns so the console can open them in place.
+      path?: string | null; app_url?: string | null; api_url?: string | null; version?: string | null; fns?: string[] | null;
+    }> | null;
   }>>([]);
   const [moduleSearch, setModuleSearch] = useState("");
   const [showModuleDropdown, setShowModuleDropdown] = useState(false);
@@ -675,6 +869,11 @@ export default function Home() {
   // declared `deps` (config.json) as a dependency graph, leaving modules with
   // no edges as isolated nodes.
   const [hubGraphMode, setHubGraphMode] = useState(false);
+  // Hub previews: each card wears a live screenshot of the module's own web
+  // page (same capture the avatar uses, just full-bleed), so the wall reads
+  // as the fleet's websites instead of a list of names. On by default;
+  // persisted, because it's a taste call, not a per-visit one.
+  const [hubPreview, setHubPreview] = useState(true);
   // Hub status filter: every module, only ones with a live app/api probe, or
   // only ones without. "stopped" includes not-yet-probed modules — anything
   // not confirmed live — so the split always covers the whole grid.
@@ -693,6 +892,9 @@ export default function Home() {
   // Anchor for the owner-picker popover (fixed-position — .hub-card clips
   // overflow, so the menu can't live inside the card).
   const [hubOwnerMenu, setHubOwnerMenu] = useState<{ name: string; x: number; y: number } | null>(null);
+  // Cache-buster per module for the preview shots: bumping it re-requests the
+  // capture with ?refresh=1 (the API still enforces its own refresh floor).
+  const [hubShotBust, setHubShotBust] = useState<Record<string, number>>({});
   const [autoRestartAfterEdit, setAutoRestartAfterEdit] = useState(true);
   // ── Add-Module modal: import a fresh module from a GitHub repo or a
   //    snapshot CID (POST /modules/import). ───────────────────────────
@@ -703,6 +905,14 @@ export default function Home() {
   const [addName, setAddName] = useState("");
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  // Fork/copy-a-module modal — deterministic server-side copy of any module's
+  // LIVE tree into a new name (POST /modules/:name/copy). No AI job, no CID:
+  // files copy instantly and the new config gets fresh ports, so the copy is
+  // the user's to reshape however they want.
+  const [copyFrom, setCopyFrom] = useState<string | null>(null);
+  const [copyNewName, setCopyNewName] = useState("");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [restartNotice, setRestartNotice] = useState<string | null>(null);
   const prevJobStatusRef = useRef<Record<string, string>>({});
   const [expandedAsks, setExpandedAsks] = useState<Set<string>>(new Set());
@@ -711,12 +921,39 @@ export default function Home() {
   const [images, setImages] = useState<Array<{ name: string; data: string }>>(
     []
   );
+  // Click the "N IMG" chip to see what's actually attached — a lightbox over
+  // the composer showing the pending images (data URLs, no server fetch).
+  const [imagePreviewIdx, setImagePreviewIdx] = useState<number | null>(null);
+  // Attach images via the OS file picker — the phone path. accept="image/*"
+  // (no capture attr) opens Photo Library / Take Photo on iOS and Android,
+  // which is where screenshots land; paste stays the desktop shortcut. Both
+  // routes feed the same images state the composers submit.
+  const addImageFiles = (files: FileList | File[] | null) => {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setImages((prev) => [...prev, { name: file.name || `image-${Date.now()}.png`, data: base64 }]);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+  const composerImageInputRef = useRef<HTMLInputElement>(null);
+  const bandImageInputRef = useRef<HTMLInputElement>(null);
+  // The ask band's 📷 menu: upload an image + the APP SNAP toggle, so both
+  // are reachable on a phone where the full composer's toolbar isn't.
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
   // Snap-on-submit: when ON, each submitted task gets a fresh screenshot of
   // the selected module's app page attached as an image, so the agent sees
   // what the app looks like at the moment of the request. ON by default;
   // turning it off is persisted ("0") and honored on load.
   const [snapAppOnSubmit, setSnapAppOnSubmit] = useState(true);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<ThemeId>("mario");
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -744,14 +981,20 @@ export default function Home() {
   // ── Time-boxed edit grants (QR hand-off) ──────────────────────────
   // The owner mints a grant → a QR-shareable invite that confers temporary
   // edit access (default 1h), optionally gated by a locally-generated key the
-  // owner shares out of band. Backed by GET/POST/DELETE /grants on the API.
-  type GrantRow = { id: string; exp: number; ttl: number; label?: string | null; created: number; key_required: boolean };
-  type RedemptionRow = { address: string; exp: number; grant: string; redeemed: number };
+  // owner shares out of band, and optionally scoped to a module whitelist
+  // (null/[] = every module). Backed by GET/POST/DELETE /grants on the API.
+  type GrantRow = { id: string; exp: number; ttl: number; label?: string | null; created: number; key_required: boolean; modules?: string[] | null };
+  type RedemptionRow = { address: string; exp: number; grant: string; redeemed: number; modules?: string[] | null };
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [grantRedemptions, setGrantRedemptions] = useState<RedemptionRow[]>([]);
   const [grantTtl, setGrantTtl] = useState(3600); // seconds; default 1h
+  const [grantTtlText, setGrantTtlText] = useState("1"); // duration in hours, as typed
   const [grantKey, setGrantKey] = useState("");
   const [grantLabel, setGrantLabel] = useState("");
+  // Module scope for the next invite: [] = EVERYTHING (the default); a
+  // non-empty list compartmentalizes the invite to just those modules.
+  const [grantModules, setGrantModules] = useState<string[]>([]);
+  const [grantScoped, setGrantScoped] = useState(false);
   const [grantBusy, setGrantBusy] = useState(false);
   const [grantError, setGrantError] = useState<string | null>(null);
   // The just-minted grant we're showing a QR for (id + the key to share OOB).
@@ -780,6 +1023,9 @@ export default function Home() {
   const [handoffTtl, setHandoffTtl] = useState(300);
   const [handoffBusy, setHandoffBusy] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
+  // Both QR flows live in ONE Share Access card now; this picks which face
+  // is showing. Non-owners only ever see "session" (you can't invite others).
+  const [shareMode, setShareMode] = useState<"invite" | "session">("invite");
 
   // ── Share-anything QR ───────────────────────────────────────────────
   // One overlay that turns any shareable string — a snapshot CID/hash, a
@@ -790,6 +1036,9 @@ export default function Home() {
   const [qrShare, setQrShare] = useState<{ title: string; options: QrShareOption[] } | null>(null);
   const [qrShareIdx, setQrShareIdx] = useState(0);
   const [qrShareCopied, setQrShareCopied] = useState(false);
+  // `?replay=<cid>` — a scanned task-QR: the task-bundle CID to fetch and
+  // load into the composer, consumed once by the replay effect below.
+  const [pendingReplay, setPendingReplay] = useState<string | null>(null);
 
   // File viewer state — a splittable grid of panes: columns sit side-by-side
   // (split →) and each column stacks panes (split ↓). A pane collapses to a
@@ -835,6 +1084,9 @@ export default function Home() {
   } | null>(null);
   const [sudoPolicyBusy, setSudoPolicyBusy] = useState(false);
   const [sudoPolicyErr, setSudoPolicyErr] = useState<string | null>(null);
+  // Custom sudo window (hours + minutes) — converted to session_secs on SET.
+  const [sudoCustomH, setSudoCustomH] = useState(0);
+  const [sudoCustomM, setSudoCustomM] = useState(0);
 
   // Wallet modal
   const [copiedAddress, setCopiedAddress] = useState(false);
@@ -854,7 +1106,32 @@ export default function Home() {
   const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
   const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
   const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
-  const [accountTab, setAccountTab] = useState<"wallet" | "access" | "tasks" | "hub">("access");
+  const [accountTab, setAccountTab] = useState<"user" | "agent" | "compute">("user");
+  // COMPUTE sub-tab: fleet providers vs raw hardware. Kept separate from
+  // accountTab so switching top tabs never loses the sub-tab choice.
+  const [computeTab, setComputeTab] = useState<"providers" | "system">("providers");
+  // USER sub-tab: the identity story split into WALLET (who you are +
+  // saved accounts), ACCESS (whitelist + sharing), SUDO (session + kill).
+  // Kept separate from accountTab so switching top tabs never loses it.
+  const [userSubTab, setUserSubTab] = useState<"wallet" | "access" | "sudo">("wallet");
+  // AGENT sub-tabs — the agent's whole surface lives in one tab: CHAT
+  // (launch a task and watch it answer, conversation-style), TASKS (the
+  // job ledger), AUTH (per-agent session credentials). Chat + tasks moved
+  // in from the composer/rail so the sidebar alone can run the agent.
+  const [agentSubTab, setAgentSubTab] = useState<"chat" | "tasks" | "auth">("chat");
+  const [sidebarChatPrompt, setSidebarChatPrompt] = useState("");
+  const sidebarChatEndRef = useRef<HTMLDivElement | null>(null);
+  const sidebarChatScrollRef = useRef<HTMLDivElement | null>(null);
+  // AGENT tab — per-agent session connections (/agent/auth). Each signed-in
+  // wallet can connect its OWN Claude session (and sibling agents when they
+  // land) so its jobs bill its account, not the server's.
+  const [agentAuth, setAgentAuth] = useState<{
+    agents?: Record<string, { connected: boolean; hint: string | null; kind: string | null; connected_at: number | null; wired: boolean }>;
+    server_default?: string;
+  } | null>(null);
+  const [agentAuthBusy, setAgentAuthBusy] = useState<string | null>(null);
+  const [agentAuthError, setAgentAuthError] = useState<string | null>(null);
+  const [agentTokenInput, setAgentTokenInput] = useState<Record<string, string>>({});
   const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
@@ -916,6 +1193,9 @@ export default function Home() {
   // Sub-tab inside an open task: raw OUTPUT, the file EDITS it made, or an
   // AUDIT trail of every tool action (bash / reads / searches / subtasks).
   const [taskDetailTab, setTaskDetailTab] = useState<"output" | "edits" | "audit">("output");
+  // Mid-task steering — the "guide this task" bar on a running task's page.
+  const [steerText, setSteerText] = useState("");
+  const [steerSending, setSteerSending] = useState(false);
   // Whether the open task's prompt shows in full (clamped to 3 lines otherwise).
   const [promptExpanded, setPromptExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<"output" | "code">("output");
@@ -933,7 +1213,9 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(480);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
   const [isLeftDragging, setIsLeftDragging] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "apitab" | "overview" | "files" | "logs" | "terminal" | "versions">("overview");
+  // Tasks-first: the console lands on the full-page TASKS view; navigating
+  // to a module (rail, hub, omnibox) still opens that module's best tab.
+  const [sidebarView, setSidebarView] = useState<"hub" | "tasks" | "app" | "api" | "overview" | "files" | "logs" | "terminal" | "versions">("tasks");
 
   // ── API tab: endpoint catalog with an inline playground (FastAPI-docs
   // style, but each row expands in place instead of jumping to a second
@@ -962,7 +1244,7 @@ export default function Home() {
   // Sub-view inside the merged CODE tab: the file tree vs. the snapshot
   // version history. Versions used to be its own top-level mod tab; it's
   // now folded into CODE alongside the files browser.
-  const [codeView, setCodeView] = useState<"files" | "versions">("files");
+  const [codeView, setCodeView] = useState<"files" | "graph" | "versions">("files");
 
   // ── Terminal tab state (owner-only shell access) ────────────────────
   // Each history entry is one executed command plus its captured output.
@@ -1037,11 +1319,10 @@ export default function Home() {
   // CID (same POST /modules/import path the HUB "Add a module" modal uses).
   const [headerImportSource, setHeaderImportSource] = useState<"github" | "cid">("github");
   const [headerCid, setHeaderCid] = useState("");
-  // Where the BUILD/FORK/EDIT/IMPORT form renders: the header "+" popover
-  // (mobile / collapsed rail), compressed inline at the bottom of the left
-  // nav rail (desktop default), or popping up from the composer dock's "+"
-  // button. Same state + submit path in all three.
-  const [createAnchor, setCreateAnchor] = useState<"header" | "composer">("header");
+  // The BUILD/FORK/EDIT/IMPORT form pops up from the composer dock's "+"
+  // button only — fork / new-mod live next to the agent prompt (and the
+  // agent can also fork or scaffold modules straight from a typed prompt),
+  // NOT in the nav-bar header.
 
   // Prompt management state
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
@@ -1071,8 +1352,63 @@ export default function Home() {
   const [composerMinimized, setComposerMinimized] = useState(false);
   const [composerPos, setComposerPos] = useState({ x: 120, y: 120 });
   const [composerW, setComposerW] = useState(720);
-  const composerDrag = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const composerDrag = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
   const composerResize = useRef<{ startX: number; origW: number; origX: number; edge: string } | null>(null);
+  const [composerDragging, setComposerDragging] = useState(false);
+  // The floating panel's own element — its live box is what position
+  // clamping needs (height follows content: params panel, image chips, band).
+  const composerFloatRef = useRef<HTMLDivElement | null>(null);
+  // Keep a floating bar inside the box the browser ACTUALLY shows. On a phone
+  // the toolbar and the software keyboard overlay the layout viewport, so
+  // clamping to innerHeight parks the bar under them; the visual viewport
+  // reports the real box (and how far it's been scrolled) instead.
+  const clampComposerPos = useCallback((x: number, y: number) => {
+    if (typeof window === "undefined") return { x: Math.round(x), y: Math.round(y) };
+    const vv = window.visualViewport;
+    const vw = Math.round(vv?.width ?? window.innerWidth);
+    const vh = Math.round(vv?.height ?? window.innerHeight);
+    const vx = Math.round(vv?.offsetLeft ?? 0);
+    const vy = Math.round(vv?.offsetTop ?? 0);
+    const el = composerFloatRef.current;
+    const pw = el?.offsetWidth || Math.min(composerW, vw - 16);
+    const ph = el?.offsetHeight || 120;
+    // Whole panel on screen when it fits; when it's taller/wider than the
+    // viewport, pin the top-left corner so its controls stay reachable.
+    return {
+      x: Math.round(Math.max(vx, Math.min(vx + Math.max(0, vw - pw), x))),
+      y: Math.round(Math.max(vy, Math.min(Math.max(vy, vy + vh - ph), y))),
+    };
+  }, [composerW]);
+  // Lift — how far the DOCKED bar is parked above the bottom edge. Mobile
+  // Safari's toolbar slides over anything pinned to the bottom (and `dvh`
+  // lags while it animates), so the grab handle on the dock lets the bar be
+  // dragged up out of the browser chrome. Persisted with the dock state.
+  const [composerLift, setComposerLift] = useState(0);
+  const [composerLiftDragging, setComposerLiftDragging] = useState(false);
+  const composerLiftDrag = useRef<{ startX: number; startY: number; origLift: number; moved: boolean } | null>(null);
+  // Cap the lift at a bit under half the viewport so the bar can never be
+  // dragged up past the content it belongs to.
+  const liftMax = () => Math.max(0, Math.round((typeof window === "undefined" ? 800 : window.innerHeight) * 0.45));
+  // Pop the docked bar out into the floating panel, parked just above the
+  // bottom of the VISIBLE viewport and centred — the same place the finger
+  // tear-off leaves it, for the ⊞ button and the keyboard path.
+  const floatComposer = useCallback(() => {
+    const vv = typeof window === "undefined" ? null : window.visualViewport;
+    const vw = Math.round(vv?.width ?? window.innerWidth);
+    const vh = Math.round(vv?.height ?? window.innerHeight);
+    const vx = Math.round(vv?.offsetLeft ?? 0);
+    const vy = Math.round(vv?.offsetTop ?? 0);
+    const w = Math.min(composerW, Math.max(280, vw - 16));
+    setComposerW(w);
+    setComposerPos(clampComposerPos(vx + Math.max(0, Math.round((vw - w) / 2)), vy + Math.max(0, vh - 240)));
+    setComposerLift(0);
+    setComposerFloating(true);
+  }, [composerW, clampComposerPos]);
+  // PARAMS section folds — FRAMEWORK and SYSTEM grow without bound (one chip
+  // per saved framework / prompt block), which on a phone turned the panel
+  // into a full screen of chips. Each folds to its label; collapsed by
+  // default on mobile, remembered after that.
+  const [paramSections, setParamSections] = useState<{ framework: boolean; system: boolean }>({ framework: true, system: true });
 
   // Kill process dialog state (host key: Cmd+K)
   const [showKillDialog, setShowKillDialog] = useState(false);
@@ -1125,8 +1461,8 @@ export default function Home() {
     }
   }, []);
 
-  const headerCreateRef = useRef<HTMLDivElement>(null);
   const composerCreateRef = useRef<HTMLDivElement>(null);
+  const splitMenuRef = useRef<HTMLDivElement>(null);
   const repoRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -1134,7 +1470,7 @@ export default function Home() {
   const tokenStatsRef = useRef<HTMLDivElement>(null);
 
   // Theme-aware helpers
-  const isLight = theme === "light";
+  const isLight = themeBase(theme) === "light";
   const STATUS_COLOR = isLight ? STATUS_COLOR_LIGHT : STATUS_COLOR_DARK;
   const tintBg = isLight ? "rgba(0,0,0,0.02)" : "rgba(255,255,255,0.02)";
   const tintBgStrong = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
@@ -1171,7 +1507,7 @@ export default function Home() {
   // Pick the best default tab for a module based on its capabilities.
   // We land on APP (the live module interface) whenever the module has one —
   // the real thing first, INFO chrome only when there's no app to show.
-  // claude's APP embeds the real claude app (see appModName in
+  // build's APP embeds the real build app (see appModName in
   // renderAppApiTab); an embedded copy falls back to the web front-door so it
   // doesn't iframe itself forever.
   const getBestTab = useCallback((info: typeof moduleList[0] | null): "hub" | "overview" | "app" | "api" | "files" => {
@@ -1222,7 +1558,7 @@ export default function Home() {
   // selection changes, and persist so the rail survives reloads.
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("claude_recent_modules");
+      const saved = localStorage.getItem("build_recent_modules");
       if (saved) {
         // Dedupe + sanitize on load: an earlier build could persist the same
         // name over and over (a rail full of "registry"), and stored dupes
@@ -1258,8 +1594,74 @@ export default function Home() {
     // value and the rail forgets everything). Recents only ever grow or
     // reorder, so an empty list is always "not loaded yet", never data.
     if (recentModules.length === 0) return;
-    safeSetItem("claude_recent_modules", JSON.stringify(recentModules));
+    safeSetItem("build_recent_modules", JSON.stringify(recentModules));
   }, [recentModules]);
+  // Explicit per-row removal from the recents rail. Persists inline because
+  // the effect above treats an empty list as "not loaded yet" and skips the
+  // write — deleting the last recent must still stick across reloads.
+  const removeRecent = useCallback((name: string) => {
+    setRecentModules((prev) => {
+      const next = prev.filter((n) => n !== name);
+      safeSetItem("build_recent_modules", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  // ── Browser tabs — one tab per open module, rendered as a strip above the
+  // omnibox. The ACTIVE tab tracks selectedModule: navigating (omnibox, rail,
+  // hub, ‹ ›) retargets it in place, exactly like a browser address bar, while
+  // the other tabs keep their modules. Persisted like the recents rail —
+  // loaded-ref gate + never persist the mount default, so a fresh mount can't
+  // clobber the stored strip (localStorage is shared across modc2 modules).
+  const MOD_TABS_MAX = 12;
+  const [modTabs, setModTabs] = useState<string[]>(["build"]);
+  const [activeModTab, setActiveModTab] = useState(0);
+  const modTabsLoaded = useRef(false);
+  const selectedModuleRef = useRef(selectedModule);
+  useEffect(() => { selectedModuleRef.current = selectedModule; }, [selectedModule]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("build_mod_tabs");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const tabs: string[] = Array.isArray(saved?.tabs)
+          ? saved.tabs.filter((n: unknown): n is string => typeof n === "string" && n.length > 0).slice(0, MOD_TABS_MAX)
+          : [];
+        if (tabs.length > 0) {
+          // The restored active index must point at the CURRENT selection —
+          // the sync effect below rewrites the active tab to selectedModule,
+          // so restoring a mismatched index would stomp a stored tab.
+          const cur = selectedModuleRef.current;
+          const idx = tabs.indexOf(cur);
+          if (idx >= 0) {
+            setModTabs(tabs);
+            setActiveModTab(idx);
+          } else {
+            const merged = [...tabs, cur].slice(-MOD_TABS_MAX);
+            setModTabs(merged);
+            setActiveModTab(merged.length - 1);
+          }
+        }
+      }
+    } catch { /* ignore corrupt cache */ }
+    modTabsLoaded.current = true;
+  }, []);
+  useEffect(() => {
+    if (!modTabsLoaded.current || modTabs.length === 0) return;
+    safeSetItem("build_mod_tabs", JSON.stringify({ tabs: modTabs, active: activeModTab }));
+  }, [modTabs, activeModTab]);
+  // Keep the active tab pointed at whatever module is selected, however the
+  // navigation happened.
+  useEffect(() => {
+    if (!selectedModule) return;
+    setModTabs((prev) => {
+      const idx = Math.min(activeModTab, Math.max(0, prev.length - 1));
+      if (prev[idx] === selectedModule) return prev;
+      const next = [...prev];
+      next[idx] = selectedModule;
+      return next;
+    });
+  }, [selectedModule, activeModTab]);
 
   // Recents rail open/width: load once, then persist on change. The loaded
   // ref gates the persist effects — they also fire on mount with the default
@@ -1268,18 +1670,28 @@ export default function Home() {
   const recentsRailLoaded = useRef(false);
   useEffect(() => {
     try {
-      const open = localStorage.getItem("claude_recents_rail_open");
+      // v2 key, same reason as build_rail_view2 below: v1 auto-persisted the
+      // old collapsed default, which would keep the rail hidden forever.
+      const open = localStorage.getItem("build_recents_rail_open2");
       if (open !== null) setRecentsRailOpen(open === "true");
-      const w = parseInt(localStorage.getItem("claude_recents_rail_width") || "", 10);
+      const w = parseInt(localStorage.getItem("build_recents_rail_width") || "", 10);
       if (Number.isFinite(w)) setRecentsRailWidth(Math.max(160, Math.min(420, w)));
+      // v2 key: v1 auto-persisted the old "mods" default on every visit, so
+      // honoring it would pin existing browsers to mods forever. The bump
+      // gives everyone the tasks-first default once; toggles persist again.
+      const rv = localStorage.getItem("build_rail_view2");
+      if (rv === "mods" || rv === "tasks") setRailView(rv);
     } catch { /* ignore */ }
     recentsRailLoaded.current = true;
   }, []);
   useEffect(() => {
-    if (recentsRailLoaded.current) safeSetItem("claude_recents_rail_open", String(recentsRailOpen));
+    if (recentsRailLoaded.current) safeSetItem("build_rail_view2", railView);
+  }, [railView]);
+  useEffect(() => {
+    if (recentsRailLoaded.current) safeSetItem("build_recents_rail_open2", String(recentsRailOpen));
   }, [recentsRailOpen]);
   useEffect(() => {
-    if (recentsRailLoaded.current) safeSetItem("claude_recents_rail_width", String(recentsRailWidth));
+    if (recentsRailLoaded.current) safeSetItem("build_recents_rail_width", String(recentsRailWidth));
   }, [recentsRailWidth]);
   // Drag the rail/content divider to resize — the rail hugs the viewport's
   // left edge, so the pointer's x IS the new width.
@@ -1299,7 +1711,7 @@ export default function Home() {
   // deployment's registrar) once on mount.
   useEffect(() => {
     try {
-      const h = window.localStorage.getItem("claude_gateway_host");
+      const h = window.localStorage.getItem("build_gateway_host");
       if (h && /^[a-z]+:\/\/[^/]+$/i.test(h)) setGatewayHostOverride(h);
     } catch { /* ignore */ }
   }, []);
@@ -1338,15 +1750,16 @@ export default function Home() {
 
   // Apply theme to document root
   useEffect(() => {
-    const savedTheme = localStorage.getItem("claude_jobs_theme");
-    if (savedTheme === "light" || savedTheme === "dark") {
-      setTheme(savedTheme);
+    const savedTheme = localStorage.getItem("build_jobs_theme");
+    if (savedTheme && THEME_IDS.includes(savedTheme)) {
+      setTheme(savedTheme as ThemeId);
     }
   }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    safeSetItem("claude_jobs_theme", theme);
+    document.documentElement.setAttribute('data-base', themeBase(theme));
+    safeSetItem("build_jobs_theme", theme);
   }, [theme]);
 
   // Keyboard shortcuts for inline file search
@@ -1432,11 +1845,11 @@ export default function Home() {
         setShowHeaderModuleDropdown(false);
         setHeaderModuleSearch("");
       }
-      if (
-        (!headerCreateRef.current || !headerCreateRef.current.contains(e.target as Node)) &&
-        (!composerCreateRef.current || !composerCreateRef.current.contains(e.target as Node))
-      ) {
+      if (!composerCreateRef.current || !composerCreateRef.current.contains(e.target as Node)) {
         setShowHeaderCreateForm(null);
+      }
+      if (!splitMenuRef.current || !splitMenuRef.current.contains(e.target as Node)) {
+        setSplitMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
@@ -1445,7 +1858,7 @@ export default function Home() {
 
   // Load saved model and backend URL
   useEffect(() => {
-    const savedModel = localStorage.getItem("claude_jobs_model");
+    const savedModel = localStorage.getItem("build_jobs_model");
     if (savedModel) {
       // Upgrade old family aliases (opus/sonnet/haiku) to the full model ID
       // so users don't get silently bumped to a different version on update.
@@ -1454,80 +1867,107 @@ export default function Home() {
       // pulled for being gated/unavailable) so jobs never run with one.
       if (!MODEL_OPTIONS.some(o => o.value === upgraded)) upgraded = MODEL_OPTIONS[0].value;
       setModel(upgraded);
-      if (upgraded !== savedModel) safeSetItem("claude_jobs_model", upgraded);
+      if (upgraded !== savedModel) safeSetItem("build_jobs_model", upgraded);
     }
 
-    const savedAgent = localStorage.getItem("claude_jobs_agent");
+    const savedAgent = localStorage.getItem("build_jobs_agent");
     if (savedAgent) setAgentType(savedAgent);
 
-    if (localStorage.getItem("claude_snap_app_on_submit") === "0") setSnapAppOnSubmit(false);
+    if (localStorage.getItem("build_snap_app_on_submit") === "0") setSnapAppOnSubmit(false);
 
-    const savedHubSort = localStorage.getItem("claude_hub_sort");
+    const savedHubSort = localStorage.getItem("build_hub_sort");
     if (savedHubSort === "updated" || savedHubSort === "name") setHubSort(savedHubSort);
+
+    if (localStorage.getItem("build_hub_preview") === "0") setHubPreview(false);
 
     // Load the system-prompt chain; migrate the legacy single saved prompt
     // into it as the first block (already on) so it keeps applying.
     let loadedChain: SysPromptBlock[] = [];
     try {
-      const rawChain = localStorage.getItem("claude_system_prompts");
+      const rawChain = localStorage.getItem("build_system_prompts");
       if (rawChain) loadedChain = JSON.parse(rawChain);
     } catch {}
     if (!loadedChain.length) {
-      const legacy = localStorage.getItem("claude_system_prompt");
+      const legacy = localStorage.getItem("build_system_prompt");
       if (legacy && legacy.trim()) {
         loadedChain = [{ id: "migrated", name: "SAVED", text: legacy, on: true }];
-        safeSetItem("claude_system_prompts", JSON.stringify(loadedChain));
-        try { localStorage.removeItem("claude_system_prompt"); } catch {}
-      } else if (localStorage.getItem("claude_system_prompts_seeded") !== "1") {
+        safeSetItem("build_system_prompts", JSON.stringify(loadedChain));
+        try { localStorage.removeItem("build_system_prompt"); } catch {}
+      } else if (localStorage.getItem("build_system_prompts_seeded") !== "1") {
         // Fresh install: seed the nice default system prompt so the chain is
         // never empty. Only seeded once — if the user later clears it, we
         // don't keep re-adding it.
         loadedChain = [{ id: "default", name: "DEFAULT", text: DEFAULT_SYSTEM_PROMPT, on: true }];
-        safeSetItem("claude_system_prompts", JSON.stringify(loadedChain));
-        safeSetItem("claude_system_prompts_seeded", "1");
+        safeSetItem("build_system_prompts", JSON.stringify(loadedChain));
+        safeSetItem("build_system_prompts_seeded", "1");
       }
     }
     if (loadedChain.length) setSysPrompts(loadedChain);
-    // Restore the PARAMS panel's open/closed preference. With no saved
-    // preference, default to open only when a chain is active (so it stays
-    // discoverable the first time).
-    const savedSystemPromptOpen = localStorage.getItem("claude_system_prompt_open");
-    if (savedSystemPromptOpen !== null) {
-      setSystemPromptOpen(savedSystemPromptOpen === "1");
-    } else if (loadedChain.some(p => p.on)) {
-      setSystemPromptOpen(true);
-    }
+    // PARAMS always starts closed — the chip strip above the composer already
+    // shows mod/model at a glance, and the model chip switches models without
+    // opening the panel. Open state is per-session (chip toggles it), so the
+    // old persisted preference is retired.
+    try { localStorage.removeItem("build_system_prompt_open"); } catch {}
 
-    const savedTermTok = localStorage.getItem("claude_terminal_token");
-    const savedTermExp = Number(localStorage.getItem("claude_terminal_token_exp") || "0");
+    const savedTermTok = localStorage.getItem("build_terminal_token");
+    const savedTermExp = Number(localStorage.getItem("build_terminal_token_exp") || "0");
     if (savedTermTok && savedTermExp > Date.now()) {
       setTerminalToken(savedTermTok);
       setTerminalTokenExp(savedTermExp);
     } else {
-      localStorage.removeItem("claude_terminal_token");
-      localStorage.removeItem("claude_terminal_token_exp");
+      localStorage.removeItem("build_terminal_token");
+      localStorage.removeItem("build_terminal_token_exp");
     }
 
-    // Restore the selected agent; the legacy "claude_jobs_engine" key stored
-    // "claude-code", which is what "mod" is — anything unavailable falls back
-    // to mod, so tasks always run on a real agent.
-    const savedAgentMod = localStorage.getItem("claude_jobs_agent_mod");
+    // Restore the selected agent; pre-rename installs saved "mod", which is
+    // what "claude" is now called — anything unavailable falls back to
+    // claude, so tasks always run on a real agent.
+    const savedAgentModRaw = localStorage.getItem("build_jobs_agent_mod");
+    const savedAgentMod = savedAgentModRaw === "mod" ? "claude" : savedAgentModRaw;
     if (savedAgentMod && AGENT_MODS.some(a => a.value === savedAgentMod && a.available)) {
       setAgentMod(savedAgentMod);
+      if (savedAgentMod !== savedAgentModRaw) safeSetItem("build_jobs_agent_mod", savedAgentMod);
     }
 
-    const savedUrl = localStorage.getItem("claude_backend_url");
+    // Restore orbit/agent backend params + its protocol-auth token. The
+    // token is a signed envelope with a 24h server max_age — restore only
+    // while fresh (23h, mirroring the agent console) so stale ones never
+    // ride along on a job and 403 it.
+    try {
+      const rawParams = localStorage.getItem("build_agent_params");
+      if (rawParams) setAgentParams(JSON.parse(rawParams));
+    } catch {}
+    try {
+      const tok = localStorage.getItem("build_agent_mod_token");
+      if (tok) {
+        const b64 = tok.replace(/-/g, "+").replace(/_/g, "/");
+        const env = JSON.parse(decodeURIComponent(escape(atob(b64))));
+        if (Date.now() - Number(env.time) * 1000 < 23 * 3600 * 1000) {
+          setAgentModToken(tok);
+        } else {
+          localStorage.removeItem("build_agent_mod_token");
+        }
+      }
+    } catch {}
+
+    // Load saved agent frameworks (named setup snapshots)
+    try {
+      const rawFw = localStorage.getItem("build_agent_frameworks");
+      if (rawFw) setFrameworks(JSON.parse(rawFw));
+    } catch {}
+
+    const savedUrl = localStorage.getItem("build_backend_url");
     if (savedUrl) setApiUrl(savedUrl);
 
     // Load saved prompts
     try {
-      const raw = localStorage.getItem("claude_saved_prompts");
+      const raw = localStorage.getItem("build_saved_prompts");
       if (raw) setSavedPrompts(JSON.parse(raw));
     } catch {}
 
     // Load saved personalities (merge with builtins)
     try {
-      const raw = localStorage.getItem("claude_personalities");
+      const raw = localStorage.getItem("build_personalities");
       if (raw) {
         const custom: Personality[] = JSON.parse(raw);
         // Merge: builtins + custom, custom overrides builtin prompts if same id
@@ -1543,58 +1983,73 @@ export default function Home() {
 
   // Load saved sidebar state
   useEffect(() => {
-    const savedSidebar = localStorage.getItem("claude_tasks_sidebar_open");
+    const savedSidebar = localStorage.getItem("build_tasks_sidebar_open");
     if (savedSidebar !== null) setTasksSidebarOpen(savedSidebar === "true");
-    const savedWidth = localStorage.getItem("claude_tasks_sidebar_width");
+    const savedWidth = localStorage.getItem("build_tasks_sidebar_width");
     if (savedWidth) setSidebarWidth(parseInt(savedWidth, 10));
-    const savedLeft = localStorage.getItem("claude_left_sidebar_open");
+    const savedLeft = localStorage.getItem("build_left_sidebar_open");
     if (savedLeft !== null) setLeftSidebarOpen(savedLeft === "true");
-    const savedLeftW = localStorage.getItem("claude_left_sidebar_width");
+    const savedLeftW = localStorage.getItem("build_left_sidebar_width");
     if (savedLeftW) setLeftSidebarWidth(parseInt(savedLeftW, 10));
-    const savedSide = localStorage.getItem("claude_sidebar_side");
+    const savedSide = localStorage.getItem("build_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
-    const savedAccountTab = localStorage.getItem("claude_account_tab");
-    // Legacy values: "owner" pre-dates tabs; "sudo" merged into ACCESS and
-    // "module" was removed when TASKS / MY HUB took their slots.
-    if (savedAccountTab === "owner" || savedAccountTab === "sudo" || savedAccountTab === "module") setAccountTab("access");
-    else if (savedAccountTab === "wallet" || savedAccountTab === "access" || savedAccountTab === "tasks" || savedAccountTab === "hub")
-      setAccountTab(savedAccountTab);
-    const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
+    const savedAccountTab = localStorage.getItem("build_account_tab");
+    // Legacy values: "owner" pre-dates tabs; "sudo"/"module"/"tasks"/"hub"
+    // are removed tabs; "wallet" and "access" merged into USER; "providers"
+    // and "system" merged into COMPUTE (each becomes its sub-tab).
+    if (savedAccountTab === "providers" || savedAccountTab === "system") {
+      setAccountTab("compute");
+      setComputeTab(savedAccountTab);
+    } else if (savedAccountTab === "compute" || savedAccountTab === "agent") setAccountTab(savedAccountTab);
+    else if (savedAccountTab) setAccountTab("user");
+    const savedComputeTab = localStorage.getItem("build_compute_tab");
+    if (savedComputeTab === "providers" || savedComputeTab === "system") setComputeTab(savedComputeTab);
+    const savedUserTab = localStorage.getItem("build_user_tab");
+    if (savedUserTab === "wallet" || savedUserTab === "access" || savedUserTab === "sudo") setUserSubTab(savedUserTab);
+    const savedOwnerOpen = localStorage.getItem("build_owner_sidebar_open");
     if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
-    const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
+    const savedOwnerWidth = localStorage.getItem("build_owner_sidebar_width");
     if (savedOwnerWidth) setOwnerSidebarWidth(parseInt(savedOwnerWidth, 10));
   }, []);
 
   useEffect(() => {
-    safeSetItem("claude_tasks_sidebar_open", String(tasksSidebarOpen));
+    safeSetItem("build_tasks_sidebar_open", String(tasksSidebarOpen));
   }, [tasksSidebarOpen]);
 
   useEffect(() => {
-    safeSetItem("claude_tasks_sidebar_width", String(sidebarWidth));
+    safeSetItem("build_tasks_sidebar_width", String(sidebarWidth));
   }, [sidebarWidth]);
 
   useEffect(() => {
-    safeSetItem("claude_left_sidebar_open", String(leftSidebarOpen));
+    safeSetItem("build_left_sidebar_open", String(leftSidebarOpen));
   }, [leftSidebarOpen]);
 
   useEffect(() => {
-    safeSetItem("claude_left_sidebar_width", String(leftSidebarWidth));
+    safeSetItem("build_left_sidebar_width", String(leftSidebarWidth));
   }, [leftSidebarWidth]);
 
   useEffect(() => {
-    safeSetItem("claude_sidebar_side", sidebarSide);
+    safeSetItem("build_sidebar_side", sidebarSide);
   }, [sidebarSide]);
 
   useEffect(() => {
-    safeSetItem("claude_account_tab", accountTab);
+    safeSetItem("build_account_tab", accountTab);
   }, [accountTab]);
 
   useEffect(() => {
-    safeSetItem("claude_owner_sidebar_open", String(showOwnerSidebar));
+    safeSetItem("build_compute_tab", computeTab);
+  }, [computeTab]);
+
+  useEffect(() => {
+    safeSetItem("build_user_tab", userSubTab);
+  }, [userSubTab]);
+
+  useEffect(() => {
+    safeSetItem("build_owner_sidebar_open", String(showOwnerSidebar));
   }, [showOwnerSidebar]);
 
   useEffect(() => {
-    safeSetItem("claude_owner_sidebar_width", String(ownerSidebarWidth));
+    safeSetItem("build_owner_sidebar_width", String(ownerSidebarWidth));
   }, [ownerSidebarWidth]);
 
   // Surface the sign-in drawer when an EXISTING session drops (sign-out or
@@ -1612,13 +2067,13 @@ export default function Home() {
 
   // Check saved token or detect local mode
   useEffect(() => {
-    const saved = localStorage.getItem("claude_jobs_token");
-    const savedAddr = localStorage.getItem("claude_jobs_address");
-    const savedWalletType = localStorage.getItem("claude_jobs_wallet_type") as typeof walletType;
+    const saved = localStorage.getItem("build_jobs_token");
+    const savedAddr = localStorage.getItem("build_jobs_address");
+    const savedWalletType = localStorage.getItem("build_jobs_wallet_type") as typeof walletType;
     const dropLocalSession = () => {
-      localStorage.removeItem("claude_jobs_token");
-      localStorage.removeItem("claude_jobs_address");
-      localStorage.removeItem("claude_jobs_wallet_type");
+      localStorage.removeItem("build_jobs_token");
+      localStorage.removeItem("build_jobs_address");
+      localStorage.removeItem("build_jobs_wallet_type");
     };
     if (saved && savedAddr) {
       // A persisted "local" session is only valid while the server really runs
@@ -1645,7 +2100,7 @@ export default function Home() {
       return;
     }
     // The user explicitly signed out — stay on the auth screen
-    if (localStorage.getItem("claude_jobs_signed_out") === "1") return;
+    if (localStorage.getItem("build_jobs_signed_out") === "1") return;
     // Probe server — only /health's explicit `local` flag means auth is off.
     // Never infer local mode from an unauthed read succeeding: /jobs is a
     // public ledger, so that heuristic false-positives on every real server.
@@ -1656,9 +2111,9 @@ export default function Home() {
           setToken("local");
           setAddress("local");
           setWalletType("local");
-          safeSetItem("claude_jobs_token", "local");
-          safeSetItem("claude_jobs_address", "local");
-          safeSetItem("claude_jobs_wallet_type", "local");
+          safeSetItem("build_jobs_token", "local");
+          safeSetItem("build_jobs_address", "local");
+          safeSetItem("build_jobs_wallet_type", "local");
         }
       })
       .catch(() => { /* server not reachable, show auth screen */ });
@@ -1674,7 +2129,7 @@ export default function Home() {
   // Poll the snapshot chain for the currently-selected module so the
   // versions count badge stays fresh without opening the full VersionsPanel.
   useEffect(() => {
-    const mod = selectedModule || "dev";
+    const mod = selectedModule || "build";
     let cancelled = false;
     const load = async () => {
       try {
@@ -1772,13 +2227,25 @@ export default function Home() {
     setGrantError(null);
     try {
       const key = grantKey.trim();
+      // Scope only rides when the owner opted into compartmentalizing AND
+      // picked modules; otherwise the invite covers everything.
+      const modules = grantScoped && grantModules.length ? grantModules : undefined;
       const r = await fetch(`${apiUrl}/grants`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ ttl: grantTtl, key: key || undefined, label: grantLabel.trim() || undefined }),
+        body: JSON.stringify({ ttl: grantTtl, key: key || undefined, label: grantLabel.trim() || undefined, modules }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (modules && !Array.isArray(d.modules)) {
+        // An API build that predates scoping ignored the whitelist — the
+        // minted grant is WIDER than asked. Revoke it rather than hand it out.
+        await fetch(`${apiUrl}/grants/${encodeURIComponent(d.id)}`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }).catch(() => {});
+        throw new Error("This API build doesn't support module scoping yet — restart dev-api, then retry.");
+      }
       setActiveGrant({ id: d.id, exp: d.exp, key: key || undefined, key_required: !!d.key_required });
       await loadGrants();
     } catch (e) {
@@ -1786,7 +2253,7 @@ export default function Home() {
     } finally {
       setGrantBusy(false);
     }
-  }, [apiUrl, token, grantTtl, grantKey, grantLabel, loadGrants]);
+  }, [apiUrl, token, grantTtl, grantKey, grantLabel, grantScoped, grantModules, loadGrants]);
 
   const revokeGrant = useCallback(async (id: string) => {
     setGrantBusy(true);
@@ -1843,6 +2310,16 @@ export default function Home() {
       if (n) setAddName(n);
       setAddOpen(true);
     }
+    // `?replay=<cid>` — a scanned task-QR lands here: the task bundle is
+    // fetched by CID and loaded into the composer, one submit from running
+    // again. Consume the param so a refresh doesn't re-prefill over new work.
+    const rp = params.get("replay");
+    if (rp) {
+      setPendingReplay(rp);
+      params.delete("replay");
+      const qs = params.toString();
+      window.history.replaceState({}, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+    }
   }, []);
 
   // ── Share-anything QR: open the overlay with non-empty payloads ─────
@@ -1891,6 +2368,27 @@ export default function Home() {
         },
         { label: "CID", value: cid, hint: "Raw snapshot CID / hash" },
         { label: "Gateway", value: gateway, hint: "IPFS gateway link" },
+      ]);
+    },
+    [openQrShare]
+  );
+
+  // Share a task: the replay deep-link first (scan → this console opens with
+  // the task loaded in the composer, one submit from running again), then the
+  // raw task-bundle CID (resolvable in the store / any localfs peer).
+  const shareTaskQr = useCallback(
+    (job: Job) => {
+      if (!job.cid) return;
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const { cleanPrompt } = parsePromptImages(job.prompt);
+      const line = (cleanPrompt || job.prompt).split("\n").find((l) => l.trim())?.trim() || job.id;
+      openQrShare(`Replay · ${line.length > 48 ? `${line.slice(0, 47)}…` : line}`, [
+        {
+          label: "Replay",
+          value: `${origin}${DEFAULT_BASE_PATH}?replay=${encodeURIComponent(job.cid)}`,
+          hint: "Scan to open this console with the task loaded, ready to run again",
+        },
+        { label: "CID", value: job.cid, hint: "Task bundle CID (localfs / store)" },
       ]);
     },
     [openQrShare]
@@ -1963,10 +2461,10 @@ export default function Home() {
         setToken(d.token);
         setAddress(d.address);
         setWalletType(null);
-        localStorage.removeItem("claude_jobs_signed_out");
-        localStorage.removeItem("claude_jobs_wallet_type");
-        safeSetItem("claude_jobs_token", d.token);
-        safeSetItem("claude_jobs_address", d.address);
+        localStorage.removeItem("build_jobs_signed_out");
+        localStorage.removeItem("build_jobs_wallet_type");
+        safeSetItem("build_jobs_token", d.token);
+        safeSetItem("build_jobs_address", d.address);
       } catch (e) {
         const msg = (e as Error).message;
         setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg);
@@ -2065,9 +2563,9 @@ export default function Home() {
     if (!newToken || !verifiedAddr) throw new Error("INVALID VERIFY RESPONSE");
     setToken(newToken);
     setAddress(verifiedAddr);
-    localStorage.removeItem("claude_jobs_signed_out");
-    safeSetItem("claude_jobs_token", newToken);
-    safeSetItem("claude_jobs_address", verifiedAddr);
+    localStorage.removeItem("build_jobs_signed_out");
+    safeSetItem("build_jobs_token", newToken);
+    safeSetItem("build_jobs_address", verifiedAddr);
 
     // Check if this user became the owner
     if (!wasOwnerSet) {
@@ -2075,7 +2573,7 @@ export default function Home() {
         const newOwnerRes = await fetch(`${apiUrl}/owner`);
         const newOwnerData = await safeJson(newOwnerRes);
         if (newOwnerData.has_owner && newOwnerData.owner === verifiedAddr) {
-          console.log("✓ You are now the owner of this Claude instance");
+          console.log("✓ You are now the owner of this Build instance");
         }
       } catch { /* ignore */ }
     }
@@ -2104,7 +2602,7 @@ export default function Home() {
           });
         });
         setWalletType("subwallet");
-        safeSetItem("claude_jobs_wallet_type", "subwallet");
+        safeSetItem("build_jobs_wallet_type", "subwallet");
       } else {
         // MetaMask or default provider
         const accounts: string[] = await ethereum.request({
@@ -2120,7 +2618,7 @@ export default function Home() {
           });
         });
         setWalletType("metamask");
-        safeSetItem("claude_jobs_wallet_type", "metamask");
+        safeSetItem("build_jobs_wallet_type", "metamask");
       }
     } catch (e: any) {
       const msg = e.message || "";
@@ -2159,10 +2657,10 @@ export default function Home() {
       setAddress(d.address);
       setWalletType(null);
       setGuestExp(typeof d.exp === "number" ? d.exp : null);
-      localStorage.removeItem("claude_jobs_signed_out");
-      safeSetItem("claude_jobs_token", d.token);
-      safeSetItem("claude_jobs_address", d.address);
-      if (typeof d.exp === "number") safeSetItem("claude_jobs_guest_exp", String(d.exp));
+      localStorage.removeItem("build_jobs_signed_out");
+      safeSetItem("build_jobs_token", d.token);
+      safeSetItem("build_jobs_address", d.address);
+      if (typeof d.exp === "number") safeSetItem("build_jobs_guest_exp", String(d.exp));
       setPendingGrant(null);
       pendingGrantRef.current = null;
     } catch (e) {
@@ -2177,7 +2675,7 @@ export default function Home() {
   // Restore a guest session's expiry across reloads; drop it for wallet users.
   useEffect(() => {
     if (address && address.startsWith("guest_")) {
-      const saved = Number(localStorage.getItem("claude_jobs_guest_exp") || "");
+      const saved = Number(localStorage.getItem("build_jobs_guest_exp") || "");
       setGuestExp(Number.isFinite(saved) && saved > 0 ? saved : null);
     } else {
       setGuestExp(null);
@@ -2206,10 +2704,10 @@ export default function Home() {
         return await wallet.signMessage(msg);
       });
       setWalletType("password");
-      safeSetItem("claude_jobs_wallet_type", "password");
+      safeSetItem("build_jobs_wallet_type", "password");
       // These are throwaway wallets — keep the password around so the ACCOUNT
       // panel can reveal/copy it (and the derived private key) at any time.
-      safeSetItem("claude_jobs_password", password);
+      safeSetItem("build_jobs_password", password);
     } catch (e: any) {
       const msg = e.message || "";
       setAuthError(msg === "Load failed" || msg === "Failed to fetch" ? "API OFFLINE — start the backend first" : msg || "PASSWORD KEY DERIVATION FAILED");
@@ -2224,12 +2722,12 @@ export default function Home() {
     try {
       const { ethers } = await import("ethers");
 
-      let mnemonic = localStorage.getItem("claude_jobs_seed");
+      let mnemonic = localStorage.getItem("build_jobs_seed");
       let isNew = false;
       if (!mnemonic) {
         const wallet = ethers.Wallet.createRandom();
         mnemonic = wallet.mnemonic!.phrase;
-        safeSetItem("claude_jobs_seed", mnemonic);
+        safeSetItem("build_jobs_seed", mnemonic);
         isNew = true;
       }
 
@@ -2241,11 +2739,11 @@ export default function Home() {
       });
 
       setWalletType("local");
-      safeSetItem("claude_jobs_wallet_type", "local");
+      safeSetItem("build_jobs_wallet_type", "local");
 
       if (isNew) {
         console.log(
-          "%c[MOD AI] New local wallet created. Back up your seed phrase from localStorage key 'claude_jobs_seed'",
+          "%c[MOD AI] New local wallet created. Back up your seed phrase from localStorage key 'build_jobs_seed'",
           "color: #ffb000"
         );
       }
@@ -2266,13 +2764,13 @@ export default function Home() {
     setStreamOutput("");
     setTokenStats(null);
     setGuestExp(null);
-    localStorage.removeItem("claude_jobs_token");
-    localStorage.removeItem("claude_jobs_address");
-    localStorage.removeItem("claude_jobs_wallet_type");
-    localStorage.removeItem("claude_jobs_guest_exp");
+    localStorage.removeItem("build_jobs_token");
+    localStorage.removeItem("build_jobs_address");
+    localStorage.removeItem("build_jobs_wallet_type");
+    localStorage.removeItem("build_jobs_guest_exp");
     // Persist the sign-out so the local-mode probe on next load
     // doesn't silently reconnect us.
-    safeSetItem("claude_jobs_signed_out", "1");
+    safeSetItem("build_jobs_signed_out", "1");
     if (esRef.current) esRef.current.close();
   };
 
@@ -2280,7 +2778,7 @@ export default function Home() {
   // Restore the remembered-identities list once on mount.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("claude_jobs_accounts");
+      const raw = localStorage.getItem("build_jobs_accounts");
       if (!raw) return;
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) {
@@ -2298,7 +2796,7 @@ export default function Home() {
     setSavedAccounts((prev) => {
       const entry: SavedAccount = { address, token, walletType, ts: Date.now() };
       const next = [entry, ...prev.filter((a) => a.address !== address)].slice(0, 8);
-      safeSetItem("claude_jobs_accounts", JSON.stringify(next));
+      safeSetItem("build_jobs_accounts", JSON.stringify(next));
       return next;
     });
   }, [token, address, walletType]);
@@ -2317,17 +2815,17 @@ export default function Home() {
     setToken(acct.token);
     setAddress(acct.address);
     setWalletType(acct.walletType);
-    localStorage.removeItem("claude_jobs_signed_out");
-    safeSetItem("claude_jobs_token", acct.token);
-    safeSetItem("claude_jobs_address", acct.address);
-    if (acct.walletType) safeSetItem("claude_jobs_wallet_type", acct.walletType);
-    else localStorage.removeItem("claude_jobs_wallet_type");
+    localStorage.removeItem("build_jobs_signed_out");
+    safeSetItem("build_jobs_token", acct.token);
+    safeSetItem("build_jobs_address", acct.address);
+    if (acct.walletType) safeSetItem("build_jobs_wallet_type", acct.walletType);
+    else localStorage.removeItem("build_jobs_wallet_type");
   };
 
   const forgetAccount = (addr: string) => {
     setSavedAccounts((prev) => {
       const next = prev.filter((a) => a.address !== addr);
-      safeSetItem("claude_jobs_accounts", JSON.stringify(next));
+      safeSetItem("build_jobs_accounts", JSON.stringify(next));
       return next;
     });
   };
@@ -2451,6 +2949,212 @@ export default function Home() {
     if (token && token !== "local" && isOwner) refreshSudoStatus();
   }, [token, isOwner, showOwnerSidebar, refreshSudoStatus]);
 
+  // ── Agent sessions (AGENT sidebar tab) ─────────────────────────────
+  // Which credential each agent runs under for THIS session: your own
+  // connected token, or the server default. Fetched when the tab shows.
+  const refreshAgentAuth = useCallback(async () => {
+    if (!token) { setAgentAuth(null); return; }
+    try {
+      const r = await authFetch("/agent/auth");
+      if (r.ok) setAgentAuth(await r.json());
+    } catch {
+      /* transient — keep whatever we last knew */
+    }
+  }, [token, authFetch]);
+
+  useEffect(() => {
+    if (showOwnerSidebar && accountTab === "agent") refreshAgentAuth();
+  }, [showOwnerSidebar, accountTab, refreshAgentAuth]);
+
+  // Keep the sidebar CHAT pinned to the newest message — new jobs and live
+  // stream chunks both land at the bottom of the thread. Only when already
+  // near the bottom, though: scrolling up to read an older exchange must not
+  // get yanked back down by the next poll/stream chunk.
+  useEffect(() => {
+    if (!(showOwnerSidebar && accountTab === "agent" && agentSubTab === "chat")) return;
+    const box = sidebarChatScrollRef.current;
+    const nearBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 140;
+    if (nearBottom) sidebarChatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [showOwnerSidebar, accountTab, agentSubTab, jobs, streamOutput]);
+  // …but opening the pane always lands on the newest exchange.
+  useEffect(() => {
+    if (showOwnerSidebar && accountTab === "agent" && agentSubTab === "chat") {
+      sidebarChatEndRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [showOwnerSidebar, accountTab, agentSubTab]);
+
+  const connectAgent = useCallback(async (agent: string) => {
+    const tok = (agentTokenInput[agent] || "").trim();
+    if (!tok) return;
+    setAgentAuthBusy(agent);
+    setAgentAuthError(null);
+    try {
+      const r = await authFetch(`/agent/auth/${agent}`, {
+        method: "POST",
+        body: JSON.stringify({ token: tok }),
+      });
+      const data = await r.json().catch(() => null);
+      if (!r.ok) {
+        setAgentAuthError(data?.error || `Connect failed (${r.status})`);
+      } else {
+        setAgentAuth(data);
+        setAgentTokenInput((m) => ({ ...m, [agent]: "" }));
+      }
+    } catch (e: any) {
+      setAgentAuthError(String(e?.message || e));
+    }
+    setAgentAuthBusy(null);
+  }, [agentTokenInput, authFetch]);
+
+  const disconnectAgent = useCallback(async (agent: string) => {
+    setAgentAuthBusy(agent);
+    setAgentAuthError(null);
+    try {
+      const r = await authFetch(`/agent/auth/${agent}`, { method: "DELETE" });
+      const data = await r.json().catch(() => null);
+      if (r.ok) setAgentAuth(data);
+      else setAgentAuthError(data?.error || `Disconnect failed (${r.status})`);
+    } catch (e: any) {
+      setAgentAuthError(String(e?.message || e));
+    }
+    setAgentAuthBusy(null);
+  }, [authFetch]);
+
+  // ── orbit/agent backend (✦) — schema, credits, token ────────────────
+  // Everything goes through the API's /agentmod/* pass-through (same origin;
+  // the gateway doesn't route the agent module's port). Auth is the mod
+  // protocol style: a signed token in the body/query, never a header.
+
+  const fetchAgentSchema = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/agentmod/params`, { signal: AbortSignal.timeout(8000) });
+      if (r.ok) {
+        const s = await r.json();
+        if (s?.fields) setAgentSchema(s);
+      }
+    } catch {
+      /* module offline — panel shows the retry state */
+    }
+  }, [apiUrl]);
+
+  const refreshAgentCredits = useCallback(async (tok?: string | null) => {
+    const key = tok ?? agentModToken;
+    try {
+      const q = key ? `?key=${encodeURIComponent(key)}` : "";
+      const r = await fetch(`${apiUrl}/agentmod/credits${q}`, { signal: AbortSignal.timeout(8000) });
+      if (r.ok) setAgentCredits(await r.json());
+    } catch {}
+    try {
+      const r = await fetch(`${apiUrl}/agentmod/balance?provider=venice`, { signal: AbortSignal.timeout(8000) });
+      if (r.ok) setVeniceBalance(await r.json());
+    } catch {}
+  }, [apiUrl, agentModToken]);
+
+  // Lazy-load the schema the moment the ✦ agent is selected; refresh the
+  // credit picture whenever its params panel is actually on screen.
+  useEffect(() => {
+    if (agentMod === "agent" && !agentSchema) fetchAgentSchema();
+  }, [agentMod, agentSchema, fetchAgentSchema]);
+  useEffect(() => {
+    if (agentMod === "agent" && systemPromptOpen) refreshAgentCredits();
+  }, [agentMod, systemPromptOpen, refreshAgentCredits]);
+
+  // One param write = state + persistence. null/""/undefined clears the key
+  // so the run falls back to the module's own default.
+  const setAgentParam = (name: string, value: any) => {
+    setAgentParams((prev) => {
+      const next = { ...prev, [name]: value };
+      if (value === null || value === undefined || value === "") delete next[name];
+      safeSetItem("build_agent_params", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Mint a fleet protocol-auth token for the agent module with the connected
+  // wallet: personal_sign over compact {"data":{"scope":"agent"},"time":N},
+  // then base64url the envelope. Also handed to /agent/auth/agent so the job
+  // runner sends it as `key` with every ✦ job this wallet submits.
+  const connectAgentModule = async (): Promise<string | null> => {
+    if (!address) {
+      setError("SIGN IN FIRST — the agent module needs a wallet identity");
+      return null;
+    }
+    setAgentConnectBusy(true);
+    try {
+      const payload = { data: { scope: "agent" }, time: Math.floor(Date.now() / 1000) };
+      const signature = await signTerminalMessage(JSON.stringify(payload));
+      const tok = base64UrlEncode(JSON.stringify({ ...payload, key: address, signature }));
+      setAgentModToken(tok);
+      safeSetItem("build_agent_mod_token", tok);
+      try {
+        const r = await authFetch(`/agent/auth/agent`, {
+          method: "POST",
+          body: JSON.stringify({ token: tok }),
+        });
+        if (r.ok) setAgentAuth(await r.json());
+      } catch {}
+      refreshAgentCredits(tok);
+      return tok;
+    } catch (e: any) {
+      setError(String(e?.message || e));
+      return null;
+    } finally {
+      setAgentConnectBusy(false);
+    }
+  };
+
+  // Load credits: the user sends USDC/USDT to the module's deposit address
+  // themselves, then pastes the tx hash — the module verifies the transfer
+  // on-chain and credits the SENDER address, so the paste needs no auth.
+  const loadAgentCredits = async () => {
+    const tx = depositTx.trim();
+    if (!tx || depositBusy) return;
+    setDepositBusy(true);
+    setDepositMsg(null);
+    try {
+      const body: any = { tx_hash: tx, network: depositNetwork };
+      if (agentModToken) body.key = agentModToken;
+      const r = await fetch(`${apiUrl}/agentmod/credits/deposit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => null);
+      if (d?.credited != null) {
+        setDepositMsg(`✓ +$${d.credited} ${d.token} on ${d.network} → balance $${d.balance}`);
+        setDepositTx("");
+        refreshAgentCredits();
+      } else {
+        setDepositMsg(`✗ ${d?.error || `deposit failed (${r.status})`}`);
+      }
+    } catch (e: any) {
+      setDepositMsg(`✗ ${String(e?.message || e)}`);
+    } finally {
+      setDepositBusy(false);
+    }
+  };
+
+  // Derived view of the ✦ agent's model field: the schema keys model lists
+  // by provider, so the MODEL chips swap option sets when the ✦ agent is
+  // selected (agent-namespace ids like deepseek-v3.2, not claude-*).
+  const agentModelField = agentSchema?.fields?.find((f: any) => f.name === "model");
+  const agentProviderField = agentSchema?.fields?.find((f: any) => f.name === "provider");
+  const agentProvider: string = agentParams.provider || agentProviderField?.default || "openrouter";
+  const agentModelOptions: string[] = agentModelField?.options_by?.[agentProvider] || [];
+  const agentModelValue: string =
+    agentParams.model || agentModelField?.default_by?.[agentProvider] || "";
+
+  // Everything a ✦ job adds to the submit body: the backend selector plus
+  // the panel's params (model resolved for the active provider).
+  const agentJobFields = (body: any) => {
+    if (agentMod === "claude") return body;
+    body.agent = agentMod;
+    const params = { ...agentParams };
+    if (!params.model && agentModelValue) params.model = agentModelValue;
+    if (Object.keys(params).length > 0) body.agent_params = params;
+    return body;
+  };
+
   // ── Dynamic API Lifecycle ───────────────────────────────────────────
 
   const touchApiActivity = useCallback(() => {
@@ -2475,7 +3179,7 @@ export default function Home() {
           action: "start",
           type: "api",
           port: API_PORT,
-          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`,
+          workDir: `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/build/src/api`,
         }),
       });
       const data = await res.json();
@@ -2499,13 +3203,17 @@ export default function Home() {
 
   const ensureApi = useCallback(async (): Promise<boolean> => {
     touchApiActivity();
+    // Fast path: the status poller already confirmed the API is up — skip the
+    // blocking /health round-trip so submits fire instantly. If it silently
+    // died since, the request itself fails with a clear error.
+    if (apiStatus === "on") return true;
     if (await checkApiHealth()) {
       setApiStatus("on");
       return true;
     }
     setApiStatus("starting");
     // Try starting via start.sh (the Rust binary)
-    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`;
+    const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/build/src/api`;
     try {
       const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
         method: "POST",
@@ -2531,7 +3239,7 @@ export default function Home() {
     } catch { /* fall through */ }
     setApiStatus("off");
     return false;
-  }, [apiUrl, anchorDir, checkApiHealth, touchApiActivity]);
+  }, [apiUrl, anchorDir, apiStatus, checkApiHealth, touchApiActivity]);
 
   // Idle monitor: check every 30s, shut down if no activity for idleTimeout
   useEffect(() => {
@@ -2646,9 +3354,9 @@ export default function Home() {
     if (!pane || !token) return;
     setSavingFile(true);
     try {
-      // Editing a module OTHER than claude is privileged: authFetchSudo signs a
+      // Editing a module OTHER than build is privileged: authFetchSudo signs a
       // fresh owner authorization bound to this exact path and retries if the
-      // server demands it. Saving inside claude itself needs no extra step.
+      // server demands it. Saving inside build itself needs no extra step.
       const body = JSON.stringify({ path: pane.file, content: editBuffer });
       const res = await authFetchSudo("/files/write", { method: "POST", body });
       if (res.ok) {
@@ -2868,7 +3576,7 @@ export default function Home() {
 
   // Persist floating files panel position/size
   useEffect(() => {
-    const saved = localStorage.getItem("claude_files_panel");
+    const saved = localStorage.getItem("build_files_panel");
     if (saved) {
       try {
         const { pos, size, floating } = JSON.parse(saved);
@@ -2885,67 +3593,151 @@ export default function Home() {
   const filesPanelSaveReady = useRef(false);
   useEffect(() => {
     if (!filesPanelSaveReady.current) { filesPanelSaveReady.current = true; return; }
-    safeSetItem("claude_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
+    safeSetItem("build_files_panel", JSON.stringify({ pos: filesPanelPos, size: filesPanelSize, floating: filesPanelFloating }));
   }, [filesPanelPos, filesPanelSize, filesPanelFloating]);
 
   // Handle floating composer dock drag & resize (width only — the bar's
-  // height follows its content: params panel, image chips, the band)
+  // height follows its content: params panel, image chips, the band).
+  // POINTER events, not mouse: the same gesture then works with a finger,
+  // a pen and a mouse, which is what makes the bar movable on a phone.
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       if (composerDrag.current) {
         const d = composerDrag.current;
-        setComposerPos({
-          x: Math.max(0, Math.min(window.innerWidth - 240, d.origX + e.clientX - d.startX)),
-          y: Math.max(0, Math.min(window.innerHeight - 60, d.origY + e.clientY - d.startY)),
-        });
+        if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 3) d.moved = true;
+        setComposerPos(clampComposerPos(d.origX + e.clientX - d.startX, d.origY + e.clientY - d.startY));
+        // Touch drags scroll the page unless the gesture is claimed; the
+        // handles set `touch-action: none`, this covers the rest.
+        if (e.cancelable) e.preventDefault();
       }
       if (composerResize.current) {
         const r = composerResize.current;
         const dx = e.clientX - r.startX;
+        const vw = Math.round(window.visualViewport?.width ?? window.innerWidth);
+        const wMin = Math.min(300, vw - 16);
+        const wMax = Math.max(wMin, vw - 16);
         if (r.edge === "e") {
-          setComposerW(Math.max(360, Math.min(window.innerWidth - 40, r.origW + dx)));
+          setComposerW(Math.max(wMin, Math.min(wMax, r.origW + dx)));
         } else {
           // west edge — grow leftward, keep the right side anchored
           // (cap at the right edge's position so clamping x never lets
           // the width keep growing past it)
-          const w = Math.max(360, Math.min(window.innerWidth - 40, Math.min(r.origW - dx, r.origX + r.origW)));
+          const w = Math.max(wMin, Math.min(wMax, Math.min(r.origW - dx, r.origX + r.origW)));
           setComposerW(w);
           setComposerPos((p) => ({ ...p, x: Math.max(0, r.origX + (r.origW - w)) }));
         }
+        if (e.cancelable) e.preventDefault();
       }
     };
-    const handleMouseUp = () => {
+    const handleUp = () => {
       if (composerDrag.current || composerResize.current) {
         composerDrag.current = null;
         composerResize.current = null;
+        setComposerDragging(false);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         setIframesInert(false);
+        // A resize can leave the panel hanging off an edge — pull it back.
+        setComposerPos((p) => clampComposerPos(p.x, p.y));
       }
     };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handleMove, { passive: false });
+    document.addEventListener('pointerup', handleUp);
+    document.addEventListener('pointercancel', handleUp);
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerup', handleUp);
+      document.removeEventListener('pointercancel', handleUp);
     };
-  }, []);
+  }, [clampComposerPos]);
+
+  // Keep the floating bar on screen as the visible box changes — the phone
+  // keyboard opening, the browser toolbar sliding, a rotation, a resize.
+  useEffect(() => {
+    if (!composerFloating) return;
+    const reclamp = () => setComposerPos((p) => clampComposerPos(p.x, p.y));
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", reclamp);
+    vv?.addEventListener("scroll", reclamp);
+    window.addEventListener("resize", reclamp);
+    window.addEventListener("orientationchange", reclamp);
+    // The panel's own height changes with PARAMS/image chips too.
+    const el = composerFloatRef.current;
+    const ro = el && typeof ResizeObserver !== "undefined" ? new ResizeObserver(reclamp) : null;
+    if (el && ro) ro.observe(el);
+    reclamp();
+    return () => {
+      vv?.removeEventListener("resize", reclamp);
+      vv?.removeEventListener("scroll", reclamp);
+      window.removeEventListener("resize", reclamp);
+      window.removeEventListener("orientationchange", reclamp);
+      ro?.disconnect();
+    };
+  }, [composerFloating, clampComposerPos]);
 
   // Persist floating composer position/width/mode — clamped on load so a
   // stale saved position can never strand the bar off-screen
   useEffect(() => {
-    const saved = localStorage.getItem("claude_composer_dock");
+    const saved = localStorage.getItem("build_composer_dock");
     if (!saved) return;
     try {
-      const { pos, w, floating, min } = JSON.parse(saved);
-      if (w) setComposerW(Math.max(360, Math.min(window.innerWidth - 40, w)));
-      if (pos) setComposerPos({
-        x: Math.max(0, Math.min(window.innerWidth - 240, pos.x)),
-        y: Math.max(0, Math.min(window.innerHeight - 60, pos.y)),
-      });
+      const { pos, w, floating, min, lift } = JSON.parse(saved);
+      if (w) setComposerW(Math.max(300, Math.min(Math.max(300, window.innerWidth - 16), w)));
+      if (pos) setComposerPos(clampComposerPos(pos.x, pos.y));
       if (floating !== undefined) setComposerFloating(!!floating);
       if (min !== undefined) setComposerMinimized(!!min);
+      if (typeof lift === "number") setComposerLift(Math.max(0, Math.min(liftMax(), Math.round(lift))));
     } catch {}
+  }, []);
+
+  // Visual-viewport tracking — mobile Safari's toolbar and the software
+  // keyboard OVERLAY the layout viewport, so anything docked to the bottom
+  // (the ask bar) hides under them. `dvh` only follows the toolbar, and only
+  // once its slide animation settles. The visual viewport reports the truly
+  // visible box every frame; publish it as --app-shell-h so the console shell
+  // shrinks to whatever the browser actually leaves on screen.
+  useEffect(() => {
+    const vv = typeof window === "undefined" ? null : window.visualViewport;
+    if (!vv) return;
+    const apply = () => {
+      const h = Math.round(vv.height);
+      // Only override when the visible box really differs (desktop, and a
+      // phone with no chrome overlaying, keep the pure-CSS dvh path).
+      if (Math.abs(h - window.innerHeight) > 1) {
+        document.documentElement.style.setProperty("--app-shell-h", `${h}px`);
+      } else {
+        document.documentElement.style.removeProperty("--app-shell-h");
+      }
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+    };
+  }, []);
+
+  // Rotating a phone shrinks the viewport under a saved lift — re-clamp so a
+  // bar parked high in portrait doesn't float mid-screen in landscape.
+  useEffect(() => {
+    const onResize = () => setComposerLift(l => Math.min(l, liftMax()));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // PARAMS folds — restore the saved state; with none saved, a phone starts
+  // with the two unbounded sections folded so the panel opens compact.
+  useEffect(() => {
+    const saved = localStorage.getItem("build_param_sections");
+    if (saved) {
+      try {
+        const v = JSON.parse(saved);
+        setParamSections({ framework: !!v.framework, system: !!v.system });
+        return;
+      } catch {}
+    }
+    if (window.matchMedia("(max-width: 767px)").matches) setParamSections({ framework: false, system: false });
   }, []);
 
   // First run still closes over default state — skip it so the loaded
@@ -2953,16 +3745,26 @@ export default function Home() {
   const composerSaveReady = useRef(false);
   useEffect(() => {
     if (!composerSaveReady.current) { composerSaveReady.current = true; return; }
-    safeSetItem("claude_composer_dock", JSON.stringify({ pos: composerPos, w: composerW, floating: composerFloating, min: composerMinimized }));
-  }, [composerPos, composerW, composerFloating, composerMinimized]);
+    safeSetItem("build_composer_dock", JSON.stringify({ pos: composerPos, w: composerW, floating: composerFloating, min: composerMinimized, lift: composerLift }));
+  }, [composerPos, composerW, composerFloating, composerMinimized, composerLift]);
+
+  const toggleParamSection = useCallback((key: "framework" | "system") => {
+    setParamSections(s => {
+      const next = { ...s, [key]: !s[key] };
+      safeSetItem("build_param_sections", JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   // ── Jobs ──────────────────────────────────────────────────────────
 
   const fetchJobs = useCallback(async () => {
-    if (!token) return;
     try {
-      const res = await authFetch("/jobs");
-      if (res.status === 401) { disconnect(); return; }
+      // GET /jobs is a public ledger — read it without a session so the
+      // task rail works signed out. Signed in, go through authFetch so an
+      // expired session still gets caught and dropped.
+      const res = token ? await authFetch("/jobs") : await fetch(`${apiUrl}/jobs`);
+      if (res.status === 401) { if (token) disconnect(); return; }
       if (!res.ok) throw new Error("FETCH FAILED");
       const data = await res.json();
       setJobs(data.jobs || []);
@@ -2975,21 +3777,20 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [token, authFetch, touchApiActivity]);
+  }, [token, authFetch, apiUrl, touchApiActivity]);
 
   useEffect(() => {
-    if (!token) return;
     fetchJobs();
     const iv = setInterval(fetchJobs, 4000);
     return () => clearInterval(iv);
-  }, [token, fetchJobs]);
+  }, [fetchJobs]);
 
   // ── Personality Management ───────────────────────────────────────────
   const persistPersonalities = (ps: Personality[]) => {
     setPersonalities(ps);
     // Only persist non-default or modified builtins
     const toSave = ps.filter(p => !p.builtin || DEFAULT_PERSONALITIES.find(d => d.id === p.id)?.prompt !== p.prompt);
-    safeSetItem("claude_personalities", JSON.stringify(toSave));
+    safeSetItem("build_personalities", JSON.stringify(toSave));
   };
 
   const savePersonality = () => {
@@ -3015,7 +3816,7 @@ export default function Home() {
     persistPersonalities(personalities.filter(x => x.id !== id));
     if (agentType === id) {
       setAgentType("default");
-      safeSetItem("claude_jobs_agent", "default");
+      safeSetItem("build_jobs_agent", "default");
     }
   };
 
@@ -3043,11 +3844,63 @@ export default function Home() {
   // no save step, active blocks apply to every task on submit.
   const persistSysPrompts = (ps: SysPromptBlock[]) => {
     setSysPrompts(ps);
-    safeSetItem("claude_system_prompts", JSON.stringify(ps));
+    safeSetItem("build_system_prompts", JSON.stringify(ps));
   };
 
   const toggleSysPrompt = (id: string) =>
     persistSysPrompts(sysPrompts.map(p => (p.id === id ? { ...p, on: !p.on } : p)));
+
+  // ── Agent frameworks ───────────────────────────────────────────────
+  // Named snapshots of the whole agent setup (agent · model · prompt preset ·
+  // system chain, content included). Saving under an existing name overwrites
+  // it; applying restores every piece and persists like a manual change.
+  const persistFrameworks = (next: AgentFramework[]) => {
+    setFrameworks(next);
+    safeSetItem("build_agent_frameworks", JSON.stringify(next));
+  };
+
+  const frameworkIsCurrent = (fw: AgentFramework) =>
+    fw.agent === agentMod && fw.model === model && fw.agentType === agentType &&
+    JSON.stringify(fw.sysPrompts) === JSON.stringify(sysPrompts) &&
+    (fw.agent !== "agent" || JSON.stringify(fw.params || {}) === JSON.stringify(agentParams));
+
+  const saveFramework = (rawName: string) => {
+    const name = rawName.trim();
+    if (!name) return;
+    const id = `fw-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
+    const fw: AgentFramework = {
+      id, name,
+      agent: agentMod, model, agentType,
+      sysPrompts: sysPrompts.map(p => ({ ...p })),
+      ...(agentMod === "agent" ? { params: { ...agentParams } } : {}),
+    };
+    persistFrameworks([...frameworks.filter(f => f.name !== name), fw]);
+    setFwSaveOpen(false);
+    setFwSaveName("");
+  };
+
+  const applyFramework = (fw: AgentFramework) => {
+    // Guard stale snapshots: unavailable agents fall back to claude, retired
+    // model ids upgrade the same way the mount restore does.
+    const agent = AGENT_MODS.some(a => a.value === fw.agent && a.available) ? fw.agent : AGENT_MODS[0].value;
+    let fwModel = MODEL_ALIAS_UPGRADE[fw.model] || fw.model;
+    if (!MODEL_OPTIONS.some(o => o.value === fwModel)) fwModel = MODEL_OPTIONS[0].value;
+    setAgentMod(agent);
+    safeSetItem("build_jobs_agent_mod", agent);
+    setModel(fwModel);
+    safeSetItem("build_jobs_model", fwModel);
+    setAgentType(fw.agentType);
+    safeSetItem("build_jobs_agent", fw.agentType);
+    persistSysPrompts(fw.sysPrompts.map(p => ({ ...p })));
+    // ✦ frameworks restore their backend params wholesale.
+    if (agent === "agent" && fw.params) {
+      setAgentParams({ ...fw.params });
+      safeSetItem("build_agent_params", JSON.stringify(fw.params));
+    }
+  };
+
+  const deleteFramework = (id: string) =>
+    persistFrameworks(frameworks.filter(f => f.id !== id));
 
   const deleteSysPrompt = (id: string) =>
     persistSysPrompts(sysPrompts.filter(p => p.id !== id));
@@ -3099,7 +3952,7 @@ export default function Home() {
   // ── Prompt Management ──────────────────────────────────────────────
   const persistPrompts = (prompts: SavedPrompt[]) => {
     setSavedPrompts(prompts);
-    safeSetItem("claude_saved_prompts", JSON.stringify(prompts));
+    safeSetItem("build_saved_prompts", JSON.stringify(prompts));
   };
 
   const savePromptFn = (title: string, body: string, tags?: string[], promptModel?: string, promptAgentType?: string) => {
@@ -3186,11 +4039,23 @@ export default function Home() {
       })
     : sortedPrompts;
 
+  // Follow the tail of a task's live output — but ONLY while a task is open.
+  // outputRef is also the scroll container for the task LIST; clearing
+  // streamOutput (opening TASKS / pressing Back) must not scroll the list to
+  // the bottom.
   useEffect(() => {
+    if (!selectedJob || !streamOutput) return;
     if (outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [streamOutput]);
+  }, [streamOutput, selectedJob]);
+
+  // Landing on the task list always starts at the top (newest tasks first) —
+  // the container keeps its scroll position across detail↔list switches
+  // otherwise.
+  useEffect(() => {
+    if (!selectedJob && outputRef.current) outputRef.current.scrollTop = 0;
+  }, [selectedJob, sidebarView]);
 
   // Resolve a selected module name to the work_dir a job should run in.
   // Prefer the scanned path from /modules — it covers core/ modules and the
@@ -3205,113 +4070,140 @@ export default function Home() {
   };
 
   const submitJob = async () => {
-    if (!prompt.trim() || !token) return;
+    const promptText = prompt.trim();
+    if (!promptText || !token) return;
+
+    // Validate + build the request body BEFORE touching any composer state,
+    // so a rejected submit leaves everything in place and a valid one can
+    // clear the composer instantly (the slow parts happen after).
+    const body: any = { prompt: promptText, model };
+
+    // The chained system prompts win; otherwise fall back to an active
+    // personality.
+    if (chainedSystemPrompt) {
+      body.system_prompt = chainedSystemPrompt;
+    } else if (activePersonality && activePersonality.prompt) {
+      body.system_prompt = activePersonality.prompt;
+    }
+    if (agentType && agentType !== "default") body.agent_type = agentType;
+    agentJobFields(body);
+
+    // Edit mode - edit existing module
+    if (creationMode === "edit") {
+      // If a module is selected, use that as work_dir
+      if (selectedModule.trim()) {
+        // Enforce _outer restriction for non-owners
+        if (!isOwner && !selectedModule.includes("peers/") && !selectedModule.startsWith("peers.")) {
+          setError("NON-OWNERS CAN ONLY EDIT MODULES IN PEERS FOLDER");
+          return;
+        }
+        body.work_dir = moduleWorkDir(selectedModule);
+      }
+      // Otherwise use the manual work_dir input
+      else if (workDir.trim()) {
+        body.work_dir = workDir.trim();
+      }
+    }
+    // Fork mode - fork existing module into new name
+    else if (creationMode === "fork") {
+      if (!moduleName.trim()) {
+        setError("MODULE NAME REQUIRED FOR FORK");
+        return;
+      }
+
+      let finalModuleName = moduleName.trim();
+      if (!isOwner && !finalModuleName.startsWith("peers/")) {
+        finalModuleName = `peers/${finalModuleName}`;
+      }
+
+      body.prompt = `Fork the module "${selectedModule}" into a new module called "${finalModuleName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.\n\n${promptText}`;
+      body.module_name = finalModuleName;
+      body.creation_mode = "new";
+      body.anchor_dir = anchorDir;
+      if (selectedModule) body.fork_from = selectedModule;
+    }
+    // New mode - create new module
+    else if (creationMode === "new") {
+      if (!moduleName.trim()) {
+        setError("MODULE NAME REQUIRED");
+        return;
+      }
+
+      // For non-owners, enforce _outer folder for new modules
+      let finalModuleName = moduleName.trim();
+      if (!isOwner && !finalModuleName.startsWith("peers/")) {
+        finalModuleName = `peers/${finalModuleName}`;
+      }
+
+      body.module_name = finalModuleName;
+      body.creation_mode = creationMode;
+      body.anchor_dir = anchorDir;
+
+      // Add GitHub URL if provided
+      if (githubUrl.trim()) {
+        body.github_url = githubUrl.trim();
+      }
+    }
+
+    // Optimistic clear — the composer frees up the moment you hit send;
+    // everything the request needs is already captured above. If the submit
+    // fails, restore whatever the user hasn't retyped in the meantime.
+    const capturedImages = images;
+    const capturedModuleName = moduleName;
+    const capturedGithubUrl = githubUrl;
+    setPrompt("");
+    setImages([]);
+    setModuleName("");
+    setGithubUrl("");
+    const restoreComposer = () => {
+      setPrompt((p) => p || promptText);
+      setImages((imgs) => (imgs.length > 0 ? imgs : capturedImages));
+      setModuleName((m) => m || capturedModuleName);
+      setGithubUrl((g) => g || capturedGithubUrl);
+    };
+
     setSubmitting(true);
     try {
-      // Ensure API is running before submitting
+      // Snap-on-submit: attach a fresh screenshot of the selected module's
+      // app page so the agent sees the UI exactly as it looks right now.
+      // Best-effort and capped at 3s — a slow or failed capture (module has
+      // no app, chrome missing) never holds the submit hostage. Kicked off
+      // concurrently with the API readiness check below.
+      const snapPromise: Promise<{ name: string; data: string } | null> =
+        snapAppOnSubmit && selectedModule.trim()
+          ? (async () => {
+              try {
+                const res = await fetch(
+                  `${apiUrl}/modules/${encodeURIComponent(selectedModule)}/screenshot?fresh=1`,
+                  { signal: AbortSignal.timeout(3000) }
+                );
+                if (!res.ok || !(res.headers.get("content-type") || "").startsWith("image/")) return null;
+                const blob = await res.blob();
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve(reader.result as string);
+                  reader.onerror = () => reject(new Error("snapshot read failed"));
+                  reader.readAsDataURL(blob);
+                });
+                return { name: `app-page-${selectedModule}.png`, data: dataUrl };
+              } catch {
+                return null; // non-fatal — submit without the snapshot
+              }
+            })()
+          : Promise.resolve(null);
+
+      // Ensure API is running before submitting (instant when already on)
       const apiReady = await ensureApi();
       if (!apiReady) {
+        restoreComposer();
         setError("API SERVER COULD NOT BE STARTED — check api/start.sh");
-        setSubmitting(false);
         return;
       }
       touchApiActivity();
-      const body: any = { prompt: prompt.trim(), model };
 
-      // The chained system prompts win; otherwise fall back to an active
-      // personality.
-      if (chainedSystemPrompt) {
-        body.system_prompt = chainedSystemPrompt;
-      } else if (activePersonality && activePersonality.prompt) {
-        body.system_prompt = activePersonality.prompt;
-      }
-      if (agentType && agentType !== "default") body.agent_type = agentType;
-
-      // Snap-on-submit: attach a fresh screenshot of the selected module's
-      // app page so the agent sees the UI exactly as it looks right now.
-      // Best-effort — a failed capture (module has no app, chrome missing)
-      // never blocks the submit.
-      let jobImages = images;
-      if (snapAppOnSubmit && selectedModule.trim()) {
-        try {
-          const res = await fetch(
-            `${apiUrl}/modules/${encodeURIComponent(selectedModule)}/screenshot?fresh=1`
-          );
-          if (res.ok && (res.headers.get("content-type") || "").startsWith("image/")) {
-            const blob = await res.blob();
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = () => reject(new Error("snapshot read failed"));
-              reader.readAsDataURL(blob);
-            });
-            jobImages = [...images, { name: `app-page-${selectedModule}.png`, data: dataUrl }];
-          }
-        } catch {
-          // non-fatal — submit without the snapshot
-        }
-      }
+      const snap = await snapPromise;
+      const jobImages = snap ? [...capturedImages, snap] : capturedImages;
       if (jobImages.length > 0) body.images = jobImages;
-
-      // Edit mode - edit existing module
-      if (creationMode === "edit") {
-        // If a module is selected, use that as work_dir
-        if (selectedModule.trim()) {
-          // Enforce _outer restriction for non-owners
-          if (!isOwner && !selectedModule.includes("peers/") && !selectedModule.startsWith("peers.")) {
-            setError("NON-OWNERS CAN ONLY EDIT MODULES IN PEERS FOLDER");
-            setSubmitting(false);
-            return;
-          }
-          body.work_dir = moduleWorkDir(selectedModule);
-        }
-        // Otherwise use the manual work_dir input
-        else if (workDir.trim()) {
-          body.work_dir = workDir.trim();
-        }
-      }
-      // Fork mode - fork existing module into new name
-      else if (creationMode === "fork") {
-        if (!moduleName.trim()) {
-          setError("MODULE NAME REQUIRED FOR FORK");
-          setSubmitting(false);
-          return;
-        }
-
-        let finalModuleName = moduleName.trim();
-        if (!isOwner && !finalModuleName.startsWith("peers/")) {
-          finalModuleName = `peers/${finalModuleName}`;
-        }
-
-        body.prompt = `Fork the module "${selectedModule}" into a new module called "${finalModuleName}". Copy all source files, config.json, and directory structure. Update any self-references to use the new module name.\n\n${prompt.trim()}`;
-        body.module_name = finalModuleName;
-        body.creation_mode = "new";
-        body.anchor_dir = anchorDir;
-        if (selectedModule) body.fork_from = selectedModule;
-      }
-      // New mode - create new module
-      else if (creationMode === "new") {
-        if (!moduleName.trim()) {
-          setError("MODULE NAME REQUIRED");
-          setSubmitting(false);
-          return;
-        }
-
-        // For non-owners, enforce _outer folder for new modules
-        let finalModuleName = moduleName.trim();
-        if (!isOwner && !finalModuleName.startsWith("peers/")) {
-          finalModuleName = `peers/${finalModuleName}`;
-        }
-
-        body.module_name = finalModuleName;
-        body.creation_mode = creationMode;
-        body.anchor_dir = anchorDir;
-
-        // Add GitHub URL if provided
-        if (githubUrl.trim()) {
-          body.github_url = githubUrl.trim();
-        }
-      }
 
       const res = await authFetch("/jobs", {
         method: "POST",
@@ -3319,10 +4211,6 @@ export default function Home() {
       });
       if (!res.ok) throw new Error(await submitFailReason(res));
       const job = await res.json();
-      setPrompt("");
-      setImages([]);
-      setModuleName("");
-      setGithubUrl("");
       setSelectedJob(job.id);
       // Tasks run in the BACKGROUND — don't hijack the current view. The
       // composer's running-tasks strip and the header TASKS badge track
@@ -3330,6 +4218,7 @@ export default function Home() {
       fetchJobs();
       startStream(job.id);
     } catch (e: any) {
+      restoreComposer();
       setError(e.message);
     } finally {
       setSubmitting(false);
@@ -3353,6 +4242,7 @@ export default function Home() {
       touchApiActivity();
       const body: any = { prompt: text, model: modelValue };
       if (agentTypeValue && agentTypeValue !== "default") body.agent_type = agentTypeValue;
+      agentJobFields(body);
       const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await submitFailReason(res));
       const job = await res.json();
@@ -3366,7 +4256,35 @@ export default function Home() {
     } finally {
       setSubmitting(false);
     }
-  }, [token, ensureApi, touchApiActivity, authFetch, fetchJobs]);
+  }, [token, ensureApi, touchApiActivity, authFetch, fetchJobs, agentJobFields]);
+
+  // Desk ✎ edit bars — submit an edit task for a module straight from a
+  // split-screen pane. Deliberately does NOT select the job or open its
+  // stream: the Desk stays up so several apps can be edited in parallel;
+  // the pane's titlebar badge tracks progress via the jobs poll.
+  // Resolves to an error string (rendered inline in the pane) or null.
+  const deskEdit = async (mod: string, promptText: string): Promise<string | null> => {
+    const text = promptText.trim();
+    if (!text) return "empty prompt";
+    if (!token) return "sign in first";
+    if (!isOwner && !mod.includes("peers/") && !mod.startsWith("peers.")) {
+      return "non-owners can only edit modules in the peers folder";
+    }
+    try {
+      const apiReady = await ensureApi();
+      if (!apiReady) return "API server could not be started — check api/start.sh";
+      touchApiActivity();
+      const body: any = { prompt: text, model, work_dir: moduleWorkDir(mod) };
+      if (agentType && agentType !== "default") body.agent_type = agentType;
+      agentJobFields(body);
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) return await submitFailReason(res);
+      fetchJobs();
+      return null;
+    } catch (e: any) {
+      return e?.message || "submit failed";
+    }
+  };
 
   const startStream = (jobId: string) => {
     if (esRef.current) esRef.current.close();
@@ -3386,11 +4304,96 @@ export default function Home() {
     es.onerror = () => { es.close(); fetchJobs(); };
   };
 
+  // Sidebar AGENT · CHAT — one send box, two behaviors: while the selected
+  // task is RUNNING the text goes in as mid-flight guidance (same channel as
+  // steerJob); otherwise it launches a fresh task against the selected
+  // module, exactly like the main composer's edit mode but without leaving
+  // the sidebar.
+  const sendSidebarChat = async () => {
+    const text = sidebarChatPrompt.trim();
+    if (!text || !token || submitting) return;
+    const current = selectedJob ? jobs.find((j) => j.id === selectedJob) : null;
+    if (current && current.status === "running") {
+      setSubmitting(true);
+      try {
+        const res = await authFetch(`/jobs/${current.id}/message`, {
+          method: "POST",
+          body: JSON.stringify({ message: text }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({} as any));
+          throw new Error(data.error || "GUIDANCE FAILED");
+        }
+        setSidebarChatPrompt("");
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const apiReady = await ensureApi();
+      if (!apiReady) {
+        setError("API SERVER COULD NOT BE STARTED — check api/start.sh");
+        return;
+      }
+      touchApiActivity();
+      const body: any = { prompt: text, model };
+      if (agentType && agentType !== "default") body.agent_type = agentType;
+      // Aim at the selected module when the session may edit it — same
+      // gate submitJob's edit mode enforces for non-owners.
+      const mod = selectedModule.trim();
+      if (mod && (isOwner || mod.includes("peers/") || mod.startsWith("peers."))) {
+        body.work_dir = moduleWorkDir(mod);
+      }
+      agentJobFields(body);
+      const res = await authFetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(await submitFailReason(res));
+      const job = await res.json();
+      setSidebarChatPrompt("");
+      setSelectedJob(job.id);
+      fetchJobs();
+      startStream(job.id);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const cancelJob = async (id: string) => {
     // Close the stream immediately so UI stops updating
     if (esRef.current) { esRef.current.close(); esRef.current = null; }
     await authFetch(`/jobs/${id}/cancel`, { method: "POST" });
     fetchJobs();
+  };
+
+  // Guide a RUNNING task mid-flight — like typing while Claude Code works.
+  // The message is injected into the agent's session at its next tool
+  // boundary; the ◈ GUIDANCE marker echoes back over the SSE stream so it
+  // shows up inline in the output right where it landed.
+  const steerJob = async (id: string) => {
+    const text = steerText.trim();
+    if (!text || steerSending) return;
+    setSteerSending(true);
+    try {
+      const res = await authFetch(`/jobs/${id}/message`, {
+        method: "POST",
+        body: JSON.stringify({ message: text }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({} as any));
+        setError(data.error || "GUIDANCE FAILED");
+      } else {
+        setSteerText("");
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSteerSending(false);
+    }
   };
 
   // Kill process by PID or port (owner-only, host key Cmd+K)
@@ -3434,7 +4437,7 @@ export default function Home() {
       setConfirmDeleteModule(null);
       // Reset selection if we deleted the current module
       if (selectedModule === name) {
-        setSelectedModule("dev");
+        setSelectedModule("build");
         setSelectedModuleInfo(null);
         setModuleConfig(null);
       }
@@ -3453,6 +4456,38 @@ export default function Home() {
       setStreamOutput(job.output);
       if (esRef.current) esRef.current.close();
     }
+  };
+
+  // Open a task straight from the rail: switch the console to the full-page
+  // TASKS view and, when the job belongs to a different module, retarget the
+  // module context too so the header/tabs match what you're reading.
+  const openRailTask = (job: Job) => {
+    const mod = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
+    if (mod !== selectedModule) {
+      const info = moduleList.find((m) => m.name === mod);
+      if (info) {
+        resetModuleState(info);
+        setSelectedModule(info.name);
+        setSelectedModuleInfo(info);
+        setWorkDir(info.path);
+        fetchModuleConfig(info.name, info.path);
+      } else {
+        setSelectedModule(mod);
+      }
+    }
+    setSidebarView("tasks");
+    viewJob(job);
+  };
+
+  // Clicking a module row's task badge: flip the rail to TASKS and open that
+  // module's most interesting job (running > queued > newest).
+  const openModuleTasks = (name: string) => {
+    const mine = jobs.filter((j) => ((j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "build") === name);
+    const rank = (s: string) => (s === "running" ? 0 : s === "pending" ? 1 : 2);
+    const job = [...mine].sort((a, b) => rank(a.status) - rank(b.status) || b.created_at - a.created_at)[0];
+    setRailView("tasks");
+    if (job) openRailTask(job);
+    else { setSelectedJob(null); setStreamOutput(""); setSidebarView("tasks"); }
   };
 
   const toggleAsks = (jobId: string, e: React.MouseEvent) => {
@@ -3485,7 +4520,7 @@ export default function Home() {
 
   // Task tally per module — feeds the recents-rail badges so you can see each
   // mod's progress (running/queued/done/failed) without opening the TASKS
-  // view. Jobs with no work_dir belong to claude itself (same attribution
+  // view. Jobs with no work_dir belong to build itself (same attribution
   // rule as the task-list module filter).
   const railTasks = useMemo(() => {
     const byModule: Record<string, { running: number; pending: number; completed: number; failed: number; prompts: string[] }> = {};
@@ -3494,7 +4529,7 @@ export default function Home() {
     let completed = 0;
     let failed = 0;
     for (const j of jobs) {
-      const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "dev";
+      const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "build";
       const entry = byModule[mod] || (byModule[mod] = { running: 0, pending: 0, completed: 0, failed: 0, prompts: [] });
       if (j.status === "running") { entry.running += 1; running += 1; }
       else if (j.status === "pending") { entry.pending += 1; pending += 1; }
@@ -3670,6 +4705,7 @@ export default function Home() {
           body.github_url = headerGithubUrl.trim();
         }
       }
+      agentJobFields(body);
 
       const res = await authFetch("/jobs", {
         method: "POST",
@@ -3703,6 +4739,12 @@ export default function Home() {
       // wins, else an active personality) so replays aren't bare.
       if (chainedSystemPrompt) body.system_prompt = chainedSystemPrompt;
       else if (activePersonality && activePersonality.prompt) body.system_prompt = activePersonality.prompt;
+      // Replays run on the backend that ran the original, with the CURRENT
+      // ✦ params (the originals aren't persisted per-job).
+      if (job.agent && job.agent !== "claude") {
+        body.agent = job.agent;
+        if (Object.keys(agentParams).length > 0) body.agent_params = agentParams;
+      }
       const res = await authFetch("/jobs", {
         method: "POST",
         body: JSON.stringify(body),
@@ -3734,6 +4776,39 @@ export default function Home() {
     setComposerMinimized(false);
     setTimeout(() => composerInputRef.current?.focus(), 50);
   };
+
+  // Consume a scanned replay QR (`?replay=<cid>`, stashed on mount): fetch
+  // the task bundle from GET /tasks/:cid — local ledger first, shared localfs
+  // blob store as fallback, so codes minted on other consoles resolve too —
+  // and load it into the composer exactly like ✎ Edit: prompt, model and
+  // target module prefilled, focused, one submit from running.
+  useEffect(() => {
+    if (!pendingReplay) return;
+    const cid = pendingReplay;
+    setPendingReplay(null);
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/tasks/${encodeURIComponent(cid)}`);
+        if (!res.ok) throw new Error(`task ${cid.slice(0, 10)}… not found`);
+        const bundle = await res.json();
+        if (!bundle?.prompt) throw new Error("task bundle has no prompt");
+        setPrompt(parsePromptImages(String(bundle.prompt)).cleanPrompt || String(bundle.prompt));
+        if (bundle.model) setModel(normalizeModelValue(String(bundle.model)));
+        if (bundle.work_dir) {
+          setWorkDir(String(bundle.work_dir));
+          setCreationMode("edit");
+        }
+        setSidebarView("tasks");
+        setSelectedJob(null);
+        setComposerMinimized(false);
+        setRestartNotice(`⬡ Task ${cid.slice(0, 10)}… loaded — submit to replay`);
+        setTimeout(() => setRestartNotice(null), 6000);
+        setTimeout(() => composerInputRef.current?.focus(), 80);
+      } catch (e: any) {
+        setError(`REPLAY FAILED: ${e.message}`);
+      }
+    })();
+  }, [pendingReplay, apiUrl]);
 
   const togglePromptExpand = (jobId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3807,12 +4882,15 @@ export default function Home() {
     }, 300);
   }, [apiUrl]);
 
-  const fetchModuleConfig = useCallback(async (name: string) => {
+  const fetchModuleConfig = useCallback(async (name: string, path?: string | null) => {
     setLoadingConfig(true);
     setModuleConfig(null);
     try {
       const params = new URLSearchParams();
       if (anchorDir) params.set("anchor", anchorDir);
+      // Nested mods don't resolve by name (orbit/{name} lookup) — the API
+      // falls back to reading config.json straight from this module dir.
+      if (path) params.set("path", path);
       const res = await fetch(`${apiUrl}/modules/${encodeURIComponent(name)}/config?${params}`);
       if (res.ok) {
         const data = await res.json();
@@ -3829,7 +4907,7 @@ export default function Home() {
     setSelectedModule(m.name);
     setSelectedModuleInfo(m);
     setWorkDir(m.path);
-    fetchModuleConfig(m.name);
+    fetchModuleConfig(m.name, m.path);
     setSidebarView(getBestTab(m));
   }, [resetModuleState, getBestTab, fetchModuleConfig]);
 
@@ -3957,6 +5035,10 @@ export default function Home() {
     return () => clearInterval(iv);
   }, [sidebarView, fetchModules]);
 
+  // First moduleList sync after mount is the default-module load, not a user
+  // navigation — keep the tasks-first landing instead of jumping to the
+  // module's best tab. Every later switch picks the best tab as before.
+  const initialTabLanded = useRef(false);
   // Auto-select default module and keep selectedModuleInfo in sync with moduleList
   useEffect(() => {
     if (selectedModule && moduleList.length > 0) {
@@ -3969,7 +5051,8 @@ export default function Home() {
           // doesn't itself call setWorkDir leaves FILES showing the prior mod.
           setWorkDir(match.path);
           fetchModuleConfig(match.name);
-          setSidebarView(getBestTab(match));
+          if (initialTabLanded.current) setSidebarView(getBestTab(match));
+          else initialTabLanded.current = true;
         }
         // Always sync selectedModuleInfo with latest moduleList data
         setSelectedModuleInfo(match);
@@ -4179,7 +5262,7 @@ export default function Home() {
 
   // ── Auto-restart after an edit ─────────────────────────────────────
   // Restart a module's processes through pm2 (the real supervisor) so a fresh
-  // edit is actually live. Skips "dev" itself — restarting the console we're
+  // edit is actually live. Skips "build" itself — restarting the console we're
   // driving would kill this very UI mid-action.
   const triggerModuleRestart = useCallback(async (name: string) => {
     const doFetch = authFetchSudoRef.current;
@@ -4223,7 +5306,7 @@ export default function Home() {
     const seen = new Set<string>();
     for (const j of justCompleted) {
       const mod = j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null;
-      if (!mod || mod === "dev" || seen.has(mod)) continue;
+      if (!mod || mod === "build" || seen.has(mod)) continue;
       seen.add(mod);
       triggerModuleRestart(mod);
     }
@@ -4253,7 +5336,7 @@ export default function Home() {
   // Auto-refresh logs (in the APP control-row logs viewer, the dedicated
   // LOGS tab, or the API tab's logs pane)
   useEffect(() => {
-    const inLogsTab = sidebarView === "logs" || (sidebarView === "apitab" && apiTabView === "logs");
+    const inLogsTab = sidebarView === "logs" || (sidebarView === "api" && apiTabView === "logs");
     if (!moduleLogsAutoRefresh || (!moduleLogsOpen && !inLogsTab)) return;
     const iv = setInterval(fetchModuleLogs, 4000);
     return () => clearInterval(iv);
@@ -4261,12 +5344,12 @@ export default function Home() {
 
   // Fetch logs when opened or when entering the LOGS tab / API tab logs pane
   useEffect(() => {
-    if (moduleLogsOpen || sidebarView === "logs" || (sidebarView === "apitab" && apiTabView === "logs")) fetchModuleLogs();
+    if (moduleLogsOpen || sidebarView === "logs" || (sidebarView === "api" && apiTabView === "logs")) fetchModuleLogs();
   }, [moduleLogsOpen, sidebarView, apiTabView]);
 
   // ── API tab: load the endpoint catalog once per session ──
   useEffect(() => {
-    if (sidebarView !== "apitab" || apiSchema) return;
+    if (sidebarView !== "api" || apiSchema) return;
     fetch(`${apiUrl}/schema`)
       .then((r) => r.json())
       .then((d) => { if (d && Array.isArray(d.endpoints)) setApiSchema(d); })
@@ -4364,6 +5447,12 @@ export default function Home() {
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
         setProfileMenuOpen(false);
       }
+      if (themeMenuRef.current && !themeMenuRef.current.contains(e.target as Node)) {
+        setThemeMenuOpen(false);
+      }
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setAttachMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -4417,6 +5506,10 @@ export default function Home() {
       // Tool use markers
       if (line.startsWith("⚡ ")) {
         return <span key={i} style={{ color: "var(--crt-amber)" }}>{line}{"\n"}</span>;
+      }
+      // Mid-task user guidance injected via POST /jobs/:id/message
+      if (line.startsWith("◈ GUIDANCE ▸")) {
+        return <span key={i} style={{ color: "var(--crt-blue)", fontWeight: "bold" }}>{line}{"\n"}</span>;
       }
       return <span key={i} style={{ color: "var(--text-primary)" }}>{line}{"\n"}</span>;
     });
@@ -5737,7 +6830,7 @@ export default function Home() {
                           </div>
                           <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); safeSetItem("claude_jobs_agent", p.id); }}
+                              onClick={(e) => { e.stopPropagation(); setAgentType(p.id); safeSetItem("build_jobs_agent", p.id); }}
                               className="text-[10px] px-2 py-1 border rounded transition-colors"
                               style={{ borderColor: "rgba(96,165,250,0.3)", color: "#60a5fa" }}
                               title="Set as active"
@@ -5892,39 +6985,30 @@ export default function Home() {
                 style={{ background: darkOverlayStrong }}
               >
                 {/* Model selector — actual versions, not just families */}
-                <select
+                <PillSelect
                   value={model}
-                  onChange={(e) => {
-                    setModel(e.target.value);
-                    safeSetItem("claude_jobs_model", e.target.value);
-                  }}
-                  className="px-2 py-1 text-[13px] bg-transparent text-crt-green border border-crt-green/20 font-pixel uppercase cursor-pointer hover:border-crt-green/40 transition-colors"
-                  style={{ maxWidth: "180px" }}
+                  options={MODEL_OPTIONS.map(m => ({ value: m.value, label: m.label, color: m.color, hint: m.value }))}
+                  onChange={(v) => { setModel(v); safeSetItem("build_jobs_model", v); }}
+                  accent={MODEL_OPTIONS.find(m => m.value === model)?.color || "var(--crt-green)"}
+                  maxWidth={180}
                   title={`Model: ${modelLabel(model)} (${model})`}
-                >
-                  {MODEL_OPTIONS.map(m => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
+                  aria-label="Model"
+                />
 
                 {/* Agent/Personality selector */}
-                <div className="flex items-center">
-                  <select
+                <div className="flex items-center gap-1">
+                  <PillSelect
                     value={agentType}
-                    onChange={(e) => {
-                      setAgentType(e.target.value);
-                      safeSetItem("claude_jobs_agent", e.target.value);
-                    }}
-                    className="px-2 py-1 text-[13px] bg-transparent text-crt-blue border border-crt-blue/20 font-pixel uppercase cursor-pointer hover:border-crt-blue/40 transition-colors rounded-l"
-                    style={{ maxWidth: "160px", borderRight: "none" }}
-                  >
-                    {AGENT_OPTIONS.map((a) => (
-                      <option key={a.value} value={a.value}>{a.icon} {a.label}</option>
-                    ))}
-                  </select>
+                    options={AGENT_OPTIONS.map(a => ({ value: a.value, label: `${a.icon} ${a.label}` }))}
+                    onChange={(v) => { setAgentType(v); safeSetItem("build_jobs_agent", v); }}
+                    accent="var(--crt-blue)"
+                    maxWidth={160}
+                    menuWidth={200}
+                    aria-label="Personality"
+                  />
                   <button
                     onClick={() => { setEditingPersonality(null); setCreatingPersonality(false); setPersonalityDraft({ name: "", icon: ">_", prompt: "" }); setShowPersonalityManager(true); }}
-                    className="px-1.5 py-1 text-[11px] border border-crt-blue/20 text-crt-blue/40 hover:text-crt-blue hover:border-crt-blue/40 transition-colors rounded-r"
+                    className="px-2 py-1 text-[11px] border border-crt-blue/20 text-crt-blue/40 hover:text-crt-blue hover:border-crt-blue/40 transition-colors rounded-full"
                     title="Manage personalities"
                   >
                     ...
@@ -6071,6 +7155,34 @@ export default function Home() {
                   />
                 )}
 
+                {/* Attach images — file picker beside paste, so phones can
+                    upload screenshots from the photo library or camera */}
+                <input
+                  ref={composerImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    addImageFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => composerImageInputRef.current?.click()}
+                  className="px-2 py-1 text-[11px] font-pixel uppercase border rounded transition-colors flex items-center gap-1"
+                  style={{
+                    borderColor: "rgba(96,165,250,0.3)",
+                    color: "var(--text-secondary)",
+                    background: "transparent",
+                  }}
+                  title="Attach images from this device — photos and screenshots (or just paste into the box)"
+                >
+                  <span>📎</span>
+                  <span>IMG</span>
+                </button>
+
                 {/* Snap-on-submit toggle — attach a fresh screenshot of the
                     selected module's app page to each submitted task */}
                 <button
@@ -6078,7 +7190,7 @@ export default function Home() {
                   onClick={() => {
                     const next = !snapAppOnSubmit;
                     setSnapAppOnSubmit(next);
-                    safeSetItem("claude_snap_app_on_submit", next ? "1" : "0");
+                    safeSetItem("build_snap_app_on_submit", next ? "1" : "0");
                   }}
                   className="px-2 py-1 text-[11px] font-pixel uppercase border rounded transition-colors flex items-center gap-1"
                   style={{
@@ -6096,15 +7208,17 @@ export default function Home() {
                   <span>SNAP {snapAppOnSubmit ? "ON" : "OFF"}</span>
                 </button>
 
-                {/* Image count badge */}
+                {/* Image count badge — click to preview the attachments */}
                 {images.length > 0 && (
                   <div className="relative group flex items-center">
-                    <span
-                      className="text-[14px] px-2 py-1 border border-crt-blue/30 text-crt-blue/70 uppercase cursor-default"
+                    <button
+                      onClick={() => setImagePreviewIdx(0)}
+                      className="text-[14px] px-2 py-1 border border-crt-blue/30 text-crt-blue/70 hover:border-crt-blue/60 hover:text-crt-blue uppercase transition-colors"
                       style={{ letterSpacing: "0" }}
+                      title="Click to preview attached images"
                     >
                       {images.length} IMG{images.length > 1 ? "S" : ""}
-                    </span>
+                    </button>
                     <button
                       onClick={() => setImages([])}
                       className="text-[14px] text-crt-red/60 hover:text-crt-red ml-1 transition-colors"
@@ -6314,7 +7428,7 @@ export default function Home() {
         j.id.toLowerCase().includes(q) ||
         (j.work_dir && j.work_dir.toLowerCase().includes(q));
       const matchesStatus = !statusFilter || j.status === statusFilter;
-      const matchesModule = !selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "dev");
+      const matchesModule = !selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "build");
       return matchesSearch && matchesStatus && matchesModule;
     });
 
@@ -6331,7 +7445,7 @@ export default function Home() {
           />
           <div className="flex gap-1.5 shrink-0 items-center">
             {["running", "pending", "completed", "failed", "cancelled"].map((status) => {
-              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "dev"))).length;
+              const count = jobs.filter(j => j.status === status && (!selectedModule || (j.work_dir ? j.work_dir.includes(`/orbit/${selectedModule}`) : selectedModule === "build"))).length;
               if (count === 0) return null;
               const isActive = statusFilter === status;
               return (
@@ -6371,7 +7485,7 @@ export default function Home() {
               const isSelected = selectedJob === job.id;
               const color = STATUS_COLOR[job.status];
               const isPromptExpanded = expandedPrompts.has(job.id);
-              const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "dev";
+              const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
               const isDragOver = dragOverJobId === job.id && draggedJobId !== job.id;
               return (
                 <div
@@ -6493,7 +7607,7 @@ export default function Home() {
 
                     {/* Footer: module + copy */}
                     <div className="flex items-center gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
-                      {job.work_dir && moduleName && moduleName === "dev" && (
+                      {job.work_dir && moduleName && moduleName === "build" && (
                         <span className="text-[9px] uppercase" style={{ color: "var(--crt-amber)", opacity: 0.3 }}>
                           ◈ {moduleName}
                         </span>
@@ -6505,6 +7619,16 @@ export default function Home() {
                       >
                         ⧉ COPY
                       </button>
+                      {job.cid && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); shareTaskQr(job); }}
+                          className="text-[9px] px-1.5 py-0.5 border border-transparent transition-all uppercase font-mono"
+                          style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.55 }}
+                          title={`Task CID ${job.cid} — QR code to replay this task`}
+                        >
+                          ⬡ {job.cid.slice(0, 8)}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -6616,6 +7740,16 @@ export default function Home() {
                         >
                           ✎ Edit
                         </button>
+                        {selectedJobData.cid && (
+                          <button
+                            onClick={() => shareTaskQr(selectedJobData)}
+                            className="task-action focus-ring"
+                            style={{ "--action-accent": "var(--crt-purple, #c084fc)" } as React.CSSProperties}
+                            title={`Share as a QR — scan to replay this task anywhere · CID ${selectedJobData.cid}`}
+                          >
+                            ⛶ QR
+                          </button>
+                        )}
                         {finished && (
                           <button
                             onClick={() => deleteJob(selectedJobData.id)}
@@ -6677,9 +7811,21 @@ export default function Home() {
                           <span className="opacity-30">·</span>
                           <span
                             title={selectedJobData.work_dir}
-                            style={moduleName !== "dev" ? { color: "var(--crt-amber)" } : undefined}
+                            style={moduleName !== "build" ? { color: "var(--crt-amber)" } : undefined}
                           >
                             ◈ {moduleName}
+                          </span>
+                        </>
+                      )}
+                      {selectedJobData.cid && (
+                        <>
+                          <span className="opacity-30">·</span>
+                          <span
+                            title={`Task bundle in store · localfs CID ${selectedJobData.cid} — click to copy`}
+                            onClick={() => { navigator.clipboard?.writeText(selectedJobData.cid || ""); }}
+                            style={{ cursor: "pointer" }}
+                          >
+                            ⬡ {selectedJobData.cid.slice(0, 10)}…
                           </span>
                         </>
                       )}
@@ -6885,6 +8031,68 @@ export default function Home() {
                   </div>
                 )}
               </div>
+
+              {/* ── Guide bar — comment on a RUNNING task and steer it, like
+                  typing while Claude Code works. Sticks to the bottom of the
+                  log so course-corrections land without leaving the view. ── */}
+              {(selectedJobData.status === "running" || selectedJobData.status === "pending") && (
+                <div
+                  className="sticky bottom-0 z-10 px-4 pb-4 pt-6"
+                  style={{ background: "linear-gradient(to top, var(--bg-primary) 65%, transparent)" }}
+                >
+                  <div
+                    className="max-w-[920px] mx-auto flex items-center gap-2 rounded-full px-2 py-1.5"
+                    style={{
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${subtleBorder}`,
+                      boxShadow: "0 10px 28px -14px rgba(0,0,0,0.55)",
+                    }}
+                  >
+                    <span
+                      className="shrink-0 pl-2 text-[13px]"
+                      style={{ color: "var(--crt-blue)" }}
+                      title="Messages are injected into the running agent's session"
+                    >
+                      ◈
+                    </span>
+                    <input
+                      type="text"
+                      value={steerText}
+                      onChange={(e) => setSteerText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          steerJob(selectedJobData.id);
+                        }
+                      }}
+                      placeholder="guide this task — add context, correct course, change direction…"
+                      disabled={steerSending}
+                      className="flex-1 min-w-0 px-1.5 py-1.5 text-[12.5px] outline-none"
+                      style={{
+                        color: "var(--text-primary)",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        background: "transparent",
+                        border: "none",
+                        boxShadow: "none",
+                      }}
+                    />
+                    <button
+                      onClick={() => steerJob(selectedJobData.id)}
+                      disabled={!steerText.trim() || steerSending}
+                      className="shrink-0 rounded-full text-[10px] font-bold uppercase px-3 py-1.5 focus-ring disabled:opacity-40"
+                      style={{
+                        background: "color-mix(in srgb, var(--crt-blue) 14%, transparent)",
+                        border: "1px solid color-mix(in srgb, var(--crt-blue) 40%, transparent)",
+                        color: "var(--crt-blue)",
+                        letterSpacing: "0.06em",
+                      }}
+                      title="Send guidance to the running agent (Enter)"
+                    >
+                      {steerSending ? "…" : "Guide"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* Job list */
@@ -6963,7 +8171,7 @@ export default function Home() {
                 <div className="w-full max-w-[920px] mx-auto px-3 py-3 flex flex-col gap-2.5">
                   {filteredJobs.map((job, idx) => {
                     const color = STATUS_COLOR[job.status];
-                    const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "dev";
+                    const moduleName = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
                     const { cleanPrompt, imagePaths } = parsePromptImages(job.prompt);
                     const jobModelChip = MODEL_OPTIONS.find(o => o.value === job.model || o.family === job.model);
                     const finished = ["completed", "failed", "cancelled"].includes(job.status);
@@ -6992,7 +8200,7 @@ export default function Home() {
                             <span
                               className="task-chip font-mono"
                               style={{ "--chip-accent": "var(--crt-amber)" } as React.CSSProperties}
-                              title={job.work_dir || "dev"}
+                              title={job.work_dir || "build"}
                             >
                               ◈ {moduleName}
                             </span>
@@ -7023,10 +8231,22 @@ export default function Home() {
                           >
                             {cleanPrompt || job.prompt}
                           </p>
-                          {/* Footer — id + hover actions */}
+                          {/* Footer — id + task CID (click → replay QR) + hover actions */}
                           <div className="flex items-center justify-between gap-2 mt-2 min-h-[20px]">
-                            <span className="text-[9.5px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.55 }} title={job.id}>
-                              #{job.id.slice(0, 8)}
+                            <span className="inline-flex items-center gap-2 min-w-0">
+                              <span className="text-[9.5px] font-mono shrink-0" style={{ color: "var(--text-tertiary)", opacity: 0.55 }} title={job.id}>
+                                #{job.id.slice(0, 8)}
+                              </span>
+                              {job.cid && (
+                                <span
+                                  className="text-[9.5px] font-mono truncate cursor-pointer hover:underline"
+                                  style={{ color: "var(--crt-purple, #c084fc)", opacity: 0.6 }}
+                                  title={`Task CID ${job.cid} — click for a replay QR code`}
+                                  onClick={(e) => { e.stopPropagation(); shareTaskQr(job); }}
+                                >
+                                  ⬡ {job.cid.slice(0, 10)}
+                                </span>
+                              )}
                             </span>
                             <span className="inline-flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                               {(job.status === "running" || job.status === "pending") && (
@@ -7232,22 +8452,16 @@ export default function Home() {
                       )}
                       <div className="flex items-center gap-1.5">
                         {showHeaderCreateForm !== "import" && (
-                          <select
+                          <PillSelect
                             value={model}
-                            onChange={(e) => {
-                              setModel(e.target.value);
-                              safeSetItem("claude_jobs_model", e.target.value);
-                            }}
-                            className="min-w-0 flex-1 px-1 py-1 text-[10px] bg-transparent border font-code uppercase cursor-pointer rounded-sm"
-                            style={{ color: accent, borderColor: "var(--border-color)" }}
+                            options={MODEL_OPTIONS.map((m) => ({ value: m.value, label: m.label, color: m.color, hint: m.value }))}
+                            onChange={(v) => { setModel(v); safeSetItem("build_jobs_model", v); }}
+                            accent={MODEL_OPTIONS.find((m) => m.value === model)?.color || accent}
+                            className="min-w-0 flex-1"
+                            menuWidth={190}
                             title={`Model: ${modelLabel(model)} (${model})`}
-                          >
-                            {MODEL_OPTIONS.map((m) => (
-                              <option key={m.value} value={m.value} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
+                            aria-label="Model"
+                          />
                         )}
                         <button
                           onClick={headerCreateOrFork}
@@ -7293,9 +8507,264 @@ export default function Home() {
     if (composerMinimized) return null;
     const inner = (
       <>
+          {/* ── Params strip — TASKS + the request params (mod / model /
+              PARAMS toggle) share ONE compact line ABOVE the params panel
+              and the ask band, so the chips lead what they configure.
+              Never wraps — if the chips overflow, the row scrolls
+              sideways so nothing is hidden. ── */}
+          {/* Two zones: the params chips side-scroll in their own lane while
+              HUB/TASKS stay pinned on the right — on a phone the nav pills
+              used to hide past the end of the scroll. */}
+          <div className="mb-2 flex items-center gap-1.5 shrink-0">
+          <div
+            className="flex items-center gap-1.5 overflow-x-auto flex-1 min-w-0 nav-tabs-mobile-scroll"
+            style={{ scrollbarWidth: "thin" }}
+          >
+            {/* PARAMS toggle — leftmost, leading the mod/model chips it
+                expands (auth + mod/model/agent + system prompt chain) */}
+            <button
+              onClick={() => setSystemPromptOpen(o => !o)}
+              className="shrink-0 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
+              style={activeSysPrompts.length > 0 ? {
+                color: activeModelChip.color,
+                letterSpacing: "0.08em",
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              } : {
+                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
+                letterSpacing: "0.08em",
+                border: `1px solid ${glassBorder}`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              }}
+              title="Agent + auth + params sent with every task (module, model, system prompts)"
+              aria-expanded={systemPromptOpen}
+            >
+              PARAMS
+              {activeSysPrompts.length > 0 && (
+                <span
+                  className="inline-flex items-center justify-center text-[10px] font-mono rounded-full px-1"
+                  style={{
+                    minWidth: 14,
+                    background: `${activeModelChip.color}30`,
+                    color: activeModelChip.color,
+                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
+                  }}
+                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
+                >
+                  {activeSysPrompts.length}
+                </span>
+              )}
+            </button>
+            {/* Agent chip — which agent runs the task, pickable right here.
+                Same menu as the AGENT row in PARAMS; siblings still "soon". */}
+            {(() => {
+              const activeAgent = AGENT_MODS.find(a => a.value === agentMod) || AGENT_MODS[0];
+              return (
+                <PillSelect
+                  value={agentMod}
+                  options={AGENT_MODS.map(a => ({
+                    value: a.value,
+                    label: a.label,
+                    color: a.color,
+                    note: a.available ? undefined : "soon",
+                    hint: a.hint,
+                    disabled: !a.available,
+                  }))}
+                  onChange={(v) => { setAgentMod(v); safeSetItem("build_jobs_agent_mod", v); }}
+                  accent={activeAgent.color}
+                  className="shrink-0 transition-all hover:brightness-125"
+                  maxWidth={160}
+                  menuWidth={210}
+                  triggerStyle={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: "0.05em",
+                    padding: "4px 10px",
+                    border: `1px solid ${activeAgent.color}40`,
+                    background: glassBg,
+                    backdropFilter: "blur(24px) saturate(1.5)",
+                    WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                    boxShadow: glassShadow,
+                  }}
+                  title={`Agent: ${activeAgent.label} — ${activeAgent.hint}`}
+                  aria-label="Agent"
+                />
+              );
+            })()}
+            {/* Module chip — the mod the agent is editing. A real picker:
+                click opens a searchable mod menu right here; the full inline
+                picker still lives in PARAMS. */}
+            <PillSelect
+              value={selectedModuleInfo?.path || selectedModule}
+              options={moduleList.map((m) => ({
+                // value by path — module NAMES are not unique in the registry
+                // (two "app"s); the path is, and the hint shows it.
+                value: m.path || m.name,
+                label: m.name,
+                hint: m.path,
+              }))}
+              onChange={(v) => {
+                const m = moduleList.find((x) => (x.path || x.name) === v);
+                if (!m) return;
+                resetModuleState(m);
+                setSelectedModule(m.name);
+                setSelectedModuleInfo(m);
+                setWorkDir(m.path);
+                fetchModuleConfig(m.name);
+              }}
+              searchable
+              onSearch={(q) => fetchModules(q)}
+              onOpen={() => fetchModules("")}
+              searchPlaceholder="search modules…"
+              accent="#fbbf24"
+              placeholder={selectedModule || "select mod"}
+              className="shrink-0 transition-all hover:brightness-125"
+              maxWidth={220}
+              menuWidth={230}
+              triggerStyle={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                padding: "4px 10px",
+                border: "1px solid rgba(251,191,36,0.25)",
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              }}
+              title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
+              aria-label="Module"
+            />
+            {/* Model chip — which model runs the task. A real picker: click
+                opens the model menu right here, no need to open PARAMS. With
+                the ✦ agent selected the options come from ITS schema (per-
+                provider model lists), not the claude roster. */}
+            {agentMod === "agent" ? (
+              <PillSelect
+                value={agentModelValue}
+                options={agentModelOptions.map(m => ({ value: m, label: m, color: AGENT_MOD_COLOR, hint: `${agentProvider} model` }))}
+                onChange={(v) => setAgentParam("model", v)}
+                accent={AGENT_MOD_COLOR}
+                placeholder={agentModelValue || "module default"}
+                className="shrink-0 transition-all hover:brightness-125"
+                maxWidth={220}
+                menuWidth={250}
+                triggerStyle={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: "0.05em",
+                  padding: "4px 10px",
+                  border: `1px solid ${AGENT_MOD_COLOR}40`,
+                  background: glassBg,
+                  backdropFilter: "blur(24px) saturate(1.5)",
+                  WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                  boxShadow: glassShadow,
+                }}
+                title={`Model: ${agentModelValue || "module default"} (${agentProvider} via orbit/agent)`}
+                aria-label="Model"
+              />
+            ) : (
+            <PillSelect
+              value={model}
+              options={MODEL_OPTIONS.map(m => ({ value: m.value, label: m.label, color: m.color, hint: m.value }))}
+              onChange={(v) => { setModel(v); safeSetItem("build_jobs_model", v); }}
+              accent={activeModelChip.color}
+              className="shrink-0 transition-all hover:brightness-125"
+              maxWidth={200}
+              menuWidth={190}
+              triggerStyle={{
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+                padding: "4px 10px",
+                border: `1px solid ${activeModelChip.color}40`,
+                background: glassBg,
+                backdropFilter: "blur(24px) saturate(1.5)",
+                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                boxShadow: glassShadow,
+              }}
+              title={`Model: ${activeModelChip.label} — click to switch`}
+              aria-label="Model"
+            />
+            )}
+            <div className="flex-1" />
+          </div>
+            {/* HUB / TASKS — the console nav, moved down from the header to
+                the chat bar. Right-anchored opposite the params chips; TASKS
+                carries the running-job count while work is in flight. */}
+            {(() => {
+              const running = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+              const pills = [
+                {
+                  key: "hub" as const,
+                  icon: <HubIcon size={12} />,
+                  label: "Hub",
+                  color: "var(--crt-green)",
+                  title: "HUB — open the module hub",
+                  onClick: () => setSidebarView("hub"),
+                  badge: null as number | null,
+                },
+                {
+                  key: "tasks" as const,
+                  icon: running > 0
+                    ? <SpinnerIcon size={10} thickness={1.5} />
+                    : <TasksIcon size={12} />,
+                  label: "Tasks",
+                  color: "var(--crt-blue)",
+                  title: "TASKS — open the full-page tasks view",
+                  onClick: () => {
+                    // Always land on the task LIST (running work first) — not
+                    // whichever task happened to be open last.
+                    setSelectedJob(null);
+                    setStreamOutput("");
+                    setSidebarView("tasks");
+                  },
+                  badge: running > 0 ? running : null,
+                },
+              ];
+              return pills.map((p) => {
+                const active = sidebarView === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={p.onClick}
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-code text-[11px] font-bold uppercase transition-all hover:brightness-125 focus-ring"
+                    style={{
+                      background: active ? `color-mix(in srgb, ${p.color} 14%, transparent)` : glassBg,
+                      backdropFilter: "blur(24px) saturate(1.5)",
+                      WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                      border: `1px solid color-mix(in srgb, ${p.color} ${active ? 55 : 30}%, transparent)`,
+                      color: active ? p.color : "var(--text-secondary)",
+                      letterSpacing: "0.06em",
+                      boxShadow: glassShadow,
+                    }}
+                    title={p.title}
+                    aria-pressed={active}
+                  >
+                    <span className="inline-flex" style={{ color: p.color }}>{p.icon}</span>
+                    {/* Phone: icon-only pills — the labels are what pushed
+                        the nav off-screen. */}
+                    {!isMobile && <span>{p.label}</span>}
+                    {p.badge != null && (
+                      <span className="font-mono text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
+                        {p.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              });
+            })()}
+          </div>
           {/* ── PARAMS — the agent selector + auth + the request params sent
-              with every task (mod, model, system prompt). Expands ABOVE the
-              one-line band; toggled from the PARAMS chip in it. ── */}
+              with every task (mod, model, system prompt). Opens between the
+              chip strip and the ask band; toggled from the PARAMS chip
+              directly above it. ── */}
             {systemPromptOpen && (
               <div
                 className="mb-2 rounded-2xl px-3.5 py-3 overflow-y-auto"
@@ -7303,7 +8772,17 @@ export default function Home() {
                   // Never taller than what's left below the header — on a
                   // phone the open panel used to squeeze the header/content
                   // off; the calc keeps header + strip + band always visible.
-                  maxHeight: "min(55vh, calc(100dvh - var(--header-h, 56px) - 150px))",
+                  // The calc is only a soft cap: the dock itself is bounded to
+                  // the shell and this is its one shrinkable child, so on a
+                  // short viewport the panel gives up height (scrolling its
+                  // own content) rather than pushing the ask band off-screen.
+                  flexShrink: 1,
+                  minHeight: 0,
+                  // Expanded is a real size, not just a lifted cap — the
+                  // panel fills the workspace even when its content is short,
+                  // so it reads as a full-page params sheet.
+                  ...(paramsExpanded ? { height: "calc(100dvh - var(--header-h, 56px) - 150px)" } : {}),
+                  maxHeight: "min(calc(100dvh - var(--header-h, 56px) - 150px), " + (paramsExpanded ? "100dvh" : "55vh") + ")",
                   background: glassBg,
                   backdropFilter: "blur(24px) saturate(1.5)",
                   WebkitBackdropFilter: "blur(24px) saturate(1.5)",
@@ -7311,14 +8790,74 @@ export default function Home() {
                   boxShadow: glassShadow,
                 }}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)", letterSpacing: "0.08em" }}>
-                    PARAMS
-                  </span>
-                  <div className="flex-1" />
+                {/* Header — sticks to the top while the panel scrolls, and the
+                    whole row (not a 13px ✕) closes it: on a phone the panel is
+                    thumb-height, so the collapse target has to be too. Swiping
+                    the row down dismisses it like a sheet. */}
+                <div
+                  className="flex items-center gap-2 mb-2 sticky z-[2] -mx-3.5 px-3.5 -mt-3 pt-3"
+                  style={{
+                    // Sticks 12px ABOVE the scrollport edge so the row also
+                    // covers the panel's own top padding — content scrolling
+                    // through that gap is what shows over a `top: 0` header.
+                    top: -12,
+                    // Near-opaque: the panel scrolls UNDER this row, and at
+                    // the panel's own 0.66 glass the chips read straight
+                    // through the header.
+                    background: isLight ? "rgb(250,250,252)" : "rgb(14,14,17)",
+                    backdropFilter: "blur(24px) saturate(1.5)",
+                    WebkitBackdropFilter: "blur(24px) saturate(1.5)",
+                    touchAction: "pan-y",
+                  }}
+                  onPointerDown={(e) => {
+                    // Track the swipe on the DOCUMENT: a 40px flick leaves the
+                    // header long before it ends, so element-level pointermove
+                    // would stop firing halfway through the gesture.
+                    const startY = e.clientY;
+                    const done = () => {
+                      document.removeEventListener("pointermove", onMove);
+                      document.removeEventListener("pointerup", done);
+                      document.removeEventListener("pointercancel", done);
+                    };
+                    const onMove = (ev: PointerEvent) => {
+                      if (ev.clientY - startY <= 40) return;
+                      done();
+                      setSystemPromptOpen(false);
+                    };
+                    document.addEventListener("pointermove", onMove);
+                    document.addEventListener("pointerup", done);
+                    document.addEventListener("pointercancel", done);
+                  }}
+                >
                   <button
-                    onClick={() => { setSystemPromptOpen(false); safeSetItem("claude_system_prompt_open", "0"); }}
-                    className="text-[13px] px-2 py-1 rounded focus-ring"
+                    onClick={() => setSystemPromptOpen(false)}
+                    className="flex-1 min-w-0 flex items-center gap-1.5 text-left py-1.5 rounded focus-ring"
+                    style={{ background: "transparent", border: "none" }}
+                    title="Hide params — swipe this row down, or tap it"
+                    aria-expanded={true}
+                    aria-label="Hide params"
+                  >
+                    <span aria-hidden="true" style={{ color: "var(--text-tertiary)", opacity: 0.75, fontSize: 11 }}>▾</span>
+                    <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-secondary)", letterSpacing: "0.08em" }}>
+                      PARAMS
+                    </span>
+                    <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
+                      — tap to hide
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setParamsExpanded(e => !e)}
+                    className="shrink-0 text-[13px] px-2.5 py-2 rounded focus-ring"
+                    style={{ color: paramsExpanded ? "var(--text-secondary)" : "var(--text-tertiary)" }}
+                    title={paramsExpanded ? "Collapse params to half height" : "Expand params to full height"}
+                    aria-label={paramsExpanded ? "Collapse params" : "Expand params"}
+                    aria-pressed={paramsExpanded}
+                  >
+                    {paramsExpanded ? "⤡" : "⤢"}
+                  </button>
+                  <button
+                    onClick={() => setSystemPromptOpen(false)}
+                    className="shrink-0 text-[13px] px-2.5 py-2 rounded focus-ring"
                     style={{ color: "var(--text-tertiary)" }}
                     title="Close params"
                     aria-label="Close params"
@@ -7326,103 +8865,45 @@ export default function Home() {
                     ✕
                   </button>
                 </div>
-                {/* AGENT — which agent runs the task, at the top because every
-                    param below belongs to it. Each agent owns its own parameter
-                    set; "mod" (this module's claude-code harness) is the only
-                    one wired today, so it's the honest default — codex et al.
-                    become selectable here later. */}
-                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
-                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                {/* Stacked rows — the request params lead (AGENT · MOD ·
+                    MODEL · PROMPT), then the SYSTEM chain, then FRAMEWORK
+                    snapshots under a hairline. Each row wraps on its own
+                    instead of the whole panel flowing into one soup. */}
+                <div className="flex flex-col gap-2.5">
+                {/* Row 1 — the request params sent with every task. */}
+                <div className="flex items-center flex-wrap gap-x-5 gap-y-2">
+                {/* AGENT — which agent runs the task. Each agent owns its own
+                    parameter set; "claude" (this module's claude-code harness)
+                    is the only one wired today, so it's the honest default —
+                    codex et al. become selectable here later. */}
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     AGENT
                   </span>
                   {(() => {
                     const active = AGENT_MODS.find(a => a.value === agentMod) || AGENT_MODS[0];
                     return (
-                      <select
+                      <PillSelect
                         value={agentMod}
-                        onChange={(e) => {
-                          const pick = AGENT_MODS.find(a => a.value === e.target.value);
-                          if (!pick?.available) return;
-                          setAgentMod(pick.value);
-                          safeSetItem("claude_jobs_agent_mod", pick.value);
-                        }}
-                        className="text-[12px] font-mono px-2.5 py-1.5 rounded-full outline-none cursor-pointer"
-                        style={{
-                          color: active.color,
-                          border: `1px solid ${active.color}55`,
-                          background: `${active.color}14`,
-                          letterSpacing: "0.04em",
-                        }}
+                        options={AGENT_MODS.map(a => ({
+                          value: a.value,
+                          label: a.label,
+                          color: a.color,
+                          note: a.available ? undefined : "soon",
+                          hint: a.hint,
+                          disabled: !a.available,
+                        }))}
+                        onChange={(v) => { setAgentMod(v); safeSetItem("build_jobs_agent_mod", v); }}
+                        accent={active.color}
                         title={`Agent: ${active.label} — ${active.hint}. Each agent has its own parameter set; more agents (codex) land here soon.`}
-                      >
-                        {AGENT_MODS.map(a => (
-                          <option key={a.value} value={a.value} disabled={!a.available}>
-                            {a.label}{a.available ? "" : " — soon"}
-                          </option>
-                        ))}
-                      </select>
+                        aria-label="Agent"
+                      />
                     );
                   })()}
-                  <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
-                    params below are this agent&apos;s set
-                  </span>
                 </div>
-                {/* AUTH — who this request is signed as */}
-                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
-                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
-                    AUTH
-                  </span>
-                  <span
-                    className="text-[11px] font-mono px-2.5 py-1 rounded-full"
-                    style={{
-                      color: address ? "var(--text-secondary)" : "var(--crt-red)",
-                      border: `1px solid ${subtleBorder}`,
-                      background: "var(--bg-secondary)",
-                      letterSpacing: "0.04em",
-                    }}
-                    title={address ? `Signed in as ${address}${walletType ? ` via ${walletType}` : ""}` : "Not signed in"}
-                  >
-                    {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}…${address.slice(-4)}`) : "SIGNED OUT"}
-                    {walletType && <span style={{ opacity: 0.55 }}> · {walletType}</span>}
-                  </span>
-                  {address && (
-                    <span
-                      className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full"
-                      style={isOwner ? {
-                        color: "var(--crt-green)",
-                        border: "1px solid rgba(52,211,153,0.35)",
-                        background: "rgba(52,211,153,0.08)",
-                        letterSpacing: "0.06em",
-                      } : {
-                        color: "var(--crt-amber)",
-                        border: "1px solid rgba(251,191,36,0.3)",
-                        background: "rgba(251,191,36,0.06)",
-                        letterSpacing: "0.06em",
-                      }}
-                      title={isOwner ? "You are the configured owner — full edit access" : "Guest — edits limited to peers/ modules"}
-                    >
-                      {isOwner ? "OWNER" : "GUEST · PEERS EDIT"}
-                    </span>
-                  )}
-                  {ownerAddress && !isOwner && (
-                    <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)", opacity: 0.7 }} title={`Configured owner: ${ownerAddress}`}>
-                      owner {ownerAddress.slice(0, 6)}…{ownerAddress.slice(-4)}
-                    </span>
-                  )}
-                  <span
-                    className="inline-block w-1.5 h-1.5 rounded-full"
-                    style={{
-                      background: token ? "var(--crt-green)" : "var(--crt-red)",
-                      boxShadow: token ? "0 0 5px var(--crt-green)" : "none",
-                    }}
-                    title={token ? "Auth token active" : "No auth token"}
-                  />
-                  {/* Claude credential status — lives here now, not on the band */}
-                  <AuthBadge inline />
-                </div>
-                {/* Request params — MOD / MODEL / AGENT */}
-                <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 mb-2">
-                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                {/* Request params — MOD / MODEL / PROMPT */}
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     MOD
                   </span>
                   {!modPickerOpen ? (
@@ -7447,7 +8928,7 @@ export default function Home() {
                     </button>
                   ) : (
                     <div
-                      className="flex-1 min-w-[180px] max-w-[340px] rounded-xl overflow-hidden"
+                      className="w-[320px] max-w-[75vw] rounded-xl overflow-hidden"
                       style={{ border: "1px solid rgba(251,191,36,0.3)", background: "var(--bg-secondary)" }}
                     >
                       <input
@@ -7524,62 +9005,353 @@ export default function Home() {
                       </button>
                     </div>
                   )}
-                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                </div>
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     MODEL
                   </span>
-                  <select
+                  {agentMod === "agent" ? (
+                    <PillSelect
+                      value={agentModelValue}
+                      options={agentModelOptions.map(m => ({ value: m, label: m, color: AGENT_MOD_COLOR, hint: `${agentProvider} model` }))}
+                      onChange={(v) => setAgentParam("model", v)}
+                      accent={AGENT_MOD_COLOR}
+                      placeholder={agentModelValue || "module default"}
+                      maxWidth={240}
+                      menuWidth={250}
+                      title={`Model: ${agentModelValue || "module default"} (${agentProvider} via orbit/agent)`}
+                      aria-label="Model"
+                    />
+                  ) : (
+                  <PillSelect
                     value={model}
-                    onChange={(e) => { setModel(e.target.value); safeSetItem("claude_jobs_model", e.target.value); }}
-                    className="text-[12px] font-mono px-2.5 py-1.5 rounded-full outline-none cursor-pointer"
-                    style={{
-                      color: activeModelChip.color,
-                      border: `1px solid ${activeModelChip.color}55`,
-                      background: `${activeModelChip.color}14`,
-                      letterSpacing: "0.04em",
-                    }}
+                    options={MODEL_OPTIONS.map(m => ({ value: m.value, label: m.label, color: m.color, hint: m.value }))}
+                    onChange={(v) => { setModel(v); safeSetItem("build_jobs_model", v); }}
+                    accent={activeModelChip.color}
                     title={`Model: ${activeModelChip.label} (${activeModelChip.value})`}
-                  >
-                    {MODEL_OPTIONS.map(m => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                  <span className="text-[10px] font-bold uppercase w-[52px] shrink-0 sm:ml-2" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                    aria-label="Model"
+                  />
+                  )}
+                </div>
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
                     PROMPT
                   </span>
                   {/* System-prompt selector (was "Agent" — these are prompt
                       presets, not agents). The selected prompt is shown in
                       full in the SYSTEM section below. */}
-                  <select
+                  <PillSelect
                     value={agentType}
-                    onChange={(e) => { setAgentType(e.target.value); safeSetItem("claude_jobs_agent", e.target.value); }}
-                    className="text-[12px] font-mono px-2.5 py-1.5 rounded-full outline-none cursor-pointer max-w-[180px]"
-                    style={{
-                      color: "var(--text-secondary)",
-                      border: `1px solid ${subtleBorder}`,
-                      background: "var(--bg-secondary)",
-                      letterSpacing: "0.04em",
-                    }}
-                    title="Select system prompt — sent when no chain blocks are active; shown in SYSTEM below"
-                  >
-                    {AGENT_OPTIONS.map(a => (
-                      <option key={a.value} value={a.value}>
-                        {a.value === "default" ? "select system prompt" : a.label}
-                      </option>
-                    ))}
-                  </select>
+                    options={AGENT_OPTIONS.map(a => ({
+                      value: a.value,
+                      label: a.value === "default" ? "select system prompt" : `${a.icon} ${a.label}`,
+                    }))}
+                    onChange={(v) => { setAgentType(v); safeSetItem("build_jobs_agent", v); }}
+                    accent="var(--text-secondary)"
+                    maxWidth={180}
+                    menuWidth={220}
+                    title="Select system prompt — sent when no chain blocks are active; tap ▸ to read it"
+                    aria-label="System prompt"
+                  />
+                  {/* Reveal the preset's full text. With a chain active the
+                      preset isn't sent, so it gets its own preview box; with
+                      no chain it IS the effective prompt — just open the
+                      "sent with every task" preview below. */}
+                  {activePersonality?.prompt ? (() => {
+                    const open = chainedSystemPrompt ? personaPromptOpen : sysPromptPreviewOpen;
+                    const toggle = chainedSystemPrompt ? setPersonaPromptOpen : setSysPromptPreviewOpen;
+                    return (
+                      <button
+                        onClick={() => toggle(v => !v)}
+                        className="text-[12px] px-1 py-1 focus-ring"
+                        style={{ color: "var(--text-tertiary)", opacity: open ? 1 : 0.7 }}
+                        title={open
+                          ? `Hide the "${activePersonality.name}" prompt text`
+                          : `Read the full "${activePersonality.name}" prompt below`}
+                        aria-expanded={open}
+                        aria-label={`Show prompt text for ${activePersonality.name}`}
+                      >
+                        {open ? "▾" : "▸"}
+                      </button>
+                    );
+                  })() : null}
                 </div>
+                </div>
+                {/* ✦ AGENT PARAMS — rendered from orbit/agent's own GET
+                    /params schema, so the agent module owns its params UI:
+                    fields it adds (persona, provider, toolbox, steps, …)
+                    appear here without a console change. Below the fields,
+                    its prepaid-credit balance + tx-hash top-up and the
+                    Venice provider balance. Only with the ✦ agent selected. */}
+                {agentMod === "agent" && (
+                  <div
+                    className="flex flex-col gap-2.5 rounded-xl px-3 py-2.5"
+                    style={{ border: `1px solid ${AGENT_MOD_COLOR}33`, background: `${AGENT_MOD_COLOR}0d` }}
+                  >
+                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                      <span className="text-[10px] font-bold uppercase" style={{ color: AGENT_MOD_COLOR, letterSpacing: "0.08em" }}>
+                        ✦ {agentSchema?.title || "AGENT PARAMS"}
+                      </span>
+                      <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)" }}>
+                        orbit/agent{agentSchema?.version ? ` v${agentSchema.version}` : ""} — panel rendered from the module's own /params schema
+                      </span>
+                      <button
+                        onClick={() => { fetchAgentSchema(); refreshAgentCredits(); }}
+                        className="text-[12px] px-1.5 rounded focus-ring"
+                        style={{ color: "var(--text-tertiary)" }}
+                        title="Refresh the agent's schema + credit balances"
+                        aria-label="Refresh agent params"
+                      >
+                        ⟳
+                      </button>
+                    </div>
+                    {!agentSchema ? (
+                      <div className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                        agent module unreachable —{" "}
+                        <button onClick={fetchAgentSchema} className="underline focus-ring" style={{ color: AGENT_MOD_COLOR }}>
+                          retry
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center flex-wrap gap-x-5 gap-y-2">
+                        {agentSchema.fields
+                          .filter((f: any) => f.name !== "model") // MODEL lives in Row 1 + the chip strip
+                          .map((f: any) => {
+                            const val = agentParams[f.name] ?? f.default;
+                            if (f.type === "select") {
+                              const opts = ((f.options || []) as any[]).map((o) =>
+                                typeof o === "string"
+                                  ? { value: o, label: o }
+                                  : {
+                                      value: o.value === null || o.value === undefined ? "" : String(o.value),
+                                      label: o.icon ? `${o.icon} ${o.label}` : o.label,
+                                      hint: o.hint,
+                                    }
+                              );
+                              return (
+                                <div key={f.name} className="inline-flex items-center gap-2">
+                                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                                    {f.label}
+                                  </span>
+                                  <PillSelect
+                                    value={val === null || val === undefined ? "" : String(val)}
+                                    options={opts}
+                                    onChange={(v) => {
+                                      setAgentParam(f.name, v);
+                                      // a provider switch invalidates the picked model
+                                      if (f.name === "provider") setAgentParam("model", null);
+                                    }}
+                                    accent={AGENT_MOD_COLOR}
+                                    maxWidth={190}
+                                    menuWidth={240}
+                                    title={f.hint || f.label}
+                                    aria-label={f.label}
+                                  />
+                                </div>
+                              );
+                            }
+                            if (f.type === "number") {
+                              return (
+                                <div key={f.name} className="inline-flex items-center gap-2">
+                                  <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                                    {f.label}
+                                  </span>
+                                  <input
+                                    type="number"
+                                    value={val ?? ""}
+                                    min={f.min}
+                                    max={f.max}
+                                    step={f.step}
+                                    onChange={(e) => setAgentParam(f.name, e.target.value === "" ? null : Number(e.target.value))}
+                                    className="w-[76px] text-[12px] font-mono px-2 py-1 rounded-full focus-ring"
+                                    style={{ color: AGENT_MOD_COLOR, border: `1px solid ${AGENT_MOD_COLOR}40`, background: "transparent" }}
+                                    title={f.hint || f.label}
+                                    aria-label={f.label}
+                                  />
+                                </div>
+                              );
+                            }
+                            if (f.type === "toggle") {
+                              const on = !!val;
+                              return (
+                                <button
+                                  key={f.name}
+                                  onClick={() => setAgentParam(f.name, !on)}
+                                  className="text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125"
+                                  style={on
+                                    ? { color: AGENT_MOD_COLOR, border: `1px solid ${AGENT_MOD_COLOR}66`, background: `${AGENT_MOD_COLOR}18` }
+                                    : { color: "var(--text-tertiary)", border: `1px solid ${subtleBorder}`, background: "transparent" }}
+                                  title={f.hint || f.label}
+                                  aria-pressed={on}
+                                >
+                                  {f.label} {on ? "ON" : "OFF"}
+                                </button>
+                              );
+                            }
+                            return null;
+                          })}
+                      </div>
+                    )}
+                    {/* Credits + Venice balances, with the tx-hash top-up. */}
+                    <div className="flex flex-col gap-1.5 pt-2" style={{ borderTop: `1px dashed ${AGENT_MOD_COLOR}33` }}>
+                      <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5">
+                        <span className="text-[10px] font-bold uppercase" style={{ color: AGENT_MOD_COLOR, letterSpacing: "0.08em" }}>
+                          CREDITS
+                        </span>
+                        <span className="text-[11px] font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {agentCredits?.account
+                            ? `balance $${Number(agentCredits.account.balance ?? 0).toFixed(2)}`
+                            : agentModToken
+                              ? "balance …"
+                              : "connect to see your balance"}
+                        </span>
+                        {agentCredits?.price_per_step != null && (
+                          <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                            ${agentCredits.price_per_step}/step
+                          </span>
+                        )}
+                        {agentModToken && agentAuth?.agents?.agent?.connected ? (
+                          <span className="text-[10px] font-mono" style={{ color: "#34d399" }} title="Jobs you submit carry your signed agent-module token">
+                            ✓ CONNECTED
+                          </span>
+                        ) : (
+                          <button
+                            onClick={connectAgentModule}
+                            disabled={agentConnectBusy}
+                            className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125"
+                            style={{ color: AGENT_MOD_COLOR, border: `1px solid ${AGENT_MOD_COLOR}66`, background: `${AGENT_MOD_COLOR}18`, letterSpacing: "0.06em" }}
+                            title="Sign a free message to mint your agent-module identity token — jobs then run (and bill) on YOUR address"
+                          >
+                            {agentConnectBusy ? "SIGNING…" : "CONNECT"}
+                          </button>
+                        )}
+                        <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                          VENICE
+                        </span>
+                        <span className="text-[11px] font-mono" style={{ color: "var(--text-secondary)" }} title="The agent module's Venice API balance">
+                          {veniceBalance?.balance != null
+                            ? `$${Number(veniceBalance.balance).toFixed(2)}`
+                            : veniceBalance?.balances
+                              ? Object.entries(veniceBalance.balances).map(([k, v]) => `${k} ${v}`).join(" · ")
+                              : veniceBalance?.encrypted && !veniceBalance?.unlocked
+                                ? "key sealed — unlock in orbit/agent"
+                                : veniceBalance?.configured === false
+                                  ? "no key"
+                                  : "…"}
+                        </span>
+                      </div>
+                      <div className="flex items-center flex-wrap gap-2">
+                        <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}>
+                          LOAD
+                        </span>
+                        {Object.keys(agentCredits?.deposit?.networks || { base: 1, ethereum: 1 }).map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => setDepositNetwork(n)}
+                            className="text-[10px] font-mono px-2 py-1 rounded-full focus-ring"
+                            style={depositNetwork === n
+                              ? { color: AGENT_MOD_COLOR, border: `1px solid ${AGENT_MOD_COLOR}66`, background: `${AGENT_MOD_COLOR}18` }
+                              : { color: "var(--text-tertiary)", border: `1px solid ${subtleBorder}` }}
+                            aria-pressed={depositNetwork === n}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <input
+                          value={depositTx}
+                          onChange={(e) => setDepositTx(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") loadAgentCredits(); }}
+                          placeholder="USDC/USDT transfer tx hash…"
+                          className="flex-1 min-w-[180px] text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring outline-none"
+                          style={{ color: "var(--text-primary)", border: `1px solid ${subtleBorder}`, background: "transparent" }}
+                          aria-label="Deposit transaction hash"
+                        />
+                        <button
+                          onClick={loadAgentCredits}
+                          disabled={depositBusy || !depositTx.trim()}
+                          className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125"
+                          style={{
+                            color: depositTx.trim() ? AGENT_MOD_COLOR : "var(--text-tertiary)",
+                            border: `1px solid ${depositTx.trim() ? `${AGENT_MOD_COLOR}66` : subtleBorder}`,
+                            background: depositTx.trim() ? `${AGENT_MOD_COLOR}18` : "transparent",
+                            letterSpacing: "0.06em",
+                          }}
+                        >
+                          {depositBusy ? "VERIFYING…" : "LOAD"}
+                        </button>
+                      </div>
+                      <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                        send USDC/USDT on {depositNetwork} to{" "}
+                        {agentCredits?.deposit?.address ? (
+                          <button
+                            onClick={() => { navigator.clipboard?.writeText(agentCredits.deposit.address); }}
+                            className="underline focus-ring"
+                            style={{ color: "var(--text-secondary)" }}
+                            title={`${agentCredits.deposit.address} — click to copy`}
+                          >
+                            {agentCredits.deposit.address.slice(0, 6)}…{agentCredits.deposit.address.slice(-4)}
+                          </button>
+                        ) : (
+                          "the module's deposit address"
+                        )}
+                        , then paste the tx hash — credits land on the SENDING address
+                      </div>
+                      {depositMsg && (
+                        <div className="text-[11px] font-mono" style={{ color: depositMsg.startsWith("✓") ? "#34d399" : "#f87171" }}>
+                          {depositMsg}
+                        </div>
+                      )}
+                      {(agentCredits?.account?.history?.length ?? 0) > 0 && (
+                        <div className="text-[10px] font-mono flex flex-col gap-0.5" style={{ color: "var(--text-tertiary)" }}>
+                          {agentCredits.account.history.slice(-3).reverse().map((h: any, i: number) => (
+                            <div key={i}>
+                              {h.type} ${h.amount}
+                              {h.note ? ` — ${h.note}` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {/* SYSTEM — the prompt chain as name-only chips. Click a chip
                     to toggle it in/out of the chain; content is edited in the
                     separate SYSTEM PROMPTS modal. Active chips show their
                     chain position (concatenation order). */}
-                <div className="flex items-start gap-x-2">
-                  <span
-                    className="text-[10px] font-bold uppercase w-[52px] shrink-0 mt-[6px]"
-                    style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em" }}
+                <div className="inline-flex items-center flex-wrap gap-x-2 gap-y-1.5">
+                  <button
+                    onClick={() => toggleParamSection("system")}
+                    className="text-[10px] font-bold uppercase shrink-0 inline-flex items-center gap-1 px-1 py-1.5 rounded focus-ring"
+                    style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", background: "transparent", border: "none" }}
+                    title={paramSections.system ? "Fold the SYSTEM prompt chain" : "Show the system prompt chain"}
+                    aria-expanded={paramSections.system}
                   >
+                    <span aria-hidden="true" style={{ opacity: 0.7 }}>{paramSections.system ? "▾" : "▸"}</span>
                     SYSTEM
-                  </span>
-                  <div className="flex-1 flex items-center flex-wrap gap-1.5">
+                  </button>
+                  {/* Folded, the chain still reports how many blocks ship with
+                      the task — the one thing you'd open it to check. */}
+                  {!paramSections.system && (
+                    <button
+                      onClick={() => toggleParamSection("system")}
+                      className="text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring"
+                      style={activeSysPrompts.length > 0 ? {
+                        color: activeModelChip.color,
+                        border: `1px solid ${activeModelChip.color}66`,
+                        background: `${activeModelChip.color}18`,
+                      } : {
+                        color: "var(--text-tertiary)",
+                        border: `1px solid ${subtleBorder}`,
+                        background: "var(--bg-secondary)",
+                      }}
+                      title="Show the system prompt chain"
+                    >
+                      {activeSysPrompts.length > 0
+                        ? `chain × ${activeSysPrompts.length}`
+                        : sysPrompts.length ? `${sysPrompts.length} off` : "none"}
+                    </button>
+                  )}
+                  <div className="flex items-center flex-wrap gap-1.5" style={{ display: paramSections.system ? undefined : "none" }}>
                     {sysPrompts.map(p => {
                       const chainIdx = activeSysPrompts.findIndex(a => a.id === p.id);
                       const active = chainIdx >= 0;
@@ -7652,14 +9424,137 @@ export default function Home() {
                     )}
                   </div>
                 </div>
+                <div style={{ height: 1, background: subtleBorder, opacity: 0.6 }} />
+                {/* FRAMEWORK — named snapshots of the setup above (agent ·
+                    model · prompt preset · system chain). Click a chip to
+                    apply it, ✕ to forget it; + SAVE names the current setup.
+                    The chip matching the live setup glows. */}
+                <div className="inline-flex items-center flex-wrap gap-x-2 gap-y-1.5">
+                  {/* Label doubles as the fold toggle — folded it keeps the
+                      active framework's name visible so the row still says
+                      what's applied. */}
+                  <button
+                    onClick={() => toggleParamSection("framework")}
+                    className="text-[10px] font-bold uppercase shrink-0 inline-flex items-center gap-1 px-1 py-1.5 rounded focus-ring"
+                    style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", background: "transparent", border: "none" }}
+                    title={paramSections.framework ? "Fold the FRAMEWORK row" : "Show saved frameworks"}
+                    aria-expanded={paramSections.framework}
+                  >
+                    <span aria-hidden="true" style={{ opacity: 0.7 }}>{paramSections.framework ? "▾" : "▸"}</span>
+                    FRAMEWORK
+                  </button>
+                  {!paramSections.framework && (() => {
+                    const current = frameworks.find(frameworkIsCurrent);
+                    return (
+                      <button
+                        onClick={() => toggleParamSection("framework")}
+                        className="text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring"
+                        style={current ? {
+                          color: "#a78bfa",
+                          border: "1px solid rgba(167,139,250,0.55)",
+                          background: "rgba(167,139,250,0.14)",
+                        } : {
+                          color: "var(--text-tertiary)",
+                          border: `1px solid ${subtleBorder}`,
+                          background: "var(--bg-secondary)",
+                        }}
+                        title="Show saved frameworks"
+                      >
+                        {current ? `◆ ${current.name}` : frameworks.length ? `${frameworks.length} saved` : "none saved"}
+                      </button>
+                    );
+                  })()}
+                  {paramSections.framework && frameworks.map(fw => {
+                    const current = frameworkIsCurrent(fw);
+                    return (
+                      <span
+                        key={fw.id}
+                        className="inline-flex items-center rounded-full overflow-hidden"
+                        style={current ? {
+                          border: "1px solid rgba(167,139,250,0.55)",
+                          background: "rgba(167,139,250,0.14)",
+                          boxShadow: "0 0 10px rgba(167,139,250,0.18)",
+                        } : {
+                          border: `1px solid ${subtleBorder}`,
+                          background: "var(--bg-secondary)",
+                        }}
+                      >
+                        <button
+                          onClick={() => applyFramework(fw)}
+                          className="text-[11px] font-mono px-2.5 py-1 focus-ring"
+                          style={{ color: current ? "#a78bfa" : "var(--text-secondary)", letterSpacing: "0.04em" }}
+                          title={`Apply "${fw.name}" — ${fw.agent} · ${modelLabel(normalizeModelValue(fw.model))} · ${fw.sysPrompts.filter(p => p.on).length} active prompt block${fw.sysPrompts.filter(p => p.on).length === 1 ? "" : "s"}`}
+                          aria-pressed={current}
+                        >
+                          {current && <span style={{ opacity: 0.7 }}>◆ </span>}
+                          {fw.name}
+                        </button>
+                        <button
+                          onClick={() => deleteFramework(fw.id)}
+                          className="text-[11px] pr-2.5 pl-1 py-1 focus-ring"
+                          style={{ color: "var(--text-tertiary)", opacity: 0.6 }}
+                          title={`Forget framework "${fw.name}"`}
+                          aria-label={`Delete framework ${fw.name}`}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    );
+                  })}
+                  {paramSections.framework && fwSaveOpen && (
+                    <span
+                      className="inline-flex items-center rounded-full overflow-hidden"
+                      style={{ border: "1px solid rgba(167,139,250,0.45)", background: "var(--bg-secondary)" }}
+                    >
+                      <input
+                        ref={fwSaveInputRef}
+                        type="text"
+                        value={fwSaveName}
+                        onChange={(e) => setFwSaveName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveFramework(fwSaveName);
+                          if (e.key === "Escape") { setFwSaveOpen(false); setFwSaveName(""); }
+                        }}
+                        placeholder="name this framework…"
+                        className="text-[11px] font-mono px-2.5 py-1 outline-none w-[150px]"
+                        style={{ background: "transparent", border: "none", color: "var(--text-primary)" }}
+                        aria-label="Framework name"
+                      />
+                      <button
+                        onClick={() => saveFramework(fwSaveName)}
+                        disabled={!fwSaveName.trim()}
+                        className="text-[10px] font-bold uppercase px-2.5 py-1 focus-ring"
+                        style={{ color: fwSaveName.trim() ? "#a78bfa" : "var(--text-tertiary)", letterSpacing: "0.06em" }}
+                        title="Save (Enter)"
+                      >
+                        SAVE
+                      </button>
+                    </span>
+                  )}
+                  {paramSections.framework && !fwSaveOpen && (
+                    <button
+                      onClick={() => { setFwSaveOpen(true); setTimeout(() => fwSaveInputRef.current?.focus(), 0); }}
+                      className="text-[11px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring"
+                      style={{ color: "var(--text-secondary)", border: `1px dashed ${subtleBorder}`, letterSpacing: "0.06em" }}
+                      title="Save the current agent · model · prompts as a named framework"
+                    >
+                      + SAVE
+                    </button>
+                  )}
+                  {paramSections.framework && frameworks.length === 0 && !fwSaveOpen && (
+                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                      save this setup — switch whole frameworks in one click
+                    </span>
+                  )}
+                </div>
+                </div>
                 {/* The effective system prompt, shown in full — what actually
                     ships with the task: the chain when blocks are active,
                     otherwise the prompt selected in PROMPT above. */}
                 {(chainedSystemPrompt || activePersonality?.prompt) && (
-                  <div className="flex items-start gap-x-2 mt-2">
-                    <span className="w-[52px] shrink-0" aria-hidden="true" />
+                  <div className="mt-2">
                     <div
-                      className="flex-1 rounded-xl px-3 py-2 min-w-0"
+                      className="rounded-xl px-3 py-2 min-w-0"
                       style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
                     >
                       <button
@@ -7684,6 +9579,32 @@ export default function Home() {
                         </pre>
                       )}
                     </div>
+                    {/* The selected PROMPT preset in full — opened from the ▸
+                        next to PROMPT. Only rendered while a chain is active
+                        (otherwise the box above already shows this text). */}
+                    {personaPromptOpen && chainedSystemPrompt && activePersonality?.prompt && (
+                      <div
+                        className="rounded-xl px-3 py-2 min-w-0 mt-1.5"
+                        style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
+                      >
+                        <button
+                          onClick={() => setPersonaPromptOpen(false)}
+                          className="text-[9px] font-bold uppercase focus-ring flex items-center gap-1 w-full text-left"
+                          style={{ color: "var(--text-tertiary)", letterSpacing: "0.08em", marginBottom: 4 }}
+                          aria-expanded={true}
+                          title={`Hide the "${activePersonality.name}" prompt text`}
+                        >
+                          <span aria-hidden="true" style={{ opacity: 0.7 }}>▾</span>
+                          {`prompt · "${activePersonality.name}" · ${activePersonality.prompt.length} chars · not sent — chain blocks override it`}
+                        </button>
+                        <pre
+                          className="text-[10px] font-mono whitespace-pre-wrap m-0 max-h-[140px] overflow-y-auto"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {activePersonality.prompt}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -7692,7 +9613,7 @@ export default function Home() {
               [+] [ask agent…] [imgs] [▶] — module/model/agent/auth
               chips live on the params strip below, not on the band. ── */}
           <div
-            className="flex gap-1.5 sm:gap-2 items-stretch rounded-full"
+            className="flex gap-1.5 sm:gap-2 items-stretch rounded-full shrink-0"
             style={{
               background: glassBg,
               backdropFilter: "blur(24px) saturate(1.5)",
@@ -7709,7 +9630,7 @@ export default function Home() {
                 Opens the same compact create form as the rail, popping up
                 above the composer. */}
             <div className="relative flex items-center shrink-0" ref={composerCreateRef}>
-              {showHeaderCreateForm && createAnchor === "composer" && (
+              {showHeaderCreateForm && (
                 <div
                   className="absolute bottom-full left-0 mb-2 border rounded-lg p-2 z-[120] w-[300px] max-w-[80vw]"
                   style={{
@@ -7723,11 +9644,10 @@ export default function Home() {
               )}
               <button
                 onClick={() => {
-                  if (showHeaderCreateForm && createAnchor === "composer") {
+                  if (showHeaderCreateForm) {
                     setShowHeaderCreateForm(null);
                     return;
                   }
-                  setCreateAnchor("composer");
                   setHeaderNewName("");
                   setHeaderGithubUrl("");
                   setShowHeaderCreateForm("create");
@@ -7738,8 +9658,8 @@ export default function Home() {
                   width: 44,
                   height: 44,
                   border: "none",
-                  color: showHeaderCreateForm && createAnchor === "composer" ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 65%, var(--text-secondary))",
-                  background: showHeaderCreateForm && createAnchor === "composer"
+                  color: showHeaderCreateForm ? "var(--crt-green)" : "color-mix(in srgb, var(--crt-green) 65%, var(--text-secondary))",
+                  background: showHeaderCreateForm
                     ? "color-mix(in srgb, var(--crt-green) 14%, transparent)"
                     : (isLight ? "rgba(0,0,0,0.045)" : "rgba(255,255,255,0.06)"),
                   fontSize: 22,
@@ -7747,7 +9667,7 @@ export default function Home() {
                   lineHeight: 1,
                 }}
                 title="Build, fork, edit or import a module"
-                aria-expanded={!!(showHeaderCreateForm && createAnchor === "composer")}
+                aria-expanded={!!showHeaderCreateForm}
                 aria-label="Build, fork, edit or import a module"
               >
                 +
@@ -7756,6 +9676,12 @@ export default function Home() {
             <input
               ref={composerInputRef}
               type="text"
+              name="agent-prompt"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="send"
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitJob(); } }}
@@ -7776,8 +9702,7 @@ export default function Home() {
                   }
                 }
               }}
-              placeholder="ask agent…"
-              disabled={submitting}
+              placeholder="ask agent… (it can also fork or build new mods)"
               className="flex-1 min-w-0 px-2.5 py-2.5 sm:px-3.5 sm:py-3 outline-none text-[16px] sm:text-[17px]"
               style={{
                 color: "var(--text-primary)",
@@ -7803,6 +9728,97 @@ export default function Home() {
                 }
               }}
             />
+            {/* 📷 — attach images + APP SNAP toggle, sized for thumbs. On a
+                phone this is the only home these controls have: the picker
+                reaches the photo library (screenshots) or camera, and the
+                menu carries the snap-on-submit toggle from the full composer. */}
+            <div className="relative self-center shrink-0" ref={attachMenuRef}>
+              {attachMenuOpen && (
+                <div
+                  className="absolute bottom-full right-0 mb-2 border rounded-lg p-1.5 z-[120] w-[240px]"
+                  style={{
+                    background: "var(--bg-primary)",
+                    borderColor: "rgba(96,165,250,0.35)",
+                    boxShadow: "0 12px 40px rgba(0,0,0,0.45)",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setAttachMenuOpen(false);
+                      bandImageInputRef.current?.click();
+                    }}
+                    className="w-full text-left px-2 py-2.5 text-[11px] font-mono rounded flex items-center gap-2 focus-ring"
+                    style={{ color: "var(--text-primary)", background: "transparent" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(96,165,250,0.10)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <span>🖼️</span>
+                    <span className="flex-1">UPLOAD IMAGE…</span>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: 9 }}>photos · screenshots</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = !snapAppOnSubmit;
+                      setSnapAppOnSubmit(next);
+                      safeSetItem("build_snap_app_on_submit", next ? "1" : "0");
+                    }}
+                    className="w-full text-left px-2 py-2.5 text-[11px] font-mono rounded flex items-center gap-2 focus-ring"
+                    style={{ color: snapAppOnSubmit ? "#60a5fa" : "var(--text-tertiary)", background: "transparent" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(96,165,250,0.10)")}
+                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    title={
+                      snapAppOnSubmit
+                        ? `ON: a fresh screenshot of ${selectedModule || "the module"}'s app page is attached to each task`
+                        : "OFF: tasks submit without an app screenshot"
+                    }
+                  >
+                    <span>📷</span>
+                    <span className="flex-1">APP SNAP</span>
+                    <span
+                      className="px-1.5 py-0.5 rounded border text-[9px] font-bold"
+                      style={{
+                        borderColor: snapAppOnSubmit ? "rgba(96,165,250,0.5)" : "rgba(100,116,139,0.3)",
+                        background: snapAppOnSubmit ? "rgba(96,165,250,0.12)" : "transparent",
+                      }}
+                    >
+                      {snapAppOnSubmit ? "ON" : "OFF"}
+                    </span>
+                  </button>
+                </div>
+              )}
+              <input
+                ref={bandImageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  addImageFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                onClick={() => setAttachMenuOpen((o) => !o)}
+                className="flex items-center justify-center rounded-full transition-all hover:brightness-125 focus-ring"
+                style={{
+                  // 44px = the iOS/Android minimum comfortable touch target
+                  width: 44,
+                  height: 44,
+                  border: "none",
+                  color: snapAppOnSubmit ? "#60a5fa" : "color-mix(in srgb, #60a5fa 45%, var(--text-tertiary))",
+                  background: attachMenuOpen
+                    ? "rgba(96,165,250,0.14)"
+                    : (isLight ? "rgba(0,0,0,0.045)" : "rgba(255,255,255,0.06)"),
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                title={`Attach images / app snap ${snapAppOnSubmit ? "ON" : "OFF"}`}
+                aria-expanded={attachMenuOpen}
+                aria-label="Attach images and toggle app snapshot"
+              >
+                📷
+              </button>
+            </div>
             {/* Attached images — inline chip on the band, no extra line */}
             {images.length > 0 && (
               <span
@@ -7814,9 +9830,19 @@ export default function Home() {
                   fontWeight: 600,
                   letterSpacing: "0.05em",
                 }}
-                title={`${images.length} image${images.length > 1 ? "s" : ""} attached`}
+                title={`${images.length} image${images.length > 1 ? "s" : ""} attached — click to preview`}
               >
-                {images.length} IMG{images.length > 1 ? "S" : ""}
+                <button
+                  onClick={() => setImagePreviewIdx(0)}
+                  className="transition-opacity"
+                  style={{ color: "inherit", fontWeight: "inherit", letterSpacing: "inherit", opacity: 0.9, lineHeight: 1 }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "0.9")}
+                  title="Preview attached images"
+                  aria-label="Preview attached images"
+                >
+                  {images.length} IMG{images.length > 1 ? "S" : ""}
+                </button>
                 <button
                   onClick={() => setImages([])}
                   className="transition-opacity"
@@ -7859,25 +9885,20 @@ export default function Home() {
               }}
               title={submitting ? "Submitting…" : "Send (Enter)"}
             >
-              {submitting ? <span className="animate-spin inline-block">⟳</span> : "↑"}
+              {submitting ? (
+                <SpinnerIcon size={16} thickness={2} />
+              ) : "↑"}
             </button>
             {/* Float / minimize — pop the bar out to a movable panel, or
                 collapse it to a pill tool (bottom-right) */}
             {!composerFloating && (
               <button
-                onClick={() => {
-                  const w = Math.min(composerW, window.innerWidth - 40);
-                  setComposerPos({
-                    x: Math.max(8, Math.round((window.innerWidth - w) / 2)),
-                    y: Math.max(8, window.innerHeight - 200),
-                  });
-                  setComposerFloating(true);
-                }}
-                className="self-center shrink-0 hidden sm:inline-flex text-[14px] px-1.5 py-2 rounded focus-ring"
+                onClick={floatComposer}
+                className="self-center shrink-0 inline-flex text-[14px] px-1.5 py-2 rounded focus-ring"
                 style={{ color: "var(--text-tertiary)" }}
                 onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
                 onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
-                title="Float the ask bar — drag it anywhere, resize from the edges"
+                title="Float the ask bar — drag it anywhere by its ⠿ bar (touch works too)"
                 aria-label="Float the ask bar"
               >
                 ⊞
@@ -7895,179 +9916,27 @@ export default function Home() {
               ─
             </button>
           </div>
-          {/* ── Params strip — TASKS + the request params (mod / model /
-              PARAMS toggle) share ONE compact line BELOW the ask band.
-              Never wraps — if the chips overflow, the row scrolls
-              sideways so nothing is hidden. ── */}
-          <div
-            className="mt-2 flex items-center gap-1.5 overflow-x-auto"
-            style={{ scrollbarWidth: "thin" }}
-          >
-            {/* PARAMS toggle — leftmost, leading the mod/model chips it
-                expands (auth + mod/model/agent + system prompt chain) */}
-            <button
-              onClick={() => setSystemPromptOpen(o => { const next = !o; safeSetItem("claude_system_prompt_open", next ? "1" : "0"); return next; })}
-              className="shrink-0 text-[10px] font-bold uppercase px-2.5 py-1 rounded-full focus-ring inline-flex items-center gap-1 transition-all hover:brightness-125"
-              style={activeSysPrompts.length > 0 ? {
-                color: activeModelChip.color,
-                letterSpacing: "0.08em",
-                border: `1px solid ${activeModelChip.color}40`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                boxShadow: glassShadow,
-              } : {
-                color: systemPromptOpen ? "var(--text-primary)" : "var(--text-tertiary)",
-                letterSpacing: "0.08em",
-                border: `1px solid ${glassBorder}`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                boxShadow: glassShadow,
-              }}
-              title="Agent + auth + params sent with every task (module, model, system prompts)"
-              aria-expanded={systemPromptOpen}
-            >
-              PARAMS
-              {activeSysPrompts.length > 0 && (
-                <span
-                  className="inline-flex items-center justify-center text-[10px] font-mono rounded-full px-1"
-                  style={{
-                    minWidth: 14,
-                    background: `${activeModelChip.color}30`,
-                    color: activeModelChip.color,
-                    boxShadow: `0 0 5px ${activeModelChip.color}50`,
-                  }}
-                  title={`${activeSysPrompts.length} system prompt${activeSysPrompts.length > 1 ? "s" : ""} chained`}
-                >
-                  {activeSysPrompts.length}
-                </span>
-              )}
-            </button>
-            {/* Module chip — the mod the agent is editing. Click jumps
-                straight into the searchable mod picker in PARAMS. */}
-            <button
-              onClick={() => {
-                setSystemPromptOpen(true);
-                safeSetItem("claude_system_prompt_open", "1");
-                setModPickerQuery("");
-                setModPickerOpen(true);
-                if (!moduleList.length) fetchModules("");
-                setTimeout(() => modPickerInputRef.current?.focus(), 0);
-              }}
-              className="shrink-0 inline-flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125 max-w-[46vw] sm:max-w-[220px]"
-              style={{
-                color: "#fbbf24",
-                border: "1px solid rgba(251,191,36,0.25)",
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                boxShadow: glassShadow,
-              }}
-              title={`Agent works on module: ${selectedModule || "none"} — click to search & change`}
-            >
-              <span className="truncate">{selectedModule || "select mod"}</span>
-              <span style={{ opacity: 0.55, fontSize: 9 }}>▾</span>
-            </button>
-            {/* Model chip — which model runs the task; opens PARAMS */}
-            <button
-              onClick={() => { setSystemPromptOpen(true); safeSetItem("claude_system_prompt_open", "1"); }}
-              className="shrink-0 inline-flex items-center text-[11px] font-mono px-2.5 py-1 rounded-full focus-ring transition-all hover:brightness-125 max-w-[34vw] sm:max-w-[200px]"
-              style={{
-                color: activeModelChip.color,
-                border: `1px solid ${activeModelChip.color}40`,
-                background: glassBg,
-                backdropFilter: "blur(24px) saturate(1.5)",
-                WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                boxShadow: glassShadow,
-              }}
-              title={`Model: ${activeModelChip.label} — click to change in PARAMS`}
-            >
-              <span className="truncate">{activeModelChip.label}</span>
-            </button>
-            <div className="flex-1" />
-            {/* HUB / TASKS — the console nav, moved down from the header to
-                the chat bar. Right-anchored opposite the params chips; TASKS
-                carries the running-job count while work is in flight. */}
-            {(() => {
-              const running = jobs.filter(j => j.status === "running" || j.status === "pending").length;
-              const pills = [
-                {
-                  key: "hub" as const,
-                  icon: <HubIcon size={12} />,
-                  label: "Hub",
-                  color: "var(--crt-green)",
-                  title: "HUB — open the module hub",
-                  onClick: () => setSidebarView("hub"),
-                  badge: null as number | null,
-                },
-                {
-                  key: "tasks" as const,
-                  icon: running > 0
-                    ? <span className="animate-spin inline-block" style={{ fontSize: 11, lineHeight: 1 }}>⟳</span>
-                    : <TasksIcon size={12} />,
-                  label: "Tasks",
-                  color: "var(--crt-blue)",
-                  title: "TASKS — open the full-page tasks view",
-                  onClick: () => {
-                    // Always land on the task LIST (running work first) — not
-                    // whichever task happened to be open last.
-                    setSelectedJob(null);
-                    setStreamOutput("");
-                    setSidebarView("tasks");
-                  },
-                  badge: running > 0 ? running : null,
-                },
-              ];
-              return pills.map((p) => {
-                const active = sidebarView === p.key;
-                return (
-                  <button
-                    key={p.key}
-                    onClick={p.onClick}
-                    className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-code text-[11px] font-bold uppercase transition-all hover:brightness-125 focus-ring"
-                    style={{
-                      background: active ? `color-mix(in srgb, ${p.color} 14%, transparent)` : glassBg,
-                      backdropFilter: "blur(24px) saturate(1.5)",
-                      WebkitBackdropFilter: "blur(24px) saturate(1.5)",
-                      border: `1px solid color-mix(in srgb, ${p.color} ${active ? 55 : 30}%, transparent)`,
-                      color: active ? p.color : "var(--text-secondary)",
-                      letterSpacing: "0.06em",
-                      boxShadow: glassShadow,
-                    }}
-                    title={p.title}
-                    aria-pressed={active}
-                  >
-                    <span className="inline-flex" style={{ color: p.color }}>{p.icon}</span>
-                    <span>{p.label}</span>
-                    {p.badge != null && (
-                      <span className="font-mono text-[10px] shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                        {p.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              });
-            })()}
-          </div>
       </>
     );
     // Floating — a movable, width-resizable panel; height follows content.
-    // Drag/resize are mouse-only and a floated bar can sit under a phone
-    // keyboard, so on mobile the bar always renders docked instead.
-    if (composerFloating && !isMobile) {
+    // Works with a finger too: the handles are pointer-driven and the panel
+    // is re-clamped to the VISIBLE viewport whenever the phone keyboard or
+    // browser toolbar changes it, so it can't end up parked under them.
+    if (composerFloating) {
       return (
         <div
+          ref={composerFloatRef}
           className="fixed flex flex-col"
           style={{
             left: composerPos.x,
             top: composerPos.y,
             width: composerW,
             maxWidth: "calc(100vw - 16px)",
+            // Never taller than what the browser actually shows (the keyboard
+            // and toolbar eat into it) — the PARAMS panel inside gives up
+            // height and scrolls instead, so the grab bar and the ask band
+            // are always both on screen and position clamping stays honest.
+            maxHeight: "calc(var(--app-shell-h, 100dvh) - 16px)",
             zIndex: 95,
             background: glassBg,
             backdropFilter: "blur(28px) saturate(1.5)",
@@ -8077,32 +9946,39 @@ export default function Home() {
             boxShadow: "0 18px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)",
           }}
         >
-          {/* Drag handle title bar */}
+          {/* Drag handle title bar — a thumb-height grab strip on a phone */}
           <div
-            className="flex items-center justify-between px-3 py-1 shrink-0 select-none"
+            className="flex items-center justify-between px-3 shrink-0 select-none"
             style={{
+              paddingTop: isMobile ? 8 : 4,
+              paddingBottom: isMobile ? 8 : 4,
               background: "transparent",
               borderBottom: `1px solid ${glassBorder}`,
               borderRadius: "20px 20px 0 0",
-              cursor: "grab",
+              cursor: composerDragging ? "grabbing" : "grab",
+              // Claim the gesture from the page scroller so a finger drag
+              // moves the panel instead of scrolling the console.
+              touchAction: "none",
             }}
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
               if ((e.target as HTMLElement).closest("button")) return;
-              e.preventDefault();
-              composerDrag.current = { startX: e.clientX, startY: e.clientY, origX: composerPos.x, origY: composerPos.y };
+              if (e.cancelable) e.preventDefault();
+              try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+              composerDrag.current = { startX: e.clientX, startY: e.clientY, origX: composerPos.x, origY: composerPos.y, moved: false };
+              setComposerDragging(true);
               document.body.style.cursor = 'grabbing';
               document.body.style.userSelect = 'none';
               setIframesInert(true);
             }}
           >
-            <span className="text-[10px] font-code uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.1em" }}>
-              ⠿ ASK
+            <span className="text-[10px] font-code uppercase truncate" style={{ color: "var(--text-tertiary)", letterSpacing: "0.1em" }}>
+              ⠿ ASK <span style={{ opacity: 0.55, letterSpacing: 0 }} className="hidden sm:inline">— drag to move</span>
             </span>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setComposerMinimized(true)}
-                className="text-[11px] px-1.5 py-0.5 rounded focus-ring"
-                style={{ color: "var(--text-tertiary)" }}
+                className="rounded focus-ring"
+                style={{ color: "var(--text-tertiary)", fontSize: isMobile ? 14 : 11, padding: isMobile ? "6px 12px" : "2px 6px" }}
                 onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
                 onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
                 title="Minimize to a tool"
@@ -8111,9 +9987,9 @@ export default function Home() {
                 ─
               </button>
               <button
-                onClick={() => setComposerFloating(false)}
-                className="text-[11px] px-1.5 py-0.5 rounded focus-ring"
-                style={{ color: "var(--text-tertiary)" }}
+                onClick={() => { setComposerFloating(false); setComposerLift(0); }}
+                className="rounded focus-ring"
+                style={{ color: "var(--text-tertiary)", fontSize: isMobile ? 14 : 11, padding: isMobile ? "6px 12px" : "2px 6px" }}
                 onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
                 onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
                 title="Dock back to the bottom"
@@ -8123,18 +9999,26 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="px-2.5 py-2">{inner}</div>
-          {/* Resize edges — width only */}
-          <div
-            className="absolute top-0 bottom-0 right-0 w-1.5"
-            style={{ cursor: "e-resize" }}
-            onMouseDown={(e) => { e.preventDefault(); composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "e" }; document.body.style.cursor = 'e-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
-          />
-          <div
-            className="absolute top-0 bottom-0 left-0 w-1.5"
-            style={{ cursor: "w-resize" }}
-            onMouseDown={(e) => { e.preventDefault(); composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "w" }; document.body.style.cursor = 'w-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
-          />
+          <div className="px-2.5 py-2 flex-1 min-h-0 flex flex-col">{inner}</div>
+          {/* Resize edges — width only, and pointer- rather than mouse-driven
+              so a pen/trackpad works. Not rendered on a phone: a finger-sized
+              edge strip would sit on top of the + button, the send arrow and
+              the chip row, and at phone width the panel is already as wide as
+              the viewport allows. */}
+          {!isMobile && (
+            <>
+              <div
+                className="absolute top-0 bottom-0 right-0"
+                style={{ width: 6, cursor: "e-resize", touchAction: "none" }}
+                onPointerDown={(e) => { if (e.cancelable) e.preventDefault(); try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {} composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "e" }; document.body.style.cursor = 'e-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
+              />
+              <div
+                className="absolute top-0 bottom-0 left-0"
+                style={{ width: 6, cursor: "w-resize", touchAction: "none" }}
+                onPointerDown={(e) => { if (e.cancelable) e.preventDefault(); try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {} composerResize.current = { startX: e.clientX, origW: composerW, origX: composerPos.x, edge: "w" }; document.body.style.cursor = 'w-resize'; document.body.style.userSelect = 'none'; setIframesInert(true); }}
+              />
+            </>
+          )}
         </div>
       );
     }
@@ -8144,15 +10028,122 @@ export default function Home() {
     return (
       <div
         ref={composerDockRef}
-        className="shrink-0 px-2.5 sm:px-3.5 pt-2 sm:pt-3"
+        className="shrink-0 flex flex-col px-2.5 sm:px-3.5 pt-2 sm:pt-3"
         style={{
           position: "relative",
           zIndex: 80,
+          // Bounded by what the shell leaves BELOW the header: with the PARAMS
+          // panel open on a short phone viewport the dock used to grow taller
+          // than that and push its own chip strip out the bottom, under the
+          // browser chrome. Capped here, the panel shrinks instead.
+          maxHeight: "calc(100% - var(--header-h, 56px))",
           background: `linear-gradient(0deg, var(--bg-primary), ${tintBg})`,
-          // Clear the iPhone home-indicator / Android gesture bar
-          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${isMobile ? 10 : 12}px)`,
+          // Clear the iPhone home-indicator / Android gesture bar. On a phone
+          // the shell is sized in `dvh`, which LAGS while the browser's bottom
+          // bar slides in/out mid-scroll — so the strip gets extra headroom to
+          // stay tappable during that transition instead of sliding under it.
+          // `composerLift` adds whatever extra the user dragged out from under
+          // Safari's toolbar; it lives in the padding so the dock's measured
+          // height (→ --composer-dock-h) grows with it and the app above
+          // reflows instead of hiding behind the bar.
+          paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + ${(isMobile ? 22 : 12) + composerLift}px)`,
+          transition: composerLiftDragging ? "none" : "padding-bottom 160ms ease",
         }}
       >
+        {/* ── Grab handle — drag UP to park the whole bar above the mobile
+            browser's toolbar, drag SIDEWAYS to tear it off into a free
+            floating panel that follows the finger, tap to toggle parked /
+            flush. One handle, the three things you'd try on it. ── */}
+        <button
+          type="button"
+          className="w-full flex items-center justify-center select-none focus-ring rounded-full"
+          style={{
+            height: 20,
+            marginTop: -2,
+            marginBottom: 2,
+            background: "transparent",
+            border: "none",
+            touchAction: "none",
+            cursor: composerLiftDragging ? "grabbing" : "grab",
+          }}
+          onPointerDown={(e) => {
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+            composerLiftDrag.current = { startX: e.clientX, startY: e.clientY, origLift: composerLift, moved: false };
+            setComposerLiftDragging(true);
+          }}
+          onPointerMove={(e) => {
+            const d = composerLiftDrag.current;
+            if (!d) return;
+            const dy = d.startY - e.clientY;
+            const dx = e.clientX - d.startX;
+            if (Math.abs(dy) > 4 || Math.abs(dx) > 4) d.moved = true;
+            // Sideways past a clear threshold = tear the bar off the bottom.
+            // It becomes the floating panel, positioned under the finger, and
+            // the document-level drag takes over the SAME gesture — so the
+            // pull-out and the move are one continuous motion.
+            if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) + 8) {
+              const vw = Math.round(window.visualViewport?.width ?? window.innerWidth);
+              const w = Math.min(composerW, Math.max(280, vw - 16));
+              const pos = clampComposerPos(e.clientX - w / 2, e.clientY - 14);
+              try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+              composerLiftDrag.current = null;
+              setComposerLiftDragging(false);
+              setComposerLift(0);
+              setComposerW(w);
+              setComposerPos(pos);
+              setComposerFloating(true);
+              composerDrag.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, moved: true };
+              setComposerDragging(true);
+              document.body.style.userSelect = 'none';
+              setIframesInert(true);
+              return;
+            }
+            setComposerLift(Math.max(0, Math.min(liftMax(), Math.round(d.origLift + dy))));
+          }}
+          onPointerUp={() => {
+            const d = composerLiftDrag.current;
+            composerLiftDrag.current = null;
+            setComposerLiftDragging(false);
+            // A tap (no real drag) is the one-handed shortcut: park it at a
+            // comfortable height, or drop it back flush if it's already up.
+            if (d && !d.moved) setComposerLift(l => (l > 8 ? 0 : Math.min(112, liftMax())));
+          }}
+          onPointerCancel={() => { composerLiftDrag.current = null; setComposerLiftDragging(false); }}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 40 : 8;
+            if (e.key === "ArrowUp") { e.preventDefault(); setComposerLift(l => Math.min(liftMax(), l + step)); }
+            if (e.key === "ArrowDown") { e.preventDefault(); setComposerLift(l => Math.max(0, l - step)); }
+            // Left/right is the keyboard equivalent of the tear-off swipe.
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); floatComposer(); }
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setComposerLift(l => (l > 8 ? 0 : Math.min(112, liftMax()))); }
+            if (e.key === "Escape") { e.preventDefault(); setComposerLift(0); }
+          }}
+          role="slider"
+          aria-label="Move the ask bar — up to lift it above the browser toolbar, sideways to float it"
+          aria-valuemin={0}
+          aria-valuemax={liftMax()}
+          aria-valuenow={composerLift}
+          aria-valuetext={composerLift > 0 ? `lifted ${composerLift} pixels` : "flush with the bottom"}
+          title="Drag ↑ to lift the bar clear of the browser toolbar · drag ↔ to pull it off and move it anywhere · tap to park / drop it back"
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              height: 5,
+              width: composerLiftDragging ? 72 : 46,
+              borderRadius: 999,
+              background: composerLift > 0
+                ? "color-mix(in srgb, var(--crt-green) 55%, transparent)"
+                : (isLight ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.22)"),
+              transition: "width 140ms ease, background 140ms ease",
+            }}
+          />
+          {composerLiftDragging && (
+            <span className="ml-2 font-mono text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              ↑ {composerLift}px
+            </span>
+          )}
+        </button>
         {inner}
       </div>
     );
@@ -8218,6 +10209,315 @@ export default function Home() {
           )}
         </div>
       </div>
+    );
+  };
+
+  // ── Build home — replaces the old self-embedding APP iframe ────────
+  // With build itself selected, iframing {host}/build just rendered this
+  // same console one level deep: a giant blank void. The APP area is the
+  // agent's home instead — identity + live setup, fleet pulse tiles,
+  // one-tap starter prompts that prefill the ask band, and the saved
+  // agent frameworks as an applyable gallery.
+  const renderClaudeHome = () => {
+    const homeModel = MODEL_OPTIONS.find((m) => m.value === model) || MODEL_OPTIONS[0];
+    // A starter is a running start, not a submit — prefill & focus the band.
+    const startAsk = (text: string) => {
+      setPrompt(text);
+      composerInputRef.current?.focus();
+    };
+    const starters = [
+      { glyph: "✦", title: "build a module", hint: "scaffold something new in the orbit", text: "create a new module that " },
+      { glyph: "⌗", title: "edit a module", hint: "point the agent at any mod's code", text: "in the ___ module, " },
+      { glyph: "⌁", title: "hunt a bug", hint: "describe it — the agent digs in", text: "find and fix the bug where " },
+      { glyph: "❍", title: "map the orbit", hint: "what's running & what does what", text: "list every module in this orbit and what it does" },
+    ];
+    const pulse = [
+      { label: "modules", value: modules.length, color: "var(--crt-amber)" },
+      { label: "running", value: railTasks.running, color: "var(--crt-green)", live: railTasks.running > 0 },
+      { label: "queued", value: railTasks.pending, color: "var(--crt-blue)" },
+      { label: "frameworks", value: frameworks.length, color: "#a78bfa" },
+    ];
+    const setupChip: React.CSSProperties = {
+      fontFamily: "'JetBrains Mono', monospace",
+      border: "1px solid var(--border-color)",
+      background: "color-mix(in srgb, var(--bg-secondary) 78%, transparent)",
+      color: "var(--text-secondary)",
+      letterSpacing: "0.08em",
+      boxShadow: "0 0 14px -8px rgba(167,139,250,0.45)",
+    };
+    return (
+    <div
+      className="flex-1 overflow-y-auto"
+      style={{
+        // Aurora wash — a violet crown behind the hero plus a faint green
+        // rise from the fleet-pulse corner, over the old bg-tint fade.
+        background:
+          "radial-gradient(ellipse 85% 52% at 50% -12%, rgba(167,139,250,0.15), transparent 62%), " +
+          "radial-gradient(ellipse 60% 42% at 8% 106%, rgba(52,211,153,0.06), transparent 60%), " +
+          "radial-gradient(ellipse at 50% -10%, var(--bg-tint), var(--bg-primary) 62%)",
+      }}
+    >
+      {/* my-auto (not justify-center) so a tall page scrolls from the top
+          instead of clipping the hero above the scroll viewport. */}
+      <div className="min-h-full flex flex-col items-center px-6 py-10">
+      <div className="my-auto w-full flex flex-col items-center gap-7">
+      <div className="flex flex-col items-center gap-3">
+        <div
+          className="flex items-center justify-center hero-glow-breathe"
+          style={{
+            width: 76,
+            height: 76,
+            borderRadius: 24,
+            border: "1px solid rgba(167,139,250,0.42)",
+            background: "linear-gradient(160deg, rgba(167,139,250,0.20), rgba(167,139,250,0.04) 62%)",
+            boxShadow: "0 0 44px -6px rgba(167,139,250,0.55), inset 0 1px 0 rgba(255,255,255,0.10)",
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{ fontSize: 38, lineHeight: 1, color: "#a78bfa", textShadow: "0 0 22px rgba(167,139,250,0.6)" }}
+          >
+            ⬡
+          </span>
+        </div>
+        <div className="flex flex-col items-center gap-1.5">
+          <span
+            className="text-[26px] font-bold"
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.08em",
+              backgroundImage: "linear-gradient(180deg, var(--text-primary) 30%, #a78bfa)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              // drop-shadow (not text-shadow) — the only glow that works
+              // through a background-clip:text gradient fill.
+              filter: "drop-shadow(0 0 14px rgba(167,139,250,0.35))",
+            }}
+          >
+            build
+          </span>
+          <span className="text-[10px] font-bold uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.24em" }}>
+            agent console · orbit fleet
+          </span>
+        </div>
+        {/* live setup — mirrors what PARAMS will send with the next task */}
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold uppercase px-3 py-1 rounded-full" style={setupChip}>
+            {agentMod}
+          </span>
+          <span className="text-[10px] font-bold uppercase px-3 py-1 rounded-full inline-flex items-center gap-1.5" style={setupChip}>
+            <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: homeModel.color }} />
+            {homeModel.label}
+          </span>
+          {railTasks.running > 0 && (
+            <span
+              className="text-[10px] font-bold uppercase px-3 py-1 rounded-full inline-flex items-center gap-1.5"
+              style={{ ...setupChip, color: "var(--crt-green)", border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)" }}
+            >
+              <span className="inline-block rounded-full animate-pulse" style={{ width: 6, height: 6, background: "var(--crt-green)" }} />
+              {railTasks.running} running
+            </span>
+          )}
+        </div>
+      </div>
+      {/* fleet pulse */}
+      <div className="w-full max-w-[760px] grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {pulse.map((s) => (
+          <div
+            key={s.label}
+            className="rounded-2xl px-4 py-3 flex flex-col items-center gap-0.5"
+            style={{
+              border: `1px solid color-mix(in srgb, ${s.color} 20%, var(--border-color))`,
+              background: `linear-gradient(180deg, color-mix(in srgb, ${s.color} 6%, transparent), transparent 65%), color-mix(in srgb, var(--bg-secondary) 70%, transparent)`,
+              boxShadow: `0 0 26px -16px ${s.color}`,
+            }}
+          >
+            <span
+              className="text-[22px] font-bold inline-flex items-center gap-1.5"
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                color: s.color,
+                lineHeight: 1.25,
+                textShadow: `0 0 16px color-mix(in srgb, ${s.color} 45%, transparent)`,
+              }}
+            >
+              {s.value}
+              {s.live && <span className="inline-block rounded-full animate-pulse" style={{ width: 7, height: 7, background: "var(--crt-green)" }} />}
+            </span>
+            <span className="text-[9px] font-bold uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}>
+              {s.label}
+            </span>
+          </div>
+        ))}
+      </div>
+      {/* quick start — each card prefills the ask band below */}
+      <div className="w-full max-w-[760px] flex flex-col gap-3">
+        <div className="flex items-center gap-2.5 px-1">
+          <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-secondary)", letterSpacing: "0.12em" }}>
+            quick start
+          </span>
+          <div className="flex-1" style={{ height: 1, background: "var(--border-color)", opacity: 0.6 }} />
+        </div>
+        <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2">
+          {starters.map((s) => (
+            <button
+              key={s.title}
+              onClick={() => startAsk(s.text)}
+              className="rounded-2xl px-4 py-3.5 text-left cursor-pointer transition-all focus-ring group flex items-center gap-3"
+              style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--bg-secondary) 82%, transparent)" }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(167,139,250,0.4)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border-color)"; }}
+              title={`Prefill the ask band: “${s.text.trim()}”`}
+            >
+              <span
+                className="shrink-0 flex items-center justify-center rounded-xl"
+                style={{
+                  width: 34,
+                  height: 34,
+                  fontSize: 15,
+                  color: "#a78bfa",
+                  background: "rgba(167,139,250,0.09)",
+                  border: "1px solid rgba(167,139,250,0.22)",
+                  boxShadow: "0 0 16px -6px rgba(167,139,250,0.5)",
+                  textShadow: "0 0 10px rgba(167,139,250,0.55)",
+                }}
+                aria-hidden="true"
+              >
+                {s.glyph}
+              </span>
+              <span className="flex flex-col min-w-0">
+                <span
+                  className="text-[13px] font-bold truncate"
+                  style={{ fontFamily: "'JetBrains Mono', monospace", color: "var(--text-primary)", letterSpacing: "0.03em" }}
+                >
+                  {s.title}
+                </span>
+                <span className="text-[10px] truncate" style={{ color: "var(--text-tertiary)", letterSpacing: "0.03em" }}>
+                  {s.hint}
+                </span>
+              </span>
+              <span className="ml-auto shrink-0 opacity-0 group-hover:opacity-70 transition-opacity text-[13px]" style={{ color: "#a78bfa" }} aria-hidden="true">
+                ↳
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="w-full max-w-[760px] flex flex-col gap-3">
+        {/* flex-wrap: on phone SAVE CURRENT drops under the label instead of
+            stretching the row (and the whole page) past the viewport. */}
+        <div className="flex items-center gap-2.5 px-1 flex-wrap">
+          <span className="text-[10px] font-bold uppercase shrink-0" style={{ color: "var(--text-secondary)", letterSpacing: "0.12em" }}>
+            agent frameworks
+          </span>
+          <div className="flex-1" style={{ height: 1, background: "var(--border-color)", opacity: 0.6 }} />
+          <button
+            onClick={() => {
+              setSystemPromptOpen(true);
+              setFwSaveOpen(true);
+              setTimeout(() => fwSaveInputRef.current?.focus(), 60);
+            }}
+            className="text-[10px] font-bold uppercase px-3 py-1.5 rounded-full focus-ring shrink-0 transition-all hover:brightness-125"
+            style={{
+              color: "#a78bfa",
+              border: "1px dashed rgba(167,139,250,0.45)",
+              background: "rgba(167,139,250,0.06)",
+              letterSpacing: "0.08em",
+            }}
+            title="Name & save the current agent · model · prompts as a framework"
+          >
+            + SAVE CURRENT
+          </button>
+        </div>
+        {frameworks.length > 0 ? (
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(225px, 1fr))" }}>
+            {frameworks.map((fw) => {
+              const current = frameworkIsCurrent(fw);
+              const activeBlocks = fw.sysPrompts.filter((p) => p.on);
+              const chars = activeBlocks.reduce((n, p) => n + p.text.length, 0);
+              return (
+                <div
+                  key={fw.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => applyFramework(fw)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); applyFramework(fw); } }}
+                  className="relative rounded-2xl px-4 py-3.5 text-left cursor-pointer transition-all focus-ring group"
+                  style={current ? {
+                    border: "1px solid rgba(167,139,250,0.55)",
+                    background: "rgba(167,139,250,0.10)",
+                    boxShadow: "0 0 22px -6px rgba(167,139,250,0.45)",
+                  } : {
+                    border: "1px solid var(--border-color)",
+                    background: "color-mix(in srgb, var(--bg-secondary) 82%, transparent)",
+                  }}
+                  onMouseEnter={(e) => { if (!current) (e.currentTarget as HTMLElement).style.borderColor = "rgba(167,139,250,0.4)"; }}
+                  onMouseLeave={(e) => { if (!current) (e.currentTarget as HTMLElement).style.borderColor = "var(--border-color)"; }}
+                  title={current ? `"${fw.name}" is the live setup` : `Apply framework "${fw.name}"`}
+                >
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteFramework(fw.id); }}
+                    className="absolute top-2 right-2.5 text-[12px] focus-ring rounded opacity-0 group-hover:opacity-60 transition-opacity"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title={`Forget framework "${fw.name}"`}
+                    aria-label={`Delete framework ${fw.name}`}
+                  >
+                    ✕
+                  </button>
+                  <div
+                    className="text-[14px] font-bold truncate pr-5"
+                    style={{ fontFamily: "'JetBrains Mono', monospace", color: current ? "#a78bfa" : "var(--text-primary)", letterSpacing: "0.03em" }}
+                  >
+                    {current && <span style={{ opacity: 0.7 }}>◆ </span>}
+                    {fw.name}
+                  </div>
+                  <div className="text-[11px] font-mono mt-1 truncate" style={{ color: "var(--text-secondary)", letterSpacing: "0.03em" }}>
+                    {fw.agent} · {modelLabel(normalizeModelValue(fw.model))}
+                  </div>
+                  <div className="text-[10px] mt-2 flex items-center gap-2" style={{ color: "var(--text-tertiary)" }}>
+                    <span>{activeBlocks.length ? `chain × ${activeBlocks.length} · ${chars} chars` : "no system prompt"}</span>
+                    {current && (
+                      <span
+                        className="ml-auto font-bold uppercase px-1.5 py-px rounded"
+                        style={{ color: "#a78bfa", background: "rgba(167,139,250,0.14)", letterSpacing: "0.1em", fontSize: 8 }}
+                      >
+                        active
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            className="rounded-2xl px-5 py-7 flex flex-col items-center gap-2 text-center"
+            style={{ border: "1px dashed color-mix(in srgb, #a78bfa 32%, var(--border-color))", background: "rgba(167,139,250,0.04)" }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1, color: "#a78bfa", opacity: 0.55 }}>◇</span>
+            <div
+              className="text-[12px] font-bold"
+              style={{ fontFamily: "'JetBrains Mono', monospace", color: "var(--text-secondary)", letterSpacing: "0.05em" }}
+            >
+              no frameworks yet
+            </div>
+            <div className="text-[11px] max-w-[430px]" style={{ color: "var(--text-tertiary)", lineHeight: 1.65 }}>
+              A framework is a named snapshot of your whole setup — agent, model & system-prompt chain.
+              Tune it in PARAMS, hit <span style={{ color: "#a78bfa", fontWeight: 700 }}>+ SAVE CURRENT</span>, then switch setups in one click.
+            </div>
+          </div>
+        )}
+      </div>
+      <span
+        className="text-[11px] inline-flex items-center gap-2"
+        style={{ color: "var(--text-tertiary)", opacity: 0.85, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.04em" }}
+      >
+        ask the agent below — it builds, edits & runs the modules of this orbit
+        <span aria-hidden="true" style={{ color: "#a78bfa", opacity: 0.8 }}>↴</span>
+      </span>
+      </div>
+      </div>
+    </div>
     );
   };
 
@@ -8431,7 +10731,7 @@ export default function Home() {
     }
     if (walletType === "local") {
       const { ethers } = await import("ethers");
-      const seed = localStorage.getItem("claude_jobs_seed");
+      const seed = localStorage.getItem("build_jobs_seed");
       if (!seed) throw new Error("no local wallet seed found — reconnect");
       return await ethers.Wallet.fromPhrase(seed).signMessage(msg);
     }
@@ -8440,12 +10740,12 @@ export default function Home() {
 
   // ── Sudo authorization ────────────────────────────────────────────────
   // Privileged cross-module operations (editing/deleting modules OTHER than
-  // claude) require a *fresh* owner signature bound to the exact (action, target)
+  // build) require a *fresh* owner signature bound to the exact (action, target)
   // — verified once and replay-rejected server-side (src/api/src/sudo.rs). This
   // builds the byte-for-byte message the Rust side reconstructs.
   const buildSudoMessage = (action: string, target: string, time: number, nonce: string): string =>
     [
-      "MOD Claude Sudo Authorization",
+      "MOD Build Sudo Authorization",
       `action: ${action}`,
       `target: ${target}`,
       `time: ${time}`,
@@ -8585,8 +10885,8 @@ export default function Home() {
       if (!res.ok || !data.ok) throw new Error(data.error || `auth failed (HTTP ${res.status})`);
       setTerminalToken(data.token);
       setTerminalTokenExp(data.expiresAt);
-      safeSetItem("claude_terminal_token", data.token);
-      safeSetItem("claude_terminal_token_exp", String(data.expiresAt));
+      safeSetItem("build_terminal_token", data.token);
+      safeSetItem("build_terminal_token_exp", String(data.expiresAt));
     } catch (e: any) {
       setTerminalAuthError(e?.message || "authorization failed");
     } finally {
@@ -8597,8 +10897,8 @@ export default function Home() {
   const clearTerminalAuth = () => {
     setTerminalToken(null);
     setTerminalTokenExp(0);
-    localStorage.removeItem("claude_terminal_token");
-    localStorage.removeItem("claude_terminal_token_exp");
+    localStorage.removeItem("build_terminal_token");
+    localStorage.removeItem("build_terminal_token_exp");
   };
 
   const runTerminalCommand = async (rawCmd: string) => {
@@ -9188,10 +11488,10 @@ export default function Home() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[12px] leading-none" style={{ color: "var(--crt-amber)" }}>▤</span>
             <span className="text-[11px] font-bold uppercase tracking-[0.18em] shrink-0" style={{ color: "var(--crt-amber)" }}>
-              {selectedModule || "dev"} LOGS
+              {selectedModule || "build"} LOGS
             </span>
             <span className="text-[10px] font-mono truncate" style={{ color: "var(--text-tertiary)" }}>
-              /tmp/mod-{active}-{selectedModule || "dev"}.log
+              /tmp/mod-{active}-{selectedModule || "build"}.log
             </span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -9552,20 +11852,31 @@ export default function Home() {
             className="px-2.5 py-1 bg-transparent text-crt-green border border-crt-green/30 font-code outline-none text-[12px] rounded"
             style={{ minWidth: "180px" }}
           />
-          {/* Grid / dependency-graph layout toggle */}
+          {/* Layout toggle — preview cards / compact grid / dependency graph */}
           <div className="flex items-center border rounded overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
-            {([["grid", "▦ grid"], ["graph", "◆ graph"]] as const).map(([mode, label]) => {
-              const on = hubGraphMode === (mode === "graph");
+            {([
+              ["cards", "▣ cards", "Big cards, each showing a live screenshot of the module's own web page."],
+              ["grid", "▦ grid", "Compact card grid — names and status, no page previews."],
+              ["graph", "◆ graph", "Lay modules out by their config.json deps; modules with no edges float as isolated nodes."],
+            ] as const).map(([mode, label, hint]) => {
+              const current = hubGraphMode ? "graph" : hubPreview ? "cards" : "grid";
+              const on = current === mode;
               return (
                 <button
                   key={mode}
-                  onClick={() => setHubGraphMode(mode === "graph")}
+                  onClick={() => {
+                    setHubGraphMode(mode === "graph");
+                    if (mode !== "graph") {
+                      setHubPreview(mode === "cards");
+                      safeSetItem("build_hub_preview", mode === "cards" ? "1" : "0");
+                    }
+                  }}
                   className="text-[11px] font-code px-2.5 py-1 transition-colors"
                   style={{
                     color: on ? "var(--crt-green)" : "var(--text-tertiary)",
                     background: on ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
                   }}
-                  title={mode === "graph" ? "Lay modules out by their config.json deps; modules with no edges float as isolated nodes." : "Card grid of every module."}
+                  title={hint}
                 >
                   {label}
                 </button>
@@ -9593,7 +11904,7 @@ export default function Home() {
             {([["live", "● live"], ["updated", "⟳ updated"], ["name", "az name"]] as const).map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => { setHubSort(key); safeSetItem("claude_hub_sort", key); }}
+                onClick={() => { setHubSort(key); safeSetItem("build_hub_sort", key); }}
                 className={`text-[11px] px-2 py-0.5 border rounded font-code transition-colors ${hubSort === key ? "border-crt-green/50 text-crt-green bg-crt-green/10" : "border-crt-green/15 text-crt-green/30 hover:border-crt-green/30"}`}
                 title={key === "live" ? "Online modules first, then A-Z" : key === "updated" ? "Most recently edited first (newest file mtime)" : "Alphabetical"}
               >
@@ -9618,17 +11929,18 @@ export default function Home() {
                 >mine</button>
               )}
               {otherOwners.length > 0 && (
-                <select
+                <PillSelect
                   value={ownerFilter && otherOwners.includes(ownerFilter) ? ownerFilter : ""}
-                  onChange={(e) => setOwnerFilter(e.target.value || null)}
+                  options={[
+                    { value: "", label: "others…" },
+                    ...otherOwners.map((o) => ({ value: o, label: `${o.slice(0, 6)}..${o.slice(-4)}`, hint: o })),
+                  ]}
+                  onChange={(v) => setOwnerFilter(v || null)}
+                  accent={ownerFilter && otherOwners.includes(ownerFilter) ? "var(--crt-blue)" : "var(--crt-green)"}
+                  menuWidth={170}
                   title="Filter by another owner"
-                  className={`text-[11px] px-2 py-0.5 border rounded font-mono bg-transparent outline-none transition-colors ${ownerFilter && otherOwners.includes(ownerFilter) ? "border-crt-blue/50 text-crt-blue bg-crt-blue/10" : "border-crt-green/15 text-crt-green/40 hover:border-crt-green/30"}`}
-                >
-                  <option value="">others…</option>
-                  {otherOwners.map((o) => (
-                    <option key={o} value={o}>{o.slice(0, 6)}..{o.slice(-4)}</option>
-                  ))}
-                </select>
+                  aria-label="Owner filter"
+                />
               )}
             </div>
           )}
@@ -9662,11 +11974,11 @@ export default function Home() {
           ) : (
             <div
               className="grid gap-3"
-              style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${hubPreview ? 260 : 220}px, 1fr))` }}
             >
               <button
                 onClick={() => { setAddError(null); setAddOpen(true); }}
-                className="hub-add-card text-left p-3 flex flex-col items-center justify-center gap-1.5 group min-h-[104px]"
+                className={`hub-add-card text-left p-3 flex flex-col items-center justify-center gap-1.5 group ${hubPreview ? "min-h-[200px]" : "min-h-[104px]"}`}
                 title="Import from GitHub or a snapshot CID"
               >
                 <span className="hub-add-card__plus text-[26px] leading-none">＋</span>
@@ -9722,9 +12034,40 @@ export default function Home() {
                       animationDelay: `${Math.min(i * 26, 390)}ms`,
                     }}
                   >
+                    {/* Live page preview — the module's own website, as a card */}
+                    {hubPreview && (
+                      <span className="relative block">
+                        <ModulePreview
+                          apiUrl={apiUrl}
+                          name={m.name}
+                          hasApp={!!(m.app_url || m.has_app_dir)}
+                          bust={hubShotBust[m.name]}
+                        />
+                        {(m.app_url || m.has_app_dir) && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); setHubShotBust((b) => ({ ...b, [m.name]: (b[m.name] || 0) + 1 })); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setHubShotBust((b) => ({ ...b, [m.name]: (b[m.name] || 0) + 1 })); } }}
+                            className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-code opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                            style={{
+                              color: "var(--text-primary)",
+                              background: "rgba(0,0,0,0.55)",
+                              border: "1px solid rgba(255,255,255,0.18)",
+                              backdropFilter: "blur(6px)",
+                            }}
+                            title="Re-capture this page now"
+                          >
+                            ⟳
+                          </span>
+                        )}
+                      </span>
+                    )}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <ModuleAvatar apiUrl={apiUrl} name={m.name} hasApp={!!(m.app_url || m.has_app_dir)} />
+                        {!hubPreview && (
+                          <ModuleAvatar apiUrl={apiUrl} name={m.name} hasApp={!!(m.app_url || m.has_app_dir)} />
+                        )}
                         <span
                           className={`shrink-0 ${live === true ? "led-pulse" : ""}`}
                           style={{ color: dotColor, fontSize: "10px" }}
@@ -10149,21 +12492,35 @@ export default function Home() {
     );
   };
 
-  // ── Share Edit Access card — owner mints a QR invite that confers
-  //    TEMPORARY edit rights (default 1h), optionally protected by a
-  //    locally-generated key shared out of band. The id rides the QR;
-  //    the key never does. Backed by GET/POST/DELETE /grants. Rendered
-  //    in the ACCOUNT sidebar (the INFO tab dropped its copy); owner-
-  //    only: it renders nothing for anyone else.
+  // ── Share Access card — the ONE QR sharing surface. Two faces:
+  //    EDIT INVITE (owner-only): mints a grant conferring TEMPORARY edit
+  //      rights (default 1h), optionally key-protected and optionally
+  //      compartmentalized to a whitelist of modules (default: everything).
+  //      Backed by GET/POST/DELETE /grants.
+  //    MY SESSION (any signed-in user): the old Phone Sign-In handoff —
+  //      a single-use QR that opens this console on another device already
+  //      signed in as you. Backed by POST /auth/handoff.
+  //    Merged because two side-by-side QR cards were redundant; rendered in
+  //    the ACCOUNT sidebar.
   const renderShareAccessCard = () => {
-    if (!isOwner) return null;
-                const TTL_OPTS = [
-                  { l: "15m", v: 900 },
-                  { l: "1h", v: 3600 },
-                  { l: "8h", v: 28800 },
-                  { l: "24h", v: 86400 },
-                  { l: "7d", v: 604800 },
-                ];
+    const canHandoff = !!(token && token !== "local" && address);
+    if (!isOwner && !canHandoff) return null;
+    const mode: "invite" | "session" = isOwner ? shareMode : "session";
+    // Session-handoff derived state (server clamps ttl to 60–86400s).
+    const liveHandoff = handoff && handoff.exp > nowSec ? handoff : null;
+    const handoffLeft = liveHandoff ? Math.max(0, liveHandoff.exp - nowSec) : 0;
+    const fmtMMSS = handoffLeft >= 3600
+      ? `${Math.floor(handoffLeft / 3600)}:${String(Math.floor((handoffLeft % 3600) / 60)).padStart(2, "0")}:${String(handoffLeft % 60).padStart(2, "0")}`
+      : `${Math.floor(handoffLeft / 60)}:${String(handoffLeft % 60).padStart(2, "0")}`;
+    const hoTtlLabel = formatDuration(Math.min(Math.max(handoffTtl || 300, 60), 86400));
+    const hoTtl = Math.max(0, handoffTtl || 0);
+    const hoTtlParts = [
+      { unit: "h", val: Math.floor(hoTtl / 3600), max: 24, mul: 3600 },
+      { unit: "m", val: Math.floor((hoTtl % 3600) / 60), max: 59, mul: 60 },
+      { unit: "s", val: hoTtl % 60, max: 59, mul: 1 },
+    ];
+    // Modules the scope picker offers (fleet catalog, alphabetical).
+    const scopeChoices = [...new Set(moduleList.map((m) => m.name))].sort();
                 const fmtLeft = (exp: number) => {
                   let s = Math.max(0, exp - nowSec);
                   if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
@@ -10171,50 +12528,48 @@ export default function Home() {
                   if (s >= 60) return `${Math.floor(s / 60)}m ${s % 60}s`;
                   return `${s}s`;
                 };
-                const accent = "var(--accent-color, #cc785c)";
+                const accent = mode === "invite" ? "var(--accent-color, #cc785c)" : "var(--crt-green)";
                 return (
                 <div className="section-card" data-accent="green" style={{ ["--card-accent" as any]: accent }}>
                   <span className="section-card__bar" style={{ background: accent }} />
                   <div className="section-card__head">
                     <div className="section-card__title min-w-0">
                       <span className="section-card__glyph" style={{ color: accent }}>⧉</span>
-                      Share Edit Access
-                      <span
-                        className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
-                        style={{
-                          color: accent,
-                          background: `color-mix(in srgb, ${accent} 12%, transparent)`,
-                          border: `1px solid color-mix(in srgb, ${accent} 28%, transparent)`,
-                        }}
-                      >
-                        {grants.length}
-                      </span>
+                      Share Access
+                      {mode === "invite" && (
+                        <span
+                          className="text-[10px] font-mono px-2 py-0.5 rounded-full ml-1"
+                          style={{
+                            color: accent,
+                            background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+                            border: `1px solid color-mix(in srgb, ${accent} 28%, transparent)`,
+                          }}
+                        >
+                          {grants.length}
+                        </span>
+                      )}
                     </div>
                     <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                      QR invite
+                      {mode === "invite" ? "QR invite" : "QR handoff"}
                     </span>
                   </div>
                   <div className="pl-5 pr-4 py-3 flex flex-col gap-3">
-                    <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                      Mint a QR that grants <span style={{ color: "var(--text-secondary)" }}>temporary access</span> to
-                      anyone who scans it — no wallet needed (guests get an anonymous pass; wallet sign-in ties access to
-                      their address). Access ends automatically when the timer runs out. Add a key for a second factor you
-                      share separately (a leaked QR alone won&apos;t work).
-                    </div>
-
-                    {/* Duration picker */}
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>Duration</span>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {TTL_OPTS.map((o) => {
-                          const on = grantTtl === o.v;
+                    {/* Face picker — only the owner has both faces to pick from. */}
+                    {isOwner && canHandoff && (
+                      <div className="flex items-center gap-1.5">
+                        {([
+                          { k: "invite" as const, l: "Edit invite", hint: "temporary edit access for someone else" },
+                          { k: "session" as const, l: "My session", hint: "open this console on your phone as you" },
+                        ]).map((o) => {
+                          const on = mode === o.k;
                           return (
                             <button
-                              key={o.v}
-                              onClick={() => setGrantTtl(o.v)}
-                              className="text-[11px] px-2.5 py-1 rounded font-mono transition-all"
+                              key={o.k}
+                              onClick={() => setShareMode(o.k)}
+                              title={o.hint}
+                              className="flex-1 text-[10px] px-2.5 py-1.5 rounded uppercase font-bold tracking-wider transition-all"
                               style={{
-                                color: on ? "var(--bg-primary)" : "var(--text-secondary)",
+                                color: on ? "var(--bg-primary)" : "var(--text-tertiary)",
                                 background: on ? accent : "var(--bg-secondary)",
                                 border: `1px solid ${on ? accent : "var(--border-color)"}`,
                               }}
@@ -10224,6 +12579,103 @@ export default function Home() {
                           );
                         })}
                       </div>
+                    )}
+                    {mode === "invite" ? (<>
+                    <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                      Mint a QR that grants <span style={{ color: "var(--text-secondary)" }}>temporary edit access</span> to
+                      anyone who scans it — no wallet needed (guests get an anonymous pass; wallet sign-in ties access to
+                      their address). Access ends automatically when the timer runs out, and it&apos;s{" "}
+                      <span style={{ color: "var(--text-secondary)" }}>edit-only, never owner powers</span>. Add a key for a
+                      second factor you share separately (a leaked QR alone won&apos;t work).
+                    </div>
+
+                    {/* Duration — typed number of hours (server clamps 1m–30d) */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>Duration — hours</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={grantTtlText}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setGrantTtlText(raw);
+                            const h = parseFloat(raw);
+                            if (Number.isFinite(h) && h > 0) {
+                              setGrantTtl(Math.min(30 * 24 * 3600, Math.max(60, Math.round(h * 3600))));
+                            }
+                          }}
+                          placeholder="1"
+                          className="w-20 text-[11px] px-2.5 py-1.5 rounded font-mono outline-none"
+                          style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                          aria-label="invite duration in hours"
+                        />
+                        <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          = {formatDuration(grantTtl)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Module scope — compartmentalized risk. Default is
+                        EVERYTHING; opting in confines the invite's edit
+                        powers to a whitelist of modules (enforced server-side
+                        on the grant). */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[9px] uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                        Can edit — optional module whitelist
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {([
+                          { on: !grantScoped, l: "Everything", act: () => setGrantScoped(false) },
+                          { on: grantScoped, l: "Only these modules", act: () => setGrantScoped(true) },
+                        ]).map((o) => (
+                          <button
+                            key={o.l}
+                            onClick={o.act}
+                            className="text-[11px] px-2.5 py-1 rounded font-mono transition-all"
+                            style={{
+                              color: o.on ? "var(--bg-primary)" : "var(--text-secondary)",
+                              background: o.on ? accent : "var(--bg-secondary)",
+                              border: `1px solid ${o.on ? accent : "var(--border-color)"}`,
+                            }}
+                          >
+                            {o.l}
+                          </button>
+                        ))}
+                      </div>
+                      {grantScoped && (
+                        <>
+                          <div
+                            className="flex items-center gap-1 flex-wrap max-h-28 overflow-y-auto rounded p-1.5"
+                            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                          >
+                            {scopeChoices.length === 0 ? (
+                              <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>module catalog still loading…</span>
+                            ) : scopeChoices.map((name) => {
+                              const on = grantModules.includes(name);
+                              return (
+                                <button
+                                  key={name}
+                                  onClick={() => setGrantModules((cur) => on ? cur.filter((m) => m !== name) : [...cur, name])}
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-mono transition-all"
+                                  style={{
+                                    color: on ? "var(--bg-primary)" : "var(--text-tertiary)",
+                                    background: on ? accent : "transparent",
+                                    border: `1px solid ${on ? accent : "var(--border-color)"}`,
+                                  }}
+                                >
+                                  {name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <span className="text-[9px]" style={{ color: grantModules.length ? "var(--text-tertiary)" : "var(--crt-amber)" }}>
+                            {grantModules.length
+                              ? `invite can edit ${grantModules.length} module${grantModules.length === 1 ? "" : "s"}: ${grantModules.join(", ")}`
+                              : "pick at least one module — with none selected the invite covers everything"}
+                          </span>
+                        </>
+                      )}
                     </div>
 
                     {/* Optional key (second factor) */}
@@ -10338,10 +12790,13 @@ export default function Home() {
                                 <div className="font-mono text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
                                   {g.label || `${g.id.slice(0, 8)}…`}
                                 </div>
-                                <div className="text-[9px] flex items-center gap-1.5" style={{ color: "var(--text-tertiary)" }}>
-                                  <span>{fmtLeft(g.exp)} left</span>
-                                  {g.key_required && <span style={{ color: accent }}>· 🔑 key</span>}
-                                  {used > 0 && <span>· {used} active</span>}
+                                <div className="text-[9px] flex items-center gap-1.5 min-w-0" style={{ color: "var(--text-tertiary)" }}>
+                                  <span className="shrink-0">{fmtLeft(g.exp)} left</span>
+                                  {g.key_required && <span className="shrink-0" style={{ color: accent }}>· 🔑 key</span>}
+                                  {used > 0 && <span className="shrink-0">· {used} active</span>}
+                                  <span className="truncate" title={g.modules?.length ? `can edit only: ${g.modules.join(", ")}` : "can edit every module"} style={{ color: g.modules?.length ? accent : undefined }}>
+                                    · {g.modules?.length ? `${g.modules.length} module${g.modules.length === 1 ? "" : "s"}` : "all modules"}
+                                  </span>
                                 </div>
                               </button>
                               <button
@@ -10358,21 +12813,252 @@ export default function Home() {
                         })}
                       </div>
                     )}
+                    </>) : (<>
+                    {/* MY SESSION — the old Phone Sign-In handoff, now a face
+                        of this card: single-use QR that opens the console on
+                        another device already signed in as this identity. */}
+                    <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                      Scan with your phone to open this console <span style={{ color: "var(--text-secondary)" }}>already signed in as you</span> —
+                      no wallet or signing there. The code is single-use, dies in <span style={{ color: "var(--text-secondary)" }}>{hoTtlLabel}</span>,
+                      and carries <span style={{ color: "var(--text-secondary)" }}>your full access</span> — for your own devices only.
+                      To let someone else in, use an edit invite instead.
+                    </div>
+                    {liveHandoff ? (
+                      <div
+                        className="rounded-lg p-3 flex flex-col items-center gap-2"
+                        style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
+                      >
+                        <div
+                          className="rounded-lg p-2 bg-white"
+                          dangerouslySetInnerHTML={{ __html: qrSvg(handoffUrl(liveHandoff.code), 180) }}
+                        />
+                        <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          single-use · expires in <span style={{ color: accent }}>{fmtMMSS}</span>
+                        </div>
+                        <button
+                          onClick={() => copyGrantBit("handoff", handoffUrl(liveHandoff.code))}
+                          className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
+                          style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                          title="Copy sign-in link (treat it like a password)"
+                        >
+                          {grantCopied === "handoff" ? "✓ copied link" : handoffUrl(liveHandoff.code)}
+                        </button>
+                        <button
+                          onClick={() => setHandoff(null)}
+                          className="text-[9px] uppercase tracking-wider"
+                          style={{ color: "var(--text-tertiary)" }}
+                        >
+                          done
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                            expires in
+                          </span>
+                          {hoTtlParts.map((f) => (
+                            <span key={f.unit} className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                max={f.max}
+                                step={1}
+                                value={f.val}
+                                onChange={(e) => {
+                                  const n = Math.max(0, Math.floor(Number(e.target.value)) || 0);
+                                  setHandoffTtl(Math.min(86400, Math.max(0, hoTtl + (n - f.val) * f.mul)));
+                                }}
+                                className="w-14 text-[10.5px] px-2 py-1 rounded font-mono transition-all"
+                                style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                                aria-label={`expiry ${f.unit === "h" ? "hours" : f.unit === "m" ? "minutes" : "seconds"}`}
+                              />
+                              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                                {f.unit}
+                              </span>
+                            </span>
+                          ))}
+                          <span className="text-[9px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                            = {hoTtlLabel}
+                          </span>
+                        </div>
+                        <button
+                          onClick={createHandoff}
+                          disabled={handoffBusy}
+                          className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
+                          style={{ color: "var(--bg-primary)", background: accent, border: `1px solid ${accent}` }}
+                        >
+                          {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
+                        </button>
+                      </>
+                    )}
+                    {handoffError && (
+                      <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{handoffError}</div>
+                    )}
+                    </>)}
                   </div>
                 </div>
+    );
+  };
+
+  // ── Nested-mods card (INFO tab) ────────────────────────────────────
+  // A module can contain mods of its own: subdirectories carrying their own
+  // mod.py / config.json (`m bloctime/app`, `m agent/src/skills/grep`). The
+  // API ships them as `mods` on each /modules entry; this card — part of the
+  // module's INFO profile — lists them with their mod-protocol address,
+  // click-to-copy.
+  const renderModsCard = () => {
+    const nested = selectedModuleInfo?.mods || [];
+    // A row is expandable when it's a module in its own right — a fleet
+    // module already in the catalog (tree-root rows, matched via addr) or a
+    // nested dir carrying its own config.json (bloctime/app style, opened
+    // through a synthesized catalog entry). mod.py-only internals (agent's
+    // agents/skills) are helpers, not modules — those stay click-to-copy.
+    const resolveOpenTarget = (m: NonNullable<typeof nested>[number]): typeof moduleList[0] | null => {
+      if (m.addr) {
+        const fleet = moduleList.find((f) => m.path && f.path === m.path) ||
+          moduleList.find((f) => f.name === m.name);
+        if (fleet) return fleet;
+      }
+      if (m.has_config && m.path) {
+        const parentPath = selectedModuleInfo?.path || "";
+        const parentDisplay = selectedModuleInfo?.display || parentPath;
+        return {
+          name: `${selectedModule}/${m.rel}`,
+          path: m.path,
+          display: m.path.startsWith(parentPath) ? parentDisplay + m.path.slice(parentPath.length) : m.path,
+          category: selectedModuleInfo?.category || "orbit",
+          has_config: true,
+          app_url: m.app_url || null,
+          api_url: m.api_url || null,
+          description: m.description || null,
+          fns: m.fns || [],
+          has_app_dir: false,
+          has_server_dir: false,
+          has_api_dir: false,
+          owner: selectedModuleInfo?.owner || null,
+          version: m.version || null,
+          cid: null,
+          created_at: null,
+          mods: null,
+        } as typeof moduleList[0];
+      }
+      return null;
+    };
+    const rows = nested.map((m) => ({ m, open: resolveOpenTarget(m) }));
+    // Real modules first (stable within each group — the API pre-sorts by rel).
+    rows.sort((a, b) => (a.open ? 0 : 1) - (b.open ? 0 : 1));
+    return (
+          <div className="section-card">
+            <span className="section-card__bar" />
+            <div className="section-card__head">
+              <div className="section-card__title">
+                <span className="section-card__glyph">▣</span>
+                Nested mods
+              </div>
+              <span
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                style={{
+                  color: "var(--crt-purple, #c084fc)",
+                  background: "color-mix(in srgb, var(--crt-purple, #c084fc) 10%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--crt-purple, #c084fc) 22%, transparent)",
+                }}
+              >
+                {nested.length}
+              </span>
+            </div>
+            <div className="pl-5 pr-4 py-3.5 flex flex-col gap-1.5">
+              {nested.length === 0 ? (
+                <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+                  No nested mods — no subdirectory of {selectedModule || "this module"} carries its own mod.py or config.json.
+                </span>
+              ) : (
+                <>
+                  <span className="text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>
+                    Subdirectories that are mods in their own right. Rows marked OPEN are real modules — click to expand into them here; click an address to copy it. Other rows click-to-copy.
+                  </span>
+                  {rows.map(({ m, open }) => {
+                    const addr = m.addr || `m ${selectedModule}/${m.rel}`;
+                    const copyKey = `$mods.${m.rel}`;
+                    const copied = copiedPath === copyKey;
+                    return (
+                      <button
+                        key={m.rel}
+                        onClick={() => (open ? selectModule(open) : copyValue(copyKey, addr))}
+                        data-tip={open ? `open ${open.name} ↗` : `copy · ${addr}`}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer min-w-0"
+                        style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--glass-bg) 55%, transparent)" }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = open ? "color-mix(in srgb, var(--crt-green, #4ade80) 38%, var(--border-color))" : "color-mix(in srgb, var(--crt-purple, #c084fc) 32%, var(--border-color))")}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
+                      >
+                        <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="text-[12.5px] font-bold truncate" style={{ color: "var(--text-primary)" }}>
+                              {m.name}
+                            </span>
+                            <span
+                              role={open ? "button" : undefined}
+                              onClick={open ? (e) => { e.stopPropagation(); copyValue(copyKey, addr); } : undefined}
+                              aria-label={open ? `Copy ${addr}` : undefined}
+                              className="text-[10.5px] font-mono truncate"
+                              style={{ color: copied ? "var(--crt-green)" : "var(--text-tertiary)", cursor: open ? "copy" : undefined }}
+                            >
+                              {copied ? "copied ✓" : `${selectedModule}/${m.rel}`}
+                            </span>
+                          </span>
+                          {m.description && (
+                            <span className="text-[11px] leading-snug truncate" style={{ color: "var(--text-tertiary)" }}>
+                              {m.description}
+                            </span>
+                          )}
+                        </div>
+                        <span className="shrink-0 flex items-center gap-1">
+                          {m.has_config && (
+                            <span className="text-[8.5px] font-bold font-code uppercase px-1.5 py-0.5 rounded" style={{ color: "var(--crt-blue)", background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-blue) 22%, transparent)", letterSpacing: "0.06em" }}>
+                              config
+                            </span>
+                          )}
+                          {m.has_mod_py && (
+                            <span className="text-[8.5px] font-bold font-code uppercase px-1.5 py-0.5 rounded" style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 22%, transparent)", letterSpacing: "0.06em" }}>
+                              mod.py
+                            </span>
+                          )}
+                          {open && (
+                            <span className="text-[8.5px] font-bold font-code uppercase px-1.5 py-0.5 rounded" style={{ color: "var(--crt-green)", background: "color-mix(in srgb, var(--crt-green) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--crt-green) 32%, transparent)", letterSpacing: "0.06em" }}>
+                              open ↗
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </div>
     );
   };
 
   const renderProfileTab = () => {
     const cfg = effectiveConfig;
     const info = selectedModuleInfo;
+    // Vitals render in a 2-up grid; when an odd number of tiles is present
+    // (e.g. no owner), the last one stretches full-width so the grid never
+    // shows a blank hole.
+    const vitalKeys = [
+      cfg?.owner && "owner",
+      info?.cid && "cid",
+      info?.created_at && "created",
+      info?.updated_at && "updated",
+    ].filter(Boolean) as string[];
+    const wideVital = vitalKeys.length % 2 === 1 ? vitalKeys[vitalKeys.length - 1] : null;
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Profile Content */}
         <div className="flex-1 overflow-y-auto">
           {sidebarView === "overview" && (
-            <div className="p-4 flex flex-col gap-3">
+            <div className="p-4 flex flex-col gap-3 w-full max-w-[920px] mx-auto">
 
               {/* INFO — one compact identity card. Whitelist + share-access
                   live in the ACCOUNT sidebar, logs in the LOGS tab / API
@@ -10443,8 +13129,8 @@ export default function Home() {
                       return (
                         <button
                           onClick={() => copyValue("$info.owner", cfg.owner)}
-                          title={`Click to copy\n${cfg.owner}`}
-                          className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer min-w-0"
+                          data-tip={`copy · ${cfg.owner}`}
+                          className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-colors cursor-pointer min-w-0${wideVital === "owner" ? " col-span-2" : ""}`}
                           style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--glass-bg) 55%, transparent)" }}
                           onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-green) 32%, var(--border-color))")}
                           onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
@@ -10471,8 +13157,8 @@ export default function Home() {
                     {info?.cid && (
                       <button
                         onClick={() => copyValue("$info.cid", info.cid)}
-                        title={`Click to copy\n${info.cid}`}
-                        className="flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0"
+                        data-tip={`copy · ${info.cid}`}
+                        className={`flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0${wideVital === "cid" ? " col-span-2" : ""}`}
                         style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--glass-bg) 55%, transparent)" }}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-blue) 32%, var(--border-color))")}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
@@ -10486,8 +13172,8 @@ export default function Home() {
                     {!!info?.created_at && (
                       <button
                         onClick={() => copyValue("$info.created", new Date(info.created_at! * 1000).toISOString())}
-                        title={`Click to copy\n${new Date(info.created_at * 1000).toISOString()}`}
-                        className="flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0"
+                        data-tip={`copy · ${new Date(info.created_at * 1000).toISOString()}`}
+                        className={`flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0${wideVital === "created" ? " col-span-2" : ""}`}
                         style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--glass-bg) 55%, transparent)" }}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--border-color-strong)")}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
@@ -10501,8 +13187,8 @@ export default function Home() {
                     {!!info?.updated_at && (
                       <button
                         onClick={() => copyValue("$info.updated", new Date(info.updated_at! * 1000).toISOString())}
-                        title={`Click to copy\n${new Date(info.updated_at * 1000).toISOString()}`}
-                        className="flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0"
+                        data-tip={`copy · ${new Date(info.updated_at * 1000).toISOString()}`}
+                        className={`flex flex-col gap-px px-2.5 py-2 rounded-lg text-left leading-tight transition-colors cursor-pointer min-w-0${wideVital === "updated" ? " col-span-2" : ""}`}
                         style={{ border: "1px solid var(--border-color)", background: "color-mix(in srgb, var(--glass-bg) 55%, transparent)" }}
                         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--border-color-strong)")}
                         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
@@ -10549,6 +13235,10 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+
+              {/* Nested mods — subdirectories that are mods in their own
+                  right (formerly its own MODS tab, folded into INFO). */}
+              {renderModsCard()}
 
               {/* Utility toolbar — process start/stop/restart already live
                   on the API/APP tiles above, so this is just the cross-
@@ -10968,19 +13658,19 @@ export default function Home() {
               {/* Method + Path + Send */}
               <div className="px-3 py-2 border-b flex items-center gap-2" style={{ borderColor: "var(--border-color)" }}>
                 {Array.isArray(currentEndpoint.method) ? (
-                  <select
+                  <PillSelect
                     value={apiMethod}
-                    onChange={(e) => setApiMethod(e.target.value)}
-                    className="text-[13px] font-bold px-2 py-1 border bg-transparent font-mono"
-                    style={{
-                      color: apiMethod === "GET" ? "var(--crt-green)" : apiMethod === "POST" ? "var(--crt-blue)" : "var(--crt-red)",
-                      borderColor: "rgba(255,255,255,0.15)",
-                    }}
-                  >
-                    {(currentEndpoint.method as string[]).map((m: string) => (
-                      <option key={m} value={m} style={{ background: "var(--bg-primary)", color: "var(--text-primary)" }}>{m}</option>
-                    ))}
-                  </select>
+                    options={(currentEndpoint.method as string[]).map((m: string) => ({
+                      value: m,
+                      label: m,
+                      color: m === "GET" ? "var(--crt-green)" : m === "POST" ? "var(--crt-blue)" : "var(--crt-red)",
+                    }))}
+                    onChange={setApiMethod}
+                    accent="var(--crt-green)"
+                    menuWidth={120}
+                    title="HTTP method"
+                    aria-label="HTTP method"
+                  />
                 ) : (
                   <span
                     className="text-[13px] font-bold px-2 py-1 border"
@@ -11037,16 +13727,18 @@ export default function Home() {
                         {input.name}
                       </span>
                       {input.type === "bool" ? (
-                        <select
+                        <PillSelect
                           value={apiParams[input.name] || ""}
-                          onChange={(e) => setApiParams({ ...apiParams, [input.name]: e.target.value })}
-                          className="flex-1 text-[13px] font-mono px-2 py-1 border bg-transparent"
-                          style={{ color: "var(--text-primary)", borderColor: "var(--border-color-strong)" }}
-                        >
-                          <option value="" style={{ background: "var(--bg-primary)" }}>—</option>
-                          <option value="true" style={{ background: "var(--bg-primary)" }}>true</option>
-                          <option value="false" style={{ background: "var(--bg-primary)" }}>false</option>
-                        </select>
+                          options={[
+                            { value: "", label: "—" },
+                            { value: "true", label: "true", color: "var(--crt-green)" },
+                            { value: "false", label: "false", color: "var(--crt-red)" },
+                          ]}
+                          onChange={(v) => setApiParams({ ...apiParams, [input.name]: v })}
+                          accent="var(--text-secondary)"
+                          menuWidth={120}
+                          aria-label={input.name}
+                        />
                       ) : (
                         <input
                           type="text"
@@ -11105,10 +13797,10 @@ export default function Home() {
   // /{mod} path autocompletes against the registry, and the host is editable
   // to re-root the same names onto a different host's registrar).
   const renderOmnibox = () => {
-    const modName = selectedModule || "dev";
-    // Mirror renderAppApiTab: /claude stays /claude at top level; only an
+    const modName = selectedModule || "build";
+    // Mirror renderAppApiTab: /build stays /build at top level; only an
     // embedded copy falls back to the web front-door (recursion guard).
-    const appModName = omniForeignMod || (modName === "dev" && isEmbedded ? "web" : modName);
+    const appModName = omniForeignMod || (modName === "build" && isEmbedded ? "web" : modName);
     const gatewayUrl = `${(gatewayHostOverride || defaultGatewayOrigin(mounted)).replace(/\/+$/, "")}/${appModName}`;
     const stepModule = (dir: 1 | -1) => {
       const list = moduleList
@@ -11140,8 +13832,8 @@ export default function Home() {
       if (origin !== null) {
         override = origin === defaultGatewayOrigin() ? null : origin;
         setGatewayHostOverride(override);
-        if (override) safeSetItem("claude_gateway_host", override);
-        else { try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ } }
+        if (override) safeSetItem("build_gateway_host", override);
+        else { try { window.localStorage.removeItem("build_gateway_host"); } catch { /* ignore */ } }
       }
       const target = pick || (mod ? omniMatches(mod)[0] : null);
       if (target) {
@@ -11153,20 +13845,24 @@ export default function Home() {
       setOmniEditing(false);
     };
     return (
-      <div className="flex items-center gap-1.5 flex-1 min-w-0" style={{ minWidth: isMobile ? 0 : 320, maxWidth: 760 }}>
+      <div className="flex items-center gap-1.5 flex-1 min-w-0" style={{ minWidth: isMobile ? 0 : 260, maxWidth: 760, gap: isMobile ? 6 : undefined }}>
         {/* HUB / TASKS moved out of the header — they live as labeled pills
             on the composer's params strip (the chat bar) now. */}
-        {([-1, 1] as const).map((dir) => (
+        {/* ‹ › module steppers are desktop-only: on a phone they'd eat the
+            width the address pill needs (MODS rail + omnibox cover switching). */}
+        {!isMobile && ([-1, 1] as const).map((dir) => (
           <button
             key={dir}
             onClick={() => stepModule(dir)}
             className="shrink-0 flex items-center justify-center transition-all hover:brightness-125"
             style={{
-              width: 24, height: 24, borderRadius: 999,
+              // Phone: thumb-sized but quiet — the pill is the star, the
+              // steppers are just satellites.
+              width: isMobile ? 36 : 24, height: isMobile ? 36 : 24, borderRadius: 999,
               color: "var(--crt-green)",
               background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
               border: "1px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
-              fontSize: 14, lineHeight: 1, cursor: "pointer",
+              fontSize: isMobile ? 17 : 14, lineHeight: 1, cursor: "pointer",
             }}
             title={dir === -1 ? "Previous module" : "Next module"}
             aria-label={dir === -1 ? "Previous module" : "Next module"}
@@ -11178,16 +13874,33 @@ export default function Home() {
           <div
             className="flex items-center gap-1.5 min-w-0 transition-all"
             style={{
-              background: "var(--bg-secondary)",
-              border: `1px solid ${omniEditing ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "var(--border-color)"}`,
+              // Same green-pill vibe as the ‹ › / ↗ controls flanking it, so
+              // the whole nav strip reads as one instrument cluster.
+              background: "color-mix(in srgb, var(--crt-green) 5%, var(--bg-secondary))",
+              border: `1px solid color-mix(in srgb, var(--crt-green) ${omniEditing ? 45 : 22}%, transparent)`,
               borderRadius: 999,
-              padding: "3px 10px",
+              // Phone: one slim pill in the title bar — a whisper of glow,
+              // no billboard.
+              padding: isMobile ? "6px 12px" : "3px 10px",
+              boxShadow: isMobile
+                ? "0 0 14px color-mix(in srgb, var(--crt-green) 8%, transparent)"
+                : undefined,
             }}
           >
             {omniEditing ? (
               <input
                 value={omniValue}
                 autoFocus
+                // A bare text input here makes iOS guess "contact field" and
+                // shove the AutoFill Contact bar over the keyboard — declare
+                // it a URL so Safari gives the url keyboard and no contacts.
+                type="url"
+                inputMode="url"
+                name="module-url"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                enterKeyHint="go"
                 spellCheck={false}
                 onFocus={(e) => {
                   const v = e.currentTarget.value;
@@ -11220,11 +13933,47 @@ export default function Home() {
                 {(() => {
                   const m = gatewayUrl.match(/^([a-z]+:\/\/)([^/]+)(\/.*)?$/i);
                   if (!m) return <span style={{ color: "var(--text-secondary)" }}>{gatewayUrl}</span>;
+                  if (isMobile) {
+                    // Phone: one line, path-first — the /{mod} is the only
+                    // part worth reading (the host used to repeat above it,
+                    // and the wordmark repeated it again). Host only shows
+                    // when it's been re-rooted somewhere foreign.
+                    return (
+                      <span className="flex items-baseline gap-1.5 min-w-0" style={{ lineHeight: 1.2 }}>
+                        {gatewayHostOverride && (
+                          <span
+                            className="truncate shrink-0"
+                            style={{ fontSize: 10, maxWidth: 96, letterSpacing: "0.04em", color: "var(--crt-amber)" }}
+                          >
+                            {m[2]}
+                          </span>
+                        )}
+                        <span
+                          className="block truncate"
+                          style={{
+                            fontSize: 15, fontWeight: 700, letterSpacing: "0.03em", color: "var(--crt-green)",
+                            textShadow: "0 0 10px color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                          }}
+                        >
+                          {m[3] || "/"}
+                        </span>
+                      </span>
+                    );
+                  }
                   return (
                     <>
                       <span style={{ color: "var(--text-tertiary)", opacity: 0.55 }}>{m[1]}</span>
                       <span style={{ color: gatewayHostOverride ? "var(--crt-amber)" : "var(--text-secondary)" }}>{m[2]}</span>
-                      <span style={{ color: "var(--crt-green)", fontWeight: 600 }}>{m[3] || ""}</span>
+                      {/* The /{mod} is the header's de-facto title — let it
+                          read as one instead of blending into the URL. */}
+                      <span
+                        style={{
+                          color: "var(--crt-green)", fontWeight: 700, fontSize: 13, letterSpacing: "0.02em",
+                          textShadow: "0 0 8px color-mix(in srgb, var(--crt-green) 30%, transparent)",
+                        }}
+                      >
+                        {m[3] || ""}
+                      </span>
                     </>
                   );
                 })()}
@@ -11236,7 +13985,7 @@ export default function Home() {
                 onClick={() => {
                   setGatewayHostOverride(null);
                   setOmniForeignMod(null);
-                  try { window.localStorage.removeItem("claude_gateway_host"); } catch { /* ignore */ }
+                  try { window.localStorage.removeItem("build_gateway_host"); } catch { /* ignore */ }
                 }}
                 className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 rounded-full transition-all hover:brightness-125"
                 style={{
@@ -11250,6 +13999,9 @@ export default function Home() {
                 ✕ host
               </button>
             )}
+            {/* Copy hides on phone — every px of pill width goes to the URL
+                itself there (the ↗ button covers the "get me the link" case). */}
+            {!isMobile && (
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => navigator.clipboard?.writeText(gatewayUrl).catch(() => {})}
@@ -11260,6 +14012,7 @@ export default function Home() {
             >
               ⧉
             </button>
+            )}
           </div>
           {omniEditing && (() => {
             const matches = omniMatches(parseOmnibox(omniValue).mod);
@@ -11315,11 +14068,16 @@ export default function Home() {
             background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
             border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
             textDecoration: "none",
+            ...(isMobile ? { padding: "7px 11px", borderRadius: 999 } : {}),
           }}
           title="Open in new tab"
         >
           ↗
         </a>
+        {/* Fork / new-mod deliberately get NO nav-bar buttons: both live in
+            the compact create form beside the agent prompt (composer "+"),
+            and the agent can also fork or scaffold a module straight from a
+            typed prompt. */}
       </div>
     );
   };
@@ -11332,17 +14090,18 @@ export default function Home() {
   // both an app and an api; otherwise we render whichever exists.
   const renderAppApiTab = () => {
     const hasApp = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
-    // App-only: the API explorer and its toggle were removed, so this tab
-    // always shows the live app.
-    const hasApi = false;
-    const sub: "app" | "api" = "app";
-    const modName = selectedModule || "dev";
-    // claude's APP tab embeds the real claude app, one level deep: an
-    // embedded copy (window.self !== window.top) maps claude → the web
+    // The API explorer (endpoint catalog + playground + logs) lives inside
+    // this tab, behind the APP/API segmented toggle. It always targets this
+    // console's own API (apiUrl), so it is always available.
+    const hasApi = true;
+    const sub: "app" | "api" = !hasApp ? "api" : sidebarView === "api" ? "api" : "app";
+    const modName = selectedModule || "build";
+    // build's APP tab embeds the real build app, one level deep: an
+    // embedded copy (window.self !== window.top) maps build → the web
     // front-door instead, so the console never iframes itself forever. A
     // foreign /{mod} typed into the omnibox (resolvable only by the foreign
     // host's registrar) wins over both.
-    const appModName = omniForeignMod || (modName === "dev" && isEmbedded ? "web" : modName);
+    const appModName = omniForeignMod || (modName === "build" && isEmbedded ? "web" : modName);
     // Gateway URL shown in the omnibox and loaded in the iframe. Caddy
     // proxies {host}/{mod} → the module's app; the host defaults to this
     // deployment (see defaultGatewayOrigin) unless the omnibox re-rooted it.
@@ -11379,17 +14138,55 @@ export default function Home() {
             (renderOmnibox) so it persists across every tab. */}
         {(hasApp || hasApi) && (
           <div
-            className="flex items-center gap-2 px-3 py-2 shrink-0"
+            // nav-tabs-mobile-scroll: on phone this row side-scrolls instead of
+            // forcing the whole console column wider than the viewport (its
+            // shrink-0 buttons set the column's min-width otherwise).
+            className="flex items-center gap-1.5 px-3 py-1.5 shrink-0 nav-tabs-mobile-scroll"
             style={{
               borderBottom: "1px solid var(--border-color)",
               background: "linear-gradient(180deg, var(--bg-tint), transparent)",
             }}
           >
-            {/* LOGS toggle — shows the live pm2 logs for the active service
-                (APP or API). The APP/API toggle above switches which. */}
+            {/* APP / API segmented toggle — flips this tab between the live
+                app (iframe) and the API explorer. `sidebarView` doubles as
+                the toggle state so deep-links land on the right sub-view. */}
+            {hasApp && hasApi && (
+              <div
+                className="flex items-center gap-0.5 p-0.5 rounded shrink-0"
+                style={{ border: "1px solid var(--border-color)" }}
+              >
+                {(["app", "api"] as const).map((k) => {
+                  const on = sub === k;
+                  const c = k === "app" ? "var(--crt-green)" : "var(--crt-blue)";
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => {
+                        setSidebarView(k);
+                        // Fullscreen + phone preview are app-only affordances;
+                        // leave them behind when flipping to the API explorer
+                        // (their exit buttons are hidden there).
+                        if (k === "api") setAppExpanded(false);
+                      }}
+                      className="text-[11px] px-2.5 py-[3px] rounded uppercase font-bold tracking-wider transition-all"
+                      style={{
+                        color: on ? c : "var(--text-tertiary)",
+                        background: on ? `color-mix(in srgb, ${c} 12%, transparent)` : "transparent",
+                      }}
+                      title={k === "app" ? "Live app" : "API explorer — endpoints, playground, logs"}
+                    >
+                      {k.toUpperCase()}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* LOGS toggle — shows the live pm2 logs for the app service.
+                (The API sub-view carries its own Endpoints/Logs toggle.) */}
+            {sub === "app" && (
             <button
               onClick={() => (logsOpen ? setModuleLogsOpen(null) : openLogs())}
-              className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0 ml-auto"
+              className="text-[11px] px-2.5 py-[3px] rounded uppercase font-bold tracking-wider transition-all shrink-0 ml-auto"
               style={{
                 color: logsOpen ? "var(--crt-amber)" : "var(--text-tertiary)",
                 background: logsOpen ? "color-mix(in srgb, var(--crt-amber) 12%, transparent)" : "transparent",
@@ -11397,14 +14194,17 @@ export default function Home() {
               }}
               title={`Show ${sub.toUpperCase()} logs`}
             >
-              {logsOpen ? "✕ LOGS" : "▤ LOGS"}
+              {/* Phone: icon-only so the whole control row fits without side-scroll */}
+              {`${logsOpen ? "✕" : "▤"}${isMobile ? "" : " LOGS"}`}
             </button>
+            )}
             {/* PHONE — preview the embedded app at a mobile viewport
-                (390×844 device frame). Toggles back to the full-width view. */}
-            {hasApp && (
+                (390×844 device frame). Toggles back to the full-width view.
+                Hidden on an actual phone — the viewport already is one. */}
+            {hasApp && sub === "app" && !isMobile && (
               <button
                 onClick={() => setAppPhoneView((v) => !v)}
-                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                className="text-[11px] px-2.5 py-[3px] rounded uppercase font-bold tracking-wider transition-all shrink-0"
                 style={{
                   color: appPhoneView ? "var(--crt-blue)" : "var(--text-tertiary)",
                   background: appPhoneView ? "color-mix(in srgb, var(--crt-blue) 12%, transparent)" : "transparent",
@@ -11417,10 +14217,10 @@ export default function Home() {
             )}
             {/* EXPAND — blow the embedded app up to a full-viewport overlay
                 (hides the console chrome). Toggles back to MINIMIZE. */}
-            {hasApp && (
+            {hasApp && sub === "app" && (
               <button
                 onClick={() => setAppExpanded((v) => !v)}
-                className="text-[10px] px-2.5 py-1 rounded uppercase font-bold tracking-wider transition-all shrink-0"
+                className="text-[11px] px-2.5 py-[3px] rounded uppercase font-bold tracking-wider transition-all shrink-0"
                 style={{
                   color: appExpanded ? "var(--crt-green)" : "var(--text-tertiary)",
                   background: appExpanded ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
@@ -11428,13 +14228,15 @@ export default function Home() {
                 }}
                 title={appExpanded ? "Exit full screen" : "Expand app to full screen"}
               >
-                {appExpanded ? "⤡ MINIMIZE" : "⤢ EXPAND"}
+                {`${appExpanded ? "⤡" : "⤢"}${isMobile ? "" : appExpanded ? " MINIMIZE" : " EXPAND"}`}
               </button>
             )}
           </div>
         )}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          {logsOpen ? (
+          {sub === "api" ? (
+            renderClaudeApiTab()
+          ) : logsOpen ? (
             <div className="flex-1 flex flex-col overflow-hidden">
               <div
                 className="flex items-center justify-between px-3 py-1.5 shrink-0"
@@ -11467,6 +14269,10 @@ export default function Home() {
                 {logsText}
               </pre>
             </div>
+          ) : modName === "build" && !isEmbedded && !omniForeignMod && !gatewayHostOverride ? (
+            // build looking at itself: the iframe would just recurse into a
+            // blank copy of this console — show the agent home instead.
+            renderClaudeHome()
           ) : renderAppTab(gatewayUrl)}
         </div>
       </div>
@@ -11479,7 +14285,7 @@ export default function Home() {
 
   return (
     <div
-      className="h-screen w-screen flex flex-col overflow-hidden"
+      className="app-shell w-screen flex flex-col overflow-hidden"
       style={{
         background: "var(--bg-primary)",
         color: "var(--text-primary)",
@@ -11649,14 +14455,14 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Header: two stacked rows — compact nav bar (top) + module
-          tabs (second row below). The wrapper stacks them vertically; the
-          nav bar itself keeps its own flex-row (desktop) layout. Its height
+      {/* ── Header: ONE row on desktop — address bar · APP/CODE/INFO tabs ·
+          account chips, left to right. On phone it stacks: title bar (mark +
+          address pill + chips) over a slim scrolling tab strip. Its height
           is published to --header-h so the sign-in drawer starts below it. */}
-      <div ref={headerRef} className="flex flex-col shrink-0" style={{ background: "var(--bg-secondary)" }}>
-      {/* ── Compact Nav Bar (top row) ──────────────────────────────── */}
+      <div ref={headerRef} className="console-header flex flex-col shrink-0" style={{ background: "var(--bg-secondary)" }}>
+      {/* ── Compact Nav Bar ───────────────────────────────────────── */}
       <div
-        className={isMobile ? "flex flex-col shrink-0" : "flex flex-row items-center shrink-0"}
+        className={isMobile ? "flex flex-col shrink-0" : "flex flex-row items-stretch shrink-0"}
         style={{
           background: "var(--bg-secondary)",
           borderBottom: `1px solid ${subtleBorder}`,
@@ -11671,8 +14477,11 @@ export default function Home() {
             phone it stacks BELOW the HUB/TASKS + account row via flex
             `order`. */}
         <div
-          className={`flex items-center py-0.5 ${isMobile ? "px-4" : "pl-3 pr-2 flex-1 min-w-0"}`}
-          style={{ order: isMobile ? 3 : 1 }}
+          className={`flex items-center py-0.5 ${isMobile ? "px-4 hdr-mod-row" : "pl-3 pr-2 flex-1 min-w-0"}`}
+          // Phone: this row only ever held the orbit mark (the module
+          // dropdown it hosted never opens) — the mark moved up into the
+          // account row, so the whole strip is dead space there.
+          style={{ order: isMobile ? 3 : 1, display: isMobile ? "none" : undefined }}
         >
           {/* Browser-style address bar — anchored in the top-LEFT corner of the
               header row (the orbit mark that used to sit here is gone). It is
@@ -11759,15 +14568,12 @@ export default function Home() {
                     >DIR</button>
                   </div>
                 </div>
-              ) : isMobile ? (
-                <div className="flex items-center gap-0.5">
-                  {/* Just the orbit mark (phone only — on desktop the address
-                      bar owns the top-left corner and the mark is gone). */}
-                  <span className="flex items-center" aria-label="orbit">
-                    <ClaudeMark size={17} style={{ filter: "drop-shadow(0 0 5px color-mix(in srgb, var(--crt-amber, #fbbf24) 45%, transparent))" }} />
-                  </span>
-                </div>
               ) : null}
+              {/* (The orbit mark that lived here moved up into the account
+                  row title bar — this whole row is display:none on phone, and
+                  a hidden duplicate ClaudeMark breaks the visible one: its
+                  cloned SVG gradient id resolves inside the display:none
+                  subtree and the mark paints as a blank square.) */}
               {/* Modules dropdown */}
               {showHeaderModuleDropdown && isMobile && selectorMode === "modules" && moduleList.length > 0 && (() => {
                 const owners = [...new Set(moduleList.map(m => m.owner).filter(Boolean))] as string[];
@@ -11984,32 +14790,26 @@ export default function Home() {
 
           </div>
 
-          {/* Mod tabs moved OUT of this top row — they now render in the
-              dedicated second header row below the nav bar (see the
-              "Module tabs (second header row)" block after this header). */}
+          {/* Mod tabs render as a sibling of this row (order 2 on desktop,
+              so they sit inline between the address bar and the account
+              chips; last stacked strip on phone). */}
 
         </div>
 
-        {/* Phone: the address bar gets its own slim full-width row between
-            the account row and the module tabs — same omnibox as desktop,
-            so the current module URL is visible (and editable) on mobile. */}
-        {isMobile && (
-          <div className="flex px-4 py-1" style={{ order: 2, borderBottom: `1px solid ${subtleBorder}` }}>
-            {renderOmnibox()}
-          </div>
-        )}
-
         {/* ── Account controls. On desktop they sit inline at the right end
-            of the single header row (no standalone top bar). On phone this
-            becomes its own row ABOVE the module row (flex `order: 1`). The
-            HUB/TASKS buttons moved out of here — they're icon-only marks
-            docked beside the URL inside the omnibox (renderOmnibox). */}
+            of the single header row. On phone this row IS the whole title
+            bar: orbit mark + address pill + account chips in one strip (the
+            old separate wordmark/URL rows just repeated the /{mod} path). */}
         <div
-          className={`flex items-center py-1 ${isMobile ? "px-4" : "pl-2 pr-4 shrink-0"}`}
-          style={isMobile ? { order: 1, borderBottom: `1px solid ${subtleBorder}` } : { order: 2 }}
+          className={`flex items-center py-1 ${isMobile ? "px-3 hdr-account-row" : "pl-2 pr-4 shrink-0"}`}
+          style={isMobile ? { order: 1, borderBottom: `1px solid ${subtleBorder}` } : { order: 3 }}
         >
+          {/* The orbit mark that opened this row is gone — on a phone every
+              px belongs to the /{mod} pill, so the mod name never truncates
+              behind branding. */}
+          {isMobile && renderOmnibox()}
           {/* Address chip (doubles as profile dropdown trigger) + Agent toggle */}
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          <div className={`flex items-center gap-1.5 shrink-0 ml-auto ${isMobile ? "pl-2" : ""}`}>
           {/* The header "+" (BUILD / FORK / EDIT / IMPORT) moved down to
               the chat bar — the composer band's "+" opens the same create
               form (renderCompactCreateForm), popping up above the bar. */}
@@ -12017,6 +14817,46 @@ export default function Home() {
                 owner's identity (for non-owner viewers) lives inside the
                 profile dropdown below, so the top-right corner never shows a
                 separate OWNER chip alongside the user chip. */}
+            {/* Theme portal — opens the full theme picker (GLASS, RAINBOW,
+                MATRIX, NEON, EMBER, ABYSS, PAPER, WIN95). Rows carry swatch
+                dots sampled from each palette so you can taste before you
+                trip. */}
+            <div ref={themeMenuRef} className="relative shrink-0">
+              <button
+                onClick={() => setThemeMenuOpen((o) => !o)}
+                className="theme-toggle"
+                title="Pick a theme"
+                aria-label="Pick a theme"
+                aria-expanded={themeMenuOpen}
+                aria-haspopup="menu"
+              >
+                {THEMES.find((t) => t.id === theme)?.glyph ?? "◆"}
+              </button>
+              {themeMenuOpen && (
+                <div className="theme-menu" role="menu" aria-label="Themes">
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      role="menuitemradio"
+                      aria-checked={t.id === theme}
+                      className="theme-menu__item"
+                      onClick={() => {
+                        setTheme(t.id);
+                        setThemeMenuOpen(false);
+                      }}
+                    >
+                      <span className="theme-menu__glyph">{t.glyph}</span>
+                      <span className="flex-1">{t.label}</span>
+                      <span className="theme-menu__swatch">
+                        {t.swatch.map((c) => (
+                          <span key={c} className="theme-menu__dot" style={{ background: c }} />
+                        ))}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* User profile chip — when a wallet is connected, clicking
                 pops out the full wallet sidebar (mirrors the AGENT
                 toggle pattern). For local/no-wallet sessions it opens
@@ -12043,19 +14883,26 @@ export default function Home() {
                     ? "color-mix(in srgb, var(--crt-green) 18%, transparent)"
                     : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
                   border: "1px solid color-mix(in srgb, var(--crt-green) 30%, transparent)",
-                  borderRadius: 4,
+                  borderRadius: isMobile ? 10 : 4,
                   letterSpacing: "0.02em",
+                  ...(isMobile ? { padding: token ? "8px 10px" : "8px 14px", boxShadow: "0 0 14px color-mix(in srgb, var(--crt-green) 12%, transparent)" } : {}),
                 } : {
                   color: "var(--crt-green)",
                   opacity: showOwnerSidebar ? 1 : 0.5,
-                  borderRadius: 4,
+                  borderRadius: isMobile ? 10 : 4,
                   background: showOwnerSidebar ? "color-mix(in srgb, var(--crt-green) 8%, transparent)" : "transparent",
+                  ...(isMobile ? { padding: token ? "8px 10px" : "8px 14px" } : {}),
                 }}
                 title={token
-                  ? (showOwnerSidebar ? "Close account panel" : "Open account panel")
+                  ? `${address === "local" ? "Local session" : address} — ${showOwnerSidebar ? "close account panel" : "open account panel"}`
                   : "Sign in"}
+                aria-label={token ? "Account panel" : "Sign in"}
                 aria-expanded={showOwnerSidebar}
               >
+                {/* Signed in, the chip collapses to glyphs only — the address
+                    initials that used to print here crowded the /{mod} name
+                    out of the title bar; the full address lives in the
+                    tooltip and inside the panel. */}
                 {isOwner && (
                   <span
                     className="shrink-0 text-[13px] leading-none"
@@ -12065,8 +14912,8 @@ export default function Home() {
                     ♛
                   </span>
                 )}
-                {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "SIGN IN"}
-                <span className="text-[9px]" style={{ opacity: 0.6 }}>
+                {!token && "SIGN IN"}
+                <span className={token ? "text-[13px] leading-none" : "text-[9px]"} style={{ opacity: token ? 0.85 : 0.6 }}>
                   {showOwnerSidebar ? "◨" : "◧"}
                 </span>
               </button>
@@ -12150,7 +14997,7 @@ export default function Home() {
                     <button
                       onClick={() => {
                         setProfileMenuOpen(false);
-                        setAccountTab("wallet");
+                        setAccountTab("user");
                         setShowOwnerSidebar(true);
                       }}
                       className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
@@ -12211,44 +15058,44 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* ── Module tabs (second header row) ─────────────────────────
-          The APP / CODE / API / INFO tabs, moved out of the top nav
-          bar into their own row directly beneath it. Left padding tracks
-          the nav rail so the tabs align under the module name above. */}
+      {/* ── Module tabs — APP / CODE / INFO. Inline in the single header
+          row on desktop (order 2, between the address bar and the account
+          chips, stretched so the active underline lands on the header's
+          bottom edge). On phone they're the last stacked strip, side-
+          scrolling. */}
       <div
-        className="flex items-center gap-0 flex-wrap nav-tabs-mobile-scroll"
+        className={`flex items-stretch gap-0 nav-tabs-mobile-scroll ${isMobile ? "" : "shrink-0 self-stretch"}`}
         style={{
-          background: "var(--bg-secondary)",
-          borderBottom: `1px solid ${subtleBorder}`,
-          paddingLeft: 16,
-          paddingRight: 16,
+          order: isMobile ? 4 : 2,
+          paddingLeft: isMobile ? 12 : 8,
+          paddingRight: isMobile ? 12 : 4,
         }}
       >
           {([
-            // APP leads — the live module interface is the first thing you see.
-            // Shown whenever the module exposes an app.
-            ...((selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir)
-              ? [{
-                  key: "app" as const,
-                  label: "APP",
-                  icon: <AppIcon size={13} />,
-                  color: "var(--crt-green)",
-                  activeKeys: ["app", "api"],
-                  target: "app",
-                }]
-              : []),
+            // APP leads — the live module interface is the first thing you
+            // see, with the API explorer folded in behind an APP/API toggle
+            // inside the tab (renderAppApiTab). Modules without an app land
+            // straight on the API side, so the tab is always shown.
+            ...(() => {
+              const hasAppSide = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
+              return [{
+                key: "app" as const,
+                label: hasAppSide ? "APP" : "API",
+                icon: hasAppSide ? <AppIcon size={14} /> : <ApiIcon size={14} />,
+                color: hasAppSide ? "var(--crt-green)" : "var(--crt-blue)",
+                activeKeys: ["app", "api"],
+                target: hasAppSide ? "app" : "api",
+              }];
+            })(),
             // CODE merges the file browser and the version history into one
             // tab (the sub-toggle inside picks between Files and Versions).
-            { key: "files" as const, label: "CODE", icon: <CodeIcon size={13} />, color: "var(--text-primary)" },
-            // API — docs (human/engineer), endpoint schema with auth levels,
-            // an interactive playground, and the module's process logs.
-            { key: "apitab" as const, label: "API", icon: <ApiIcon size={13} />, color: "var(--crt-blue)" },
+            { key: "files" as const, label: "CODE", icon: <CodeIcon size={14} />, color: "var(--text-primary)" },
             // INFO (né OVERVIEW) is the module's compact profile — kept last
             // now that the app leads. (The EDIT view moved out of the tab
-            // row: it's the rail's EDIT button.)
-            { key: "overview" as const, label: "INFO", icon: <OverviewIcon size={13} />, color: "var(--crt-amber)" },
+            // row: it's the rail's EDIT button. Nested MODS live inside INFO
+            // as a card rather than their own tab.)
+            { key: "overview" as const, label: "INFO", icon: <OverviewIcon size={14} />, color: "var(--crt-amber)" },
           ]).map((tab) => {
             const t = tab as any;
             const isActive = t.activeKeys ? t.activeKeys.includes(sidebarView) : sidebarView === tab.key;
@@ -12256,9 +15103,9 @@ export default function Home() {
               <button
                 key={tab.key}
                 onClick={() => setSidebarView(t.target || tab.key)}
-                className="text-[12px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
+                className="mod-tab text-[13px] font-bold transition-all px-2.5 py-1 font-code flex items-center gap-1.5 relative"
                 style={{
-                  letterSpacing: "0.02em",
+                  letterSpacing: "0.03em",
                   color: isActive ? tab.color : "var(--text-tertiary)",
                   opacity: isActive ? 1 : 0.4,
                   borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
@@ -12280,15 +15127,123 @@ export default function Home() {
               >
                 <span className="flex items-center">{tab.icon}</span>
                 {tab.label}
+                {typeof t.count === "number" && t.count > 0 && (
+                  <span
+                    className="text-[9px] font-mono px-1 rounded-full leading-[14px]"
+                    style={{
+                      color: tab.color,
+                      background: `color-mix(in srgb, ${tab.color} 12%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${tab.color} 25%, transparent)`,
+                      opacity: isActive ? 1 : 0.8,
+                    }}
+                  >
+                    {t.count}
+                  </span>
+                )}
               </button>
             );
           })}
+          {/* SPLIT — pick a workspace layout (1–4 panes), pinned to the right
+              of the tabs row so it sits above the app chrome: the current app
+              snaps into the first pane; the other panes become "pick an app"
+              slots in the Desk, so a 4-way split is a few clicks. */}
+          {(() => {
+            const hasAppSide = !!(selectedModuleInfo?.app_url || selectedModuleInfo?.has_app_dir);
+            if (!hasAppSide) return null;
+            const modName = selectedModule || "build";
+            const splitModName = omniForeignMod || (modName === "build" && isEmbedded ? "web" : modName);
+            return (
+              <div className={`relative shrink-0 flex items-center ${isMobile ? "ml-auto mr-1" : "ml-2 mr-1"}`} ref={splitMenuRef}>
+                <button
+                  onClick={() => setSplitMenuOpen((v) => !v)}
+                  className="text-[11px] px-2.5 py-[3px] my-0.5 rounded uppercase font-bold tracking-wider transition-all"
+                  style={{
+                    color: deskOpen || splitMenuOpen ? "var(--crt-green)" : "var(--text-tertiary)",
+                    background: deskOpen || splitMenuOpen ? "color-mix(in srgb, var(--crt-green) 12%, transparent)" : "transparent",
+                    border: `1px solid ${deskOpen || splitMenuOpen ? "color-mix(in srgb, var(--crt-green) 40%, transparent)" : "var(--border-color)"}`,
+                  }}
+                  title="Split screen — open this app in the Desk, alone or in a 2/3/4-pane workspace"
+                  aria-expanded={splitMenuOpen}
+                >
+                  {/* Phone: icon-only — APP/CODE/INFO + ⊞ then fit without clipping */}
+                  {isMobile ? "⊞" : "⊞ SPLIT"}
+                </button>
+                {splitMenuOpen && (
+                  <div
+                    className="absolute top-full right-0 mt-2 z-[120] flex items-center gap-2 p-2.5 rounded-xl"
+                    style={{
+                      background: "color-mix(in srgb, var(--bg-secondary) 94%, transparent)",
+                      border: "1px solid var(--border-color)",
+                      boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                      backdropFilter: "blur(14px) saturate(140%)",
+                      WebkitBackdropFilter: "blur(14px) saturate(140%)",
+                    }}
+                  >
+                    {([
+                      { label: "window", cells: [{ x: 0, y: 0, w: 1, h: 1 }] },
+                      { label: "2 panes", cells: [{ x: 0, y: 0, w: 0.5, h: 1 }, { x: 0.5, y: 0, w: 0.5, h: 1 }] },
+                      { label: "3 panes", cells: [{ x: 0, y: 0, w: 0.5, h: 1 }, { x: 0.5, y: 0, w: 0.5, h: 0.5 }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] },
+                      { label: "4 panes", cells: [{ x: 0, y: 0, w: 0.5, h: 0.5 }, { x: 0.5, y: 0, w: 0.5, h: 0.5 }, { x: 0, y: 0.5, w: 0.5, h: 0.5 }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.label}
+                        onClick={() => {
+                          setDeskLaunch((v) => ({
+                            mod: splitModName,
+                            n: (v?.n || 0) + 1,
+                            // single "window" = classic floating launch
+                            cells: opt.cells.length > 1 ? [...opt.cells] : undefined,
+                          }));
+                          setDeskOpen(true);
+                          setAppExpanded(false);
+                          setSplitMenuOpen(false);
+                        }}
+                        className="flex flex-col items-center gap-1.5 p-1 rounded-lg transition-all"
+                        style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                        title={opt.cells.length > 1 ? `Split screen into ${opt.cells.length} app panes` : "Open as a floating window"}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "color-mix(in srgb, var(--crt-green) 10%, transparent)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      >
+                        <span
+                          className="relative block rounded-md overflow-hidden"
+                          style={{ width: 58, height: 38, background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
+                        >
+                          {opt.cells.map((c, ci) => (
+                            <span
+                              key={ci}
+                              className="absolute box-border"
+                              style={{
+                                left: `${c.x * 100}%`,
+                                top: `${c.y * 100}%`,
+                                width: `${c.w * 100}%`,
+                                height: `${c.h * 100}%`,
+                                border: "1px solid color-mix(in srgb, var(--crt-green) 35%, var(--border-color))",
+                                background: ci === 0
+                                  ? "color-mix(in srgb, var(--crt-green) 30%, transparent)"
+                                  : "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                              }}
+                            />
+                          ))}
+                        </span>
+                        <span className="text-[8px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                          {opt.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* Owner bubble — the selected module's configured owner, pinned to
               the right end of the tabs row. Green + "YOU" when it's the
               signed-in wallet; click copies the full address. */}
           {(() => {
             const modOwner = selectedModuleInfo?.owner || moduleConfig?.owner || null;
             if (!modOwner) return null;
+            // Phone: the bubble would push SPLIT off the first screen of the
+            // scrollable tabs row; the owner already shows in INFO + profile.
+            if (isMobile) return null;
             const mine = !!address && address !== "local" && address.toLowerCase() === String(modOwner).toLowerCase();
             const short = modOwner.length > 12 ? `${modOwner.slice(0, 6)}…${modOwner.slice(-4)}` : modOwner;
             return (
@@ -12299,7 +15254,7 @@ export default function Home() {
                     setTimeout(() => setOwnerBubbleCopied(false), 1200);
                   }).catch(() => {});
                 }}
-                className="ml-auto my-0.5 flex items-center gap-1.5 text-[9px] font-bold font-code uppercase px-2.5 py-[3px] rounded-full transition-colors"
+                className="owner-bubble ml-1.5 my-0.5 self-center flex items-center gap-1.5 text-[9px] font-bold font-code uppercase px-2.5 py-[3px] rounded-full transition-colors"
                 style={mine ? {
                   color: "var(--crt-green)",
                   border: "1px solid rgba(52,211,153,0.35)",
@@ -12321,6 +15276,7 @@ export default function Home() {
               </button>
             );
           })()}
+      </div>
       </div>
       </div>
 
@@ -12367,40 +15323,50 @@ export default function Home() {
                 title="Drag to resize (double-click to reset)"
               />
               <div
-                className="flex items-center gap-2 px-3 py-1.5 shrink-0"
-                style={{ borderBottom: `1px solid ${subtleBorder}`, background: tintBg }}
+                className="flex items-center gap-3 px-3 py-1.5 shrink-0"
+                style={{ borderBottom: `1px solid ${subtleBorder}` }}
               >
-                <span className="text-[10px] font-bold font-code uppercase" style={{ color: "var(--text-tertiary)", letterSpacing: "0.16em" }}>
-                  Recent
-                </span>
-                {recentModules.length > 0 && (
-                  <span className="text-[10px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.6 }}>
-                    {[...new Set(recentModules)].length}
-                  </span>
-                )}
-                {railTasks.running > 0 && (
+                {/* TASKS ⇄ MODS — the rail lists either every task or the
+                    modules you opened recently. Tasks lead to match the
+                    console's tasks-first default. */}
+                {([
+                  { k: "tasks" as const, label: "Tasks", count: railTasks.running + railTasks.pending, color: "var(--crt-blue)" },
+                  { k: "mods" as const, label: "Mods", count: [...new Set(recentModules)].length, color: "var(--accent-color)" },
+                ]).map((seg) => {
+                  const on = railView === seg.k;
+                  return (
+                    <button
+                      key={seg.k}
+                      onClick={() => setRailView(seg.k)}
+                      className="flex items-center gap-1 font-code text-[10px] font-bold uppercase transition-all"
+                      style={{
+                        letterSpacing: "0.12em",
+                        color: on ? seg.color : "var(--text-tertiary)",
+                        opacity: on ? 1 : 0.5,
+                      }}
+                      title={seg.k === "mods" ? "List recently-opened modules" : "List tasks — running work first"}
+                      aria-pressed={on}
+                    >
+                      {seg.label}
+                      {seg.count > 0 && (
+                        <span className="font-mono text-[9px]" style={{ opacity: 0.7 }}>{seg.count}</span>
+                      )}
+                    </button>
+                  );
+                })}
+                {railView === "mods" && railTasks.running > 0 && (
                   <span
-                    className="led-pulse flex items-center gap-1 px-1.5 py-[1px] rounded-full font-code text-[9px] font-bold uppercase"
-                    style={{
-                      color: "var(--crt-green)",
-                      border: "1px solid color-mix(in srgb, var(--crt-green) 45%, transparent)",
-                      background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                      boxShadow: "0 0 10px -3px var(--crt-green)",
-                      letterSpacing: "0.1em",
-                    }}
+                    className="led-pulse font-code text-[9px] font-bold uppercase"
+                    style={{ color: "var(--crt-green)", letterSpacing: "0.1em" }}
                     title={`${railTasks.running} task${railTasks.running === 1 ? "" : "s"} running${railTasks.pending ? ` · ${railTasks.pending} queued` : ""}`}
                   >
                     {railTasks.running} live
                   </span>
                 )}
-                {railTasks.running === 0 && railTasks.pending > 0 && (
+                {railView === "mods" && railTasks.running === 0 && railTasks.pending > 0 && (
                   <span
-                    className="led-pulse px-1.5 py-[1px] rounded-full font-code text-[9px] font-bold"
-                    style={{
-                      color: "var(--crt-amber)",
-                      border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
-                      background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
-                    }}
+                    className="led-pulse font-code text-[9px] font-bold"
+                    style={{ color: "var(--crt-amber)" }}
                     title={`${railTasks.pending} task${railTasks.pending === 1 ? "" : "s"} queued`}
                   >
                     +{railTasks.pending}
@@ -12416,6 +15382,56 @@ export default function Home() {
                   «
                 </button>
               </div>
+              {railView === "tasks" ? (
+                /* ── Rail · TASKS ── every job, running work first, so you can
+                   hop between tasks the same way you hop between mods. */
+                <div className="flex-1 overflow-y-auto px-2 py-1.5 flex flex-col gap-0.5">
+                  {(() => {
+                    const rank = (s: string) => (s === "running" ? 0 : s === "pending" ? 1 : 2);
+                    const railJobs = [...jobs]
+                      .sort((a, b) => rank(a.status) - rank(b.status) || b.created_at - a.created_at)
+                      .slice(0, 60);
+                    if (!railJobs.length) {
+                      return (
+                        <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.7 }}>
+                          {loading ? "Loading tasks…" : "Tasks show up here — the ledger is public."}
+                        </div>
+                      );
+                    }
+                    return railJobs.map((job) => {
+                      const color = STATUS_COLOR[job.status];
+                      const mod = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
+                      const active = selectedJob === job.id && sidebarView === "tasks";
+                      const text = (parsePromptImages(job.prompt).cleanPrompt || job.prompt).replace(/\s+/g, " ").trim();
+                      const live = job.status === "running";
+                      return (
+                        <button
+                          key={`rail-task-${job.id}`}
+                          onClick={() => openRailTask(job)}
+                          className="group flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-left w-full transition-all"
+                          style={{
+                            color: active ? "var(--text-primary)" : "var(--text-secondary, var(--text-tertiary))",
+                            background: active ? `color-mix(in srgb, ${color} 10%, transparent)` : "transparent",
+                          }}
+                          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = `color-mix(in srgb, ${color} 7%, transparent)`; }}
+                          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                          title={`${STATUS_LABEL[job.status]} · ${mod} · ${timeSince(job.created_at)}\n${text}`}
+                        >
+                          {live ? (
+                            <SpinnerIcon size={9} thickness={1.5} color={color} />
+                          ) : (
+                            <span className="shrink-0 text-[10px] leading-none" style={{ color }}>{STATUS_ICON[job.status]}</span>
+                          )}
+                          <span className="truncate flex-1 min-w-0 text-[12px]">{text || "(no prompt)"}</span>
+                          <span className="shrink-0 text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.5 }}>
+                            {timeSince(job.created_at)}
+                          </span>
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              ) : (
               <div className="flex-1 overflow-y-auto px-2 py-1.5 flex flex-col gap-0.5">
                 {[...new Set(recentModules)].length > 0 ? (
                   [...new Set(recentModules)].map((name) => {
@@ -12426,17 +15442,14 @@ export default function Home() {
                     const tasks = railTasks.byModule[name];
                     const hasRunning = !!tasks && tasks.running > 0;
                     const hasQueued = !!tasks && tasks.pending > 0;
-                    const hasDone = !!tasks && tasks.completed > 0;
-                    const hasFailed = !!tasks && tasks.failed > 0;
                     const taskTitle = tasks
                       ? [
                           [
                             tasks.running ? `${tasks.running} running` : "",
                             tasks.pending ? `${tasks.pending} queued` : "",
-                            tasks.completed ? `${tasks.completed} done` : "",
-                            tasks.failed ? `${tasks.failed} failed` : "",
                           ].filter(Boolean).join(" · "),
                           ...tasks.prompts,
+                          "— click to open in TASKS",
                         ].join("\n")
                       : undefined;
                     return (
@@ -12446,11 +15459,10 @@ export default function Home() {
                           if (info) selectModule(info);
                           else setSelectedModule(name);
                         }}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
+                        className="group flex items-center gap-2 px-2.5 py-1.5 rounded-md font-code text-[12px] transition-all text-left w-full"
                         style={{
                           color: active ? "var(--accent-color)" : "var(--text-secondary, var(--text-tertiary))",
-                          background: active ? "color-mix(in srgb, var(--accent-color) 12%, transparent)" : "transparent",
-                          border: `1px solid ${active ? "color-mix(in srgb, var(--accent-color) 35%, transparent)" : "transparent"}`,
+                          background: active ? "color-mix(in srgb, var(--accent-color) 10%, transparent)" : "transparent",
                         }}
                         onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "color-mix(in srgb, var(--accent-color) 7%, transparent)"; }}
                         onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
@@ -12459,32 +15471,23 @@ export default function Home() {
                         <span
                           className="shrink-0"
                           style={{
-                            width: 7, height: 7, borderRadius: 999,
+                            width: 6, height: 6, borderRadius: 999,
                             background: live === true ? "var(--crt-green)" : live === false ? "color-mix(in srgb, var(--crt-red, #ef4444) 70%, transparent)" : "var(--text-tertiary)",
                             opacity: live === null ? 0.4 : 1,
-                            boxShadow: live === true ? "0 0 6px var(--crt-green)" : "none",
                           }}
                         />
                         <span className="truncate flex-1 min-w-0">{name}</span>
                         {hasRunning && (
                           <span
-                            className="shrink-0 flex items-center gap-1 px-1.5 py-[1px] rounded-full font-code"
-                            style={{
-                              color: "var(--crt-green)",
-                              border: "1px solid color-mix(in srgb, var(--crt-green) 40%, transparent)",
-                              background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
-                              boxShadow: "0 0 10px -2px var(--crt-green)",
-                            }}
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); openModuleTasks(name); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openModuleTasks(name); } }}
+                            className="shrink-0 flex items-center gap-1 font-code cursor-pointer"
+                            style={{ color: "var(--crt-green)" }}
                             title={taskTitle}
                           >
-                            <span
-                              className="animate-spin shrink-0"
-                              style={{
-                                width: 8, height: 8, borderRadius: 999,
-                                border: "1.5px solid color-mix(in srgb, var(--crt-green) 25%, transparent)",
-                                borderTopColor: "var(--crt-green)",
-                              }}
-                            />
+                            <SpinnerIcon size={8} thickness={1.5} color="var(--crt-green)" />
                             <span className="text-[10px] font-bold leading-none">{tasks.running}</span>
                             {hasQueued && (
                               <span className="text-[9px] leading-none" style={{ opacity: 0.6 }}>+{tasks.pending}</span>
@@ -12493,39 +15496,30 @@ export default function Home() {
                         )}
                         {!hasRunning && hasQueued && (
                           <span
-                            className="led-pulse shrink-0 px-1.5 py-[1px] rounded-full font-code text-[10px] leading-none"
-                            style={{
-                              color: "var(--crt-amber)",
-                              border: "1px solid color-mix(in srgb, var(--crt-amber) 35%, transparent)",
-                              background: "color-mix(in srgb, var(--crt-amber) 8%, transparent)",
-                            }}
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); openModuleTasks(name); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openModuleTasks(name); } }}
+                            className="led-pulse shrink-0 font-code text-[10px] leading-none cursor-pointer"
+                            style={{ color: "var(--crt-amber)" }}
                             title={taskTitle}
                           >
                             +{tasks.pending}
                           </span>
                         )}
-                        {hasDone && (
-                          <span
-                            className="shrink-0 px-1 py-[1px] rounded-full font-code text-[10px] leading-none"
-                            style={{ color: "var(--crt-green)", opacity: 0.75 }}
-                            title={taskTitle}
-                          >
-                            ✓{tasks.completed}
-                          </span>
-                        )}
-                        {hasFailed && (
-                          <span
-                            className="shrink-0 px-1 py-[1px] rounded-full font-code text-[10px] font-bold leading-none"
-                            style={{
-                              color: "var(--crt-red, #ef4444)",
-                              border: "1px solid color-mix(in srgb, var(--crt-red, #ef4444) 35%, transparent)",
-                              background: "color-mix(in srgb, var(--crt-red, #ef4444) 8%, transparent)",
-                            }}
-                            title={taskTitle}
-                          >
-                            ✕{tasks.failed}
-                          </span>
-                        )}
+                        {/* span, not button: the whole row is already a <button> */}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); removeRecent(name); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeRecent(name); } }}
+                          className="shrink-0 px-1 leading-none rounded opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity cursor-pointer"
+                          style={{ color: "var(--text-tertiary)", fontSize: 13 }}
+                          title={`Remove ${name} from recents`}
+                          aria-label={`Remove ${name} from recents`}
+                        >
+                          ×
+                        </span>
                       </button>
                     );
                   })
@@ -12535,6 +15529,7 @@ export default function Home() {
                   </div>
                 )}
               </div>
+              )}
             </div>
           ) : (
             // Collapsed: a thin reopen tab hugging the left edge.
@@ -12555,10 +15550,10 @@ export default function Home() {
                 letterSpacing: "0.18em",
                 fontFamily: "var(--font-code, monospace)",
               }}
-              title={railTasks.running > 0 ? `Open the recents rail — ${railTasks.running} task${railTasks.running === 1 ? "" : "s"} running` : "Open the recents rail"}
-              aria-label="Open the recents rail"
+              title={railTasks.running > 0 ? `Open the ${railView === "tasks" ? "tasks" : "recents"} rail — ${railTasks.running} task${railTasks.running === 1 ? "" : "s"} running` : `Open the ${railView === "tasks" ? "tasks" : "recents"} rail`}
+              aria-label={`Open the ${railView === "tasks" ? "tasks" : "recents"} rail`}
             >
-              RECENT »
+              {railView === "tasks" ? "TASKS »" : "RECENT »"}
               {railTasks.running > 0 && (
                 <span
                   className="led-pulse font-bold"
@@ -12590,10 +15585,6 @@ export default function Home() {
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderAppApiTab()}
               </div>
-            ) : sidebarView === "apitab" ? (
-              <div className="flex-1 flex flex-col overflow-hidden">
-                {renderClaudeApiTab()}
-              </div>
             ) : sidebarView === "logs" ? (
               <div className="flex-1 flex flex-col overflow-hidden">
                 {renderLogsTab()}
@@ -12613,6 +15604,9 @@ export default function Home() {
                   >
                     {([
                       { k: "files" as const, label: "Files", icon: <FilesIcon size={13} /> },
+                      // Graph — the same tree drawn as a node-link diagram,
+                      // for people who read structure visually.
+                      { k: "graph" as const, label: "Graph", icon: <GraphIcon size={13} /> },
                       { k: "versions" as const, label: "Versions", icon: <VersionsIcon size={13} /> },
                     ]).map((s) => {
                       const on = codeView === s.k;
@@ -12637,7 +15631,7 @@ export default function Home() {
                         </button>
                       );
                     })}
-                    {codeView === "files" && (
+                    {codeView !== "versions" && (
                       <>
                         <span
                           className="flex-1 min-w-0 truncate text-right font-code text-[12px]"
@@ -12646,11 +15640,42 @@ export default function Home() {
                         >
                           {filesDisplayPath()}
                         </span>
-                        {filesToolbarControls()}
+                        {codeView === "files" && filesToolbarControls()}
                       </>
                     )}
                   </div>
-                  {codeView === "versions" ? (
+                  {codeView === "graph" ? (
+                    <FileGraph
+                      tree={directoryTree}
+                      rootLabel={filesDisplayPath().split("/").pop() || filesDisplayPath()}
+                      fileColor={getFileTypeColor}
+                      onOpenFile={(p) => {
+                        loadFileContent(p);
+                        navigateToFile(p);
+                        // The editor pane lives in the Files view — switch so
+                        // the opened file is actually visible.
+                        setCodeView("files");
+                      }}
+                      loadChildren={async (path) => {
+                        // Deep dirs arrive childless (/files/tree depth cap) —
+                        // fetch their subtree on demand for the graph to graft.
+                        const res = await fetch(`${apiUrl}/files/tree?path=${encodeURIComponent(path)}`, { headers: fileAuthHeaders() });
+                        if (!res.ok) throw new Error("Failed to load directory");
+                        const data = await res.json();
+                        if (data.error && !(data.tree || []).length) throw new Error(data.error);
+                        return data.tree || [];
+                      }}
+                      loadContent={async (path) => {
+                        const res = await fetch(`${apiUrl}/files/content?path=${encodeURIComponent(path)}`, { headers: fileAuthHeaders() });
+                        if (!res.ok) throw new Error("Failed to load file");
+                        const data = await res.json();
+                        if (data.error) throw new Error(data.error);
+                        return data.content || "";
+                      }}
+                      onRefresh={() => fetchDirectoryTree()}
+                      emptyMessage={directoryTreeError ? `⚠ ${directoryTreeError}` : null}
+                    />
+                  ) : codeView === "versions" ? (
                     selectedModule ? (
                       <VersionsPanel
                         apiBase={apiUrl}
@@ -12681,20 +15706,37 @@ export default function Home() {
             )}
         </div>
 
-        {/* Auto-restart toast — surfaces the post-edit pm2 restart from any view */}
-        {restartNotice && (
-          <div
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[120] px-4 py-2 rounded border font-code text-[12px]"
-            style={{
-              borderColor: "color-mix(in srgb, var(--crt-green) 45%, transparent)",
-              background: "var(--bg-primary)",
-              color: "var(--crt-green)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            {restartNotice}
-          </div>
-        )}
+        {/* Auto-restart toast — surfaces the post-edit pm2 restart from any
+            view. Anchored under the top tab bar (never over the composer);
+            tone follows the notice's leading glyph. */}
+        {restartNotice && (() => {
+          const glyph = restartNotice.trim().charAt(0);
+          const message = restartNotice.trim().slice(1).trim();
+          const busy = glyph === "↻";
+          const tone =
+            glyph === "⚠" ? "var(--crt-amber)"
+            : glyph === "⬡" ? "var(--crt-purple, #c084fc)"
+            : "var(--crt-green)";
+          return (
+            <div
+              className="restart-toast fixed top-20 left-1/2 -translate-x-1/2 z-[120] flex items-center gap-2.5 px-4 py-2 rounded-lg border font-code text-[12px] max-w-[min(560px,calc(100vw-32px))]"
+              style={{
+                borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`,
+                background: "color-mix(in srgb, var(--bg-primary) 90%, transparent)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                color: tone,
+                boxShadow: `0 8px 32px rgba(0,0,0,0.35), 0 0 20px color-mix(in srgb, ${tone} 15%, transparent)`,
+              }}
+              role="status"
+            >
+              <span className={busy ? "restart-toast-spin" : undefined} aria-hidden>
+                {glyph}
+              </span>
+              <span className="min-w-0">{message}</span>
+            </div>
+          );
+        })()}
 
         {/* The wallet sidebar is no longer a separate panel — its UI is now
             embedded as the "Wallet" tab inside the merged account sidebar
@@ -12728,7 +15770,10 @@ export default function Home() {
                   width: showOwnerSidebar ? "100vw" : "0px",
                   height: showOwnerSidebar ? "100dvh" : "0px",
                   maxWidth: "100vw",
-                  background: "var(--bg-primary)",
+                  // Panel surface, not the page backdrop — on light skins
+                  // (mario's sky blue) muted text needs the cream panel
+                  // color underneath it to stay readable.
+                  background: "var(--bg-secondary, var(--bg-primary))",
                   zIndex: 70,
                   boxShadow: showOwnerSidebar ? "0 0 40px rgba(0,0,0,0.6)" : "none",
                   transition: "none",
@@ -12741,7 +15786,7 @@ export default function Home() {
                   minWidth: showOwnerSidebar ? "300px" : "0px",
                   maxWidth: "100%",
                   flexShrink: 0,
-                  background: "var(--bg-primary)",
+                  background: "var(--bg-secondary, var(--bg-primary))",
                   borderLeft: showOwnerSidebar ? "1px solid rgba(251,191,36,0.30)" : "none",
                   boxShadow: showOwnerSidebar
                     ? "-12px 0 32px rgba(0,0,0,0.35), inset 1px 0 0 rgba(251,191,36,0.10), 0 0 60px -20px rgba(251,191,36,0.25)"
@@ -12778,16 +15823,34 @@ export default function Home() {
             // local/password-less or QR-handoff phone sessions).
             const hasWallet = !!(address && address !== "local" && walletType);
             const canSudo = !!(token && token !== "local" && youAreOwner);
-            // One tab per function; a tab that doesn't apply to this session
-            // simply doesn't render. Falls back to the first available tab
-            // when the remembered one disappears (e.g. wallet disconnected).
+            // One tab per function. USER is the whole identity story — the
+            // embedded wallet (for real wallet sessions) with the access /
+            // share / sudo cards below it; there is no separate wallet tab.
             const accountTabs: { id: typeof accountTab; label: string; glyph: string; accent: string }[] = [
-              ...(hasWallet ? [{ id: "wallet" as const, label: "Wallet", glyph: "◇", accent: "var(--crt-green)" }] : []),
-              { id: "access" as const, label: "Access", glyph: "◎", accent: "var(--crt-amber)" },
-              { id: "tasks" as const, label: "Tasks", glyph: "◷", accent: "var(--crt-blue)" },
-              ...(address ? [{ id: "hub" as const, label: "My Hub", glyph: "⌂", accent: "#cc785c" }] : []),
+              { id: "user" as const, label: "User", glyph: "◇", accent: "var(--crt-green)" },
+              // AGENT = per-agent session connections: which credential each
+              // agent runs under for YOU (own session vs server default).
+              { id: "agent" as const, label: "Agent", glyph: "⬡", accent: "#a78bfa" },
+              // COMPUTE = fleet providers + hardware, split into sub-tabs.
+              // Providers is public read-only (the /providers endpoint carries
+              // no secrets; controls inside are owner-gated); the SYSTEM
+              // sub-tab is owner-only and hides itself for other sessions.
+              { id: "compute" as const, label: "Compute", glyph: "▤", accent: "var(--crt-green)" },
             ];
             const activeAccountTab = accountTabs.some((t) => t.id === accountTab) ? accountTab : accountTabs[0].id;
+            // USER sub-tabs — only the tabs the current session can use
+            // render, same rule as the top strip: WALLET needs a real
+            // session to show anything, SUDO is the owner's danger zone.
+            const userSubs: { id: typeof userSubTab; label: string; glyph: string; accent: string }[] = [
+              ...(hasWallet || (token && token !== "local")
+                ? [{ id: "wallet" as const, label: "Wallet", glyph: "◇", accent: "var(--crt-green)" }]
+                : []),
+              { id: "access" as const, label: "Access", glyph: "◎", accent: "var(--crt-blue)" },
+              ...(canSudo || isOwner
+                ? [{ id: "sudo" as const, label: "Sudo", glyph: "⛨", accent: "#cc785c" }]
+                : []),
+            ];
+            const activeUserSubTab = userSubs.some((t) => t.id === userSubTab) ? userSubTab : userSubs[0].id;
             return (
               <div className="flex flex-col h-full overflow-hidden">
                 {/* Header */}
@@ -12799,11 +15862,22 @@ export default function Home() {
                   }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
+                    {/* Wallet identity replaces the old static "Account"
+                        label — the panel is titled by who you are. */}
+                    {youAreOwner && (
+                      <span
+                        className="shrink-0 text-[12px] leading-none"
+                        title="Owner"
+                        style={{ color: "var(--crt-amber)", textShadow: "0 0 6px color-mix(in srgb, var(--crt-amber) 60%, transparent)" }}
+                      >
+                        ♛
+                      </span>
+                    )}
                     <span
-                      className="text-[12px] font-bold uppercase tracking-[0.12em] truncate leading-tight"
-                      style={{ color: "var(--text-secondary)" }}
+                      className="text-[12px] font-bold font-mono uppercase tracking-[0.12em] truncate leading-tight"
+                      style={{ color: hasWallet ? "var(--crt-green)" : "var(--text-secondary)" }}
                     >
-                      Account
+                      {address ? (address === "local" ? "LOCAL" : `${address.slice(0, 6)}··${address.slice(-4)}`) : "User"}
                     </span>
                   </div>
                   <button
@@ -12864,10 +15938,419 @@ export default function Home() {
                     );
                   })}
                 </div>
-                <div className="flex-1 overflow-y-auto flex flex-col">
+                {/* AGENT sub-tabs — the whole agent surface in one tab:
+                    CHAT (launch tasks + steer running ones, conversation
+                    style), TASKS (the job ledger), AUTH (per-agent session
+                    credentials, né the old tab body). */}
+                {activeAccountTab === "agent" && token && (() => {
+                  const runningCount = jobs.filter((j) => j.status === "running" || j.status === "pending").length;
+                  const subs: { id: typeof agentSubTab; label: string; glyph: string; accent: string; badge: number | null }[] = [
+                    { id: "chat", label: "Chat", glyph: "»_", accent: "#a78bfa", badge: null },
+                    { id: "tasks", label: "Tasks", glyph: "▤", accent: "var(--crt-blue)", badge: runningCount || null },
+                    { id: "auth", label: "Auth", glyph: "⬡", accent: "var(--crt-amber)", badge: null },
+                  ];
+                  return (
+                    <div
+                      className="flex items-stretch gap-1 px-2 shrink-0"
+                      style={{
+                        borderBottom: `1px solid ${subtleBorder}`,
+                        background: "linear-gradient(180deg, color-mix(in srgb, #a78bfa 5%, transparent), transparent)",
+                      }}
+                      role="tablist"
+                      aria-label="Agent panel sections"
+                    >
+                      {subs.map((s) => {
+                        const on = s.id === agentSubTab;
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => setAgentSubTab(s.id)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[9.5px] font-bold uppercase tracking-[0.14em] transition-all focus-ring"
+                            style={{
+                              color: on ? s.accent : "var(--text-tertiary)",
+                              borderBottom: `2px solid ${on ? s.accent : "transparent"}`,
+                              background: on ? `color-mix(in srgb, ${s.accent} 7%, transparent)` : "transparent",
+                              marginBottom: -1,
+                            }}
+                            aria-selected={on}
+                            role="tab"
+                          >
+                            <span aria-hidden style={{ opacity: on ? 1 : 0.55 }}>{s.glyph}</span>
+                            {s.label}
+                            {s.badge != null && (
+                              <span
+                                className="font-mono text-[9px] px-1 rounded-full leading-[13px]"
+                                style={{
+                                  color: s.accent,
+                                  border: `1px solid color-mix(in srgb, ${s.accent} 35%, transparent)`,
+                                  background: `color-mix(in srgb, ${s.accent} 10%, transparent)`,
+                                }}
+                              >
+                                {s.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {/* USER sub-tabs — same pattern as AGENT: WALLET (identity
+                    + saved accounts), ACCESS (whitelist + sharing), SUDO
+                    (session + kill process). */}
+                {activeAccountTab === "user" && userSubs.length > 1 && (
+                  <div
+                    className="flex items-stretch gap-1 px-2 shrink-0"
+                    style={{
+                      borderBottom: `1px solid ${subtleBorder}`,
+                      background: "linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 5%, transparent), transparent)",
+                    }}
+                    role="tablist"
+                    aria-label="User panel sections"
+                  >
+                    {userSubs.map((s) => {
+                      const on = s.id === activeUserSubTab;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => setUserSubTab(s.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-[9.5px] font-bold uppercase tracking-[0.14em] transition-all focus-ring"
+                          style={{
+                            color: on ? s.accent : "var(--text-tertiary)",
+                            borderBottom: `2px solid ${on ? s.accent : "transparent"}`,
+                            background: on ? `color-mix(in srgb, ${s.accent} 7%, transparent)` : "transparent",
+                            marginBottom: -1,
+                          }}
+                          aria-selected={on}
+                          role="tab"
+                        >
+                          <span aria-hidden style={{ opacity: on ? 1 : 0.55 }}>{s.glyph}</span>
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className={activeAccountTab === "agent" && token && agentSubTab !== "auth"
+                  ? "flex-1 overflow-hidden flex flex-col"
+                  : "flex-1 overflow-y-auto flex flex-col"}>
+                {/* AGENT · CHAT — the conversation surface. Each task reads
+                    as an exchange: your prompt on the right, the agent's
+                    output (live-streamed while running) on the left. The
+                    send box below launches a new task — or, while the
+                    selected task is running, steers it mid-flight. */}
+                {activeAccountTab === "agent" && token && agentSubTab === "chat" && (() => {
+                  const mine = jobs
+                    .filter((j) => !address || address === "local" || !j.user_address || j.user_address.toLowerCase() === address.toLowerCase())
+                    .sort((a, b) => a.created_at - b.created_at)
+                    .slice(-24);
+                  const current = selectedJob ? jobs.find((j) => j.id === selectedJob) : null;
+                  const steering = !!current && current.status === "running";
+                  const tail = (s: string, n = 1200) => (s.length > n ? "…" + s.slice(-n) : s);
+                  return (
+                    <div className="flex-1 min-h-0 flex flex-col">
+                      <div ref={sidebarChatScrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5">
+                        {mine.length === 0 && (
+                          <div className="text-[11px] leading-relaxed px-1 py-2" style={{ color: "var(--text-tertiary)" }}>
+                            No tasks yet — say what you want built and the agent gets to work.
+                          </div>
+                        )}
+                        {mine.map((job) => {
+                          const color = STATUS_COLOR[job.status];
+                          const live = job.status === "running";
+                          const isSel = selectedJob === job.id;
+                          const reply = isSel && (live || streamOutput) ? streamOutput : job.output;
+                          const mod = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
+                          return (
+                            <div key={`side-chat-${job.id}`} className="flex flex-col gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setSelectedJob(job.id);
+                                  if (live) startStream(job.id);
+                                }}
+                                className="self-end max-w-[92%] text-left px-3 py-2 rounded-[14px] text-[11.5px] leading-relaxed transition-all focus-ring"
+                                style={{
+                                  background: `color-mix(in srgb, var(--accent-color) ${isSel ? 13 : 7}%, var(--bg-secondary))`,
+                                  border: `1px solid color-mix(in srgb, var(--accent-color) ${isSel ? 45 : 22}%, var(--border-color))`,
+                                  color: "var(--text-primary)",
+                                }}
+                                title={isSel ? "This task feeds the send box below" : "Select this task"}
+                              >
+                                {(parsePromptImages(job.prompt).cleanPrompt || job.prompt).replace(/\s+/g, " ").trim().slice(0, 400) || "(no prompt)"}
+                              </button>
+                              <div
+                                className="self-start w-full flex flex-col gap-1 px-3 py-2 rounded-[14px]"
+                                style={{
+                                  background: "var(--bg-secondary)",
+                                  border: `1px solid color-mix(in srgb, ${color} ${isSel ? 45 : 26}%, var(--border-color))`,
+                                }}
+                              >
+                                <span className="flex items-center gap-1.5 text-[8.5px] font-bold uppercase tracking-[0.14em]" style={{ color }}>
+                                  {live ? (
+                                    <SpinnerIcon size={8} thickness={1.5} color={color} />
+                                  ) : (
+                                    <span aria-hidden>{STATUS_ICON[job.status]}</span>
+                                  )}
+                                  {STATUS_LABEL[job.status]}
+                                  <span className="font-medium normal-case tracking-normal text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                                    · {mod} · {timeSince(job.created_at)}
+                                  </span>
+                                  <button
+                                    onClick={() => openRailTask(job)}
+                                    className="ml-auto shrink-0 text-[10px] leading-none transition-opacity opacity-50 hover:opacity-100 focus-ring"
+                                    style={{ color: "var(--text-secondary)" }}
+                                    title="Open this task full-page"
+                                    aria-label="Open this task full-page"
+                                  >
+                                    ⛶
+                                  </button>
+                                </span>
+                                {reply ? (
+                                  <pre
+                                    className="font-code text-[10.5px] leading-relaxed whitespace-pre-wrap break-words m-0 max-h-[220px] overflow-y-auto"
+                                    style={{ color: "var(--text-secondary)" }}
+                                  >
+                                    {tail(reply)}
+                                  </pre>
+                                ) : (
+                                  <span className="text-[10.5px]" style={{ color: "var(--text-tertiary)" }}>
+                                    {live ? "Working…" : job.status === "pending" ? "Queued…" : "No output."}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div ref={sidebarChatEndRef} />
+                      </div>
+                      <div
+                        className="shrink-0 px-3 py-2.5 flex flex-col gap-1.5"
+                        style={{ borderTop: `1px solid ${subtleBorder}`, background: tintBg }}
+                      >
+                        {steering && (
+                          <div className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--crt-amber)" }}>
+                            ◈ Steering the running task — sends land mid-flight
+                          </div>
+                        )}
+                        <div className="flex items-end gap-2">
+                          <textarea
+                            value={sidebarChatPrompt}
+                            onChange={(e) => setSidebarChatPrompt(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                sendSidebarChat();
+                              }
+                            }}
+                            rows={2}
+                            placeholder={steering ? "Steer the running task…" : `New task in ${selectedModule.trim() || "build"}…`}
+                            className="flex-1 min-w-0 resize-none text-[12px] leading-relaxed px-2.5 py-2 rounded-[10px] focus-ring"
+                            style={{
+                              background: "var(--bg-secondary)",
+                              border: "1px solid var(--border-color)",
+                              color: "var(--text-primary)",
+                              fontFamily: "inherit",
+                            }}
+                          />
+                          <button
+                            onClick={sendSidebarChat}
+                            disabled={submitting || !sidebarChatPrompt.trim()}
+                            className="glass-btn primary shrink-0 text-[10px] font-bold uppercase tracking-[0.12em] px-3 py-2 rounded-[10px] focus-ring"
+                            style={{
+                              opacity: submitting || !sidebarChatPrompt.trim() ? 0.5 : 1,
+                              cursor: submitting ? "wait" : "pointer",
+                            }}
+                          >
+                            {submitting ? "…" : steering ? "Steer" : "Send"}
+                          </button>
+                        </div>
+                        {/* Params row — the same agent / model / mod state the
+                            dock chips drive, selectable right at this ask box
+                            (this line used to be a dead caption). Steering
+                            sends land mid-flight where params don't apply, so
+                            the pickers only show for NEW tasks. */}
+                        {steering ? (
+                          <div className="text-[9px] px-0.5 truncate" style={{ color: "var(--text-tertiary)" }}>
+                            ↵ send · ⇧↵ newline — steering ignores params; they apply to the next new task
+                          </div>
+                        ) : (() => {
+                          const chipStyle: React.CSSProperties = {
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            letterSpacing: "0.05em",
+                            padding: "2px 8px",
+                          };
+                          const activeAgent = AGENT_MODS.find(a => a.value === agentMod) || AGENT_MODS[0];
+                          const activeModelChip = MODEL_OPTIONS.find(m => m.value === model) || MODEL_OPTIONS[0];
+                          return (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <PillSelect
+                                value={agentMod}
+                                options={AGENT_MODS.map(a => ({
+                                  value: a.value,
+                                  label: a.label,
+                                  color: a.color,
+                                  note: a.available ? undefined : "soon",
+                                  hint: a.hint,
+                                  disabled: !a.available,
+                                }))}
+                                onChange={(v) => { setAgentMod(v); safeSetItem("build_jobs_agent_mod", v); }}
+                                accent={activeAgent.color}
+                                maxWidth={110}
+                                menuWidth={210}
+                                triggerStyle={chipStyle}
+                                title={`Agent: ${activeAgent.label} — ${activeAgent.hint}`}
+                                aria-label="Agent"
+                              />
+                              {agentMod === "agent" ? (
+                                <PillSelect
+                                  value={agentModelValue}
+                                  options={agentModelOptions.map(m => ({ value: m, label: m, color: AGENT_MOD_COLOR, hint: `${agentProvider} model` }))}
+                                  onChange={(v) => setAgentParam("model", v)}
+                                  accent={AGENT_MOD_COLOR}
+                                  placeholder={agentModelValue || "module default"}
+                                  maxWidth={150}
+                                  menuWidth={250}
+                                  triggerStyle={chipStyle}
+                                  title={`Model: ${agentModelValue || "module default"} (${agentProvider} via orbit/agent)`}
+                                  aria-label="Model"
+                                />
+                              ) : (
+                                <PillSelect
+                                  value={model}
+                                  options={MODEL_OPTIONS.map(m => ({ value: m.value, label: m.label, color: m.color, hint: m.value }))}
+                                  onChange={(v) => { setModel(v); safeSetItem("build_jobs_model", v); }}
+                                  accent={activeModelChip.color}
+                                  maxWidth={130}
+                                  menuWidth={190}
+                                  triggerStyle={chipStyle}
+                                  title={`Model: ${activeModelChip.label} — click to switch`}
+                                  aria-label="Model"
+                                />
+                              )}
+                              <PillSelect
+                                value={selectedModuleInfo?.path || selectedModule}
+                                options={moduleList.map((m) => ({
+                                  // value by path — module NAMES are not unique
+                                  // in the registry; the path is.
+                                  value: m.path || m.name,
+                                  label: m.name,
+                                  hint: m.path,
+                                }))}
+                                onChange={(v) => {
+                                  const m = moduleList.find((x) => (x.path || x.name) === v);
+                                  if (!m) return;
+                                  resetModuleState(m);
+                                  setSelectedModule(m.name);
+                                  setSelectedModuleInfo(m);
+                                  setWorkDir(m.path);
+                                  fetchModuleConfig(m.name);
+                                }}
+                                searchable
+                                onSearch={(q) => fetchModules(q)}
+                                onOpen={() => fetchModules("")}
+                                searchPlaceholder="search modules…"
+                                accent="#fbbf24"
+                                placeholder={selectedModule || "select mod"}
+                                maxWidth={150}
+                                menuWidth={230}
+                                triggerStyle={chipStyle}
+                                title={`New tasks edit module: ${selectedModule || "none"} — click to search & change`}
+                                aria-label="Module"
+                              />
+                              <span className="ml-auto shrink-0 text-[9px]" style={{ color: "var(--text-tertiary)" }}>
+                                ↵ send · ⇧↵ newline
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* AGENT · TASKS — the job ledger, rail-style rows. A row
+                    click opens the task full-page (main content) while the
+                    sidebar stays put for hopping between tasks. */}
+                {activeAccountTab === "agent" && token && agentSubTab === "tasks" && (() => {
+                  const rank = (s: string) => (s === "running" ? 0 : s === "pending" ? 1 : 2);
+                  const list = [...jobs]
+                    .sort((a, b) => rank(a.status) - rank(b.status) || b.created_at - a.created_at)
+                    .slice(0, 80);
+                  const running = jobs.filter((j) => j.status === "running").length;
+                  const queued = jobs.filter((j) => j.status === "pending").length;
+                  return (
+                    <div className="flex-1 min-h-0 flex flex-col">
+                      <div className="flex items-center gap-2 px-3 py-2 shrink-0" style={{ borderBottom: `1px solid ${subtleBorder}` }}>
+                        <span className="text-[9px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--text-tertiary)" }}>
+                          {running} running · {queued} queued · {jobs.length} total
+                        </span>
+                        <button
+                          onClick={() => {
+                            setSelectedJob(null);
+                            setStreamOutput("");
+                            setSidebarView("tasks");
+                          }}
+                          className="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-1 rounded-[8px] transition-all focus-ring"
+                          style={{
+                            color: "var(--crt-blue)",
+                            border: "1px solid color-mix(in srgb, var(--crt-blue) 35%, transparent)",
+                            background: "color-mix(in srgb, var(--crt-blue) 8%, transparent)",
+                          }}
+                          title="Open the full-page tasks view"
+                        >
+                          Full view ⛶
+                        </button>
+                      </div>
+                      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-1.5 flex flex-col gap-0.5">
+                        {list.length === 0 && (
+                          <div className="px-2 py-3 text-[11px] font-code" style={{ color: "var(--text-tertiary)", opacity: 0.8 }}>
+                            {loading ? "Loading tasks…" : "Tasks show up here — the ledger is public."}
+                          </div>
+                        )}
+                        {list.map((job) => {
+                          const color = STATUS_COLOR[job.status];
+                          const mod = (job.work_dir ? extractModuleFromWorkDir(job.work_dir) : null) || "build";
+                          const active = selectedJob === job.id;
+                          const text = (parsePromptImages(job.prompt).cleanPrompt || job.prompt).replace(/\s+/g, " ").trim();
+                          const live = job.status === "running";
+                          return (
+                            <button
+                              key={`acct-task-${job.id}`}
+                              onClick={() => openRailTask(job)}
+                              className="group flex flex-col gap-0.5 px-2.5 py-1.5 rounded-md font-code text-left w-full transition-all focus-ring"
+                              style={{
+                                color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                                background: active ? `color-mix(in srgb, ${color} 12%, transparent)` : "transparent",
+                                border: `1px solid ${active ? `color-mix(in srgb, ${color} 40%, transparent)` : "transparent"}`,
+                              }}
+                              onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = `color-mix(in srgb, ${color} 7%, transparent)`; }}
+                              onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                              title={`${STATUS_LABEL[job.status]} · ${mod} · ${timeSince(job.created_at)}\n${text}`}
+                            >
+                              <span className="flex items-center gap-1.5 w-full min-w-0">
+                                {live ? (
+                                  <SpinnerIcon size={9} thickness={1.5} color={color} />
+                                ) : (
+                                  <span className="shrink-0 text-[10px] leading-none" style={{ color }}>{STATUS_ICON[job.status]}</span>
+                                )}
+                                <span className="truncate flex-1 min-w-0 text-[10px] uppercase" style={{ color: "var(--crt-amber)", opacity: 0.8, letterSpacing: "0.06em" }}>
+                                  {mod}
+                                </span>
+                                <span className="shrink-0 text-[9px]" style={{ color: "var(--text-tertiary)", opacity: 0.8 }}>
+                                  {timeSince(job.created_at)}
+                                </span>
+                              </span>
+                              <span className="truncate w-full text-[12px]">{text || "(no prompt)"}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* WALLET — the embedded wallet view carries balance, address,
                     network and disconnect; nothing here repeats it. */}
-                {activeAccountTab === "wallet" && hasWallet && (
+                {activeAccountTab === "user" && activeUserSubTab === "wallet" && hasWallet && (
                   <WalletModal
                     address={address}
                     walletType={walletType}
@@ -12889,12 +16372,173 @@ export default function Home() {
                     }}
                   />
                 )}
+                {!(activeAccountTab === "agent" && token && agentSubTab !== "auth") && (
                 <div className="p-4 flex flex-col gap-3">
+                  {/* AGENT · AUTH — per-agent session connections. Jobs run on
+                      the SERVER's credentials by default; connect your own
+                      session here and the jobs you submit run on your account
+                      instead. One card per agent — claude is live today,
+                      siblings keep the same slot for the day they're wired. */}
+                  {activeAccountTab === "agent" && !token && (
+                    <div className="section-card" style={{ ["--card-accent" as any]: "#a78bfa" }}>
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">⬡</span>
+                          Agent Sessions
+                        </div>
+                      </div>
+                      <div className="section-card__body text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                        Sign in first — sessions are connected per identity, so each
+                        wallet's jobs run on its own account.
+                      </div>
+                    </div>
+                  )}
+                  {activeAccountTab === "agent" && token && agentSubTab === "auth" && (
+                    <>
+                      <div className="text-[10.5px] leading-relaxed px-1" style={{ color: "var(--text-tertiary)" }}>
+                        Which account each agent runs under for{" "}
+                        <span className="font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {address === "local" ? "LOCAL" : `${(address || "").slice(0, 6)}··${(address || "").slice(-4)}`}
+                        </span>
+                        . No session connected means your jobs fall back to the server's
+                        credentials{agentAuth?.server_default && agentAuth.server_default !== "none"
+                          ? ` (${agentAuth.server_default === "subscription" ? "its subscription" : "its API key"})`
+                          : agentAuth ? " — which has none set" : ""}.
+                      </div>
+                      {agentAuthError && (
+                        <div
+                          className="text-[10.5px] leading-relaxed px-3 py-2 rounded-[10px]"
+                          style={{
+                            color: "var(--crt-red)",
+                            border: "1px solid color-mix(in srgb, var(--crt-red) 35%, var(--border-color))",
+                            background: "color-mix(in srgb, var(--crt-red) 7%, transparent)",
+                          }}
+                          role="alert"
+                        >
+                          {agentAuthError}
+                        </div>
+                      )}
+                      {AGENT_MODS.map((m) => {
+                        const slot = agentAuth?.agents?.[m.value];
+                        const connected = !!slot?.connected;
+                        const wired = slot ? slot.wired : m.available;
+                        const busy = agentAuthBusy === m.value;
+                        const serverFallback = m.value === "claude" && !connected && agentAuth?.server_default && agentAuth.server_default !== "none";
+                        const pill = connected
+                          ? { label: wired ? "CONNECTED" : "STORED", color: "var(--crt-green)" }
+                          : serverFallback
+                          ? { label: "SERVER", color: "var(--crt-amber)" }
+                          : { label: wired ? "NOT CONNECTED" : "SOON", color: "var(--text-tertiary)" };
+                        return (
+                          <div key={m.value} className="section-card" style={{ ["--card-accent" as any]: m.color }}>
+                            <span className="section-card__bar" />
+                            <div className="section-card__head">
+                              <div className="section-card__title">
+                                <span className="section-card__glyph">{m.icon}</span>
+                                {m.label}
+                              </div>
+                              <span
+                                className="text-[9px] font-bold uppercase tracking-[0.14em] px-2 py-0.5 rounded-full"
+                                style={{
+                                  color: pill.color,
+                                  border: `1px solid color-mix(in srgb, ${pill.color} 35%, transparent)`,
+                                  background: `color-mix(in srgb, ${pill.color} 8%, transparent)`,
+                                }}
+                              >
+                                {pill.label}
+                              </span>
+                            </div>
+                            <div className="section-card__body flex flex-col gap-2">
+                              <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                                {m.hint}
+                                {!wired && " — a token stored now connects the day it lands."}
+                              </div>
+                              {connected ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="flex flex-col min-w-0 flex-1 leading-tight gap-0.5">
+                                    <span className="font-mono text-[11.5px] truncate" style={{ color: "var(--crt-green)" }}>
+                                      {slot?.hint || "····"}
+                                    </span>
+                                    <span className="text-[8.5px] uppercase tracking-[0.12em]" style={{ color: "var(--text-tertiary)" }}>
+                                      {slot?.kind === "session" ? "claude session token" : "api key"}
+                                      {slot?.connected_at ? ` · connected ${new Date(slot.connected_at * 1000).toLocaleDateString()}` : ""}
+                                    </span>
+                                  </span>
+                                  <button
+                                    onClick={() => disconnectAgent(m.value)}
+                                    disabled={busy}
+                                    className="focus-ring shrink-0 text-[9.5px] font-bold uppercase tracking-[0.12em] px-2.5 py-1.5 rounded-[9px] transition-all"
+                                    style={{
+                                      color: "var(--crt-red)",
+                                      border: "1px solid color-mix(in srgb, var(--crt-red) 30%, var(--border-color))",
+                                      background: "transparent",
+                                      opacity: busy ? 0.5 : 1,
+                                      cursor: busy ? "wait" : "pointer",
+                                    }}
+                                    title={`Forget the stored ${m.label} credential — jobs fall back to the server default`}
+                                  >
+                                    {busy ? "…" : "Disconnect"}
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  {m.value === "claude" && (
+                                    <div className="text-[10px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                                      Run{" "}
+                                      <span className="font-mono px-1 rounded" style={{ color: "var(--text-secondary)", background: "var(--bg-secondary)" }}>
+                                        claude setup-token
+                                      </span>{" "}
+                                      on your machine and paste the{" "}
+                                      <span className="font-mono" style={{ color: "var(--text-secondary)" }}>sk-ant-oat…</span> token
+                                      (an <span className="font-mono" style={{ color: "var(--text-secondary)" }}>sk-ant-api…</span> key works too).
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="password"
+                                      value={agentTokenInput[m.value] || ""}
+                                      onChange={(e) => setAgentTokenInput((prev) => ({ ...prev, [m.value]: e.target.value }))}
+                                      onKeyDown={(e) => { if (e.key === "Enter") connectAgent(m.value); }}
+                                      placeholder={m.value === "claude" ? "sk-ant-oat…" : "session token"}
+                                      className="flex-1 min-w-0 font-mono text-[11px] px-2.5 py-1.5 rounded-[9px] focus-ring"
+                                      style={{
+                                        color: "var(--text-primary)",
+                                        border: "1px solid var(--border-color)",
+                                        background: "var(--bg-secondary)",
+                                      }}
+                                      autoComplete="off"
+                                      spellCheck={false}
+                                    />
+                                    <button
+                                      onClick={() => connectAgent(m.value)}
+                                      disabled={busy || !(agentTokenInput[m.value] || "").trim()}
+                                      className="focus-ring shrink-0 text-[9.5px] font-bold uppercase tracking-[0.12em] px-2.5 py-1.5 rounded-[9px] transition-all"
+                                      style={{
+                                        color: (agentTokenInput[m.value] || "").trim() ? m.color : "var(--text-tertiary)",
+                                        border: `1px solid color-mix(in srgb, ${m.color} 35%, var(--border-color))`,
+                                        background: `color-mix(in srgb, ${m.color} 8%, transparent)`,
+                                        opacity: busy ? 0.5 : 1,
+                                        cursor: busy ? "wait" : "pointer",
+                                      }}
+                                    >
+                                      {busy ? "…" : "Connect"}
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                   {/* ACCESS — who controls this module and who gets in:
-                      owner identity, phone handoff, whitelist, QR invites. */}
+                      owner identity, whitelist, and the unified Share Access
+                      card (edit invites + own-session handoff QRs). */}
                   {/* Owner identity — gradient avatar derived from the address;
                       the whole row is click-to-copy. */}
-                  {activeAccountTab === "access" && cfgOwner && (() => {
+                  {activeAccountTab === "user" && activeUserSubTab === "wallet" && cfgOwner && (() => {
                     const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
                     const h1 = seed % 360;
                     const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
@@ -12949,7 +16593,7 @@ export default function Home() {
                   {/* Switch account — every wallet identity that signed in from
                       this browser, one click to trade places. Tokens are reused
                       so no re-signing; an expired one falls back to sign-in. */}
-                  {activeAccountTab === "access" && savedAccounts.some((a) => a.address !== (address || "")) && (
+                  {activeAccountTab === "user" && activeUserSubTab === "wallet" && savedAccounts.some((a) => a.address !== (address || "")) && (
                     <div className="section-card" data-accent="amber">
                       <span className="section-card__bar" />
                       <div className="section-card__head">
@@ -13041,112 +16685,12 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Phone sign-in — hand this session to another device via a
-                      single-use QR. Any signed-in user (you can only hand off
-                      yourself); hidden in local mode where auth is disabled. */}
-                  {activeAccountTab === "access" && token && token !== "local" && address && (() => {
-                    const accent = "var(--crt-green)";
-                    const live = handoff && handoff.exp > nowSec ? handoff : null;
-                    const left = live ? Math.max(0, live.exp - nowSec) : 0;
-                    const fmtMMSS = left >= 3600
-                      ? `${Math.floor(left / 3600)}:${String(Math.floor((left % 3600) / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`
-                      : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-                    // Server clamps ttl to 60–86400s (auth::create_handoff)
-                    const ttlLabel = `${Math.min(Math.max(handoffTtl || 300, 60), 86400)}s`;
-                    return (
-                      <div className="section-card" data-accent="green">
-                        <span className="section-card__bar" />
-                        <div className="section-card__head">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">⇄</span>
-                            Phone Sign-In
-                          </div>
-                          <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                            QR handoff
-                          </span>
-                        </div>
-                        <div className="section-card__body flex flex-col gap-2.5">
-                          <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                            Scan with your phone to open this console <span style={{ color: "var(--text-secondary)" }}>already signed in as you</span> —
-                            no wallet or signing there. The code is single-use and dies in <span style={{ color: "var(--text-secondary)" }}>{ttlLabel}</span>.
-                          </div>
-                          {live ? (
-                            <div
-                              className="rounded-lg p-3 flex flex-col items-center gap-2"
-                              style={{ background: "var(--bg-secondary)", border: `1px solid color-mix(in srgb, ${accent} 30%, transparent)` }}
-                            >
-                              <div
-                                className="rounded-lg p-2 bg-white"
-                                dangerouslySetInnerHTML={{ __html: qrSvg(handoffUrl(live.code), 180) }}
-                              />
-                              <div className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
-                                single-use · expires in <span style={{ color: accent }}>{fmtMMSS}</span>
-                              </div>
-                              <button
-                                onClick={() => copyGrantBit("handoff", handoffUrl(live.code))}
-                                className="w-full text-[10px] px-2 py-1.5 rounded font-mono truncate transition-all"
-                                style={{ color: "var(--text-secondary)", background: "var(--bg-primary)", border: "1px solid var(--border-color)" }}
-                                title="Copy sign-in link (treat it like a password)"
-                              >
-                                {grantCopied === "handoff" ? "✓ copied link" : handoffUrl(live.code)}
-                              </button>
-                              <button
-                                onClick={() => setHandoff(null)}
-                                className="text-[9px] uppercase tracking-wider"
-                                style={{ color: "var(--text-tertiary)" }}
-                              >
-                                done
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                                  expires in
-                                </span>
-                                <input
-                                  type="number"
-                                  min={60}
-                                  max={86400}
-                                  step={1}
-                                  value={handoffTtl || ""}
-                                  onChange={(e) => setHandoffTtl(Math.floor(Number(e.target.value)) || 0)}
-                                  placeholder="300"
-                                  className="w-24 text-[10.5px] px-2 py-1 rounded font-mono transition-all"
-                                  style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
-                                />
-                                <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                                  seconds
-                                </span>
-                              </div>
-                              <button
-                                onClick={createHandoff}
-                                disabled={handoffBusy}
-                                className="text-[11px] px-3 py-2 rounded uppercase font-bold tracking-wider transition-all disabled:opacity-40"
-                                style={{
-                                  color: "var(--bg-primary)",
-                                  background: accent,
-                                  border: `1px solid ${accent}`,
-                                }}
-                              >
-                                {handoffBusy ? "…" : handoff ? "Code expired — new QR" : "Show Sign-In QR"}
-                              </button>
-                            </>
-                          )}
-                          {handoffError && (
-                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{handoffError}</div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   {/* Sudo session & policy — lives on ACCESS now (it's the
                       privileged half of access control): one signature unlocks
                       privileged cross-module ops for a window (default 1 hour);
                       the owner tailors the window and which actions always
                       re-ask. Owner-only via canSudo. */}
-                  {activeAccountTab === "access" && canSudo && (() => {
+                  {activeAccountTab === "user" && activeUserSubTab === "sudo" && canSudo && (() => {
                     const accent = "#cc785c"; // claude clay, matches the Sudo sheet
                     const info = sudoInfo;
                     const left = info?.active && info.expires ? Math.max(0, info.expires - nowSec) : 0;
@@ -13168,6 +16712,11 @@ export default function Home() {
                     // writes ride the plain owner session and never prompt.
                     const SUDO_ACTIONS = ["delete", "rename", "restore", "kill", "process"];
                     const alwaysAsk = info?.alwaysAsk || [];
+                    const currentSecs = info ? info.sessionSecs : 3600;
+                    // A window set via the custom h/m inputs won't match any preset chip.
+                    const isCustomWindow = !DURATIONS.some((d) => d.secs === currentSecs);
+                    // Backend clamps session_secs to 0–24h (sudo::MAX_SESSION_SECS)
+                    const customSecs = Math.min(86400, Math.max(0, sudoCustomH * 3600 + sudoCustomM * 60));
                     return (
                       <div className="section-card" data-accent="amber">
                         <span className="section-card__bar" />
@@ -13204,7 +16753,7 @@ export default function Home() {
                             </span>
                             <div className="flex flex-wrap gap-1">
                               {DURATIONS.map((d) => {
-                                const selected = info ? info.sessionSecs === d.secs : d.secs === 3600;
+                                const selected = currentSecs === d.secs;
                                 return (
                                   <button
                                     key={d.secs}
@@ -13223,6 +16772,62 @@ export default function Home() {
                                   </button>
                                 );
                               })}
+                              {isCustomWindow && (
+                                <span
+                                  className="text-[10px] px-2 py-1 rounded-full font-mono"
+                                  style={{
+                                    color: "var(--bg-primary)",
+                                    background: accent,
+                                    border: `1px solid ${accent}`,
+                                  }}
+                                  title="Custom window set below"
+                                >
+                                  once / {formatDuration(currentSecs)}
+                                </span>
+                              )}
+                            </div>
+                            {/* Custom window — hours + minutes, converted to seconds on SET */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                                custom
+                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={24}
+                                step={1}
+                                value={sudoCustomH}
+                                onChange={(e) => setSudoCustomH(Math.min(24, Math.max(0, Math.floor(Number(e.target.value)) || 0)))}
+                                className="w-14 text-[10.5px] px-2 py-1 rounded font-mono transition-all"
+                                style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                                aria-label="custom sudo window hours"
+                              />
+                              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>h</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={59}
+                                step={1}
+                                value={sudoCustomM}
+                                onChange={(e) => setSudoCustomM(Math.min(59, Math.max(0, Math.floor(Number(e.target.value)) || 0)))}
+                                className="w-14 text-[10.5px] px-2 py-1 rounded font-mono transition-all"
+                                style={{ color: "var(--text-primary)", background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
+                                aria-label="custom sudo window minutes"
+                              />
+                              <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>m</span>
+                              <button
+                                disabled={sudoPolicyBusy || customSecs === 0 || customSecs === currentSecs}
+                                onClick={() => setSudoPolicy({ session_secs: customSecs })}
+                                className="text-[10px] px-2.5 py-1 rounded-full font-mono font-bold uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-default"
+                                style={{
+                                  color: accent,
+                                  background: "transparent",
+                                  border: `1px solid color-mix(in srgb, #cc785c 45%, transparent)`,
+                                }}
+                                title={customSecs > 0 ? `One signature covers privileged ops for ${formatDuration(customSecs)}` : "Enter hours and/or minutes"}
+                              >
+                                set{customSecs > 0 ? ` · ${formatDuration(customSecs)}` : ""}
+                              </button>
                             </div>
                           </div>
                           {/* Per-action overrides */}
@@ -13284,157 +16889,116 @@ export default function Home() {
                     );
                   })()}
 
-                  {/* TASKS — your recent agent jobs; a row click opens the
-                      full task panel. Jobs without a recorded user_address
-                      pre-date per-user attribution and stay visible. */}
-                  {activeAccountTab === "tasks" && (() => {
-                    const me = (address || "").toLowerCase();
-                    const mine = jobs
-                      .filter((j) => !me || !j.user_address || j.user_address.toLowerCase() === me)
-                      .slice(0, 40);
+                  {/* COMPUTE — everything about what's running on the box, in
+                      two sub-tabs. PROVIDERS: per-module resource stats merged
+                      with the activator's scale-to-zero state, plus the OOM
+                      guard and a START button for any installed app. SYSTEM:
+                      the admin htop (owner-only sub-tab). */}
+                  {activeAccountTab === "compute" && (() => {
+                    const computeTabs: { id: typeof computeTab; label: string; accent: string }[] = [
+                      { id: "providers", label: "Providers", accent: "var(--crt-green)" },
+                      // Owner-only: the htop endpoint exposes raw cmdlines, so
+                      // the sub-tab simply doesn't exist for other sessions.
+                      ...(canSudo ? [{ id: "system" as const, label: "System", accent: "var(--crt-red)" }] : []),
+                    ];
+                    const activeComputeTab = computeTabs.some((t) => t.id === computeTab) ? computeTab : "providers";
                     return (
-                      <div className="section-card" data-accent="blue">
-                        <span className="section-card__bar" />
-                        <div className="section-card__head">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">◷</span>
-                            Tasks
-                          </div>
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                            style={{
-                              color: "var(--crt-blue)",
-                              background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
-                            }}
-                          >
-                            {mine.length}
-                          </span>
-                        </div>
-                        <div className="section-card__body flex flex-col gap-1">
-                          {mine.length === 0 ? (
-                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
-                              No tasks yet — submit a prompt to start one.
-                            </span>
-                          ) : (
-                            mine.map((j) => {
-                              const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "dev";
-                              const sc =
-                                j.status === "running" ? "var(--crt-green)"
-                                : j.status === "pending" ? "var(--crt-amber)"
-                                : j.status === "failed" ? "var(--crt-red)"
-                                : j.status === "completed" ? "var(--crt-blue)"
-                                : "var(--text-tertiary)";
-                              const p = parsePromptImages(j.prompt).cleanPrompt.replace(/\s+/g, " ").trim();
-                              return (
-                                <button
-                                  key={j.id}
-                                  onClick={() => { viewJob(j); setShowOwnerSidebar(false); }}
-                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
-                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
-                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-blue) 40%, var(--border-color))")}
-                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
-                                  title={p}
-                                >
-                                  <span
-                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{ background: sc, boxShadow: j.status === "running" ? `0 0 4px ${sc}` : "none" }}
-                                  />
-                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                                    <span className="text-[11px] truncate" style={{ color: "var(--text-primary)" }}>
-                                      {p.length > 64 ? `${p.slice(0, 64)}…` : p || "(no prompt)"}
-                                    </span>
-                                    <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                                      {mod} · {j.status}
-                                    </span>
-                                  </span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
+                      <div
+                        className="flex items-center gap-1 p-0.5 rounded-[10px] shrink-0"
+                        style={{ border: `1px solid ${subtleBorder}`, background: "var(--bg-secondary)" }}
+                        role="tablist"
+                      >
+                        {computeTabs.map((t) => {
+                          const on = t.id === activeComputeTab;
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() => setComputeTab(t.id)}
+                              className="flex-1 px-2 py-1.5 rounded-[8px] text-[9.5px] font-bold uppercase tracking-[0.14em] transition-all focus-ring"
+                              style={{
+                                color: on ? t.accent : "var(--text-tertiary)",
+                                background: on ? `color-mix(in srgb, ${t.accent} 9%, var(--bg-primary))` : "transparent",
+                                border: `1px solid ${on ? `color-mix(in srgb, ${t.accent} 32%, transparent)` : "transparent"}`,
+                              }}
+                              aria-selected={on}
+                              role="tab"
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     );
                   })()}
+                  {/* Falls back to PROVIDERS when the remembered sub-tab is
+                      SYSTEM but this session can't sudo (mirrors the strip). */}
+                  {activeAccountTab === "compute" && (computeTab !== "system" || !canSudo) && (
+                    <div className="section-card" data-accent="green">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">▤</span>
+                          Providers
+                        </div>
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                          style={{
+                            color: "var(--crt-green)",
+                            background: "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                            border: "1px solid color-mix(in srgb, var(--crt-green) 28%, transparent)",
+                          }}
+                        >
+                          LIVE
+                        </span>
+                      </div>
+                      <div className="section-card__body">
+                        <ProvidersPanel
+                          apiBase={apiUrl}
+                          authHeader={token && token !== "local" ? { Authorization: `Bearer ${token}` } : undefined}
+                          // Local mode: the server runs with auth off and trusts
+                          // the host, so the kill/run/sleep controls work there
+                          // too — canSudo alone would hide them.
+                          canControl={canSudo || token === "local"}
+                        />
+                      </div>
+                    </div>
+                  )}
 
-                  {/* MY HUB — the hub with just you: modules whose configured
-                      owner is the signed-in address. Click one to open it. */}
-                  {activeAccountTab === "hub" && (() => {
-                    const me = (address || "").toLowerCase();
-                    const mineMods = moduleList
-                      .filter(isRealModule)
-                      .filter((m) => m.owner && m.owner.toLowerCase() === me);
-                    return (
-                      <div className="section-card" data-accent="amber">
-                        <span className="section-card__bar" />
-                        <div className="section-card__head">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">⌂</span>
-                            My Hub
-                          </div>
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                            style={{
-                              color: "#cc785c",
-                              background: "color-mix(in srgb, #cc785c 10%, transparent)",
-                              border: "1px solid color-mix(in srgb, #cc785c 28%, transparent)",
-                            }}
-                          >
-                            {mineMods.length}
-                          </span>
+                  {/* SYSTEM sub-tab — admin htop: per-core CPU, memory, disk
+                      and the raw process table. Owner-gated on both ends (the
+                      sub-tab above and the /system/htop endpoint itself). */}
+                  {activeAccountTab === "compute" && computeTab === "system" && canSudo && (
+                    <div className="section-card" data-accent="red">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">▦</span>
+                          Hardware
                         </div>
-                        <div className="section-card__body flex flex-col gap-1">
-                          {mineMods.length === 0 ? (
-                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
-                              No modules owned by this address yet. Modules you create or claim as owner show up here.
-                            </span>
-                          ) : (
-                            mineMods.map((m) => {
-                              const st = moduleStatuses[m.name];
-                              const live = !!(st && (st.app || st.api));
-                              return (
-                                <button
-                                  key={m.name}
-                                  onClick={() => { selectModule(m); setShowOwnerSidebar(false); }}
-                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
-                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
-                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, #cc785c 45%, var(--border-color))")}
-                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
-                                  title={m.description || m.name}
-                                >
-                                  <span
-                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{
-                                      background: live ? "var(--crt-green)" : "var(--text-tertiary)",
-                                      boxShadow: live ? "0 0 4px var(--crt-green)" : "none",
-                                    }}
-                                  />
-                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                                    <span className="text-[11px] font-mono truncate" style={{ color: "var(--text-primary)" }}>
-                                      {m.name}
-                                    </span>
-                                    {m.description && (
-                                      <span className="text-[9.5px] truncate" style={{ color: "var(--text-tertiary)" }}>
-                                        {m.description}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="text-[9px] font-mono uppercase tracking-wider shrink-0" style={{ color: "var(--text-tertiary)" }}>
-                                    {m.category}
-                                  </span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                          style={{
+                            color: "var(--crt-red)",
+                            background: "color-mix(in srgb, var(--crt-red) 10%, transparent)",
+                            border: "1px solid color-mix(in srgb, var(--crt-red) 28%, transparent)",
+                          }}
+                        >
+                          LIVE
+                        </span>
                       </div>
-                    );
-                  })()}
+                      <div className="section-card__body">
+                        <SystemMonitor
+                          apiBase={apiUrl}
+                          authHeader={token && token !== "local" ? { Authorization: `Bearer ${token}` } : undefined}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Whitelist — owner edits inline; non-owners get read-only
                       rows and a hint about who can edit. Each row is
                       click-to-copy; owner gets an X to revoke. */}
-                  {activeAccountTab === "access" && (
+                  {activeAccountTab === "user" && activeUserSubTab === "access" && (
                   <div className="section-card" data-accent="green">
                     <span className="section-card__bar" />
                     <div className="section-card__head">
@@ -13639,11 +17203,11 @@ export default function Home() {
 
                   {/* Share edit access — the QR-invite minting card; this
                       panel is where the owner manages who gets in. */}
-                  {activeAccountTab === "access" && renderShareAccessCard()}
+                  {activeAccountTab === "user" && activeUserSubTab === "access" && renderShareAccessCard()}
 
                   {/* Kill process — a sudo-gated op, kept with the sudo
                       session card now that sudo lives on ACCESS. */}
-                  {activeAccountTab === "access" && isOwner && (
+                  {activeAccountTab === "user" && activeUserSubTab === "sudo" && isOwner && (
                     <button
                       onClick={() => {
                         setShowOwnerSidebar(false);
@@ -13699,7 +17263,7 @@ export default function Home() {
                   {/* Sign out — only for sessions with no WALLET tab (e.g.
                       QR-handoff phone sessions); wallet sessions disconnect
                       from the wallet view, so no duplicate button. */}
-                  {activeAccountTab === "access" && token && token !== "local" && !hasWallet && (
+                  {activeAccountTab === "user" && activeUserSubTab === "wallet" && token && token !== "local" && !hasWallet && (
                     <button
                       onClick={() => {
                         setShowOwnerSidebar(false);
@@ -13744,6 +17308,7 @@ export default function Home() {
                   {/* Spacer — anchors the cards to the top of the pane */}
                   <div className="flex-1" />
                 </div>
+                )}
                 </div>
               </div>
             );
@@ -13757,6 +17322,87 @@ export default function Home() {
           and the PARAMS panel (auth + mod/model/agent + system prompt
           chain) folds out of this bar. ── */}
       {renderComposerDock()}
+
+      {/* ── ATTACHED-IMAGE PREVIEW — lightbox for the composer's pending
+          images, opened by clicking the "N IMG" chip. Data URLs, so the
+          preview needs no server round-trip. ── */}
+      {imagePreviewIdx !== null && images[imagePreviewIdx] && (
+        <div
+          className="fixed inset-0 z-[350] flex flex-col items-center justify-center p-4"
+          style={{ background: "rgba(7, 7, 13, 0.8)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" }}
+          onClick={() => setImagePreviewIdx(null)}
+        >
+          <div
+            className="flex flex-col items-center gap-3 max-w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={images[imagePreviewIdx].data}
+              alt={images[imagePreviewIdx].name}
+              className="rounded-lg"
+              style={{
+                maxWidth: "min(92vw, 1100px)",
+                maxHeight: "78vh",
+                objectFit: "contain",
+                border: "1px solid var(--border-color-strong, rgba(96,165,250,0.4))",
+                boxShadow: "0 18px 60px rgba(0,0,0,0.6)",
+                background: "var(--bg-primary)",
+              }}
+            />
+            <div className="flex items-center gap-3 text-[12px] font-mono" style={{ color: "rgba(219,234,254,0.9)" }}>
+              {images.length > 1 && (
+                <button
+                  onClick={() => setImagePreviewIdx((i) => (i === null ? 0 : (i - 1 + images.length) % images.length))}
+                  className="px-2 py-1 rounded transition-colors"
+                  style={{ background: "rgba(96,165,250,0.15)" }}
+                  title="Previous image"
+                  aria-label="Previous image"
+                >
+                  ‹
+                </button>
+              )}
+              <span className="truncate" style={{ maxWidth: "60vw" }}>
+                {images[imagePreviewIdx].name}
+                {images.length > 1 ? `  (${imagePreviewIdx + 1}/${images.length})` : ""}
+              </span>
+              {images.length > 1 && (
+                <button
+                  onClick={() => setImagePreviewIdx((i) => (i === null ? 0 : (i + 1) % images.length))}
+                  className="px-2 py-1 rounded transition-colors"
+                  style={{ background: "rgba(96,165,250,0.15)" }}
+                  title="Next image"
+                  aria-label="Next image"
+                >
+                  ›
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  const idx = imagePreviewIdx;
+                  setImages((prev) => prev.filter((_, i) => i !== idx));
+                  setImagePreviewIdx((i) => {
+                    if (i === null) return null;
+                    return images.length <= 1 ? null : Math.min(i, images.length - 2);
+                  });
+                }}
+                className="px-2 py-1 rounded transition-colors"
+                style={{ background: "rgba(248,113,113,0.15)", color: "var(--crt-red, #f87171)" }}
+                title="Remove this image from the attachment list"
+              >
+                REMOVE
+              </button>
+              <button
+                onClick={() => setImagePreviewIdx(null)}
+                className="px-2 py-1 rounded transition-colors"
+                style={{ background: "rgba(96,165,250,0.15)" }}
+                title="Close preview (or click the backdrop)"
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── TERMS OF USE — first sign-in gate for non-owner wallets. The
           wallet signature that follows covers this exact text (the server
@@ -14141,7 +17787,7 @@ export default function Home() {
               <input
                 ref={killInputRef}
                 type="text"
-                placeholder={killMode === "port" ? "Port number (e.g. 8820)" : "Process ID"}
+                placeholder={killMode === "port" ? "Port number (e.g. 8870)" : "Process ID"}
                 value={killInput}
                 onChange={(e) => { setKillInput(e.target.value); setKillResult(null); }}
                 onKeyDown={(e) => { if (e.key === "Enter") executeKill(); if (e.key === "Escape") setShowKillDialog(false); }}
@@ -14214,25 +17860,9 @@ export default function Home() {
           {renderConnectPanel()}
         </div>
       )}
-      {/* Collapsed tab to re-open the drawer after it's been dismissed while
-          still signed out. */}
-      {!token && !signInOpen && (
-        <button
-          onClick={() => setSignInOpen(true)}
-          className="fixed top-1/2 right-0 -translate-y-1/2 z-[150] px-2 py-3 text-[11px] font-mono tracking-wider"
-          style={{
-            writingMode: "vertical-rl",
-            background: "var(--bg-secondary)",
-            color: "var(--crt-amber)",
-            border: `1px solid ${subtleBorder}`,
-            borderRight: "none",
-            borderRadius: "6px 0 0 6px",
-          }}
-          title="Sign in"
-        >
-          SIGN IN
-        </button>
-      )}
+      {/* No collapsed edge tab — the header identity chip already reads
+          SIGN IN while signed out and reopens the drawer, so a second
+          floating tab just overlapped page content. */}
 
       {/* The standalone wallet modal is gone — wallet UI lives only inside the
           merged account sidebar (WalletModal rendered embedded above). */}
@@ -14253,6 +17883,24 @@ export default function Home() {
           }
           onAuthorize={confirmSudo}
           onCancel={cancelSudo}
+        />
+      )}
+
+      {/* Desk — browser-OS window manager. Mounted once the first SPLIT
+          click opens it, then kept alive (hidden) so windowed apps keep
+          their state across open/close. */}
+      {(deskOpen || deskLaunch) && (
+        <Desk
+          open={deskOpen}
+          onClose={() => setDeskOpen(false)}
+          origin={(gatewayHostOverride || defaultGatewayOrigin(mounted)).replace(/\/+$/, "")}
+          mods={moduleList
+            .filter(isRealModule)
+            .filter((m) => m.app_url || m.has_app_dir)
+            .map((m) => m.name)}
+          launch={deskLaunch}
+          tasks={railTasks.byModule}
+          onEdit={deskEdit}
         />
       )}
 

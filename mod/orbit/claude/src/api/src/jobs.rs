@@ -974,16 +974,26 @@ async fn run_claude_process(
     // explicitly so the child resolves the credentials file in the right place
     // even when the parent was spawned via runuser/su without env reset.
     let home = std::env::var("HOME").unwrap_or_default();
+    // Console-pasted credentials (POST /agent/auth) — the fallback when no
+    // subscription credentials file exists, and the deliberate override for
+    // whatever stale ANTHROPIC_API_KEY the server process inherited.
+    let (stored_oauth, stored_key) = crate::auth::read_agent_auth();
     match sandbox {
         // Trusted (owner / local): prefer the OAuth subscription creds in root's
         // HOME over any inherited ANTHROPIC_API_KEY.
         None => {
+            let creds_exists = !home.is_empty()
+                && std::path::Path::new(&format!("{}/.claude/.credentials.json", home)).exists();
             if !home.is_empty() {
                 cmd.env("HOME", &home);
-                let creds_path = format!("{}/.claude/.credentials.json", home);
-                if std::path::Path::new(&creds_path).exists() {
-                    cmd.env_remove("ANTHROPIC_API_KEY");
-                }
+            }
+            if creds_exists {
+                cmd.env_remove("ANTHROPIC_API_KEY");
+            } else if let Some(tok) = &stored_oauth {
+                cmd.env_remove("ANTHROPIC_API_KEY");
+                cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
+            } else if let Some(key) = &stored_key {
+                cmd.env("ANTHROPIC_API_KEY", key);
             }
         }
         // Sandboxed (non-owner): the dropped-privilege child cannot read root's
@@ -1007,9 +1017,11 @@ async fn run_claude_process(
                             .map(|s| s.to_string())
                     })
             };
-            if let Some(tok) = file_token {
+            if let Some(tok) = file_token.or(stored_oauth) {
                 cmd.env_remove("ANTHROPIC_API_KEY");
                 cmd.env("CLAUDE_CODE_OAUTH_TOKEN", tok);
+            } else if let Some(key) = &stored_key {
+                cmd.env("ANTHROPIC_API_KEY", key);
             }
         }
     }

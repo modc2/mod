@@ -24,6 +24,10 @@ CLI:
     m nyc/prices                       # city-wide price summary
     m nyc/trend area=BK0101            # a neighborhood's price history
     m nyc/where "Prospect Park"        # geocode an address or place
+    m nyc/tools                        # the MCP tool registry
+    m nyc/tool nyc_query id=erm2-nwe9 select="complaint_type, count(*)"
+    m nyc/ask "where are prices rising fastest?"   # chat with the data agent
+    m nyc/mcp                          # how to connect an MCP client
     m nyc/warm                         # pre-fetch every layer into the cache
     m nyc/serve                        # run the API + map app
 """
@@ -48,6 +52,7 @@ if str(MODULE_DIR) not in sys.path:
 from nycgis import layers as L
 from nycgis import prices as P
 from nycgis import sources as S
+from nycgis import tools as T
 
 # The five boroughs — kept from this module's original scaffold, and still the
 # right thing to hand a client that just wants to know what NYC is made of.
@@ -249,6 +254,58 @@ class Mod:
 
         return S.cached(f'geocode-{query.lower()}-{limit}', 30 * S.DAY, fetch)
 
+    # ── tools / MCP / chat ───────────────────────────────────────────────
+
+    def tools(self) -> dict:
+        """The tool registry every MCP surface and the chat agent share."""
+        return {'count': len(T.TOOLS), 'groups': T.groups(),
+                'tools': T.list_tools()}
+
+    def tool(self, name: str, **kwargs):
+        """Call one tool by name: ``m nyc/tool nyc_borough name=queens``."""
+        return T.call_tool(name, kwargs)
+
+    def mcp(self) -> dict:
+        """How to connect an MCP client to this module's data tools."""
+        return {
+            'tools': len(T.TOOLS),
+            'http': f'http://localhost:{self.port}/mcp',
+            'gateway': 'https://modc2.com/nyc/api/mcp',
+            'stdio': {'command': 'python3', 'args': ['-m', 'nycgis.mcp_server'],
+                      'cwd': str(self.module_dir)},
+            'add': 'claude mcp add nyc -- python3 -m nycgis.mcp_server',
+        }
+
+    def ask(self, q: str, session_id: Optional[str] = None) -> dict:
+        """
+        Ask the NYC data agent a question from the CLI. Streams through the
+        running API (which sandboxes the agent to the nyc tools).
+        """
+        import requests
+        answer, tools_used, sid = [], [], session_id
+        try:
+            r = requests.post(f'http://localhost:{self.port}/chat',
+                              json={'message': str(q), 'session_id': session_id},
+                              stream=True, timeout=300)
+            r.raise_for_status()
+        except Exception as e:
+            return {'error': f'API not reachable ({e}); run m nyc/serve_api first'}
+        import json
+        for line in r.iter_lines(decode_unicode=True):
+            if not line or not line.startswith('data: '):
+                continue
+            ev = json.loads(line[6:])
+            if ev['type'] == 'text':
+                answer.append(ev['text'])
+            elif ev['type'] == 'tool':
+                tools_used.append(ev['name'])
+            elif ev['type'] in ('done', 'session'):
+                sid = ev.get('session_id') or ev.get('id') or sid
+            elif ev['type'] == 'error':
+                return {'error': ev['error'], 'session_id': sid}
+        return {'answer': '\n\n'.join(answer), 'tools_used': tools_used,
+                'session_id': sid}
+
     # ── cache ────────────────────────────────────────────────────────────
 
     def warm(self, include_housing: bool = True) -> dict:
@@ -333,6 +390,10 @@ class Mod:
                         'geographies': list(P.GEOGRAPHIES),
                         'property_types': list(P.PROPERTY_TYPES),
                         'record': 'NYC DOF rolling sales, 2016–present (~845k deeds)'},
+            'tools': len(T.TOOLS),
+            'mcp': {'http': f'http://localhost:{self.port}/mcp',
+                    'stdio': 'python3 -m nycgis.mcp_server'},
+            'chat': f'http://localhost:{self.port}/chat',
             'boroughs': list(BOROUGHS),
             'total_population': sum(b['population'] for b in BOROUGHS.values()),
             'open_data_only': True,

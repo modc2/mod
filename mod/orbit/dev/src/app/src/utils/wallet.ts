@@ -20,7 +20,7 @@ export interface Transaction {
 }
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-const STORAGE_KEY = "claude_wallet_history";
+const STORAGE_KEY = "build_wallet_history";
 
 /**
  * Get cached wallet history from localStorage
@@ -173,7 +173,7 @@ export function getNativeSymbol(chainId: number): string {
  */
 export function getStoredChainId(): number {
   try {
-    const stored = localStorage.getItem("claude_jobs_chain_id");
+    const stored = localStorage.getItem("build_jobs_chain_id");
     return stored ? parseInt(stored, 10) : 84532; // default Base Sepolia
   } catch {
     return 84532;
@@ -181,7 +181,7 @@ export function getStoredChainId(): number {
 }
 
 export function setStoredChainId(chainId: number): void {
-  localStorage.setItem("claude_jobs_chain_id", chainId.toString());
+  localStorage.setItem("build_jobs_chain_id", chainId.toString());
 }
 
 /**
@@ -249,7 +249,7 @@ export function isExtensionBignumberBug(e: any): boolean {
 
 export function friendlyWalletError(e: any): string {
   if (isExtensionBignumberBug(e)) {
-    return "WALLET EXTENSION CRASHED on its own balance math (a known SubWallet/MetaMask bignumber bug — not a claude issue). Try again; updating the extension fixes it for good.";
+    return "WALLET EXTENSION CRASHED on its own balance math (a known SubWallet/MetaMask bignumber bug — not a build issue). Try again; updating the extension fixes it for good.";
   }
   return String(e?.message || e || "");
 }
@@ -427,7 +427,7 @@ export const COMMON_TOKENS: Record<number, TokenInfo[]> = {
   ],
 };
 
-const CUSTOM_TOKENS_KEY = "claude_custom_tokens";
+const CUSTOM_TOKENS_KEY = "build_custom_tokens";
 
 /**
  * Get user-added custom tokens for a chain from localStorage

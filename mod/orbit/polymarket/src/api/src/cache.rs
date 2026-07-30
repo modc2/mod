@@ -237,6 +237,13 @@ impl ProxyCache {
 const AGG_TTL: Duration = Duration::from_secs(3600);
 const DISK_MAX_AGE: Duration = Duration::from_secs(86400); // 24h — keep disk cache across restarts
 
+/// Max AggPayloads held in memory at once. Each is ~2k traders with pnl
+/// curves + per-market metrics (12–48MB as JSON, several× that as structs),
+/// and the warmup writes one per window (1/7/10/14/30d) — keeping them all
+/// resident duplicated the whole disk cache in RAM. Disk is authoritative;
+/// memory is a hot tier for the window(s) actually being browsed.
+const MEM_ENTRIES_MAX: usize = 2;
+
 struct PipelineCacheEntry {
     payload: AggPayload,
     created_at: Instant,
@@ -279,6 +286,7 @@ impl PipelineCache {
                 payload: payload.clone(),
                 created_at: Instant::now(),
             });
+            Self::evict_over_cap(&mut entries);
             return Some((payload, "disk"));
         }
         None
@@ -291,9 +299,24 @@ impl PipelineCache {
             payload: payload.clone(),
             created_at: Instant::now(),
         });
+        Self::evict_over_cap(&mut entries);
         drop(entries);
         // Disk (best-effort)
         self.save_to_disk(key, &payload);
+    }
+
+    /// Drop the oldest entries until the memory tier fits MEM_ENTRIES_MAX.
+    /// Evicted windows reload from disk on next request via get_or_disk.
+    fn evict_over_cap(entries: &mut HashMap<String, PipelineCacheEntry>) {
+        while entries.len() > MEM_ENTRIES_MAX {
+            let oldest = entries.iter()
+                .min_by_key(|(_, v)| v.created_at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => { entries.remove(&k); }
+                None => break,
+            }
+        }
     }
 
     fn disk_path(&self, key: &str) -> PathBuf {

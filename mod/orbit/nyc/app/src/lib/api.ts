@@ -82,6 +82,55 @@ async function get<T>(path: string, params?: Record<string, any>): Promise<T> {
   return res.json()
 }
 
+export type ChatEvent =
+  | { type: 'session'; id: string }
+  | { type: 'tool'; name: string; input: Record<string, any> }
+  | { type: 'text'; text: string }
+  | { type: 'done'; ms?: number; session_id?: string }
+  | { type: 'error'; error: string }
+
+/**
+ * Ask the NYC agent a question, yielding SSE events as they stream in.
+ * Pass the session id from a previous turn's `done` event to continue a
+ * conversation.
+ */
+export async function* chatStream(
+  message: string,
+  sessionId?: string,
+): AsyncGenerator<ChatEvent> {
+  const res = await fetch(`${BASE}/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId ?? null }),
+  })
+  if (!res.ok || !res.body) {
+    let detail = res.statusText
+    try {
+      detail = JSON.stringify((await res.json()).detail ?? detail)
+    } catch {}
+    throw new Error(`chat → ${res.status}: ${detail}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let cut
+    while ((cut = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, cut)
+      buf = buf.slice(cut + 2)
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          yield JSON.parse(line.slice(6)) as ChatEvent
+        } catch {}
+      }
+    }
+  }
+}
+
 export const api = {
   catalog: () => get<Catalog>('/layers'),
   options: () => get<Options>('/options'),

@@ -1,8 +1,8 @@
 """
-Tests for the Claude module (v2).
+Tests for the Build module (v2).
 
-Run with: pytest tests/test_claude.py -v -s
-         pytest tests/test_claude.py -v -s -k "Unit"     # unit tests only
+Run with: pytest tests/test_build.py -v -s
+         pytest tests/test_build.py -v -s -k "Unit"     # unit tests only
 
 Tests are split into:
   - Unit tests:   Always run, no API/CLI/server needed
@@ -46,7 +46,7 @@ def can_run_claude():
 def is_server_running():
     try:
         import urllib.request
-        url = 'http://localhost:8820/health'
+        url = 'http://localhost:8870/health'
         with urllib.request.urlopen(url, timeout=2) as resp:
             return resp.status == 200
     except Exception:
@@ -88,7 +88,7 @@ def server_is_open():
         return False
     import urllib.request
     try:
-        req = urllib.request.Request('http://localhost:8820/jobs', method='GET')
+        req = urllib.request.Request('http://localhost:8870/jobs', method='GET')
         with urllib.request.urlopen(req, timeout=3) as resp:
             return resp.status == 200
     except Exception:
@@ -161,7 +161,7 @@ class TestUnit:
         """Config loads from config.json."""
         c = Mod()
         assert 'name' in c.config
-        assert c.config['name'] == 'claude'
+        assert c.config['name'] == 'build'
 
     def test_description_set(self):
         """Module has description."""
@@ -176,7 +176,7 @@ class TestUnit:
         assert 'submit' in Mod.endpoints
 
     def test_module_dir(self):
-        """_module_dir returns the claude package root."""
+        """_module_dir returns the build package root."""
         c = Mod()
         d = c._module_dir()
         assert os.path.isdir(d)
@@ -279,6 +279,7 @@ class TestOwnership:
         """Error message is human-readable with truncated addresses."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         try:
             c.require_owner("0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB", "forward(test query...)")
             assert False, "Should have raised"
@@ -294,6 +295,7 @@ class TestOwnership:
         """require_owner handles Key objects with .address attribute."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         key = MagicMock()
         key.address = "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB"
         key.__str__ = lambda self: f"Key({self.address}, type=ecdsa)"
@@ -395,7 +397,7 @@ class TestTokenAuth:
         """is_owner() rejects token from a non-owner key."""
         import mod
         c = Mod()
-        other_key = mod.key('test.claude.nonowner')
+        other_key = mod.key('test.build.nonowner')
         c._owner = c.key.address.lower()
         tok = c.token(key=other_key)
         assert c.is_owner(tok) is False
@@ -411,7 +413,7 @@ class TestTokenAuth:
         """require_owner() rejects token from non-owner."""
         import mod
         c = Mod()
-        other_key = mod.key('test.claude.nonowner2')
+        other_key = mod.key('test.build.nonowner2')
         c._owner = c.key.address.lower()
         tok = c.token(key=other_key)
         with pytest.raises(PermissionError, match="Permission denied"):
@@ -559,7 +561,7 @@ class TestBgJobs:
     def test_bg_list_empty(self):
         """bg_list returns empty for nonexistent directory."""
         c = Mod()
-        assert c.bg_list(log_dir="/tmp/nonexistent_claude_logs_xyz") == []
+        assert c.bg_list(log_dir="/tmp/nonexistent_build_logs_xyz") == []
 
     def test_bg_list_finds_logs(self, tmp_path):
         """bg_list finds .log files."""
@@ -758,7 +760,7 @@ class TestWhitelist:
     def c(self, tmp_path):
         mod = Mod()
         mod._owner = "0xowner000000000000000000000000000000owner"
-        # Isolate the whitelist file from the real ~/.mod/claude/whitelist.json
+        # Isolate the whitelist file from the real ~/.mod/dev/whitelist.json
         wl = tmp_path / 'whitelist.json'
         mod._whitelist_path = lambda: wl
         return mod
@@ -928,7 +930,7 @@ class TestEnsureEnv:
         cargo = tmp_path / 'Cargo.toml'
         cargo.write_text('[package]\nname = "test"')
         (tmp_path / 'target' / 'release').mkdir(parents=True)
-        (tmp_path / 'target' / 'release' / 'claude-jobs').write_text('bin')
+        (tmp_path / 'target' / 'release' / 'dev-jobs').write_text('bin')
         result = c.ensure_env(app_dir=str(tmp_path), api_dir=str(tmp_path))
         assert result['api_build']['ok'] is True
         assert result['api_build']['cached'] is True
@@ -1004,22 +1006,22 @@ class TestServe:
         )
 
     def test_serve_registers_in_namespace(self, c):
-        """serve() registers claude in both API and app namespaces."""
+        """serve() registers build in both API and app namespaces."""
         mock_registry = MagicMock()
         patches = self._serve_patches(c, mock_registry=mock_registry)
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             c.serve()
         # Derive expected URLs from config so this survives port changes
-        # (e.g. app_port moved 8821 → 8823) rather than hardcoding.
-        api_url = f"http://localhost:{c.config.get('port', 8820)}"
-        app_url = f"http://localhost:{c.config.get('app_port', 8821)}"
-        mock_registry.reg.assert_called_once_with('claude', api_url)
+        # (e.g. the app_port default differs from the API port) rather than hardcoding.
+        api_url = f"http://localhost:{c.config.get('port', 8870)}"
+        app_url = f"http://localhost:{c.config.get('app_port', 8871)}"
+        mock_registry.reg.assert_called_once_with('build', api_url)
         mock_registry.reg_app.assert_called_once_with(
-            'claude', app_url,
+            'build', app_url,
             owner=c.key.address, api_url=api_url)
 
     def test_serve_sets_base_path_env(self, c):
-        """serve() passes NEXT_PUBLIC_BASE_PATH=/claude to the Next.js app."""
+        """serve() passes NEXT_PUBLIC_BASE_PATH=/build to the Next.js app."""
         popen_calls = []
 
         def capture_popen(*args, **kwargs):
@@ -1033,8 +1035,8 @@ class TestServe:
 
         app_call = [call for call in popen_calls if call.get('env', {}).get('NEXT_PUBLIC_BASE_PATH')]
         assert len(app_call) == 1, "Expected one Popen call with NEXT_PUBLIC_BASE_PATH"
-        assert app_call[0]['env']['NEXT_PUBLIC_BASE_PATH'] == '/claude'
-        assert app_call[0]['env']['NEXT_PUBLIC_API_PORT'] == '8820'
+        assert app_call[0]['env']['NEXT_PUBLIC_BASE_PATH'] == '/dev'
+        assert app_call[0]['env']['NEXT_PUBLIC_API_PORT'] == '8870'
 
     def test_serve_custom_ports(self, c):
         """serve() respects custom port args for registration."""
@@ -1042,9 +1044,9 @@ class TestServe:
         patches = self._serve_patches(c, mock_registry=mock_registry)
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             c.serve(api_port=9000, app_port=9001)
-        mock_registry.reg.assert_called_once_with('claude', 'http://localhost:9000')
+        mock_registry.reg.assert_called_once_with('build', 'http://localhost:9000')
         mock_registry.reg_app.assert_called_once_with(
-            'claude', 'http://localhost:9001',
+            'build', 'http://localhost:9001',
             owner=c.key.address, api_url='http://localhost:9000')
 
     def test_serve_calls_ensure_env(self, c):
@@ -1161,7 +1163,7 @@ class TestServe:
         # pm2 owns the processes — serve() must NOT also spawn via Popen.
         popen.assert_not_called()
         assert result.get('pm2') is True
-        mock_registry.reg.assert_called_once_with('claude', 'http://localhost:8820')
+        mock_registry.reg.assert_called_once_with('build', 'http://localhost:8870')
 
 
 class TestRepr:
@@ -1170,7 +1172,7 @@ class TestRepr:
     def test_repr(self):
         c = Mod()
         r = repr(c)
-        assert 'Claude' in r
+        assert 'Build' in r
         assert 'api=' in r
 
 

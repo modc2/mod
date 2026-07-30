@@ -1,13 +1,14 @@
-//! Per-role filesystem confinement for the claude API.
+//! Per-role filesystem confinement for the build API.
 //!
 //! Two-tier policy (single chokepoint = `resolve_path`):
 //!   • OWNER  → confined to the module tree `~/mod/mod` (orbit + core). The owner
+//!              (the configured address or any co-owner wallet in owners.json)
 //!              edits any module but nothing outside the tree (no /etc, ~/.ssh,
 //!              arbitrary host files).
 //!   • PEER   → every other authenticated address, confined to its own private
 //!              root `~/.mod/peers/<addr>/`. A peer scaffolds/edits their mods at
 //!              `~/.mod/peers/<addr>/<mod>/…` and can never reach the orbit.
-//!   • LOCAL  → empty caller (CLAUDE_JOBS_LOCAL=1, trusted host CLI) → full host.
+//!   • LOCAL  → empty caller (DEV_JOBS_LOCAL=1, trusted host CLI) → full host.
 //!
 //! The whitelist still governs sign-in (see auth::is_trusted) but no longer grants
 //! orbit write access — whitelisted users are peers for filesystem purposes.
@@ -16,7 +17,7 @@ use crate::auth;
 use axum::http::HeaderMap;
 use std::path::{Path, PathBuf};
 
-pub const TOOL: &str = "claude";
+pub const TOOL: &str = "build";
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
@@ -33,13 +34,13 @@ pub fn peer_root(addr: &str) -> PathBuf {
 }
 
 /// Extract the calling address from request headers. Empty string when
-/// no valid token + the server is in local mode (CLAUDE_JOBS_LOCAL=1).
+/// no valid token + the server is in local mode (DEV_JOBS_LOCAL=1).
 /// Returns an Err(msg) when auth is required but missing/invalid.
 pub fn caller(headers: &HeaderMap) -> Result<String, String> {
     match auth::extract_address_from_headers(headers) {
         Ok(addr) => Ok(addr),
         Err(e) => {
-            if std::env::var("CLAUDE_JOBS_LOCAL").unwrap_or_default() == "1" {
+            if std::env::var("DEV_JOBS_LOCAL").unwrap_or_default() == "1" {
                 Ok(String::new())
             } else {
                 Err(e)
@@ -49,13 +50,9 @@ pub fn caller(headers: &HeaderMap) -> Result<String, String> {
 }
 
 pub fn is_owner(addr: &str) -> bool {
-    if addr.is_empty() {
-        return false;
-    }
-    match auth::get_owner_address() {
-        Some(owner) => owner.eq_ignore_ascii_case(addr),
-        None => false,
-    }
+    // Delegates to auth so co-owner wallets (owners.json) get the owner's
+    // filesystem surface too, not just the single configured address.
+    !addr.is_empty() && auth::is_owner(addr)
 }
 
 /// Confine `raw` within `base`. Accepts `~/…`, absolute, or relative paths; the
@@ -141,11 +138,11 @@ pub fn ensure_workspace(caller_addr: &str) -> Result<PathBuf, String> {
     Ok(base)
 }
 
-/// Jobs DB dir. Owner/local share the legacy `~/.mod/claude`; each peer gets a
+/// Jobs DB dir. Owner/local share the legacy `~/.mod/dev`; each peer gets a
 /// per-peer DB under their private root so job views stay isolated.
 pub fn jobs_db_path(caller_addr: &str) -> Result<PathBuf, String> {
     if caller_addr.is_empty() || is_owner(caller_addr) {
-        return Ok(home().join(".mod").join("dev"));
+        return Ok(home().join(".mod").join("build"));
     }
     let root = peer_root(caller_addr).join(".jobs");
     std::fs::create_dir_all(&root).map_err(|e| format!("mkdir {}: {e}", root.display()))?;

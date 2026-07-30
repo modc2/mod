@@ -1,7 +1,7 @@
 //! Sudo authorization — per-operation, replay-protected signatures from the owner key.
 //!
-//! The normal bearer/owner gate is enough to *use* claude. But operations that
-//! reach OUTSIDE the claude module — editing a sibling module, deleting a module,
+//! The normal bearer/owner gate is enough to *use* build. But operations that
+//! reach OUTSIDE the build module — editing a sibling module, deleting a module,
 //! killing a host process — run with root and can damage the whole host. Those
 //! require a *fresh* signature from the owner ("sudo") wallet that is bound to the
 //! exact operation, so a captured signature can neither be replayed nor reused for
@@ -23,7 +23,7 @@
 //! opens a sudo *session* for the owner (default one hour). While the session is
 //! live, further privileged requests from the owner's authenticated bearer token
 //! pass without a new signature. The owner tailors this via [`SudoPolicy`]
-//! (`~/.mod/claude/sudo_policy.json`): session length (0 = ask every time) and a
+//! (`~/.mod/dev/sudo_policy.json`): session length (0 = ask every time) and a
 //! list of actions that always demand a fresh signature regardless of session.
 //! Changing the policy itself always requires a fresh signature — a cached
 //! session can never be used to loosen the auth requirements.
@@ -72,7 +72,7 @@ fn de_i64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
 /// frontend (`buildSudoMessage`) and any other signer (mod.py `_sudo_message`).
 pub fn sudo_message(action: &str, target: &str, time: i64, nonce: &str) -> String {
     [
-        "MOD Claude Sudo Authorization".to_string(),
+        "MOD Build Sudo Authorization".to_string(),
         format!("action: {}", action),
         format!("target: {}", target),
         format!("time: {}", time),
@@ -206,7 +206,7 @@ fn verify_sudo_fresh_raw(raw: &str, action: &str, target: &str) -> Result<String
 }
 
 // ── Owner-tailored policy ───────────────────────────────────────────────────
-// Off-chain, like the whitelist: private auth state lives in ~/.mod/claude/.
+// Off-chain, like the whitelist: private auth state lives in ~/.mod/dev/.
 
 /// Default session length: one signature per hour, like Unix sudo but longer.
 pub const DEFAULT_SESSION_SECS: i64 = 3600;
@@ -246,7 +246,7 @@ fn policy_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home)
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("sudo_policy.json")
 }
 
@@ -289,7 +289,7 @@ fn session_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home)
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("sudo_session.json")
 }
 
@@ -349,7 +349,7 @@ fn store_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home)
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("sudo_used.json")
 }
 
@@ -467,10 +467,10 @@ mod tests {
 
     fn setup_owner(key: &SigningKey) -> tempdir_guard::TempHome {
         let home = tempdir_guard::TempHome::new();
-        let claude = home.path().join(".mod").join("dev");
-        std::fs::create_dir_all(&claude).unwrap();
+        let build = home.path().join(".mod").join("build");
+        std::fs::create_dir_all(&build).unwrap();
         std::fs::write(
-            claude.join("owner.json"),
+            build.join("owner.json"),
             serde_json::json!({ "owner": address_of(key).to_lowercase() }).to_string(),
         )
         .unwrap();
@@ -655,7 +655,7 @@ mod tempdir_guard {
     impl TempHome {
         pub fn new() -> Self {
             let base = std::env::temp_dir().join(format!(
-                "claude-sudo-test-{}",
+                "build-sudo-test-{}",
                 hex::encode(rand::random::<[u8; 8]>())
             ));
             std::fs::create_dir_all(&base).unwrap();

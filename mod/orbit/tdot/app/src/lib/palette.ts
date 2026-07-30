@@ -19,8 +19,7 @@
 /**
  * "No data" fill. Deliberately a *neutral* grey: every class in the sequential
  * and diverging ramps is chromatic, so an absence of hue is what marks a
- * polygon as outside the scale. A dark blue-grey worked on the dark basemap
- * but read as the ramp's cheapest class on the light one.
+ * polygon as outside the scale.
  */
 export const NO_DATA = '#5c5b56'
 
@@ -29,9 +28,10 @@ export const SEQUENTIAL = [
   '#0d366b', '#184f95', '#256abf', '#3987e5', '#6da7ec', '#9ec5f4', '#cde2fb',
 ]
 
-/** Diverging ramp, most-negative → most-positive; index 3 is the neutral mid. */
+/** Diverging ramp, most-negative → most-positive; index 3 is the neutral mid.
+ *  On a crime map "up" is bad, so the positive arm is the red one. */
 export const DIVERGING = [
-  '#f2a0a0', '#e66767', '#b83c3c', '#383835', '#1c5cab', '#3987e5', '#86b6ef',
+  '#86b6ef', '#3987e5', '#1c5cab', '#383835', '#b83c3c', '#e66767', '#f2a0a0',
 ]
 
 /**
@@ -52,21 +52,34 @@ export const HEAT: [number, string][] = [
 
 /** Per-layer colours. Same mark form ⇒ different hue. */
 export const LAYER_COLOR: Record<string, string> = {
-  parks: '#199e70',              // translucent fill
-  bike_routes: '#d95926',        // hairline
-  affordable_housing: '#199e70', // graduated circle
-  subway_ridership: '#d95926',   // graduated circle
+  green_spaces: '#199e70',       // translucent fill
+  cycling_network: '#d95926',    // hairline
+  streetcars: '#DA251D',         // TTC streetcar red (network identity colour)
+  apartments: '#9ec5f4',         // graduated circle
   subway_stations: '#ffffff',    // reference infrastructure, not a data series
   collisions: '#e66767',
-  boroughs: '#c3c2b7',
-  neighborhoods: '#898781',
-  sales: '#9ec5f4',
+  municipalities: '#c3c2b7',
+  neighbourhoods: '#898781',
+  wards: '#9c8f3a',
 }
 
-/** Hurricane evacuation zones are ordinal: zone 1 is the most urgent. */
-export const ZONE_COLOR: Record<number, string> = {
-  1: '#f2a0a0', 2: '#e66767', 3: '#d95926',
-  4: '#c98500', 5: '#9c8f3a', 6: '#5f7a52', 7: '#3d6b6b',
+/**
+ * Crime-category colours for the incident point layer. Five categoricals,
+ * hue-separated on the dark surface; assault (the most common) gets the
+ * hue most distinct from the choropleth blues.
+ */
+export const CATEGORY_COLOR: Record<string, string> = {
+  assault: '#e66767',
+  auto_theft: '#eda100',
+  break_enter: '#3987e5',
+  robbery: '#b07ce8',
+  theft_over: '#199e70',
+}
+
+/** Official TTC line colours, keyed by route number (from the GTFS bundle). */
+export const TTC_LINE_COLOR: Record<string, string> = {
+  '1': '#F8C300', '2': '#00923F', '3': '#0082C9',
+  '4': '#A21A68', '5': '#DF8600', '6': '#9E9E9E',
 }
 
 /** Chart chrome & ink. */
@@ -86,7 +99,7 @@ export const INK = {
 /**
  * Build a MapLibre `step` expression from class breaks.
  *
- * Breaks are quantiles, not equal intervals: NYC property values are heavily
+ * Breaks are quantiles, not equal intervals: incident counts are heavily
  * right-skewed, and equal intervals paint the whole city one colour.
  */
 export function stepExpression(field: string, stops: number[], ramp: string[]): any[] {

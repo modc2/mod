@@ -4,7 +4,7 @@
 //! blob store: `base_cid` (the upstream tree the fork started from) and
 //! `head_cid` (the contributor's proposed tree). Everything else — title,
 //! comments, revisions, status — is review metadata kept as one JSON file
-//! per MR under `~/.mod/claude/merge_requests/`. Because both sides are
+//! per MR under `~/.mod/dev/merge_requests/`. Because both sides are
 //! content-addressed, an MR can be opened from a live fork on this orbit
 //! OR from raw CIDs minted anywhere the blob store is shared.
 //!
@@ -95,7 +95,7 @@ pub fn mr_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(home)
         .join(".mod")
-        .join("dev")
+        .join("build")
         .join("merge_requests")
 }
 

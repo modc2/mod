@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildAuthorize, exchangeCode, writeCredentials } from "@/lib/claudeOAuth";
 
 // "Log in with Claude" OAuth, manual-code variant. Runs server-side as the
-// `node` user inside the claude container (same context as the paste route),
+// `node` user inside the build container (same context as the paste route),
 // so the credentials it writes are immediately the ones the job runner uses.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

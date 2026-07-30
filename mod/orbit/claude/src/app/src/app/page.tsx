@@ -1111,13 +1111,12 @@ export default function Home() {
   // session drops (sign-out / expiry); dismissible so the hub stays browsable behind it.
   const [signInOpen, setSignInOpen] = useState(false);
 
-  // Account sidebar (persistent right panel). One function per tab —
-  // WALLET / ACCESS / SUDO / MODULE — instead of one long merged scroll;
-  // only the tabs the current session can use render.
+  // Account sidebar (persistent right panel). One merged scroll: wallet on
+  // top (when the session has one), then access — owner, whitelist, sudo,
+  // sharing. Tasks/My Hub live in the left rail, not here.
   const [showOwnerSidebar, setShowOwnerSidebar] = useState(false);
   const [ownerSidebarWidth, setOwnerSidebarWidth] = useState(440);
   const [isOwnerSidebarDragging, setIsOwnerSidebarDragging] = useState(false);
-  const [accountTab, setAccountTab] = useState<"wallet" | "access" | "tasks" | "hub">("access");
   const [copiedWlAddr, setCopiedWlAddr] = useState<string | null>(null);
 
   // Network switcher (header)
@@ -1340,6 +1339,20 @@ export default function Home() {
   const [composerW, setComposerW] = useState(720);
   const composerDrag = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const composerResize = useRef<{ startX: number; origW: number; origX: number; edge: string } | null>(null);
+
+  // Agent auth — how the spawned Claude Code CLI signs in (subscription
+  // creds / pasted setup-token / API key). Owner-only card in the account
+  // panel; status comes from GET /agent/auth.
+  const [agentAuth, setAgentAuth] = useState<{
+    active: string;
+    subscription_credentials: boolean;
+    stored_oauth_token: boolean;
+    stored_api_key: boolean;
+    env_api_key: boolean;
+  } | null>(null);
+  const [agentAuthInput, setAgentAuthInput] = useState("");
+  const [agentAuthBusy, setAgentAuthBusy] = useState(false);
+  const [agentAuthErr, setAgentAuthErr] = useState<string | null>(null);
 
   // Kill process dialog state (host key: Cmd+K)
   const [showKillDialog, setShowKillDialog] = useState(false);
@@ -1906,12 +1919,6 @@ export default function Home() {
     if (savedLeftW) setLeftSidebarWidth(parseInt(savedLeftW, 10));
     const savedSide = localStorage.getItem("claude_sidebar_side");
     if (savedSide === "left" || savedSide === "right") setSidebarSide(savedSide);
-    const savedAccountTab = localStorage.getItem("claude_account_tab");
-    // Legacy values: "owner" pre-dates tabs; "sudo" merged into ACCESS and
-    // "module" was removed when TASKS / MY HUB took their slots.
-    if (savedAccountTab === "owner" || savedAccountTab === "sudo" || savedAccountTab === "module") setAccountTab("access");
-    else if (savedAccountTab === "wallet" || savedAccountTab === "access" || savedAccountTab === "tasks" || savedAccountTab === "hub")
-      setAccountTab(savedAccountTab);
     const savedOwnerOpen = localStorage.getItem("claude_owner_sidebar_open");
     if (savedOwnerOpen !== null) setShowOwnerSidebar(savedOwnerOpen === "true");
     const savedOwnerWidth = localStorage.getItem("claude_owner_sidebar_width");
@@ -1937,10 +1944,6 @@ export default function Home() {
   useEffect(() => {
     safeSetItem("claude_sidebar_side", sidebarSide);
   }, [sidebarSide]);
-
-  useEffect(() => {
-    safeSetItem("claude_account_tab", accountTab);
-  }, [accountTab]);
 
   useEffect(() => {
     safeSetItem("claude_owner_sidebar_open", String(showOwnerSidebar));
@@ -3975,7 +3978,9 @@ export default function Home() {
     }
   };
 
-  // Kill process by PID or port (owner-only, host key Cmd+K)
+  // Kill process by PID or port (owner-only, host key Cmd+K). Killing is a
+  // sudo-gated system op server-side, so this goes through authFetchSudo —
+  // the 401 sudo_required reply raises the Sudo sheet and retries signed.
   const executeKill = async () => {
     if (!token || !killInput.trim()) return;
     setKillLoading(true);
@@ -3986,13 +3991,58 @@ export default function Home() {
       const body = killMode === "pid"
         ? { pid: val, signal: killSignal }
         : { port: val, signal: killSignal };
-      const res = await authFetch("/kill", { method: "POST", body: JSON.stringify(body) });
+      const doFetch = authFetchSudoRef.current ?? authFetch;
+      const res = await doFetch("/kill", { method: "POST", body: JSON.stringify(body) });
       const data = await res.json();
       setKillResult(data);
     } catch (e: any) {
       setKillResult({ error: e.message || "Kill failed" });
     } finally {
       setKillLoading(false);
+    }
+  };
+
+  // Agent auth: refresh status whenever the owner opens the account panel.
+  useEffect(() => {
+    if (!showOwnerSidebar || !isOwner || !token) return;
+    authFetch("/agent/auth")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setAgentAuth(d); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOwnerSidebar, isOwner, token]);
+
+  const saveAgentAuth = async () => {
+    const tok = agentAuthInput.trim();
+    if (!tok || agentAuthBusy) return;
+    setAgentAuthBusy(true);
+    setAgentAuthErr(null);
+    try {
+      const res = await authFetch("/agent/auth", { method: "POST", body: JSON.stringify({ token: tok }) });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(d?.error || "save failed");
+      setAgentAuth(d);
+      setAgentAuthInput("");
+    } catch (e: any) {
+      setAgentAuthErr(e.message || "save failed");
+    } finally {
+      setAgentAuthBusy(false);
+    }
+  };
+
+  const clearAgentAuth = async () => {
+    if (agentAuthBusy) return;
+    setAgentAuthBusy(true);
+    setAgentAuthErr(null);
+    try {
+      const res = await authFetch("/agent/auth", { method: "DELETE" });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(d?.error || "clear failed");
+      setAgentAuth(d);
+    } catch (e: any) {
+      setAgentAuthErr(e.message || "clear failed");
+    } finally {
+      setAgentAuthBusy(false);
     }
   };
 
@@ -13738,7 +13788,6 @@ export default function Home() {
                     <button
                       onClick={() => {
                         setProfileMenuOpen(false);
-                        setAccountTab("wallet");
                         setShowOwnerSidebar(true);
                       }}
                       className="flex items-center justify-between px-3 py-2 text-[11px] transition-colors"
@@ -14416,9 +14465,9 @@ export default function Home() {
           );
         })()}
 
-        {/* The wallet sidebar is no longer a separate panel — its UI is now
-            embedded as the "Wallet" tab inside the merged account sidebar
-            below (see WalletModal embedded render). */}
+        {/* The wallet sidebar is no longer a separate panel — its UI renders
+            at the top of the merged account sidebar below (see WalletModal
+            embedded render). */}
 
         {/* ── Right Sidebar: Account (Owner + Wallet) ──────────────────
             Mirrors wallet pattern — flex sibling on desktop (pushes main
@@ -14494,20 +14543,10 @@ export default function Home() {
             const cfg = effectiveConfig;
             const cfgOwner: string | null = cfg?.owner || null;
             const youAreOwner = !!(address && cfgOwner && address.toLowerCase() === cfgOwner.toLowerCase()) || isOwner;
-            // The wallet tab only exists for real wallet sessions (not
+            // The wallet section only exists for real wallet sessions (not
             // local/password-less or QR-handoff phone sessions).
             const hasWallet = !!(address && address !== "local" && walletType);
             const canSudo = !!(token && token !== "local" && youAreOwner);
-            // One tab per function; a tab that doesn't apply to this session
-            // simply doesn't render. Falls back to the first available tab
-            // when the remembered one disappears (e.g. wallet disconnected).
-            const accountTabs: { id: typeof accountTab; label: string; glyph: string; accent: string }[] = [
-              ...(hasWallet ? [{ id: "wallet" as const, label: "Wallet", glyph: "◇", accent: "var(--crt-green)" }] : []),
-              { id: "access" as const, label: "Access", glyph: "◎", accent: "var(--crt-amber)" },
-              { id: "tasks" as const, label: "Tasks", glyph: "◷", accent: "var(--crt-blue)" },
-              ...(address ? [{ id: "hub" as const, label: "My Hub", glyph: "⌂", accent: "#cc785c" }] : []),
-            ];
-            const activeAccountTab = accountTabs.some((t) => t.id === accountTab) ? accountTab : accountTabs[0].id;
             return (
               <div className="flex flex-col h-full overflow-hidden">
                 {/* Header */}
@@ -14554,40 +14593,11 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* Tab strip — one tab per function. The tab labels replace
-                    the old WALLET/OWNER section dividers. */}
-                <div
-                  className="flex items-stretch gap-1 px-2 shrink-0"
-                  style={{ borderBottom: `1px solid ${subtleBorder}` }}
-                >
-                  {accountTabs.map((t) => {
-                    const on = t.id === activeAccountTab;
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setAccountTab(t.id)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] transition-all focus-ring"
-                        style={{
-                          color: on ? t.accent : "var(--text-tertiary)",
-                          borderBottom: `2px solid ${on ? t.accent : "transparent"}`,
-                          background: on
-                            ? `linear-gradient(180deg, transparent, color-mix(in srgb, ${t.accent} 7%, transparent))`
-                            : "transparent",
-                          marginBottom: -1,
-                        }}
-                        aria-selected={on}
-                        role="tab"
-                      >
-                        <span aria-hidden style={{ opacity: on ? 1 : 0.55 }}>{t.glyph}</span>
-                        {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
                 <div className="flex-1 overflow-y-auto flex flex-col">
-                {/* WALLET — the embedded wallet view carries balance, address,
-                    network and disconnect; nothing here repeats it. */}
-                {activeAccountTab === "wallet" && hasWallet && (
+                {/* WALLET — merged into this panel (no tabs). The embedded
+                    wallet view carries balance, address, network and
+                    disconnect; nothing below repeats it. */}
+                {hasWallet && (
                   <WalletModal
                     address={address}
                     walletType={walletType}
@@ -14615,7 +14625,7 @@ export default function Home() {
                       card (edit invites + own-session handoff QRs). */}
                   {/* Owner identity — gradient avatar derived from the address;
                       the whole row is click-to-copy. */}
-                  {activeAccountTab === "access" && cfgOwner && (() => {
+                  {cfgOwner && (() => {
                     const seed = Array.from(cfgOwner.toLowerCase()).reduce((a, c) => ((a * 31 + c.charCodeAt(0)) >>> 0), 7);
                     const h1 = seed % 360;
                     const h2 = (h1 + 40 + ((seed >> 5) % 80)) % 360;
@@ -14670,7 +14680,7 @@ export default function Home() {
                   {/* Switch account — every wallet identity that signed in from
                       this browser, one click to trade places. Tokens are reused
                       so no re-signing; an expired one falls back to sign-in. */}
-                  {activeAccountTab === "access" && savedAccounts.some((a) => a.address !== (address || "")) && (
+                  {savedAccounts.some((a) => a.address !== (address || "")) && (
                     <div className="section-card" data-accent="amber">
                       <span className="section-card__bar" />
                       <div className="section-card__head">
@@ -14767,7 +14777,7 @@ export default function Home() {
                       privileged cross-module ops for a window (default 1 hour);
                       the owner tailors the window and which actions always
                       re-ask. Owner-only via canSudo. */}
-                  {activeAccountTab === "access" && canSudo && (() => {
+                  {canSudo && (() => {
                     const accent = "#cc785c"; // claude clay, matches the Sudo sheet
                     const info = sudoInfo;
                     const left = info?.active && info.expires ? Math.max(0, info.expires - nowSec) : 0;
@@ -14966,168 +14976,10 @@ export default function Home() {
                     );
                   })()}
 
-                  {/* TASKS — your recent agent jobs; a row click opens the
-                      full task panel. Jobs without a recorded user_address
-                      pre-date per-user attribution and stay visible. */}
-                  {activeAccountTab === "tasks" && (() => {
-                    const me = (address || "").toLowerCase();
-                    const mine = jobs
-                      .filter((j) => !me || !j.user_address || j.user_address.toLowerCase() === me)
-                      .slice(0, 40);
-                    return (
-                      <div className="section-card" data-accent="blue">
-                        <span className="section-card__bar" />
-                        <div className="section-card__head">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">◷</span>
-                            Tasks
-                          </div>
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                            style={{
-                              color: "var(--crt-blue)",
-                              background: "color-mix(in srgb, var(--crt-blue) 10%, transparent)",
-                              border: "1px solid color-mix(in srgb, var(--crt-blue) 28%, transparent)",
-                            }}
-                          >
-                            {mine.length}
-                          </span>
-                        </div>
-                        <div className="section-card__body flex flex-col gap-1">
-                          {mine.length === 0 ? (
-                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
-                              No tasks yet — submit a prompt to start one.
-                            </span>
-                          ) : (
-                            mine.map((j) => {
-                              const mod = (j.work_dir ? extractModuleFromWorkDir(j.work_dir) : null) || "claude";
-                              const sc =
-                                j.status === "running" ? "var(--crt-green)"
-                                : j.status === "pending" ? "var(--crt-amber)"
-                                : j.status === "failed" ? "var(--crt-red)"
-                                : j.status === "completed" ? "var(--crt-blue)"
-                                : "var(--text-tertiary)";
-                              const p = parsePromptImages(j.prompt).cleanPrompt.replace(/\s+/g, " ").trim();
-                              return (
-                                <button
-                                  key={j.id}
-                                  onClick={() => { viewJob(j); setShowOwnerSidebar(false); }}
-                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
-                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
-                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, var(--crt-blue) 40%, var(--border-color))")}
-                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
-                                  title={p}
-                                >
-                                  <span
-                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{ background: sc, boxShadow: j.status === "running" ? `0 0 4px ${sc}` : "none" }}
-                                  />
-                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                                    <span className="text-[11px] truncate" style={{ color: "var(--text-primary)" }}>
-                                      {p.length > 64 ? `${p.slice(0, 64)}…` : p || "(no prompt)"}
-                                    </span>
-                                    <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                                      {mod} · {j.status}
-                                    </span>
-                                  </span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* MY HUB — the hub with just you: modules whose configured
-                      owner is the signed-in address. Click one to open it. */}
-                  {activeAccountTab === "hub" && (() => {
-                    const me = (address || "").toLowerCase();
-                    const mineMods = moduleList
-                      .filter(isRealModule)
-                      .filter((m) => m.owner && m.owner.toLowerCase() === me);
-                    return (
-                      <div className="section-card" data-accent="amber">
-                        <span className="section-card__bar" />
-                        <div className="section-card__head">
-                          <div className="section-card__title">
-                            <span className="section-card__glyph">⌂</span>
-                            My Hub
-                          </div>
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                            style={{
-                              color: "#cc785c",
-                              background: "color-mix(in srgb, #cc785c 10%, transparent)",
-                              border: "1px solid color-mix(in srgb, #cc785c 28%, transparent)",
-                            }}
-                          >
-                            {mineMods.length}
-                          </span>
-                        </div>
-                        <div className="section-card__body flex flex-col gap-1">
-                          {mineMods.length === 0 ? (
-                            <span className="text-[11.5px] py-1" style={{ color: "var(--text-tertiary)" }}>
-                              No modules owned by this address yet. Modules you create or claim as owner show up here.
-                            </span>
-                          ) : (
-                            mineMods.map((m) => {
-                              const st = moduleStatuses[m.name];
-                              const live = !!(st && (st.app || st.api));
-                              return (
-                                <button
-                                  key={m.name}
-                                  onClick={() => { selectModule(m); setShowOwnerSidebar(false); }}
-                                  className="flex items-center gap-2 px-1.5 py-1.5 rounded text-left transition-colors cursor-pointer"
-                                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-color)" }}
-                                  onMouseEnter={e => (e.currentTarget.style.borderColor = "color-mix(in srgb, #cc785c 45%, var(--border-color))")}
-                                  onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
-                                  title={m.description || m.name}
-                                >
-                                  <span
-                                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                                    style={{
-                                      background: live ? "var(--crt-green)" : "var(--text-tertiary)",
-                                      boxShadow: live ? "0 0 4px var(--crt-green)" : "none",
-                                    }}
-                                  />
-                                  <span className="flex flex-col min-w-0 flex-1 gap-0.5 leading-tight">
-                                    <span className="text-[11px] font-mono truncate" style={{ color: "var(--text-primary)" }}>
-                                      {m.name}
-                                    </span>
-                                    {m.description && (
-                                      <span className="text-[9.5px] truncate" style={{ color: "var(--text-tertiary)" }}>
-                                        {m.description}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="flex flex-col items-end gap-0.5 shrink-0 leading-tight">
-                                    <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-                                      {m.category}
-                                    </span>
-                                    {m.updated_at ? (
-                                      <span
-                                        className="text-[9px] font-mono"
-                                        style={{ color: "var(--text-tertiary)", opacity: 0.7 }}
-                                        title={`Last updated ${formatDate(m.updated_at)}`}
-                                      >
-                                        ⟳ {timeSince(m.updated_at)}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
                   {/* Whitelist — owner edits inline; non-owners get read-only
                       rows and a hint about who can edit. Each row is
                       click-to-copy; owner gets an X to revoke. */}
-                  {activeAccountTab === "access" && (
+                  {(
                   <div className="section-card" data-accent="green">
                     <span className="section-card__bar" />
                     <div className="section-card__head">
@@ -15332,11 +15184,105 @@ export default function Home() {
 
                   {/* Share edit access — the QR-invite minting card; this
                       panel is where the owner manages who gets in. */}
-                  {activeAccountTab === "access" && renderShareAccessCard()}
+                  {renderShareAccessCard()}
+
+                  {/* Claude Code auth — how the agent CLI itself signs in.
+                      Subscription creds on the host win; otherwise the owner
+                      pastes a `claude setup-token` token or an API key here. */}
+                  {isOwner && (
+                    <div className="section-card" data-accent="green">
+                      <span className="section-card__bar" />
+                      <div className="section-card__head">
+                        <div className="section-card__title">
+                          <span className="section-card__glyph">✳</span>
+                          Claude Code Auth
+                        </div>
+                        {agentAuth && (
+                          <span
+                            className="text-[9px] font-bold uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full"
+                            style={{
+                              color: agentAuth.active === "none" ? "var(--crt-red)" : "var(--crt-green)",
+                              border: `1px solid color-mix(in srgb, ${agentAuth.active === "none" ? "var(--crt-red)" : "var(--crt-green)"} 35%, transparent)`,
+                              background: `color-mix(in srgb, ${agentAuth.active === "none" ? "var(--crt-red)" : "var(--crt-green)"} 10%, transparent)`,
+                            }}
+                          >
+                            {agentAuth.active === "subscription" ? "subscription"
+                              : agentAuth.active === "oauth-token" ? "setup-token"
+                              : agentAuth.active === "api-key" ? "api key"
+                              : agentAuth.active === "env-api-key" ? "env api key"
+                              : "not signed in"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="section-card__body flex flex-col gap-2">
+                        <div className="text-[10.5px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                          How the agent (the Claude Code CLI behind every task) signs in.
+                          {agentAuth?.active === "subscription" && (
+                            <> Using the host&apos;s <span style={{ color: "var(--text-secondary)" }}>claude login</span> subscription credentials.</>
+                          )}
+                          {agentAuth?.active === "none" && (
+                            <> <span style={{ color: "var(--crt-red)" }}>No credentials found — tasks will fail.</span></>
+                          )}{" "}
+                          Paste the output of <span className="font-mono" style={{ color: "var(--text-secondary)" }}>claude setup-token</span> (sk-ant-oat…)
+                          or an API key (sk-ant-api…) to set or replace it.
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="password"
+                            value={agentAuthInput}
+                            onChange={(e) => setAgentAuthInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveAgentAuth(); }}
+                            placeholder="sk-ant-oat… or sk-ant-api…"
+                            className="flex-1 min-w-0 px-2 py-1.5 rounded text-[11px] font-mono focus-ring"
+                            style={{
+                              background: "var(--bg-secondary)",
+                              border: "1px solid var(--border-color)",
+                              color: "var(--text-primary)",
+                            }}
+                          />
+                          <button
+                            onClick={saveAgentAuth}
+                            disabled={agentAuthBusy || !agentAuthInput.trim()}
+                            className="px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
+                            style={{
+                              color: "var(--crt-green)",
+                              border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                              background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                              opacity: agentAuthBusy || !agentAuthInput.trim() ? 0.5 : 1,
+                            }}
+                          >
+                            {agentAuthBusy ? "…" : "Save"}
+                          </button>
+                        </div>
+                        {(agentAuth?.stored_oauth_token || agentAuth?.stored_api_key) && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                              stored: {[
+                                agentAuth.stored_oauth_token ? "setup-token" : null,
+                                agentAuth.stored_api_key ? "api key" : null,
+                              ].filter(Boolean).join(" + ")}
+                            </span>
+                            <button
+                              onClick={clearAgentAuth}
+                              disabled={agentAuthBusy}
+                              className="text-[10px] uppercase tracking-wider transition-colors"
+                              style={{ color: "var(--crt-red)", opacity: agentAuthBusy ? 0.5 : 0.85 }}
+                              title="Forget the pasted credentials"
+                            >
+                              clear
+                            </button>
+                          </div>
+                        )}
+                        {agentAuthErr && (
+                          <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{agentAuthErr}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Kill process — a sudo-gated op, kept with the sudo
-                      session card now that sudo lives on ACCESS. */}
-                  {activeAccountTab === "access" && isOwner && (
+                      session card. */}
+                  {isOwner && (
                     <button
                       onClick={() => {
                         setShowOwnerSidebar(false);
@@ -15392,7 +15338,7 @@ export default function Home() {
                   {/* Sign out — only for sessions with no WALLET tab (e.g.
                       QR-handoff phone sessions); wallet sessions disconnect
                       from the wallet view, so no duplicate button. */}
-                  {activeAccountTab === "access" && token && token !== "local" && !hasWallet && (
+                  {token && token !== "local" && !hasWallet && (
                     <button
                       onClick={() => {
                         setShowOwnerSidebar(false);

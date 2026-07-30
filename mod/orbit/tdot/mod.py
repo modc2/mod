@@ -1,29 +1,29 @@
 """
-tdot — an open-source GIS map of New York City in the browser.
+tdot — an open-source GIS map of Toronto in the browser.
 
-A full slippy-map GIS for NYC built entirely on public, key-free open data:
-housing prices from recorded deeds, the subway and bike networks, parks, flood
-zones, traffic injuries and administrative boundaries — all as toggleable map
-layers with a choropleth engine, legends and a feature inspector.
+A full slippy-map GIS for Toronto built entirely on public, key-free open data:
+police-reported crime by neighbourhood, the TTC subway and streetcar networks,
+the cycling network, green spaces, serious traffic collisions, RentSafeTO
+apartment scores and administrative boundaries — all as toggleable map layers
+with a choropleth engine, legends and a feature inspector.
 
 Nothing here is proprietary. Every layer names its source dataset, geometry is
-fetched from the city's own portals, the basemap is OpenStreetMap, and the
+fetched from the city's own portal, the basemap is OpenStreetMap, and the
 renderer is MapLibre GL (BSD-3).
 
 Sources
-    NYC Open Data (Socrata)   https://data.cityofnewyork.us
-    NY State Open Data / MTA  https://data.ny.gov
-    MTA GTFS static feeds     https://www.mta.info/developers
+    Toronto Open Data (CKAN)  https://open.toronto.ca
+    TTC GTFS static feed      via the same portal
     OpenStreetMap / Nominatim https://www.openstreetmap.org
 
 CLI:
     m tdot                              # null call → info()
     m tdot/layers                       # the layer catalogue
-    m tdot/layer subway_lines           # one layer as GeoJSON
-    m tdot/housing metric=median_ppsf   # a housing choropleth
-    m tdot/prices                       # city-wide price summary
-    m tdot/trend area=BK0101            # a neighborhood's price history
-    m tdot/where "Prospect Park"        # geocode an address or place
+    m tdot/layer ttc_lines              # one layer as GeoJSON
+    m tdot/crime metric=per_km2         # a crime choropleth
+    m tdot/summary                      # city-wide crime summary
+    m tdot/trend area=174               # a neighbourhood's yearly history
+    m tdot/where "High Park"            # geocode an address or place
     m tdot/warm                         # pre-fetch every layer into the cache
     m tdot/serve                        # run the API + map app
 """
@@ -45,43 +45,48 @@ MODULE_DIR = Path(__file__).parent
 if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
+from tdotgis import crime as C
 from tdotgis import layers as L
-from tdotgis import prices as P
 from tdotgis import sources as S
 
-# The five boroughs — kept from this module's original scaffold, and still the
-# right thing to hand a client that just wants to know what NYC is made of.
-BOROUGHS = {
-    'manhattan': {'name': 'Manhattan', 'county': 'New York', 'code': '1',
-                  'population': 1629153, 'area_sq_mi': 22.83,
-                  'center': [-73.9712, 40.7831],
-                  'fun_fact': 'The most densely populated borough and NYC’s financial and cultural core.'},
-    'brooklyn': {'name': 'Brooklyn', 'county': 'Kings', 'code': '3',
-                 'population': 2590516, 'area_sq_mi': 69.50,
-                 'center': [-73.9442, 40.6782],
-                 'fun_fact': 'The most populous borough; would be the 3rd-largest U.S. city on its own.'},
-    'queens': {'name': 'Queens', 'county': 'Queens', 'code': '4',
-               'population': 2270976, 'area_sq_mi': 108.53,
-               'center': [-73.7949, 40.7282],
-               'fun_fact': 'The most ethnically diverse urban area in the world.'},
-    'bronx': {'name': 'The Bronx', 'county': 'Bronx', 'code': '2',
-              'population': 1427056, 'area_sq_mi': 42.10,
-              'center': [-73.8648, 40.8448],
-              'fun_fact': 'The only NYC borough on the U.S. mainland; birthplace of hip-hop.'},
-    'staten_island': {'name': 'Staten Island', 'county': 'Richmond', 'code': '5',
-                      'population': 475596, 'area_sq_mi': 58.37,
-                      'center': [-74.1502, 40.5795],
-                      'fun_fact': 'The least populous borough; reached from Manhattan by the free ferry.'},
+# The six municipalities amalgamated into the City of Toronto in 1998 — still
+# how residents carve up the city, and the closest thing to NYC's boroughs.
+DISTRICTS = {
+    'toronto': {'name': 'Old Toronto', 'code': 'TO',
+                'population': 797642, 'area_sq_km': 97.15,
+                'center': [-79.3832, 43.6532],
+                'fun_fact': 'The pre-1998 City of Toronto — downtown, the waterfront and the streetcar grid.'},
+    'north_york': {'name': 'North York', 'code': 'NY',
+                   'population': 869401, 'area_sq_km': 176.87,
+                   'center': [-79.4085, 43.7708],
+                   'fun_fact': 'The most populous district; its centre grew a second downtown on the Yonge subway.'},
+    'scarborough': {'name': 'Scarborough', 'code': 'SC',
+                    'population': 632098, 'area_sq_km': 187.70,
+                    'center': [-79.2500, 43.7764],
+                    'fun_fact': 'Home to the Scarborough Bluffs and some of the most diverse neighbourhoods in Canada.'},
+    'etobicoke': {'name': 'Etobicoke', 'code': 'ET',
+                  'population': 365143, 'area_sq_km': 123.93,
+                  'center': [-79.5500, 43.6500],
+                  'fun_fact': 'The city\'s western flank, from the Humber River to the airport.'},
+    'york': {'name': 'York', 'code': 'YK',
+             'population': 201762, 'area_sq_km': 23.06,
+             'center': [-79.4700, 43.6900],
+             'fun_fact': 'Once its own city; densely built along Eglinton and the new Line 5.'},
+    'east_york': {'name': 'East York', 'code': 'EY',
+                  'population': 118071, 'area_sq_km': 21.26,
+                  'center': [-79.3300, 43.7000],
+                  'fun_fact': 'Canada\'s only borough until 1998 — and proud of it.'},
 }
 
-# Map view the app opens on: all five boroughs in frame.
-DEFAULT_VIEW = {'center': [-73.9712, 40.7128], 'zoom': 10.2,
-                'bounds': [[-74.30, 40.47], [-73.68, 40.93]]}
+# Map view the app opens on: the whole city in frame.
+DEFAULT_VIEW = {'center': [-79.3832, 43.7000], 'zoom': 10.6,
+                'bounds': [[-79.65, 43.56], [-79.10, 43.87]]}
 
 
 class Mod:
-    description = ('an open-source browser GIS for New York City — housing prices, '
-                   'transit, parks and civic data as toggleable map layers')
+    description = ('an open-source browser GIS for Toronto — crime by '
+                   'neighbourhood, TTC transit, cycling, parks and civic data '
+                   'as toggleable map layers')
 
     def __init__(self, key='tdot', network='testnet'):
         self.key = m.key(key)
@@ -109,35 +114,38 @@ class Mod:
         """One layer as a GeoJSON FeatureCollection."""
         return L.get(id)
 
-    def boundary(self, name: str = 'nta') -> dict:
-        """A boundary layer: ``borough``, ``nta`` or ``zip``."""
+    def boundary(self, name: str = 'neighbourhood') -> dict:
+        """A boundary layer: ``neighbourhood``, ``neighbourhood140``, ``ward`` or ``municipality``."""
         return L.boundary(name)
 
     def view(self) -> dict:
-        """The map's default camera and the borough quick-jump targets."""
+        """The map's default camera and the district quick-jump targets."""
         return {**DEFAULT_VIEW,
-                'boroughs': [{'slug': k, 'name': v['name'], 'center': v['center']}
-                             for k, v in BOROUGHS.items()]}
+                'districts': [{'slug': k, 'name': v['name'], 'center': v['center']}
+                              for k, v in DISTRICTS.items()]}
 
-    # ── housing prices ───────────────────────────────────────────────────
+    # ── crime choropleth ─────────────────────────────────────────────────
 
-    def housing(self, metric: str = 'median_price', geography: str = 'nta',
-                since: str = '2024-01-01', until: Optional[str] = None,
-                property_type: str = 'residential') -> dict:
+    def crime(self, metric: str = 'incidents', geography: str = 'neighbourhood',
+              since: str = '2025-01-01', until: Optional[str] = None,
+              category: str = 'all') -> dict:
         """
-        A housing-price choropleth as GeoJSON, one feature per area with every
-        metric attached (the client can recolour without a refetch).
+        A crime choropleth as GeoJSON, one feature per area with every metric
+        attached (the client can recolour without a refetch).
         """
-        if geography not in P.GEOGRAPHIES:
+        if geography not in C.GEOGRAPHIES:
             return {'error': f'unknown geography {geography!r}',
-                    'known': list(P.GEOGRAPHIES)}
-        if metric not in P.METRICS:
-            return {'error': f'unknown metric {metric!r}', 'known': list(P.METRICS)}
-        bounds = L.boundary(P.GEOGRAPHIES[geography]['boundary'])
-        fc = P.choropleth(bounds, geography=geography, since=since, until=until,
-                          property_type=property_type)
+                    'known': list(C.GEOGRAPHIES)}
+        if metric not in C.METRICS:
+            return {'error': f'unknown metric {metric!r}', 'known': list(C.METRICS)}
+        if category not in C.CATEGORIES:
+            return {'error': f'unknown category {category!r}',
+                    'known': list(C.CATEGORIES)}
+        bounds = L.boundary(C.GEOGRAPHIES[geography]['boundary'])
+        fc = C.choropleth(bounds, geography=geography, since=since, until=until,
+                          category=category)
         fc['meta']['metric'] = metric
-        fc['meta']['metric_label'] = P.METRICS[metric]['label']
+        fc['meta']['metric_label'] = C.METRICS[metric]['label']
         fc['breaks'] = self._breaks(fc, metric)
         return fc
 
@@ -145,8 +153,8 @@ class Mod:
         """
         Quantile class breaks for the colour ramp.
 
-        Quantiles, not equal intervals: NYC property values are extremely
-        right-skewed (a handful of Manhattan areas are 20x the median), so
+        Quantiles, not equal intervals: incident counts are heavily
+        right-skewed (a handful of downtown areas are 20x the median), so
         equal intervals would paint the entire city one colour.
         """
         vals = sorted(v for v in (f['properties'].get(metric)
@@ -154,9 +162,9 @@ class Mod:
         if not vals:
             return {'metric': metric, 'stops': [], 'min': None, 'max': None}
 
-        if metric == 'price_change':
+        if metric == 'change':
             # A diverging scale must be symmetric about zero, and its extent set
-            # by the bulk of the data. One thin-volume ZIP swinging -79% would
+            # by the bulk of the data. One thin-volume area swinging -80% would
             # otherwise stretch the domain until every other area reads neutral.
             def pct(p):
                 return vals[min(int(p * (len(vals) - 1)), len(vals) - 1)]
@@ -175,47 +183,45 @@ class Mod:
             if not dedup or s > dedup[-1]:
                 dedup.append(s)
         return {'metric': metric, 'stops': dedup, 'min': vals[0], 'max': vals[-1],
-                'count': len(vals),
-                'diverging': metric == 'price_change'}
+                'count': len(vals), 'diverging': False}
 
-    def prices(self, since: str = '2024-01-01', until: Optional[str] = None,
-               property_type: str = 'residential') -> dict:
-        """City-wide price summary: totals, and the top/bottom neighborhoods."""
-        s = P.summary(since=since, until=until, property_type=property_type)
-        names = self._nta_names()
-        for bucket in ('most_expensive', 'least_expensive', 'fastest_rising',
+    def summary(self, since: str = '2025-01-01', until: Optional[str] = None,
+                category: str = 'all') -> dict:
+        """City-wide crime summary: totals, and the top/bottom neighbourhoods."""
+        s = C.summary(since=since, until=until, category=category)
+        names = self._hood_names()
+        for bucket in ('most_incidents', 'fewest_incidents', 'fastest_rising',
                        'fastest_falling'):
             for row in s[bucket]:
                 row['name'] = names.get(row['area'], row['area'])
         return s
 
-    def trend(self, area: Optional[str] = None, geography: str = 'nta',
-              property_type: str = 'residential', start_year: int = 2016) -> dict:
-        """Yearly median price and $/ft² — city-wide, or for one area."""
-        t = P.trend(area=area, geography=geography,
-                    property_type=property_type, start_year=start_year)
-        if area and geography == 'nta':
-            t['name'] = self._nta_names().get(area, area)
+    def trend(self, area: Optional[str] = None, geography: str = 'neighbourhood',
+              category: str = 'all') -> dict:
+        """Yearly incident counts — city-wide, or for one area."""
+        t = C.trend(area=area, geography=geography, category=category)
+        if area and geography == 'neighbourhood':
+            t['name'] = self._hood_names().get(t['area'], t['area'])
         return t
 
-    def sales(self, since: str = '2025-01-01', until: Optional[str] = None,
-              property_type: str = 'residential', limit: int = 12000,
-              min_price: Optional[int] = None,
-              max_price: Optional[int] = None) -> dict:
-        """Individual recorded sales as map points."""
-        return P.sales_points(since=since, until=until, property_type=property_type,
-                              limit=int(limit), min_price=min_price, max_price=max_price)
+    def incidents(self, since: Optional[str] = None, until: Optional[str] = None,
+                  category: str = 'all', limit: int = 15000) -> dict:
+        """Recent individual incidents as map points."""
+        return C.incident_points(since=since, until=until, category=category,
+                                 limit=int(limit))
 
     def options(self) -> dict:
-        """Everything the UI needs to build its housing controls."""
-        return {'metrics': P.METRICS, 'geographies': P.GEOGRAPHIES,
-                'property_types': P.PROPERTY_TYPES,
-                'data_range': {'start': '2016-01-01', 'note': 'DOF rolling sales'}}
+        """Everything the UI needs to build its crime controls."""
+        return {'metrics': C.METRICS, 'geographies': C.GEOGRAPHIES,
+                'categories': C.CATEGORIES,
+                'data_range': {'start': f'{C.FIRST_YEAR}-01-01',
+                               'note': 'TPS Major Crime Indicators'}}
 
-    def _nta_names(self) -> Dict[str, str]:
+    def _hood_names(self) -> Dict[str, str]:
         try:
-            return {f['properties']['nta2020']: f['properties']['ntaname']
-                    for f in L.neighborhoods()['features']}
+            return {f['properties']['AREA_LONG_CODE']:
+                    C._clean_hood_name(f['properties']['AREA_NAME'])
+                    for f in L.neighbourhoods()['features']}
         except Exception:
             return {}
 
@@ -223,7 +229,7 @@ class Mod:
 
     def where(self, q: str, limit: int = 6) -> List[dict]:
         """
-        Geocode a NYC address or place via OpenStreetMap's Nominatim.
+        Geocode a Toronto address or place via OpenStreetMap's Nominatim.
 
         Results are cached — Nominatim's usage policy asks for no more than one
         request per second, and the same searches repeat constantly.
@@ -237,8 +243,8 @@ class Mod:
             r = requests.get(
                 'https://nominatim.openstreetmap.org/search',
                 params={'q': query, 'format': 'jsonv2', 'limit': int(limit),
-                        'countrycodes': 'us',
-                        'viewbox': '-74.30,40.93,-73.68,40.47', 'bounded': 1},
+                        'countrycodes': 'ca',
+                        'viewbox': '-79.65,43.87,-79.10,43.56', 'bounded': 1},
                 headers={'User-Agent': S.USER_AGENT}, timeout=20)
             r.raise_for_status()
             return [{'name': h.get('display_name', ''),
@@ -251,7 +257,7 @@ class Mod:
 
     # ── cache ────────────────────────────────────────────────────────────
 
-    def warm(self, include_housing: bool = True) -> dict:
+    def warm(self, include_crime: bool = True) -> dict:
         """Pre-fetch every layer so the first map load is instant."""
         results = {}
         for lid in L.LOADERS:
@@ -261,20 +267,19 @@ class Mod:
                                 'kb': S.geojson_bytes(fc) // 1024}
             except Exception as e:
                 results[lid] = {'error': f'{type(e).__name__}: {e}'}
-        if include_housing:
-            for geo in ('nta', 'borough', 'zip', 'community_district'):
-                try:
-                    P.with_change(geo, since='2024-01-01', property_type='residential')
-                    results[f'housing:{geo}'] = {'ok': True}
-                except Exception as e:
-                    results[f'housing:{geo}'] = {'error': str(e)}
-            # One query covers every area's history, so the inspector's chart
-            # is instant on the first click instead of after a ~13s wait.
+        if include_crime:
+            # One dump download builds the whole warehouse; everything after
+            # is served from the local month cube.
             try:
-                series = P.trend_all('nta', 'residential')
-                results['trend:nta'] = {'areas': len(series)}
+                results['crime:warehouse'] = C.coverage()
             except Exception as e:
-                results['trend:nta'] = {'error': str(e)}
+                results['crime:warehouse'] = {'error': str(e)}
+            for geo in C.GEOGRAPHIES:
+                try:
+                    C.with_change(geo, since='2025-01-01')
+                    results[f'crime:{geo}'] = {'ok': True}
+                except Exception as e:
+                    results[f'crime:{geo}'] = {'error': str(e)}
         return {'warmed': results, 'cache': S.cache_stats()}
 
     def cache(self) -> dict:
@@ -285,24 +290,24 @@ class Mod:
         """Drop cached responses. ``prefix`` scopes it (e.g. ``geo-``)."""
         return S.cache_clear(prefix)
 
-    # ── boroughs (from the original scaffold) ────────────────────────────
+    # ── districts (the former municipalities) ────────────────────────────
 
-    def boroughs(self) -> list:
-        """The five boroughs, as a list of summary dicts."""
-        return [{'slug': slug, 'name': b['name'], 'county': b['county'],
-                 'population': b['population'], 'center': b['center']}
-                for slug, b in BOROUGHS.items()]
+    def districts(self) -> list:
+        """The six former municipalities, as a list of summary dicts."""
+        return [{'slug': slug, 'name': d['name'], 'code': d['code'],
+                 'population': d['population'], 'center': d['center']}
+                for slug, d in DISTRICTS.items()]
 
-    def borough(self, name) -> dict:
-        """Facts about a single borough. ``name`` is a slug or display name."""
+    def district(self, name) -> dict:
+        """Facts about one former municipality. ``name`` is a slug or display name."""
         slug = str(name).strip().lower().replace(' ', '_').replace('the_', '')
-        aliases = {'si': 'staten_island', 'bx': 'bronx', 'bk': 'brooklyn',
-                   'kings': 'brooklyn', 'richmond': 'staten_island',
-                   'new_york': 'manhattan'}
-        slug = slug if slug in BOROUGHS else aliases.get(slug, slug)
-        if slug not in BOROUGHS:
-            return {'error': f'unknown borough: {name!r}', 'known': list(BOROUGHS)}
-        return {'slug': slug, **BOROUGHS[slug]}
+        aliases = {'old_toronto': 'toronto', 'downtown': 'toronto',
+                   'ny': 'north_york', 'sc': 'scarborough',
+                   'et': 'etobicoke', 'ey': 'east_york', 'yk': 'york'}
+        slug = slug if slug in DISTRICTS else aliases.get(slug, slug)
+        if slug not in DISTRICTS:
+            return {'error': f'unknown district: {name!r}', 'known': list(DISTRICTS)}
+        return {'slug': slug, **DISTRICTS[slug]}
 
     # ── module surface ───────────────────────────────────────────────────
 
@@ -329,12 +334,12 @@ class Mod:
             'api': f'http://localhost:{self.port}',
             'layers': cat['count'],
             'categories': [c['name'] for c in cat['categories']],
-            'housing': {'metrics': list(P.METRICS),
-                        'geographies': list(P.GEOGRAPHIES),
-                        'property_types': list(P.PROPERTY_TYPES),
-                        'record': 'NYC DOF rolling sales, 2016–present (~845k deeds)'},
-            'boroughs': list(BOROUGHS),
-            'total_population': sum(b['population'] for b in BOROUGHS.values()),
+            'crime': {'metrics': list(C.METRICS),
+                      'geographies': list(C.GEOGRAPHIES),
+                      'categories': list(C.CATEGORIES),
+                      'record': f'TPS Major Crime Indicators, {C.FIRST_YEAR}–present (~490k incidents)'},
+            'districts': list(DISTRICTS),
+            'total_population': sum(d['population'] for d in DISTRICTS.values()),
             'open_data_only': True,
             'attribution': cat['attribution'],
             'cache': S.cache_stats(),

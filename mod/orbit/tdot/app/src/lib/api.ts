@@ -44,23 +44,25 @@ export type Choropleth = GeoJSON.FeatureCollection & {
 export type Options = {
   metrics: Record<string, { label: string; unit: string; format: string }>
   geographies: Record<string, { label: string }>
-  property_types: Record<string, { label: string }>
+  categories: Record<string, { label: string }>
 }
 
 export type TrendPoint = {
   year: number
-  sales: number
-  median_price: number | null
-  median_ppsf: number | null
-  total_value: number | null
+  incidents: number
+  assault?: number
+  auto_theft?: number
+  break_enter?: number
+  robbery?: number
+  theft_over?: number
 }
 
-export type HousingQuery = {
+export type CrimeQuery = {
   metric: string
   geography: string
   since: string
   until?: string
-  property_type: string
+  category: string
 }
 
 async function get<T>(path: string, params?: Record<string, any>): Promise<T> {
@@ -87,13 +89,13 @@ export const api = {
   options: () => get<Options>('/options'),
   view: () => get<any>('/view'),
   layer: (id: string) => get<GeoJSON.FeatureCollection>(`/layers/${id}`),
-  housing: (q: HousingQuery) => get<Choropleth>('/layers/housing_prices', q),
-  sales: (q: Partial<HousingQuery> & { limit?: number }) =>
-    get<GeoJSON.FeatureCollection>('/layers/sales', q),
-  prices: (q: { since: string; until?: string; property_type: string }) =>
-    get<any>('/prices', q),
-  trend: (q: { area?: string; property_type?: string }) =>
-    get<{ series: TrendPoint[]; name?: string; area?: string }>('/trend', q),
+  crime: (q: CrimeQuery) => get<Choropleth>('/layers/crime', q),
+  incidents: (q: Partial<CrimeQuery> & { limit?: number }) =>
+    get<GeoJSON.FeatureCollection>('/layers/incidents', q),
+  summary: (q: { since: string; until?: string; category: string }) =>
+    get<any>('/summary', q),
+  trend: (q: { area?: string; category?: string }) =>
+    get<{ series: TrendPoint[]; name?: string; area?: string; partial_year?: number | null }>('/trend', q),
   where: (q: string) =>
     get<{ name: string; lat: number; lng: number; type: string }[]>('/where', { q }),
 }

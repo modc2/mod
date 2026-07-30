@@ -3,19 +3,24 @@ tdot.sources — open-data fetching, caching and geometry shrinking.
 
 Everything the map draws comes from a public, no-key, open-data endpoint:
 
-  * NYC Open Data (Socrata)   https://data.cityofnewyork.us
-  * NY State Open Data        https://data.ny.gov          (MTA tables)
-  * MTA GTFS static feeds     https://rrgtfsfeeds.s3.amazonaws.com
+  * Toronto Open Data (CKAN)  https://open.toronto.ca
+                              (API host: ckan0.cf.opendata.inter.prod-toronto.ca)
+  * TTC GTFS static feed      via the same portal ("TTC Routes and Schedules")
 
 Responses are cached on disk under ``~/.mod/tdot/cache`` so the map is fast and
 keeps working when the upstream APIs are slow or unreachable. A stale cache
 entry is preferred over an error: if a refresh fails we serve what we have.
 
-Geometry from the city's portal is authoritative-precision (full coastline
-detail, 14 decimal places) which is far more than a browser map needs — a
-single borough file is ~3 MB. ``simplify_geojson`` runs Ramer-Douglas-Peucker
-and rounds coordinates, typically cutting payloads by 10-30x with no visible
-difference at city zoom levels.
+Toronto's portal is CKAN, not Socrata, and its datastore does **not** expose
+``datastore_search_sql`` — there is no server-side GROUP BY. Large tabular
+datasets are therefore pulled once through the CSV dump endpoint (which *does*
+support column filtering), aggregated locally, and the aggregate is what gets
+cached. See :mod:`tdotgis.crime`.
+
+Geometry from the city's portal is authoritative-precision (full shoreline
+detail, 14 decimal places) which is far more than a browser map needs.
+``simplify_geojson`` runs Ramer-Douglas-Peucker and rounds coordinates,
+typically cutting payloads by 10-30x with no visible difference at city zoom.
 """
 
 from __future__ import annotations
@@ -23,26 +28,26 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import os
 import time
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urlencode
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import requests
 
 CACHE_DIR = Path(os.path.expanduser('~/.mod/tdot/cache'))
-NYC = 'https://data.cityofnewyork.us'
-NYS = 'https://data.ny.gov'
-GTFS_SUBWAY = 'https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip'
+
+# open.toronto.ca is the human portal; the API lives on the CKAN host.
+CKAN = 'https://ckan0.cf.opendata.inter.prod-toronto.ca'
 
 DAY = 86400
-USER_AGENT = 'mod-tdot/1.0 (open-source NYC GIS module)'
+USER_AGENT = 'mod-tdot/1.0 (open-source Toronto GIS module)'
 
-# Socrata caps an unauthenticated page at 50k rows.
-SOCRATA_PAGE = 50_000
+# CKAN caps a datastore_search page; stay under it.
+CKAN_PAGE = 16_000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -121,40 +126,88 @@ def cached(key: str, ttl: float, producer) -> Any:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Socrata
+# CKAN (Toronto Open Data)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def soql(domain: str, dataset: str, timeout: int = 90, **params) -> List[dict]:
-    """One SoQL query. Keys are passed as ``$select``, ``$where``, … ."""
-    q = {(k if k.startswith('$') else '$' + k): v for k, v in params.items() if v is not None}
-    url = f'{domain}/resource/{dataset}.json'
-    r = requests.get(url, params=q, timeout=timeout, headers={'User-Agent': USER_AGENT})
+def _get(url: str, timeout: int = 60, **params) -> requests.Response:
+    r = requests.get(url, params=params or None, timeout=timeout,
+                     headers={'User-Agent': USER_AGENT})
     r.raise_for_status()
-    return r.json()
+    return r
 
 
-def soql_all(domain: str, dataset: str, max_rows: int = 200_000, **params) -> List[dict]:
-    """Page through a SoQL query until exhausted or ``max_rows`` is reached."""
+def ckan_package(package: str) -> dict:
+    """``package_show`` for one dataset, cached — resource ids live here."""
+    def fetch():
+        d = _get(f'{CKAN}/api/3/action/package_show', id=package).json()
+        if not d.get('success'):
+            raise ValueError(f'CKAN package_show failed for {package!r}')
+        return d['result']
+    return cached(f'ckan-pkg-{package}', 7 * DAY, fetch)
+
+
+def ckan_resource(package: str, match: str) -> dict:
+    """The first resource of ``package`` whose name contains ``match``."""
+    m = match.lower()
+    for res in ckan_package(package).get('resources', []):
+        if m in (res.get('name') or '').lower():
+            return res
+    raise KeyError(f'no resource matching {match!r} in package {package!r}')
+
+
+def ckan_geojson(package: str, match: str = '4326.geojson',
+                 timeout: int = 300) -> dict:
+    """
+    Download a package's GeoJSON *file* resource (EPSG:4326).
+
+    The portal publishes each geospatial dataset both as a datastore and as
+    plain exported files; the files are the reliable path — the datastore
+    returns geometry as an escaped string per record and its GeoJSON dump
+    endpoint is not enabled.
+    """
+    res = ckan_resource(package, match)
+    fc = _get(res['url'], timeout=timeout).json()
+    if fc.get('type') != 'FeatureCollection':
+        raise ValueError(f'{package}/{match}: expected FeatureCollection, '
+                         f'got {fc.get("type")!r}')
+    return fc
+
+
+def ckan_records(resource_id: str, max_rows: int = 200_000,
+                 timeout: int = 120) -> List[dict]:
+    """Page through ``datastore_search`` until exhausted or ``max_rows``."""
     out: List[dict] = []
     while len(out) < max_rows:
-        page = soql(domain, dataset,
-                    limit=min(SOCRATA_PAGE, max_rows - len(out)),
-                    offset=len(out), **params)
+        d = _get(f'{CKAN}/api/3/action/datastore_search', timeout=timeout,
+                 resource_id=resource_id,
+                 limit=min(CKAN_PAGE, max_rows - len(out)),
+                 offset=len(out)).json()
+        if not d.get('success'):
+            raise ValueError(f'datastore_search failed for {resource_id}')
+        page = d['result']['records']
         out.extend(page)
-        if len(page) < SOCRATA_PAGE:
+        if len(page) < CKAN_PAGE:
             break
     return out
 
 
-def socrata_geojson(dataset: str, domain: str = NYC, timeout: int = 180) -> dict:
-    """Download a Socrata geospatial dataset as a GeoJSON FeatureCollection."""
-    url = f'{domain}/api/geospatial/{dataset}?method=export&format=GeoJSON'
-    r = requests.get(url, timeout=timeout, headers={'User-Agent': USER_AGENT})
+def ckan_dump_rows(resource_id: str, fields: List[str],
+                   timeout: int = 600) -> Iterator[dict]:
+    """
+    Stream a datastore's CSV dump, column-filtered server-side.
+
+    This is the only way to get a large table out of Toronto's CKAN without
+    SQL: the dump endpoint accepts ``?fields=`` (datastore_search_sql is
+    blocked portal-wide), so half a million rows arrive as a ~25 MB CSV
+    instead of a JSON page-walk.
+    """
+    r = requests.get(f'{CKAN}/datastore/dump/{resource_id}',
+                     params={'fields': ','.join(fields), 'format': 'csv'},
+                     timeout=timeout, stream=True,
+                     headers={'User-Agent': USER_AGENT})
     r.raise_for_status()
-    fc = r.json()
-    if fc.get('type') != 'FeatureCollection':
-        raise ValueError(f'{dataset}: expected FeatureCollection, got {fc.get("type")!r}')
-    return fc
+    lines = (ln.decode('utf-8', 'replace') for ln in r.iter_lines() if ln)
+    yield from csv.DictReader(lines)
 
 
 def points_from_rows(rows: Iterable[dict], lat_key: str, lng_key: str,
@@ -304,13 +357,49 @@ def geojson_bytes(fc: dict) -> int:
     return len(json.dumps(fc, separators=(',', ':')))
 
 
+def geometry_km2(geom: Optional[dict]) -> float:
+    """Approximate area of a (Multi)Polygon in km², good to ~0.1% at city scale."""
+    if not geom:
+        return 0.0
+
+    def ring_area(ring) -> float:
+        R = 6371.0088
+        a = 0.0
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+            a += math.radians(x2 - x1) * (2 + math.sin(math.radians(y1))
+                                          + math.sin(math.radians(y2)))
+        return a * R * R / 2
+
+    def poly_area(rings) -> float:
+        if not rings:
+            return 0.0
+        # outer ring minus holes
+        return abs(ring_area(rings[0])) - sum(abs(ring_area(r)) for r in rings[1:])
+
+    t, c = geom.get('type'), geom.get('coordinates')
+    if t == 'Polygon':
+        return max(poly_area(c), 0.0)
+    if t == 'MultiPolygon':
+        return sum(max(poly_area(p), 0.0) for p in c)
+    return 0.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# MTA GTFS → subway lines + stations
+# TTC GTFS → rapid transit / streetcar lines + stations
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _read_gtfs(url: str, timeout: int = 180) -> Dict[str, List[dict]]:
-    r = requests.get(url, timeout=timeout, headers={'User-Agent': USER_AGENT})
-    r.raise_for_status()
+GTFS_PACKAGE = 'ttc-routes-and-schedules'
+
+# The feed leaves route_color blank on a few routes; and every streetcar is
+# published as the same blue, which would be indistinguishable from the
+# choropleth. Official TTC line colours for the rapid network:
+RAPID_FALLBACK = {'1': '#F8C300', '2': '#00923F', '3': '#0082C9',
+                  '4': '#A21A68', '5': '#DF8600', '6': '#9E9E9E'}
+STREETCAR_COLOR = '#DA251D'      # TTC streetcar red
+
+
+def _read_gtfs(url: str, timeout: int = 300) -> Dict[str, List[dict]]:
+    r = _get(url, timeout=timeout)
     z = zipfile.ZipFile(io.BytesIO(r.content))
     tables = {}
     for name in ('routes.txt', 'trips.txt', 'shapes.txt', 'stops.txt'):
@@ -322,17 +411,33 @@ def _read_gtfs(url: str, timeout: int = 180) -> Dict[str, List[dict]]:
     return tables
 
 
-def subway_lines(url: str = GTFS_SUBWAY, tol: float = 0.00008) -> dict:
-    """
-    Subway route geometry as a LineString FeatureCollection, one feature per
-    route direction, coloured with the MTA's official ``route_color``.
+def _is_rapid(route: dict) -> bool:
+    """Subway/metro by GTFS type, plus anything TTC brands as "Line N"."""
+    if route.get('route_type') == '1':
+        return True
+    return (route.get('route_long_name') or '').strip().lower().startswith('line ')
 
-    GTFS carries one shape per trip pattern — thousands of near-duplicates. We
-    keep the single longest shape per (route, direction), which is the full-
-    length service pattern riders think of as "the 4 train".
+
+def _route_color(route: dict) -> str:
+    short = (route.get('route_short_name') or '').strip()
+    if _is_rapid(route):
+        return RAPID_FALLBACK.get(short) or \
+            (f"#{route['route_color']}" if route.get('route_color') else '#8b93a7')
+    return STREETCAR_COLOR
+
+
+def _line_features(g: Dict[str, List[dict]], want_rapid: bool,
+                   tol: float = 0.00008) -> List[dict]:
     """
-    g = _read_gtfs(url)
-    routes = {r['route_id']: r for r in g.get('routes', [])}
+    One LineString per (route, direction), longest shape wins.
+
+    GTFS carries one shape per trip pattern — thousands of near-duplicates. The
+    single longest shape per direction is the full-length service pattern
+    riders think of as "the 501" or "Line 2".
+    """
+    routes = {r['route_id']: r for r in g.get('routes', [])
+              if _is_rapid(r) == want_rapid
+              and r.get('route_type') in ('0', '1')}
 
     shape_pts: Dict[str, List[Tuple[float, list]]] = defaultdict(list)
     for row in g.get('shapes', []):
@@ -343,13 +448,13 @@ def subway_lines(url: str = GTFS_SUBWAY, tol: float = 0.00008) -> dict:
         except (KeyError, TypeError, ValueError):
             continue
 
-    # longest shape per (route_id, direction_id)
     best: Dict[Tuple[str, str], Tuple[int, str]] = {}
     for t in g.get('trips', []):
+        rid = t.get('route_id', '')
         sid = t.get('shape_id')
-        if not sid or sid not in shape_pts:
+        if rid not in routes or not sid or sid not in shape_pts:
             continue
-        k = (t.get('route_id', ''), str(t.get('direction_id', '0')))
+        k = (rid, str(t.get('direction_id', '0')))
         n = len(shape_pts[sid])
         if k not in best or n > best[k][0]:
             best[k] = (n, sid)
@@ -360,30 +465,90 @@ def subway_lines(url: str = GTFS_SUBWAY, tol: float = 0.00008) -> dict:
         line = _simplify_ring(pts, tol, 5, closed=False)
         if not line:
             continue
-        r = routes.get(route_id, {})
-        color = (r.get('route_color') or '').strip()
+        r = routes[route_id]
         feats.append({
             'type': 'Feature',
             'properties': {
-                'route': r.get('route_short_name') or route_id,
-                'route_id': route_id,
+                'route': (r.get('route_short_name') or route_id).strip(),
+                'name': (r.get('route_long_name') or '').strip(),
                 'direction': int(direction) if str(direction).isdigit() else 0,
-                'name': r.get('route_long_name') or '',
-                'desc': (r.get('route_desc') or '').strip(),
-                'color': f'#{color}' if color else '#8b93a7',
+                'color': _route_color(r),
             },
             'geometry': {'type': 'LineString', 'coordinates': line},
         })
-    return {'type': 'FeatureCollection', 'features': feats}
+    return feats
 
 
-def subway_route_colors(url: str = GTFS_SUBWAY) -> Dict[str, str]:
-    """``{'A': '#2850ad', ...}`` — the official colour of every subway route."""
-    g = _read_gtfs(url)
-    out = {}
-    for r in g.get('routes', []):
-        short = (r.get('route_short_name') or r.get('route_id') or '').strip()
-        color = (r.get('route_color') or '').strip()
-        if short and color:
-            out[short] = f'#{color}'
-    return out
+def _station_features(g: Dict[str, List[dict]],
+                      rapid_lines: List[dict]) -> List[dict]:
+    """
+    Rapid-transit stations, distilled from platform stops.
+
+    The TTC feed publishes no parent-station records (``location_type`` is
+    never 1); platforms are named "<Station> Station - <x> Platform" (subway)
+    or "<Station> Station LRT Platform" (Line 5/6). Group by that prefix,
+    average the platform coordinates, and tag each station with the lines
+    whose track geometry passes within ~250 m of it.
+    """
+    import re
+    groups: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    for s in g.get('stops', []):
+        m = re.match(r'^(.*?) Station\b.*Platform', s.get('stop_name', ''), re.I)
+        if not m:
+            continue
+        try:
+            groups[m.group(1).strip()].append(
+                (float(s['stop_lon']), float(s['stop_lat'])))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    # route short-name → its shapes' coordinate lists (both directions)
+    by_route: Dict[str, List[List[list]]] = defaultdict(list)
+    for f in rapid_lines:
+        by_route[f['properties']['route']].append(f['geometry']['coordinates'])
+
+    # ~250 m in degrees at Toronto's latitude
+    near2 = 0.0028 ** 2
+
+    feats = []
+    for name, pts in sorted(groups.items()):
+        lng = sum(p[0] for p in pts) / len(pts)
+        lat = sum(p[1] for p in pts) / len(pts)
+        lines = []
+        for route, shapes in sorted(by_route.items()):
+            hit = any(
+                _perp_sq((lng, lat), a, b) < near2
+                for coords in shapes
+                for a, b in zip(coords, coords[1:]))
+            if hit:
+                lines.append(route)
+        feats.append({
+            'type': 'Feature',
+            'properties': {'name': f'{name} Station', 'lines': ' '.join(lines),
+                           'platforms': len(pts)},
+            'geometry': {'type': 'Point',
+                         'coordinates': [round(lng, 5), round(lat, 5)]},
+        })
+    return feats
+
+
+def gtfs_bundle() -> Dict[str, dict]:
+    """
+    Everything the map needs from the TTC feed, in one cached download.
+
+    The zip is ~35 MB and three layers come out of it (rapid lines, streetcar
+    lines, stations), so it is fetched once and the three FeatureCollections
+    are cached together.
+    """
+    def build():
+        url = ckan_resource(GTFS_PACKAGE, 'TTC Routes')['url']
+        g = _read_gtfs(url)
+        rapid = _line_features(g, want_rapid=True)
+        streetcar = _line_features(g, want_rapid=False, tol=0.00012)
+        stations = _station_features(g, rapid)
+        return {
+            'rapid': {'type': 'FeatureCollection', 'features': rapid},
+            'streetcar': {'type': 'FeatureCollection', 'features': streetcar},
+            'stations': {'type': 'FeatureCollection', 'features': stations},
+        }
+    return cached('transit-gtfs-bundle', 7 * DAY, build)

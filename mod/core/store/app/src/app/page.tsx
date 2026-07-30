@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -22,7 +23,6 @@ import {
   PinInfo,
   PoolDetail,
   PoolSummary,
-  Preview,
   Quota,
   StoredObject,
   TermsResponse,
@@ -164,6 +164,7 @@ const WalletIcon = () => (
 );
 
 export default function Page() {
+  const router = useRouter();
   const [hasWallet, setHasWallet] = useState(false);
   const [address, setAddress] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -202,7 +203,6 @@ export default function Page() {
   // modals
   const [shareFor, setShareFor] = useState<StoredObject | null>(null);
   const [ticketFor, setTicketFor] = useState<StoredObject | null>(null);
-  const [contentFor, setContentFor] = useState<StoredObject | null>(null);
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [linkPhone, setLinkPhone] = useState<{ code: string; expires: number } | null>(null);
   const [openPool, setOpenPool] = useState<PoolDetail | null>(null);
@@ -561,7 +561,7 @@ export default function Page() {
               }}
               objects={objects}
               shared={sharedObjects}
-              onOpen={(o) => setContentFor(o)}
+              onOpen={(o) => router.push(`/o/${encodeURIComponent(o.cid)}`)}
               onInfo={setInfoFor}
               onSemantic={() => {
                 setView("files");
@@ -827,7 +827,6 @@ export default function Page() {
                 busy={!!busy}
                 copied={copied}
                 onCopy={copyText}
-                onView={() => setContentFor(o)}
                 onTicket={() => setTicketFor(o)}
                 onShare={() => setShareFor(o)}
                 onInfo={() => setInfoFor(o.cid)}
@@ -857,7 +856,6 @@ export default function Page() {
                 copied={copied}
                 shared
                 onCopy={copyText}
-                onView={() => setContentFor(o)}
                 onTicket={() => setTicketFor(o)}
                 onInfo={() => setInfoFor(o.cid)}
                 onRemove={me?.admin ? () => doRemove(o, true) : undefined}
@@ -889,8 +887,7 @@ export default function Page() {
                     <span className="muted"> {copied === `pin-${p.cid}` ? "✓ copied" : "⧉"}</span>
                   </button>
                   <div className="row">
-                    <Link href={`/o/${encodeURIComponent(p.cid)}`} className="btn-link">open</Link>
-                    <button onClick={() => setContentFor({ cid: p.cid, backend: p.backend } as StoredObject)} disabled={!!busy}>view</button>
+                    <Link href={`/o/${encodeURIComponent(p.cid)}`} className="btn-link">view</Link>
                     <button onClick={() => setInfoFor(p.cid)} disabled={!!busy}>info</button>
                     <button onClick={async () => { await api.unpin(token, p.cid, p.backend); refreshPins(token); }} disabled={!!busy}>unpin</button>
                   </div>
@@ -918,7 +915,6 @@ export default function Page() {
           canSell={!!token && canStore && termsSigned}
           bump={marketBump}
           onSell={() => setSellFor("pick")}
-          onView={(cid) => token && setContentFor({ cid, backend: "" } as StoredObject)}
           onInfo={(cid) => token && setInfoFor(cid)}
           onAcquired={() => token && refreshShared(token)}
           setError={setError}
@@ -963,7 +959,6 @@ export default function Page() {
       )}
       {shareFor && token && <ShareModal token={token} object={shareFor} onClose={() => setShareFor(null)} setError={setError} setSuccess={setSuccess} />}
       {ticketFor && token && <TicketModal token={token} object={ticketFor} onClose={() => setTicketFor(null)} setError={setError} />}
-      {contentFor && token && <ContentModal token={token} object={contentFor} onClose={() => setContentFor(null)} setError={setError} copyText={copyText} copied={copied} />}
       {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} onNavigate={setInfoFor} />}
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
       {termsDoc && token && (
@@ -1202,7 +1197,7 @@ function BackendsView({
 /* ──────────────────────────── object row ──────────────────────────── */
 
 function ObjectRow({
-  o, token, busy, copied, shared, onCopy, onView, onTicket, onShare, onInfo, onPublish, onPin, onSell, onRemove, removeLabel,
+  o, token, busy, copied, shared, onCopy, onTicket, onShare, onInfo, onPublish, onPin, onSell, onRemove, removeLabel,
 }: {
   o: StoredObject;
   token: string;
@@ -1210,7 +1205,6 @@ function ObjectRow({
   copied: string | null;
   shared?: boolean;
   onCopy: (s: string, tag: string) => void;
-  onView: () => void;
   onTicket: () => void;
   onShare?: () => void;
   onInfo: () => void;
@@ -1244,8 +1238,7 @@ function ObjectRow({
           </button>
         )}
         <div className="row actions">
-          <Link href={`/o/${encodeURIComponent(o.cid)}`} className="btn-link" title="Open this object's page">open</Link>
-          <button onClick={onView} disabled={busy}>view</button>
+          <Link href={`/o/${encodeURIComponent(o.cid)}`} className="btn-link" title="Open this object's page">view</Link>
           <button onClick={onTicket} disabled={busy} title="One-time QR / link for your phone">📱 QR</button>
           <a href={api.getUrl(o.cid, o.backend, priv ? token : null)} target="_blank" rel="noreferrer">download</a>
           <button onClick={onInfo} disabled={busy}>info</button>
@@ -1380,80 +1373,6 @@ function CidSearch({
         </div>
       )}
     </div>
-  );
-}
-
-/* ──────────────────────────── content modal ──────────────────────────── */
-
-function ContentModal({
-  token, object, onClose, setError, copyText, copied,
-}: {
-  token: string;
-  object: StoredObject;
-  onClose: () => void;
-  setError: (s: string) => void;
-  copyText: (s: string, tag: string) => void;
-  copied: string | null;
-}) {
-  const [pv, setPv] = useState<Preview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const imgUrl = api.getUrl(object.cid, object.backend || undefined, token);
-
-  useEffect(() => {
-    let live = true;
-    api
-      .preview(token, object.cid)
-      .then((r) => live && setPv(r))
-      .catch((e) => live && setError(errorText(e)))
-      .finally(() => live && setLoading(false));
-    return () => {
-      live = false;
-    };
-  }, [token, object.cid, setError]);
-
-  const looksImage = (object.key || "").match(/\.(png|jpe?g|gif|webp|svg|bmp)$/i);
-
-  const copyAll = async () => {
-    let full = pv?.text || "";
-    if (pv?.truncated) {
-      try {
-        const res = await fetch(imgUrl);
-        full = await res.text();
-      } catch (e) {
-        setError(errorText(e));
-        return;
-      }
-    }
-    copyText(full, `all-${object.cid}`);
-  };
-
-  return (
-    <Modal title="Object content" onClose={onClose}>
-      <p className="muted cid" style={{ marginTop: 0 }}>{object.cid}</p>
-      {loading && <p className="muted">loading…</p>}
-      {pv?.external && (
-        <p className="muted">External object — <a href={pv.url || "#"} target="_blank" rel="noreferrer">open at gateway ↗</a></p>
-      )}
-      {pv && !pv.external && (
-        <>
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="muted">{fmtBytes(pv.size)} {pv.is_text ? "· text" : "· binary"}{pv.truncated ? " · truncated preview" : ""}</span>
-            {pv.is_text && (
-              <button className="primary" onClick={copyAll}>
-                {copied === `all-${object.cid}` ? "✓ copied" : pv.truncated ? "copy all (full)" : "copy all"}
-              </button>
-            )}
-          </div>
-          {pv.is_text && <pre className="content-view">{pv.text}{pv.truncated ? "\n\n… (truncated — use “copy all” for the full content)" : ""}</pre>}
-          {!pv.is_text && looksImage && (
-            <div className="img-wrap"><img src={imgUrl} alt={object.cid} /></div>
-          )}
-          {!pv.is_text && !looksImage && (
-            <p className="muted">Binary content ({fmtBytes(pv.size)}). <a href={imgUrl} target="_blank" rel="noreferrer">download ↗</a></p>
-          )}
-        </>
-      )}
-    </Modal>
   );
 }
 
@@ -2032,14 +1951,13 @@ const SORTS: { key: "hot" | "new" | "top"; label: string }[] = [
 ];
 
 function MarketView({
-  token, admin, canSell, bump, onSell, onView, onInfo, onAcquired, setError, setSuccess,
+  token, admin, canSell, bump, onSell, onInfo, onAcquired, setError, setSuccess,
 }: {
   token: string | null;
   admin: boolean;
   canSell: boolean;
   bump: number;
   onSell: () => void;
-  onView: (cid: string) => void;
   onInfo: (cid: string) => void;
   onAcquired: () => void;
   setError: (s: string) => void;
@@ -2213,7 +2131,6 @@ function MarketView({
               onAcquire={() => acquire(l)}
               onLike={() => like(l)}
               onDelist={() => delist(l)}
-              onView={() => onView(l.cid)}
               onInfo={() => onInfo(l.cid)}
               onSeller={() => setSeller(seller === l.seller ? "" : l.seller)}
             />
@@ -2225,7 +2142,7 @@ function MarketView({
 }
 
 function MarketCard({
-  l, token, admin, busy, onAcquire, onLike, onDelist, onView, onInfo, onSeller,
+  l, token, admin, busy, onAcquire, onLike, onDelist, onInfo, onSeller,
 }: {
   l: MarketListing;
   token: string | null;
@@ -2234,7 +2151,6 @@ function MarketCard({
   onAcquire: () => void;
   onLike: () => void;
   onDelist: () => void;
-  onView: () => void;
   onInfo: () => void;
   onSeller: () => void;
 }) {
@@ -2298,7 +2214,7 @@ function MarketCard({
               <a className="btn-link" href={api.getUrl(l.cid, undefined, l.visibility === "private" ? token : null)} target="_blank" rel="noreferrer">
                 ⇣ download
               </a>
-              <button onClick={onView} disabled={working}>view</button>
+              <Link href={`/o/${encodeURIComponent(l.cid)}`} className="btn-link">view</Link>
             </>
           ) : (
             <button className={`primary ${free ? "" : "unlock"}`} onClick={onAcquire} disabled={working}>

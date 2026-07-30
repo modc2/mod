@@ -6,6 +6,7 @@ import Library from './components/Library'
 import Builder from './components/Builder'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import Select from './components/Select'
+import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign } from './lib/localWallet'
 
 type Skill = { description: string; params: Record<string, any> }
 // images: what the user pasted, as data URLs. thumbs are the tiny copies that
@@ -111,7 +112,8 @@ const DEFAULT_AGENTS: AgentOption[] = [
 // { data, time, key, signature } where signature = personal_sign of the
 // compact JSON {"data":…,"time":…}. Identity = the recovered signer.
 
-type AuthInfo = { address: string; token: string; isOwner: boolean }
+// local: signed by a keypair generated in this browser (no wallet extension)
+type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean }
 
 const AUTH_KEY = 'agent_auth'
 const TOKEN_TTL_MS = 23 * 3600 * 1000 // server max_age is 24h — refresh before that
@@ -267,6 +269,28 @@ export default function Home() {
   const [dockHeight, setDockHeight] = useState(400)
   const [chatSearch, setChatSearch] = useState('')
 
+  // phone layout: the rail becomes a slide-over drawer, the dock header wraps
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const apply = () => setIsMobile(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+
+  // the prompt is docked at the bottom by default, but can pop out into a
+  // floating panel — drag it anywhere, resize its width, dock it back
+  const [promptFloat, setPromptFloat] = useState(false)
+  const [promptPos, setPromptPos] = useState({ x: 0, y: 0 })
+  const [promptW, setPromptW] = useState(560)
+
+  // keep the floating prompt on screen — reachable header, reachable handle
+  const clampPromptPos = (p: { x: number; y: number }, w: number) => ({
+    x: Math.max(8, Math.min(window.innerWidth - Math.min(w, window.innerWidth - 16) - 8, p.x)),
+    y: Math.max(52, Math.min(window.innerHeight - 110, p.y)),
+  })
+
   // file viewer state
   const [viewingFile, setViewingFile] = useState<FileEntry | null>(null)
 
@@ -288,6 +312,20 @@ export default function Home() {
       const d = localStorage.getItem('agent_dock') as DockMode | null
       if (d === 'min' || d === 'normal' || d === 'max') setDock(d)
       setSidebarCollapsed(localStorage.getItem('agent_rail_closed') === '1')
+      // floating prompt: width, position, and whether it was left undocked
+      const pw = Number(localStorage.getItem('agent_prompt_w'))
+      const pwv = pw >= 300 ? pw : 560
+      if (pw >= 300) setPromptW(pw)
+      const pp = localStorage.getItem('agent_prompt_pos')
+      if (pp) setPromptPos(clampPromptPos(JSON.parse(pp), pwv))
+      if (localStorage.getItem('agent_prompt_float') === '1' && pp) setPromptFloat(true)
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        // phones: the rail is a drawer (start closed) and, unless the user
+        // picked a dock size, the console fills the screen — chat-app feel,
+        // prompt at the very bottom
+        setSidebarCollapsed(true)
+        if (!d) setDock('max')
+      }
     } catch {}
   }, [])
   const setDockPersist = (d: DockMode) => {
@@ -295,8 +333,8 @@ export default function Home() {
     try { localStorage.setItem('agent_dock', d) } catch {}
   }
 
-  // rail drag resize (horizontal)
-  const onDragStart = useCallback((e: React.MouseEvent) => {
+  // rail drag resize (horizontal) — pointer events so touch drags work too
+  const onDragStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     isDragging.current = true
     dragStartX.current = e.clientX
@@ -304,7 +342,7 @@ export default function Home() {
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
-    const onMouseMove = (ev: MouseEvent) => {
+    const onPointerMove = (ev: PointerEvent) => {
       if (!isDragging.current) return
       const delta = sidebarSide === 'left'
         ? ev.clientX - dragStartX.current
@@ -313,20 +351,20 @@ export default function Home() {
       const newWidth = Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta))
       setSidebarWidth(newWidth)
     }
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       isDragging.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       try { localStorage.setItem('agent_rail_w', String(dragStartWidth.current)) } catch {}
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
     }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
   }, [sidebarWidth, sidebarSide])
 
   // dock drag resize (vertical — drag the console's top edge)
-  const onDockDragStart = useCallback((e: React.MouseEvent) => {
+  const onDockDragStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     isDragging.current = true
     dragStartY.current = e.clientY
@@ -335,23 +373,86 @@ export default function Home() {
     document.body.style.userSelect = 'none'
 
     let last = dockHeight
-    const onMouseMove = (ev: MouseEvent) => {
+    const onPointerMove = (ev: PointerEvent) => {
       if (!isDragging.current) return
       const maxHeight = Math.floor(window.innerHeight * 0.85)
       last = Math.max(140, Math.min(maxHeight, dragStartHeight.current + (dragStartY.current - ev.clientY)))
       setDockHeight(last)
     }
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       isDragging.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       try { localStorage.setItem('agent_dock_h', String(last)) } catch {}
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
     }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
   }, [dockHeight])
+
+  // ── floating prompt: undock, drag, resize ─────────────────────────
+  const togglePromptFloat = useCallback(() => {
+    const next = !promptFloat
+    if (next) {
+      const w = Math.min(promptW, window.innerWidth - 16)
+      let saved: { x: number; y: number } | null = null
+      try { const raw = localStorage.getItem('agent_prompt_pos'); if (raw) saved = JSON.parse(raw) } catch {}
+      setPromptPos(clampPromptPos(saved || { x: (window.innerWidth - w) / 2, y: window.innerHeight - 220 }, w))
+    }
+    setPromptFloat(next)
+    try { localStorage.setItem('agent_prompt_float', next ? '1' : '0') } catch {}
+    setTimeout(() => inputRef.current?.focus(), 40)
+  }, [promptFloat, promptW])
+
+  // drag the floating prompt by its header bar (mouse or touch)
+  const onPromptDragStart = useCallback((e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return // the dock-back button still clicks
+    e.preventDefault()
+    const sx = e.clientX, sy = e.clientY
+    const bx = promptPos.x, by = promptPos.y
+    let last = promptPos
+    const onPointerMove = (ev: PointerEvent) => {
+      last = clampPromptPos({ x: bx + ev.clientX - sx, y: by + ev.clientY - sy }, promptW)
+      setPromptPos(last)
+    }
+    const onPointerUp = () => {
+      try { localStorage.setItem('agent_prompt_pos', JSON.stringify(last)) } catch {}
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+  }, [promptPos, promptW])
+
+  // adjust the floating prompt's width from its right edge
+  const onPromptResizeStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const sx = e.clientX
+    const bw = promptW
+    let last = bw
+    const onPointerMove = (ev: PointerEvent) => {
+      last = Math.max(300, Math.min(window.innerWidth - 16, bw + ev.clientX - sx))
+      setPromptW(last)
+      setPromptPos(p => clampPromptPos(p, last))
+    }
+    const onPointerUp = () => {
+      try { localStorage.setItem('agent_prompt_w', String(last)) } catch {}
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+  }, [promptW])
+
+  // keep the floating prompt reachable when the window shrinks
+  useEffect(() => {
+    if (!promptFloat) return
+    const onResize = () => setPromptPos(p => clampPromptPos(p, promptW))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [promptFloat, promptW])
 
   // console maximize toggle (dock fills the workspace)
   const toggleDockMax = useCallback(() => {
@@ -554,10 +655,25 @@ export default function Home() {
     } catch {}
   }
 
-  const signIn = async () => {
+  // resolve the role server-side and persist — shared by both sign-in paths
+  const finishSignIn = async (address: string, token: string, local: boolean) => {
+    let isOwner = false
+    try {
+      const who = await fetch(`${API_URL}/whoami?key=${encodeURIComponent(token)}`,
+        { signal: AbortSignal.timeout(8000) }).then(r => r.json())
+      if (who?.error) throw new Error(who.error)
+      isOwner = !!who?.is_owner
+    } catch {} // API offline — still sign in locally, role resolves on next load
+    const next = { address, token, isOwner, local }
+    setAuth(next)
+    persistAuth(next)
+    setShowUserMenu(false)
+  }
+
+  const signInWallet = async () => {
     const provider = eth()
     if (!provider) {
-      setAuthErr('No wallet found — install MetaMask to sign in')
+      setAuthErr('No wallet found — install MetaMask, or use a local wallet')
       return
     }
     setAuthBusy(true)
@@ -573,23 +689,34 @@ export default function Home() {
         method: 'personal_sign',
         params: [JSON.stringify({ data, time }), address],
       })
-      const token = b64url({ data, time, key: address, signature })
-      let isOwner = false
-      try {
-        const who = await fetch(`${API_URL}/whoami?key=${encodeURIComponent(token)}`,
-          { signal: AbortSignal.timeout(8000) }).then(r => r.json())
-        if (who?.error) throw new Error(who.error)
-        isOwner = !!who?.is_owner
-      } catch {} // API offline — still sign in locally, role resolves on next load
-      const next = { address, token, isOwner }
-      setAuth(next)
-      persistAuth(next)
-      setShowUserMenu(false)
+      await finishSignIn(address, b64url({ data, time, key: address, signature }), false)
     } catch (e: any) {
       if (e?.code !== 4001) setAuthErr(e?.message || 'sign-in failed') // 4001 = user rejected
     }
     setAuthBusy(false)
   }
+
+  // sign in with a keypair generated and kept in this browser — no extension
+  // needed. Same EIP-191 signature a wallet would produce, so the server
+  // verifies it unchanged; the address is a device-local pseudonym.
+  const signInLocal = async () => {
+    setAuthBusy(true)
+    setAuthErr(null)
+    try {
+      const id = getOrCreateLocalIdentity()
+      const data = { scope: 'agent' }
+      const time = (Date.now() / 1000).toString()
+      const signature = await localSign(id, JSON.stringify({ data, time }))
+      await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true)
+    } catch (e: any) {
+      setAuthErr(e?.message || 'local sign-in failed')
+    }
+    setAuthBusy(false)
+  }
+
+  // default entry point (components' "sign in" buttons): wallet when one is
+  // installed, otherwise fall back to the local browser wallet
+  const signIn = () => (eth() ? signInWallet() : signInLocal())
 
   const signOut = () => {
     setAuth(null)
@@ -603,7 +730,13 @@ export default function Home() {
       const raw = localStorage.getItem(AUTH_KEY)
       if (!raw) return
       const v: AuthInfo = JSON.parse(raw)
-      if (!v?.address || !tokenFresh(v.token)) { persistAuth(null); return }
+      if (!v?.address) { persistAuth(null); return }
+      if (!tokenFresh(v.token)) {
+        // a local session re-signs silently — the key never left this browser
+        if (v.local && loadLocalIdentity()) void signInLocal()
+        else persistAuth(null)
+        return
+      }
       setAuth(v)
       // re-check the role server-side (owner may have changed)
       fetch(`${API_URL}/whoami?key=${encodeURIComponent(v.token)}`, { signal: AbortSignal.timeout(8000) })
@@ -784,6 +917,15 @@ export default function Home() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [tasks, selectedTask])
+
+  // the composer grows with its content (up to ~a third of the screen) —
+  // "adjustable" without a second drag handle
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, Math.floor(window.innerHeight * 0.35))}px`
+  }, [query, promptFloat])
 
   const currentTask = tasks.find(t => t.id === selectedTask)
   const currentAgentDef = agentOptions.find(a => a.value === agentType)
@@ -1462,14 +1604,50 @@ export default function Home() {
         </button>
       ) : (
         <button
-          onClick={signIn}
+          onClick={() => setShowUserMenu(v => !v)}
           disabled={authBusy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 hover:border-emerald-500/50 disabled:opacity-60 transition"
-          title={authErr || 'Sign in with your wallet'}
+          title={authErr || 'Sign in — browser wallet or a local key'}
         >
           <span className={`w-1.5 h-1.5 rounded-full ${authBusy ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
           {authBusy ? 'Signing…' : 'Sign in'}
         </button>
+      )}
+      {showUserMenu && !auth && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+          <div className="absolute right-0 top-full mt-1 w-72 bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
+            <div className="p-1.5">
+              <button
+                onClick={signInWallet}
+                disabled={authBusy}
+                className="w-full text-left px-2.5 py-2 rounded-md text-xs hover:bg-emerald-500/[0.06] disabled:opacity-60 transition"
+              >
+                <div className="text-gray-200">Browser wallet</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {eth() ? 'sign with your MetaMask address' : 'no wallet extension found'}
+                </div>
+              </button>
+              <button
+                onClick={signInLocal}
+                disabled={authBusy}
+                className="w-full text-left px-2.5 py-2 rounded-md text-xs hover:bg-emerald-500/[0.06] disabled:opacity-60 transition"
+              >
+                <div className="text-gray-200">Local wallet</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {(() => {
+                    const id = loadLocalIdentity()
+                    return id ? `resume ${shortAddr(id.address)} — key stays in this browser`
+                      : 'generate a key in this browser — no extension, no chain link'
+                  })()}
+                </div>
+              </button>
+            </div>
+            {authErr && (
+              <div className="px-3 py-2 border-t border-white/[0.06] text-[10px] text-red-400/90">{authErr}</div>
+            )}
+          </div>
+        </>
       )}
       {showUserMenu && auth && (
         <>
@@ -1485,6 +1663,7 @@ export default function Home() {
                 <div className="text-xs text-gray-200 font-mono truncate">{auth.address}</div>
                 <div className="text-[10px] text-gray-500 mt-0.5">
                   {auth.isOwner ? 'module owner — full access' : 'guest — public actions'}
+                  {auth.local ? ' · local key' : ''}
                 </div>
               </div>
             </div>
@@ -1508,6 +1687,14 @@ export default function Home() {
                 className="w-full text-left px-2.5 py-2 rounded-md text-xs text-red-400/90 hover:bg-red-500/10 hover:text-red-300 transition">
                 Sign out
               </button>
+              {auth.local && (
+                <button
+                  onClick={() => { clearLocalIdentity(); signOut() }}
+                  title="Delete the browser-held key — this identity (and anything stored under it) is gone for good"
+                  className="w-full text-left px-2.5 py-2 rounded-md text-xs text-red-400/90 hover:bg-red-500/10 hover:text-red-300 transition">
+                  Forget local wallet
+                </button>
+              )}
             </div>
           </div>
         </>
@@ -1758,76 +1945,145 @@ export default function Home() {
     </div>
   )
 
-  // --- Compose row — the agent prompt, docked at the bottom of the console ---
-  const composeBar = (
-    <div className="border-t border-white/[0.06] px-3 py-2.5 shrink-0">
-      {/* no persona strip here — the picker in the console toolbar owns that
-          choice, and a second overflowing chip row only crowded the composer. */}
-      <div
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer?.files || [])) }}
-        className={`rounded-xl border px-3 py-2 transition-all duration-200 ${
-        composeFocused
-          ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgba(52,211,153,0.08)]'
-          : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
-      }`}>
-        {/* staged images — paste, drop, or pick them; they ride with the next run */}
-        {(attachments.length > 0 || attachErr) && (
-          <div className="flex items-center gap-1.5 flex-wrap pb-2">
-            {attachments.map(a => (
-              <div key={a.id} className="relative group">
-                <img src={a.thumb} alt={a.name} title={a.name} onClick={() => setLightbox(a.url)}
-                  className="h-12 w-12 object-cover rounded-md border border-emerald-500/20 cursor-zoom-in" />
-                <button onClick={() => setAttachments(l => l.filter(x => x.id !== a.id))}
-                  title="Remove"
-                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black/80 border border-white/15 text-[9px] text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">✕</button>
-              </div>
-            ))}
-            {attachErr && <span className="text-[10px] text-red-400">{attachErr}</span>}
-          </div>
-        )}
-        <div className="flex gap-2 items-end">
-        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
-          onChange={e => { addFiles(Array.from(e.target.files || [])); e.target.value = '' }} />
-        <button onClick={() => fileRef.current?.click()} disabled={loading}
-          title="Attach an image — or just paste one"
-          className="w-8 h-8 shrink-0 mb-0.5 flex items-center justify-center rounded-lg border border-white/[0.08] text-gray-600 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40 transition">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </svg>
-        </button>
-        <textarea
-          ref={inputRef}
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={onPasteCompose}
-          onFocus={() => setComposeFocused(true)}
-          onBlur={() => setComposeFocused(false)}
-          placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}...`}
-          rows={2}
-          className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed min-w-0"
-          disabled={loading}
-        />
-        {loading ? (
-          <button onClick={stopRun}
-            className="text-sm bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-400 rounded-lg px-4 py-2 transition font-medium shrink-0 mb-0.5"
-            title="Stop this run">
-            Stop
-          </button>
-        ) : (
-          <button onClick={run} disabled={(!query.trim() && attachments.length === 0) || apiStatus === 'down'}
-            className="text-sm lit-btn disabled:bg-white/5 disabled:text-gray-600 disabled:shadow-none rounded-lg px-4 py-2 transition font-semibold shrink-0 mb-0.5"
-            title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
-            Run
-          </button>
-        )}
+  // --- Compose row — the agent prompt. Lives docked at the bottom by
+  // default, or pops out into a floating, draggable, resizable panel. ---
+  const composeCore = (
+    <div
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer?.files || [])) }}
+      className={`rounded-xl border px-3 py-2 transition-all duration-200 ${
+      composeFocused
+        ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgba(52,211,153,0.08)]'
+        : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
+    }`}>
+      {/* staged images — paste, drop, or pick them; they ride with the next run */}
+      {(attachments.length > 0 || attachErr) && (
+        <div className="flex items-center gap-1.5 flex-wrap pb-2">
+          {attachments.map(a => (
+            <div key={a.id} className="relative group">
+              <img src={a.thumb} alt={a.name} title={a.name} onClick={() => setLightbox(a.url)}
+                className="h-12 w-12 object-cover rounded-md border border-emerald-500/20 cursor-zoom-in" />
+              <button onClick={() => setAttachments(l => l.filter(x => x.id !== a.id))}
+                title="Remove"
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black/80 border border-white/15 text-[9px] text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition">✕</button>
+            </div>
+          ))}
+          {attachErr && <span className="text-[10px] text-red-400">{attachErr}</span>}
         </div>
+      )}
+      <div className="flex gap-2 items-end">
+      <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+        onChange={e => { addFiles(Array.from(e.target.files || [])); e.target.value = '' }} />
+      <button onClick={() => fileRef.current?.click()} disabled={loading}
+        title="Attach an image — or just paste one"
+        className="w-8 h-8 shrink-0 mb-0.5 flex items-center justify-center rounded-lg border border-white/[0.08] text-gray-600 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40 transition">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      </button>
+      <textarea
+        ref={inputRef}
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onPaste={onPasteCompose}
+        onFocus={() => setComposeFocused(true)}
+        onBlur={() => setComposeFocused(false)}
+        placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}...`}
+        rows={2}
+        className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed min-w-0"
+        disabled={loading}
+      />
+      <button onClick={togglePromptFloat}
+        title={promptFloat ? 'Dock the prompt back to the bottom' : 'Pop the prompt out — drag it anywhere, resize it'}
+        className={`w-8 h-8 shrink-0 mb-0.5 flex items-center justify-center rounded-lg border transition ${
+          promptFloat
+            ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/10'
+            : 'border-white/[0.08] text-gray-600 hover:text-emerald-300 hover:border-emerald-500/30'
+        }`}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {promptFloat ? (
+            /* dock back down */
+            <>
+              <polyline points="8 11 12 15 16 11" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+              <line x1="4" y1="20" x2="20" y2="20" />
+            </>
+          ) : (
+            /* pop out */
+            <>
+              <rect x="3" y="9" width="12" height="12" rx="2" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="21" y1="3" x2="12" y2="12" />
+            </>
+          )}
+        </svg>
+      </button>
+      {loading ? (
+        <button onClick={stopRun}
+          className="text-sm bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-400 rounded-lg px-4 py-2 transition font-medium shrink-0 mb-0.5"
+          title="Stop this run">
+          Stop
+        </button>
+      ) : (
+        <button onClick={run} disabled={(!query.trim() && attachments.length === 0) || apiStatus === 'down'}
+          className="text-sm lit-btn disabled:bg-white/5 disabled:text-gray-600 disabled:shadow-none rounded-lg px-4 py-2 transition font-semibold shrink-0 mb-0.5"
+          title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
+          Run
+        </button>
+      )}
       </div>
     </div>
   )
+
+  // docked shell — bottom of the console, safe-area padded for phones
+  const composeBar = (
+    <div className="border-t border-white/[0.06] px-3 py-2.5 shrink-0 compose-safe">
+      {/* no persona strip here — the picker in the console toolbar owns that
+          choice, and a second overflowing chip row only crowded the composer. */}
+      {composeCore}
+    </div>
+  )
+
+  // floating shell — drag by the header bar, resize from the right edge
+  const floatingPrompt = promptFloat ? (
+    <div
+      className="fixed z-40 bg-[#0d0d0d]/95 backdrop-blur-sm border border-white/15 rounded-xl shadow-2xl"
+      style={{ left: promptPos.x, top: promptPos.y, width: Math.min(promptW, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 16) }}
+    >
+      <div
+        onPointerDown={onPromptDragStart}
+        className="flex items-center gap-2 px-3 py-1.5 border-b border-white/[0.06] cursor-move touch-none select-none"
+        title="Drag to move the prompt"
+      >
+        <span className="flex gap-[3px]">
+          <span className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+          <span className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+          <span className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
+        </span>
+        <span className="text-[9px] text-gray-500 uppercase tracking-wider">prompt</span>
+        <button onClick={togglePromptFloat}
+          title="Dock the prompt back to the bottom"
+          className="ml-auto w-5 h-5 flex items-center justify-center rounded text-gray-600 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="8 11 12 15 16 11" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+            <line x1="4" y1="20" x2="20" y2="20" />
+          </svg>
+        </button>
+      </div>
+      <div className="px-2.5 py-2">{composeCore}</div>
+      <div
+        onPointerDown={onPromptResizeStart}
+        className="absolute top-0 bottom-0 -right-[5px] w-[10px] cursor-ew-resize touch-none group"
+        title="Drag to resize"
+      >
+        <div className="h-full w-[1px] ml-[4px] bg-transparent group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
+      </div>
+    </div>
+  ) : null
 
   // --- Tool trace — every step the run took, params and result in full ---
   const toolTrace = (
@@ -2524,8 +2780,8 @@ export default function Home() {
       {/* top bar */}
       <header className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-4 shrink-0 bg-[#0a0a0a]">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500/25 to-teal-500/10 border border-emerald-400/25 flex items-center justify-center shadow-[0_0_16px_rgba(52,211,153,0.15)]">
-            <span className="text-emerald-200 font-mono text-[10px] select-none">{'>'}_</span>
+          <div className="brand-mark w-7 h-7 flex items-center justify-center">
+            <span className="select-none">{'>'}_</span>
           </div>
           <div className="leading-tight">
             <h1 className="text-sm font-semibold tracking-tight title-gradient">Agent</h1>

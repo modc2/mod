@@ -5,8 +5,8 @@
 # when invoked as root, so the privilege drop is load-bearing.
 set -e
 
-API_PORT="${API_PORT:-8820}"
-APP_PORT="${APP_PORT:-8821}"
+API_PORT="${API_PORT:-8870}"
+APP_PORT="${APP_PORT:-8871}"
 
 CRED_SRC="/host-claude/.credentials.json"
 CRED_DIR="/home/node/.claude"
@@ -55,14 +55,14 @@ chown -h node:node "$CRED_DIR" "$CRED_DST" 2>/dev/null || true
 # Only chown the top-level dir; `chown -R` over the blob store (~12k files on
 # slow virtiofs) hangs the entrypoint for minutes. Files are written as `node`
 # anyway, so recursive ownership isn't needed.
-PRIVATE_DIR="/home/node/.mod/claude"
+PRIVATE_DIR="/home/node/.mod/dev"
 mkdir -p "$PRIVATE_DIR"
 chown node:node "$PRIVATE_DIR" 2>/dev/null || true
 
 # Inner script runs as non-root: starts Rust API + Next.js, traps shutdown.
 # Clear any stale copy from a prior boot so a restart can recreate it cleanly.
-rm -f /tmp/run-as-claude.sh 2>/dev/null || true
-cat > /tmp/run-as-claude.sh <<EOF
+rm -f /tmp/run-as-build.sh 2>/dev/null || true
+cat > /tmp/run-as-build.sh <<EOF
 #!/bin/bash
 set -e
 API_PORT=$API_PORT
@@ -73,9 +73,9 @@ APP_PORT=$APP_PORT
 export HOME=/home/node
 export USER=node
 
-PORT=\$API_PORT /app/bin/claude-jobs &
+PORT=\$API_PORT /app/bin/dev-jobs &
 API_PID=\$!
-echo "claude-jobs API on :\$API_PORT (pid \$API_PID)"
+echo "dev-jobs API on :\$API_PORT (pid \$API_PID)"
 
 for i in \$(seq 1 30); do
     if curl -sf "http://localhost:\$API_PORT/health" > /dev/null 2>&1; then
@@ -86,7 +86,7 @@ for i in \$(seq 1 30); do
 done
 
 cd /app/src/app
-NEXT_PUBLIC_BASE_PATH="/claude" \\
+NEXT_PUBLIC_BASE_PATH="/dev" \\
 PORT=\$APP_PORT \\
 HOSTNAME="0.0.0.0" \\
 npx next start -p \$APP_PORT -H 0.0.0.0 &
@@ -108,7 +108,7 @@ EXIT=\$?
 cleanup
 exit \$EXIT
 EOF
-chmod +x /tmp/run-as-claude.sh
-chown node:node /tmp/run-as-claude.sh
+chmod +x /tmp/run-as-build.sh
+chown node:node /tmp/run-as-build.sh
 
-exec runuser -u node -- /tmp/run-as-claude.sh
+exec runuser -u node -- /tmp/run-as-build.sh

@@ -436,6 +436,64 @@ def list_providers():
         })
     return {"providers": providers, "default": "openrouter"}
 
+@app.get("/params")
+def run_params():
+    """Self-describing UI schema for a run's parameters. Sibling consoles
+    (e.g. orbit/build) render this generically instead of hardcoding a
+    panel per agent backend: each field maps 1:1 onto a RunRequest key,
+    select options come from the live registries (agents, providers,
+    toolboxes), and the credits block points at the billing endpoints."""
+    mod = get_mod()
+    personas = []
+    try:
+        reg = mod.forward('agents')
+        for name in reg.get('agents', []):
+            s = (reg.get('schemas') or {}).get(name) or {}
+            personas.append({"value": name, "label": s.get('name') or name,
+                             "icon": s.get('icon') or '>_',
+                             "hint": s.get('description') or '',
+                             "model": s.get('model')})
+    except Exception:
+        personas = [{"value": "default", "label": "Default", "icon": ">_", "hint": ""}]
+    providers, models_by, default_by = [], {}, {}
+    for key in mod.PROVIDERS:
+        info = mod.key_info(key)
+        state = ("ready" if info.get("configured") else
+                 "locked" if info.get("encrypted") and not info.get("unlocked") else "no key")
+        providers.append({"value": key, "label": key, "hint": state})
+        models_by[key] = mod.MODELS.get(key, [])
+        default_by[key] = mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), '')
+    try:
+        toolboxes = [{"value": t.get('name'), "label": t.get('name'),
+                      "hint": t.get('description') or ''} for t in mod.toolboxes.items()]
+    except Exception:
+        toolboxes = []
+    return {
+        "module": "agent", "version": app.version, "title": "AGENT PARAMS",
+        "run": {"endpoint": "/run/stream", "blocking": "/run", "auth": "body key (protocol-auth token)"},
+        "fields": [
+            {"name": "agent_type", "label": "PERSONA", "type": "select",
+             "default": "default", "options": personas},
+            {"name": "provider", "label": "PROVIDER", "type": "select",
+             "default": "openrouter", "options": providers},
+            {"name": "model", "label": "MODEL", "type": "select", "depends": "provider",
+             "options_by": models_by, "default_by": default_by},
+            {"name": "toolbox", "label": "TOOLBOX", "type": "select", "default": None,
+             "options": [{"value": None, "label": "auto", "hint": "persona default"}] + toolboxes},
+            {"name": "steps", "label": "MAX STEPS", "type": "number",
+             "default": 10, "min": 1, "max": 50, "step": 1,
+             "hint": "agent-loop iterations — also the billing unit"},
+            {"name": "temperature", "label": "TEMP", "type": "number",
+             "default": 0.0, "min": 0.0, "max": 2.0, "step": 0.1},
+            {"name": "safety", "label": "SAFETY REVIEW", "type": "toggle", "default": False,
+             "hint": "safety agent reviews each plan"},
+            {"name": "free", "label": "FREE MODE", "type": "toggle", "default": False,
+             "hint": "free models only; run is never billed"},
+        ],
+        "credits": {"info": "/credits", "deposit": "/credits/deposit",
+                    "balance": "/balance", "whoami": "/whoami"},
+    }
+
 @app.post("/skills/run")
 def run_skill(req: SkillRunRequest):
     """Run a single skill. Write skills are path-restricted for non-owners."""

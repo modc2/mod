@@ -1029,6 +1029,71 @@ pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
     std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
 }
 
+// ── Agent (Claude Code CLI) credentials ─────────────────────────────
+// The owner can paste a Claude Code credential from the console — either the
+// long-lived OAuth token minted by `claude setup-token` (sk-ant-oat…) or a
+// plain API key (sk-ant-api…). Off-chain like the whitelist: it's a secret,
+// so it lives in ~/.mod/claude/agent_auth.json (0600), never in the repo.
+
+pub fn agent_auth_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("agent_auth.json"))
+}
+
+/// Read the stored (oauth_token, api_key) pair. Absent/malformed file → (None, None).
+pub fn read_agent_auth() -> (Option<String>, Option<String>) {
+    let path = match agent_auth_path() {
+        Some(p) => p,
+        None => return (None, None),
+    };
+    let v: serde_json::Value = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+    {
+        Some(v) => v,
+        None => return (None, None),
+    };
+    let get = |k: &str| {
+        v.get(k)
+            .and_then(|t| t.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    (get("oauth_token"), get("api_key"))
+}
+
+/// Persist the agent credentials (either field may be None to clear it).
+/// Passing (None, None) deletes the file entirely.
+pub fn write_agent_auth(oauth_token: Option<&str>, api_key: Option<&str>) -> Result<(), String> {
+    let path = agent_auth_path().ok_or("no home dir")?;
+    if oauth_token.is_none() && api_key.is_none() {
+        match std::fs::remove_file(&path) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(format!("remove: {}", e)),
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let mut obj = serde_json::Map::new();
+    if let Some(t) = oauth_token {
+        obj.insert("oauth_token".into(), serde_json::Value::String(t.into()));
+    }
+    if let Some(k) = api_key {
+        obj.insert("api_key".into(), serde_json::Value::String(k.into()));
+    }
+    let json = serde_json::to_string_pretty(&serde_json::Value::Object(obj))
+        .map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 /// Read the optional `gate_command` from ~/.mod/claude/gate.json — a shell command that the
 /// owner defines to authorize sign-in based on arbitrary logic (token-gated, NFT-gated, etc).
 /// File format: {"command": "..."}.

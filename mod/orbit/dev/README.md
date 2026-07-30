@@ -1,6 +1,6 @@
 <div align="center">
 
-# Claude Mod
+# Build Mod
 
 **Programmable AI developer interface**
 
@@ -15,7 +15,7 @@ Script tasks with Python. Run jobs through Rust. Version to IPFS. Watch from a r
 ┌──────────────────────────────────────────┐
 │  Python SDK  →  Rust Engine  →  Next.js  │
 │  34 methods     Axum + SQLite   Terminal  │
-│  claude/mod.py  api/src/        app/src/  │
+│  build/mod.py   api/src/        app/src/  │
 └──────────────────────────────────────────┘
 ```
 
@@ -25,13 +25,13 @@ Script tasks with Python. Run jobs through Rust. Version to IPFS. Watch from a r
 
 ```bash
 git clone https://github.com/modprotocol/mod.git
-cd mod/mod/orbit/claude
+cd mod/mod/orbit/build
 
 pip install -r requirements.txt
 ./start.sh
 ```
 
-API on **:8820**, UI on **:8821**. Local mode by default — no wallet needed.
+API on **:8870**, UI on **:8871**. Local mode by default — no wallet needed.
 
 <details>
 <summary>Docker</summary>
@@ -46,11 +46,11 @@ docker compose up -d
 <summary>Install from IPFS</summary>
 
 ```bash
-ipfs get <CID> -o claude && cd claude
+ipfs get <CID> -o build && cd build
 pip install -r requirements.txt
 ```
 
-Get the latest CID from the on-chain registry: `m.get_cid('claude')`
+Get the latest CID from the on-chain registry: `m.get_cid('build')`
 
 </details>
 
@@ -59,7 +59,7 @@ Get the latest CID from the on-chain registry: `m.get_cid('claude')`
 ## Python SDK
 
 ```python
-from claude import Mod
+from build import Mod
 
 c = Mod()
 ```
@@ -93,6 +93,7 @@ c.bg_list()
 job = c.submit("Build React dashboard", model="sonnet", work_dir="/project")
 c.tail(job['id'])          # stream live output (SSE)
 c.jobs()                   # list all jobs
+c.guide(job['id'], "focus on the API first")  # steer a running job mid-task
 c.cancel(job['id'])        # cancel running job
 c.delete_job(job['id'])    # remove job
 ```
@@ -126,7 +127,7 @@ c.import_prompt("Qm…")                   # pull a shared prompt into your cata
 c.delete_prompt("p_ab12cd34ef56")        # author or owner only
 ```
 
-Bodies live in localfs; the catalog index lives off-tree in `~/.mod/claude/prompts.json`.
+Bodies live in localfs; the catalog index lives off-tree in `~/.mod/dev/prompts.json`.
 
 ### Modules
 
@@ -166,7 +167,7 @@ Selection order: `MOD_PM` env override → the module's `config.json`
 systemd unit, else generic). The JSON response reports the resolved `backend`.
 
 **Opt-in nix.** If a module ships a `flake.nix` (or `shell.nix`) and `nix` is
-installed, any launcher claude runs itself — the generic backend's `start.sh`,
+installed, any launcher build runs itself — the generic backend's `start.sh`,
 or the bootstrap fallback — is wrapped in `nix develop --command …` /
 `nix-shell --run …`, so the module starts inside its declared environment. pm2 /
 systemd units carry their own env and are left untouched. `nix_env` in the
@@ -176,7 +177,7 @@ response flags whether the module declares one.
 
 ## Web UI
 
-Retro terminal dashboard at **localhost:8821**.
+Retro terminal dashboard at **localhost:8871**.
 
 | Feature | Details |
 |---|---|
@@ -191,7 +192,7 @@ Retro terminal dashboard at **localhost:8821**.
 
 ## REST API
 
-Rust server (Axum + SQLite) on port `8820`.
+Rust server (Axum + SQLite) on port `8870`.
 
 <details>
 <summary>Public Endpoints</summary>
@@ -226,6 +227,7 @@ Rust server (Axum + SQLite) on port `8820`.
 | `GET` | `/jobs/{id}` | Job details |
 | `DELETE` | `/jobs/{id}` | Delete job |
 | `POST` | `/jobs/{id}/cancel` | Cancel job |
+| `POST` | `/jobs/{id}/message` | Guide a running job mid-task (steering) |
 | `GET` | `/jobs/{id}/stream` | SSE output stream |
 | `POST` | `/files/write` | Write file |
 | `POST` | `/modules/{name}/process` | Manage a module's pm2 processes (status/stop/start/restart) |
@@ -236,7 +238,7 @@ Rust server (Axum + SQLite) on port `8820`.
 **Example:**
 
 ```bash
-curl -X POST http://localhost:8820/jobs \
+curl -X POST http://localhost:8870/jobs \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Add error handling to api.py", "model": "sonnet", "work_dir": "/project"}'
 ```
@@ -247,7 +249,7 @@ curl -X POST http://localhost:8820/jobs \
 
 | Mode | How | Details |
 |---|---|---|
-| **Local** | `CLAUDE_JOBS_LOCAL=1` (default) | No auth, all endpoints open |
+| **Local** | `DEV_JOBS_LOCAL=1` (default) | No auth, all endpoints open |
 | **Wallet** | MetaMask / SubWallet / BIP-39 / password key | EIP-191 challenge-verify, HMAC bearer token (24h) |
 
 The first wallet to authenticate becomes the **owner**. Owners can edit any file and delete any module. Non-owners can only edit modules under `_outer/{their_address}/`. Read-only operations are always open.
@@ -258,7 +260,7 @@ Everything in the orbit belongs to the host owner. To let other people edit it, 
 
 Whitelisting does **not** grant owner-only *powers*: managing the whitelist, `set_owner`, killing processes, process control, and destructive module ops (delete/rename/restore) stay restricted to the configured owner.
 
-The whitelist lives off-tree in `~/.mod/claude/whitelist.json` (never committed — it's private auth state) and is read by both the Rust API and the Python SDK.
+The whitelist lives off-tree in `~/.mod/dev/whitelist.json` (never committed — it's private auth state) and is read by both the Rust API and the Python SDK.
 
 | Action | Owner | Editor (whitelisted) | Other |
 |---|---|---|---|
@@ -268,9 +270,9 @@ The whitelist lives off-tree in `~/.mod/claude/whitelist.json` (never committed 
 **Manage it** — owner-only:
 
 ```bash
-m claude/add_editor 0xEditorAddress…      # grant edit access
-m claude/editors                          # list whitelisted editors (public)
-m claude/remove_editor 0xEditorAddress…   # revoke
+m build/add_editor 0xEditorAddress…      # grant edit access
+m build/editors                          # list whitelisted editors (public)
+m build/remove_editor 0xEditorAddress…   # revoke
 ```
 
 REST (owner bearer token): `GET /whitelist` (public) · `POST /whitelist {address}` · `DELETE /whitelist/{address}`. The web UI's **Whitelist** panel (in the module detail / owner sidebar) wraps these with add/remove controls.
@@ -283,7 +285,7 @@ REST (owner bearer token): `GET /whitelist` (public) · `POST /whitelist {addres
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Anthropic API key (optional with Claude Max) |
 | `OPENROUTER_API_KEY` | — | OpenRouter key for 200+ models |
-| `CLAUDE_JOBS_LOCAL` | `1` | Set `0` to enable wallet auth |
+| `DEV_JOBS_LOCAL` | `1` | Set `0` to enable wallet auth |
 | `MOD_ANCHOR` | `~/mod` | Base directory for module creation |
 
 **Models:**
@@ -299,8 +301,8 @@ REST (owner bearer token): `GET /whitelist` (public) · `POST /whitelist {addres
 ## Architecture
 
 ```
-claude/
-├── claude/mod.py          Python SDK (34 methods, auto-starts API)
+build/
+├── build/mod.py           Python SDK (34 methods, auto-starts API)
 ├── api/src/               Rust job engine
 │   ├── api.rs               Axum REST + file browser + module ops
 │   ├── jobs.rs              Job lifecycle, process mgmt, crash recovery
@@ -324,7 +326,7 @@ claude/
 ```bash
 python -m pytest tests/                # run tests
 cd api && cargo build --release        # build Rust server
-cd app && npm run dev -- -p 8821       # frontend dev server
+cd app && npm run dev -- -p 8871       # frontend dev server
 ```
 
 ---
@@ -353,8 +355,8 @@ export ANTHROPIC_API_KEY=sk-ant-...
 <summary>Job server not starting</summary>
 
 ```bash
-lsof -i :8820              # check if port is in use
-pkill -f claude-jobs        # kill existing process
+lsof -i :8870              # check if port is in use
+pkill -f dev-jobs         # kill existing process
 ./start.sh                  # restart
 ```
 
@@ -375,7 +377,7 @@ ipfs init && ipfs daemon &
 ## Fork
 
 ```bash
-m fork claude myclaude "Add GitLab integration"
+m fork build mybuild "Add GitLab integration"
 ```
 
 Forks include full source (Python, Rust, Next.js), config, and tests. Lives in `~/mod/mod/orbit/<name>` and can be published with `m.publish('name')`.

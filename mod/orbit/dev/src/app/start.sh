@@ -1,8 +1,8 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-PORT="${1:-8821}"
-API_PORT="${2:-8820}"
+PORT="${1:-8871}"
+API_PORT="${2:-8870}"
 
 # Kill anything on the port
 lsof -ti:"$PORT" | xargs kill -9 2>/dev/null || true
@@ -19,5 +19,5 @@ if [ ! -d node_modules ]; then
 fi
 
 export NEXT_PUBLIC_API_PORT="$API_PORT"
-echo "Starting app on port $PORT (API port: $API_PORT, fetches via /api/claude)..."
+echo "Starting app on port $PORT (API port: $API_PORT, fetches via /api/build)..."
 exec npx next dev -p "$PORT"

@@ -4,7 +4,7 @@
 //! looks like right now. Captures go through the *local* caddy (the gateway
 //! host is DNS-mapped to 127.0.0.1 inside the browser) so nothing depends on
 //! public DNS or leaves the machine, and the shot shows exactly what a visitor
-//! sees. Results cache under ~/.mod/claude/screenshots/ — fresh shots are
+//! sees. Results cache under ~/.mod/dev/screenshots/ — fresh shots are
 //! served as-is, stale ones are served immediately while a background capture
 //! refreshes them, and failures are negative-cached so a dead module doesn't
 //! get a chrome launch on every hub render.
@@ -42,7 +42,7 @@ fn home() -> String {
 }
 
 fn shots_dir() -> PathBuf {
-    let dir = PathBuf::from(format!("{}/.mod/claude/screenshots", home()));
+    let dir = PathBuf::from(format!("{}/.mod/dev/screenshots", home()));
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -51,7 +51,7 @@ fn shots_dir() -> PathBuf {
 /// (`# host=modc2.com generated_at_epoch=…`) so it tracks `m caddy/host`
 /// automatically. Env override wins; modc2.com is the last-resort default.
 fn gateway_host() -> String {
-    if let Ok(h) = std::env::var("CLAUDE_SHOT_HOST") {
+    if let Ok(h) = std::env::var("DEV_SHOT_HOST") {
         if !h.trim().is_empty() {
             return h.trim().to_string();
         }
@@ -76,7 +76,7 @@ fn gateway_host() -> String {
 /// Locate a headless chromium. Playwright's headless-shell installs are the
 /// normal case on this host; PATH browsers are the fallback.
 fn browser_bin() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("CLAUDE_SHOT_BROWSER") {
+    if let Ok(p) = std::env::var("DEV_SHOT_BROWSER") {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);

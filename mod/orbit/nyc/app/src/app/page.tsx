@@ -7,6 +7,7 @@ import {
 } from '@/lib/api'
 import { useCollapse } from '@/lib/collapse'
 import { usd } from '@/lib/format'
+import ChatPanel from './components/ChatPanel'
 import HousingControls from './components/HousingControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
@@ -55,6 +56,7 @@ export default function Page() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [legendOpen, setLegendOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const collapse = useCollapse()
   const [flyTo, setFlyTo] = useState<{ lng: number; lat: number; zoom?: number; nonce: number } | null>(null)
   const [boot, setBoot] = useState<string | null>(null)
@@ -250,6 +252,13 @@ export default function Page() {
               <SearchBar onPick={pick} />
             </div>
             <button
+              onClick={() => setChatOpen((v) => !v)}
+              aria-expanded={chatOpen}
+              className={`btn pixel tap px-2.5 py-3 text-[8px] md:px-3 ${chatOpen ? 'btn-on' : ''}`}
+            >
+              ASK
+            </button>
+            <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search an address or place"
               className="btn tap grid place-items-center px-3 py-3 md:hidden"
@@ -404,6 +413,9 @@ export default function Page() {
           onClose={() => setSelection(null)}
         />
       </div>
+
+      {/* ── ask-the-agent chat ──────────────────────────────────────── */}
+      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
     </main>
   )
 }

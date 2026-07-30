@@ -1,10 +1,11 @@
 {
     "name": "dev",
     "title": "Dev \u2726 Orbit Console",
-    "version": "2.1.0",
-    "description": "Dev console (fork of claude) \u2014 Programmable AI developer console: Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "version": "2.2.0",
+    "description": "Dev console (fork of build) \u2014 Programmable AI developer console: Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
     "port": 8870,
     "app_port": 8871,
+    "route": true,
     "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
     "chain_network": "testnet",
     "bloctime_gate": true,
@@ -91,7 +92,7 @@
         "scan",
         "fix"
     ],
-    "schema": "QmfY5aXvVs3UKTXC44UQn6hEmGbdtSfb1hZBqL5ZWKfJ2D",
+    "schema": "QmRSEQ9ECXsSdSZo1GFNhCvFUfY7tTMLHJN78LMojKkSLs",
     "endpoints": {
         "/health": {
             "method": "GET",
@@ -107,6 +108,16 @@
             "method": "GET",
             "auth": false,
             "docs": "Get owner address and status"
+        },
+        "/system": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Host resources + per-app usage (aggregated, public)"
+        },
+        "/system/htop": {
+            "method": "GET",
+            "auth": "owner",
+            "docs": "htop-grade hardware stats: per-core CPU, mem/swap/disk, full process table with users + cmdlines. Owner-only \u2014 raw cmdlines can leak secrets passed as CLI args. Rendered by the SYSTEM tab in the app's Account sidebar."
         },
         "/repos": {
             "method": "GET",
@@ -169,7 +180,7 @@
             "method": "POST",
             "auth": true,
             "sudo": "cross-module",
-            "docs": "Manage a module's processes \u2014 body {action: status|stop|start|restart, target?: api|app}. Backend is pluggable per module (pm2|systemd|generic) via MOD_PM env or the target module's config.json `process_manager` field (default: auto-detect). Modules shipping a flake.nix/shell.nix get self-launched commands nix-wrapped. Owner-only; status is read-only, and mutating actions on a module other than claude require an x-sudo signature bound to process:{name}. Response includes the resolved `backend` and `nix_env`."
+            "docs": "Manage a module's processes \u2014 body {action: status|stop|start|restart, target?: api|app}. Backend is pluggable per module (pm2|systemd|generic) via MOD_PM env or the target module's config.json `process_manager` field (default: auto-detect). Modules shipping a flake.nix/shell.nix get self-launched commands nix-wrapped. Owner-only; status is read-only, and mutating actions on a module other than build require an x-sudo signature bound to process:{name}. Response includes the resolved `backend` and `nix_env`."
         },
         "/files/write": {
             "method": "POST",
@@ -186,8 +197,8 @@
         "/modules/{name}/restore": {
             "method": "POST",
             "auth": true,
-            "sudo": "non-claude",
-            "docs": "Restore a module from a snapshot CID (owner-only; x-sudo required for modules other than claude)."
+            "sudo": "non-build",
+            "docs": "Restore a module from a snapshot CID (owner-only; x-sudo required for modules other than build)."
         },
         "/modules/{name}/mr-fork": {
             "method": "POST",
@@ -240,8 +251,21 @@
         "/merge-requests/{id}/merge": {
             "method": "POST",
             "auth": true,
-            "sudo": "non-claude",
+            "sudo": "non-build",
             "docs": "AGENTIC MERGE (owner-only): auto-snapshots the live tree, stages base+head from their CIDs, and submits an agent job that three-way merges base/head/live semantically. Body {instructions?, model?}. The job's completion snapshot becomes merged_cid."
+        },
+        "/agent/auth": {
+            "method": "GET",
+            "auth": true,
+            "docs": "The caller's per-agent connection state (claude live; codex/agent slots reserved) plus the server's fallback credential source. Tracked in the app's Account sidebar AGENT tab."
+        },
+        "/agent/auth/{agent}": {
+            "method": [
+                "POST",
+                "DELETE"
+            ],
+            "auth": true,
+            "docs": "Connect (POST {token}) or forget (DELETE) the caller's own session for one agent. For claude, paste the sk-ant-oat\u2026 output of `claude setup-token` (or an sk-ant-api\u2026 key); jobs the caller submits then run on their account instead of the server's. Stored per-wallet in ~/.mod/dev/agent_auth/ (0600)."
         },
         "/whitelist": {
             "method": [
@@ -249,7 +273,7 @@
                 "POST"
             ],
             "auth": "GET: false, POST: true",
-            "docs": "List edit-whitelist (GET, public) or add an address (POST, owner-only). Whitelisted addresses are trusted editors: owner-level EDIT access to the orbit (host filesystem, unsandboxed jobs, core/+orbit/ writes), but NOT owner-only powers (whitelist mgmt, set_owner, kill, delete/rename/restore). Stored off-tree in ~/.mod/claude/whitelist.json."
+            "docs": "List edit-whitelist (GET, public) or add an address (POST, owner-only). Whitelisted addresses are trusted editors: owner-level EDIT access to the orbit (host filesystem, unsandboxed jobs, core/+orbit/ writes), but NOT owner-only powers (whitelist mgmt, set_owner, kill, delete/rename/restore). Stored off-tree in ~/.mod/dev/whitelist.json."
         },
         "/whitelist/{address}": {
             "method": "DELETE",
@@ -269,8 +293,7 @@
     },
     "urls": {
         "api": "http://localhost:8870",
-        "app": "http://localhost:8871/dev",
-        "gateway": "http://localhost:3000/dev"
+        "app": "http://localhost:8871"
     },
     "gateway_port": 3000
 }

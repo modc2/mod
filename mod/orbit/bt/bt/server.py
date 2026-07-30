@@ -6,6 +6,8 @@ bt.server — HTTP surface for the bt module on one port (:50280).
   GET  /api/tools   MCP-shaped tool listing
   GET  /api/docs    grouped tool docs for the Docs section
   POST /api/call    {"tool": name, "args": {...}} -> {"ok", "result"|"error"}
+  GET  /api/agent   ask-the-network agent status (auth, model, tool count)
+  POST /api/ask     {"question": ...} -> SSE stream of agent events
   POST /mcp         MCP streamable-HTTP endpoint (same JSON-RPC as stdio)
 
 Run:  python3 -m bt.server   (or pm2: bt-app)
@@ -18,9 +20,9 @@ import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import history, tools, traders
+from . import agent, history, tools, traders
 from .mcp_server import PROTOCOL_VERSION, SERVER_INFO
 
 PORT = int(os.environ.get('BT_PORT', '50280'))
@@ -49,6 +51,7 @@ def _info():
         'network': tools.DEFAULT_NETWORK,
         'tools': len(tools.TOOLS),
         'traders': traders.stats(),
+        'agent': {'ready': agent.status()['ready'], 'model': agent.MODEL},
         'mcp': {'http': '/bt/mcp', 'stdio': 'python3 -m bt.mcp_server'},
         'time': int(time.time()),
     }
@@ -82,6 +85,26 @@ def api_call(body: dict):
     except Exception as e:
         return JSONResponse(status_code=400, content={
             'ok': False, 'tool': name, 'error': f'{type(e).__name__}: {e}'})
+
+
+@app.get('/api/agent')
+def api_agent():
+    return agent.status()
+
+
+@app.post('/api/ask')
+def api_ask(body: dict):
+    question = (body.get('question') or '').strip()
+    if not question:
+        return JSONResponse(status_code=400, content={
+            'ok': False, 'error': 'question required'})
+
+    def gen():
+        for ev in agent.ask(question):
+            yield 'data: ' + json.dumps(ev, default=str) + '\n\n'
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'cache-control': 'no-cache',
+                                      'x-accel-buffering': 'no'})
 
 
 # ------------------------------------------------------------ MCP over HTTP

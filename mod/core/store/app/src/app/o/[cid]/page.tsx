@@ -92,6 +92,20 @@ export default function ObjectPage() {
     }
   };
 
+  const copyAll = async () => {
+    let full = preview?.text || "";
+    if (preview?.truncated) {
+      try {
+        const res = await fetch(downloadUrl);
+        full = await res.text();
+      } catch (e) {
+        setError(errorText(e));
+        return;
+      }
+    }
+    copy(full, "all");
+  };
+
   const like = async () => {
     if (!token || !listing) return;
     try {
@@ -275,14 +289,21 @@ export default function ObjectPage() {
                 )}
                 {preview && !preview.external && (
                   <>
-                    <p className="muted" style={{ margin: "0 0 4px", fontSize: 12 }}>
-                      {fmtBytes(preview.size)} {preview.is_text ? "· text" : "· binary"}
-                      {preview.truncated ? " · truncated preview" : ""}
-                    </p>
+                    <div className="row" style={{ justifyContent: "space-between", margin: "0 0 4px" }}>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {fmtBytes(preview.size)} {preview.is_text ? "· text" : "· binary"}
+                        {preview.truncated ? " · truncated preview" : ""}
+                      </span>
+                      {preview.is_text && (
+                        <button className="primary" onClick={copyAll}>
+                          {copied === "all" ? "✓ copied" : preview.truncated ? "copy all (full)" : "copy all"}
+                        </button>
+                      )}
+                    </div>
                     {preview.is_text && (
                       <pre className="content-view" style={{ marginTop: 8 }}>
                         {preview.text}
-                        {preview.truncated ? "\n\n… (truncated — download for the full content)" : ""}
+                        {preview.truncated ? "\n\n… (truncated — use “copy all” for the full content)" : ""}
                       </pre>
                     )}
                     {looksImage && (
