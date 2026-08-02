@@ -103,14 +103,33 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           const bal = sessions.map((s) => s.state?.balance).find((b) => typeof b === "number");
           if (typeof bal === "number") cash = bal;
         }
-        const positions = sessions.flatMap((s) => Object.values(s.state?.positions ?? {}));
+        // A session IS one strat (the registry is keyed (eoa, strategyId)), so
+        // its positions belong to it even when the position record carries no
+        // tag — positions opened before per-fill tagging, or by a code path
+        // that forgot it, would otherwise vanish into "unassigned" and the
+        // strat would render as holding nothing while it holds money.
+        const positions = sessions.flatMap((s) =>
+          Object.values(s.state?.positions ?? {}).map((p) => ({
+            ...p,
+            strategyId: p.strategyId || s.strategyId || s.config?.strategyId,
+          })),
+        );
         const ledger: Record<string, SessionStratLedger[]> = {};
         for (const s of sessions) {
+          const own = s.strategyId || s.config?.strategyId;
           for (const [id, l] of Object.entries(s.state?.stratStats ?? {})) {
-            (ledger[id] ??= []).push(l);
+            // Same reasoning as positions: an untagged ledger inside a
+            // session is that session's strat.
+            const key = id === "unassigned" && own ? own : id;
+            (ledger[key] ??= []).push(l);
           }
         }
-        const realizedEvents = sessions.flatMap((s) => s.state?.realizedEvents ?? []);
+        const realizedEvents = sessions.flatMap((s) =>
+          (s.state?.realizedEvents ?? []).map((e) => ({
+            ...e,
+            strategyId: e.strategyId || s.strategyId || s.config?.strategyId || "",
+          })),
+        );
         if (positions.length === 0 && Object.keys(ledger).length === 0) {
           if (!cancelled) setResult({ stats: {}, cash, running });
           return;

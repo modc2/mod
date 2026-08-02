@@ -406,6 +406,14 @@ pub struct EngineConfig {
     /// unfiltered flow.
     #[serde(rename = "tradeFilters", default)]
     pub trade_filters: Option<TradeFilters>,
+    /// Trader-quality gate. When set, every cycle ranks the enabled watchlist
+    /// by each trader's own realized stats (in the strat's market slice) and
+    /// mirrors ONLY the top `top_n`. Traders that fall out keep being polled
+    /// and observed — they just stop being copied until they climb back.
+    /// `None` ⇒ copy every enabled trader. Mirror of `TraderFilter` in
+    /// app/lib/types.ts; parity-fixture-tested.
+    #[serde(default)]
+    pub filter: Option<TraderFilter>,
     /// Auto-watchlist. When set, `traders` is engine-managed: re-derived on
     /// start and every `refreshMinutes` from each tag's most active recent
     /// traders, then persisted — any hand-edited list is overwritten on the
@@ -507,6 +515,110 @@ fn trade_passes_filters(t: &ObservedTrade, filters: &Option<TradeFilters>) -> bo
         }
     }
     true
+}
+
+/// Mirror of `TraderFilter` in app/lib/types.ts — the strat-level counterpart
+/// to `TradeFilters`. Ranks the watchlist by one of four metrics derived from
+/// the stats the cycle already computes, and keeps only the best.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TraderFilter {
+    /// "score" (default) | "sharpe" | "roi" | "winRate".
+    #[serde(default)]
+    pub metric: Option<String>,
+    /// Keep the top N by that metric; 0 ⇒ no rank cut. Default 5.
+    #[serde(rename = "topN", default)]
+    pub top_n: Option<usize>,
+    /// Hard floor on the metric — cuts a top-N trader that is below it.
+    #[serde(rename = "minScore", default)]
+    pub min_score: Option<f64>,
+    /// Minimum closed trades in the 30d window before a trader is rankable.
+    #[serde(rename = "minSamples", default)]
+    pub min_samples: Option<usize>,
+}
+
+/// Default watchlist cut when a strat sets `filter` without a `topN`.
+/// Mirrors `DEFAULT_FILTER_TOP_N` in strat.ts.
+pub const DEFAULT_FILTER_TOP_N: usize = 5;
+
+/// THE trader score — mirror of `traderScore` in app/lib/strats/strat.ts.
+/// The default metric is `candidate_score` with the notional divided out:
+/// expected edge per dollar copied.
+pub fn trader_score(stats: &TraderRoiStats, metric: &str) -> f64 {
+    match metric {
+        "sharpe" => stats.sharpe,
+        "roi" => stats.roi,
+        "winRate" => stats.success_prob,
+        _ => stats.success_prob * stats.roi,
+    }
+}
+
+/// "0x89bc…4f21" — log-friendly address, same shape the console renders.
+fn short_addr(a: &str) -> String {
+    if a.len() < 12 { return a.to_string(); }
+    format!("{}…{}", &a[..6], &a[a.len() - 4..])
+}
+
+/// One trader's place in the cycle's ranking.
+#[derive(Debug, Clone)]
+pub struct RankedTrader {
+    /// Lowercased address.
+    pub address: String,
+    pub score: f64,
+    pub sample_size: usize,
+    /// 1-based position (thresholds don't renumber).
+    pub rank: usize,
+    pub kept: bool,
+    /// Why it was cut — empty when kept.
+    pub reason: String,
+}
+
+/// Rank a watchlist and decide who gets copied — mirror of `rankTraders` in
+/// strat.ts, down to the address tie-break, so the console's preview and the
+/// live engine never disagree about who is in the top N.
+pub fn select_top_traders(
+    traders: &[(String, TraderRoiStats)],
+    filter: &TraderFilter,
+) -> Vec<RankedTrader> {
+    let metric = filter.metric.as_deref().unwrap_or("score");
+    let top_n = filter.top_n.unwrap_or(DEFAULT_FILTER_TOP_N);
+    let min_samples = filter.min_samples.unwrap_or(0);
+    let mut rows: Vec<RankedTrader> = traders
+        .iter()
+        .map(|(addr, stats)| RankedTrader {
+            address: addr.to_lowercase(),
+            score: trader_score(stats, metric),
+            sample_size: stats.sample_size,
+            rank: 0,
+            kept: true,
+            reason: String::new(),
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.address.cmp(&b.address))
+    });
+    let total = rows.len();
+    for (i, r) in rows.iter_mut().enumerate() {
+        r.rank = i + 1;
+        if min_samples > 0 && r.sample_size < min_samples {
+            r.kept = false;
+            r.reason = format!("{} closed trades < {} required", r.sample_size, min_samples);
+        } else if filter.min_score.map_or(false, |floor| r.score < floor) {
+            r.kept = false;
+            r.reason = format!(
+                "{} {:.3} < floor {:.3}",
+                metric,
+                r.score,
+                filter.min_score.unwrap_or(0.0)
+            );
+        } else if top_n > 0 && r.rank > top_n {
+            r.kept = false;
+            r.reason = format!("rank {} of {} — outside top {} by {}", r.rank, total, top_n, metric);
+        }
+    }
+    rows
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1965,6 +2077,10 @@ impl EngineRegistry {
             // after the state commit so order-placement HTTP never runs under
             // the state lock.
             let mut mirror_candidates: Vec<MirrorCandidate> = Vec::new();
+            // (address, stats) for every trader polled this cycle — the input
+            // to the trader FILTER, which can only rank once the whole
+            // watchlist has been scored.
+            let mut cycle_trader_stats: Vec<(String, TraderRoiStats)> = Vec::new();
 
             // Snapshot cursors so we don't hold the RwLock across the HTTP fan-out.
             let (cursors, enabled_traders): (HashMap<String, i64>, Vec<TraderEntry>) = {
@@ -2061,6 +2177,7 @@ impl EngineRegistry {
                             cycle_started_at,
                             cfg.market_query.as_deref(),
                         );
+                        cycle_trader_stats.push((key.clone(), roi_stats));
 
                         let mut highest_ts = cursor;
                         for mut t in parsed {
@@ -2118,6 +2235,44 @@ impl EngineRegistry {
                 }
             }
 
+            // ── Trader FILTER — keep only the top-ranked traders ──
+            // Ranking is a whole-watchlist decision, so it runs once the loop
+            // above has scored everyone, and it drops CANDIDATES rather than
+            // skipping the fetch: a filtered-out trader stays observed (the
+            // console still shows their flow, and their stats keep updating,
+            // which is how they climb back in).
+            let filter_note: Option<String> = cfg.filter.as_ref().map(|f| {
+                let ranked = select_top_traders(&cycle_trader_stats, f);
+                let kept: HashSet<String> =
+                    ranked.iter().filter(|r| r.kept).map(|r| r.address.clone()).collect();
+                let before = mirror_candidates.len();
+                mirror_candidates.retain(|c| kept.contains(&c.trade.trader.to_lowercase()));
+                let dropped = before - mirror_candidates.len();
+                let metric = f.metric.as_deref().unwrap_or("score");
+                let roster = ranked
+                    .iter()
+                    .take(8)
+                    .map(|r| {
+                        format!(
+                            "{}{} {:.3}",
+                            if r.kept { "✓" } else { "·" },
+                            short_addr(&r.address),
+                            r.score,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "FILTER · top {} by {} · {}/{} traders copied · {} candidate(s) dropped · {}",
+                    f.top_n.unwrap_or(DEFAULT_FILTER_TOP_N),
+                    metric,
+                    kept.len(),
+                    ranked.len(),
+                    dropped,
+                    roster,
+                )
+            });
+
             // Commit all the cycle's effects in a single state-lock window.
             let cycle_ended_at = chrono::Utc::now().timestamp_millis();
             {
@@ -2155,6 +2310,19 @@ impl EngineRegistry {
                 if cfg.momentum.is_some() {
                     let n = momentum_series.as_ref().map_or(0, |(_, s)| s.len());
                     summary.push_str(&format!(" · momentum over {} markets", n));
+                }
+                // The trader ranking gets its own row: which traders are being
+                // copied right now is the single thing a FILTER strat's owner
+                // needs to see, and burying it in the cycle summary hides it.
+                if let Some(note) = &filter_note {
+                    push_log(&mut s.log, LogEntry {
+                        id: format!("filter-{}", cycle_ended_at),
+                        timestamp: cycle_ended_at,
+                        kind: "FILTER".into(),
+                        reason: Some(note.clone()),
+                        trader_address: None,
+                        trades_seen: None,
+                    });
                 }
                 let next_cycle_count = s.cycle_count + 1;
                 tracing::info!(eoa = %cfg.eoa, cycle = next_cycle_count, interval_ms = effective_interval_ms, "{}", summary);
@@ -4615,6 +4783,53 @@ mod tests {
             );
             let want = case["expected"].as_f64().unwrap();
             assert!(close(got, want), "copyRatio[{name}]: got {got}, want {want}");
+        }
+
+        // Trader FILTER — WHO gets copied. The console previews this ranking
+        // while the engine enforces it, so a drift makes the preview a lie.
+        {
+            let traders: Vec<(String, TraderRoiStats)> = fx["traderFilterTraders"]
+                .as_array()
+                .expect("traderFilterTraders")
+                .iter()
+                .map(|t| {
+                    (
+                        t["address"].as_str().unwrap().to_string(),
+                        stats_from_returns(&floats(&t["returns"])),
+                    )
+                })
+                .collect();
+            for case in fx["traderFilterCases"].as_array().expect("traderFilterCases") {
+                let name = case["name"].as_str().unwrap_or("?");
+                let filter: TraderFilter =
+                    serde_json::from_value(case["filter"].clone()).expect("filter parses");
+                let ranked = select_top_traders(&traders, &filter);
+                let order: Vec<String> = ranked.iter().map(|r| r.address.clone()).collect();
+                let kept: Vec<String> = ranked
+                    .iter()
+                    .filter(|r| r.kept)
+                    .map(|r| r.address.clone())
+                    .collect();
+                let want_order: Vec<String> = case["expectedOrder"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect();
+                let want_kept: Vec<String> = case["expectedKept"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap().to_string())
+                    .collect();
+                assert_eq!(order, want_order, "traderFilter[{name}] ranking");
+                assert_eq!(kept, want_kept, "traderFilter[{name}] kept set");
+            }
+            assert_eq!(
+                DEFAULT_FILTER_TOP_N as u64,
+                fx["defaults"]["filterTopN"].as_u64().unwrap(),
+                "DEFAULT_FILTER_TOP_N"
+            );
         }
 
         for case in fx["stopLossCases"].as_array().expect("stopLossCases") {

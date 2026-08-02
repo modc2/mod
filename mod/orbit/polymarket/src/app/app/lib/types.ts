@@ -135,6 +135,48 @@ export interface TradeFilters {
   categories?: string[];
 }
 
+/** Which per-trader number the FILTER ranks on. All four are derived from the
+    same `TraderRoiStats` the engine already computes every cycle, so the
+    ranking means the same thing live and in backtest.
+
+    - `score`    P(success) × ROI — expected edge per dollar copied. This is
+                 `scoreCandidate` with the trade's notional divided out, i.e.
+                 the trader half of THE playbook score. Default.
+    - `sharpe`   ROI / stdev of per-trade returns — consistency over size.
+    - `roi`      raw mean return per closed trade.
+    - `winRate`  Laplace-smoothed hit rate (`successProb`). */
+export type TraderMetric = "score" | "sharpe" | "roi" | "winRate";
+
+/** Keep only the BEST traders on the watchlist — the strat-level counterpart
+    to `TradeFilters` (which gates individual trades). Every cycle the engine
+    ranks the enabled watchlist by `metric` and mirrors only the top `topN`;
+    everyone else is observed but never copied.
+
+    Why it exists: a watchlist seeded from a leaderboard rots. A trader who
+    was top-10 last month can be the one bleeding this week, and an
+    equal-weight copy strat keeps mirroring them until a human notices. The
+    filter re-ranks continuously from the traders' OWN realized returns in the
+    strat's slice of the market, so the strat follows the score rather than
+    the roster.
+
+    Mirror of `TraderFilter` / `select_top_traders` in
+    `src/api/src/live_engine.rs` — pinned across both languages by
+    parity.fixture.json `traderFilterCases`. */
+export interface TraderFilter {
+  /** Ranking metric. Default "score". */
+  metric?: TraderMetric;
+  /** Keep the top N traders by that metric. 0 ⇒ no rank cut (only the
+      thresholds below apply). Default 5. */
+  topN?: number;
+  /** Hard floor on the metric — a trader inside the top N but below this is
+      cut too. Undefined ⇒ no floor. `0` on the default metric means "must be
+      expected-profitable". */
+  minScore?: number;
+  /** Traders with fewer closed trades than this in the 30d window are
+      unrankable and cut (their stats are noise). Default 0 = off. */
+  minSamples?: number;
+}
+
 /** Price-momentum origination params. Setting `momentum` (even `{}`) turns
     origination ON: each cycle the engine fetches CLOB price history for
     active markets matching `query` (default: the strat's marketQuery, else
@@ -239,6 +281,9 @@ export interface SavedIndex {
   // AND-ed with marketQuery to carve a unique slice of the watched flow.
   // Empty/undefined ⇒ no per-trade gating beyond marketQuery.
   tradeFilters?: TradeFilters;
+  // Trader-quality gate: re-rank the watchlist every cycle and only copy the
+  // top scorers (see TraderFilter). Absent ⇒ every enabled trader is copied.
+  filter?: TraderFilter;
   // Opt-in price-momentum ORIGINATION (no watchlist needed): the engine
   // feeds the strat CLOB price history for markets matching the query and
   // the strat buys the outcome whose odds are RISING (e.g. 50¢ → 60¢),
@@ -259,6 +304,15 @@ export interface SavedIndex {
   // a fetch outage enters at prices the leader never paid. undefined ⇒ 300;
   // explicit 0 ⇒ off.
   maxTradeAgeSec?: number;
+  // Strat this one was forked from (id of a SavedIndex, or the slug of a
+  // built-in template). Lineage only — a fork is a full, independent copy.
+  forkedFrom?: string;
+  // Capital the CAPITAL PLAN last recommended for this strat (USD) and when
+  // it was computed. Written by the strat editor, which is the only place
+  // with the watchlist's trade history loaded; read by the funding sidebar so
+  // "how much should I run this with" is answerable without re-fetching.
+  suggestedCapital?: number;
+  suggestedCapitalAt?: number;
   createdAt: number;
   updatedAt: number;
   // Cached backtest snapshot (updated each time backtest runs)

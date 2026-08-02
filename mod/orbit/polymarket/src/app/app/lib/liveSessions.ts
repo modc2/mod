@@ -182,6 +182,7 @@ export async function startLiveSession(
     ...(strat.maxTradeAgeSec !== undefined && { maxTradeAgeSec: strat.maxTradeAgeSec }),
     ...(strat.marketQuery && { marketQuery: strat.marketQuery }),
     ...(strat.tradeFilters && { tradeFilters: strat.tradeFilters }),
+    ...(strat.filter && { filter: strat.filter }),
     ...(strat.momentum && { momentum: strat.momentum }),
   };
   try {

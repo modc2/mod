@@ -93,6 +93,60 @@ export function updateIndex(id: string, patch: Partial<SavedIndex>): void {
   setItemSafe(STORAGE_KEY, JSON.stringify(all));
 }
 
+/** "CRYPTO MAJORS" → "CRYPTO MAJORS 2" when the name is taken. Shared by the
+    fork paths so two strats can never collide on a name. */
+export function uniqueIndexName(base: string): string {
+  const names = new Set(loadIndexes().map((i) => i.name));
+  if (!names.has(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const cand = `${base} ${n}`;
+    if (!names.has(cand)) return cand;
+  }
+  return `${base} ${Date.now().toString(36)}`;
+}
+
+/** Fork a saved strat into a fresh, independent copy the user owns.
+ *
+ *  Everything that describes the STRATEGY comes along — watchlist, weights,
+ *  every param, filters. Everything that describes that strat's RUN does not:
+ *  a fork starts stopped, un-funded (`liveEnabled: false`), with no cached
+ *  backtest numbers, so it can't be mistaken for having a track record it
+ *  never earned. `forkedFrom` keeps the lineage.
+ *
+ *  Forking is the honest way to try a variation: the original keeps running
+ *  untouched with its own ledger (the engine is keyed per strat id), and the
+ *  fork gets its own session the moment it's funded.
+ *
+ *  Returns the new strat, or null when `id` doesn't exist. */
+export function forkIndex(id: string, name?: string): SavedIndex | null {
+  const source = loadIndexes().find((i) => i.id === id);
+  if (!source) return null;
+  const now = Date.now();
+  const {
+    // Dropped on purpose — see above.
+    lastPnl: _p, lastPnlAfterCosts: _pc, lastRoi1k: _r,
+    lastTradeCount: _tc, lastBacktestAt: _ba,
+    ...strategy
+  } = source;
+  const fork: SavedIndex = {
+    ...strategy,
+    // Deep-copy the containers so editing the fork's watchlist or filters
+    // can't reach back into the original through a shared reference.
+    traders: source.traders.map((t) => ({ ...t })),
+    ...(source.tradeFilters && { tradeFilters: { ...source.tradeFilters } }),
+    ...(source.filter && { filter: { ...source.filter } }),
+    ...(source.momentum && { momentum: { ...source.momentum } }),
+    id: now.toString(36),
+    name: uniqueIndexName(name?.trim() || `${source.name} COPY`),
+    forkedFrom: source.id,
+    liveEnabled: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  saveIndex(fork);
+  return fork;
+}
+
 export function getActiveIndexId(): string | null {
   try {
     return localStorage.getItem(ACTIVE_KEY);

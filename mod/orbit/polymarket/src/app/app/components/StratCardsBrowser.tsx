@@ -12,6 +12,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
 import { fmtUsd, type StratMoney } from "../lib/stratStats";
+import { describeTraderFilter } from "../lib/strats/strat";
 import type { SavedIndex } from "../lib/types";
 
 interface Props {
@@ -19,14 +20,15 @@ interface Props {
   indexes: SavedIndex[];
   /** Per-strat live money-in/PnL (from useStratStats); keys are strat ids. */
   stats?: Record<string, StratMoney>;
-  /** Deposit wallet's USDC cash (from useStratStats); null until known. */
-  cash?: number | null;
   activeId: string | null;
   onClose: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onCreate: () => void;
   onFork: (t: StratTemplate) => void;
+  /** Fork a SAVED strat (⑂ on its card) — the picker copies it and drops
+      into rename mode. Distinct from `onFork`, which forks a template. */
+  onForkSaved: (id: string) => void;
 }
 
 function timeAgo(ts?: number): string {
@@ -44,7 +46,7 @@ function timeAgo(ts?: number): string {
 /// dimension. Mirrors the semantics documented on TradeFilters in types.ts.
 /// Takes just the two filter fields so default-strat templates (which are
 /// Partial<SavedIndex> recipes) can render the same chips as saved strats.
-function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters">): string[] {
+function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters" | "filter">): string[] {
   const chips: string[] = [];
   if (idx.marketQuery?.trim()) chips.push(`"${idx.marketQuery.trim()}"`);
   const f = idx.tradeFilters;
@@ -63,6 +65,9 @@ function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters">): str
     }
     if (f.categories && f.categories.length > 0) chips.push(f.categories.join("/").toUpperCase());
   }
+  // The trader gate reads as a chip too — "top 5 by score" is as much a part
+  // of what this strat trades as "BUYS ONLY".
+  if (idx.filter) chips.push(describeTraderFilter(idx.filter).toUpperCase());
   return chips;
 }
 
@@ -70,13 +75,13 @@ export default function StratCardsBrowser({
   open,
   indexes,
   stats,
-  cash = null,
   activeId,
   onClose,
   onSelect,
   onDelete,
   onCreate,
   onFork,
+  onForkSaved,
 }: Props) {
   // Escape closes, and the page behind doesn't scroll while browsing.
   useEffect(() => {
@@ -170,6 +175,13 @@ export default function StratCardsBrowser({
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-pixel-gray font-mono">{timeAgo(idx.updatedAt)}</span>
                     <button
+                      onClick={(e) => { e.stopPropagation(); onForkSaved(idx.id); }}
+                      title={`Fork "${idx.name}" — an independent copy, stopped and un-funded, ready to rename`}
+                      className="text-[12px] leading-none text-pixel-gray hover:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      ⑂
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); onDelete(idx.id); }}
                       title="Delete strat"
                       className="text-[13px] leading-none text-pixel-gray hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -198,16 +210,23 @@ export default function StratCardsBrowser({
                   ))}
                 </div>
 
-                {/* Live money — wallet cash available to trade, cumulative
-                    PnL and last-24h return (engine ledger, not backtest). */}
+                {/* Live money — what THIS strat has in play, its cumulative
+                    PnL and last-24h return (engine ledger, not backtest).
+                    Deliberately not the wallet's USDC: that number is shared
+                    by every strat, so printing it per card told the user each
+                    one held the whole balance. */}
                 <div className="grid grid-cols-3 gap-1.5 mb-2.5">
                   <div className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">
-                    <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">CASH</div>
+                    <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">IN PLAY</div>
                     <div
-                      className={`text-[12.5px] font-mono truncate ${cash === null ? "text-pixel-gray" : "text-pixel-white"}`}
-                      title="Deposit wallet's USDC cash"
+                      className={`text-[12.5px] font-mono truncate ${money?.openPositions ? "text-pixel-white" : "text-pixel-gray"}`}
+                      title={
+                        money?.openPositions
+                          ? `${fmtUsd(money.openValue)} across ${money.openPositions} open position(s)`
+                          : "This strat holds no positions"
+                      }
                     >
-                      {cash !== null ? fmtUsd(cash) : "—"}
+                      {money?.openPositions ? fmtUsd(money.openValue) : "—"}
                     </div>
                   </div>
                   <div className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">

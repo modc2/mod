@@ -128,6 +128,9 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
       // Semantic per-trade filters (side / price band / size band / category).
       // Omitted when empty so the backend's no-op defaults apply.
       ...(config.tradeFilters && { tradeFilters: config.tradeFilters }),
+      // Trader FILTER — the backend re-ranks the watchlist every cycle and
+      // copies only the top scorers. Omitted ⇒ every enabled trader is copied.
+      ...(config.filter && { filter: config.filter }),
       // Price-momentum origination — the general, watchlist-free strategy
       // path. The backend engine tracks candidate markets' price history and
       // originates entries/exits from the moves themselves, so a strat with

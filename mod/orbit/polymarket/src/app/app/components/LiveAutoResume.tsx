@@ -54,6 +54,7 @@ export default function LiveAutoResume() {
       // them).
       marketQuery: strat.marketQuery,
       tradeFilters: strat.tradeFilters,
+      filter: strat.filter,
       momentum: strat.momentum,
     });
   }, [auth.connected, auth.address, auth.clobCreds, isLive, startLive]);

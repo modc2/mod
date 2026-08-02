@@ -20,6 +20,8 @@ import {
   stopLossTriggered,
   takeProfitTriggered,
   copyRatioFor,
+  rankTraders,
+  DEFAULT_FILTER_TOP_N,
   DEFAULT_STOP_LOSS,
   DEFAULT_TAKE_PROFIT,
   DEFAULT_MAX_UPSCALE,
@@ -170,6 +172,71 @@ console.log("\n── shouldMirror + propose defaults ──");
   const filtered = new Strat({ tradeFilters: { sides: "buy" } });
   check("tradeFilters gate SELL", filtered.shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === false);
   check("tradeFilters pass BUY", filtered.shouldMirror(buildTrade({ side: "BUY", price: 0.65 }), H) === true);
+}
+
+console.log("\n── FILTER — only the top-ranked traders get copied ──");
+{
+  // Three watched traders, wildly different quality. The strat keeps the top 2
+  // by expected edge per dollar (P × ROI), so the bleeder's fills are observed
+  // but never mirrored.
+  const good = buildStats({ address: "0xaaa", roi: 0.30, sharpe: 3.0, sampleSize: 10, wins: 8, successProb: 10 / 14 });
+  const ok = buildStats({ address: "0xbbb", roi: 0.05, sharpe: 1.0, sampleSize: 10, wins: 6, successProb: 8 / 14 });
+  const bad = buildStats({ address: "0xccc", roi: -0.20, sharpe: -2.0, sampleSize: 10, wins: 2, successProb: 4 / 14 });
+  const hist = buildHistory({
+    traderStats: { "0xaaa": good, "0xbbb": ok, "0xccc": bad },
+    watchlist: [
+      { address: "0xaaa", weight: 1 },
+      { address: "0xbbb", weight: 1 },
+      { address: "0xccc", weight: 1 },
+    ],
+  });
+  const s = new Strat({ filter: { topN: 2 }, tradeFilters: { minPrice: 0 } });
+  check("top-ranked trader passes", s.shouldMirror(buildTrade({ trader: "0xaaa" }), hist) === true);
+  check("2nd-ranked trader passes", s.shouldMirror(buildTrade({ trader: "0xbbb" }), hist) === true);
+  check("bottom trader is filtered out", s.shouldMirror(buildTrade({ trader: "0xccc" }), hist) === false);
+  check("case-insensitive on address", s.shouldMirror(buildTrade({ trader: "0xAAA" }), hist) === true);
+  check("skipReason names the rank", /rank 3 of 3/.test(s.skipReason(buildTrade({ trader: "0xccc" }), hist)));
+  check("ranking() is best-first", s.ranking(hist).map((r) => r.address).join(",") === "0xaaa,0xbbb,0xccc");
+  check("no filter ⇒ no ranking, no gate",
+    new Strat({ tradeFilters: { minPrice: 0 } }).ranking(hist).length === 0 &&
+    new Strat({ tradeFilters: { minPrice: 0 } }).shouldMirror(buildTrade({ trader: "0xccc" }), hist) === true);
+
+  // A metric switch changes who survives: 0xbbb is steadier (sharpe 1.0 on a
+  // 5% ROI) than nobody here, but ranking on winRate reorders nothing —
+  // ranking on roi keeps the same top 2 for a different reason. The point of
+  // the check is that the metric is actually read.
+  const bySharpe = new Strat({ filter: { metric: "sharpe", topN: 1 }, tradeFilters: { minPrice: 0 } });
+  check("metric: sharpe keeps only the best Sharpe",
+    bySharpe.shouldMirror(buildTrade({ trader: "0xaaa" }), hist) === true &&
+    bySharpe.shouldMirror(buildTrade({ trader: "0xbbb" }), hist) === false);
+
+  // Thresholds cut inside the top N: minScore demands positive expected edge.
+  const positiveOnly = new Strat({ filter: { topN: 0, minScore: 0.1 }, tradeFilters: { minPrice: 0 } });
+  check("minScore floor cuts a positive-but-thin edge",
+    positiveOnly.shouldMirror(buildTrade({ trader: "0xaaa" }), hist) === true &&
+    positiveOnly.shouldMirror(buildTrade({ trader: "0xbbb" }), hist) === false);
+
+  // minSamples: a 2-trade record is noise no matter how good it looks.
+  const thin = buildStats({ address: "0xddd", roi: 0.9, sampleSize: 2, wins: 2, successProb: 4 / 6 });
+  const thinHist = buildHistory({
+    traderStats: { "0xaaa": good, "0xddd": thin },
+    watchlist: [{ address: "0xaaa", weight: 1 }, { address: "0xddd", weight: 1 }],
+  });
+  const seasoned = new Strat({ filter: { topN: 2, minSamples: 5 }, tradeFilters: { minPrice: 0 } });
+  check("minSamples cuts a thin record even at rank 1",
+    seasoned.shouldMirror(buildTrade({ trader: "0xddd" }), thinHist) === false &&
+    seasoned.shouldMirror(buildTrade({ trader: "0xaaa" }), thinHist) === true);
+
+  // An unranked trader (stats haven't loaded yet) sorts on the neutral prior —
+  // below anyone with proven edge, above a proven loser.
+  const unranked = buildHistory({
+    traderStats: { "0xccc": bad },
+    watchlist: [{ address: "0xccc", weight: 1 }, { address: "0xeee", weight: 1 }],
+  });
+  const top1 = new Strat({ filter: { topN: 1 }, tradeFilters: { minPrice: 0 } });
+  check("unranked trader outranks a proven loser",
+    top1.shouldMirror(buildTrade({ trader: "0xeee" }), unranked) === true &&
+    top1.shouldMirror(buildTrade({ trader: "0xccc" }), unranked) === false);
 }
 
 console.log("\n── flow origination — history in, trades out ──");
@@ -482,6 +549,37 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
       close(got, c.expected),
       `got ${got}, want ${c.expected}`,
     );
+  }
+
+  // Trader FILTER — the ranking that decides WHO gets copied. Rust
+  // (`select_top_traders`) reads the same cases; a drift here means the
+  // console's preview of "these 5 are being copied" stops being true live.
+  {
+    const stats: Record<string, TraderRoiStats> = {};
+    const addresses: string[] = [];
+    for (const t of fx.traderFilterTraders as { address: string; returns: number[] }[]) {
+      addresses.push(t.address);
+      stats[t.address] = {
+        address: t.address, windowDays: 30, cashDeployed: 0, syncedAt: 0,
+        ...statsFromReturns(t.returns),
+      };
+    }
+    for (const c of fx.traderFilterCases) {
+      const rows = rankTraders(addresses, stats, c.filter);
+      const order = rows.map((r) => r.address);
+      const kept = rows.filter((r) => r.kept).map((r) => r.address);
+      check(
+        `traderFilter[${c.name}] ranking matches fixture`,
+        JSON.stringify(order) === JSON.stringify(c.expectedOrder),
+        `got ${JSON.stringify(order)}`,
+      );
+      check(
+        `traderFilter[${c.name}] kept set matches fixture`,
+        JSON.stringify(kept) === JSON.stringify(c.expectedKept),
+        `got ${JSON.stringify(kept)}`,
+      );
+    }
+    check("DEFAULT_FILTER_TOP_N matches fixture", DEFAULT_FILTER_TOP_N === fx.defaults.filterTopN);
   }
 
   check("REBALANCE_MARGIN_PCT matches fixture", REBALANCE_MARGIN_PCT === fx.rebalanceMarginPct);

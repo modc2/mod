@@ -539,6 +539,8 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       marketQuery: activeStrat.marketQuery,
       // Semantic per-trade filters (side / price band / size band / category).
       tradeFilters: activeStrat.tradeFilters,
+      // Trader FILTER — copy only the top-ranked traders on the watchlist.
+      filter: activeStrat.filter,
       // Price-momentum origination — buys rising outcomes, no watchlist needed.
       momentum: activeStrat.momentum,
       // Funded wallet → GO LIVE trades for real. Unfunded → dry-run paper
@@ -581,6 +583,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     intervalMs: Math.max(1000, Math.round(livePollMin * 60_000)),
     marketQuery: activeStrat?.marketQuery ?? "",
     tradeFilters: activeStrat?.tradeFilters ?? {},
+    filter: activeStrat?.filter ?? null,
   });
   const lastAppliedSigRef = useRef<string | null>(null);
   useEffect(() => {
@@ -613,6 +616,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       maxSlippageBps: 300,
       marketQuery: activeStrat.marketQuery,
       tradeFilters: activeStrat.tradeFilters,
+      filter: activeStrat.filter,
       momentum: activeStrat.momentum,
     });
   }, [configSig, livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, effectiveCapital, startLive, stopLive]);

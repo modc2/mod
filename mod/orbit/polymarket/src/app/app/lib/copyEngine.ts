@@ -1,5 +1,5 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters, MomentumParams } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
 import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats, searchMarkets, fetchPriceHistory, fetchPriceHistoryLive, fetchMidpointLive, fetchMarketBySlug } from "./polymarket";
 import { getTradeCache } from "./cache";
@@ -172,6 +172,10 @@ export interface CopyEngineConfig {
       AND the CATCH UP backfill. Empty/undefined ⇒ no per-trade gating beyond
       `marketQuery`. */
   tradeFilters?: TradeFilters;
+  /** Trader-quality gate: re-rank the watchlist each cycle and mirror only
+      the top scorers (see `TraderFilter`). Forwarded to the BACKEND engine
+      too, so a filtered strat keeps filtering after the tab closes. */
+  filter?: TraderFilter;
   /** Opt-in price-momentum origination — the general, watchlist-free
       strategy path: the engine feeds the strat CLOB price history for
       markets matching the query and the strat buys the outcome whose odds
@@ -367,6 +371,7 @@ export class CopyEngine {
       maxPerCycle: config.maxPerCycle,
       marketQuery: config.marketQuery,
       tradeFilters: config.tradeFilters,
+      filter: config.filter,
       momentum: config.momentum,
     });
     this.state = {
@@ -1377,7 +1382,10 @@ export class CopyEngine {
                 market: trade.market,
                 conditionId: trade.conditionId,
                 side: trade.side,
-                reason: "STRAT_FILTERED · shouldMirror returned false",
+                // Say WHICH gate rejected it (market query / trade filter /
+                // trader FILTER rank) — "shouldMirror returned false" sent
+                // users hunting through params to find out why.
+                reason: `STRAT_FILTERED · ${this.strat.skipReason(stratTrade, history) || "shouldMirror returned false"}`,
                 upstreamTradeId: trade.id,
               });
               this.copiedIds.add(trade.id);

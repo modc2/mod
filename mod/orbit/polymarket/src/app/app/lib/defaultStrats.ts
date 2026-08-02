@@ -15,6 +15,10 @@
 // near-live price tape (momentum.candles), with tiny sizing and a single
 // position slot precisely because that lane is still HFT turf.
 //
+// FILTER is the one template whose watchlist is deliberately WIDE (20): its
+// point is that the strat picks the roster itself, every scan, from the
+// traders' own realized returns — see `TraderFilter`.
+//
 // Templates WITHOUT an explicit price band (sports/politics/weather) inherit
 // the engine-wide likely-to-win default: BUYs below DEFAULT_MIN_ENTRY_PRICE
 // (60¢) are not mirrored. LONGSHOT HUNTER's explicit 2–20¢ band is the
@@ -23,9 +27,9 @@
 import { SavedIndex } from "./types";
 import {
   equalWeightTraders,
-  loadIndexes,
   saveIndex,
   setActiveIndexId,
+  uniqueIndexName,
   updateIndex,
 } from "./indexStore";
 import { fetchTopTraderAddresses } from "./polymarket";
@@ -48,6 +52,28 @@ export interface StratTemplate {
 }
 
 export const DEFAULT_STRATS: StratTemplate[] = [
+  {
+    slug: "filter",
+    name: "FILTER",
+    description:
+      "Watches 20 traders, copies only the 5 with the best score right now — re-ranked every scan on their own realized returns, so a leader who starts bleeding is dropped automatically.",
+    // A wide net on purpose: the filter is what makes the roster small, and
+    // it can only pick from who it can see. 20 in, 5 copied.
+    seed: { days: 14, count: 20 },
+    params: {
+      filter: {
+        metric: "score",
+        topN: 5,
+        // Positive expected edge required — a trader who is top-5 on a
+        // watchlist where everyone is losing still isn't worth copying.
+        minScore: 0,
+        // 3 closed trades is where the stats stop being noise (see
+        // TraderRoiStats.sampleSize).
+        minSamples: 3,
+      },
+      tradeFilters: { sides: "buy", minPrice: 0.6 },
+    },
+  },
   {
     slug: "top-allstars",
     name: "TOP 10 ALL-STARS",
@@ -175,17 +201,6 @@ export const DEFAULT_STRATS: StratTemplate[] = [
   },
 ];
 
-/** "CRYPTO MAJORS" → "CRYPTO MAJORS 2" when the name is already taken. */
-function uniqueName(base: string): string {
-  const names = new Set(loadIndexes().map((i) => i.name));
-  if (!names.has(base)) return base;
-  for (let n = 2; n < 1000; n++) {
-    const cand = `${base} ${n}`;
-    if (!names.has(cand)) return cand;
-  }
-  return `${base} ${Date.now().toString(36)}`;
-}
-
 /// Fork a template into a real, user-owned strat and make it active.
 /// Returns the new strat immediately (empty trader list); trader seeding
 /// runs async and reports back through `onSeeded` so callers can re-render
@@ -197,7 +212,8 @@ export function forkDefaultStrat(
   const now = Date.now();
   const idx: SavedIndex = {
     id: now.toString(36),
-    name: uniqueName(t.name),
+    name: uniqueIndexName(t.name),
+    forkedFrom: t.slug,
     traders: [],
     backtestDays: 7,
     rebalanceMinutes: 0.5,

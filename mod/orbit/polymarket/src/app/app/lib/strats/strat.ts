@@ -13,6 +13,8 @@
 //   maxPerCycle      per-cycle BUY budget (fee control)
 //   marketQuery      free-text market-topic gate
 //   tradeFilters     semantic per-trade gates (side/price/size/category)
+//   filter           trader-quality gate: rank the watchlist every cycle by
+//                    a score and copy only the top N
 //   mirror           false = never mirror per-trade (origination only)
 //   slippageBps      limit-price widening toward the fillable side
 //   flow { … }       opt-in flow-momentum ORIGINATION: buy watchlist
@@ -39,9 +41,9 @@
 // → execute) for users who author strats in Python.
 
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
-import type { TradeFilters, MomentumParams } from "../types";
+import type { TradeFilters, MomentumParams, TraderFilter, TraderMetric } from "../types";
 import { marketMatchesQuery } from "../marketQuery";
-import { tradeMatchesFilters } from "../tradeFilters";
+import { tradeMatchesFilters, describeTradeFilters } from "../tradeFilters";
 
 // ── Shared per-trade context the strat sees ──────────────────────
 
@@ -209,6 +211,11 @@ export interface StratParams {
   /** Semantic per-trade filters (side / price band / size band / category),
       AND-ed with `marketQuery` in `shouldMirror`. */
   tradeFilters?: TradeFilters;
+  /** Trader-quality gate: each cycle the watchlist is re-ranked by
+      `filter.metric` and only the top `filter.topN` traders are mirrored.
+      AND-ed with the two filters above. Absent ⇒ every watched trader is
+      copied. See `TraderFilter` (types.ts) and `topTraders` below. */
+  filter?: TraderFilter;
   /** false = never mirror individual upstream trades (origination only).
       Default true. */
   mirror?: boolean;
@@ -275,17 +282,68 @@ export class Strat {
 
   // ── Hook 2: pre-filter ──
   // Return false to skip an observed trade entirely (before scoring,
-  // sizing, or any side-effects). Default applies three generic gates:
+  // sizing, or any side-effects). Default applies four generic gates:
   //   1. `params.mirror === false` → never mirror (origination-only strat)
   //   2. market-topic query (`params.marketQuery`)
   //   3. semantic trade filters (`params.tradeFilters`)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  //   4. trader FILTER (`params.filter`) — is this trader still top-ranked?
   shouldMirror(trade: TraderTrade, history: StratHistory): boolean {
     if (this.params.mirror === false) return false;
     return (
       marketMatchesQuery(trade.market, this.params.marketQuery ?? "") &&
-      tradeMatchesFilters(trade, this.params.tradeFilters ?? {})
+      tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
+      this.traderPassesFilter(trade.trader, history)
     );
+  }
+
+  /** Why `shouldMirror` said no — logging only, so a skipped trade explains
+      itself in the LIVE feed instead of reading "STRAT_FILTERED". Returns ""
+      when the trade actually passes. */
+  skipReason(trade: TraderTrade, history: StratHistory): string {
+    if (this.params.mirror === false) return "origination-only strat (mirror: false)";
+    if (!marketMatchesQuery(trade.market, this.params.marketQuery ?? "")) {
+      return `market "${trade.market}" doesn't match "${this.params.marketQuery}"`;
+    }
+    if (!tradeMatchesFilters(trade, this.params.tradeFilters ?? {})) {
+      const desc = describeTradeFilters(this.params.tradeFilters) || "favorites-only default (≥60¢ BUYs)";
+      return `trade filter · ${desc}`;
+    }
+    if (!this.traderPassesFilter(trade.trader, history)) {
+      const row = this.ranking(history).find((r) => r.address === trade.trader.toLowerCase());
+      return `FILTER · ${row?.reason ?? "trader not ranked"}`;
+    }
+    return "";
+  }
+
+  /** This strat's live view of its watchlist, best trader first. Empty when
+      no FILTER is set. The console renders it; `shouldMirror` gates on it. */
+  ranking(history: StratHistory): RankedTrader[] {
+    if (!this.params.filter) return [];
+    return this.rankingCache(history).rows;
+  }
+
+  private traderPassesFilter(trader: string, history: StratHistory): boolean {
+    if (!this.params.filter) return true;
+    return this.rankingCache(history).kept.has(trader.toLowerCase());
+  }
+
+  // The rank is a property of the CYCLE, not of the trade, so it's computed
+  // once per StratHistory. Backtests push thousands of trades through
+  // shouldMirror against one memoized history object; without this the
+  // watchlist would be re-sorted for every one of them.
+  private rankCache: { history: StratHistory; rows: RankedTrader[]; kept: Set<string> } | null = null;
+
+  private rankingCache(history: StratHistory): { rows: RankedTrader[]; kept: Set<string> } {
+    if (this.rankCache && this.rankCache.history === history) return this.rankCache;
+    // Rank the strat's own watchlist when the engine supplied one; fall back
+    // to whoever has stats (a backtest history built trader-first).
+    const addresses = history.watchlist.length > 0
+      ? history.watchlist.map((t) => t.address)
+      : Object.keys(history.traderStats);
+    const rows = rankTraders(addresses, history.traderStats, this.params.filter);
+    const kept = new Set(rows.filter((r) => r.kept).map((r) => r.address));
+    this.rankCache = { history, rows, kept };
+    return this.rankCache;
   }
 
   // ── Hook 3: ranking ──
@@ -755,6 +813,134 @@ export function copyRatioFor(
   return capitalAlloc / Math.max(traderVol, 1);
 }
 
+/** THE trader score — one number per watched trader, the basis of the FILTER.
+    `score` (the default metric) is `scoreCandidate` with the trade notional
+    divided out: P(success) × ROI, i.e. expected edge per dollar copied. The
+    other metrics read a single field so a user can rank on consistency
+    (sharpe), raw return (roi), or hit rate (winRate) instead.
+
+    No stats at all ⇒ the neutral prior (successProb 0.5, roi 0) rather than
+    "worst possible": an unranked trader must sort below anyone with proven
+    edge, but must not sort below a proven loser. Mirror of `trader_score` in
+    live_engine.rs; pinned by parity.fixture.json `traderFilterCases`. */
+export function traderScore(
+  stats: TraderRoiStats | null | undefined,
+  metric: TraderMetric = "score",
+): number {
+  const p = successProbability(stats);
+  switch (metric) {
+    case "sharpe":
+      return stats?.sharpe ?? 0;
+    case "roi":
+      return stats?.roi ?? 0;
+    case "winRate":
+      return p;
+    default:
+      return p * (stats?.roi ?? 0);
+  }
+}
+
+/** Default watchlist cut when a strat sets `filter` without a `topN`. */
+export const DEFAULT_FILTER_TOP_N = 5;
+
+/** One trader's row in a FILTER ranking. */
+export interface RankedTrader {
+  /** Lowercased address. */
+  address: string;
+  score: number;
+  /** Closed-trade sample the score rests on. */
+  sampleSize: number;
+  /** 1-based position in the ranking (thresholds don't renumber). */
+  rank: number;
+  /** Survived the rank cut AND both thresholds ⇒ this trader is copied. */
+  kept: boolean;
+  /** Why it was cut — "" when kept. */
+  reason: string;
+}
+
+/** Rank a watchlist by the filter's metric, newest stats in, decision out.
+    Sorted best-first; ties break on address so both languages (and repeat
+    runs) agree on which of two identical traders makes the cut.
+
+    A trader with NO stats entry still appears — ranked on the neutral prior —
+    so a freshly added trader isn't silently invisible in the console; they
+    simply sort below anyone with a proven edge and usually miss the cut.
+
+    Mirror of `select_top_traders` in live_engine.rs. */
+export function rankTraders(
+  addresses: string[],
+  traderStats: Record<string, TraderRoiStats>,
+  filter: TraderFilter | undefined | null,
+): RankedTrader[] {
+  const f = filter ?? {};
+  const metric = f.metric ?? "score";
+  const topN = f.topN === undefined ? DEFAULT_FILTER_TOP_N : f.topN;
+  const minSamples = f.minSamples ?? 0;
+  const rows = addresses
+    .map((a) => a.toLowerCase())
+    .filter((a, i, arr) => arr.indexOf(a) === i)
+    .map((address) => {
+      const stats = traderStats[address] ?? null;
+      return {
+        address,
+        score: traderScore(stats, metric),
+        sampleSize: stats?.sampleSize ?? 0,
+        rank: 0,
+        kept: true,
+        reason: "",
+      };
+    });
+  // Byte-order tie-break (not localeCompare): Rust's `String::cmp` is a byte
+  // compare, and the parity fixture asserts both languages break ties the
+  // same way.
+  rows.sort((a, b) => (b.score - a.score) || (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+  rows.forEach((r, i) => {
+    r.rank = i + 1;
+    if (minSamples > 0 && r.sampleSize < minSamples) {
+      r.kept = false;
+      r.reason = `${r.sampleSize} closed trades < ${minSamples} required`;
+    } else if (f.minScore !== undefined && r.score < f.minScore) {
+      r.kept = false;
+      r.reason = `${metric} ${fmtScore(r.score)} < floor ${fmtScore(f.minScore)}`;
+    } else if (topN > 0 && r.rank > topN) {
+      r.kept = false;
+      r.reason = `rank ${r.rank} of ${rows.length} — outside top ${topN} by ${metric}`;
+    }
+  });
+  return rows;
+}
+
+/** Lowercased addresses the FILTER keeps. No filter ⇒ null, meaning "no
+    trader gate at all" (distinct from an empty set, which means "the filter
+    cut everyone"). */
+export function topTraders(
+  addresses: string[],
+  traderStats: Record<string, TraderRoiStats>,
+  filter: TraderFilter | undefined | null,
+): Set<string> | null {
+  if (!filter) return null;
+  return new Set(rankTraders(addresses, traderStats, filter).filter((r) => r.kept).map((r) => r.address));
+}
+
+/** "top 5 by score" / "top 3 by sharpe · ≥3 closed · score ≥ 0" — for chips,
+    logs and the strat card. Empty string when no filter is set. */
+export function describeTraderFilter(filter: TraderFilter | undefined | null): string {
+  if (!filter) return "";
+  const metric = filter.metric ?? "score";
+  const topN = filter.topN === undefined ? DEFAULT_FILTER_TOP_N : filter.topN;
+  const parts = [topN > 0 ? `top ${topN} by ${metric}` : `ranked by ${metric}`];
+  if (filter.minScore !== undefined) parts.push(`${metric} ≥ ${fmtScore(filter.minScore)}`);
+  if (filter.minSamples) parts.push(`≥${filter.minSamples} closed`);
+  return parts.join(" · ");
+}
+
+/** Scores are small unit-less ratios (0.06 = 6¢ edge per copied dollar), so
+    they read as decimals, never percentages. */
+function fmtScore(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  return Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(Math.abs(v) >= 1 ? 2 : 3);
+}
+
 /** Default proportional-fidelity limit (live_engine.rs
     `default_max_upscale`): a floor-clamped mirror may be at most 2× the
     size proportionality asked for before the strat would rather place
@@ -817,6 +1003,6 @@ export const REBALANCE_MARGIN_PCT = 0.2;
 
 // Re-exports so a strat consumer only has to `import from "./strat"`.
 export type { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader };
-export type { TradeFilters, MomentumParams } from "../types";
+export type { TradeFilters, MomentumParams, TraderFilter, TraderMetric } from "../types";
 export { marketMatchesQuery } from "../marketQuery";
 export { tradeMatchesFilters, tradeFiltersActive, describeTradeFilters } from "../tradeFilters";

@@ -3,25 +3,24 @@
 // One-line strat selector for the top header: the active strat's name opens
 // the strat manager in the RIGHT sidebar — every saved strat (click to
 // switch, ✎ or double-click to rename, × to delete), with the sidebar header
-// showing the deposit wallet's on-chain USDC and each row showing that
-// strat's OWN cash (its capital allocation minus deployed basis) plus 24h
-// PnL from the signed-in wallet's engine ledger.
+// showing the deposit wallet's on-chain USDC and each row showing the money
+// that strat actually has in play right now plus its 24h PnL, both from the
+// signed-in wallet's engine ledger.
+//
+// The rows show REAL money only. There is deliberately no allocation editor
+// here: a `capital` number typed into a sidebar is an intention, not funds,
+// and rendering it per row made eight idle strats each claim $1000 of a $223
+// wallet. Funding a strat is arming it — that lives in the LIVE panel, which
+// starts the backend session (lib/liveSessions.ts). The engine runs one
+// session per (wallet, strat), so several strats trade side by side and each
+// row prices its own slice; ■ STOP takes a single strat down without
+// touching the others.
 //
 // On a wide viewport (≥1024px) the sidebar DOCKS: no backdrop, no scroll
 // lock, the page insets by its width and it stays open across navigation and
-// reloads, so you can edit a strat on the left while its allocation, cash and
-// FUND bar sit beside it. Below that width there isn't room for a column, so
-// it falls back to a modal overlay drawer.
-//
-// The sidebar is also the FUNDING desk. Every row carries an editable
-// allocation, and edits accumulate as drafts: type amounts across as many
-// strats as you like, watch ALLOCATED / UNALLOCATED track against the
-// wallet's USDC, then commit them all with one FUND button. Committing a
-// non-zero allocation to a strat also starts (or re-arms) that strat's own
-// backend session — the engine runs one session per (wallet, strat), so
-// several strats trade side by side, each budgeting against its own
-// allocation (lib/liveSessions.ts). ■ STOP takes a single strat down without
-// touching the others.
+// reloads, so you can edit a strat on the left while its money sits beside
+// it. Below that width there isn't room for a column, so it falls back to a
+// modal overlay drawer.
 //
 // The [+] beside the name creates a new strat, and a DEFAULT STRATS gallery
 // at the bottom forks curated templates (lib/defaultStrats.ts) into
@@ -38,6 +37,7 @@ import {
   saveIndex,
   updateIndex,
   deleteIndex,
+  forkIndex,
   getActiveIndexId,
   setActiveIndexId,
   equalWeightTraders,
@@ -49,7 +49,8 @@ import { fetchTopTraderAddresses } from "../lib/polymarket";
 import { useEmbedded } from "../lib/embedded";
 import { DEFAULT_STRATS, forkDefaultStrat, type StratTemplate } from "../lib/defaultStrats";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
-import { startLiveSession, stopLiveSession } from "../lib/liveSessions";
+import { describeTraderFilter } from "../lib/strats/strat";
+import { stopLiveSession } from "../lib/liveSessions";
 import StratCardsBrowser from "./StratCardsBrowser";
 import type { SavedIndex } from "../lib/types";
 
@@ -76,11 +77,6 @@ export default function HeaderStratPicker() {
   const [browserOpen, setBrowserOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  // Uncommitted allocation edits, stratId → raw input text. Several rows can
-  // hold a draft at once — that's the point: fund a whole book in one pass
-  // instead of one strat per round-trip. Committed (and cleared) by fundAll.
-  const [allocDrafts, setAllocDrafts] = useState<Record<string, string>>({});
-  const [funding, setFunding] = useState(false);
   // In-app delete confirmation (replaces the native window.confirm popup so
   // the "Delete strat?" prompt renders inside the console, styled like the
   // rest of the UI, instead of an ugly modc2.com-says browser dialog).
@@ -219,68 +215,30 @@ export default function HeaderStratPicker() {
     if (localToken) deleteServerStrat(id, localToken.token);
   };
 
-  // ── Funding desk ──────────────────────────────────────────────
-  // `capital` is the same field the LIVE panel and backtest sim size against,
-  // and the budget each backend session spends against, so an allocation set
-  // here IS that strat's funding.
-
-  /** Allocation a row currently shows: its uncommitted draft if it has one,
-      else the persisted `capital`. */
-  const allocOf = (idx: SavedIndex): number => {
-    const draft = allocDrafts[idx.id];
-    if (draft !== undefined) {
-      const n = Number(draft);
-      return Number.isFinite(n) && n >= 0 ? n : 0;
-    }
-    return idx.capital ?? 0;
-  };
-
-  const draftIds = Object.keys(allocDrafts);
-  // Total across ALL strats, drafts included — funding is a book-level
-  // decision, so the bar has to price every strat, not just the edited ones.
-  const totalAllocated = indexes.reduce((s, i) => s + allocOf(i), 0);
-  const unallocated = cash === null ? null : cash - totalAllocated;
-  const overAllocated = unallocated !== null && unallocated < 0;
-
-  /** Commit every draft at once: persist each allocation, then start (or
-      re-arm) a backend session for the funded ones so they actually trade.
-      Strats drafted down to $0 are stopped. */
-  const fundAll = async () => {
-    if (draftIds.length === 0 || funding) return;
-    setFunding(true);
-    try {
-      const current = loadIndexes();
-      for (const id of draftIds) {
-        const idx = current.find((i) => i.id === id);
-        if (!idx) continue;
-        const amount = Math.max(0, Math.round(allocOf(idx)));
-        updateIndex(id, { capital: amount, liveEnabled: amount > 0, updatedAt: Date.now() });
-      }
-      setAllocDrafts({});
-      broadcast();
-      const saved = loadIndexes();
-      for (const id of draftIds) {
-        const idx = saved.find((i) => i.id === id);
-        if (!idx) continue;
-        if (localToken) pushStrat(idx, localToken.token);
-        // Arming needs a wallet to fund from — without one this is just a
-        // saved allocation the LIVE tab will pick up later.
-        if (!auth.address) continue;
-        const amount = idx.capital ?? 0;
-        if (amount > 0) await startLiveSession(auth.address, idx, amount);
-        else await stopLiveSession(auth.address, id);
-      }
-      broadcast();
-    } finally {
-      setFunding(false);
-    }
-  };
+  // Everything the wallet has at work, across every strat's open positions.
+  const totalInPlay = Object.values(stratStats).reduce((s, m) => s + m.openValue, 0);
 
   /** Take one strat's session down without touching the wallet's others. */
   const stopStrat = async (id: string) => {
     updateIndex(id, { liveEnabled: false, updatedAt: Date.now() });
     broadcast();
     if (auth.address) await stopLiveSession(auth.address, id);
+  };
+
+  /** Fork a saved strat: an independent copy of the strategy (watchlist,
+      weights, every param), stopped and un-funded, named "<NAME> COPY" —
+      then drop straight into rename mode, because the first thing you do
+      with a fork is say what makes it different. The original keeps running
+      untouched; the engine is keyed per strat id. */
+  const fork = (id: string) => {
+    const copy = forkIndex(id);
+    if (!copy) return;
+    setActiveIndexId(copy.id);
+    setActiveId(copy.id);
+    setRenamingId(copy.id);
+    setRenameValue(copy.name);
+    broadcast();
+    if (localToken) pushStrat(copy, localToken.token);
   };
 
   const commitRename = () => {
@@ -437,7 +395,7 @@ export default function HeaderStratPicker() {
                 <span className="text-[12px] font-mono font-bold tracking-[0.18em] text-pixel-white">STRATS</span>
                 <span
                   className="flex-1 text-[10.5px] font-mono text-pixel-gray truncate"
-                  title="Wallet = your deposit wallet's on-chain USDC. Each row shows that strat's own cash (its allocation minus what it has deployed)."
+                  title="Wallet = your deposit wallet's on-chain USDC, free to trade. Each row shows what that strat currently has in play."
                 >
                   {indexes.length} saved · wallet{" "}
                   <span className={cash === null ? "" : "text-pixel-white"}>
@@ -458,20 +416,16 @@ export default function HeaderStratPicker() {
           )}
           {indexes.map((idx) => {
             const isActive = idx.id === activeId;
-            // Always show the signed-in user's money in each strat — an
-            // untraded strat reads its full allocation rather than hiding the
-            // line, so the list doubles as a per-strat portfolio breakdown.
-            // Strat cash = the strat's capital allocation minus the cost basis
-            // it currently has deployed — the same free-capital number the
-            // engine budgets mirrors against (NOT the wallet-wide USDC, which
-            // lives in the drawer header).
+            // Only money the strat actually has: its open positions marked to
+            // current prices. A strat that has never traded shows nothing —
+            // its `capital` field is an intention, not funds, and printing it
+            // here made every idle strat look like it held a bankroll.
             const money = stratStats[idx.id];
             const pnl24h = money?.pnl24h ?? 0;
             const roi24h = money?.roi24h ?? null;
-            const alloc = allocOf(idx);
-            const drafted = allocDrafts[idx.id] !== undefined;
-            const deployed = money?.moneyIn ?? 0;
-            const stratCash = Math.max(0, alloc - deployed);
+            const inPlay = money?.openValue ?? 0;
+            const openPositions = money?.openPositions ?? 0;
+            const traded = openPositions > 0 || (money?.fills ?? 0) > 0;
             // The engine is the truth about what's running; `liveEnabled` is
             // only the strat's own intent flag and goes stale when a session
             // is stopped elsewhere.
@@ -522,52 +476,59 @@ export default function HeaderStratPicker() {
                         ⌕ {idx.marketQuery.trim()}
                       </span>
                     )}
+                    {idx.filter && (
+                      <span
+                        className="block truncate text-[10px] font-mono text-cyan-300/70"
+                        title={`Trader filter — of ${idx.traders.length} watched traders this strat copies only the ${describeTraderFilter(idx.filter)}, re-ranked every scan.`}
+                      >
+                        ▼ {describeTraderFilter(idx.filter)}
+                      </span>
+                    )}
                     <span
                       className="block truncate text-[10px] font-mono text-pixel-gray"
                       title={
                         money
-                          ? `$${money.moneyIn.toFixed(2)} deployed across ${money.openPositions} open position(s) · total ${money.totalPnl >= 0 ? "+" : ""}${fmtUsd(money.totalPnl)} (realized ${fmtUsd(money.realized)} · unrealized ${fmtUsd(money.unrealized)})`
+                          ? `${fmtUsd(money.moneyIn)} cost basis across ${money.openPositions} open position(s) · total ${money.totalPnl >= 0 ? "+" : ""}${fmtUsd(money.totalPnl)} (realized ${fmtUsd(money.realized)} · unrealized ${fmtUsd(money.unrealized)})`
                           : "No fills from your wallet in this strat yet"
                       }
                     >
-                      <span
-                        title={`This strat's cash: $${alloc} allocation − ${fmtUsd(deployed)} deployed${cash !== null ? ` (wallet holds ${fmtUsd(cash)} USDC)` : ""}.`}
-                      >
-                        {fmtUsd(stratCash)} cash
-                      </span>
-                      {" "}· 24h{" "}
-                      <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
-                        {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
-                        {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
-                      </span>
+                      {traded ? (
+                        <>
+                          {openPositions > 0 ? `${openPositions} pos` : "flat"}
+                          {" "}· 24h{" "}
+                          <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
+                            {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
+                            {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
+                          </span>
+                        </>
+                      ) : isRunning ? (
+                        "running · no positions yet"
+                      ) : (
+                        "not trading"
+                      )}
                     </span>
                   </span>
                 )}
-                {/* Allocation — a draft here doesn't commit until FUND, so
-                    several strats can be funded in one pass. */}
+                {/* The money this strat actually holds — open positions marked
+                    to current prices. Blank when it has never traded. */}
                 <span
-                  onClick={(e) => e.stopPropagation()}
-                  className={`flex items-center shrink-0 rounded-[var(--radius-sm)] border px-1 font-mono text-[11px] ${
-                    drafted
-                      ? "border-amber-400/70 bg-amber-500/10 text-amber-300"
-                      : "border-pixel-border text-pixel-gray-light"
-                  }`}
-                  title={`Capital allocated to ${idx.name}. Edit as many strats as you like, then FUND to commit them all.`}
+                  className="shrink-0 font-mono text-[11px] tabular-nums text-pixel-gray-light"
+                  title={
+                    openPositions > 0
+                      ? `${idx.name} has ${fmtUsd(inPlay)} in play across ${openPositions} open position(s).`
+                      : `${idx.name} holds no positions.`
+                  }
                 >
-                  <span className="opacity-60">$</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10}
-                    value={allocDrafts[idx.id] ?? String(idx.capital ?? 0)}
-                    onChange={(e) =>
-                      setAllocDrafts((prev) => ({ ...prev, [idx.id]: e.target.value }))
-                    }
-                    onKeyDown={(e) => { if (e.key === "Enter") void fundAll(); }}
-                    className="w-[52px] bg-transparent text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
+                  {openPositions > 0 ? fmtUsd(inPlay) : <span className="opacity-40">—</span>}
                 </span>
                 <span className="text-[10px] text-pixel-gray shrink-0">{idx.traders.length}T</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); fork(idx.id); }}
+                  className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
+                  title={`Fork "${idx.name}" — an independent copy of the whole strategy, stopped and un-funded, ready to rename`}
+                >
+                  ⑂
+                </button>
                 {isRunning ? (
                   <button
                     onClick={(e) => { e.stopPropagation(); void stopStrat(idx.id); }}
@@ -637,60 +598,29 @@ export default function HeaderStratPicker() {
           </div>
               </div>
 
-              {/* ── Funding bar ──
-                  Prices the WHOLE book against the wallet, then commits every
-                  drafted allocation in one action: each funded strat gets (or
-                  keeps) its own backend session, each drafted to $0 is
-                  stopped. Sits outside the scroll area so the numbers stay
-                  visible while you edit rows above. */}
+              {/* ── In play ──
+                  What the wallet has at work right now, summed across every
+                  strat's open positions. Real money only — no allocations, no
+                  intentions. Sits outside the scroll area so it stays visible
+                  while the list scrolls. */}
               <div
                 className="shrink-0 px-3 py-2 space-y-1.5"
                 style={{ borderTop: "1px solid var(--border)" }}
               >
                 <div className="flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-pixel-gray tracking-[0.14em]">ALLOCATED</span>
-                  <span className={overAllocated ? "text-red-400" : "text-pixel-white"}>
-                    {fmtUsd(totalAllocated)}
-                    {cash !== null && <span className="text-pixel-gray"> / {fmtUsd(cash)}</span>}
+                  <span className="text-pixel-gray tracking-[0.14em]">IN PLAY</span>
+                  <span className="text-pixel-white tabular-nums" title="Open positions across all strats, marked to current prices">
+                    {fmtUsd(totalInPlay)}
+                    {cash !== null && (
+                      <span className="text-pixel-gray"> · {fmtUsd(cash)} free</span>
+                    )}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-[10px] font-mono">
-                  <span className="text-pixel-gray tracking-[0.14em]">UNALLOCATED</span>
-                  <span className={overAllocated ? "text-red-400" : "text-pixel-gray-light"}>
-                    {unallocated === null ? "…" : fmtUsd(unallocated)}
-                  </span>
+                <div className="text-[9.5px] font-mono leading-snug text-pixel-gray">
+                  {liveStratIds.size === 0
+                    ? "No strat is running. Arm one from the LIVE tab."
+                    : `${liveStratIds.size} strat${liveStratIds.size > 1 ? "s" : ""} running.`}
                 </div>
-                {overAllocated && (
-                  <div className="text-[9.5px] font-mono leading-snug text-red-400/90">
-                    Allocations exceed the wallet — the strats that run out of
-                    USDC first will fail their orders on-chain.
-                  </div>
-                )}
-                <button
-                  onClick={() => void fundAll()}
-                  disabled={draftIds.length === 0 || funding}
-                  title={
-                    draftIds.length === 0
-                      ? "Edit one or more $ allocations above, then fund them together"
-                      : `Commit ${draftIds.length} allocation(s) and arm each funded strat's engine`
-                  }
-                  className={`w-full rounded-[var(--radius-sm)] border px-3 py-1.5 text-[11px] font-mono font-bold tracking-[0.1em] transition-colors ${
-                    draftIds.length === 0 || funding
-                      ? "border-pixel-border text-pixel-gray/50 cursor-not-allowed"
-                      : "border-green-400/60 bg-green-400/10 text-green-400 hover:bg-green-400/20"
-                  }`}
-                >
-                  {funding
-                    ? "FUNDING…"
-                    : draftIds.length === 0
-                      ? "FUND STRATS"
-                      : `FUND ${draftIds.length} STRAT${draftIds.length > 1 ? "S" : ""}`}
-                </button>
-                {!auth.address && draftIds.length > 0 && (
-                  <div className="text-[9.5px] font-mono leading-snug text-pixel-gray">
-                    Not signed in — allocations save, but no engine is armed.
-                  </div>
-                )}
               </div>
             </aside>
           </div>,
@@ -701,11 +631,17 @@ export default function HeaderStratPicker() {
         open={browserOpen}
         indexes={indexes}
         stats={stratStats}
-        cash={cash}
         activeId={activeId}
         onClose={() => setBrowserOpen(false)}
         onSelect={selectFromBrowser}
         onDelete={remove}
+        onForkSaved={(id) => {
+          fork(id);
+          // Land in the editor: the fork exists to be changed, and its name
+          // input is already focused there.
+          setBrowserOpen(false);
+          if (!pathname?.startsWith("/strats")) router.push("/strats");
+        }}
         onCreate={() => {
           create();
           setBrowserOpen(false);

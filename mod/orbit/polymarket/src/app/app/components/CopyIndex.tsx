@@ -4,9 +4,9 @@ import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } fro
 import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES } from "../lib/polymarket";
-import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
+import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, copyRatioFor, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES } from "../lib/strats/strat";
+import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, copyRatioFor, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
@@ -15,6 +15,9 @@ import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
 import CopyTrading from "./CopyTrading";
 import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
+import TraderFilterCard from "./TraderFilterCard";
+import CapitalPlanCard from "./CapitalPlanCard";
+import type { CapitalPlanInput } from "../lib/capitalPlan";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
@@ -774,6 +777,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // mirrors (commit on blur / Enter) so the backtest doesn't churn per
   // keystroke. Side + category commit immediately.
   const [tradeFilters, setTradeFilters] = useState<TradeFilters>({});
+  // Trader FILTER — which of the watched traders are good enough to copy
+  // right now. `null` = off (copy everyone); an object turns the gate on.
+  const [traderFilter, setTraderFilter] = useState<TraderFilter | null>(null);
   const [priceMinInput, setPriceMinInput] = useState("");
   const [priceMaxInput, setPriceMaxInput] = useState("");
   const [sizeMinInput, setSizeMinInput] = useState("");
@@ -1017,6 +1023,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setMarketQueryInput(activeIndex.marketQuery ?? "");
     const tf = activeIndex.tradeFilters ?? {};
     setTradeFilters(tf);
+    setTraderFilter(activeIndex.filter ?? null);
     setPriceMinInput(tf.minPrice != null ? String(Math.round(tf.minPrice * 100)) : "");
     setPriceMaxInput(tf.maxPrice != null ? String(Math.round(tf.maxPrice * 100)) : "");
     setSizeMinInput(tf.minNotional != null ? String(tf.minNotional) : "");
@@ -1330,6 +1337,18 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
   };
 
+  // ── Trader FILTER (persist to strategy) ──
+  // `null` clears the gate entirely (copy every watched trader); a patch
+  // merges into the existing filter, turning it on with sane defaults if it
+  // was off. The backtest re-runs off `backtestStrat`, which reads this.
+  const patchTraderFilter = (changes: Partial<TraderFilter> | null) => {
+    const next = changes === null ? null : { ...(traderFilter ?? { metric: "score" as const, topN: DEFAULT_FILTER_TOP_N }), ...changes };
+    setTraderFilter(next);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { filter: next ?? undefined, updatedAt: Date.now() });
+    }
+  };
+
   const toggleTradeCategory = (slug: string) => {
     const current = tradeFilters.categories ?? [];
     patchTradeFilters({
@@ -1456,6 +1475,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         setMarketQuery(found.marketQuery ?? "");
         setMarketQueryInput(found.marketQuery ?? "");
         setTradeFilters(found.tradeFilters ?? {});
+        setTraderFilter(found.filter ?? null);
         const current = new Set(watchlist);
         const newAddrs = found.traders.map((t) => t.address).filter((a) => !current.has(a));
         if (newAddrs.length > 0) fetchAll(newAddrs);
@@ -1656,8 +1676,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // construct the SAME standard Strat class (src/app/app/lib/strats/
   // strat.ts) with the same params — what you backtest is what trades.
   const backtestStrat = useMemo(
-    () => new Strat({ maxPerCycle, marketQuery, tradeFilters }),
-    [maxPerCycle, marketQuery, tradeFilters],
+    () => new Strat({ maxPerCycle, marketQuery, tradeFilters, filter: traderFilter ?? undefined }),
+    [maxPerCycle, marketQuery, tradeFilters, traderFilter],
   );
 
   // ── Per-trader 30d ROI stats (drives top-N sampling) ──
@@ -1760,6 +1780,48 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       now: Date.now(),
     };
   }, [watchlist, traderTrades, traderStatsMap, traderWeights, backtestDays, capital, traderCopyRatio]);
+
+  // ── CAPITAL PLAN input — the flow this strat would actually copy ──
+  // Same gate the engine applies (`shouldMirror`: market query + trade filter
+  // + trader FILTER), no per-cycle top-N cap: the question "how much money
+  // does this need" is about the whole eligible flow, not one cycle's slice.
+  // Sizing denominators are the ones `copyRatioFor` divides by, so the
+  // recommendation is in the same units the live engine sizes with.
+  const capitalPlanInput = useMemo((): CapitalPlanInput => {
+    const cutoff = Date.now() - backtestDays * 86400_000;
+    const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
+    const weightFraction = new Map<string, number>();
+    const traderVolume = new Map<string, number>();
+    const trades: { trader: string; notional: number; price: number; timestamp: number }[] = [];
+    for (const addr of watchlist) {
+      const key = addr.toLowerCase();
+      const weight = traderWeights[addr] || 0;
+      weightFraction.set(key, weight / totalW);
+      let buyVol = 0, sellVol = 0;
+      for (const t of traderTrades.get(addr) || []) {
+        if (t.timestamp < cutoff) continue;
+        const notional = t.price * t.size;
+        if (marketMatchesQuery(t.market, marketQuery)) {
+          if (t.side === "BUY") buyVol += notional; else sellVol += notional;
+        }
+        if (t.side !== "BUY") continue;
+        const stratTrade: StratTraderTrade = {
+          ...t, trader: addr, weight, weightFraction: weight / totalW,
+          copyRatio: traderCopyRatio.get(addr) ?? 0, notional,
+        };
+        if (!backtestStrat.shouldMirror(stratTrade, backtestHistory)) continue;
+        trades.push({ trader: key, notional, price: t.price, timestamp: t.timestamp });
+      }
+      traderVolume.set(key, Math.max(buyVol, sellVol));
+    }
+    return {
+      trades, weightFraction, bankrolls: traderBankrolls, traderVolume,
+      capital, minTrade, maxTrade,
+      maxUpscale: activeIndex?.maxUpscale,
+      days: backtestDays,
+    };
+  }, [watchlist, traderTrades, traderWeights, traderCopyRatio, traderBankrolls, backtestStrat,
+      backtestHistory, marketQuery, capital, minTrade, maxTrade, activeIndex?.maxUpscale, backtestDays]);
 
   // ── Top-N sampling: which BUY IDs survive the strat's filter ──
   // Goes through the SAME strat class the live engine uses (registry).
@@ -3412,6 +3474,44 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     );
                   })}
                 </span>
+              </ParamGroup>
+
+              {/* Trader FILTER — which of the watched traders are worth
+                  copying right now. The card renders the live ranking from
+                  the same `rankTraders` the live engine enforces. */}
+              <ParamGroup
+                title="TRADER FILTER"
+                hint="copy only the top-ranked traders — re-ranked every scan"
+                className="lg:col-span-2"
+              >
+                <TraderFilterCard
+                  filter={traderFilter}
+                  onPatch={patchTraderFilter}
+                  watchlist={watchlist}
+                  traderStats={Object.fromEntries(
+                    [...traderStatsMap.entries()].map(([a, st]) => [a.toLowerCase(), st]),
+                  )}
+                />
+              </ParamGroup>
+
+              {/* How much money to run it with — derived from this strat's own
+                  filtered flow and the engine's real order floors. */}
+              <ParamGroup
+                title="CAPITAL PLAN"
+                hint="what this strat needs to actually place its trades"
+                className="lg:col-span-2"
+              >
+                <CapitalPlanCard
+                  input={capitalPlanInput}
+                  onUse={updateCapital}
+                  onPlan={(plan) => {
+                    if (!activeIndex) return;
+                    updateIndex(activeIndex.id, {
+                      suggestedCapital: plan.recommendedCapital,
+                      suggestedCapitalAt: Date.now(),
+                    });
+                  }}
+                />
               </ParamGroup>
             </div>
           </div>
