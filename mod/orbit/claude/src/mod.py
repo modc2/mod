@@ -46,7 +46,7 @@ Ship it clean. Make Steve proud."""
 HARNESS_TIMEOUT = 3600          # wall-clock cap on one harness run
 
 _TOOL_LINE = re.compile(r"^⚡\s*(\S+)\s*(.*)$")
-_DETAIL_LINE = re.compile(r"^(\$ |┌|│|└|→| )")
+_DETAIL_LINE = re.compile(r"^(\$ |┌|│|└|→)")
 
 # CLI tool names -> the fleet's skill names (unknown tools just lowercase)
 _TOOLS = {
@@ -1116,7 +1116,9 @@ class Mod:
                     return
                 text = raw.decode("utf-8", errors="replace").rstrip("\n")
                 if text.startswith("data:"):
-                    yield text[5:]
+                    payload = text[5:]
+                    # SSE writes "data: <line>" — the space is framing, not content
+                    yield payload[1:] if payload.startswith(" ") else payload
 
     def tail(self, job_id: str) -> None:
         """Live-stream job output via SSE. Ctrl-C to detach."""

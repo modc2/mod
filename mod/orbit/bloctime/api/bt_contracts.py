@@ -45,9 +45,13 @@ def compile_source(source, filename='Contract.sol', optimize=True, runs=200):
         'source': source, 'filename': filename,
         'optimize': bool(optimize), 'runs': int(runs),
     })
+    # Started under pm2 (or any node parent) the API inherits NODE_CHANNEL_FD,
+    # which makes our node child die instantly looking for an IPC channel.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(('NODE_CHANNEL', 'NODE_APP_INSTANCE', 'NODE_OPTIONS'))}
     try:
         proc = subprocess.run(
-            ['node', str(COMPILER)], input=req,
+            ['node', str(COMPILER)], input=req, env=env,
             capture_output=True, text=True, timeout=120,
         )
     except FileNotFoundError:
@@ -55,7 +59,7 @@ def compile_source(source, filename='Contract.sol', optimize=True, runs=200):
     except subprocess.TimeoutExpired:
         raise ValueError("Compile timed out after 120s")
     if proc.returncode != 0:
-        raise ValueError(f"Compiler crashed: {proc.stderr.strip()[-500:]}")
+        raise ValueError(f"Compiler exited {proc.returncode}: {proc.stderr.strip()[-500:]}")
 
     payload = json.loads(proc.stdout)
     out = payload['output']

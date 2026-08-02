@@ -1,8 +1,8 @@
 {
     "name": "claudecode",
     "version": "1.0.0",
-    "description": "The Claude Code CLI as a harness module — spawns the binary in stream-json mode and returns a step trace any module can render",
-    "icon": "⬡",
+    "description": "The Claude Code CLI as a harness module \u2014 spawns the binary in stream-json mode and returns a step trace any module can render",
+    "icon": "\u2b21",
     "color": "#cc785c",
     "harness": {
         "name": "claude",
@@ -18,5 +18,6 @@
         "path",
         "command",
         "session"
-    ]
+    ],
+    "schema": "QmRRM1ZDxpvUkr1n9SVPCs8akAog3wMqiJTTKEsdHFnLMW"
 }
