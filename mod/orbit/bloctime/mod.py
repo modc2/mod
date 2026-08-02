@@ -1,5 +1,5 @@
 """
-BlocTime — Time-weighted staking with delegation, daily rewards, and Bitcoin-style inflation.
+BlocTime — Time-weighted staking with delegation, a weekly reward pot, and Bitcoin-style inflation.
 
 Contracts:
   NativeToken — ERC20 token staked into the protocol
@@ -11,7 +11,9 @@ Usage:
   m.fn('bloctime/serve')()
   m.fn('bloctime/stake')(amount=100, lock_blocks=10000)
   m.fn('bloctime/delegate')(to='0x...')
-  m.fn('bloctime/distribute')()
+  m.fn('bloctime/pot')()                         # weekly pot + next payout
+  m.fn('bloctime/fund_pot')(amount=50)
+  m.fn('bloctime/distribute')()                  # Fridays 12:00 EST, else no-op
   m.fn('bloctime/claim_rewards')()
   m.fn('bloctime/fork')(name='mybloctime')       # your own copy of the module
   m.fn('bloctime/compile_contract')(path='contracts/MyToken.sol')
@@ -47,7 +49,7 @@ def _run(cmd, cwd=None, timeout=120):
 
 
 class Mod:
-    description = "BlocTime — Time-weighted staking with delegation, Bitcoin-style inflation, and daily reward distribution."
+    description = "BlocTime — Time-weighted staking with delegation, Bitcoin-style inflation, and a weekly pot paid out every Friday at 12:00 EST."
 
     def __init__(self, config=None, **kwargs):
         self.module_dir = DIR

@@ -3,6 +3,7 @@ import os
 import re
 import time
 import hashlib
+import hmac
 import signal
 import subprocess
 import threading
@@ -924,9 +925,13 @@ class Mod:
         """Get job details."""
         return self._request("GET", f"/jobs/{job_id}")
 
-    def cancel(self, job_id: str) -> dict:
+    def cancel(self, job_id: str, key=None) -> dict:
         """Cancel a running job."""
-        return self._request("POST", f"/jobs/{job_id}/cancel")
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", f"/jobs/{job_id}/cancel", headers=headers)
 
     def guide(self, job_id: str, message: str) -> dict:
         """Guide a RUNNING job mid-task: the message is injected into the
@@ -1053,8 +1058,13 @@ class Mod:
             on_step: called with each step as it happens (live progress)
             key: caller identity — decides ownership, sandbox and ledger entry
         """
+        # No identity given? Reaching this API in-process means being on its
+        # host, so the run is the owner's — otherwise every module-to-module
+        # run would land in a peer sandbox belonging to the local keypair.
+        # A caller that hands over a `key` gets exactly that caller's scope.
+        identity = key or self.get_owner()
         job = self.submit(query, model=model or "auto", work_dir=path,
-                          system_prompt=goal, key=key)
+                          system_prompt=goal, key=identity)
         job_id = job.get("id")
         if not job_id:
             raise RuntimeError(f"job was not accepted: {job.get('error') or job}")
@@ -1085,7 +1095,7 @@ class Mod:
 
         expired = time.time() >= deadline
         if expired and not trace.done:
-            self.cancel(job_id)
+            self.cancel(job_id, key=identity)
         final = self.job(job_id) or {}
         status = (final.get("status") or "").lower()
         if expired and status not in ("completed", "failed"):
@@ -1184,8 +1194,34 @@ class Mod:
     # the terminal — `m claude/import_module`, `m claude/delete_module`.
 
     def _auth_headers(self, key=None) -> dict:
-        """Bearer token headers signed by the given key (default: owner)."""
-        return {'Authorization': f'Bearer {self.token(key=key)}'}
+        """Bearer token headers for the API, as the given key (default: owner).
+
+        Prefers the API's own session token, which is what its Bearer path
+        actually validates; the core signed token is the fallback for the
+        endpoints that accept it.
+        """
+        address = self._resolve_address(key)
+        token = self._session_token(address) or self.token(key=key)
+        return {'Authorization': f'Bearer {token}'}
+
+    def _session_token(self, address: str) -> Optional[str]:
+        """Mint an API session token — `address:time:hmac` under the server
+        secret, the same shape the API hands a signed-in browser.
+
+        Only possible on the API's own host: the secret is 0600 in
+        ~/.mod/claude/. That is exactly where module-to-module calls come
+        from, so a sibling module can talk to the job server as itself
+        without a wallet round-trip. Returns None anywhere else.
+        """
+        try:
+            secret = Path(os.path.expanduser('~/.mod/claude/server.secret')).read_bytes()
+        except OSError:
+            return None
+        if len(secret) != 32:
+            return None
+        payload = f"{address.lower()}:{int(time.time())}"
+        sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+        return f"{payload}:{sig}"
 
     def _sudo_message(self, action: str, target: str, time_s: int, nonce: str) -> str:
         """The exact sudo message. MUST stay byte-for-byte in sync with the
